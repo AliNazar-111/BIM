@@ -45,7 +45,7 @@ public abstract class Opening : Element, IHostedElement
     public bool FlipHand { get; set; }
 
     /// <summary>The centre of the opening on the wall's location line.</summary>
-    public Point2D GetCentre(Wall wall) => wall.Start + wall.Direction * DistanceAlongWall;
+    public Point2D GetCentre(Wall wall) => wall.LocationCurve.PointAt(DistanceAlongWall);
 
     /// <summary>Where the opening starts and ends, as distances along the wall.</summary>
     public (double From, double To) GetSpan(OpeningType type) =>

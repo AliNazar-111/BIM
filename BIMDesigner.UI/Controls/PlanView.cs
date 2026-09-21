@@ -91,6 +91,9 @@ public class PlanView : FrameworkElement
     private BimDocument? _document;
     private Point2D? _pendingWallStart;
 
+    /// <summary>An arc wall's end, once clicked, while its third point is being chosen.</summary>
+    private Point2D? _pendingArcEnd;
+
     /// <summary>
     /// The chain being drawn: the wall placed by the last click, and the first one with the
     /// click it started from. An offset chain pulls each corner round to where the offset
@@ -111,6 +114,7 @@ public class PlanView : FrameworkElement
     private Point2D _dragAnchor;
     private Point2D _dragOriginalStart;
     private Point2D _dragOriginalEnd;
+    private double _dragOriginalBulge;
 
     /// <summary>First wall picked by the trim tool, waiting for its target.</summary>
     private Wall? _trimSubject;
@@ -125,6 +129,9 @@ public class PlanView : FrameworkElement
         /// <summary>Reshaping one wall by an end. There is no such grip for a set of them.</summary>
         Start,
         End,
+
+        /// <summary>Bending one wall into an arc through the cursor, or straightening it.</summary>
+        Bend,
 
         /// <summary>Moving whatever is selected, however much of it there is.</summary>
         Move
@@ -269,6 +276,21 @@ public class PlanView : FrameworkElement
     /// rather than the left. The spacebar swaps it mid-drawing.
     /// </summary>
     public bool DrawFlipped { get; private set; }
+
+    /// <summary>Whether the wall tool draws arcs - start, end, then a point on the arc - instead of straight walls.</summary>
+    public bool DrawArcs
+    {
+        get => _drawArcs;
+        set
+        {
+            _drawArcs = value;
+            _pendingWallStart = null;
+            _pendingArcEnd = null;
+            InvalidateVisual();
+        }
+    }
+
+    private bool _drawArcs;
 
     /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
     public ViewReference CurrentView => ViewReference.FloorPlan(ActiveLevelId);
@@ -460,6 +482,7 @@ public class PlanView : FrameworkElement
         _trimSubject = null;
         _pendingDimension = null;
         _bandStart = null;
+        _pendingArcEnd = null;
 
         if (!changed) return false;
 
@@ -724,7 +747,7 @@ public class PlanView : FrameworkElement
             }
 
             var grip = GripAt(selected, raw);
-            if (grip is GripKind.Start or GripKind.End)
+            if (grip is GripKind.Start or GripKind.End or GripKind.Bend)
             {
                 BeginEndGripDrag(grip, raw);
                 return;
@@ -821,7 +844,10 @@ public class PlanView : FrameworkElement
         switch (element)
         {
             case Wall wall:
-                return SegmentTouches(wall.Start, wall.End, box);
+            {
+                var points = wall.LocationCurve.Points();
+                return points.Zip(points.Skip(1)).Any(piece => SegmentTouches(piece.First, piece.Second, box));
+            }
 
             case Grid grid:
                 return SegmentTouches(grid.Start, grid.End, box);
@@ -903,9 +929,22 @@ public class PlanView : FrameworkElement
 
         if (wall.Start.DistanceTo(model) <= radius) return GripKind.Start;
         if (wall.End.DistanceTo(model) <= radius) return GripKind.End;
+        if (BendGrip(wall).DistanceTo(model) <= radius) return GripKind.Bend;
 
         return GripKind.None;
     }
+
+    /// <summary>Where the bend grip sits: halfway along the wall, on its drawn line.</summary>
+    private static Point2D BendGrip(Wall wall) => wall.LocationCurve.PointAt(wall.Length / 2);
+
+    /// <summary>
+    /// How close to the chord the cursor must come for a bent wall to snap straight again, in
+    /// screen pixels: without it a wall could only ever be made almost straight.
+    /// </summary>
+    private const double StraightenPixels = 6;
+
+    /// <summary>The most a wall may turn through: just short of a full circle.</summary>
+    private const double MaxBulge = 20;
 
     private void BeginEndGripDrag(GripKind grip, Point2D raw)
     {
@@ -915,6 +954,7 @@ public class PlanView : FrameworkElement
         _dragAnchor = raw;
         _dragOriginalStart = wall.Start;
         _dragOriginalEnd = wall.End;
+        _dragOriginalBulge = wall.Bulge;
 
         CaptureMouse();
         Cursor = Cursors.SizeAll;
@@ -973,6 +1013,25 @@ public class PlanView : FrameworkElement
                 wall.End = SnapPoint(raw, wall, out _cursorIsSnapped);
                 break;
 
+            case GripKind.Bend:
+            {
+                // The arc passes through the cursor, unless the cursor is back on the straight
+                // line between the ends, where the wall snaps straight.
+                var offChord = Line2D.Through(wall.Start, wall.End).ClosestPointTo(raw).DistanceTo(raw);
+                wall.Bulge = offChord * PixelsPerMm <= StraightenPixels
+                    ? 0
+                    : Math.Clamp(WallCurve.BulgeThrough(wall.Start, wall.End, raw), -MaxBulge, MaxBulge);
+
+                _cursorModel = raw;
+                _cursorIsSnapped = false;
+                HintChanged?.Invoke(this, wall.IsCurved
+                    ? $"Radius {Units.FormatLength(wall.LocationCurve.Radius)}, length {Units.FormatLength(wall.Length)}. Bring it back to the straight line to straighten."
+                    : "Straight.");
+                CursorMoved?.Invoke(this, _cursorModel);
+                InvalidateVisual();
+                return;
+            }
+
             default:
                 return;
         }
@@ -1006,6 +1065,16 @@ public class PlanView : FrameworkElement
 
         if (SelectedWall is not { } wall) return;
 
+        if (grip == GripKind.Bend)
+        {
+            if (wall.Bulge == _dragOriginalBulge) return;
+
+            History?.Record(new BendWallCommand(wall, _dragOriginalBulge, wall.Bulge));
+            ModelChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+            return;
+        }
+
         var moved = wall.Start != _dragOriginalStart || wall.End != _dragOriginalEnd;
         if (!moved) return;
 
@@ -1038,7 +1107,14 @@ public class PlanView : FrameworkElement
             _chainWall = null;
             _chainFirstWall = null;
             _chainFirstClick = model;
-            HintChanged?.Invoke(this, "Click again to set the end of the wall. Space flips it, Esc cancels.");
+            _pendingArcEnd = null;
+            HintChanged?.Invoke(this, DrawArcs
+                ? "Click where the arc ends. Space flips it, Esc cancels."
+                : "Click again to set the end of the wall. Space flips it, Esc cancels.");
+        }
+        else if (DrawArcs)
+        {
+            PlaceArcPoint(model);
         }
         else if (_pendingWallStart.Value.DistanceTo(model) >= SnapStepMm)
         {
@@ -1085,6 +1161,58 @@ public class PlanView : FrameworkElement
         }
 
         InvalidateVisual();
+    }
+
+    /// <summary>
+    /// The second and third clicks of an arc wall: where it ends, then a point it passes
+    /// through (specification section 3.1, "start-end-radius arc"). Arcs chain like straight
+    /// walls, each starting where the last ended.
+    /// </summary>
+    private void PlaceArcPoint(Point2D model)
+    {
+        if (Document is null || _pendingWallStart is not { } from) return;
+
+        if (_pendingArcEnd is null)
+        {
+            if (from.DistanceTo(model) < SnapStepMm) return;
+
+            _pendingArcEnd = model;
+            HintChanged?.Invoke(this, "Now click a point the arc passes through. Esc cancels.");
+            return;
+        }
+
+        var end = _pendingArcEnd.Value;
+        var bulge = WallCurve.BulgeThrough(from, end, model);
+        if (bulge == 0)
+        {
+            HintChanged?.Invoke(this, "That point is on the straight line between the ends. Pick one off it.");
+            return;
+        }
+
+        // An offset moves the arc in or out, keeping its sweep, toward the exterior side.
+        var curve = WallCurve.Of(from, end, bulge);
+        var left = DrawOffset * (DrawFlipped ? -1 : 1);
+
+        var wall = new Wall
+        {
+            Start = curve.At(0, left),
+            End = curve.At(curve.Length, left),
+            Bulge = bulge,
+            TypeId = ActiveWallTypeId,
+            LevelId = ActiveLevelId,
+            LocationLine = ActiveLocationLine,
+            Flipped = DrawFlipped
+        };
+
+        Apply(new AddElementCommand(Document, wall, "Draw Wall"));
+
+        _pendingWallStart = end;
+        _pendingArcEnd = null;
+        _chainWall = wall;
+        _chainFirstWall ??= wall;
+        Select(wall);
+
+        HintChanged?.Invoke(this, "Arc placed. Click where the next one ends, or Esc to stop.");
     }
 
     /// <summary>
@@ -1263,11 +1391,13 @@ public class PlanView : FrameworkElement
 
         if (ElementCopy.Clone(wall) is not Wall copy) return;
 
-        // Which side of the wall the click landed on decides which way the copy goes.
-        var across = wall.Direction.PerpendicularLeft();
-        var side = (raw - wall.Start).Dot(across) >= 0 ? 1.0 : -1.0;
+        // Which side of the wall the click landed on decides which way the copy goes. A curved
+        // wall's copy is concentric: its ends move along the radius, and it keeps its sweep.
+        var curve = wall.LocationCurve;
+        var side = curve.Locate(raw).Left >= 0 ? 1.0 : -1.0;
 
-        ElementTransforms.Move(copy, across * (OffsetDistance * side));
+        copy.Start = curve.At(0, OffsetDistance * side);
+        copy.End = curve.At(curve.Length, OffsetDistance * side);
 
         Apply(new AddElementCommand(Document, copy, "Offset Wall"));
         Select(copy);
@@ -1577,8 +1707,7 @@ public class PlanView : FrameworkElement
         }
 
         // Where along the wall the click landed, snapped, then nudged so it fits.
-        var onLine = Line2D.Through(wall.Start, wall.End).ClosestPointTo(raw);
-        var distance = Units.SnapToGrid((onLine - wall.Start).Dot(wall.Direction), SnapStepMm);
+        var distance = Units.SnapToGrid(wall.LocationCurve.Locate(raw).Along, SnapStepMm);
 
         if (WallOpenings.ClampToWall(wall, type.Width, distance) is not { } placed)
         {
@@ -1731,9 +1860,19 @@ public class PlanView : FrameworkElement
         }
 
         // Split on the location line. Snapping moves the point off a sloping wall, so it is
-        // projected back on afterwards - otherwise the two halves meet at a kink.
-        var line = Line2D.Through(wall.Start, wall.End);
-        var splitPoint = line.ClosestPointTo(SnapToGrid(line.ClosestPointTo(raw)));
+        // projected back on afterwards - otherwise the two halves meet at a kink. A curved wall
+        // is split where the click is round the arc, to the nearest 100 mm along it.
+        Point2D splitPoint;
+        if (wall.IsCurved)
+        {
+            var curve = wall.LocationCurve;
+            splitPoint = curve.PointAt(Units.SnapToGrid(curve.Locate(raw).Along, SnapStepMm));
+        }
+        else
+        {
+            var line = Line2D.Through(wall.Start, wall.End);
+            splitPoint = line.ClosestPointTo(SnapToGrid(line.ClosestPointTo(raw)));
+        }
 
         if (splitPoint.DistanceTo(wall.Start) <= SnapStepMm ||
             splitPoint.DistanceTo(wall.End) <= SnapStepMm)
@@ -1756,6 +1895,12 @@ public class PlanView : FrameworkElement
         if (picked is null)
         {
             HintChanged?.Invoke(this, "No wall there.");
+            return;
+        }
+
+        if (picked.IsCurved && _trimSubject is null)
+        {
+            HintChanged?.Invoke(this, "Trim works on straight walls. Drag a curved wall's end to lengthen it.");
             return;
         }
 
@@ -1915,8 +2060,12 @@ public class PlanView : FrameworkElement
             var type = Document.GetWallType(wall);
             if (type is null) continue;
 
-            var (start, end) = wall.GetBodyCentreline(type.Structure);
-            var distance = DistanceToSegment(model, start, end);
+            // Distance from the body centreline, which follows the arc of a curved wall.
+            var (along, across) = wall.Locate(type.Structure, model);
+            var distance = along >= 0 && along <= wall.Length
+                ? Math.Abs(across)
+                : Math.Min(model.DistanceTo(wall.PointAt(type.Structure, 0, 0)),
+                           model.DistanceTo(wall.PointAt(type.Structure, wall.Length, 0)));
             var tolerance = type.Width / 2 + 4 / PixelsPerMm;
 
             if (distance <= tolerance && distance < bestDistance)
@@ -2061,8 +2210,20 @@ public class PlanView : FrameworkElement
             dc.DrawRectangle(_gripBrush, _gripPen, new Rect(screen.X - 4.5, screen.Y - 4.5, 9, 9));
         }
 
-        var midpoint = ModelToScreen(wall.Start.MidpointTo(wall.End));
-        dc.DrawEllipse(_gripBrush, _gripPen, midpoint, 4.5, 4.5);
+        // The bend grip: a diamond halfway along, which curves the wall when dragged.
+        var middle = ModelToScreen(BendGrip(wall));
+        var diamond = new StreamGeometry();
+        using (var ctx = diamond.Open())
+        {
+            ctx.BeginFigure(new Point(middle.X, middle.Y - 6), true, true);
+            ctx.PolyLineTo(new[]
+            {
+                new Point(middle.X + 6, middle.Y), new Point(middle.X, middle.Y + 6), new Point(middle.X - 6, middle.Y)
+            }, true, false);
+        }
+
+        diamond.Freeze();
+        dc.DrawGeometry(_gripBrush, _gripPen, diamond);
 
         if (Document?.GetWallType(wall) is { } type) DrawFlipArrows(dc, wall, type);
     }
@@ -2101,6 +2262,35 @@ public class PlanView : FrameworkElement
     {
         if (_pendingWallStart is null) return;
 
+        var type = Document?.FindType<WallType>(ActiveWallTypeId);
+
+        // An arc waiting for its third point bends through the cursor as it moves.
+        if (_pendingArcEnd is { } arcEnd)
+        {
+            var bulge = WallCurve.BulgeThrough(_pendingWallStart.Value, arcEnd, _cursorModel);
+            var curve = WallCurve.Of(_pendingWallStart.Value, arcEnd, bulge);
+
+            dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(_pendingWallStart.Value), 4, 4);
+            dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(arcEnd), 4, 4);
+            DrawModelPolyline(dc, _previewPen, curve.Points());
+
+            if (type is null) return;
+
+            var left = DrawOffset * (DrawFlipped ? -1 : 1);
+            var arc = new Wall
+            {
+                Start = curve.At(0, left),
+                End = curve.At(curve.Length, left),
+                Bulge = bulge,
+                LocationLine = ActiveLocationLine,
+                Flipped = DrawFlipped
+            };
+
+            DrawWallBody(dc, arc, type, _previewPen);
+            DrawFlipArrows(dc, arc, type);
+            return;
+        }
+
         var start = ModelToScreen(_pendingWallStart.Value);
         var end = ModelToScreen(_cursorModel);
         dc.DrawLine(_previewPen, start, end);
@@ -2109,7 +2299,8 @@ public class PlanView : FrameworkElement
 
         // The wall itself, where it will actually be built: off the clicks by the offset, off
         // the location line by the assembly, and with its exterior on the side it will have.
-        if (Document?.FindType<WallType>(ActiveWallTypeId) is not { } type) return;
+        // An arc's second click shows only the chord: its shape comes with the third.
+        if (type is null || DrawArcs) return;
         if (_pendingWallStart.Value.DistanceTo(_cursorModel) < SnapStepMm) return;
 
         var (lineStart, lineEnd) = WallDrawing.OffsetSegment(
@@ -2127,16 +2318,36 @@ public class PlanView : FrameworkElement
         DrawFlipArrows(dc, probe, type);
     }
 
-    /// <summary>The outline of a wall's body, drawn square-ended.</summary>
+    private void DrawModelPolyline(DrawingContext dc, Pen pen, IReadOnlyList<Point2D> points)
+    {
+        if (points.Count < 2) return;
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(ModelToScreen(points[0]), false, false);
+            ctx.PolyLineTo(points.Skip(1).Select(ModelToScreen).ToArray(), true, false);
+        }
+
+        geometry.Freeze();
+        dc.DrawGeometry(null, pen, geometry);
+    }
+
+    /// <summary>The outline of a wall's body, square-ended, following the arc of a curved one.</summary>
     private void DrawWallBody(DrawingContext dc, Wall wall, WallType type, Pen pen)
     {
-        var (bodyStart, bodyEnd) = wall.GetBodyCentreline(type.Structure);
-        var across = wall.ExteriorNormal * (type.Width / 2);
+        var structure = type.Structure;
+        var half = type.Width / 2;
+        var curve = wall.LocationCurve;
 
-        var corners = new[]
-        {
-            bodyStart + across, bodyEnd + across, bodyEnd - across, bodyStart - across
-        }.Select(ModelToScreen).ToArray();
+        var stations = new List<double> { 0 };
+        stations.AddRange(curve.Between(0, curve.Length));
+        stations.Add(curve.Length);
+
+        var corners = stations.Select(along => wall.PointAt(structure, along, half))
+            .Concat(stations.AsEnumerable().Reverse().Select(along => wall.PointAt(structure, along, -half)))
+            .Select(ModelToScreen)
+            .ToArray();
 
         var geometry = new StreamGeometry();
         using (var context = geometry.Open())
@@ -2155,14 +2366,16 @@ public class PlanView : FrameworkElement
     /// </summary>
     private Point FlipControlPosition(Wall wall, WallType type)
     {
-        var (bodyStart, bodyEnd) = wall.GetBodyCentreline(type.Structure);
-        var middle = ModelToScreen(bodyStart.MidpointTo(bodyEnd));
-        var face = ModelToScreen(bodyStart.MidpointTo(bodyEnd) + wall.ExteriorNormal * (type.Width / 2));
+        var structure = type.Structure;
+        var halfway = wall.Length / 2;
+
+        var middle = ModelToScreen(wall.PointAt(structure, halfway, 0));
+        var face = ModelToScreen(wall.PointAt(structure, halfway, type.Width / 2));
 
         var outward = face - middle;
         if (outward.Length < 1e-6)
         {
-            var normal = ModelToScreen(bodyStart + wall.ExteriorNormal) - ModelToScreen(bodyStart);
+            var normal = ModelToScreen(wall.PointAt(structure, halfway, 1)) - middle;
             outward = normal.Length < 1e-6 ? new Vector(0, -1) : normal / normal.Length;
         }
         else
@@ -2181,7 +2394,10 @@ public class PlanView : FrameworkElement
     {
         var centre = FlipControlPosition(wall, type);
 
-        var along = ModelToScreen(wall.End) - ModelToScreen(wall.Start);
+        // Along the wall where the arrows are, which on a curved wall is its tangent there.
+        var halfway = wall.Length / 2;
+        var along = ModelToScreen(wall.PointAt(type.Structure, halfway + 1, 0)) -
+                    ModelToScreen(wall.PointAt(type.Structure, halfway - 1, 0));
         along = along.Length < 1e-6 ? new Vector(1, 0) : along / along.Length;
         var across = new Vector(-along.Y, along.X);
 

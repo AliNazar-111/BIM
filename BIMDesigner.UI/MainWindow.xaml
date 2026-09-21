@@ -322,6 +322,13 @@
                           ToolTip="Which line of the assembly you are drawing to"/>
 
                 <StackPanel x:Name="WallDrawOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Shape" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="WallShapePicker" Style="{StaticResource OptionCombo}" MinWidth="90"
+                              SelectedIndex="0" SelectionChanged="OnWallShapeChanged"
+                              ToolTip="Straight walls, or arcs: click the start, the end, then a point the arc passes through">
+                        <ComboBoxItem Content="Line"/>
+                        <ComboBoxItem Content="Arc"/>
+                    </ComboBox>
                     <TextBlock Text="Offset" Style="{StaticResource OptionLabel}"/>
                     <TextBox x:Name="WallOffsetBox" Width="90" VerticalAlignment="Center"
                              Text="0 mm" LostFocus="OnWallOffsetChanged" KeyDown="OnWallOffsetKeyDown"

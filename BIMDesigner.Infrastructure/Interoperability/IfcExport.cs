@@ -404,15 +404,26 @@ public static class IfcExport
             var thickness = wallType.Width;
             var (bodyStart, _) = wall.GetBodyCentreline(wallType.Structure);
 
-            // A box through the wall, in the wall's own coordinates: along it, across its full
-            // thickness, from sill to head.
-            var profile = new List<Point2D>
+            // A box through the wall, in the wall's own coordinates: along it, across well beyond
+            // both faces, from sill to head. Taken from the wall's frame, so in a curved wall it
+            // spans the arc of the opening.
+            var structure = wallType.Structure;
+            var profile = ToLocal(new[]
             {
-                new(from, -thickness),
-                new(to, -thickness),
-                new(to, thickness),
-                new(from, thickness)
-            };
+                wall.PointAt(structure, from, -thickness),
+                wall.PointAt(structure, to, -thickness),
+                wall.PointAt(structure, to, thickness),
+                wall.PointAt(structure, from, thickness)
+            }, bodyStart, wall.Direction);
+
+            // The door or window itself sits square across its opening: on the chord between
+            // its jambs, which on a straight wall is the wall itself.
+            var jambFrom = wall.PointAt(structure, from, 0);
+            var jambTo = wall.PointAt(structure, to, 0);
+            var chord = (jambTo - jambFrom).NormalisedOrDefault(wall.Direction);
+            var inward = chord.PerpendicularLeft();
+            var panelOrigin = ToLocal(new[] { jambFrom - inward * (type.Thickness / 2) }, bodyStart, wall.Direction)[0];
+            var panelDirection = ToLocal(new[] { bodyStart + chord }, bodyStart, wall.Direction)[0];
 
             var sill = wall.BaseOffset + opening.SillHeight;
 
@@ -439,7 +450,12 @@ public static class IfcExport
             var placement = New<IfcLocalPlacement>(p =>
             {
                 p.PlacementRelTo = ifcWall.ObjectPlacement;
-                p.RelativePlacement = Placement(Point3D(from, -type.Thickness / 2, opening.SillHeight));
+                p.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
+                {
+                    axis.Location = Point3D(panelOrigin.X, panelOrigin.Y, opening.SillHeight);
+                    axis.Axis = Direction(0, 0, 1);
+                    axis.RefDirection = Direction(panelDirection.X, panelDirection.Y, 0);
+                });
             });
 
             var panel = new List<Point2D>

@@ -456,6 +456,9 @@ internal sealed class WallDto
     public string StructuralUsage { get; set; } = "NonBearing";
 
     /// <summary>How each end joins: "Auto", "Mitre", "Butt", "RunThrough", "SquareOff" or "Disallow".</summary>
+    /// <summary>How far the wall bows: 0 for straight. See WallCurve for the convention.</summary>
+    public double Bulge { get; set; }
+
     public string StartJoin { get; set; } = "Auto";
     public string EndJoin { get; set; } = "Auto";
 

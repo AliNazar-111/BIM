@@ -1492,6 +1492,16 @@ public partial class MainWindow : Window
         WallOffsetBox.Text = Units.FormatLength(Plan.DrawOffset);
     }
 
+    private void OnWallShapeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Plan is null) return;
+
+        Plan.DrawArcs = WallShapePicker.SelectedIndex == 1;
+        StatusHint.Text = Plan.DrawArcs
+            ? "Arc: click the start, the end, then a point the arc passes through."
+            : "Click the start of the wall, then its end.";
+    }
+
     /// <summary>Enter commits the offset and hands the keyboard back to the drawing.</summary>
     private void OnWallOffsetKeyDown(object sender, KeyEventArgs e)
     {

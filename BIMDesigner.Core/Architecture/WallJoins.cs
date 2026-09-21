@@ -96,10 +96,31 @@ public static class WallJoins
         var end = EndPoints(wall, type, outerOffset, innerOffset, endCut, atStart: false);
 
         var ring = new List<Point2D>(start.Count + end.Count) { start[0] };
+
+        // A curved wall's long edges follow the arc; a straight wall's need nothing between
+        // their ends.
+        ring.AddRange(Edge(wall, type, outerOffset, start[0], end[0]));
         ring.AddRange(end);
+        ring.AddRange(Edge(wall, type, innerOffset, end[^1], start[^1]));
         for (var i = start.Count - 1; i >= 1; i--) ring.Add(start[i]);
 
         return ring.ToArray();
+    }
+
+    /// <summary>
+    /// The points along one long edge of a band strictly between two of its corners, which is
+    /// none at all for a straight wall and enough to follow the arc for a curved one.
+    /// </summary>
+    public static IEnumerable<Point2D> Edge(Wall wall, WallType type, double across, Point2D from, Point2D to)
+    {
+        if (!wall.IsCurved) return Array.Empty<Point2D>();
+
+        var structure = type.Structure;
+        var curve = wall.LocationCurve;
+        var a = wall.Locate(structure, from).Along;
+        var b = wall.Locate(structure, to).Along;
+
+        return curve.Between(a, b, wall.LeftOf(structure, across)).Select(along => wall.PointAt(structure, along, across)).ToList();
     }
 
     /// <summary>
@@ -115,25 +136,24 @@ public static class WallJoins
             return wrapped;
         }
 
-        var (bodyStart, bodyEnd) = wall.GetBodyCentreline(type.Structure);
-        var normal = wall.ExteriorNormal;
-        var direction = wall.Direction;
+        var structure = type.Structure;
+        var end = atStart ? 0 : wall.Length;
 
-        double Across(Point2D point) => (point - bodyStart).Dot(normal);
+        double Across(Point2D point) => wall.Locate(structure, point).Across;
 
         Point2D Hit(double offset)
         {
-            var edge = new Line2D(bodyStart + normal * offset, direction);
             var points = cut.Points;
 
             // The segment of the cut that spans this offset; the first and last run on for ever.
             var k = 0;
             while (k < points.Count - 2 && offset < Across(points[k + 1])) k++;
 
-            if (Line2D.TryIntersect(edge, Line2D.Through(points[k], points[k + 1]), out var hit)) return hit;
-
-            // A degenerate cut: square off at the body end so the wall still draws.
-            return (atStart ? bodyStart : bodyEnd) + normal * offset;
+            // The edge is a line on a straight wall and an arc on a curved one; where a line
+            // cuts a circle twice, the crossing near this end is the one that belongs to it.
+            var squareEnd = wall.PointAt(structure, end, offset);
+            return wall.EdgeCrossing(structure, Line2D.Through(points[k], points[k + 1]), offset, squareEnd)
+                   ?? squareEnd;
         }
 
         var result = new List<Point2D> { Hit(outerOffset) };
@@ -190,9 +210,8 @@ public static class WallJoins
         BimDocument document, Wall wall, WallType type)
     {
         var gaps = new List<(bool, double, double)>();
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
-        var normal = wall.ExteriorNormal;
-        var direction = wall.Direction;
+        var structure = type.Structure;
+        var curve = wall.LocationCurve;
         var half = type.Width / 2;
 
         foreach (var other in document.Walls)
@@ -202,8 +221,8 @@ public static class WallJoins
 
             // Only a wall that ends near this one, or crosses it, can be stopping against it.
             var reach = half + otherType.Width + type.Width + JoinTolerance;
-            if (Line2D.DistanceFromSegment(other.Start, wall.Start, wall.End) > reach &&
-                Line2D.DistanceFromSegment(other.End, wall.Start, wall.End) > reach &&
+            if (curve.DistanceTo(other.Start) > reach &&
+                curve.DistanceTo(other.End) > reach &&
                 !SegmentsCross(wall, other))
                 continue;
 
@@ -222,13 +241,17 @@ public static class WallJoins
                 var b = corners[^1];
 
                 // Both corners have to sit on one of this wall's faces for it to be this wall
-                // they stop against.
-                var across = (a - bodyStart).Dot(normal);
-                if (Math.Abs(Math.Abs(across) - half) > 0.5) continue;
-                if (Math.Abs((b - bodyStart).Dot(normal) - across) > 0.5) continue;
+                // they stop against. On a curved wall the other's end is cut along the tangent,
+                // so its corners sit a hair off the arc; the allowance covers that.
+                var (alongA, across) = wall.Locate(structure, a);
+                var (alongB, acrossB) = wall.Locate(structure, b);
+                var allowance = wall.IsCurved ? 0.5 + otherType.Width * otherType.Width / (8 * curve.Radius) : 0.5;
 
-                var from = Math.Min((a - bodyStart).Dot(direction), (b - bodyStart).Dot(direction));
-                var to = Math.Max((a - bodyStart).Dot(direction), (b - bodyStart).Dot(direction));
+                if (Math.Abs(Math.Abs(across) - half) > allowance) continue;
+                if (Math.Abs(acrossB - across) > 2 * allowance) continue;
+
+                var from = Math.Min(alongA, alongB);
+                var to = Math.Max(alongA, alongB);
                 if (to <= Epsilon || from >= wall.Length - Epsilon) continue;
 
                 gaps.Add((across > 0, from, to));
@@ -254,9 +277,13 @@ public static class WallJoins
         var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
         var centreline = new Line2D(bodyStart, wall.Direction);
 
+        // Curved walls crossing midway are not yet joined: the line-and-arc case has its own
+        // geometry, and such crossings are rare enough to leave for now.
+        if (wall.IsCurved) return crossings;
+
         foreach (var other in document.Walls)
         {
-            if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId || AreInLine(wall, other)) continue;
+            if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId || other.IsCurved || AreInLine(wall, other)) continue;
             if (document.GetWallType(other) is not { } otherType) continue;
 
             // A proper crossing: well inside both walls, not at or near either one's end.
@@ -298,6 +325,8 @@ public static class WallJoins
     /// <summary>Whether two walls' drawn lines cross.</summary>
     private static bool SegmentsCross(Wall a, Wall b)
     {
+        if (a.IsCurved || b.IsCurved) return false;
+
         double Side(Point2D p, Point2D q, Point2D r) => (q - p).Cross(r - p);
 
         return Side(a.Start, a.End, b.Start) * Side(a.Start, a.End, b.End) <= 0 &&
@@ -320,11 +349,60 @@ public static class WallJoins
     /// <summary>Every other wall on this level with an end at this point that is willing to join.</summary>
     private static List<Wall> PartnersAt(BimDocument document, Wall wall, Point2D joint) =>
         document.Walls
-            .Where(candidate => !ReferenceEquals(candidate, wall))
+            .Where(candidate => candidate.Id != wall.Id)
             .Where(candidate => candidate.LevelId == wall.LevelId)
             .Where(candidate => TouchesAt(candidate, joint))
             .Where(candidate => JoinAt(candidate, joint) != WallJoinKind.Disallow)
+            .Select(candidate => Straight(candidate, joint))
             .ToList();
+
+    /// <summary>
+    /// A wall as seen from one point on it: itself if straight, or, if curved, a straight wall
+    /// along its tangent there. A join only looks at the wall where it meets, and there a
+    /// curved wall is running in the direction of its tangent - so every rule written for
+    /// straight walls applies to curved ones through this. The cut it produces is then applied
+    /// to the true arc.
+    /// </summary>
+    private static Wall Straight(Wall wall, Point2D at)
+    {
+        if (!wall.IsCurved) return wall;
+
+        var curve = wall.LocationCurve;
+        var length = Math.Max(curve.Length, 1);
+
+        Point2D start, end;
+        if (wall.Start.DistanceTo(at) <= JoinTolerance)
+        {
+            start = wall.Start;
+            end = start + curve.TangentAt(0) * length;
+        }
+        else if (wall.End.DistanceTo(at) <= JoinTolerance)
+        {
+            end = wall.End;
+            start = end - curve.TangentAt(curve.Length) * length;
+        }
+        else
+        {
+            var along = Math.Clamp(curve.Locate(at).Along, 0, curve.Length);
+            var point = curve.PointAt(along);
+            var tangent = curve.TangentAt(along);
+            start = point - tangent * (length / 2);
+            end = point + tangent * (length / 2);
+        }
+
+        return new Wall
+        {
+            Id = wall.Id,
+            Start = start,
+            End = end,
+            TypeId = wall.TypeId,
+            LevelId = wall.LevelId,
+            LocationLine = wall.LocationLine,
+            Flipped = wall.Flipped,
+            StartJoin = wall.StartJoin,
+            EndJoin = wall.EndJoin
+        };
+    }
 
     /// <summary>Whether two walls run along the same line, whichever way each was drawn.</summary>
     private static bool AreInLine(Wall a, Wall b) =>
@@ -335,13 +413,13 @@ public static class WallJoins
     {
         foreach (var candidate in document.Walls)
         {
-            if (ReferenceEquals(candidate, wall)) continue;
+            if (candidate.Id == wall.Id) continue;
             if (candidate.LevelId != wall.LevelId) continue;
             if (TouchesAt(candidate, joint)) continue;
-            if (AreInLine(wall, candidate)) continue;
+            if (candidate.LocationCurve.DistanceTo(joint) > JoinTolerance) continue;
 
-            if (Line2D.DistanceFromSegment(joint, candidate.Start, candidate.End) <= JoinTolerance)
-                return candidate;
+            var seen = Straight(candidate, joint);
+            if (!AreInLine(wall, seen)) return seen;
         }
 
         return null;
@@ -376,9 +454,12 @@ public static class WallJoins
 
     private static WallCut ComputeEnd(BimDocument document, Wall wall, WallType type, bool atStart)
     {
-        var square = SquareCut(wall, type, atStart);
         var joint = atStart ? wall.Start : wall.End;
         var asked = atStart ? wall.StartJoin : wall.EndJoin;
+
+        // From here on a curved wall is its tangent at this end; see Straight.
+        wall = Straight(wall, joint);
+        var square = SquareCut(wall, type, atStart);
 
         WallCut Free(WallEndCondition condition) =>
             WallCut.Along(square, wall, condition, type.WrapAtEnds);
@@ -650,10 +731,6 @@ public static class WallJoins
         var half = structure.TotalWidth / 2;
         var layers = structure.GetLayerOffsets().ToList();
 
-        var (bodyStart, _) = wall.GetBodyCentreline(structure);
-        var direction = wall.Direction;
-        var normal = wall.ExteriorNormal;
-
         var wrapsExterior = cut.Wrapping is WallWrapping.Exterior or WallWrapping.Both;
         var wrapsInterior = cut.Wrapping is WallWrapping.Interior or WallWrapping.Both;
 
@@ -670,11 +747,11 @@ public static class WallJoins
         var interiorStop = cut.Wrapping == WallWrapping.Both ? middle : half;
 
         // Where the end is, and which way is back into the wall.
-        var position = (cut.Points[0] - bodyStart).Dot(direction);
+        var position = wall.Locate(structure, cut.Points[0]).Along;
         var inward = atStart ? 1.0 : -1.0;
 
         Point2D At(double setBack, double across) =>
-            bodyStart + direction * (position + inward * setBack) + normal * across;
+            wall.PointAt(structure, position + inward * setBack, across);
 
         // The whole wall is square at the end: the wrapping fills the corner out to it.
         if (Math.Abs(outer - half) < Epsilon && Math.Abs(inner + half) < Epsilon)

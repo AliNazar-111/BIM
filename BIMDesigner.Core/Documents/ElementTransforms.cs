@@ -95,6 +95,9 @@ public static class ElementTransforms
                 wall.Start = Reflect(wall.Start);
                 wall.End = Reflect(wall.End);
                 wall.Flipped = !wall.Flipped;
+
+                // A mirror image turns the other way.
+                wall.Bulge = -wall.Bulge;
                 break;
 
             case Slab slab:

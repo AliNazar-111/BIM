@@ -23,8 +23,8 @@ public static class WallSlices
     /// <summary>A line straight across the wall, a given distance along it.</summary>
     public static Line2D CrossCutAt(Wall wall, WallType type, double distance)
     {
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
-        return new Line2D(bodyStart + wall.Direction * distance, wall.Direction.PerpendicularLeft());
+        // Across the wall means square to it where it is: radial on a curved wall.
+        return new Line2D(wall.PointAt(type.Structure, distance, 0), wall.ExteriorNormalAt(distance));
     }
 
     /// <summary>
@@ -111,12 +111,10 @@ public static class WallSlices
     private static bool IsInsideOut(Wall wall, WallType type, WallCut cutFrom, WallCut cutTo)
     {
         var half = type.Width / 2;
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
-
         var start = WallJoins.EndPoints(wall, type, half, -half, cutFrom, atStart: true);
         var end = WallJoins.EndPoints(wall, type, half, -half, cutTo, atStart: false);
 
-        double Along(Point2D point) => (point - bodyStart).Dot(wall.Direction);
+        double Along(Point2D point) => wall.Locate(type.Structure, point).Along;
 
         // The two ends of each face, which must still run the right way along the wall.
         return Along(end[0]) - Along(start[0]) <= 0 || Along(end[^1]) - Along(start[^1]) <= 0;

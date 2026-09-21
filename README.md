@@ -311,6 +311,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Attach a wall's top to a level | Properties → **Top Constraint** → Up to level |
 | Hide walls by function | View → Wall Functions → pick the view, untick the function |
 | Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
+| Draw a curved wall | Wall tool, **Shape: Arc** on the option bar: click the start, the end, then a point the arc passes through |
+| Curve or straighten a wall | Select it and drag the diamond halfway along it; bring it back to the straight line to straighten |
 | Make or edit a wall type | Architecture → Wall Types..., or **Edit Type...** in Properties with a wall selected |
 | Change the type of several walls | Select them, then pick a type at the top of Properties |
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |

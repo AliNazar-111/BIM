@@ -141,8 +141,21 @@ public static class RoomBoundary
     private static List<Segment> Collect(BimDocument document, Guid levelId) =>
         document.Walls
             .Where(wall => wall.LevelId == levelId && wall.RoomBounding && wall.Length > NodeTolerance)
-            .Select(wall => new Segment(wall, wall.Start, wall.End))
+            .SelectMany(Pieces)
             .ToList();
+
+    /// <summary>
+    /// A wall as the walk sees it: one segment, or for a curved wall a chain of short ones
+    /// following the arc. The points between them join only the wall's own pieces, so the walk
+    /// passes straight through them and the room takes the shape of the curve.
+    /// </summary>
+    private static IEnumerable<Segment> Pieces(Wall wall)
+    {
+        if (!wall.IsCurved) return new[] { new Segment(wall, wall.Start, wall.End) };
+
+        var points = wall.LocationCurve.Points();
+        return points.Zip(points.Skip(1), (a, b) => new Segment(wall, a, b));
+    }
 
     /// <summary>
     /// Cuts every segment where another crosses it, so that walls meeting part-way along

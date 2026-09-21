@@ -140,20 +140,20 @@ public static class ModelMeshBuilder
     {
         if (head <= sill) return;
 
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
-        var along = wall.Direction;
-        var across = wall.Direction.PerpendicularLeft();
-
+        var structure = type.Structure;
         var isWindow = opening is Window;
         var half = (isWindow ? PaneThickness : LeafThickness) / 2;
 
-        var outline = new[]
-        {
-            bodyStart + along * from + across * half,
-            bodyStart + along * to + across * half,
-            bodyStart + along * to - across * half,
-            bodyStart + along * from - across * half
-        };
+        // Built in the wall's own frame, so in a curved wall the glass or leaf follows the
+        // curve and fills the hole exactly.
+        var curve = wall.LocationCurve;
+        var stations = new List<double> { from };
+        stations.AddRange(curve.Between(from, to));
+        stations.Add(to);
+
+        var outline = stations.Select(along => wall.PointAt(structure, along, half))
+            .Concat(stations.AsEnumerable().Reverse().Select(along => wall.PointAt(structure, along, -half)))
+            .ToArray();
 
         var mesh = new Mesh3D(
             opening.Id, opening.LevelId,

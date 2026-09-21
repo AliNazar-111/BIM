@@ -90,6 +90,7 @@ public static class ElementCopy
             UnconnectedHeight = wall.UnconnectedHeight,
             RoomBounding = wall.RoomBounding,
             StructuralUsage = wall.StructuralUsage,
+            Bulge = wall.Bulge,
             StartJoin = wall.StartJoin,
             EndJoin = wall.EndJoin
         }, wall),

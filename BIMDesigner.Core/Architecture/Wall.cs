@@ -53,6 +53,18 @@ public sealed class Wall : Element
     /// <summary>End of the location line, in millimetres.</summary>
     public Point2D End { get; set; }
 
+    /// <summary>
+    /// How far the wall bows between its ends: zero for a straight wall, otherwise the tangent
+    /// of a quarter of the angle the arc turns through, positive turning left. See <see cref="WallCurve"/>.
+    /// </summary>
+    public double Bulge { get; set; }
+
+    /// <summary>Whether the wall is an arc rather than a straight line.</summary>
+    public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge;
+
+    /// <summary>The line the wall was drawn along - the location line - straight or curved.</summary>
+    public WallCurve LocationCurve => WallCurve.Of(Start, End, Bulge);
+
     public WallLocationLine LocationLine { get; set; } = WallLocationLine.WallCentreline;
 
     /// <summary>Swaps which side of the wall counts as exterior.</summary>
@@ -91,7 +103,7 @@ public sealed class Wall : Element
     public WallJoinKind EndJoin { get; set; } = WallJoinKind.Auto;
 
     /// <summary>Length of the location line, in millimetres.</summary>
-    public double Length => Start.DistanceTo(End);
+    public double Length => IsCurved ? LocationCurve.Length : Start.DistanceTo(End);
 
     /// <summary>Direction from start to end, or the X axis for a degenerate wall.</summary>
     public Vector2D Direction => (End - Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -217,9 +229,51 @@ public sealed class Wall : Element
         var offset = GetLocationLineOffset(structure);
         if (offset == 0) return (Start, End);
 
+        if (IsCurved)
+        {
+            var curve = LocationCurve;
+            return (PointAt(structure, 0, 0), PointAt(structure, curve.Length, 0));
+        }
+
         var shift = ExteriorNormal * -offset;
         return (Start + shift, End + shift);
     }
+
+    /// <summary>
+    /// A point on the wall: this far along its location line from the start, and this far
+    /// across from its body centreline toward the exterior. The frame every wall drawing is
+    /// built in, so straight and curved walls are drawn by the same code.
+    /// </summary>
+    public Point2D PointAt(CompoundStructure structure, double along, double across) =>
+        LocationCurve.At(along, ExteriorSign * (across - GetLocationLineOffset(structure)));
+
+    /// <summary>
+    /// Where a line crosses the edge of the wall this far across from its body centreline -
+    /// a line on a straight wall, an arc on a curved one - taking the crossing nearest to a
+    /// point when there are two. Null when they do not meet.
+    /// </summary>
+    public Point2D? EdgeCrossing(CompoundStructure structure, Line2D line, double across, Point2D near) =>
+        LocationCurve.Intersect(line, ExteriorSign * (across - GetLocationLineOffset(structure)), near);
+
+    /// <summary>Where a point lies in the wall's frame. The inverse of <see cref="PointAt"/>.</summary>
+    public (double Along, double Across) Locate(CompoundStructure structure, Point2D point)
+    {
+        var (along, left) = LocationCurve.Locate(point);
+        return (along, ExteriorSign * left + GetLocationLineOffset(structure));
+    }
+
+    /// <summary>The direction of the wall at this distance along it.</summary>
+    public Vector2D TangentAt(double along) => IsCurved ? LocationCurve.TangentAt(along) : Direction;
+
+    /// <summary>Unit vector toward the exterior at this distance along.</summary>
+    public Vector2D ExteriorNormalAt(double along) => TangentAt(along).PerpendicularLeft() * ExteriorSign;
+
+    /// <summary>How far to the left of the location line a point this far across the body lies.</summary>
+    public double LeftOf(CompoundStructure structure, double across) =>
+        ExteriorSign * (across - GetLocationLineOffset(structure));
+
+    /// <summary>+1 when the exterior is to the left of the drawing direction, -1 when flipped.</summary>
+    private double ExteriorSign => Flipped ? -1 : 1;
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {

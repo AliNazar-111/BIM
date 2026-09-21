@@ -161,6 +161,12 @@ public static class SectionProjection
         var topElevation = baseElevation + wall.GetHeight(document);
         if (topElevation <= baseElevation) return;
 
+        if (wall.IsCurved)
+        {
+            AddCurvedWall(document, marker, wall, type, baseElevation, topElevation, pieces);
+            return;
+        }
+
         var (bodyStart, bodyEnd) = wall.GetBodyCentreline(structure);
         var normal = wall.ExteriorNormal;
         var half = width / 2;
@@ -221,6 +227,75 @@ public static class SectionProjection
     }
 
     /// <summary>
+    /// A curved wall cut by the section. A straight cut can pass through an arc once, twice or
+    /// not at all, and never square to it, so rather than work out where a line meets a
+    /// curve, the cut is taken across the wall's drawn outline and each of its layers - the
+    /// same outlines the plan draws, joins and all.
+    /// </summary>
+    private static void AddCurvedWall(
+        BimDocument document, SectionMarker marker, Wall wall, WallType type,
+        double baseElevation, double topElevation, List<SectionPiece> pieces)
+    {
+        var structure = type.Structure;
+        var half = structure.TotalWidth / 2;
+
+        var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
+        var whole = WallJoins.GetBandOutline(wall, type, half, -half, startCut, endCut);
+        var crossings = CrossPolygon(marker, whole).ToList();
+
+        if (crossings.Count == 0)
+        {
+            AddSeenWall(document, marker, wall, type, structure, baseElevation, topElevation, pieces);
+            return;
+        }
+
+        var layers = structure.GetLayerOffsets()
+            .Where(entry => entry.Layer.Thickness > 0)
+            .Select(entry => (entry.Layer, Spans: CrossPolygon(marker,
+                WallJoins.GetBandOutline(wall, type, half - entry.Start, half - entry.End, startCut, endCut)).ToList()))
+            .ToList();
+
+        foreach (var (from, to) in crossings)
+        {
+            var middle = marker.Start + marker.Direction * ((from + to) / 2);
+            var openings = OpeningsAt(document, wall, wall.Locate(structure, middle).Along);
+            var solid = SolidHeights(document, openings, baseElevation, topElevation);
+
+            foreach (var (layer, spans) in layers)
+            {
+                var material = document.FindMaterial(layer.MaterialId);
+
+                foreach (var (layerFrom, layerTo) in spans)
+                {
+                    var left = Math.Max(from, layerFrom);
+                    var right = Math.Min(to, layerTo);
+                    if (right - left <= Epsilon) continue;
+
+                    foreach (var (bottom, top) in solid)
+                    {
+                        pieces.Add(new SectionPiece(
+                            new SectionRect(left, bottom, right, top),
+                            SectionPart.WallLayer,
+                            SectionDepth.Cut,
+                            material?.CutColour ?? DefaultCut,
+                            material?.Name ?? layer.Function.ToString(),
+                            wall.Id));
+                    }
+                }
+            }
+
+            foreach (var (opening, openingType) in openings)
+            {
+                var sill = Math.Max(baseElevation, baseElevation + opening.SillHeight);
+                var head = Math.Min(topElevation, baseElevation + opening.SillHeight + openingType.Height);
+                if (head <= sill) continue;
+
+                AddOpeningPieces(new SectionRect(from, sill, to, head), opening, openingType, SectionDepth.Cut, pieces);
+            }
+        }
+    }
+
+    /// <summary>
     /// A wall the cut did not slice, drawn as the elevation it presents to the viewer - but
     /// only if it is actually in front of the cut plane and within the view depth.
     /// </summary>
@@ -234,10 +309,9 @@ public static class SectionProjection
         double topElevation,
         List<SectionPiece> pieces)
     {
-        var (bodyStart, bodyEnd) = wall.GetBodyCentreline(structure);
-        var offset = wall.ExteriorNormal * (structure.TotalWidth / 2);
-
-        var corners = new[] { bodyStart + offset, bodyEnd + offset, bodyEnd - offset, bodyStart - offset };
+        // The footprint of the wall: four corners, or the whole outline of a curved one.
+        var half = structure.TotalWidth / 2;
+        var corners = WallJoins.GetBandOutline(document, wall, type, half, -half);
         var depths = corners.Select(marker.DepthOf).ToList();
 
         if (depths.Max() <= Epsilon) return;                 // behind the viewer
@@ -262,8 +336,8 @@ public static class SectionProjection
             if (openingType is null) continue;
 
             var (spanFrom, spanTo) = opening.GetSpan(openingType);
-            var a = marker.DistanceAlong(wall.Start + wall.Direction * spanFrom);
-            var b = marker.DistanceAlong(wall.Start + wall.Direction * spanTo);
+            var a = marker.DistanceAlong(wall.LocationCurve.PointAt(spanFrom));
+            var b = marker.DistanceAlong(wall.LocationCurve.PointAt(spanTo));
 
             var openingLeft = Math.Max(left, Math.Min(a, b));
             var openingRight = Math.Min(right, Math.Max(a, b));

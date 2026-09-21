@@ -56,20 +56,36 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly Point2D _splitPoint;
     private readonly Point2D _originalEnd;
     private readonly WallJoinKind _originalEndJoin;
+    private readonly double _originalBulge;
+    private readonly double _firstBulge;
     private readonly Wall _remainder;
+    private readonly List<(Opening Opening, double Distance)> _moved = new();
+    private readonly double _splitAlong;
 
     public SplitWallCommand(BimDocument document, Wall wall, Point2D splitPoint)
     {
         _document = document;
         _wall = wall;
-        _splitPoint = splitPoint;
         _originalEnd = wall.End;
         _originalEndJoin = wall.EndJoin;
+        _originalBulge = wall.Bulge;
+
+        // On a curved wall the split lands on the arc, and each half keeps its share of the
+        // curve, so together they are exactly the wall that was there.
+        var curve = wall.LocationCurve;
+        _splitAlong = Math.Clamp(curve.Locate(splitPoint).Along, 0, curve.Length);
+        _splitPoint = wall.IsCurved ? curve.PointAt(_splitAlong) : splitPoint;
+        _firstBulge = curve.Part(0, _splitAlong).Bulge;
+
+        // Doors and windows beyond the split belong to the far half now.
+        foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
+            _moved.Add((opening, opening.DistanceAlongWall));
 
         _remainder = new Wall
         {
-            Start = splitPoint,
+            Start = _splitPoint,
             End = wall.End,
+            Bulge = curve.Part(_splitAlong, curve.Length).Bulge,
             TypeId = wall.TypeId,
             LevelId = wall.LevelId,
             TopLevelId = wall.TopLevelId,
@@ -97,14 +113,28 @@ public sealed class SplitWallCommand : IUndoableCommand
     public void Redo()
     {
         _wall.End = _splitPoint;
+        _wall.Bulge = _firstBulge;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
+
+        foreach (var (opening, distance) in _moved)
+        {
+            opening.HostWallId = _remainder.Id;
+            opening.DistanceAlongWall = distance - _splitAlong;
+        }
     }
 
     public void Undo()
     {
+        foreach (var (opening, distance) in _moved)
+        {
+            opening.HostWallId = _wall.Id;
+            opening.DistanceAlongWall = distance;
+        }
+
         _document.Remove(_remainder);
         _wall.End = _originalEnd;
+        _wall.Bulge = _originalBulge;
         _wall.EndJoin = _originalEndJoin;
     }
 }
@@ -137,9 +167,16 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
 
         if (document.GetWallType(wall) is not { } type) return;
 
-        var shift = wall.ExteriorNormal *
-            (LocationOffset(wall, newLine, type) - wall.GetLocationLineOffset(type.Structure));
-        if (shift.Length < 1e-9) return;
+        var delta = LocationOffset(wall, newLine, type) - wall.GetLocationLineOffset(type.Structure);
+        if (Math.Abs(delta) < 1e-9) return;
+
+        if (wall.IsCurved)
+        {
+            ShiftCurved(document, wall, type, delta);
+            return;
+        }
+
+        var shift = wall.ExteriorNormal * delta;
 
         var newLine2D = Line2D.Through(wall.Start + shift, wall.End + shift);
         var moves = new Dictionary<Wall, (Point2D Start, Point2D End)>
@@ -159,8 +196,9 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
             var joint = atStart ? wall.Start : wall.End;
             var shifted = joint + shift;
 
+            // Curved neighbours are left where they are: their line is not a line to slide along.
             var others = document.Walls
-                .Where(other => !ReferenceEquals(other, wall) && other.LevelId == wall.LevelId)
+                .Where(other => !ReferenceEquals(other, wall) && other.LevelId == wall.LevelId && !other.IsCurved)
                 .ToList();
 
             var partners = others.Where(other => WallJoins.TouchesAt(other, joint)).ToList();
@@ -202,7 +240,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         // Walls teeing into the side of this one follow its location line across.
         foreach (var stem in document.Walls)
         {
-            if (ReferenceEquals(stem, wall) || stem.LevelId != wall.LevelId || IsParallel(stem, wall)) continue;
+            if (ReferenceEquals(stem, wall) || stem.LevelId != wall.LevelId || stem.IsCurved || IsParallel(stem, wall)) continue;
 
             foreach (var atStart in new[] { true, false })
             {
@@ -260,6 +298,70 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
 
         foreach (var (opening, distance, _) in _openings) opening.DistanceAlongWall = distance;
         _wall.LocationLine = _oldLine;
+    }
+
+    /// <summary>
+    /// A curved wall's drawn line moves in or out to a concentric arc, with the same sweep, so
+    /// its ends move along the radius rather than sideways. A straight corner partner has its
+    /// end slid along its own line to meet the new end, and stems teeing into the arc follow
+    /// it too. Doors and windows keep their angle round the arc, which is their place in it.
+    /// </summary>
+    private void ShiftCurved(BimDocument document, Wall wall, WallType type, double delta)
+    {
+        var curve = wall.LocationCurve;
+        var moves = new Dictionary<Wall, (Point2D Start, Point2D End)>
+        {
+            [wall] = (wall.Start + wall.ExteriorNormalAt(0) * delta, wall.End + wall.ExteriorNormalAt(curve.Length) * delta)
+        };
+
+        var others = document.Walls
+            .Where(other => !ReferenceEquals(other, wall) && other.LevelId == wall.LevelId && !other.IsCurved)
+            .ToList();
+
+        foreach (var atStart in new[] { true, false })
+        {
+            var joint = atStart ? wall.Start : wall.End;
+            var moved = atStart ? moves[wall].Start : moves[wall].End;
+            var tangent = new Line2D(moved, wall.TangentAt(atStart ? 0 : curve.Length));
+
+            var partners = others.Where(other => WallJoins.TouchesAt(other, joint)).ToList();
+            if (partners.Count == 0 || !partners.All(partner => IsParallel(partner, partners[0]))) continue;
+
+            if (Meet(partners[0], tangent) is not { } meeting || !StaysNear(meeting, joint, type)) continue;
+
+            var (start, end) = moves[wall];
+            moves[wall] = atStart ? (meeting, end) : (start, meeting);
+
+            foreach (var partner in partners)
+            {
+                var partnerAtStart = partner.Start.DistanceTo(joint) <= WallJoins.JoinTolerance;
+                moves[partner] = partnerAtStart ? (meeting, partner.End) : (partner.Start, meeting);
+            }
+        }
+
+        // Stems ending on the arc are carried to the new arc along their own lines.
+        var newCurve = WallCurve.Of(moves[wall].Start, moves[wall].End, wall.Bulge);
+        foreach (var stem in others)
+        {
+            foreach (var atStart in new[] { true, false })
+            {
+                var end = atStart ? stem.Start : stem.End;
+                if (WallJoins.TouchesAt(wall, end) || curve.DistanceTo(end) > WallJoins.JoinTolerance) continue;
+                if (newCurve.Intersect(Line2D.Through(stem.Start, stem.End), 0, end) is not { } meeting) continue;
+                if (!StaysNear(meeting, end, type)) continue;
+
+                var (start, finish) = moves.TryGetValue(stem, out var current) ? current : (stem.Start, stem.End);
+                moves[stem] = atStart ? (meeting, finish) : (start, meeting);
+            }
+        }
+
+        foreach (var (target, (newStart, newEnd)) in moves)
+            _walls.Add((target, target.Start, target.End, newStart, newEnd));
+
+        // Same angle round a larger or smaller arc.
+        var ratio = newCurve.Length / Math.Max(curve.Length, 1e-9);
+        foreach (var opening in WallOpenings.Of(document, wall))
+            _openings.Add((opening, opening.DistanceAlongWall, opening.DistanceAlongWall * ratio));
     }
 
     private static double LocationOffset(Wall wall, WallLocationLine line, WallType type)
@@ -465,4 +567,28 @@ public sealed class SetWallJoinCommand : IUndoableCommand
         if (atStart) wall.StartJoin = kind;
         else wall.EndJoin = kind;
     }
+}
+
+/// <summary>
+/// Bends a wall into an arc, or straightens it, by changing how far it bows between its ends
+/// (specification section 3.1, curved walls). The ends stay where they are, so joins hold.
+/// </summary>
+public sealed class BendWallCommand : IUndoableCommand
+{
+    private readonly Wall _wall;
+    private readonly double _oldBulge;
+    private readonly double _newBulge;
+
+    public BendWallCommand(Wall wall, double oldBulge, double newBulge)
+    {
+        _wall = wall;
+        _oldBulge = oldBulge;
+        _newBulge = newBulge;
+    }
+
+    public string Name => _newBulge == 0 ? "Straighten Wall" : "Curve Wall";
+
+    public void Redo() => _wall.Bulge = _newBulge;
+
+    public void Undo() => _wall.Bulge = _oldBulge;
 }

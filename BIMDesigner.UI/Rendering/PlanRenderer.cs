@@ -272,7 +272,23 @@ public sealed class PlanRenderer
 
         // Show where the user actually drew, so the effect of the location line is visible.
         if (isSelected && wall.LocationLine != WallLocationLine.WallCentreline)
-            dc.DrawLine(_locationLinePen, ModelToScreen(wall.Start), ModelToScreen(wall.End));
+            DrawPolyline(dc, _locationLinePen, wall.LocationCurve.Points());
+    }
+
+    /// <summary>An open line through model points - a curve drawn as its short straight pieces.</summary>
+    public void DrawPolyline(DrawingContext dc, Pen pen, IReadOnlyList<Point2D> points)
+    {
+        if (points.Count < 2) return;
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(ModelToScreen(points[0]), false, false);
+            ctx.PolyLineTo(points.Skip(1).Select(ModelToScreen).ToArray(), true, false);
+        }
+
+        geometry.Freeze();
+        dc.DrawGeometry(null, pen, geometry);
     }
 
     private void DrawWallRun(
@@ -342,9 +358,10 @@ public sealed class PlanRenderer
         var half = type.Width / 2;
         var start = WallJoins.EndPoints(wall, type, half, -half, slice.CutFrom, atStart: true);
         var end = WallJoins.EndPoints(wall, type, half, -half, slice.CutTo, atStart: false);
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
+        var structure = type.Structure;
+        var curve = wall.LocationCurve;
 
-        double Along(Point2D point) => (point - bodyStart).Dot(wall.Direction);
+        double Along(Point2D point) => wall.Locate(structure, point).Along;
 
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
@@ -367,10 +384,17 @@ public sealed class PlanRenderer
 
                 if (cursor < b) Line(cursor, b);
 
+                // A stretch of the face, following it round if the wall is curved.
                 void Line(double u0, double u1)
                 {
-                    ctx.BeginFigure(ModelToScreen(from + (to - from) * ((u0 - a) / (b - a))), false, false);
-                    ctx.LineTo(ModelToScreen(from + (to - from) * ((u1 - a) / (b - a))), true, false);
+                    var across = exterior ? half : -half;
+                    var points = curve.Between(u0, u1, wall.LeftOf(structure, across))
+                        .Append(u1)
+                        .Select(u => ModelToScreen(wall.PointAt(structure, u, across)))
+                        .ToArray();
+
+                    ctx.BeginFigure(ModelToScreen(wall.PointAt(structure, u0, across)), false, false);
+                    ctx.PolyLineTo(points, true, false);
                 }
             }
 
@@ -400,7 +424,7 @@ public sealed class PlanRenderer
 
         var text = Text(Units.FormatLength(wall.Length), Page(11), _wallLabelBrush);
 
-        var midpoint = ModelToScreen(wall.Start.MidpointTo(wall.End));
+        var midpoint = ModelToScreen(wall.LocationCurve.PointAt(wall.Length / 2));
         var origin = new Point(midpoint.X - text.Width / 2, midpoint.Y - text.Height / 2);
         var backdrop = new Rect(
             origin.X - Page(4), origin.Y - Page(2),
@@ -427,26 +451,30 @@ public sealed class PlanRenderer
         var type = Document.FindType<OpeningType>(opening.TypeId);
         if (wallType is null || type is null) return;
 
-        var (bodyStart, _) = wall.GetBodyCentreline(wallType.Structure);
-        var along = wall.Direction;
-        var across = wall.ExteriorNormal;
+        var structure = wallType.Structure;
         var half = wallType.Width / 2;
 
         var (from, to) = opening.GetSpan(type);
 
+        // The door or window itself is straight, set on the chord between its jambs - which on
+        // a straight wall is simply the wall.
+        var jambFrom = wall.PointAt(structure, from, 0);
+        var jambTo = wall.PointAt(structure, to, 0);
+        var along = (jambTo - jambFrom).NormalisedOrDefault(wall.TangentAt(from));
+        var across = along.PerpendicularLeft();
+        if (across.Dot(wall.ExteriorNormalAt((from + to) / 2)) < 0) across = -across;
+
         // Distance along the wall to a point on its body centreline. Working in distances
         // rather than points is what lets a symbol ask "is there wall left over here?".
-        Point2D At(double distance) => bodyStart + along * distance;
-
-        var jambFrom = At(from);
-        var jambTo = At(to);
+        Point2D At(double distance) => jambFrom + along * (distance - from);
 
         var isSelected = IsSelected(opening);
         var pen = isSelected ? _selectedPen : _openingPen;
 
-        // The reveals at each end of the hole.
-        dc.DrawLine(pen, ModelToScreen(jambFrom + across * half), ModelToScreen(jambFrom - across * half));
-        dc.DrawLine(pen, ModelToScreen(jambTo + across * half), ModelToScreen(jambTo - across * half));
+        // The reveals at each end of the hole - across the wall where it is, so radial in a
+        // curved one.
+        dc.DrawLine(pen, ModelToScreen(wall.PointAt(structure, from, half)), ModelToScreen(wall.PointAt(structure, from, -half)));
+        dc.DrawLine(pen, ModelToScreen(wall.PointAt(structure, to, half)), ModelToScreen(wall.PointAt(structure, to, -half)));
 
         // The symbol says which kind of opening it is and, for a door, how the leaf moves. On
         // a plan that is the whole point of the drawing: a sliding door and a swing door
