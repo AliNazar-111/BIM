@@ -184,6 +184,9 @@ public static class SectionProjection
 
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
+            // A membrane is a line with no volume: nothing to build or cut.
+            if (layer.Thickness <= 0) continue;
+
             // Layers are measured from the exterior face inward; the band's signed offsets
             // from the centreline therefore run the other way.
             if (!ClipToBand(marker, bodyStart, bodyEnd, normal, half - end, half - start,
@@ -368,6 +371,8 @@ public static class SectionProjection
         {
             foreach (var (layer, start, end) in structure.GetLayerOffsets())
             {
+                if (layer.Thickness <= 0) continue;
+
                 var material = document.FindMaterial(layer.MaterialId);
 
                 pieces.Add(new SectionPiece(

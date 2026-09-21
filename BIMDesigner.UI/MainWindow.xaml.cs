@@ -825,9 +825,46 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan?.SelectedElement is not { } element) return;
         if (SelectedTypePicker.SelectedItem is not ElementType type || type.Id == element.TypeId) return;
 
-        _history.Execute(new SetElementTypeCommand(element, type.Id, type.Name));
-        Plan.RefreshModel();
-        RefreshProperties();
+        // Every selected element that can take this type gets it: picking a type for four
+        // selected walls should not change only the last of them.
+        var targets = Plan.SelectedElements.Where(selected => selected.Category == type.Category).ToList();
+
+        _history.Execute(new SetElementsTypeCommand(targets, type));
+        AfterHistoryChange();
+    }
+
+    // ---- wall types --------------------------------------------------------------------
+
+    private void OnManageWallTypes(object sender, RoutedEventArgs e) => ShowWallTypes(null);
+
+    private void OnEditSelectedType(object sender, RoutedEventArgs e) =>
+        ShowWallTypes(Plan.SelectedElement is { } element ? _document.FindType<WallType>(element.TypeId) : null);
+
+    private void ShowWallTypes(WallType? start)
+    {
+        var dialog = new WallTypesWindow(_document, _history, start) { Owner = this };
+
+        // Edits are applied to the model as they are made, so the drawing behind the dialog
+        // follows each one rather than catching up when it closes.
+        dialog.Changed += (_, _) => AfterTypesChanged();
+
+        dialog.ShowDialog();
+        AfterTypesChanged();
+    }
+
+    /// <summary>A type was added, removed or rebuilt: every picker listing types, and every view, follows.</summary>
+    private void AfterTypesChanged()
+    {
+        _loadingOptions = true;
+
+        var wallTypes = _document.TypesOf<WallType>().OrderBy(t => t.Name).ToList();
+        WallTypePicker.ItemsSource = wallTypes;
+        WallTypePicker.SelectedItem = wallTypes.FirstOrDefault(t => t.Id == Plan.ActiveWallTypeId) ?? wallTypes.FirstOrDefault();
+        Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as WallType)?.Id ?? Guid.Empty;
+
+        _loadingOptions = false;
+
+        AfterHistoryChange();
     }
 
     // ---- property panel --------------------------------------------------------
@@ -889,6 +926,7 @@ public partial class MainWindow : Window
         };
 
         StructureCaption.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
+        EditTypeButton.Visibility = type is WallType ? Visibility.Visible : Visibility.Collapsed;
         StructureHint.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
         StructureHint.Text = type is SlabType
             ? "Upper surface down."

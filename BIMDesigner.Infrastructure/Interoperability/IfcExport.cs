@@ -568,14 +568,17 @@ public static class IfcExport
             {
                 layerSet = New<IfcMaterialLayerSet>(set =>
                 {
-                    foreach (var layer in structure.Layers)
+                    for (var i = 0; i < structure.Layers.Count; i++)
                     {
+                        var layer = structure.Layers[i];
+                        var category = LayerCategory(layer.Function, i, structure);
+
                         set.MaterialLayers.Add(New<IfcMaterialLayer>(l =>
                         {
                             l.Material = _materials.GetValueOrDefault(layer.MaterialId);
                             l.LayerThickness = layer.Thickness;
-                            l.Name = EnumText.Humanise(layer.Function);
-                            l.Category = layer.Function == LayerFunction.Structure ? "LoadBearing" : "Finish";
+                            l.Name = LayerFunctions.Label(layer.Function);
+                            if (category is not null) l.Category = category;
                         }));
                     }
                 });
@@ -671,6 +674,21 @@ public static class IfcExport
         /// hands the receiving application a number with no idea what it measures: it cannot
         /// convert the units, schedule it as a length, or check it against anything.
         /// </summary>
+        /// <summary>
+        /// The IFC 4 category of a layer: load bearing, insulation, or a finish on the outer or
+        /// inner side of the core. Receiving applications use it to tell the structure from
+        /// what is fixed to it. Substrates and membranes have no standard category.
+        /// </summary>
+        private static string? LayerCategory(LayerFunction function, int index, CompoundStructure structure) =>
+            function switch
+            {
+                LayerFunction.Structure => "LoadBearing",
+                LayerFunction.ThermalAir => "Insulation",
+                LayerFunction.Finish1 or LayerFunction.Finish2 =>
+                    structure.CoreStartIndex >= 0 && index > structure.CoreEndIndex ? "InnerFinish" : "OuterFinish",
+                _ => null
+            };
+
         private static IfcValue? Measure(ParameterValue parameter)
         {
             var value = parameter.Value;

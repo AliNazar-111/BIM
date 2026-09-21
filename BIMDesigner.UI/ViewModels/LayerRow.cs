@@ -17,7 +17,7 @@ public sealed class LayerRow
         var material = document.FindMaterial(layer.MaterialId);
 
         MaterialName = material?.Name ?? "<missing material>";
-        FunctionName = EnumText.Humanise(layer.Function);
+        FunctionName = LayerFunctions.Label(layer.Function);
         Thickness = Units.FormatLength(layer.Thickness);
 
         var colour = material?.CutColour ?? new ColourRgb(0x6A, 0x6A, 0x6A);

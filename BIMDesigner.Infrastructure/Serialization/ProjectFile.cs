@@ -494,12 +494,7 @@ public static class ProjectFile
             var structure = new CompoundStructure();
             foreach (var layer in type.Layers)
             {
-                if (layer.Thickness <= 0) continue;   // a zero-thickness layer is not a layer
-                structure.Add(new MaterialLayer(
-                    ParseEnum(layer.Function, LayerFunction.Structure),
-                    layer.MaterialId,
-                    layer.Thickness,
-                    layer.Wraps));
+                if (ReadLayer(layer) is { } read) structure.Add(read);
             }
 
             document.AddType(new WallType(type.Name, structure)
@@ -612,12 +607,7 @@ public static class ProjectFile
         {
             var structure = new CompoundStructure();
             foreach (var layer in type.Layers)
-            {
-                if (layer.Thickness <= 0) continue;
-                structure.Add(new MaterialLayer(
-                    ParseEnum(layer.Function, LayerFunction.Structure),
-                    layer.MaterialId, layer.Thickness, layer.Wraps));
-            }
+                if (ReadLayer(layer) is { } read) structure.Add(read);
 
             SlabType slabType = type.Kind switch
             {
@@ -807,6 +797,29 @@ public static class ProjectFile
         document.EnsureDefaultTypes();
 
         return document;
+    }
+
+    /// <summary>
+    /// One layer of a build-up, or null if it cannot be one.
+    ///
+    /// Earlier files named finishes by side ("FinishExterior") and could give a membrane a
+    /// thickness. The names are read as the finish they were used for, and a membrane with
+    /// substance is kept as the finish it really was, so no wall changes size on opening.
+    /// </summary>
+    private static MaterialLayer? ReadLayer(MaterialLayerDto dto)
+    {
+        var function = LayerFunctions.TryParse(dto.Function, out var parsed) ? parsed : LayerFunction.Structure;
+
+        if (function == LayerFunction.Membrane)
+        {
+            if (dto.Thickness > 0) function = LayerFunction.Finish1;
+            else return new MaterialLayer(LayerFunction.Membrane, dto.MaterialId, 0, dto.Wraps);
+        }
+
+        // A zero-thickness layer that is not a membrane is not a layer.
+        return dto.Thickness > 0
+            ? new MaterialLayer(function, dto.MaterialId, dto.Thickness, dto.Wraps)
+            : null;
     }
 
     private static void ReadOpeningType(OpeningType type, OpeningTypeDto dto)

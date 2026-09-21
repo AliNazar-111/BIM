@@ -98,6 +98,9 @@ public static class ModelMeshBuilder
 
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
+            // A membrane is a line with no volume: nothing to build or cut.
+            if (layer.Thickness <= 0) continue;
+
             var material = document.FindMaterial(layer.MaterialId);
             var mesh = new Mesh3D(
                 wall.Id, wall.LevelId, MeshKind.Wall,
@@ -177,6 +180,9 @@ public static class ModelMeshBuilder
 
         foreach (var (layer, start, end) in type.Structure.GetLayerOffsets())
         {
+            // A membrane is a line with no volume: nothing to build or cut.
+            if (layer.Thickness <= 0) continue;
+
             var material = document.FindMaterial(layer.MaterialId);
             var mesh = new Mesh3D(
                 slab.Id, slab.LevelId,

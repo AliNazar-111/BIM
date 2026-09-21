@@ -1,0 +1,239 @@
+<Window x:Class="BIMDesigner.UI.WallTypesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:BIMDesigner.UI.Controls"
+        Title="Wall Types" Height="720" Width="1000" MinHeight="600" MinWidth="880"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg.Window}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource UiFont}"
+        FontSize="{StaticResource UiFontSize}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        Closing="OnClosing">
+
+    <Window.Resources>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="FontSize" Value="{StaticResource UiFontSizeSmall}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Buttons along the bottom -->
+        <Border DockPanel.Dock="Bottom" Padding="16,10,16,14"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="ProblemText" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Foreground="#E8806A"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="RevertButton" Content="Revert" Padding="14,5" Margin="0,0,8,0"
+                            Click="OnRevert" ToolTip="Throw away the changes not yet applied"/>
+                    <Button x:Name="ApplyButton" Content="Apply" Padding="18,5" Margin="0,0,8,0"
+                            Click="OnApply" ToolTip="Apply to this type - every wall of it changes"/>
+                    <Button Content="Close" Padding="18,5" IsCancel="True" Click="OnClose"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Margin="16,14,16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="18"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- The types in the project -->
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="WALL TYPES" Style="{StaticResource Caption}"/>
+
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button Content="Duplicate" Padding="12,5" Margin="0,0,8,0" Click="OnDuplicate"
+                            ToolTip="A new type starting from this one, to change without touching its walls"/>
+                    <Button x:Name="DeleteButton" Content="Delete" Padding="12,5" Click="OnDelete"
+                            ToolTip="Only a type no wall uses can be deleted"/>
+                </StackPanel>
+
+                <ListBox x:Name="TypeList" Margin="0,8,0,0" SelectionChanged="OnTypeSelected"
+                         Background="{StaticResource Bg.Panel}" BorderBrush="{StaticResource Line}"
+                         Foreground="{StaticResource Text}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="4,5">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Summary}" Foreground="{StaticResource Text.Muted}"
+                                           FontSize="{StaticResource UiFontSizeSmall}" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <!-- The type being edited -->
+            <DockPanel Grid.Column="2">
+                <Grid DockPanel.Dock="Top">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="NameBox" Grid.Column="1" Grid.ColumnSpan="4" TextChanged="OnDesignChanged"/>
+
+                    <TextBlock Grid.Row="2" Text="Function" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="FunctionPicker" Grid.Row="2" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="Where this wall sits in the building - used by view filters and schedules"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="3" Text="Width" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock x:Name="WidthText" Grid.Row="2" Grid.Column="4" VerticalAlignment="Center"
+                               FontWeight="SemiBold"/>
+
+                    <TextBlock Grid.Row="4" Text="Wrap at openings" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="InsertWrapPicker" Grid.Row="4" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="Which finishes return into door and window openings"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="3" Text="Wrap at ends" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="EndWrapPicker" Grid.Row="4" Grid.Column="4" SelectionChanged="OnDesignChanged"
+                              ToolTip="Which finishes turn round an exposed wall end"/>
+                </Grid>
+
+                <controls:WallTypePreview x:Name="Preview" DockPanel.Dock="Bottom" Height="130" Margin="0,12,0,0"/>
+
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Add Layer" Padding="12,5" Margin="0,0,8,0" Click="OnAddLayer"
+                            ToolTip="Add a layer below the selected one"/>
+                    <Button x:Name="RemoveLayerButton" Content="Remove" Padding="12,5" Margin="0,0,8,0" Click="OnRemoveLayer"/>
+                    <Button x:Name="UpButton" Content="Move Out" Padding="12,5" Margin="0,0,8,0" Click="OnMoveUp"
+                            ToolTip="Toward the exterior face"/>
+                    <Button x:Name="DownButton" Content="Move In" Padding="12,5" Click="OnMoveDown"
+                            ToolTip="Toward the interior face"/>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Top" Margin="0,16,0,6">
+                    <TextBlock Text="LAYERS" Style="{StaticResource Caption}"/>
+                    <TextBlock Margin="0,3,0,0" Foreground="{StaticResource Text.Disabled}"
+                               FontSize="{StaticResource UiFontSizeSmall}" TextWrapping="Wrap"
+                               Text="Exterior face at the top, interior face at the bottom. The number is the join priority: where walls meet, lower numbers join first. The core runs from the first Structure layer to the last; only layers outside it wrap. A membrane is a line with no thickness."/>
+                </StackPanel>
+
+                <DataGrid x:Name="LayerGrid" AutoGenerateColumns="False" HeadersVisibility="Column"
+                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                          CanUserSortColumns="False" SelectionMode="Single"
+                          RowHeight="40" 
+                          SelectionChanged="OnLayerSelected">
+                    <!-- The theme's rows are sized for text. These hold combo boxes and text boxes,
+                         which need the height and less padding round them. -->
+                    <DataGrid.CellStyle>
+                        <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                            <Setter Property="Padding" Value="4,3"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        </Style>
+                    </DataGrid.CellStyle>
+                    <DataGrid.Resources>
+                        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="Padding" Value="8,4"/>
+                        </Style>
+                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="Padding" Value="6,3"/>
+                            <Setter Property="MinHeight" Value="28"/>
+                        </Style>
+                    </DataGrid.Resources>
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="" Width="26" IsReadOnly="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Border Width="14" Height="14" Background="{Binding Swatch}"
+                                            BorderBrush="{StaticResource Line.Strong}" BorderThickness="1"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Function" Width="150">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <ComboBox ItemsSource="{Binding FunctionChoices}"
+                                              SelectedItem="{Binding FunctionName, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Material" Width="*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <ComboBox ItemsSource="{Binding Materials}" DisplayMemberPath="Name"
+                                              SelectedValuePath="Id"
+                                              SelectedValue="{Binding MaterialId, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Thickness" Width="110">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBox Text="{Binding ThicknessText, UpdateSourceTrigger=LostFocus}"
+                                             IsEnabled="{Binding CanEditThickness}" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Wraps" Width="60">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding Wraps, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding CanWrap}" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+
+                        <DataGridTemplateColumn Header="Core" Width="50" IsReadOnly="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="●" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource Accent}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Hidden"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsCore}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

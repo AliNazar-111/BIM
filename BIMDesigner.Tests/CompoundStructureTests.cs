@@ -18,10 +18,10 @@ public class CompoundStructureTests
 
     /// <summary>Brick 100 | cavity 50 | block core 140 | plaster 10 = 300 mm.</summary>
     private static CompoundStructure CavityWall() => new(
-        new MaterialLayer(LayerFunction.FinishExterior, Brick, 100),
-        new MaterialLayer(LayerFunction.ThermalOrAir, Cavity, 50),
+        new MaterialLayer(LayerFunction.Finish1, Brick, 100),
+        new MaterialLayer(LayerFunction.ThermalAir, Cavity, 50),
         new MaterialLayer(LayerFunction.Structure, Block, 140),
-        new MaterialLayer(LayerFunction.FinishInterior, Plaster, 10));
+        new MaterialLayer(LayerFunction.Finish2, Plaster, 10));
 
     [Fact]
     public void TotalWidth_IsTheSumOfTheLayers()
@@ -43,8 +43,8 @@ public class CompoundStructureTests
     public void Core_FallsBackToTheWholeAssemblyWhenNothingIsStructural()
     {
         var structure = new CompoundStructure(
-            new MaterialLayer(LayerFunction.FinishExterior, Plaster, 15),
-            new MaterialLayer(LayerFunction.FinishInterior, Plaster, 15));
+            new MaterialLayer(LayerFunction.Finish1, Plaster, 15),
+            new MaterialLayer(LayerFunction.Finish2, Plaster, 15));
 
         Assert.Equal(30, structure.CoreWidth, precision: 6);
         Assert.Equal(0, structure.ExteriorWidth, precision: 6);

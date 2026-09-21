@@ -18,6 +18,32 @@ dotnet test                                  # run the test suite
 Or press **F5** in VS Code (uses `.vscode/launch.json`, with breakpoints).
 Requires the C# Dev Kit extension for IntelliSense and debugging.
 
+### Windows 11 and Smart App Control
+
+If **Smart App Control** is on, Windows may refuse to load a freshly built
+`BIMDesigner.Core.dll` or another of the project's own libraries. It judges programs by
+reputation, and every build is new, unsigned code, so a build it let through yesterday can be
+blocked today. The symptoms:
+
+- the tests all fail with *"An Application Control policy has blocked this file"*
+  (`0x800711C7`);
+- the app shows **BIMDesigner could not start** and names the blocked file, rather than
+  crashing.
+
+To confirm it is this, look in Event Viewer under *Applications and Services Logs →
+Microsoft → Windows → CodeIntegrity → Operational* for a Smart App Control block naming the
+file.
+
+On a machine used to build software, turn it off: **Windows Security → App & browser control
+→ Smart App Control settings → Off**. On many Windows 11 versions it cannot be turned back on
+without resetting Windows, so treat that as a decision for the machine, not for the build. On
+a managed machine the block may come from your organisation's own policy instead; that has to
+be allowed by whoever manages it.
+
+People installing a released copy are not expected to do this. Released builds are to be
+signed with a trusted code-signing certificate, which is what Smart App Control accepts
+(see the roadmap).
+
 ## Projects
 
 | Project | Purpose |
@@ -285,6 +311,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Attach a wall's top to a level | Properties → **Top Constraint** → Up to level |
 | Hide walls by function | View → Wall Functions → pick the view, untick the function |
 | Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
+| Make or edit a wall type | Architecture → Wall Types..., or **Edit Type...** in Properties with a wall selected |
+| Change the type of several walls | Select them, then pick a type at the top of Properties |
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |

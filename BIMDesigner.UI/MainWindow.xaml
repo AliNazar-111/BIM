@@ -217,7 +217,9 @@
                 <MenuItem Header="_Delete Sheet" Click="OnDeleteSheet"/>
             </MenuItem>
             <MenuItem Header="_Building" IsEnabled="False"/>
-            <MenuItem Header="_Architecture" IsEnabled="False"/>
+            <MenuItem Header="_Architecture">
+                <MenuItem Header="_Wall Types..." Click="OnManageWallTypes"/>
+            </MenuItem>
             <MenuItem Header="_Structure" IsEnabled="False"/>
             <MenuItem Header="_Help" IsEnabled="False"/>
         </Menu>
@@ -589,6 +591,9 @@
                                     <ComboBox x:Name="SelectedTypePicker" DisplayMemberPath="Name"
                                               SelectionChanged="OnSelectedTypeChanged"
                                               ToolTip="Change this wall's type. Every wall of a type shares its layers."/>
+                                    <Button x:Name="EditTypeButton" Content="Edit Type..." Margin="0,8,0,0"
+                                            Padding="10,4" HorizontalAlignment="Left" Click="OnEditSelectedType"
+                                            ToolTip="Change the layers of this type, or duplicate it to make a new one"/>
                                 </StackPanel>
                             </Border>
 

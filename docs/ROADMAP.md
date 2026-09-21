@@ -23,6 +23,7 @@ test before the next begins.
 | 1.3c | Radial array, rotate, scale, align, and lock constraints | §2.4 | ⬜ |
 | **1.3d** | **Wall completion (W1)** — editable top constraint and top offset, location line changes that keep the wall in place, flip control and Space to flip, offset while drawing, wall functions hidden per view | §3.1 §6.2 | ✅ |
 | **1.3e** | **Wall joins and wrapping (W2)** — shared junctions for three or more walls, heaviest run carries through a cross, per-end join control (mitre, butt, run through, square off, disallow), clean outlines with no lines across joins, layers wrapping at exposed ends and openings | §2.4 §3.1 | ✅ |
+| **1.3f** | **Wall type editor (W3)** — duplicate, rename and delete wall types; edit layers (function, material, thickness, wrapping) with a live preview and core boundaries; applied as one undoable step; change the type of a whole selection | §3.1 §13.1 | ✅ |
 | **1.4** | **Hosting** — doors and windows in walls, automatic openings, host delete cascades, plan symbols | §2.5 §3.5 §13.2 §13.3 | ✅ |
 | **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection | §3.7 §13.4 | ✅ |
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |
@@ -44,6 +45,7 @@ test before the next begins.
 | 1.11c | Sheet lists, revision schedules and clouds, issue history | §6.5 §7 | ⬜ |
 | **1.12a** | **IFC4 export** — project/site/building/storeys, walls, slabs, ceilings, doors, windows with real openings, spaces, material layer sets, standard and custom property sets, stable identifiers | §8 | ✅ |
 | 1.12b | IFC import, DXF export of plans and sheets, IFC2x3 fallback, COBie | §8 | ⬜ |
+| 1.13 | **Release packaging** — installer, signed with a trusted code-signing certificate so Smart App Control and SmartScreen accept it; file association for .bimx | §12 | ⬜ |
 
 ## Phase 2 — Documentation depth & data ⬜
 Stairs/railings, curtain walls, site, view templates, filters, keynotes, revisions, design

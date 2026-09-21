@@ -33,6 +33,29 @@ public sealed class WallType : ElementType
     /// <summary>The layers, ordered exterior face to interior face.</summary>
     public CompoundStructure Structure { get; }
 
+    /// <summary>
+    /// A new type with this one's build-up and settings, and its own copies of them, so it can
+    /// be changed without touching any wall of this type. How new types are made.
+    /// </summary>
+    public WallType Duplicate(string name) => new(name, Structure.Clone())
+    {
+        TypeMark = TypeMark,
+        AssemblyCode = AssemblyCode,
+        Keynote = Keynote,
+        Manufacturer = Manufacturer,
+        Url = Url,
+        Description = Description,
+        Cost = Cost,
+        Function = Function,
+        FireRating = FireRating,
+        AcousticRating = AcousticRating,
+        ThermalResistance = ThermalResistance,
+        HeatTransferCoefficient = HeatTransferCoefficient,
+        WrapAtInserts = WrapAtInserts,
+        WrapAtEnds = WrapAtEnds,
+        CoarseScaleFillColour = CoarseScaleFillColour
+    };
+
     /// <summary>Total thickness in millimetres, derived from the layers.</summary>
     public double Width => Structure.TotalWidth;
 

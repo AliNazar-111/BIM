@@ -45,6 +45,7 @@ public sealed class PlanRenderer
 
     private readonly Pen _wallOutlinePen;
     private readonly Pen _layerPen;
+    private readonly Pen _membranePen;
     private readonly Pen _selectedPen;
     private readonly Pen _previewPen;
     private readonly Pen _locationLinePen;
@@ -89,6 +90,7 @@ public sealed class PlanRenderer
 
         _wallOutlinePen = RenderPens.Solid(ink.WallOutline, 1.3);
         _layerPen = RenderPens.Solid(ink.LayerSeparator, 0.7);
+        _membranePen = RenderPens.Dashed(ink.WallOutline, 1.0, 5, 3);
         _selectedPen = RenderPens.Solid(ink.Selected, 2.2);
         _previewPen = RenderPens.Dashed(ink.Preview, 1.4, 4, 3);
         _locationLinePen = RenderPens.Dashed(ink.LocationLine, 1.2, 6, 4);
@@ -304,6 +306,14 @@ public sealed class PlanRenderer
 
             foreach (var (layer, start, end) in structure.GetLayerOffsets())
             {
+                // A membrane has no thickness: it is drawn as the dashed line it is on a detail.
+                if (layer.Thickness <= 0)
+                {
+                    var line = WallJoins.GetBandOutline(wall, type, half - start, half - end, cutFrom, cutTo);
+                    dc.DrawLine(_membranePen, ModelToScreen(line[0]), ModelToScreen(line[1]));
+                    continue;
+                }
+
                 var band = WallJoins.GetBandOutline(wall, type, half - start, half - end, cutFrom, cutTo);
                 dc.DrawGeometry(MaterialBrush(layer.MaterialId), separator, BuildOutline(band));
             }

@@ -89,6 +89,11 @@ public sealed class BimDocument
 
     public void AddType(ElementType type) => _types[type.Id] = type;
 
+    public bool RemoveType(ElementType type) => _types.Remove(type.Id);
+
+    /// <summary>The elements built from a type - what editing it changes, and what stops it being deleted.</summary>
+    public IEnumerable<Element> ElementsOfType(ElementType type) => Elements.Where(element => element.TypeId == type.Id);
+
     public void Add(Element element) => Elements.Add(element);
 
     public bool Remove(Element element) => Elements.Remove(element);
@@ -214,11 +219,11 @@ public sealed class BimDocument
 
         // Exterior cavity wall: brick outer leaf, cavity, insulation, block core, plaster.
         var exterior = new WallType("Exterior - Brick on Block 330mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.FinishExterior, brick.Id, 100),
-            new MaterialLayer(LayerFunction.ThermalOrAir, cavity.Id, 25, wraps: false),
-            new MaterialLayer(LayerFunction.ThermalOrAir, insulation.Id, 50, wraps: false),
+            new MaterialLayer(LayerFunction.Finish1, brick.Id, 100),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 25, wraps: false),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50, wraps: false),
             new MaterialLayer(LayerFunction.Structure, block.Id, 140),
-            new MaterialLayer(LayerFunction.FinishInterior, plaster.Id, 15)))
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 15)))
         {
             Function = WallFunction.Exterior,
             TypeMark = "EW1",
@@ -233,9 +238,9 @@ public sealed class BimDocument
 
         // Lightweight partition: board, stud zone, board.
         var partition = new WallType("Interior - Partition 125mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.FinishExterior, plasterboard.Id, 12.5),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5),
             new MaterialLayer(LayerFunction.Structure, cavity.Id, 100),
-            new MaterialLayer(LayerFunction.FinishInterior, plasterboard.Id, 12.5)))
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
         {
             Function = WallFunction.Interior,
             TypeMark = "P1",
@@ -325,8 +330,8 @@ public sealed class BimDocument
 
         // Horizontal build-ups, layered from the upper surface downward.
         var screedFloor = new FloorType("Floor - Screed on Slab 250mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.FinishExterior, plaster.Id, 60),
-            new MaterialLayer(LayerFunction.ThermalOrAir, insulation.Id, 40),
+            new MaterialLayer(LayerFunction.Finish1, plaster.Id, 60),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 40),
             new MaterialLayer(LayerFunction.Structure, concrete.Id, 150)))
         {
             TypeMark = "F1",
@@ -340,9 +345,9 @@ public sealed class BimDocument
         };
 
         var timberFloor = new FloorType("Floor - Timber 220mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.FinishExterior, plasterboard.Id, 20),
+            new MaterialLayer(LayerFunction.Finish1, plasterboard.Id, 20),
             new MaterialLayer(LayerFunction.Structure, cavity.Id, 180),
-            new MaterialLayer(LayerFunction.FinishInterior, plasterboard.Id, 20)))
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 20)))
         {
             TypeMark = "F2",
             AssemblyCode = "B1010",
@@ -354,7 +359,7 @@ public sealed class BimDocument
         };
 
         var plasterboardCeiling = new CeilingType("Ceiling - Plasterboard 25mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.FinishInterior, plasterboard.Id, 25)))
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 25)))
         {
             TypeMark = "C1",
             AssemblyCode = "C3030",
@@ -365,8 +370,8 @@ public sealed class BimDocument
         };
 
         var flatRoof = new RoofType("Roof - Warm Flat 320mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.Membrane, plaster.Id, 10),
-            new MaterialLayer(LayerFunction.ThermalOrAir, insulation.Id, 160),
+            new MaterialLayer(LayerFunction.Finish1, plaster.Id, 10),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 160),
             new MaterialLayer(LayerFunction.Structure, concrete.Id, 150)))
         {
             TypeMark = "R1",
