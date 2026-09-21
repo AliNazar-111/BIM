@@ -263,8 +263,10 @@ public sealed class PlanRenderer
         // over the wall afterwards - the wall genuinely is not there (section 2.5). Where
         // those stretches start and stop is worked out in Core, so the plan and the 3D model
         // cannot disagree about the shape of a wall.
+        var gaps = WallJoins.FaceGaps(Document, wall, type);
+
         foreach (var slice in WallSlices.Solid(Document, wall, type))
-            DrawWallRun(dc, wall, type, slice.CutFrom, slice.CutTo, isSelected);
+            DrawWallRun(dc, wall, type, slice, gaps, isSelected);
 
         // Show where the user actually drew, so the effect of the location line is visible.
         if (isSelected && wall.LocationLine != WallLocationLine.WallCentreline)
@@ -272,10 +274,12 @@ public sealed class PlanRenderer
     }
 
     private void DrawWallRun(
-        DrawingContext dc, Wall wall, WallType type, Line2D cutFrom, Line2D cutTo, bool isSelected)
+        DrawingContext dc, Wall wall, WallType type, WallSlice slice,
+        IReadOnlyList<(bool Exterior, double From, double To)> gaps, bool isSelected)
     {
         var structure = type.Structure;
         var half = structure.TotalWidth / 2;
+        var (cutFrom, cutTo) = (slice.CutFrom, slice.CutTo);
 
         // What is drawn is decided by the view's detail level alone (specification section
         // 6.2). Zoom is navigation: magnifying a plan must not change its content.
@@ -305,8 +309,76 @@ public sealed class PlanRenderer
             }
         }
 
-        dc.DrawGeometry(null, isSelected ? _selectedPen : _wallOutlinePen,
-            BuildOutline(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo)));
+        // A selected wall is outlined all round, so it is clear exactly what is selected.
+        if (isSelected)
+        {
+            dc.DrawGeometry(null, _selectedPen,
+                BuildOutline(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo)));
+            return;
+        }
+
+        dc.DrawGeometry(null, _wallOutlinePen, BuildCleanOutline(wall, type, slice, gaps));
+    }
+
+    /// <summary>
+    /// The lines a finished plan draws round a wall: its two faces, less the stretches where
+    /// another wall carries on from them, and its ends only where they are exposed. Where
+    /// walls join, nothing is drawn across the join, so a building reads as one mass rather
+    /// than as boxes pushed together.
+    /// </summary>
+    private StreamGeometry BuildCleanOutline(
+        Wall wall, WallType type, WallSlice slice, IReadOnlyList<(bool Exterior, double From, double To)> gaps)
+    {
+        var half = type.Width / 2;
+        var start = WallJoins.EndPoints(wall, type, half, -half, slice.CutFrom, atStart: true);
+        var end = WallJoins.EndPoints(wall, type, half, -half, slice.CutTo, atStart: false);
+        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
+
+        double Along(Point2D point) => (point - bodyStart).Dot(wall.Direction);
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            void Face(Point2D from, Point2D to, bool exterior)
+            {
+                var a = Along(from);
+                var b = Along(to);
+                if (b - a <= 1e-9) return;
+
+                // Walk the face, skipping every stretch another wall stops against.
+                var cursor = a;
+                foreach (var (_, gapFrom, gapTo) in gaps
+                             .Where(gap => gap.Exterior == exterior && gap.To > a && gap.From < b)
+                             .OrderBy(gap => gap.From))
+                {
+                    if (gapFrom > cursor) Line(cursor, gapFrom);
+                    cursor = Math.Max(cursor, gapTo);
+                }
+
+                if (cursor < b) Line(cursor, b);
+
+                void Line(double u0, double u1)
+                {
+                    ctx.BeginFigure(ModelToScreen(from + (to - from) * ((u0 - a) / (b - a))), false, false);
+                    ctx.LineTo(ModelToScreen(from + (to - from) * ((u1 - a) / (b - a))), true, false);
+                }
+            }
+
+            void End(IReadOnlyList<Point2D> points)
+            {
+                ctx.BeginFigure(ModelToScreen(points[0]), false, false);
+                ctx.PolyLineTo(points.Skip(1).Select(ModelToScreen).ToArray(), true, false);
+            }
+
+            Face(start[0], end[0], exterior: true);
+            Face(start[^1], end[^1], exterior: false);
+
+            if (!slice.CutFrom.IsJoined) End(start);
+            if (!slice.CutTo.IsJoined) End(end);
+        }
+
+        geometry.Freeze();
+        return geometry;
     }
 
     private void DrawWallLabel(DrawingContext dc, Wall wall)

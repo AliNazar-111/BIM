@@ -41,7 +41,9 @@ public class WallJunctionSweepTests
     /// </summary>
     private static string? Fault(Wall wall, WallType type, IReadOnlyList<Point2D> outline)
     {
-        if (outline.Count != 4) return $"{outline.Count} corners";
+        // Four corners for straight ends; more where a shared junction or a wrapped layer
+        // turns a corner.
+        if (outline.Count < 4) return $"{outline.Count} corners";
 
         foreach (var corner in outline)
             if (double.IsNaN(corner.X) || double.IsNaN(corner.Y) ||
@@ -50,13 +52,10 @@ public class WallJunctionSweepTests
 
         var direction = wall.Direction;
 
-        // Outline order is outer at start, outer at end, inner at end, inner at start. Both
-        // long edges have to run the same way along the wall, or the shape is folded over.
+        // Outline order starts outer at start, outer at end. That edge has to run the right
+        // way along the wall, and no two edges may cross, or the shape is folded over.
         if ((outline[1] - outline[0]).Dot(direction) <= 0) return "the outer edge runs backwards";
-        if ((outline[2] - outline[3]).Dot(direction) <= 0) return "the inner edge runs backwards";
-
-        if (Crosses(outline[0], outline[1], outline[2], outline[3])) return "the long edges cross";
-        if (Crosses(outline[1], outline[2], outline[3], outline[0])) return "the ends cross";
+        if (OutlineChecks.IsSelfIntersecting(outline)) return "the outline crosses itself";
 
         var area = Polygon2D.Area(outline);
         if (area < 1) return "no area";
@@ -73,19 +72,6 @@ public class WallJunctionSweepTests
         if (area > (wall.Length + 4 * type.Width) * type.Width * 2) return "far too much area";
 
         return null;
-    }
-
-    private static bool Crosses(Point2D a, Point2D b, Point2D c, Point2D d)
-    {
-        double Side(Point2D p, Point2D q, Point2D r) => (q - p).Cross(r - p);
-
-        var d1 = Side(c, d, a);
-        var d2 = Side(c, d, b);
-        var d3 = Side(a, b, c);
-        var d4 = Side(a, b, d);
-
-        return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-               ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
     }
 
     private static void AssertEveryWallIsSane(BimDocument document, string arrangement)

@@ -107,7 +107,7 @@ public static class ModelMeshBuilder
             foreach (var (slice, pieceBottom, pieceTop) in pieces)
             {
                 var outline = WallJoins.GetBandOutline(
-                    wall, type, half - start, half - end, slice.CutFrom, slice.CutTo);
+                    wall, type, half - start, half - end, Unwrapped(slice.CutFrom), Unwrapped(slice.CutTo));
 
                 mesh.AddExtrusion(outline, pieceBottom, pieceTop);
             }
@@ -118,6 +118,14 @@ public static class ModelMeshBuilder
         foreach (var (opening, openingType, from, to, sill, head) in openings)
             AddOpeningInfill(wall, type, opening, from, to, sill, head, meshes);
     }
+
+    /// <summary>
+    /// A jamb without its wrapping. The finishes return into a reveal only as high as the
+    /// opening; above it the wall carries on unbroken, and a solid built from the plan
+    /// cut would run the return the full height of the wall.
+    /// </summary>
+    private static WallCut Unwrapped(WallCut cut) =>
+        cut.Condition == WallEndCondition.Jamb ? new WallCut(cut.Points, cut.Condition) : cut;
 
     /// <summary>
     /// What fills a hole: a pane of glass for a window, a closed leaf for a door. Both sit in

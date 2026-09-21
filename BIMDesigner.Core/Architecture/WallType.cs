@@ -50,10 +50,17 @@ public sealed class WallType : ElementType
     /// <summary>Heat transfer coefficient U, in W/m²K.</summary>
     public double HeatTransferCoefficient { get; set; }
 
-    /// <summary>Whether layers return into door and window openings (section 3.1).</summary>
-    public bool WrapAtInserts { get; set; } = true;
+    /// <summary>Which layers return into door and window openings (section 3.1).</summary>
+    public WallWrapping WrapAtInserts { get; set; } = WallWrapping.Both;
 
-    public bool WrapAtEnds { get; set; }
+    /// <summary>Which layers turn round an exposed end. Never both: an end has one way round.</summary>
+    public WallWrapping WrapAtEnds
+    {
+        get => _wrapAtEnds;
+        set => _wrapAtEnds = value == WallWrapping.Both ? WallWrapping.Exterior : value;
+    }
+
+    private WallWrapping _wrapAtEnds = WallWrapping.None;
 
     /// <summary>Colour used to fill the wall when a plan is drawn at coarse detail.</summary>
     public ColourRgb CoarseScaleFillColour { get; set; } = new(0x8A, 0x93, 0xA1);
@@ -73,8 +80,16 @@ public sealed class WallType : ElementType
         yield return ParameterValue.Bind(WallTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.ThermalResistance, () => ThermalResistance, v => ThermalResistance = v);
         yield return ParameterValue.Bind(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
-        yield return ParameterValue.Bind(WallTypeParameters.WrapAtInserts, () => WrapAtInserts, v => WrapAtInserts = v);
-        yield return ParameterValue.Bind(WallTypeParameters.WrapAtEnds, () => WrapAtEnds, v => WrapAtEnds = v);
+        yield return ParameterValue.BindChoice(
+            WallTypeParameters.WrapAtInserts,
+            () => EnumText.Humanise(WrapAtInserts),
+            v => { if (EnumText.TryParse<WallWrapping>(v, out var w)) WrapAtInserts = w; },
+            EnumText.Choices<WallWrapping>());
+        yield return ParameterValue.BindChoice(
+            WallTypeParameters.WrapAtEnds,
+            () => EnumText.Humanise(WrapAtEnds),
+            v => { if (EnumText.TryParse<WallWrapping>(v, out var w)) WrapAtEnds = w; },
+            new[] { WallWrapping.None, WallWrapping.Exterior, WallWrapping.Interior }.Select(w => EnumText.Humanise(w)).ToArray());
     }
 }
 
@@ -102,8 +117,8 @@ public static class WallTypeParameters
         new("Heat Transfer Coefficient (U)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition WrapAtInserts =
-        new("Wrapping at Inserts", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+        new("Wrapping at Inserts", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition WrapAtEnds =
-        new("Wrapping at Ends", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+        new("Wrapping at Ends", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 }

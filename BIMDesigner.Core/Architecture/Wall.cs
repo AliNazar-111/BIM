@@ -84,6 +84,12 @@ public sealed class Wall : Element
 
     public StructuralUsage StructuralUsage { get; set; } = StructuralUsage.NonBearing;
 
+    /// <summary>How the start of the wall is joined to whatever meets it there.</summary>
+    public WallJoinKind StartJoin { get; set; } = WallJoinKind.Auto;
+
+    /// <summary>How the end of the wall is joined to whatever meets it there.</summary>
+    public WallJoinKind EndJoin { get; set; } = WallJoinKind.Auto;
+
     /// <summary>Length of the location line, in millimetres.</summary>
     public double Length => Start.DistanceTo(End);
 
@@ -288,6 +294,19 @@ public sealed class Wall : Element
         yield return ParameterValue.ReadOnly(WallParameters.Area, () => GetArea(document));
         yield return ParameterValue.ReadOnly(WallParameters.Volume, () => GetVolume(document));
 
+        // Joins - one setting per end, kept in step with the wall at the other side of it
+        foreach (var atStart in new[] { true, false })
+        {
+            var end = atStart;
+            yield return ParameterValue.BindChoiceCommand(
+                atStart ? WallParameters.StartJoin : WallParameters.EndJoin,
+                () => EnumText.Humanise(end ? StartJoin : EndJoin),
+                v => EnumText.TryParse<WallJoinKind>(v, out var kind)
+                    ? new SetWallJoinCommand(document, this, end, kind)
+                    : null,
+                EnumText.Choices<WallJoinKind>());
+        }
+
         // Analytical
         yield return ParameterValue.BindChoice(
             WallParameters.StructuralUsage,
@@ -333,6 +352,12 @@ public static class WallParameters
 
     public static readonly ParameterDefinition Volume =
         new("Volume", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition StartJoin =
+        new("Start Join", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition EndJoin =
+        new("End Join", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition StructuralUsage =
         new("Structural Usage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);

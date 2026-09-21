@@ -354,8 +354,13 @@ internal sealed class WallTypeDto
     public double AcousticRating { get; set; }
     public double ThermalResistance { get; set; }
     public double HeatTransferCoefficient { get; set; }
+    /// <summary>Yes/no in files written before the wrapping choices; kept so those still open.</summary>
     public bool WrapAtInserts { get; set; } = true;
     public bool WrapAtEnds { get; set; }
+
+    /// <summary>"None", "Exterior", "Interior" or "Both". Empty in older files.</summary>
+    public string WrappingAtInserts { get; set; } = string.Empty;
+    public string WrappingAtEnds { get; set; } = string.Empty;
     public string CoarseScaleFillColour { get; set; } = "#8A93A1";
 
     public List<MaterialLayerDto> Layers { get; set; } = new();
@@ -449,6 +454,10 @@ internal sealed class WallDto
     public double UnconnectedHeight { get; set; } = 3000;
     public bool RoomBounding { get; set; } = true;
     public string StructuralUsage { get; set; } = "NonBearing";
+
+    /// <summary>How each end joins: "Auto", "Mitre", "Butt", "RunThrough", "SquareOff" or "Disallow".</summary>
+    public string StartJoin { get; set; } = "Auto";
+    public string EndJoin { get; set; } = "Auto";
 
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;

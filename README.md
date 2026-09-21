@@ -202,15 +202,29 @@ a wall deletes its doors and windows, because a door with no wall would quietly 
 every schedule that counts them. (§2.5)
 
 **A mitre cuts every layer on one line**, so a corner turns as a single piece of
-construction. An end with no single wall to turn against is cut square and the walls simply
-overlap, which fills a junction solidly.
+construction.
 
-Two more elaborate treatments were built and then removed: cutting a wall back to the face
-of the one it runs into, and cutting each layer at its own depth by function priority
-(§3.1). Both are correct in principle and are what a finished product should do, but they
-misread common arrangements — a T-junction whose through-wall had been split, three walls at
-one point — more often than they improved the ordinary ones. They belong with the wider
-element-join work in a later phase, done properly, rather than half-done here.
+**Three or more walls meeting with no straight run through share the junction.** Going round
+the joint, each pair of neighbouring walls meets at a corner where their facing sides cross;
+each wall is cut from the corner on one side of it, through the middle of the junction, to
+the corner on the other. Every piece of the junction belongs to exactly one wall, so they fill
+it once with no overlap and no gap. Where several straight runs cross, the heaviest carries
+through and the rest stop against it. Two walls that cross part-way along both, with no end
+there at all, are joined the same way: the heavier carries on and the lighter is drawn as two
+pieces stopping against its faces. Anything that cannot be joined cleanly falls back to a
+square end that overlaps.
+
+**Each end can be told how to join**: Mitre, Butt, Run Through, Square Off or Disallow. A
+corner has one join and two walls, so setting one end sets the other to match.
+
+**Joined ends are not drawn.** A finished plan does not rule a line across every corner and
+tee: the outline follows the faces, leaves a gap where another wall carries on, and closes
+only exposed ends and the sides of openings.
+
+**Finishes wrap** round exposed ends and into openings, as the wall type's *Wrapping at Ends*
+and *Wrapping at Inserts* say: the wrapping layers outside the core turn the corner, and
+everything they wrap round is set back behind them. In 3D the wrap into an opening is left
+out, since there it would run the full height of the wall rather than stopping at the head.
 
 **Levels are datums, and deleting one deletes what stands on it.** A wall constrained to a
 level works its height out from it every time it is asked, so raising a storey raises every
@@ -270,6 +284,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Draw a wall off the clicked line | Type an **Offset** on the option bar before drawing |
 | Attach a wall's top to a level | Properties → **Top Constraint** → Up to level |
 | Hide walls by function | View → Wall Functions → pick the view, untick the function |
+| Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
+| Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |

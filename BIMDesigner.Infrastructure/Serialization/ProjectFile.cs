@@ -107,8 +107,10 @@ public static class ProjectFile
                 AcousticRating = type.AcousticRating,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
-                WrapAtInserts = type.WrapAtInserts,
-                WrapAtEnds = type.WrapAtEnds,
+                WrapAtInserts = type.WrapAtInserts != WallWrapping.None,
+                WrapAtEnds = type.WrapAtEnds != WallWrapping.None,
+                WrappingAtInserts = type.WrapAtInserts.ToString(),
+                WrappingAtEnds = type.WrapAtEnds.ToString(),
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
                 Layers = type.Structure.Layers.Select(layer => new MaterialLayerDto
                 {
@@ -351,6 +353,8 @@ public static class ProjectFile
                 UnconnectedHeight = wall.UnconnectedHeight,
                 RoomBounding = wall.RoomBounding,
                 StructuralUsage = wall.StructuralUsage.ToString(),
+                StartJoin = wall.StartJoin.ToString(),
+                EndJoin = wall.EndJoin.ToString(),
                 Mark = wall.Mark,
                 Comments = wall.Comments,
                 Workset = wall.Workset,
@@ -513,8 +517,14 @@ public static class ProjectFile
                 AcousticRating = type.AcousticRating,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
-                WrapAtInserts = type.WrapAtInserts,
-                WrapAtEnds = type.WrapAtEnds,
+                // Older files said only yes or no: yes meant both sides at openings and the
+                // exterior at ends, which is what those walls were understood to do.
+                WrapAtInserts = string.IsNullOrEmpty(type.WrappingAtInserts)
+                    ? type.WrapAtInserts ? WallWrapping.Both : WallWrapping.None
+                    : ParseEnum(type.WrappingAtInserts, WallWrapping.Both),
+                WrapAtEnds = string.IsNullOrEmpty(type.WrappingAtEnds)
+                    ? type.WrapAtEnds ? WallWrapping.Exterior : WallWrapping.None
+                    : ParseEnum(type.WrappingAtEnds, WallWrapping.None),
                 CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x8A, 0x93, 0xA1))
             });
         }
@@ -564,6 +574,8 @@ public static class ProjectFile
                 UnconnectedHeight = wall.UnconnectedHeight > 0 ? wall.UnconnectedHeight : 3000,
                 RoomBounding = wall.RoomBounding,
                 StructuralUsage = ParseEnum(wall.StructuralUsage, StructuralUsage.NonBearing),
+                StartJoin = ParseEnum(wall.StartJoin, WallJoinKind.Auto),
+                EndJoin = ParseEnum(wall.EndJoin, WallJoinKind.Auto),
                 Mark = wall.Mark,
                 Comments = wall.Comments,
                 Workset = wall.Workset,

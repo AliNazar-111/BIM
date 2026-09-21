@@ -89,7 +89,9 @@ public static class ElementCopy
             TopOffset = wall.TopOffset,
             UnconnectedHeight = wall.UnconnectedHeight,
             RoomBounding = wall.RoomBounding,
-            StructuralUsage = wall.StructuralUsage
+            StructuralUsage = wall.StructuralUsage,
+            StartJoin = wall.StartJoin,
+            EndJoin = wall.EndJoin
         }, wall),
 
         Door door => CarryCommon(new Door

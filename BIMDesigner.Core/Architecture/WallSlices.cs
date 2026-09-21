@@ -9,7 +9,7 @@ namespace BIMDesigner.Core.Architecture;
 /// A wall is not one solid. Its ends are cut to its neighbours, and its doors and windows
 /// divide what is left, so the thing on the drawing is a series of these.
 /// </summary>
-public readonly record struct WallSlice(double From, double To, Line2D CutFrom, Line2D CutTo);
+public readonly record struct WallSlice(double From, double To, WallCut CutFrom, WallCut CutTo);
 
 /// <summary>
 /// Cuts a wall into the pieces that are actually drawn (specification sections 2.4 and 2.5).
@@ -28,9 +28,15 @@ public static class WallSlices
     }
 
     /// <summary>
+    /// The side of an opening: square across the wall, with the type's wrapping at inserts so
+    /// the finishes return into the reveal.
+    /// </summary>
+    public static WallCut JambAt(Wall wall, WallType type, double distance) =>
+        WallCut.Along(CrossCutAt(wall, type, distance), wall, WallEndCondition.Jamb, type.WrapAtInserts);
+
+    /// <summary>
     /// One stretch of wall, with the cut at each end: the join treatment where the stretch
-    /// reaches the wall's own end, and a square cut across it anywhere else - which is what a
-    /// door jamb is.
+    /// reaches the wall's own end, and a jamb anywhere else.
     ///
     /// Returns null when the stretch has been consumed by the joins at its ends. A wall that
     /// butts into another is shortened, and a short piece of wall beside a door can be
@@ -39,25 +45,58 @@ public static class WallSlices
     /// </summary>
     public static WallSlice? Between(
         BimDocument document, Wall wall, WallType type, double from, double to,
-        Line2D startCut, Line2D endCut)
+        WallCut startCut, WallCut endCut) =>
+        Piece(wall, type, from, to, null, null, startCut, endCut);
+
+    /// <summary>
+    /// A stretch whose ends may be given: a crossing wall supplies its own faces as the cuts.
+    /// An end not given is the wall's own end if it is there, and a jamb anywhere else.
+    /// </summary>
+    private static WallSlice? Piece(
+        Wall wall, WallType type, double from, double to,
+        WallCut? givenFrom, WallCut? givenTo, WallCut startCut, WallCut endCut)
     {
         if (to - from <= WallJoins.JoinTolerance) return null;
 
-        var cutFrom = from <= WallJoins.JoinTolerance ? startCut : CrossCutAt(wall, type, from);
-        var cutTo = to >= wall.Length - WallJoins.JoinTolerance ? endCut : CrossCutAt(wall, type, to);
+        var cutFrom = givenFrom ?? (from <= WallJoins.JoinTolerance ? startCut : JambAt(wall, type, from));
+        var cutTo = givenTo ?? (to >= wall.Length - WallJoins.JoinTolerance ? endCut : JambAt(wall, type, to));
 
         return IsInsideOut(wall, type, cutFrom, cutTo) ? null : new WallSlice(from, to, cutFrom, cutTo);
     }
 
-    /// <summary>Every solid stretch of the wall, with its doors and windows taken out.</summary>
+    /// <summary>
+    /// Every solid stretch of the wall, with its doors and windows taken out and any heavier
+    /// wall crossing it cut through.
+    /// </summary>
     public static IReadOnlyList<WallSlice> Solid(BimDocument document, Wall wall, WallType type)
     {
         var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
+        var crossings = WallJoins.Crossings(document, wall, type);
         var slices = new List<WallSlice>();
 
+        void Add(double from, double to, WallCut? cutFrom, WallCut? cutTo)
+        {
+            if (Piece(wall, type, from, to, cutFrom, cutTo, startCut, endCut) is { } slice) slices.Add(slice);
+        }
+
         foreach (var (from, to) in WallOpenings.GetSolidRuns(document, wall))
-            if (Between(document, wall, type, from, to, startCut, endCut) is { } slice)
-                slices.Add(slice);
+        {
+            var cursor = from;
+            WallCut? cursorCut = null;
+
+            foreach (var crossing in crossings.Where(c => c.To > from && c.From < to))
+            {
+                if (crossing.From > cursor) Add(cursor, crossing.From, cursorCut, crossing.Before);
+
+                if (crossing.To > cursor)
+                {
+                    cursor = crossing.To;
+                    cursorCut = crossing.After;
+                }
+            }
+
+            if (cursor < to) Add(cursor, to, cursorCut, null);
+        }
 
         return slices;
     }
@@ -66,25 +105,20 @@ public static class WallSlices
     /// Whether the two cuts have crossed, so that the stretch between them has no length left
     /// - or has turned over and would be drawn back to front.
     ///
-    /// Measured on the wall's own two faces rather than on its centreline: an angled cut can
-    /// leave the centreline looking fine while one face has already passed the other.
+    /// Measured on the wall's own two faces: an angled cut can leave the centreline looking
+    /// fine while one face has already passed the other.
     /// </summary>
-    private static bool IsInsideOut(Wall wall, WallType type, Line2D cutFrom, Line2D cutTo)
+    private static bool IsInsideOut(Wall wall, WallType type, WallCut cutFrom, WallCut cutTo)
     {
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
-        var normal = wall.ExteriorNormal;
         var half = type.Width / 2;
+        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
 
-        foreach (var offset in new[] { half, -half })
-        {
-            var edge = new Line2D(bodyStart + normal * offset, wall.Direction);
+        var start = WallJoins.EndPoints(wall, type, half, -half, cutFrom, atStart: true);
+        var end = WallJoins.EndPoints(wall, type, half, -half, cutTo, atStart: false);
 
-            if (!Line2D.TryIntersect(edge, cutFrom, out var start)) return true;
-            if (!Line2D.TryIntersect(edge, cutTo, out var end)) return true;
+        double Along(Point2D point) => (point - bodyStart).Dot(wall.Direction);
 
-            if ((end - start).Dot(wall.Direction) <= 0) return true;
-        }
-
-        return false;
+        // The two ends of each face, which must still run the right way along the wall.
+        return Along(end[0]) - Along(start[0]) <= 0 || Along(end[^1]) - Along(start[^1]) <= 0;
     }
 }

@@ -200,7 +200,7 @@ public class WallJunctionTests
     }
 
     [Fact]
-    public void ThreeWallsMeetingWithNoRunThroughAreAllCutSquare()
+    public void ThreeWallsMeetingWithNoRunThroughShareTheJunction()
     {
         var (document, type) = Project();
 
@@ -216,8 +216,13 @@ public class WallJunctionTests
             walls.Add(AddWall(document, type, away, joint));
         }
 
-        // No single mitre is right against two different neighbours, so none is attempted.
-        Assert.All(walls, wall => Assert.True(IsSquare(document, wall, type, atEnd: true)));
+        // No single mitre is right against two neighbours, so each wall is cut to both of
+        // them and they share the middle: the junction is filled once, with no overlap.
+        var (most, covered) = OutlineChecks.Coverage(document, walls, joint, type.Width);
+
+        Assert.Equal(1, most);
+        Assert.True(covered, "The middle of the junction was left empty.");
+        Assert.All(walls, wall => Assert.Equal(WallEndCondition.Shared, WallJoins.GetEndCuts(document, wall, type).End.Condition));
     }
 
     [Fact]
@@ -317,9 +322,9 @@ public class WallJunctionTests
 
             var name = $"wall ({wall.Start.X:0},{wall.Start.Y:0})-({wall.End.X:0},{wall.End.Y:0})";
 
-            Assert.Equal(4, outline.Length);
+            Assert.True(outline.Length >= 4, $"{name}: {outline.Length} corners");
             Assert.True((outline[1] - outline[0]).Dot(wall.Direction) > 0, $"{name}: outer edge runs backwards");
-            Assert.True((outline[2] - outline[3]).Dot(wall.Direction) > 0, $"{name}: inner edge runs backwards");
+            Assert.False(OutlineChecks.IsSelfIntersecting(outline), $"{name}: the outline crosses itself");
             Assert.True(Polygon2D.Area(outline) > 1, $"{name}: no area");
         }
     }
@@ -361,10 +366,10 @@ public class WallJunctionTests
 
         // The cut runs along the through wall, half its width off its centreline.
         var across = through.Direction.PerpendicularLeft();
-        var offset = (endCut.Origin - through.Start).Dot(across);
+        var offset = (endCut.Line.Origin - through.Start).Dot(across);
 
         Assert.Equal(throughType.Width / 2, Math.Abs(offset), precision: 3);
-        Assert.True(Math.Abs(endCut.Direction.Cross(through.Direction)) < 1e-9,
+        Assert.True(Math.Abs(endCut.Line.Direction.Cross(through.Direction)) < 1e-9,
             "the cut should run parallel to the wall being met");
 
         // And the through wall is not altered by being met: it keeps whatever shape its own

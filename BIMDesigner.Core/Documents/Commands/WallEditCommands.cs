@@ -55,6 +55,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly Wall _wall;
     private readonly Point2D _splitPoint;
     private readonly Point2D _originalEnd;
+    private readonly WallJoinKind _originalEndJoin;
     private readonly Wall _remainder;
 
     public SplitWallCommand(BimDocument document, Wall wall, Point2D splitPoint)
@@ -63,6 +64,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall = wall;
         _splitPoint = splitPoint;
         _originalEnd = wall.End;
+        _originalEndJoin = wall.EndJoin;
 
         _remainder = new Wall
         {
@@ -78,6 +80,7 @@ public sealed class SplitWallCommand : IUndoableCommand
             Flipped = wall.Flipped,
             RoomBounding = wall.RoomBounding,
             StructuralUsage = wall.StructuralUsage,
+            EndJoin = wall.EndJoin,
             Mark = wall.Mark,
             Comments = wall.Comments,
             Workset = wall.Workset,
@@ -94,6 +97,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     public void Redo()
     {
         _wall.End = _splitPoint;
+        _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
     }
 
@@ -101,6 +105,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     {
         _document.Remove(_remainder);
         _wall.End = _originalEnd;
+        _wall.EndJoin = _originalEndJoin;
     }
 }
 
@@ -392,5 +397,72 @@ public sealed class CompositeCommand : IUndoableCommand
     public void Undo()
     {
         for (var i = _commands.Count - 1; i >= 0; i--) _commands[i].Undo();
+    }
+}
+
+/// <summary>
+/// Sets how one end of a wall joins (specification section 2.4, "wall joins").
+///
+/// A corner has two walls and one join, so asking one of them to butt means asking the other
+/// to run through: where exactly one other wall meets this end, its end is set to match.
+/// Everything changed is recorded so undo puts both back.
+/// </summary>
+public sealed class SetWallJoinCommand : IUndoableCommand
+{
+    private readonly List<(Wall Wall, bool AtStart, WallJoinKind Old, WallJoinKind New)> _changes = new();
+
+    public SetWallJoinCommand(BimDocument document, Wall wall, bool atStart, WallJoinKind kind)
+    {
+        _changes.Add((wall, atStart, atStart ? wall.StartJoin : wall.EndJoin, kind));
+
+        var joint = atStart ? wall.Start : wall.End;
+        var partners = document.Walls
+            .Where(other => !ReferenceEquals(other, wall) && other.LevelId == wall.LevelId)
+            .Where(other => WallJoins.TouchesAt(other, joint))
+            .ToList();
+
+        if (partners.Count == 1)
+        {
+            var partner = partners[0];
+            var partnerAtStart = partner.Start.DistanceTo(joint) <= WallJoins.JoinTolerance;
+            var current = partnerAtStart ? partner.StartJoin : partner.EndJoin;
+
+            // A partner that has itself opted out keeps its choice.
+            if (current != WallJoinKind.Disallow)
+                _changes.Add((partner, partnerAtStart, current, Complement(kind)));
+        }
+
+        Name = $"Set {(atStart ? "Start" : "End")} Join";
+    }
+
+    public string Name { get; }
+
+    /// <summary>What the other wall of a corner has to do for this end to be joined as asked.</summary>
+    public static WallJoinKind Complement(WallJoinKind kind) => kind switch
+    {
+        WallJoinKind.Mitre => WallJoinKind.Mitre,
+        WallJoinKind.Butt => WallJoinKind.RunThrough,
+        WallJoinKind.RunThrough or WallJoinKind.SquareOff => WallJoinKind.Butt,
+        _ => WallJoinKind.Auto
+    };
+
+    public void Redo()
+    {
+        foreach (var (wall, atStart, _, kind) in _changes) Set(wall, atStart, kind);
+    }
+
+    public void Undo()
+    {
+        for (var i = _changes.Count - 1; i >= 0; i--)
+        {
+            var (wall, atStart, old, _) = _changes[i];
+            Set(wall, atStart, old);
+        }
+    }
+
+    private static void Set(Wall wall, bool atStart, WallJoinKind kind)
+    {
+        if (atStart) wall.StartJoin = kind;
+        else wall.EndJoin = kind;
     }
 }
