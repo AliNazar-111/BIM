@@ -313,9 +313,16 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
 | Draw a curved wall | Wall tool, **Shape: Arc** on the option bar: click the start, the end, then a point the arc passes through |
 | Curve or straighten a wall | Select it and drag the diamond halfway along it; bring it back to the straight line to straighten |
+| Draw a whole shape of walls | Wall tool, **Shape**: Rectangle (Shift for a square), Polygon (set Sides; 3 is a triangle), Circle, Oval (Shift for round). Two clicks place every wall, joined |
 | Make or edit a wall type | Architecture → Wall Types..., or **Edit Type...** in Properties with a wall selected |
 | Change the type of several walls | Select them, then pick a type at the top of Properties |
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |
+| Draw a wall going down (foundation, retaining) | Wall tool, set **Depth** instead of Height on the option bar |
+| Place walls on existing lines | Wall tool, **Shape: Pick lines**, click grid lines |
+| Make a wall follow the floor or roof above | Select walls, Architecture → **Attach Wall Tops** (or **Bases**), then click the slab; **Detach** undoes it |
+| Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
+| Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
+| Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |

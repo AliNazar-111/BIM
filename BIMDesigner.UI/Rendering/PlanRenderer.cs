@@ -252,6 +252,68 @@ public sealed class PlanRenderer
     /// outline over the top - mitred where it joins another wall, and interrupted wherever a
     /// door or window is hosted in it.
     /// </summary>
+    /// <summary>Where the wall being drawn is at the plan's cut height; unchanged unless it leans.</summary>
+    private Func<Point2D, Point2D> _lean = point => point;
+
+    private IReadOnlyList<Point2D> Cut(IReadOnlyList<Point2D> points) => points.Select(_lean).ToList();
+
+    /// <summary>The height the plan cuts the wall being drawn at, and the reveals it might cut through.</summary>
+    private double _cutElevation;
+    private IReadOnlyList<(double Bottom, double Top, WallSide Side, double Depth)> _reveals = Array.Empty<(double, double, WallSide, double)>();
+
+    /// <summary>
+    /// The sweeps the plan cuts through: each drawn as the band it makes beside the wall face,
+    /// as far out as its profile reaches at the cut height.
+    /// </summary>
+    private void DrawSweeps(DrawingContext dc, Wall wall, WallType type, double wallBottom, double wallTop)
+    {
+        if (Document is null) return;
+
+        var structure = type.Structure;
+        var half = type.Width / 2;
+        var curve = wall.LocationCurve;
+
+        foreach (var sweep in type.Sweeps.Where(s => s.Kind == SweepKind.Sweep))
+        {
+            var (bottom, top) = sweep.Span(wallBottom, wallTop);
+            if (_cutElevation <= bottom || _cutElevation >= top) continue;
+
+            var reach = ProfileReach(sweep.Shape(), (_cutElevation - bottom) / sweep.Height) * sweep.Depth;
+            if (reach <= 0) continue;
+
+            var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
+
+            foreach (var (from, to) in WallSweeps.Runs(Document, wall, type, sweep.Side, bottom, top))
+            {
+                var stations = new List<double> { from };
+                stations.AddRange(curve.Between(from, to, wall.LeftOf(structure, sign * half)));
+                stations.Add(to);
+
+                var band = stations.Select(along => wall.PointAt(structure, along, sign * half))
+                    .Concat(stations.AsEnumerable().Reverse().Select(along => wall.PointAt(structure, along, sign * (half + reach))))
+                    .ToList();
+
+                dc.DrawGeometry(MaterialBrush(sweep.MaterialId), _wallOutlinePen, BuildOutline(Cut(band)));
+            }
+        }
+    }
+
+    /// <summary>How far out a profile reaches at a height through it, both as fractions of its size.</summary>
+    private static double ProfileReach(IReadOnlyList<(double Out, double Up)> shape, double up)
+    {
+        var reach = 0.0;
+        for (var i = 0; i < shape.Count; i++)
+        {
+            var a = shape[i];
+            var b = shape[(i + 1) % shape.Count];
+            if ((a.Up - up) * (b.Up - up) > 0 || Math.Abs(b.Up - a.Up) < 1e-12) continue;
+
+            reach = Math.Max(reach, a.Out + (b.Out - a.Out) * (up - a.Up) / (b.Up - a.Up));
+        }
+
+        return reach;
+    }
+
     private void DrawWall(DrawingContext dc, Wall wall)
     {
         if (Document is null) return;
@@ -261,6 +323,18 @@ public sealed class PlanRenderer
 
         var isSelected = IsSelected(wall);
 
+        // A slanted or tapered wall is drawn where the plan cuts it, which is not where it
+        // stands: every point of it moves across by how far it leans at the cut height.
+        var cutHeight = Math.Min(StackedWallType.PlanCutHeight, wall.GetHeight(Document));
+        _lean = WallLean.Leans(wall, type)
+            ? point => WallLean.Move(wall, type, point, cutHeight)
+            : point => point;
+
+        // Reveals and sweeps show in plan only where the plan cuts them.
+        var wallBottom = wall.GetBaseElevation(Document);
+        _cutElevation = wallBottom + cutHeight;
+        _reveals = WallSweeps.Reveals(type, wallBottom, wallBottom + wall.GetHeight(Document));
+
         // The wall is drawn as the stretches that remain solid. An opening is not painted
         // over the wall afterwards - the wall genuinely is not there (section 2.5). Where
         // those stretches start and stop is worked out in Core, so the plan and the 3D model
@@ -269,6 +343,8 @@ public sealed class PlanRenderer
 
         foreach (var slice in WallSlices.Solid(Document, wall, type))
             DrawWallRun(dc, wall, type, slice, gaps, isSelected);
+
+        DrawSweeps(dc, wall, type, wallBottom, wallBottom + wall.GetHeight(Document));
 
         // Show where the user actually drew, so the effect of the location line is visible.
         if (isSelected && wall.LocationLine != WallLocationLine.WallCentreline)
@@ -304,7 +380,7 @@ public sealed class PlanRenderer
         if (DetailLevel == DetailLevel.Coarse)
         {
             dc.DrawGeometry(CoarseBrush(type), null,
-                BuildOutline(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo)));
+                BuildOutline(Cut(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo))));
         }
         else
         {
@@ -325,12 +401,13 @@ public sealed class PlanRenderer
                 // A membrane has no thickness: it is drawn as the dashed line it is on a detail.
                 if (layer.Thickness <= 0)
                 {
-                    var line = WallJoins.GetBandOutline(wall, type, half - start, half - end, cutFrom, cutTo);
+                    var line = Cut(WallJoins.GetBandOutline(wall, type, half - start, half - end, cutFrom, cutTo));
                     dc.DrawLine(_membranePen, ModelToScreen(line[0]), ModelToScreen(line[1]));
                     continue;
                 }
 
-                var band = WallJoins.GetBandOutline(wall, type, half - start, half - end, cutFrom, cutTo);
+                if (WallSweeps.Recess(half - start, half - end, half, _reveals, _cutElevation) is not var (outer, inner)) continue;
+                var band = Cut(WallJoins.GetBandOutline(wall, type, outer, inner, cutFrom, cutTo));
                 dc.DrawGeometry(MaterialBrush(layer.MaterialId), separator, BuildOutline(band));
             }
         }
@@ -339,7 +416,7 @@ public sealed class PlanRenderer
         if (isSelected)
         {
             dc.DrawGeometry(null, _selectedPen,
-                BuildOutline(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo)));
+                BuildOutline(Cut(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo))));
             return;
         }
 
@@ -390,18 +467,18 @@ public sealed class PlanRenderer
                     var across = exterior ? half : -half;
                     var points = curve.Between(u0, u1, wall.LeftOf(structure, across))
                         .Append(u1)
-                        .Select(u => ModelToScreen(wall.PointAt(structure, u, across)))
+                        .Select(u => ModelToScreen(_lean(wall.PointAt(structure, u, across))))
                         .ToArray();
 
-                    ctx.BeginFigure(ModelToScreen(wall.PointAt(structure, u0, across)), false, false);
+                    ctx.BeginFigure(ModelToScreen(_lean(wall.PointAt(structure, u0, across))), false, false);
                     ctx.PolyLineTo(points, true, false);
                 }
             }
 
             void End(IReadOnlyList<Point2D> points)
             {
-                ctx.BeginFigure(ModelToScreen(points[0]), false, false);
-                ctx.PolyLineTo(points.Skip(1).Select(ModelToScreen).ToArray(), true, false);
+                ctx.BeginFigure(ModelToScreen(_lean(points[0])), false, false);
+                ctx.PolyLineTo(points.Skip(1).Select(p => ModelToScreen(_lean(p))).ToArray(), true, false);
             }
 
             Face(start[0], end[0], exterior: true);

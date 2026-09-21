@@ -232,7 +232,7 @@ public partial class MainWindow : Window
     {
         _loadingOptions = true;
 
-        var wallTypes = _document.TypesOf<WallType>().OrderBy(t => t.Name).ToList();
+        var wallTypes = WallTypeChoices();
         var doorTypes = _document.TypesOf<DoorType>().OrderBy(t => t.Name).ToList();
         var windowTypes = _document.TypesOf<WindowType>().OrderBy(t => t.Name).ToList();
 
@@ -270,6 +270,7 @@ public partial class MainWindow : Window
         Plan.ActiveLevelId = _document.Levels.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveLocationLine = WallLocationLine.WallCentreline;
 
+        RefreshNewWallTopChoices();
         ShowOptionsForActiveTool();
     }
 
@@ -779,7 +780,7 @@ public partial class MainWindow : Window
     private void OnActiveWallTypeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loadingOptions || Plan is null) return;
-        if (WallTypePicker.SelectedItem is WallType type) Plan.ActiveWallTypeId = type.Id;
+        if (WallTypePicker.SelectedItem is ElementType type) Plan.ActiveWallTypeId = type.Id;
     }
 
     private void OnActiveDoorTypeChanged(object sender, SelectionChangedEventArgs e)
@@ -804,6 +805,8 @@ public partial class MainWindow : Window
         if (LevelPicker.SelectedItem is not Core.Datums.Level level) return;
 
         Plan.ActiveLevelId = level.Id;
+        RefreshNewWallTopChoices();
+        OnNewWallHeightChanged(this, new RoutedEventArgs());
         RefreshProjectBrowser();
         RefreshProperties();
         StatusHint.Text = $"Showing {level.Name} at {Units.FormatLength(level.Elevation)}.";
@@ -833,14 +836,136 @@ public partial class MainWindow : Window
         AfterHistoryChange();
     }
 
+    // ---- attaching walls ---------------------------------------------------------------
+
+    private void OnAttachTops(object sender, RoutedEventArgs e) => AttachSelectedWalls(top: true);
+
+    private void OnAttachBases(object sender, RoutedEventArgs e) => AttachSelectedWalls(top: false);
+
+    /// <summary>
+    /// Attaches each selected wall to the slab over it, or the floor under it. The slab is found
+    /// rather than picked, because the one over a wall is usually on another storey, where the
+    /// plan being worked in cannot show it.
+    /// </summary>
+    private void AttachSelectedWalls(bool top)
+    {
+        var walls = Plan.SelectedElements.OfType<Wall>().ToList();
+        if (walls.Count == 0)
+        {
+            StatusHint.Text = "Select the walls to attach first.";
+            return;
+        }
+
+        var changes = walls
+            .Select(wall => (Wall: wall, Top: top, Slab: top
+                ? WallAttachments.SlabAbove(_document, wall)
+                : WallAttachments.FloorBelow(_document, wall)))
+            .Where(change => change.Slab is not null)
+            .Select(change => (change.Wall, change.Top, (Guid?)change.Slab!.Id))
+            .ToList();
+
+        if (changes.Count == 0)
+        {
+            StatusHint.Text = top
+                ? "There is no floor, ceiling or roof over those walls to attach to."
+                : "There is no floor under those walls to stand them on.";
+            return;
+        }
+
+        _history.Execute(new AttachWallsCommand(changes, top ? "Attach Wall Tops" : "Attach Wall Bases"));
+        AfterHistoryChange();
+
+        StatusHint.Text = changes.Count == walls.Count
+            ? $"{Plural(changes.Count, "wall")} attached."
+            : $"{changes.Count} of {walls.Count} walls attached; the rest have nothing {(top ? "over" : "under")} them.";
+    }
+
+    private void OnDetachWalls(object sender, RoutedEventArgs e)
+    {
+        var changes = Plan.SelectedElements.OfType<Wall>()
+            .SelectMany(wall => new[]
+            {
+                (Wall: wall, Top: true, Attached: wall.TopAttachedTo),
+                (Wall: wall, Top: false, Attached: wall.BaseAttachedTo)
+            })
+            .Where(change => change.Attached is not null)
+            .Select(change => (change.Wall, change.Top, (Guid?)null))
+            .ToList();
+
+        if (changes.Count == 0)
+        {
+            StatusHint.Text = "None of the selected walls is attached.";
+            return;
+        }
+
+        _history.Execute(new AttachWallsCommand(changes, "Detach Walls"));
+        AfterHistoryChange();
+        StatusHint.Text = "Detached. The walls keep their own constraints again.";
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    // ---- new wall height ---------------------------------------------------------------
+
+    /// <summary>Lists what new walls can reach up to: unconnected, or any level above the active one.</summary>
+    private void RefreshNewWallTopChoices()
+    {
+        var active = _document.FindLevel(Plan.ActiveLevelId);
+        var choices = new List<string> { Wall.Unconnected };
+        choices.AddRange(_document.Levels
+            .Where(level => active is null || level.Elevation > active.Elevation)
+            .Select(level => $"Up to level: {level.Name}"));
+
+        var current = NewWallTopPicker.SelectedItem as string;
+
+        _loadingOptions = true;
+        NewWallTopPicker.ItemsSource = choices;
+        NewWallTopPicker.SelectedItem = choices.Contains(current ?? string.Empty) ? current : Wall.Unconnected;
+        _loadingOptions = false;
+    }
+
+    private void OnNewWallHeightChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null || NewWallTopPicker is null) return;
+
+        var depth = HeightModePicker.SelectedIndex == 1;
+        Plan.NewWallDepth = depth;
+
+        // A depth is measured down from the level, so there is no level to reach up to.
+        NewWallTopPicker.Visibility = depth ? Visibility.Collapsed : Visibility.Visible;
+
+        var top = NewWallTopPicker.SelectedItem as string;
+        Plan.NewWallTopLevelId = depth || top is null || top == Wall.Unconnected
+            ? null
+            : _document.Levels.FirstOrDefault(level => $"Up to level: {level.Name}" == top)?.Id;
+
+        // The typed height only matters when nothing else sets it.
+        NewWallHeightBox.IsEnabled = depth || Plan.NewWallTopLevelId is null;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, NewWallHeightBox.Text, out var value) &&
+            value is double millimetres && millimetres > 0)
+        {
+            Plan.NewWallHeight = millimetres;
+        }
+
+        NewWallHeightBox.Text = Units.FormatLength(Plan.NewWallHeight);
+    }
+
     // ---- wall types --------------------------------------------------------------------
+
+    /// <summary>What the wall tool can build: every layered and stacked wall type, by name.</summary>
+    private List<ElementType> WallTypeChoices() =>
+        _document.ElementTypes
+            .Where(type => type is WallType or StackedWallType)
+            .OrderBy(type => type.Name)
+            .ToList();
 
     private void OnManageWallTypes(object sender, RoutedEventArgs e) => ShowWallTypes(null);
 
     private void OnEditSelectedType(object sender, RoutedEventArgs e) =>
-        ShowWallTypes(Plan.SelectedElement is { } element ? _document.FindType<WallType>(element.TypeId) : null);
+        ShowWallTypes(Plan.SelectedElement is { } element ? _document.FindType<ElementType>(element.TypeId) : null);
 
-    private void ShowWallTypes(WallType? start)
+    private void ShowWallTypes(ElementType? start)
     {
         var dialog = new WallTypesWindow(_document, _history, start) { Owner = this };
 
@@ -857,10 +982,10 @@ public partial class MainWindow : Window
     {
         _loadingOptions = true;
 
-        var wallTypes = _document.TypesOf<WallType>().OrderBy(t => t.Name).ToList();
+        var wallTypes = WallTypeChoices();
         WallTypePicker.ItemsSource = wallTypes;
         WallTypePicker.SelectedItem = wallTypes.FirstOrDefault(t => t.Id == Plan.ActiveWallTypeId) ?? wallTypes.FirstOrDefault();
-        Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as WallType)?.Id ?? Guid.Empty;
+        Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as ElementType)?.Id ?? Guid.Empty;
 
         _loadingOptions = false;
 
@@ -926,7 +1051,7 @@ public partial class MainWindow : Window
         };
 
         StructureCaption.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
-        EditTypeButton.Visibility = type is WallType ? Visibility.Visible : Visibility.Collapsed;
+        EditTypeButton.Visibility = type is WallType or StackedWallType ? Visibility.Visible : Visibility.Collapsed;
         StructureHint.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
         StructureHint.Text = type is SlabType
             ? "Upper surface down."
@@ -1496,11 +1621,32 @@ public partial class MainWindow : Window
     {
         if (Plan is null) return;
 
-        Plan.DrawArcs = WallShapePicker.SelectedIndex == 1;
-        StatusHint.Text = Plan.DrawArcs
-            ? "Arc: click the start, the end, then a point the arc passes through."
-            : "Click the start of the wall, then its end.";
+        var shape = (WallShape)Math.Max(0, WallShapePicker.SelectedIndex);
+        Plan.DrawShape = shape;
+        PolygonOptions.Visibility = shape == WallShape.Polygon ? Visibility.Visible : Visibility.Collapsed;
+
+        StatusHint.Text = shape switch
+        {
+            WallShape.Arc => "Arc: click the start, the end, then a point the arc passes through.",
+            WallShape.Rectangle => "Rectangle: click one corner, then the opposite one. Hold Shift for a square.",
+            WallShape.Polygon => "Polygon: click the centre, then a corner. Set the number of sides on the bar.",
+            WallShape.Circle => "Circle: click the centre, then a point on the circle.",
+            WallShape.Oval => "Oval: click one corner of its box, then the opposite one. Hold Shift for a circle.",
+            WallShape.Pick => "Pick lines: click a gridline to put a wall along it. The offset moves it toward the side you click.",
+            _ => "Click the start of the wall, then its end."
+        };
     }
+
+    private void OnPolygonSidesChanged(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(PolygonSidesBox.Text, out var sides))
+            Plan.PolygonSides = Math.Clamp(sides, WallShapes.MinSides, WallShapes.MaxSides);
+
+        PolygonSidesBox.Text = Plan.PolygonSides.ToString();
+    }
+
+    private void OnPolygonInscribedChanged(object sender, RoutedEventArgs e) =>
+        Plan.PolygonInscribed = PolygonInscribedBox.IsChecked == true;
 
     /// <summary>Enter commits the offset and hands the keyboard back to the drawing.</summary>
     private void OnWallOffsetKeyDown(object sender, KeyEventArgs e)
@@ -1587,6 +1733,7 @@ public partial class MainWindow : Window
 
     private void AfterLevelsChanged()
     {
+        RefreshNewWallTopChoices();
         var levels = _document.Levels.ToList();
 
         // The storey being drawn may have been deleted out from under the plan.

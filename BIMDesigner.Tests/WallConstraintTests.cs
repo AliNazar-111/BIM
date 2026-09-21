@@ -54,7 +54,7 @@ public class WallConstraintTests
     // ---- top constraint ---------------------------------------------------------
 
     [Fact]
-    public void TheTopCanBeUnconnectedOrAnyLevelAboveTheBase()
+    public void TheTopCanBeUnconnectedItsOwnLevelOrAnyLevelAboveIt()
     {
         var (document, thick) = Project();
         var wall = Add(document, thick, new Point2D(0, 0), new Point2D(5000, 0));
@@ -63,7 +63,7 @@ public class WallConstraintTests
 
         Assert.False(top.IsReadOnly);
         Assert.Equal("Unconnected", top.Value);
-        Assert.Equal(new[] { "Unconnected", "Up to level: First Floor" }, top.AllowedValues);
+        Assert.Equal(new[] { "Unconnected", "Up to level: Ground Floor", "Up to level: First Floor" }, top.AllowedValues);
     }
 
     [Fact]

@@ -297,7 +297,7 @@ public class CurvedWallTests
         var (document, _, exterior) = Project();
         var wall = HalfCircle(document, exterior);
 
-        var copy = (Wall)ElementCopy.Clone(wall);
+        var copy = Assert.IsType<Wall>(ElementCopy.Clone(wall));
 
         Assert.Equal(wall.Bulge, copy.Bulge);
     }

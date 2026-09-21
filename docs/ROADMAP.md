@@ -25,7 +25,13 @@ test before the next begins.
 | **1.3e** | **Wall joins and wrapping (W2)** — shared junctions for three or more walls, heaviest run carries through a cross, per-end join control (mitre, butt, run through, square off, disallow), clean outlines with no lines across joins, layers wrapping at exposed ends and openings | §2.4 §3.1 | ✅ |
 | **1.3f** | **Wall type editor (W3)** — duplicate, rename and delete wall types; edit layers (function, material, thickness, wrapping) with a live preview and core boundaries; applied as one undoable step; change the type of a whole selection | §3.1 §13.1 | ✅ |
 | **1.3g** | **Curved walls (W4, arcs)** — arc walls drawn start–end–point or bent from any wall with its middle grip; joins, layers, wrapping, doors and windows, rooms, sections, 3D and IFC all follow the curve; split, offset, mirror and location line work on arcs | §3.1 | ✅ |
-| 1.3h | Elliptical walls, curved walls crossing midway, trim/extend to a curve | §3.1 | ⬜ |
+| **1.3i** | **Wall shapes** — rectangle and square, regular polygons (inscribed or circumscribed, 3–32 sides), circle, rounded oval; each placed with two clicks as joined walls facing out, with offset and flip | §3.1 | ✅ |
+| **1.3h** | **Curve leftovers** — curved walls crossing straight or curved walls midway, trim/extend to a curve, walls placed on picked lines | §3.1 | ✅ |
+| **1.3j** | **Wall heights** — depth walls going down from their level, tops and bases attached to floors and roofs so they follow the slab, detach | §3.1 | ✅ |
+| **1.3k** | **Stacked walls** — a wall type built from tiers of other wall types, one tier taking up the height, plan cut through the tier at cut height; 3D, sections, quantities and IFC per tier | §3.1 | ✅ |
+| **1.3l** | **Slanted and tapered walls** — a wall leaning from vertical, or tapering on either face by type or per wall; plan cut at cut height, sections and 3D follow | §3.1 | ✅ |
+| **1.3m** | **Sweeps and reveals** — skirtings, cornices, beads and plain mouldings run along a face, broken by doors and windows; grooves set back into the face; edited with the wall type; section, plan, 3D and IFC | §3.1 | ✅ |
+| 1.3n | Elliptical walls, edited elevation profiles, walls embedded in curtain walls | §3.1 | ⬜ |
 | **1.4** | **Hosting** — doors and windows in walls, automatic openings, host delete cascades, plan symbols | §2.5 §3.5 §13.2 §13.3 | ✅ |
 | **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection | §3.7 §13.4 | ✅ |
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:BIMDesigner.UI.Controls"
-        Title="Wall Types" Height="720" Width="1000" MinHeight="600" MinWidth="880"
+        Title="Wall Types" Height="880" Width="1060" MinHeight="720" MinWidth="940"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{StaticResource Bg.Window}"
@@ -64,6 +64,8 @@
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
                     <Button Content="Duplicate" Padding="12,5" Margin="0,0,8,0" Click="OnDuplicate"
                             ToolTip="A new type starting from this one, to change without touching its walls"/>
+                    <Button Content="New Stacked" Padding="12,5" Margin="0,0,8,0" Click="OnNewStacked"
+                            ToolTip="A wall of other wall types one above another"/>
                     <Button x:Name="DeleteButton" Content="Delete" Padding="12,5" Click="OnDelete"
                             ToolTip="Only a type no wall uses can be deleted"/>
                 </StackPanel>
@@ -84,7 +86,7 @@
             </DockPanel>
 
             <!-- The type being edited -->
-            <DockPanel Grid.Column="2">
+            <DockPanel x:Name="LayeredPanel" Grid.Column="2">
                 <Grid DockPanel.Dock="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -122,6 +124,86 @@
                 </Grid>
 
                 <controls:WallTypePreview x:Name="Preview" DockPanel.Dock="Bottom" Height="130" Margin="0,12,0,0"/>
+
+                <!-- Profiles along the faces: skirtings, plinths, cornices, grooves -->
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,14,0,0">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <TextBlock Text="SWEEPS AND REVEALS" Style="{StaticResource Caption}"/>
+                        <TextBlock Margin="0,3,0,0" Foreground="{StaticResource Text.Disabled}"
+                                   FontSize="{StaticResource UiFontSizeSmall}" TextWrapping="Wrap"
+                                   Text="A sweep stands out from the face, a reveal is cut into it. Depth is how far out or in; the offset is from the wall's base or down from its top."/>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Content="Add Sweep" Padding="12,5" Margin="0,0,8,0" Click="OnAddSweep"/>
+                        <Button Content="Add Reveal" Padding="12,5" Margin="0,0,8,0" Click="OnAddReveal"/>
+                        <Button x:Name="RemoveSweepButton" Content="Remove" Padding="12,5" Click="OnRemoveSweep"/>
+                    </StackPanel>
+
+                    <DataGrid x:Name="SweepGrid" Height="130" AutoGenerateColumns="False" HeadersVisibility="Column"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                              CanUserSortColumns="False" SelectionMode="Single" RowHeight="40"
+                              SelectionChanged="OnSweepSelected">
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                                <Setter Property="Padding" Value="3,3"/>
+                            </Style>
+                        </DataGrid.CellStyle>
+                        <DataGrid.Resources>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="MinHeight" Value="28"/>
+                            </Style>
+                            <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
+                        </DataGrid.Resources>
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="Kind" Width="90">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <ComboBox ItemsSource="{Binding KindChoices}" SelectedItem="{Binding KindName, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Profile" Width="100">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <ComboBox ItemsSource="{Binding ProfileChoices}" IsEnabled="{Binding HasProfile}"
+                                              SelectedItem="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Side" Width="90">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <ComboBox ItemsSource="{Binding SideChoices}" SelectedItem="{Binding SideName, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Depth" Width="80">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <TextBox Text="{Binding DepthText, UpdateSourceTrigger=LostFocus}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Height" Width="80">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <TextBox Text="{Binding HeightText, UpdateSourceTrigger=LostFocus}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="From" Width="72">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <ComboBox ItemsSource="{Binding FromChoices}" SelectedItem="{Binding FromName, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Offset" Width="80">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <TextBox Text="{Binding ElevationText, UpdateSourceTrigger=LostFocus}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Material" Width="*">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <ComboBox ItemsSource="{Binding Materials}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                              SelectedValue="{Binding MaterialId, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="Add Layer" Padding="12,5" Margin="0,0,8,0" Click="OnAddLayer"
@@ -228,6 +310,73 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+
+            <!-- A stacked type: its tiers, top of the wall first -->
+            <DockPanel x:Name="StackedPanel" Grid.Column="2" Visibility="Collapsed">
+                <Grid DockPanel.Dock="Top">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="StackNameBox" Grid.Column="1" TextChanged="OnDesignChanged"/>
+                </Grid>
+
+                <StackPanel DockPanel.Dock="Top" Margin="0,16,0,6">
+                    <TextBlock Text="TIERS" Style="{StaticResource Caption}"/>
+                    <TextBlock Margin="0,3,0,0" Foreground="{StaticResource Text.Disabled}"
+                               FontSize="{StaticResource UiFontSizeSmall}" TextWrapping="Wrap"
+                               Text="Top of the wall first. Each tier is a wall type and a height; exactly one is variable and takes whatever height the wall has left. Plans show the tier 1200 mm above the base."/>
+                </StackPanel>
+
+                <controls:StackedWallPreview x:Name="StackPreview" DockPanel.Dock="Bottom" Height="170" Margin="0,12,0,0"/>
+
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Add Tier" Padding="12,5" Margin="0,0,8,0" Click="OnAddTier"
+                            ToolTip="Add a tier below the selected one"/>
+                    <Button x:Name="RemoveTierButton" Content="Remove" Padding="12,5" Margin="0,0,8,0" Click="OnRemoveTier"/>
+                    <Button x:Name="TierUpButton" Content="Move Up" Padding="12,5" Margin="0,0,8,0" Click="OnTierUp"/>
+                    <Button x:Name="TierDownButton" Content="Move Down" Padding="12,5" Click="OnTierDown"/>
+                </StackPanel>
+
+                <DataGrid x:Name="TierGrid" AutoGenerateColumns="False" HeadersVisibility="Column"
+                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                          CanUserSortColumns="False" SelectionMode="Single" RowHeight="40"
+                          SelectionChanged="OnTierSelected">
+                    <DataGrid.CellStyle>
+                        <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                            <Setter Property="Padding" Value="4,3"/>
+                        </Style>
+                    </DataGrid.CellStyle>
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Wall type" Width="*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <ComboBox ItemsSource="{Binding WallTypes}" DisplayMemberPath="Name"
+                                              SelectedValuePath="Id" VerticalAlignment="Center"
+                                              SelectedValue="{Binding WallTypeId, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Height" Width="120">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBox Text="{Binding HeightText, UpdateSourceTrigger=LostFocus}" MinHeight="28"
+                                             IsEnabled="{Binding CanEditHeight}" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Variable" Width="80">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsVariable, UpdateSourceTrigger=PropertyChanged}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

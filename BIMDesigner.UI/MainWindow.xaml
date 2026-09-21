@@ -219,6 +219,12 @@
             <MenuItem Header="_Building" IsEnabled="False"/>
             <MenuItem Header="_Architecture">
                 <MenuItem Header="_Wall Types..." Click="OnManageWallTypes"/>
+                <Separator/>
+                <MenuItem Header="Attach Wall _Tops" Click="OnAttachTops"
+                          ToolTip="Take the selected walls up to the floor, ceiling or roof over each"/>
+                <MenuItem Header="Attach Wall _Bases" Click="OnAttachBases"
+                          ToolTip="Stand the selected walls on the floor under each"/>
+                <MenuItem Header="_Detach Wall Tops and Bases" Click="OnDetachWalls"/>
             </MenuItem>
             <MenuItem Header="_Structure" IsEnabled="False"/>
             <MenuItem Header="_Help" IsEnabled="False"/>
@@ -322,13 +328,39 @@
                           ToolTip="Which line of the assembly you are drawing to"/>
 
                 <StackPanel x:Name="WallDrawOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <ComboBox x:Name="HeightModePicker" Style="{StaticResource OptionCombo}" MinWidth="80"
+                              SelectedIndex="0" SelectionChanged="OnNewWallHeightChanged"
+                              ToolTip="Height: the wall rises from its level. Depth: it hangs down from it, like a foundation wall.">
+                        <ComboBoxItem Content="Height"/>
+                        <ComboBoxItem Content="Depth"/>
+                    </ComboBox>
+                    <ComboBox x:Name="NewWallTopPicker" Style="{StaticResource OptionCombo}" MinWidth="170"
+                              SelectionChanged="OnNewWallHeightChanged"
+                              ToolTip="Up to a level, so the wall follows it, or unconnected at the height given"/>
+                    <TextBox x:Name="NewWallHeightBox" Width="80" VerticalAlignment="Center" Text="3000 mm"
+                             Margin="0,0,18,0" LostFocus="OnNewWallHeightChanged"
+                             ToolTip="The unconnected height, or the depth below the level"/>
                     <TextBlock Text="Shape" Style="{StaticResource OptionLabel}"/>
                     <ComboBox x:Name="WallShapePicker" Style="{StaticResource OptionCombo}" MinWidth="90"
                               SelectedIndex="0" SelectionChanged="OnWallShapeChanged"
-                              ToolTip="Straight walls, or arcs: click the start, the end, then a point the arc passes through">
+                              ToolTip="One wall at a time, straight or arc, or a whole shape of walls placed with two clicks">
                         <ComboBoxItem Content="Line"/>
                         <ComboBoxItem Content="Arc"/>
+                        <ComboBoxItem Content="Rectangle"/>
+                        <ComboBoxItem Content="Polygon"/>
+                        <ComboBoxItem Content="Circle"/>
+                        <ComboBoxItem Content="Oval"/>
+                        <ComboBoxItem Content="Pick lines"/>
                     </ComboBox>
+                    <StackPanel x:Name="PolygonOptions" Orientation="Horizontal" Visibility="Collapsed">
+                        <TextBlock Text="Sides" Style="{StaticResource OptionLabel}"/>
+                        <TextBox x:Name="PolygonSidesBox" Width="44" VerticalAlignment="Center" Text="6"
+                                 Margin="0,0,12,0" LostFocus="OnPolygonSidesChanged"
+                                 ToolTip="3 for a triangle, up to 32"/>
+                        <CheckBox x:Name="PolygonInscribedBox" Content="Click a corner" IsChecked="True"
+                                  VerticalAlignment="Center" Margin="0,0,18,0" Click="OnPolygonInscribedChanged"
+                                  ToolTip="On: the second click is a corner. Off: it is the middle of a side."/>
+                    </StackPanel>
                     <TextBlock Text="Offset" Style="{StaticResource OptionLabel}"/>
                     <TextBox x:Name="WallOffsetBox" Width="90" VerticalAlignment="Center"
                              Text="0 mm" LostFocus="OnWallOffsetChanged" KeyDown="OnWallOffsetKeyDown"

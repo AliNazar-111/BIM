@@ -137,7 +137,11 @@ public static class WallJoins
         }
 
         var structure = type.Structure;
-        var end = atStart ? 0 : wall.Length;
+
+        // Where along the wall this cut is - its own end for a join, part-way along for a
+        // jamb or a crossing. On a curve a line meets each edge twice, and the crossing that
+        // belongs to this cut is the one near here, not near the wall's end.
+        var end = Math.Clamp(wall.Locate(structure, cut.Points[cut.Points.Count / 2]).Along, 0, wall.Length);
 
         double Across(Point2D point) => wall.Locate(structure, point).Across;
 
@@ -274,64 +278,100 @@ public static class WallJoins
         BimDocument document, Wall wall, WallType type)
     {
         var crossings = new List<(double, double, WallCut, WallCut)>();
-        var (bodyStart, _) = wall.GetBodyCentreline(type.Structure);
-        var centreline = new Line2D(bodyStart, wall.Direction);
-
-        // Curved walls crossing midway are not yet joined: the line-and-arc case has its own
-        // geometry, and such crossings are rare enough to leave for now.
-        if (wall.IsCurved) return crossings;
+        var structure = type.Structure;
+        var curve = wall.LocationCurve;
 
         foreach (var other in document.Walls)
         {
-            if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId || other.IsCurved || AreInLine(wall, other)) continue;
+            if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId) continue;
             if (document.GetWallType(other) is not { } otherType) continue;
 
-            // A proper crossing: well inside both walls, not at or near either one's end.
-            if (!Line2D.TryIntersect(Line2D.Through(wall.Start, wall.End), Line2D.Through(other.Start, other.End), out var point))
-                continue;
+            var otherCurve = other.LocationCurve;
 
-            var along = (point - wall.Start).Dot(wall.Direction);
-            var otherAlong = (point - other.Start).Dot(other.Direction);
-            if (along <= JoinTolerance || along >= wall.Length - JoinTolerance) continue;
-            if (otherAlong <= JoinTolerance || otherAlong >= other.Length - JoinTolerance) continue;
+            foreach (var point in curve.Crossings(otherCurve))
+            {
+                // A proper crossing: well inside both walls, not at or near either one's end.
+                var along = curve.Locate(point).Along;
+                var otherAlong = otherCurve.Locate(point).Along;
+                if (along <= JoinTolerance || along >= wall.Length - JoinTolerance) continue;
+                if (otherAlong <= JoinTolerance || otherAlong >= other.Length - JoinTolerance) continue;
 
-            if (!GivesWayTo(wall, type, other, otherType)) continue;
+                // Running along each other is not crossing.
+                if (Math.Abs(wall.TangentAt(along).Cross(other.TangentAt(otherAlong))) <= CollinearTolerance) continue;
 
-            // The other wall's two faces, and where each crosses this wall's centreline.
-            var (otherBodyStart, _) = other.GetBodyCentreline(otherType.Structure);
-            var across = other.Direction.PerpendicularLeft();
-            var faces = new[] { 1.0, -1.0 }
-                .Select(side => new Line2D(otherBodyStart + across * (side * otherType.Width / 2), other.Direction))
-                .Select(face => Line2D.TryIntersect(centreline, face, out var hit)
-                    ? (Face: face, At: (hit - bodyStart).Dot(wall.Direction))
-                    : (Face: face, At: double.NaN))
-                .ToList();
+                if (!GivesWayTo(wall, type, other, otherType)) continue;
 
-            if (faces.Any(f => double.IsNaN(f.At))) continue;
+                // The other wall's two faces where it crosses - straight lines along its
+                // tangent there - and where each meets this wall's centreline.
+                var faces = new[] { 1.0, -1.0 }
+                    .Select(side => new Line2D(
+                        other.PointAt(otherType.Structure, otherAlong, side * otherType.Width / 2),
+                        other.TangentAt(otherAlong)))
+                    .Select(face => wall.EdgeCrossing(structure, face, 0, point) is { } hit
+                        ? (Face: face, At: wall.Locate(structure, hit).Along)
+                        : (Face: face, At: double.NaN))
+                    .ToList();
 
-            var (near, far) = faces[0].At <= faces[1].At ? (faces[0], faces[1]) : (faces[1], faces[0]);
+                if (faces.Any(f => double.IsNaN(f.At))) continue;
 
-            // A crossing so shallow it eats metres of wall is not a crossing anyone drew.
-            if (far.At - near.At > MiterLimit * 2 * Math.Max(type.Width, otherType.Width)) continue;
+                var (near, far) = faces[0].At <= faces[1].At ? (faces[0], faces[1]) : (faces[1], faces[0]);
 
-            crossings.Add((near.At, far.At,
-                WallCut.Along(near.Face, wall, WallEndCondition.Butt),
-                WallCut.Along(far.Face, wall, WallEndCondition.Butt)));
+                // A crossing so shallow it eats metres of wall is not a crossing anyone drew.
+                if (far.At - near.At > MiterLimit * 2 * Math.Max(type.Width, otherType.Width)) continue;
+
+                // Across a curved wall the cuts follow its faces round; across a straight one
+                // the faces are the lines already found.
+                WallCut Cut((Line2D Face, double At) face) =>
+                    (other.IsCurved
+                        ? CurvedFaceCut(wall, type, other, otherType, otherAlong,
+                            other.Locate(otherType.Structure, face.Face.Origin).Across, WallEndCondition.Butt)
+                        : null)
+                    ?? WallCut.Along(face.Face, wall, WallEndCondition.Butt);
+
+                crossings.Add((near.At, far.At, Cut(near), Cut(far)));
+            }
         }
 
         return crossings.OrderBy(c => c.Item1).ToList();
     }
 
-    /// <summary>Whether two walls' drawn lines cross.</summary>
-    private static bool SegmentsCross(Wall a, Wall b)
+    /// <summary>
+    /// A cut along one face of a curved wall, where another wall meets it: a chain of short
+    /// straight pieces following the arc, so the meeting wall stops exactly on the curve
+    /// rather than on a tangent that parts from it a few millimetres out.
+    /// </summary>
+    private static WallCut? CurvedFaceCut(
+        Wall cutWall, WallType cutType, Wall curved, WallType curvedType, double curvedAlong, double faceAcross,
+        WallEndCondition condition)
     {
-        if (a.IsCurved || b.IsCurved) return false;
+        const int steps = 12;
+        var structure = curvedType.Structure;
 
-        double Side(Point2D p, Point2D q, Point2D r) => (q - p).Cross(r - p);
+        // Only as far along the face as it takes to cross the wall being cut, which is further
+        // the more obliquely it crosses.
+        var cutAlong = Math.Clamp(cutWall.Locate(cutType.Structure, curved.PointAt(structure, curvedAlong, faceAcross)).Along, 0, cutWall.Length);
+        var sine = Math.Abs(cutWall.TangentAt(cutAlong).Cross(curved.TangentAt(curvedAlong)));
+        var span = cutType.Width / Math.Max(sine, 0.2) + cutType.Width;
 
-        return Side(a.Start, a.End, b.Start) * Side(a.Start, a.End, b.End) <= 0 &&
-               Side(b.Start, b.End, a.Start) * Side(b.Start, b.End, a.End) <= 0;
+        var points = Enumerable.Range(-steps, 2 * steps + 1)
+            .Select(i => curved.PointAt(structure, curvedAlong + span * i / steps, faceAcross))
+            .ToList();
+
+        // A cut runs across the wall it cuts, one way. A face that turns back within that
+        // stretch - two curves grazing each other - cannot be followed, and the straight
+        // tangent is used instead.
+        var across = points.Select(point => cutWall.Locate(cutType.Structure, point).Across).ToList();
+        var rising = across.Zip(across.Skip(1)).All(pair => pair.Second > pair.First);
+        var falling = across.Zip(across.Skip(1)).All(pair => pair.Second < pair.First);
+        if (!rising && !falling) return null;
+
+        // Ordered across the wall being cut, exterior side first, as a cut has to be.
+        if (rising) points.Reverse();
+        return new WallCut(points, condition);
     }
+
+    /// <summary>Whether two walls' drawn lines cross.</summary>
+    private static bool SegmentsCross(Wall a, Wall b) => a.LocationCurve.Crossings(b.LocationCurve).Count > 0;
 
     /// <summary>
     /// Which of two crossing walls carries on: the wider, then the longer, then - so the
@@ -470,7 +510,18 @@ public static class WallJoins
 
         // Running into the side of a wall that passes by: stop at its face.
         if (FindPassingWall(document, wall, joint) is { } passing)
-            return ButtAgainst(document, wall, type, passing, joint, atStart) ?? Square(WallEndCondition.Overlap);
+        {
+            if (ButtAgainst(document, wall, type, passing, joint, atStart) is not { } butt)
+                return Square(WallEndCondition.Overlap);
+
+            // Against a curved wall, stop on its face as it curves, not on the tangent.
+            var real = document.Walls.FirstOrDefault(w => w.Id == passing.Id);
+            if (real is not { IsCurved: true } || document.GetWallType(real) is not { } realType) return butt;
+
+            var faceAcross = real.Locate(realType.Structure, butt.Line.Origin).Across;
+            var along = real.LocationCurve.Locate(joint).Along;
+            return CurvedFaceCut(wall, type, real, realType, along, faceAcross, WallEndCondition.Butt) ?? butt;
+        }
 
         var partners = PartnersAt(document, wall, joint);
         if (partners.Count == 0) return Free(WallEndCondition.Free);

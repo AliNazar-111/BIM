@@ -86,6 +86,11 @@ public sealed class SplitWallCommand : IUndoableCommand
             Start = _splitPoint,
             End = wall.End,
             Bulge = curve.Part(_splitAlong, curve.Length).Bulge,
+            CrossSection = wall.CrossSection,
+            SlantAngle = wall.SlantAngle,
+            OverrideTaper = wall.OverrideTaper,
+            ExteriorTaper = wall.ExteriorTaper,
+            InteriorTaper = wall.InteriorTaper,
             TypeId = wall.TypeId,
             LevelId = wall.LevelId,
             TopLevelId = wall.TopLevelId,
@@ -97,6 +102,8 @@ public sealed class SplitWallCommand : IUndoableCommand
             RoomBounding = wall.RoomBounding,
             StructuralUsage = wall.StructuralUsage,
             EndJoin = wall.EndJoin,
+            TopAttachedTo = wall.TopAttachedTo,
+            BaseAttachedTo = wall.BaseAttachedTo,
             Mark = wall.Mark,
             Comments = wall.Comments,
             Workset = wall.Workset,
@@ -402,10 +409,44 @@ public static class WallTrim
         newStart = wall.Start;
         newEnd = wall.End;
 
-        var wallLine = Line2D.Through(wall.Start, wall.End);
-        var targetLine = Line2D.Through(target.Start, target.End);
+        // Only a straight wall can be trimmed: a curved one would have to change its curve.
+        if (wall.IsCurved) return false;
 
-        if (!Line2D.TryIntersect(wallLine, targetLine, out var crossing)) return false;
+        var wallLine = Line2D.Through(wall.Start, wall.End);
+        Point2D crossing;
+
+        if (target.IsCurved)
+        {
+            // To the curve's circle - the arc itself, or where it would run on to - at the
+            // crossing nearer this wall's ends.
+            var curve = target.LocationCurve;
+
+            // The line meets the circle twice. Prefer where it meets the arc itself, and of
+            // those the one nearer the wall.
+            var candidates = new[] { wall.Start, wall.End, wall.Start + (wall.Start - wall.End) * 1000, wall.End + (wall.End - wall.Start) * 1000 }
+                .Select(near => curve.Intersect(wallLine, 0, near))
+                .OfType<Point2D>()
+                .Distinct()
+                .ToList();
+            if (candidates.Count == 0) return false;
+
+            bool OnArc(Point2D point)
+            {
+                var along = curve.Locate(point).Along;
+                return along >= -1e-6 && along <= curve.Length + 1e-6;
+            }
+
+            double Distance(Point2D point) => Math.Min(point.DistanceTo(wall.Start), point.DistanceTo(wall.End));
+
+            crossing = candidates
+                .OrderBy(point => OnArc(point) ? 0 : 1)
+                .ThenBy(Distance)
+                .First();
+        }
+        else if (!Line2D.TryIntersect(wallLine, Line2D.Through(target.Start, target.End), out crossing))
+        {
+            return false;
+        }
 
         // Moving the nearer end keeps the wall roughly where the user drew it; moving the
         // far end would flip it through the target.

@@ -198,6 +198,65 @@ public sealed class WallCurve
     }
 
     /// <summary>
+    /// Where this curve and another cross, between their ends: line with line, line with arc,
+    /// or arc with arc.
+    /// </summary>
+    public IReadOnlyList<Point2D> Crossings(WallCurve other)
+    {
+        const double slack = 1e-6;
+
+        bool OnBoth(Point2D point)
+        {
+            var (a, left) = Locate(point);
+            var (b, otherLeft) = other.Locate(point);
+            return Math.Abs(left) < 1e-3 && Math.Abs(otherLeft) < 1e-3 &&
+                   a >= -slack && a <= Length + slack && b >= -slack && b <= other.Length + slack;
+        }
+
+        var candidates = new List<Point2D>();
+
+        if (!IsArc && !other.IsArc)
+        {
+            if (Line2D.TryIntersect(Line2D.Through(Start, End), Line2D.Through(other.Start, other.End), out var point))
+                candidates.Add(point);
+        }
+        else if (IsArc && other.IsArc)
+        {
+            // Two circles: the chord through their crossings is perpendicular to the line of
+            // centres, at a distance found from the two radii.
+            var between = other.Centre - Centre;
+            var d = between.Length;
+            if (d > 1e-9 && d <= Radius + other.Radius && d >= Math.Abs(Radius - other.Radius))
+            {
+                var a = (Radius * Radius - other.Radius * other.Radius + d * d) / (2 * d);
+                var h = Math.Sqrt(Math.Max(0, Radius * Radius - a * a));
+                var unit = between * (1 / d);
+                var foot = Centre + unit * a;
+                candidates.Add(foot + unit.PerpendicularLeft() * h);
+                candidates.Add(foot - unit.PerpendicularLeft() * h);
+            }
+        }
+        else
+        {
+            var (line, arc) = IsArc ? (other, this) : (this, other);
+            var d = (line.End - line.Start).NormalisedOrDefault(Vector2D.UnitX);
+            var m = line.Start - arc.Centre;
+            var b = m.Dot(d);
+            var c = m.Dot(m) - arc.Radius * arc.Radius;
+            var discriminant = b * b - c;
+
+            if (discriminant >= 0)
+            {
+                var root = Math.Sqrt(discriminant);
+                candidates.Add(line.Start + d * (-b - root));
+                candidates.Add(line.Start + d * (-b + root));
+            }
+        }
+
+        return candidates.Where(OnBoth).ToList();
+    }
+
+    /// <summary>
     /// Positions strictly between two distances along, close enough together that straight
     /// pieces between them follow the arc to within <see cref="ChordTolerance"/>. None for a
     /// straight line, which needs no points in between.

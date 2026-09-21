@@ -96,6 +96,21 @@ public sealed class Wall : Element
 
     public StructuralUsage StructuralUsage { get; set; } = StructuralUsage.NonBearing;
 
+    /// <summary>Vertical, slanted or tapered (specification section 3.1). See <see cref="WallLean"/>.</summary>
+    public WallCrossSection CrossSection { get; set; } = WallCrossSection.Vertical;
+
+    /// <summary>How far a slanted wall leans from vertical, in degrees. Positive leans toward the exterior.</summary>
+    public double SlantAngle { get; set; }
+
+    /// <summary>Whether this wall's taper angles are its own rather than its type's.</summary>
+    public bool OverrideTaper { get; set; }
+
+    /// <summary>This wall's own lean inward of its exterior face, when overriding its type. Degrees.</summary>
+    public double ExteriorTaper { get; set; }
+
+    /// <summary>This wall's own lean inward of its interior face, when overriding its type. Degrees.</summary>
+    public double InteriorTaper { get; set; }
+
     /// <summary>How the start of the wall is joined to whatever meets it there.</summary>
     public WallJoinKind StartJoin { get; set; } = WallJoinKind.Auto;
 
@@ -122,19 +137,68 @@ public sealed class Wall : Element
     }
 
     /// <summary>
-    /// Resolves the wall's height, following the top level when it is constrained to one.
+    /// The floor, ceiling or roof the top of the wall is attached to, if any (specification
+    /// section 3.1, "attach top/base"). The top then follows that slab's underside, whatever
+    /// the top constraint says, and moves when the slab does.
     /// </summary>
-    public double GetHeight(BimDocument document)
+    public Guid? TopAttachedTo { get; set; }
+
+    /// <summary>The floor the base of the wall stands on, if it is attached to one.</summary>
+    public Guid? BaseAttachedTo { get; set; }
+
+    /// <summary>
+    /// Where the wall starts, in project elevation: on the floor it is attached to, or at its
+    /// base level plus the base offset.
+    /// </summary>
+    public double GetBaseElevation(BimDocument document)
     {
-        if (TopLevelId is not { } topId) return UnconnectedHeight;
+        if (BaseAttachedTo is { } slabId && FindSlab(document, slabId) is { } slab)
+            return slab.GetTopElevation(document);
 
-        var baseLevel = document.FindLevel(LevelId);
-        var topLevel = document.FindLevel(topId);
-        if (baseLevel is null || topLevel is null) return UnconnectedHeight;
-
-        var height = topLevel.Elevation + TopOffset - (baseLevel.Elevation + BaseOffset);
-        return height > 0 ? height : UnconnectedHeight;
+        return (document.FindLevel(LevelId)?.Elevation ?? 0) + BaseOffset;
     }
+
+    /// <summary>
+    /// Where the wall stops, in project elevation: under the slab it is attached to, at its top
+    /// level plus the top offset, or its unconnected height above the base. A top that would
+    /// come at or below the base is ignored for the unconnected height, so a wall never
+    /// vanishes because a level or slab moved.
+    /// </summary>
+    public double GetTopElevation(BimDocument document)
+    {
+        var bottom = GetBaseElevation(document);
+
+        if (TopAttachedTo is { } slabId && FindSlab(document, slabId) is { } slab)
+        {
+            var underside = slab.GetBottomElevation(document);
+            if (underside > bottom) return underside;
+        }
+
+        if (TopLevelId is { } topId && document.FindLevel(topId) is { } topLevel)
+        {
+            var top = topLevel.Elevation + TopOffset;
+            if (top > bottom) return top;
+        }
+
+        return bottom + UnconnectedHeight;
+    }
+
+    /// <summary>Resolves the wall's height, from wherever its base and top are held.</summary>
+    public double GetHeight(BimDocument document) => GetTopElevation(document) - GetBaseElevation(document);
+
+    /// <summary>What an attachment is to, as the property panel shows it.</summary>
+    private static string AttachmentName(BimDocument document, Guid? slabId)
+    {
+        if (slabId is not { } id) return "None";
+        if (FindSlab(document, id) is not { } slab) return "None (slab deleted)";
+
+        var type = document.FindType<SlabType>(slab.TypeId)?.Name ?? slab.Category.ToString();
+        var level = document.FindLevel(slab.LevelId)?.Name;
+        return level is null ? type : $"{type}, {level}";
+    }
+
+    private static Slab? FindSlab(BimDocument document, Guid id) =>
+        document.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == id);
 
     /// <summary>The name shown for a wall with no top level.</summary>
     public const string Unconnected = "Unconnected";
@@ -144,8 +208,9 @@ public sealed class Wall : Element
         TopLevelId is { } id && document.FindLevel(id) is { } level ? $"Up to level: {level.Name}" : Unconnected;
 
     /// <summary>
-    /// What the top can be set to: unconnected, or up to any level above the base. A level
-    /// at or below the base would give the wall no height, so it is not offered.
+    /// What the top can be set to: unconnected, or up to its own level or any level above it.
+    /// Up to its own level with the base offset below it is a wall that hangs down from the
+    /// level: a foundation wall, or a basement wall drawn from ground floor.
     /// </summary>
     public IReadOnlyList<string> TopConstraintChoices(BimDocument document)
     {
@@ -153,7 +218,7 @@ public sealed class Wall : Element
 
         var choices = new List<string> { Unconnected };
         choices.AddRange(document.Levels
-            .Where(level => level.Elevation > baseElevation || level.Id == TopLevelId)
+            .Where(level => level.Elevation >= baseElevation || level.Id == TopLevelId)
             .Select(level => $"Up to level: {level.Name}"));
 
         return choices;
@@ -196,8 +261,10 @@ public sealed class Wall : Element
     /// <summary>Gross volume, in mm³. The quantity used for concrete and masonry takeoff.</summary>
     public double GetVolume(BimDocument document)
     {
-        var type = document.FindType<WallType>(TypeId);
-        return type is null ? 0 : GetArea(document) * type.Width;
+        // Each tier of a stacked wall is as thick as its own construction.
+        if (document.FindType<WallType>(TypeId) is null && document.FindType<StackedWallType>(TypeId) is null) return 0;
+
+        return document.GetWallTiers(this).Sum(tier => Length * (tier.Top - tier.Bottom) * tier.Type.Width);
     }
 
     /// <summary>
@@ -333,6 +400,48 @@ public sealed class Wall : Element
             yield return ParameterValue.ReadOnly(WallParameters.UnconnectedHeight, () => UnconnectedHeight);
         }
 
+        // Leaning: the profile, and the angles that apply to it. Each is editable only when it
+        // means something for the profile chosen.
+        yield return ParameterValue.BindChoice(
+            WallParameters.CrossSection,
+            () => EnumText.Humanise(CrossSection),
+            v => { if (EnumText.TryParse<WallCrossSection>(v, out var section)) CrossSection = section; },
+            EnumText.Choices<WallCrossSection>());
+
+        if (CrossSection == WallCrossSection.Slanted)
+            yield return ParameterValue.BindValidated(WallParameters.SlantAngle, () => SlantAngle, v =>
+            {
+                if (Math.Abs(v) > WallLean.MaxAngle) return false;
+                SlantAngle = v;
+                return true;
+            });
+
+        if (CrossSection == WallCrossSection.Tapered)
+        {
+            yield return ParameterValue.Bind(WallParameters.OverrideTaper, () => OverrideTaper, v => OverrideTaper = v);
+
+            if (OverrideTaper)
+            {
+                yield return ParameterValue.BindValidated(WallParameters.ExteriorTaper, () => ExteriorTaper, v =>
+                {
+                    if (Math.Abs(v) > WallLean.MaxAngle) return false;
+                    ExteriorTaper = v;
+                    return true;
+                });
+                yield return ParameterValue.BindValidated(WallParameters.InteriorTaper, () => InteriorTaper, v =>
+                {
+                    if (Math.Abs(v) > WallLean.MaxAngle) return false;
+                    InteriorTaper = v;
+                    return true;
+                });
+            }
+        }
+
+        // What the top and base are attached to. Attaching is done from the Edit menu, where
+        // the slab above or below is found for you; here it is only reported.
+        yield return ParameterValue.ReadOnly(WallParameters.TopAttachedTo, () => AttachmentName(document, TopAttachedTo));
+        yield return ParameterValue.ReadOnly(WallParameters.BaseAttachedTo, () => AttachmentName(document, BaseAttachedTo));
+
         yield return ParameterValue.BindChoiceCommand(
             WallParameters.LocationLine,
             () => EnumText.Humanise(LocationLine),
@@ -406,6 +515,27 @@ public static class WallParameters
 
     public static readonly ParameterDefinition Volume =
         new("Volume", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition CrossSection =
+        new("Cross-Section", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition SlantAngle =
+        new("Angle from Vertical", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition OverrideTaper =
+        new("Override Type Taper", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition ExteriorTaper =
+        new("Exterior Taper", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition InteriorTaper =
+        new("Interior Taper", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition TopAttachedTo =
+        new("Top Attached To", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition BaseAttachedTo =
+        new("Base Attached To", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition StartJoin =
         new("Start Join", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);

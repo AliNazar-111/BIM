@@ -36,6 +36,14 @@ public abstract class Slab : Element
         if (Polygon2D.SignedArea(_boundary) < 0) _boundary.Reverse();
     }
 
+    /// <summary>The slab's upper surface, in project elevation: what a wall stands on.</summary>
+    public double GetTopElevation(BimDocument document) =>
+        (document.FindLevel(LevelId)?.Elevation ?? 0) + HeightOffset;
+
+    /// <summary>The slab's underside, in project elevation: what a wall reaches up to.</summary>
+    public double GetBottomElevation(BimDocument document) =>
+        GetTopElevation(document) - (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
+
     /// <summary>Plan area in mm². The quantity a finishes or takeoff schedule reports.</summary>
     public double Area => Polygon2D.Area(_boundary);
 

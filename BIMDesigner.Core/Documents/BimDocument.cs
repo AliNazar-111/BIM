@@ -58,7 +58,42 @@ public sealed class BimDocument
     public IEnumerable<T> TypesOf<T>() where T : ElementType => _types.Values.OfType<T>();
 
     /// <summary>The wall type an element uses, or the first available type as a fallback.</summary>
-    public WallType? GetWallType(Wall wall) => FindType<WallType>(wall.TypeId) ?? TypesOf<WallType>().FirstOrDefault();
+    public WallType? GetWallType(Wall wall)
+    {
+        // A stacked wall is drawn in plan as the tier the plan cuts through.
+        if (FindType<StackedWallType>(wall.TypeId) is { } stacked)
+            return stacked.TierAt(this, wall.GetHeight(this), StackedWallType.PlanCutHeight)
+                   ?? TypesOf<WallType>().FirstOrDefault();
+
+        return FindType<WallType>(wall.TypeId) ?? TypesOf<WallType>().FirstOrDefault();
+    }
+
+    /// <summary>
+    /// The wall type a type id is drawn as in plan: itself, or for a stacked type the tier a
+    /// wall of the given height is cut through. What the wall tool previews with.
+    /// </summary>
+    public WallType? PlanWallType(Guid typeId, double height = 3000) =>
+        FindType<StackedWallType>(typeId) is { } stacked
+            ? stacked.TierAt(this, height, StackedWallType.PlanCutHeight)
+            : FindType<WallType>(typeId);
+
+    /// <summary>
+    /// Every construction a wall is built of, with the elevations it runs between: one for an
+    /// ordinary wall, one per tier for a stacked wall. What the 3D model, sections and
+    /// quantities build from.
+    /// </summary>
+    public IReadOnlyList<(WallType Type, double Bottom, double Top)> GetWallTiers(Wall wall)
+    {
+        var bottom = wall.GetBaseElevation(this);
+        var height = wall.GetHeight(this);
+
+        if (FindType<StackedWallType>(wall.TypeId) is { } stacked)
+            return stacked.Layout(this, height).Select(tier => (tier.Type, bottom + tier.Bottom, bottom + tier.Top)).ToList();
+
+        return GetWallType(wall) is { } type
+            ? new[] { (type, bottom, bottom + height) }
+            : Array.Empty<(WallType, double, double)>();
+    }
 
     // ---- content ---------------------------------------------------------------
 

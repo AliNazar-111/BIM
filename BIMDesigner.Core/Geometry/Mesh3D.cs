@@ -16,7 +16,10 @@ public enum MeshKind
     Ceiling,
     Roof,
     Glazing,
-    DoorLeaf
+    DoorLeaf,
+
+    /// <summary>A profile run along a wall face: a skirting, plinth, cornice.</summary>
+    Sweep
 }
 
 /// <summary>
@@ -56,6 +59,16 @@ public sealed class Mesh3D
     public double Opacity => Kind == MeshKind.Glazing ? 0.35 : 1.0;
 
     public IReadOnlyList<Point3D> Positions => _positions;
+
+    /// <summary>
+    /// Moves every point of the solid, and its edges with it: how a vertical extrusion is made
+    /// to lean or taper without being built again.
+    /// </summary>
+    public void Transform(Func<Point3D, Point3D> map)
+    {
+        for (var i = 0; i < _positions.Count; i++) _positions[i] = map(_positions[i]);
+        for (var i = 0; i < _edges.Count; i++) _edges[i] = (map(_edges[i].From), map(_edges[i].To));
+    }
 
     /// <summary>Index triples into <see cref="Positions"/>.</summary>
     public IReadOnlyList<int> Indices => _indices;

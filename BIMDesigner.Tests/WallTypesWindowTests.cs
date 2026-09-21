@@ -86,4 +86,34 @@ public class WallTypesWindowTests
             window.Close();
         });
     }
+
+    [Fact]
+    public void MakingAStackedTypeInTheEditor()
+    {
+        OnUiThread(() =>
+        {
+            var document = BimDocument.CreateDefault();
+            var history = new UndoStack();
+            var window = new WallTypesWindow(document, history, null);
+
+            Click(window, "OnNewStacked");
+            var stacked = Assert.Single(document.TypesOf<StackedWallType>());
+            Assert.Equal(2, stacked.Tiers.Count);
+
+            ((TextBox)window.FindName("StackNameBox")).Text = "Plinth and Render";
+
+            // Top first on screen: the second row is the bottom tier.
+            var grid = (DataGrid)window.FindName("TierGrid");
+            var bottom = (TierDraftRow)grid.Items[1];
+            bottom.HeightText = "1200";
+
+            Click(window, "OnApply");
+
+            Assert.Equal("Plinth and Render", stacked.Name);
+            Assert.Equal(1200, stacked.Tiers[0].Height);
+            Assert.True(stacked.Tiers[1].IsVariable);
+
+            window.Close();
+        });
+    }
 }

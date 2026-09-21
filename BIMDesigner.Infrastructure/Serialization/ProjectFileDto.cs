@@ -29,6 +29,9 @@ internal sealed class ProjectFileDto
 
     public List<WallTypeDto> WallTypes { get; set; } = new();
 
+    /// <summary>Walls built of other wall types one above another. Missing from older files.</summary>
+    public List<StackedWallTypeDto> StackedWallTypes { get; set; } = new();
+
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
 
     public List<WindowTypeDto> WindowTypes { get; set; } = new();
@@ -337,6 +340,36 @@ internal sealed class MaterialLayerDto
     public bool Wraps { get; set; } = true;
 }
 
+internal sealed class WallSweepDto
+{
+    public string Kind { get; set; } = "Sweep";
+    public string Profile { get; set; } = "Rectangle";
+    public string Side { get; set; } = "Exterior";
+    public double Depth { get; set; }
+    public double Height { get; set; }
+    public double Elevation { get; set; }
+    public bool FromTop { get; set; }
+    public Guid MaterialId { get; set; }
+}
+
+internal sealed class StackedWallTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Stacked";
+    public string TypeMark { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public decimal Cost { get; set; }
+
+    /// <summary>Bottom tier first. A height of zero is the variable tier.</summary>
+    public List<StackTierDto> Tiers { get; set; } = new();
+}
+
+internal sealed class StackTierDto
+{
+    public Guid WallTypeId { get; set; }
+    public double Height { get; set; }
+}
+
 internal sealed class WallTypeDto
 {
     public Guid Id { get; set; }
@@ -361,6 +394,13 @@ internal sealed class WallTypeDto
     /// <summary>"None", "Exterior", "Interior" or "Both". Empty in older files.</summary>
     public string WrappingAtInserts { get; set; } = string.Empty;
     public string WrappingAtEnds { get; set; } = string.Empty;
+
+    /// <summary>How far tapered walls of this type lean in on each face, in degrees.</summary>
+    public double ExteriorTaperAngle { get; set; }
+    public double InteriorTaperAngle { get; set; }
+
+    /// <summary>Profiles run along the faces of walls of this type. Missing from older files.</summary>
+    public List<WallSweepDto> Sweeps { get; set; } = new();
     public string CoarseScaleFillColour { get; set; } = "#8A93A1";
 
     public List<MaterialLayerDto> Layers { get; set; } = new();
@@ -458,6 +498,17 @@ internal sealed class WallDto
     /// <summary>How each end joins: "Auto", "Mitre", "Butt", "RunThrough", "SquareOff" or "Disallow".</summary>
     /// <summary>How far the wall bows: 0 for straight. See WallCurve for the convention.</summary>
     public double Bulge { get; set; }
+
+    /// <summary>The slabs the top and base are attached to, if any.</summary>
+    public Guid? TopAttachedTo { get; set; }
+    public Guid? BaseAttachedTo { get; set; }
+
+    /// <summary>"Vertical", "Slanted" or "Tapered", and the angles for them, in degrees.</summary>
+    public string CrossSection { get; set; } = "Vertical";
+    public double SlantAngle { get; set; }
+    public bool OverrideTaper { get; set; }
+    public double ExteriorTaper { get; set; }
+    public double InteriorTaper { get; set; }
 
     public string StartJoin { get; set; } = "Auto";
     public string EndJoin { get; set; } = "Auto";

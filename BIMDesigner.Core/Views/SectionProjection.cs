@@ -44,7 +44,14 @@ public sealed record SectionPiece(
     SectionDepth Depth,
     ColourRgb Fill,
     string Description,
-    Guid ElementId);
+    Guid ElementId)
+{
+    /// <summary>
+    /// The true outline, in the same coordinates, when the piece is not an upright rectangle -
+    /// a cut through a leaning wall. Null for the ordinary case.
+    /// </summary>
+    public IReadOnlyList<(double X, double Y)>? Shape { get; init; }
+}
 
 public sealed record SectionLevelLine(string Name, double Elevation);
 
@@ -147,17 +154,171 @@ public static class SectionProjection
 
     // ---- walls -----------------------------------------------------------------
 
+    /// <summary>
+    /// A wall, tier by tier: each construction it is made of is cut as if it were the whole
+    /// wall, then trimmed to the heights that construction actually occupies. An ordinary wall
+    /// has one tier running its full height.
+    /// </summary>
     private static void AddWall(
         BimDocument document, SectionMarker marker, Wall wall, List<SectionPiece> pieces)
     {
-        var type = document.GetWallType(wall);
-        if (type is null) return;
+        foreach (var (type, bottom, top) in document.GetWallTiers(wall))
+        {
+            var tier = new List<SectionPiece>();
+            AddWallAs(document, marker, wall, type, tier);
 
+            foreach (var piece in tier)
+            {
+                var bounds = piece.Bounds with
+                {
+                    Bottom = Math.Max(piece.Bounds.Bottom, bottom),
+                    Top = Math.Min(piece.Bounds.Top, top)
+                };
+
+                if (bounds.IsEmpty) continue;
+
+                foreach (var recessed in Recessed(document, marker, wall, type, piece with { Bounds = bounds }, bottom, top))
+                    pieces.Add(WallLean.Leans(wall, type) ? Leaned(document, marker, wall, type, recessed) : recessed);
+            }
+
+            AddSweepProfiles(document, marker, wall, type, bottom, top, pieces);
+        }
+    }
+
+    /// <summary>
+    /// A cut layer with the type's reveals taken out of it: the piece above and below each
+    /// reveal whole, and within the reveal only what is left behind the groove.
+    /// </summary>
+    private static IEnumerable<SectionPiece> Recessed(
+        BimDocument document, SectionMarker marker, Wall wall, WallType type, SectionPiece piece, double bottom, double top)
+    {
+        var reveals = WallSweeps.Reveals(type, bottom, top)
+            .Where(r => r.Top > piece.Bounds.Bottom && r.Bottom < piece.Bounds.Top)
+            .ToList();
+
+        if (piece.Part != SectionPart.WallLayer || piece.Depth != SectionDepth.Cut || reveals.Count == 0)
+        {
+            yield return piece;
+            yield break;
+        }
+
+        var structure = type.Structure;
+        var half = type.Width / 2;
+        var bounds = piece.Bounds;
+
+        double Across(double x) => wall.Locate(structure, marker.Start + marker.Direction * x).Across;
+        var (leftAcross, rightAcross) = (Across(bounds.Left), Across(bounds.Right));
+
+        // The heights at which the piece changes, and in each band what width is left of it.
+        var heights = reveals.SelectMany(r => new[] { r.Bottom, r.Top })
+            .Where(z => z > bounds.Bottom && z < bounds.Top)
+            .Append(bounds.Bottom).Append(bounds.Top)
+            .Distinct().OrderBy(z => z).ToList();
+
+        for (var i = 0; i + 1 < heights.Count; i++)
+        {
+            var middle = (heights[i] + heights[i + 1]) / 2;
+            var outer = Math.Max(leftAcross, rightAcross);
+            var inner = Math.Min(leftAcross, rightAcross);
+
+            if (WallSweeps.Recess(outer, inner, half, reveals, middle) is not var (keptOuter, keptInner)) continue;
+
+            // Back from across to along the cut line, which runs straight through the wall.
+            double X(double across) => Math.Abs(rightAcross - leftAcross) < 1e-9
+                ? bounds.Left
+                : bounds.Left + (across - leftAcross) / (rightAcross - leftAcross) * (bounds.Right - bounds.Left);
+
+            var (a, b) = (X(keptOuter), X(keptInner));
+            yield return piece with
+            {
+                Bounds = new SectionRect(Math.Min(a, b), heights[i], Math.Max(a, b), heights[i + 1])
+            };
+        }
+    }
+
+    /// <summary>
+    /// Where the cut crosses a wall with sweeps, each sweep's profile as the section sees it -
+    /// the actual cornice or skirting shape, standing out from the face.
+    /// </summary>
+    private static void AddSweepProfiles(
+        BimDocument document, SectionMarker marker, Wall wall, WallType type, double bottom, double top, List<SectionPiece> pieces)
+    {
+        var sweeps = type.Sweeps.Where(s => s.Kind == SweepKind.Sweep).ToList();
+        if (sweeps.Count == 0) return;
+
+        var structure = type.Structure;
+        var half = type.Width / 2;
+        var cutLine = WallCurve.Of(marker.Start, marker.End, 0);
+
+        foreach (var crossing in wall.LocationCurve.Crossings(cutLine))
+        {
+            var along = wall.LocationCurve.Locate(crossing).Along;
+
+            foreach (var sweep in sweeps)
+            {
+                var (sweepBottom, sweepTop) = sweep.Span(bottom, top);
+                if (!WallSweeps.Runs(document, wall, type, sweep.Side, sweepBottom, sweepTop)
+                        .Any(run => along >= run.From && along <= run.To))
+                    continue;
+
+                var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
+                var shape = sweep.Shape()
+                    .Select(p => (
+                        X: marker.DistanceAlong(wall.PointAt(structure, along, sign * (half + p.Out * sweep.Depth))),
+                        Y: sweepBottom + p.Up * sweep.Height))
+                    .ToList();
+
+                var material = document.FindMaterial(sweep.MaterialId);
+                pieces.Add(new SectionPiece(
+                    new SectionRect(shape.Min(p => p.X), shape.Min(p => p.Y), shape.Max(p => p.X), shape.Max(p => p.Y)),
+                    SectionPart.WallLayer,
+                    SectionDepth.Cut,
+                    material?.CutColour ?? DefaultCut,
+                    material?.Name ?? "Sweep",
+                    wall.Id)
+                {
+                    Shape = shape
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// A piece of a slanted or tapered wall as the section sees it: each side moved along the
+    /// cut line by how far the wall has leaned at the bottom and at the top of the piece.
+    /// </summary>
+    private static SectionPiece Leaned(BimDocument document, SectionMarker marker, Wall wall, WallType type, SectionPiece piece)
+    {
+        var baseElevation = wall.GetBaseElevation(document);
+        var bounds = piece.Bounds;
+
+        double Along(double x, double elevation)
+        {
+            var point = marker.Start + marker.Direction * x;
+            var moved = WallLean.Move(wall, type, point, elevation - baseElevation);
+            return x + (moved - point).Dot(marker.Direction);
+        }
+
+        return piece with
+        {
+            Shape = new[]
+            {
+                (Along(bounds.Left, bounds.Bottom), bounds.Bottom),
+                (Along(bounds.Right, bounds.Bottom), bounds.Bottom),
+                (Along(bounds.Right, bounds.Top), bounds.Top),
+                (Along(bounds.Left, bounds.Top), bounds.Top)
+            }
+        };
+    }
+
+    private static void AddWallAs(
+        BimDocument document, SectionMarker marker, Wall wall, WallType type, List<SectionPiece> pieces)
+    {
         var structure = type.Structure;
         var width = structure.TotalWidth;
         if (width <= 0 || wall.Length <= Epsilon) return;
 
-        var baseElevation = (document.FindLevel(wall.LevelId)?.Elevation ?? 0) + wall.BaseOffset;
+        var baseElevation = wall.GetBaseElevation(document);
         var topElevation = baseElevation + wall.GetHeight(document);
         if (topElevation <= baseElevation) return;
 

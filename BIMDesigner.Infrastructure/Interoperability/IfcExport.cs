@@ -6,6 +6,7 @@ using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
+using BIMDesigner.Core.Views;
 using Xbim.Common;
 using Xbim.Common.Step21;
 using Xbim.Ifc;
@@ -292,16 +293,37 @@ public static class IfcExport
             var ifcWall = New<IfcWall>(w =>
             {
                 w.GlobalId = wall.Id.ToIfc();
-                w.Name = $"{type.Name} {wall.Mark}".Trim();
+                w.Name = $"{_document.FindType<StackedWallType>(wall.TypeId)?.Name ?? type.Name} {wall.Mark}".Trim();
                 w.PredefinedType = IfcWallTypeEnum.SOLIDWALL;
                 w.Tag = wall.Mark;
-                w.ObjectPlacement = PlacementFor(wall, bodyStart, wall.BaseOffset);
-                w.Representation = Extrude(ToLocal(outline, bodyStart, wall.Direction), height);
+                // Relative to its storey: where the wall actually starts, whether that is the
+                // base offset or the top of a floor it stands on.
+                w.ObjectPlacement = PlacementFor(wall, bodyStart,
+                    wall.GetBaseElevation(_document) - (_document.FindLevel(wall.LevelId)?.Elevation ?? 0));
+                w.Representation = WallLean.Leans(wall, type) || _document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Reveal))
+                    ? Tessellated(wall, bodyStart)
+                    : ExtrudeTiers(wall, bodyStart, outline, height);
             });
 
             _walls[wall.Id] = ifcWall;
 
             Contain(wall, ifcWall);
+
+            // Sweeps go with their wall but are not part of its body: a skirting is its own
+            // thing to a receiving application, so it is exported as one.
+            if (_document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Sweep)))
+            {
+                var sweeps = New<IfcBuildingElementProxy>(p =>
+                {
+                    p.GlobalId = IfcGloballyUniqueId.ConvertToBase64(SweepId(wall.Id));
+                    p.Name = $"Wall sweeps {wall.Mark}".Trim();
+                    p.ObjectPlacement = PlacementFor(wall, bodyStart,
+                        wall.GetBaseElevation(_document) - (_document.FindLevel(wall.LevelId)?.Elevation ?? 0));
+                    p.Representation = Tessellated(wall, bodyStart, MeshKind.Sweep);
+                });
+
+                Contain(wall, sweeps);
+            }
             AssignType(ifcWall, type, () => CreateWallType(type));
             AssignLayers(ifcWall, type.Id, structure, wall.Flipped);
 
@@ -754,6 +776,104 @@ public static class IfcExport
         /// A closed outline swept straight up. Every element in this model is one of these,
         /// which is why the export can be real solids rather than triangles.
         /// </summary>
+        /// <summary>
+        /// A stable id for a wall's sweeps, made from the wall's: the same wall exports its sweeps
+        /// under the same id every time, as it does itself.
+        /// </summary>
+        private static Guid SweepId(Guid wallId)
+        {
+            var bytes = wallId.ToByteArray();
+            bytes[15] ^= 0x5A;
+            bytes[14] ^= 0xA5;
+            return new Guid(bytes);
+        }
+
+        /// <summary>
+        /// A leaning wall's body. A slanted or tapered wall is not an upright extrusion of one
+        /// outline, so it is written as the triangles of its solids - the same ones the 3D view
+        /// draws - in the wall's own coordinates.
+        /// </summary>
+        private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, MeshKind kind = MeshKind.Wall)
+        {
+            var baseElevation = wall.GetBaseElevation(_document);
+            var direction = wall.Direction;
+            var across = direction.PerpendicularLeft();
+
+            var representation = New<IfcShapeRepresentation>(r =>
+            {
+                r.ContextOfItems = _context;
+                r.RepresentationIdentifier = "Body";
+                r.RepresentationType = "Tessellation";
+
+                foreach (var mesh in ModelMeshBuilder.BuildWall(_document, wall).Where(m => m.Kind == kind))
+                {
+                    var points = New<IfcCartesianPointList3D>(list =>
+                    {
+                        foreach (var p in mesh.Positions)
+                        {
+                            var offset = new Point2D(p.X, p.Y) - bodyStart;
+                            list.CoordList.GetAt(list.CoordList.Count).AddRange(new IfcLengthMeasure[]
+                            {
+                                offset.Dot(direction), offset.Dot(across), p.Z - baseElevation
+                            });
+                        }
+                    });
+
+                    r.Items.Add(New<IfcTriangulatedFaceSet>(faces =>
+                    {
+                        faces.Coordinates = points;
+                        faces.Closed = true;
+
+                        // IFC counts points from one.
+                        for (var i = 0; i + 2 < mesh.Indices.Count; i += 3)
+                        {
+                            faces.CoordIndex.GetAt(faces.CoordIndex.Count).AddRange(new IfcPositiveInteger[]
+                            {
+                                mesh.Indices[i] + 1, mesh.Indices[i + 1] + 1, mesh.Indices[i + 2] + 1
+                            });
+                        }
+                    }));
+                }
+            });
+
+            return New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+        }
+
+        /// <summary>
+        /// A wall's body: one extrusion for an ordinary wall, one per tier for a stacked wall,
+        /// each its own construction's outline between its own heights. Still one wall to
+        /// whoever receives it - which is what it is.
+        /// </summary>
+        private IfcProductDefinitionShape ExtrudeTiers(CoreWall wall, Point2D bodyStart, IReadOnlyList<Point2D> planOutline, double height)
+        {
+            var tiers = _document.GetWallTiers(wall);
+            if (tiers.Count <= 1) return Extrude(ToLocal(planOutline, bodyStart, wall.Direction), height);
+
+            var baseElevation = wall.GetBaseElevation(_document);
+
+            var representation = New<IfcShapeRepresentation>(r =>
+            {
+                r.ContextOfItems = _context;
+                r.RepresentationIdentifier = "Body";
+                r.RepresentationType = "SweptSolid";
+
+                foreach (var (type, bottom, top) in tiers)
+                {
+                    var outline = WallJoins.GetBandOutline(_document, wall, type, type.Width / 2, -type.Width / 2);
+
+                    r.Items.Add(New<IfcExtrudedAreaSolid>(s =>
+                    {
+                        s.SweptArea = Profile(ToLocal(outline, bodyStart, wall.Direction));
+                        s.Position = Placement(Point3D(0, 0, bottom - baseElevation));
+                        s.ExtrudedDirection = Direction(0, 0, 1);
+                        s.Depth = top - bottom;
+                    }));
+                }
+            });
+
+            return New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+        }
+
         private IfcProductDefinitionShape Extrude(IReadOnlyList<Point2D> outline, double depth)
         {
             var solid = New<IfcExtrudedAreaSolid>(s =>

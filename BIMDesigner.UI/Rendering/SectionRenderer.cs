@@ -115,6 +115,21 @@ public sealed class SectionRenderer
         var strokeable = rect.Width > 2 && rect.Height > 2;
         var outline = isSelected ? _selectedPen : isCut ? _cutPen : _seenPen;
 
+        // A leaning wall's piece is its true shape rather than an upright rectangle.
+        if (piece.Shape is { Count: >= 3 } shape)
+        {
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+            {
+                ctx.BeginFigure(_toScreen(shape[0].X, shape[0].Y), true, true);
+                ctx.PolyLineTo(shape.Skip(1).Select(p => _toScreen(p.X, p.Y)).ToArray(), true, false);
+            }
+
+            geometry.Freeze();
+            dc.DrawGeometry(isCut ? Fill(piece.Fill) : FadedFill(piece.Fill), strokeable || isSelected ? outline : null, geometry);
+            return;
+        }
+
         dc.DrawRectangle(
             isCut ? Fill(piece.Fill) : FadedFill(piece.Fill),
             strokeable || isSelected ? outline : null,

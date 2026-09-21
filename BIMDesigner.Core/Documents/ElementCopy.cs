@@ -91,6 +91,11 @@ public static class ElementCopy
             RoomBounding = wall.RoomBounding,
             StructuralUsage = wall.StructuralUsage,
             Bulge = wall.Bulge,
+            CrossSection = wall.CrossSection,
+            SlantAngle = wall.SlantAngle,
+            OverrideTaper = wall.OverrideTaper,
+            ExteriorTaper = wall.ExteriorTaper,
+            InteriorTaper = wall.InteriorTaper,
             StartJoin = wall.StartJoin,
             EndJoin = wall.EndJoin
         }, wall),

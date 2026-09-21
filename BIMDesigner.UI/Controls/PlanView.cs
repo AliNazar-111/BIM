@@ -277,20 +277,161 @@ public class PlanView : FrameworkElement
     /// </summary>
     public bool DrawFlipped { get; private set; }
 
-    /// <summary>Whether the wall tool draws arcs - start, end, then a point on the arc - instead of straight walls.</summary>
-    public bool DrawArcs
+    /// <summary>
+    /// What the wall tool draws: one wall at a time, straight or arc, or a whole closed shape
+    /// placed with two clicks.
+    /// </summary>
+    public WallShape DrawShape
     {
-        get => _drawArcs;
+        get => _drawShape;
         set
         {
-            _drawArcs = value;
+            _drawShape = value;
             _pendingWallStart = null;
             _pendingArcEnd = null;
             InvalidateVisual();
         }
     }
 
-    private bool _drawArcs;
+    private WallShape _drawShape = WallShape.Line;
+
+    private bool DrawArcs => _drawShape == WallShape.Arc;
+
+    /// <summary>Whether the shape being drawn is a closed one, placed whole with two clicks.</summary>
+    private bool DrawsClosedShape => _drawShape is WallShape.Rectangle or WallShape.Polygon or WallShape.Circle or WallShape.Oval;
+
+    /// <summary>Whether new walls hang down from their level by <see cref="NewWallHeight"/>, like a foundation wall.</summary>
+    public bool NewWallDepth { get; set; }
+
+    /// <summary>The level new walls reach up to, or null for an unconnected height.</summary>
+    public Guid? NewWallTopLevelId { get; set; }
+
+    /// <summary>The unconnected height, or the depth, of new walls. Millimetres.</summary>
+    public double NewWallHeight { get; set; } = 3000;
+
+    /// <summary>Gives a wall about to be placed the height or depth set on the option bar.</summary>
+    private Wall Configured(Wall wall)
+    {
+        if (NewWallDepth)
+        {
+            // Up to its own level, from that far below it.
+            wall.TopLevelId = wall.LevelId;
+            wall.TopOffset = 0;
+            wall.BaseOffset = -NewWallHeight;
+        }
+        else if (NewWallTopLevelId is { } top && top != wall.LevelId)
+        {
+            wall.TopLevelId = top;
+        }
+        else
+        {
+            wall.UnconnectedHeight = NewWallHeight;
+        }
+
+        return wall;
+    }
+
+    /// <summary>How many sides the polygon shape has.</summary>
+    public int PolygonSides { get; set; } = 6;
+
+    /// <summary>Whether the polygon's second click is a corner (inscribed) or the middle of a side.</summary>
+    public bool PolygonInscribed { get; set; } = true;
+
+    /// <summary>
+    /// The shape from its first click to a second point, moved out by the offset toward the
+    /// walls' exterior. Shift makes a rectangle square and an oval round.
+    /// </summary>
+    private IReadOnlyList<WallPiece> ShapeFrom(Point2D anchor, Point2D to)
+    {
+        var square = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        if (square && _drawShape is WallShape.Rectangle or WallShape.Oval) to = WallShapes.SquareCorner(anchor, to);
+
+        var pieces = _drawShape switch
+        {
+            WallShape.Rectangle => WallShapes.Rectangle(anchor, to),
+            WallShape.Polygon => WallShapes.Polygon(anchor, to, PolygonSides, PolygonInscribed),
+            WallShape.Circle => WallShapes.Circle(anchor, to),
+            WallShape.Oval => WallShapes.Oval(anchor, to),
+            _ => Array.Empty<WallPiece>()
+        };
+
+        // The offset goes toward the exterior: outward, unless the walls have been flipped.
+        return WallShapes.Offset(pieces, DrawFlipped ? -DrawOffset : DrawOffset);
+    }
+
+    /// <summary>
+    /// Pick lines: a wall along the gridline clicked, its full length (specification section
+    /// 3.1, "pick lines"). The offset moves it off the gridline toward the side clicked on, so
+    /// walls can be set out a known distance from a grid.
+    /// </summary>
+    private void PickLine(Point2D raw)
+    {
+        if (Document is null) return;
+
+        var tolerance = 6 / PixelsPerMm;
+        var grid = OnActiveLevel<Grid>()
+            .Select(g => (Grid: g, Distance: DistanceToSegment(raw, g.Start, g.End)))
+            .Where(g => g.Distance <= tolerance)
+            .OrderBy(g => g.Distance)
+            .Select(g => g.Grid)
+            .FirstOrDefault();
+
+        if (grid is null)
+        {
+            HintChanged?.Invoke(this, "No gridline there. Click on a gridline to put a wall along it.");
+            return;
+        }
+
+        var line = WallCurve.Of(grid.Start, grid.End, 0);
+        var side = line.Locate(raw).Left >= 0 ? 1.0 : -1.0;
+
+        var wall = Configured(new Wall
+        {
+            Start = line.At(0, DrawOffset * side),
+            End = line.At(line.Length, DrawOffset * side),
+            TypeId = ActiveWallTypeId,
+            LevelId = ActiveLevelId,
+            LocationLine = ActiveLocationLine,
+            Flipped = DrawFlipped
+        });
+
+        Apply(new AddElementCommand(Document, wall, "Pick Line"));
+        Select(wall);
+        HintChanged?.Invoke(this, $"Wall placed on grid {grid.Name}. Click another gridline, or Esc to stop.");
+    }
+
+    /// <summary>The second click of a closed shape: every wall of it placed as one step.</summary>
+    private void PlaceShape(Point2D model)
+    {
+        if (Document is null || _pendingWallStart is not { } anchor) return;
+
+        var walls = WallShapes.Walls(ShapeFrom(anchor, model), ActiveWallTypeId, ActiveLevelId, ActiveLocationLine, DrawFlipped)
+            .Select(Configured)
+            .ToList();
+        if (walls.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Too small to build. Drag further from the first click.");
+            return;
+        }
+
+        Apply(new AddElementsCommand(Document, walls, $"Draw {_drawShape}"));
+        _pendingWallStart = null;
+        SelectMany(walls);
+
+        HintChanged?.Invoke(this, $"{walls.Count} walls placed. Click to start another {_drawShape.ToString().ToLowerInvariant()}.");
+    }
+
+    private string FirstClickHint() => _drawShape switch
+    {
+        WallShape.Arc => "Click where the arc ends. Space flips it, Esc cancels.",
+        WallShape.Rectangle => "Click the opposite corner. Shift makes it square, Space flips the walls, Esc cancels.",
+        WallShape.Polygon => PolygonInscribed
+            ? "Click where a corner goes. Esc cancels."
+            : "Click where the middle of a side goes. Esc cancels.",
+        WallShape.Circle => "Click a point on the circle. Esc cancels.",
+        WallShape.Oval => "Click the opposite corner of the oval. Shift makes it round, Esc cancels.",
+        _ => "Click again to set the end of the wall. Space flips it, Esc cancels."
+    };
 
     /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
     public ViewReference CurrentView => ViewReference.FloorPlan(ActiveLevelId);
@@ -663,7 +804,8 @@ public class PlanView : FrameworkElement
         switch (ActiveTool)
         {
             case PlanTool.Wall:
-                PlaceWallPoint(SnapPoint(raw, null, out _));
+                if (DrawShape == WallShape.Pick) PickLine(raw);
+                else PlaceWallPoint(SnapPoint(raw, null, out _));
                 return;
 
             case PlanTool.Grid:
@@ -1108,9 +1250,11 @@ public class PlanView : FrameworkElement
             _chainFirstWall = null;
             _chainFirstClick = model;
             _pendingArcEnd = null;
-            HintChanged?.Invoke(this, DrawArcs
-                ? "Click where the arc ends. Space flips it, Esc cancels."
-                : "Click again to set the end of the wall. Space flips it, Esc cancels.");
+            HintChanged?.Invoke(this, FirstClickHint());
+        }
+        else if (DrawsClosedShape)
+        {
+            PlaceShape(model);
         }
         else if (DrawArcs)
         {
@@ -1150,7 +1294,7 @@ public class PlanView : FrameworkElement
                 Flipped = DrawFlipped
             };
 
-            commands.Add(new AddElementCommand(Document, wall, "Draw Wall"));
+            commands.Add(new AddElementCommand(Document, Configured(wall), "Draw Wall"));
             Apply(commands.Count == 1 ? commands[0] : new CompositeCommand("Draw Wall", commands));
 
             // Chain into the next wall so a room can be traced without re-clicking.
@@ -1204,7 +1348,7 @@ public class PlanView : FrameworkElement
             Flipped = DrawFlipped
         };
 
-        Apply(new AddElementCommand(Document, wall, "Draw Wall"));
+        Apply(new AddElementCommand(Document, Configured(wall), "Draw Wall"));
 
         _pendingWallStart = end;
         _pendingArcEnd = null;
@@ -1900,7 +2044,7 @@ public class PlanView : FrameworkElement
 
         if (picked.IsCurved && _trimSubject is null)
         {
-            HintChanged?.Invoke(this, "Trim works on straight walls. Drag a curved wall's end to lengthen it.");
+            HintChanged?.Invoke(this, "A curved wall cannot be trimmed, but straight walls can be trimmed to it: pick the straight one first.");
             return;
         }
 
@@ -2262,7 +2406,39 @@ public class PlanView : FrameworkElement
     {
         if (_pendingWallStart is null) return;
 
-        var type = Document?.FindType<WallType>(ActiveWallTypeId);
+        var type = Document?.PlanWallType(ActiveWallTypeId, NewWallHeight);
+
+        // A closed shape is shown whole, every wall of it, as it will be built.
+        if (DrawsClosedShape)
+        {
+            dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(_pendingWallStart.Value), 4, 4);
+
+            var pieces = ShapeFrom(_pendingWallStart.Value, _cursorModel);
+            foreach (var piece in pieces)
+            {
+                DrawModelPolyline(dc, _previewPen, WallCurve.Of(piece.Start, piece.End, piece.Bulge).Points());
+                if (type is null) continue;
+
+                var shapeWall = new Wall
+                {
+                    Start = piece.Start, End = piece.End, Bulge = piece.Bulge,
+                    LocationLine = ActiveLocationLine, Flipped = DrawFlipped
+                };
+                DrawWallBody(dc, shapeWall, type, _previewPen);
+            }
+
+            if (type is not null && pieces.Count > 0)
+            {
+                var first = pieces[0];
+                DrawFlipArrows(dc, new Wall
+                {
+                    Start = first.Start, End = first.End, Bulge = first.Bulge,
+                    LocationLine = ActiveLocationLine, Flipped = DrawFlipped
+                }, type);
+            }
+
+            return;
+        }
 
         // An arc waiting for its third point bends through the cursor as it moves.
         if (_pendingArcEnd is { } arcEnd)

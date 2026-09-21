@@ -37,7 +37,14 @@ public sealed class WallType : ElementType
     /// A new type with this one's build-up and settings, and its own copies of them, so it can
     /// be changed without touching any wall of this type. How new types are made.
     /// </summary>
-    public WallType Duplicate(string name) => new(name, Structure.Clone())
+    public WallType Duplicate(string name)
+    {
+        var copy = DuplicateBody(name);
+        copy.Sweeps.AddRange(Sweeps);
+        return copy;
+    }
+
+    private WallType DuplicateBody(string name) => new(name, Structure.Clone())
     {
         TypeMark = TypeMark,
         AssemblyCode = AssemblyCode,
@@ -53,6 +60,8 @@ public sealed class WallType : ElementType
         HeatTransferCoefficient = HeatTransferCoefficient,
         WrapAtInserts = WrapAtInserts,
         WrapAtEnds = WrapAtEnds,
+        ExteriorTaperAngle = ExteriorTaperAngle,
+        InteriorTaperAngle = InteriorTaperAngle,
         CoarseScaleFillColour = CoarseScaleFillColour
     };
 
@@ -85,6 +94,15 @@ public sealed class WallType : ElementType
 
     private WallWrapping _wrapAtEnds = WallWrapping.None;
 
+    /// <summary>Profiles run along the faces of every wall of this type: skirtings, plinths, grooves.</summary>
+    public List<WallSweep> Sweeps { get; } = new();
+
+    /// <summary>How far a tapered wall of this type leans in on its exterior face, in degrees.</summary>
+    public double ExteriorTaperAngle { get; set; }
+
+    /// <summary>How far a tapered wall of this type leans in on its interior face, in degrees.</summary>
+    public double InteriorTaperAngle { get; set; }
+
     /// <summary>Colour used to fill the wall when a plan is drawn at coarse detail.</summary>
     public ColourRgb CoarseScaleFillColour { get; set; } = new(0x8A, 0x93, 0xA1);
 
@@ -101,6 +119,8 @@ public sealed class WallType : ElementType
             EnumText.Choices<WallFunction>());
         yield return ParameterValue.Bind(WallTypeParameters.FireRating, () => FireRating, v => FireRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
+        yield return ParameterValue.Bind(WallTypeParameters.ExteriorTaperAngle, () => ExteriorTaperAngle, v => ExteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
+        yield return ParameterValue.Bind(WallTypeParameters.InteriorTaperAngle, () => InteriorTaperAngle, v => InteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.ThermalResistance, () => ThermalResistance, v => ThermalResistance = v);
         yield return ParameterValue.Bind(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
         yield return ParameterValue.BindChoice(
@@ -138,6 +158,12 @@ public static class WallTypeParameters
 
     public static readonly ParameterDefinition HeatTransferCoefficient =
         new("Heat Transfer Coefficient (U)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition ExteriorTaperAngle =
+        new("Exterior Taper Angle", ParameterDataType.Angle, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition InteriorTaperAngle =
+        new("Interior Taper Angle", ParameterDataType.Angle, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition WrapAtInserts =
         new("Wrapping at Inserts", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);

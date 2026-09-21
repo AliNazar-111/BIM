@@ -90,6 +90,17 @@ public static class ProjectFile
                 CostPerCubicMetre = material.CostPerCubicMetre
             });
 
+        foreach (var stacked in document.TypesOf<StackedWallType>())
+            dto.StackedWallTypes.Add(new StackedWallTypeDto
+            {
+                Id = stacked.Id,
+                Name = stacked.Name,
+                TypeMark = stacked.TypeMark,
+                Description = stacked.Description,
+                Cost = stacked.Cost,
+                Tiers = stacked.Tiers.Select(tier => new StackTierDto { WallTypeId = tier.WallTypeId, Height = tier.Height }).ToList()
+            });
+
         foreach (var type in document.TypesOf<WallType>())
             dto.WallTypes.Add(new WallTypeDto
             {
@@ -111,6 +122,19 @@ public static class ProjectFile
                 WrapAtEnds = type.WrapAtEnds != WallWrapping.None,
                 WrappingAtInserts = type.WrapAtInserts.ToString(),
                 WrappingAtEnds = type.WrapAtEnds.ToString(),
+                ExteriorTaperAngle = type.ExteriorTaperAngle,
+                InteriorTaperAngle = type.InteriorTaperAngle,
+                Sweeps = type.Sweeps.Select(sweep => new WallSweepDto
+                {
+                    Kind = sweep.Kind.ToString(),
+                    Profile = sweep.Profile.ToString(),
+                    Side = sweep.Side.ToString(),
+                    Depth = sweep.Depth,
+                    Height = sweep.Height,
+                    Elevation = sweep.Elevation,
+                    FromTop = sweep.FromTop,
+                    MaterialId = sweep.MaterialId
+                }).ToList(),
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
                 Layers = type.Structure.Layers.Select(layer => new MaterialLayerDto
                 {
@@ -354,6 +378,13 @@ public static class ProjectFile
                 RoomBounding = wall.RoomBounding,
                 StructuralUsage = wall.StructuralUsage.ToString(),
                 Bulge = wall.Bulge,
+                TopAttachedTo = wall.TopAttachedTo,
+                BaseAttachedTo = wall.BaseAttachedTo,
+                CrossSection = wall.CrossSection.ToString(),
+                SlantAngle = wall.SlantAngle,
+                OverrideTaper = wall.OverrideTaper,
+                ExteriorTaper = wall.ExteriorTaper,
+                InteriorTaper = wall.InteriorTaper,
                 StartJoin = wall.StartJoin.ToString(),
                 EndJoin = wall.EndJoin.ToString(),
                 Mark = wall.Mark,
@@ -521,8 +552,39 @@ public static class ProjectFile
                 WrapAtEnds = string.IsNullOrEmpty(type.WrappingAtEnds)
                     ? type.WrapAtEnds ? WallWrapping.Exterior : WallWrapping.None
                     : ParseEnum(type.WrappingAtEnds, WallWrapping.None),
+                ExteriorTaperAngle = Math.Clamp(type.ExteriorTaperAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
+                InteriorTaperAngle = Math.Clamp(type.InteriorTaperAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
                 CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x8A, 0x93, 0xA1))
             });
+
+            // A sweep with no size is not a sweep.
+            var loaded = document.FindType<WallType>(type.Id)!;
+            loaded.Sweeps.AddRange(type.Sweeps
+                .Where(sweep => sweep.Depth > 0 && sweep.Height > 0)
+                .Select(sweep => new WallSweep(
+                    ParseEnum(sweep.Kind, SweepKind.Sweep),
+                    ParseEnum(sweep.Profile, SweepProfile.Rectangle),
+                    ParseEnum(sweep.Side, WallSide.Exterior),
+                    sweep.Depth,
+                    sweep.Height,
+                    Math.Max(0, sweep.Elevation),
+                    sweep.FromTop,
+                    sweep.MaterialId)));
+        }
+
+        // After the wall types, which their tiers are made of.
+        foreach (var dtoStacked in dto.StackedWallTypes)
+        {
+            var stacked = new StackedWallType(dtoStacked.Name)
+            {
+                Id = dtoStacked.Id,
+                TypeMark = dtoStacked.TypeMark,
+                Description = dtoStacked.Description,
+                Cost = dtoStacked.Cost
+            };
+
+            stacked.Tiers.AddRange(dtoStacked.Tiers.Select(tier => new StackTier(tier.WallTypeId, Math.Max(0, tier.Height))));
+            document.AddType(stacked);
         }
 
         foreach (var type in dto.DoorTypes)
@@ -571,6 +633,13 @@ public static class ProjectFile
                 RoomBounding = wall.RoomBounding,
                 StructuralUsage = ParseEnum(wall.StructuralUsage, StructuralUsage.NonBearing),
                 Bulge = double.IsFinite(wall.Bulge) ? wall.Bulge : 0,
+                TopAttachedTo = wall.TopAttachedTo,
+                BaseAttachedTo = wall.BaseAttachedTo,
+                CrossSection = ParseEnum(wall.CrossSection, WallCrossSection.Vertical),
+                SlantAngle = Math.Clamp(wall.SlantAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
+                OverrideTaper = wall.OverrideTaper,
+                ExteriorTaper = Math.Clamp(wall.ExteriorTaper, -WallLean.MaxAngle, WallLean.MaxAngle),
+                InteriorTaper = Math.Clamp(wall.InteriorTaper, -WallLean.MaxAngle, WallLean.MaxAngle),
                 StartJoin = ParseEnum(wall.StartJoin, WallJoinKind.Auto),
                 EndJoin = ParseEnum(wall.EndJoin, WallJoinKind.Auto),
                 Mark = wall.Mark,

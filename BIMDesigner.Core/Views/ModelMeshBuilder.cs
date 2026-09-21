@@ -41,38 +41,28 @@ public static class ModelMeshBuilder
 
     // ---- walls -----------------------------------------------------------------
 
+    /// <summary>One wall's solids on their own: its layers, tiers and what fills its openings.</summary>
+    public static IReadOnlyList<Mesh3D> BuildWall(BimDocument document, Wall wall)
+    {
+        var meshes = new List<Mesh3D>();
+        AddWall(document, wall, meshes);
+        return meshes.Where(mesh => !mesh.IsEmpty).ToList();
+    }
+
     /// <summary>
-    /// A wall as its real layers, each extruded between the wall's base and top, with the
-    /// holes its doors and windows leave.
-    ///
-    /// Each layer is its own mesh in its own material, for the same reason the plan draws
-    /// them separately: an exterior wall is brick outside and plaster inside, and a 3D view
-    /// that showed it as one grey block would be hiding the most useful thing about it.
+    /// A wall as the constructions it is built of, each between its own heights, with the
+    /// holes its doors and windows leave and what fills them.
     /// </summary>
     private static void AddWall(BimDocument document, Wall wall, List<Mesh3D> meshes)
     {
-        var type = document.GetWallType(wall);
-        if (type is null || wall.Length <= WallJoins.JoinTolerance) return;
+        if (wall.Length <= WallJoins.JoinTolerance) return;
 
-        var structure = type.Structure;
-        if (structure.TotalWidth <= 0) return;
-
-        var bottom = (document.FindLevel(wall.LevelId)?.Elevation ?? 0) + wall.BaseOffset;
+        var bottom = wall.GetBaseElevation(document);
         var top = bottom + wall.GetHeight(document);
         if (top <= bottom) return;
 
-        var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
-        var half = structure.TotalWidth / 2;
-
-        // The pieces of wall, with the cut at each end: full height where it is solid, and
-        // below the sill and above the head wherever something is hosted in it. The cutting is
-        // worked out in one place so the plan and the 3D model cannot disagree about where a
-        // wall starts and stops.
-        var pieces = new List<(WallSlice Slice, double Bottom, double Top)>();
-
-        foreach (var slice in WallSlices.Solid(document, wall, type))
-            pieces.Add((slice, bottom, top));
-
+        // Doors and windows are placed from the wall's base, whatever it is built of, and
+        // cut through every tier they reach.
         var openings = new List<(Opening Opening, OpeningType Type, double From, double To, double Sill, double Head)>();
 
         foreach (var opening in WallOpenings.Of(document, wall))
@@ -86,15 +76,88 @@ public static class ModelMeshBuilder
 
             var sill = Math.Clamp(bottom + opening.SillHeight, bottom, top);
             var head = Math.Clamp(bottom + opening.SillHeight + openingType.Height, bottom, top);
-
-            if (WallSlices.Between(document, wall, type, from, to, startCut, endCut) is { } over)
-            {
-                if (sill > bottom) pieces.Add((over, bottom, sill));
-                if (head < top) pieces.Add((over, head, top));
-            }
-
             openings.Add((opening, openingType, from, to, sill, head));
         }
+
+        // Each construction the wall is made of, between its own heights: one for an ordinary
+        // wall, one per tier for a stacked one.
+        foreach (var (type, tierBottom, tierTop) in document.GetWallTiers(wall))
+        {
+            var first = meshes.Count;
+            AddTier(document, wall, type, tierBottom, tierTop, openings, meshes);
+            Lean(wall, type, bottom, meshes, first);
+        }
+
+        if (document.GetWallType(wall) is not { } planType) return;
+
+        var infill = meshes.Count;
+        foreach (var (opening, _, from, to, sill, head) in openings)
+            AddOpeningInfill(wall, planType, opening, from, to, sill, head, meshes);
+
+        // Doors and windows lean with the wall they are in.
+        Lean(wall, planType, bottom, meshes, infill);
+    }
+
+    /// <summary>
+    /// Leans or tapers what was just built of a wall: each point moved across the wall by its
+    /// height above the base. Nothing happens to a vertical wall.
+    /// </summary>
+    private static void Lean(Wall wall, WallType type, double bottom, List<Mesh3D> meshes, int first)
+    {
+        if (!WallLean.Leans(wall, type)) return;
+
+        for (var i = first; i < meshes.Count; i++)
+        {
+            meshes[i].Transform(point =>
+            {
+                var moved = WallLean.Move(wall, type, new Point2D(point.X, point.Y), point.Z - bottom);
+                return new Point3D(moved.X, moved.Y, point.Z);
+            });
+        }
+    }
+
+    /// <summary>
+    /// One construction of a wall between two heights, as its layers, with the holes its doors
+    /// and windows leave.
+    ///
+    /// Each layer is its own mesh in its own material, for the same reason the plan draws
+    /// them separately: an exterior wall is brick outside and plaster inside, and a 3D view
+    /// that showed it as one grey block would be hiding the most useful thing about it.
+    /// </summary>
+    private static void AddTier(
+        BimDocument document, Wall wall, WallType type, double bottom, double top,
+        IReadOnlyList<(Opening Opening, OpeningType Type, double From, double To, double Sill, double Head)> openings,
+        List<Mesh3D> meshes)
+    {
+        var structure = type.Structure;
+        if (structure.TotalWidth <= 0 || top <= bottom) return;
+
+        var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
+        var half = structure.TotalWidth / 2;
+
+        // The pieces of wall, with the cut at each end: full height where it is solid, and
+        // below the sill and above the head wherever something is hosted in it. The cutting is
+        // worked out in one place so the plan and the 3D model cannot disagree about where a
+        // wall starts and stops.
+        var pieces = new List<(WallSlice Slice, double Bottom, double Top)>();
+
+        foreach (var slice in WallSlices.Solid(document, wall, type))
+            pieces.Add((slice, bottom, top));
+
+        foreach (var (_, _, from, to, sill, head) in openings)
+        {
+            if (WallSlices.Between(document, wall, type, from, to, startCut, endCut) is not { } over) continue;
+
+            var below = Math.Min(sill, top);
+            var above = Math.Max(head, bottom);
+            if (below > bottom) pieces.Add((over, bottom, below));
+            if (above < top) pieces.Add((over, above, top));
+        }
+
+        // Reveals take the wall back from its face between their heights, so every piece is
+        // built in bands: full thickness outside a reveal, thinner within one.
+        var reveals = WallSweeps.Reveals(type, bottom, top);
+        var breaks = reveals.SelectMany(r => new[] { r.Bottom, r.Top }).ToList();
 
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
@@ -109,17 +172,86 @@ public static class ModelMeshBuilder
 
             foreach (var (slice, pieceBottom, pieceTop) in pieces)
             {
-                var outline = WallJoins.GetBandOutline(
-                    wall, type, half - start, half - end, Unwrapped(slice.CutFrom), Unwrapped(slice.CutTo));
+                var heights = breaks.Where(z => z > pieceBottom && z < pieceTop)
+                    .Append(pieceBottom).Append(pieceTop)
+                    .Distinct().OrderBy(z => z).ToList();
 
-                mesh.AddExtrusion(outline, pieceBottom, pieceTop);
+                for (var i = 0; i + 1 < heights.Count; i++)
+                {
+                    if (WallSweeps.Recess(half - start, half - end, half, reveals, (heights[i] + heights[i + 1]) / 2)
+                        is not var (outer, inner))
+                        continue;
+
+                    var outline = WallJoins.GetBandOutline(
+                        wall, type, outer, inner, Unwrapped(slice.CutFrom), Unwrapped(slice.CutTo));
+
+                    mesh.AddExtrusion(outline, heights[i], heights[i + 1]);
+                }
             }
 
             meshes.Add(mesh);
         }
 
-        foreach (var (opening, openingType, from, to, sill, head) in openings)
-            AddOpeningInfill(wall, type, opening, from, to, sill, head, meshes);
+        AddSweeps(document, wall, type, bottom, top, meshes);
+    }
+
+    /// <summary>
+    /// The sweeps of a wall type on this wall: each profile run along the face it belongs to,
+    /// following the wall round a curve, stopping where a door or window reaches it.
+    /// </summary>
+    private static void AddSweeps(BimDocument document, Wall wall, WallType type, double bottom, double top, List<Mesh3D> meshes)
+    {
+        var structure = type.Structure;
+        var half = type.Width / 2;
+        var curve = wall.LocationCurve;
+
+        foreach (var sweep in type.Sweeps.Where(s => s.Kind == SweepKind.Sweep))
+        {
+            var (sweepBottom, sweepTop) = sweep.Span(bottom, top);
+            var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
+            var shape = sweep.Shape();
+
+            Point3D At(double along, (double Out, double Up) corner)
+            {
+                var plan = wall.PointAt(structure, along, sign * (half + corner.Out * sweep.Depth));
+                return new Point3D(plan.X, plan.Y, sweepBottom + corner.Up * sweep.Height);
+            }
+
+            var material = document.FindMaterial(sweep.MaterialId);
+            var mesh = new Mesh3D(
+                wall.Id, wall.LevelId, MeshKind.Sweep,
+                material?.SurfaceColour ?? DefaultSurface,
+                material?.Name ?? "Sweep");
+
+            foreach (var (from, to) in WallSweeps.Runs(document, wall, type, sweep.Side, sweepBottom, sweepTop))
+            {
+                var stations = new List<double> { from };
+                stations.AddRange(curve.Between(from, to, wall.LeftOf(structure, sign * half)));
+                stations.Add(to);
+
+                for (var s = 0; s + 1 < stations.Count; s++)
+                for (var k = 0; k < shape.Count; k++)
+                {
+                    var a = shape[k];
+                    var b = shape[(k + 1) % shape.Count];
+                    mesh.AddQuad(At(stations[s], a), At(stations[s + 1], a), At(stations[s + 1], b), At(stations[s], b));
+                    mesh.AddEdge(At(stations[s], a), At(stations[s + 1], a));
+                }
+
+                // The profile itself, closing each end.
+                var profile = shape.Select(p => new Point2D(p.Out, p.Up)).ToList();
+                foreach (var along in new[] { from, to })
+                {
+                    foreach (var (i, j, k) in Polygon2D.Triangulate(profile))
+                        mesh.AddTriangle(At(along, shape[i]), At(along, shape[j]), At(along, shape[k]));
+
+                    for (var k = 0; k < shape.Count; k++)
+                        mesh.AddEdge(At(along, shape[k]), At(along, shape[(k + 1) % shape.Count]));
+                }
+            }
+
+            meshes.Add(mesh);
+        }
     }
 
     /// <summary>
