@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 
@@ -117,13 +118,15 @@ public static class SectionProjection
     private static readonly ColourRgb LeafColour = new(0xB0, 0x8E, 0x62);
     private static readonly ColourRgb GlazingColour = new(0x7F, 0xA8, 0xC0);
 
-    public static SectionDrawing Build(BimDocument document, SectionMarker marker)
+    public static SectionDrawing Build(BimDocument document, SectionMarker marker, Func<Element, bool>? shows = null)
     {
+        shows ??= _ => true;
+
         var pieces = new List<SectionPiece>();
 
         if (marker.Length > Epsilon)
         {
-            foreach (var wall in document.Walls) AddWall(document, marker, wall, pieces);
+            foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, marker, wall, pieces);
             foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, marker, slab, pieces);
         }
 

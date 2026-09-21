@@ -245,6 +245,14 @@ public static class ProjectFile
                 }).ToList()
             });
 
+        foreach (var (view, hidden) in document.ViewSettings.Filtered)
+            dto.ViewSettings.Add(new ViewSettingsDto
+            {
+                Kind = view.Kind.ToString(),
+                TargetId = view.TargetId,
+                HiddenWallFunctions = hidden.Select(function => function.ToString()).OrderBy(name => name).ToList()
+            });
+
         foreach (var grid in document.Elements.OfType<Grid>())
             dto.Grids.Add(new GridDto
             {
@@ -771,6 +779,15 @@ public static class ProjectFile
             }
 
             document.Add(sheet);
+        }
+
+        foreach (var settings in dto.ViewSettings)
+        {
+            var view = new ViewReference(ParseEnum(settings.Kind, ViewKind.FloorPlan), settings.TargetId, string.Empty);
+
+            foreach (var name in settings.HiddenWallFunctions)
+                if (Enum.TryParse<WallFunction>(name, out var function))
+                    document.ViewSettings.SetWallFunctionVisible(view, function, visible: false);
         }
 
         // A project written before a category existed carries no types for it. Fill those

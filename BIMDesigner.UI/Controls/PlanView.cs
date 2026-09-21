@@ -90,6 +90,16 @@ public class PlanView : FrameworkElement
 
     private BimDocument? _document;
     private Point2D? _pendingWallStart;
+
+    /// <summary>
+    /// The chain being drawn: the wall placed by the last click, and the first one with the
+    /// click it started from. An offset chain pulls each corner round to where the offset
+    /// lines cross, and closes the loop when the last click lands back on the first.
+    /// </summary>
+    private Wall? _chainWall;
+    private Wall? _chainFirstWall;
+    private Point2D _chainFirstClick;
+
     private Point2D _cursorModel;
     private bool _cursorIsSnapped;
 
@@ -228,14 +238,66 @@ public class PlanView : FrameworkElement
     /// Whether an element belongs on this plan. Grids are datums of the whole building, so
     /// they appear on every level - that is what lets storeys be lined up with each other.
     /// </summary>
+    /// <summary>
+    /// Whether an element belongs to this plan: on its level, and not filtered out of it. A
+    /// hidden element cannot be picked either - clicking where nothing is drawn and getting
+    /// something would be baffling.
+    /// </summary>
     private bool IsOnActiveLevel(Element element) =>
-        element is Grid || element.LevelId == ActiveLevelId;
+        element is Grid || (element.LevelId == ActiveLevelId && _shows(element));
+
+    /// <summary>This view's filters, worked out once per repaint or pick rather than per element.</summary>
+    private Func<Element, bool> _shows = _ => true;
+
+    private void RefreshViewFilter() =>
+        _shows = Document is null ? _ => true : Document.ViewSettings.FilterFor(Document, CurrentView);
 
     private IEnumerable<T> OnActiveLevel<T>() where T : Element =>
         Document?.Elements.OfType<T>().Where(IsOnActiveLevel) ?? Enumerable.Empty<T>();
 
     /// <summary>The location line new walls are drawn to.</summary>
     public WallLocationLine ActiveLocationLine { get; set; } = WallLocationLine.WallCentreline;
+
+    /// <summary>
+    /// How far new walls are set off the clicked line, in millimetres. Positive goes toward
+    /// the exterior of the wall being drawn.
+    /// </summary>
+    public double DrawOffset { get; set; }
+
+    /// <summary>
+    /// Whether the wall being drawn has its exterior on the right of the drawing direction
+    /// rather than the left. The spacebar swaps it mid-drawing.
+    /// </summary>
+    public bool DrawFlipped { get; private set; }
+
+    /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
+    public ViewReference CurrentView => ViewReference.FloorPlan(ActiveLevelId);
+
+    /// <summary>
+    /// The spacebar: flips the wall being drawn, or failing that every selected wall.
+    /// Returns whether it did anything, so the key can be left alone otherwise.
+    /// </summary>
+    public bool Flip()
+    {
+        if (ActiveTool == PlanTool.Wall)
+        {
+            DrawFlipped = !DrawFlipped;
+            HintChanged?.Invoke(this, DrawFlipped
+                ? "Exterior on the right of the drawing direction. Space swaps it back."
+                : "Exterior on the left of the drawing direction. Space swaps it.");
+            InvalidateVisual();
+            return true;
+        }
+
+        var walls = _selection.OfType<Wall>().ToList();
+        if (Document is null || walls.Count == 0) return false;
+
+        Apply(new FlipWallsCommand(walls));
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+
+        InvalidateVisual();
+        return true;
+    }
 
     public DetailLevel DetailLevel { get; set; } = DetailLevel.Fine;
 
@@ -362,6 +424,7 @@ public class PlanView : FrameworkElement
     public void SelectAllOnLevel()
     {
         if (Document is null) return;
+        RefreshViewFilter();
 
         SelectMany(Document.Elements.Where(IsOnActiveLevel).Where(element => element is not Sheet));
         HintChanged?.Invoke(this, $"{_selection.Count} selected.");
@@ -654,6 +717,12 @@ public class PlanView : FrameworkElement
         // A grip on a single selected wall wins over picking something new.
         if (SelectedWall is { } selected)
         {
+            if (IsOnFlipControl(selected, e.GetPosition(this)))
+            {
+                Flip();
+                return;
+            }
+
             var grip = GripAt(selected, raw);
             if (grip is GripKind.Start or GripKind.End)
             {
@@ -966,22 +1035,52 @@ public class PlanView : FrameworkElement
         if (_pendingWallStart is null)
         {
             _pendingWallStart = model;
-            HintChanged?.Invoke(this, "Click again to set the end of the wall. Esc cancels.");
+            _chainWall = null;
+            _chainFirstWall = null;
+            _chainFirstClick = model;
+            HintChanged?.Invoke(this, "Click again to set the end of the wall. Space flips it, Esc cancels.");
         }
         else if (_pendingWallStart.Value.DistanceTo(model) >= SnapStepMm)
         {
+            var from = _pendingWallStart.Value;
+            var (start, end) = WallDrawing.OffsetSegment(from, model, DrawOffset, DrawFlipped);
+            var commands = new List<IUndoableCommand>();
+
+            // With an offset, the clicks are not where the walls meet: pull the previous wall
+            // round to the corner of the two offset lines, and start this one there.
+            if (DrawOffset != 0 && _chainWall is { } previous && Document.Elements.Contains(previous) &&
+                WallDrawing.Corner((previous.Start, previous.End), (start, end), from, DrawOffset) is { } corner)
+            {
+                commands.Add(new MoveWallCommand(previous, previous.Start, previous.End, previous.Start, corner, "Draw Wall"));
+                start = corner;
+            }
+
+            // Arriving back at the first click closes the loop at its corner too.
+            if (DrawOffset != 0 && _chainFirstWall is { } first && !ReferenceEquals(first, _chainWall) &&
+                Document.Elements.Contains(first) && model.DistanceTo(_chainFirstClick) < 1 &&
+                WallDrawing.Corner((start, end), (first.Start, first.End), model, DrawOffset) is { } closing)
+            {
+                commands.Add(new MoveWallCommand(first, first.Start, first.End, closing, first.End, "Draw Wall"));
+                end = closing;
+            }
+
             var wall = new Wall
             {
-                Start = _pendingWallStart.Value,
-                End = model,
+                Start = start,
+                End = end,
                 TypeId = ActiveWallTypeId,
                 LevelId = ActiveLevelId,
-                LocationLine = ActiveLocationLine
+                LocationLine = ActiveLocationLine,
+                Flipped = DrawFlipped
             };
 
-            Apply(new AddElementCommand(Document, wall, "Draw Wall"));
+            commands.Add(new AddElementCommand(Document, wall, "Draw Wall"));
+            Apply(commands.Count == 1 ? commands[0] : new CompositeCommand("Draw Wall", commands));
+
             // Chain into the next wall so a room can be traced without re-clicking.
             _pendingWallStart = model;
+            _chainWall = wall;
+            _chainFirstWall ??= wall;
             Select(wall);
         }
 
@@ -1745,6 +1844,7 @@ public class PlanView : FrameworkElement
     private Element? HitTest(Point2D model)
     {
         if (Document is null) return null;
+        RefreshViewFilter();
 
         // Annotation first: it is drawn on top of everything, so it must be picked from on
         // top of everything too. Its targets are sized in screen pixels, because that is how
@@ -1805,6 +1905,7 @@ public class PlanView : FrameworkElement
     private Wall? HitTestWall(Point2D model)
     {
         if (Document is null) return null;
+        RefreshViewFilter();
 
         Wall? best = null;
         var bestDistance = double.MaxValue;
@@ -1883,6 +1984,8 @@ public class PlanView : FrameworkElement
     /// <summary>Points the shared renderer at this canvas and its current view state.</summary>
     private void PrepareRenderer()
     {
+        RefreshViewFilter();
+        _renderer.Filter = _shows;
         _renderer.Document = Document;
         _renderer.DetailLevel = DetailLevel;
         _renderer.SetSelection(_selection);
@@ -1912,6 +2015,7 @@ public class PlanView : FrameworkElement
         _underlayRenderer.DetailLevel = DetailLevel;
         _underlayRenderer.SetSelection(null);
         _underlayRenderer.ActiveLevelId = below.Id;
+        _underlayRenderer.Filter = Document.ViewSettings.FilterFor(Document, ViewReference.FloorPlan(below.Id));
         _underlayRenderer.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         _underlayRenderer.PixelsPerPaperMm = PlanRenderer.ScreenPixelsPerPaperMm;
         _underlayRenderer.SetTransform(ModelToScreen, PixelsPerMm);
@@ -1959,6 +2063,8 @@ public class PlanView : FrameworkElement
 
         var midpoint = ModelToScreen(wall.Start.MidpointTo(wall.End));
         dc.DrawEllipse(_gripBrush, _gripPen, midpoint, 4.5, 4.5);
+
+        if (Document?.GetWallType(wall) is { } type) DrawFlipArrows(dc, wall, type);
     }
 
     /// <summary>Highlights the wall the trim tool is waiting to trim.</summary>
@@ -2000,7 +2106,107 @@ public class PlanView : FrameworkElement
         dc.DrawLine(_previewPen, start, end);
         dc.DrawEllipse(Brushes.Transparent, _selectedPen, start, 4, 4);
         dc.DrawEllipse(Brushes.Transparent, _selectedPen, end, 4, 4);
+
+        // The wall itself, where it will actually be built: off the clicks by the offset, off
+        // the location line by the assembly, and with its exterior on the side it will have.
+        if (Document?.FindType<WallType>(ActiveWallTypeId) is not { } type) return;
+        if (_pendingWallStart.Value.DistanceTo(_cursorModel) < SnapStepMm) return;
+
+        var (lineStart, lineEnd) = WallDrawing.OffsetSegment(
+            _pendingWallStart.Value, _cursorModel, DrawOffset, DrawFlipped);
+
+        var probe = new Wall
+        {
+            Start = lineStart,
+            End = lineEnd,
+            LocationLine = ActiveLocationLine,
+            Flipped = DrawFlipped
+        };
+
+        DrawWallBody(dc, probe, type, _previewPen);
+        DrawFlipArrows(dc, probe, type);
     }
+
+    /// <summary>The outline of a wall's body, drawn square-ended.</summary>
+    private void DrawWallBody(DrawingContext dc, Wall wall, WallType type, Pen pen)
+    {
+        var (bodyStart, bodyEnd) = wall.GetBodyCentreline(type.Structure);
+        var across = wall.ExteriorNormal * (type.Width / 2);
+
+        var corners = new[]
+        {
+            bodyStart + across, bodyEnd + across, bodyEnd - across, bodyStart - across
+        }.Select(ModelToScreen).ToArray();
+
+        var geometry = new StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            context.BeginFigure(corners[0], false, true);
+            context.PolyLineTo(corners.Skip(1).ToArray(), true, false);
+        }
+
+        geometry.Freeze();
+        dc.DrawGeometry(null, pen, geometry);
+    }
+
+    /// <summary>
+    /// Where the flip control sits: just outside the exterior face, halfway along. It is on
+    /// the exterior side by definition, so it doubles as the marker of which side that is.
+    /// </summary>
+    private Point FlipControlPosition(Wall wall, WallType type)
+    {
+        var (bodyStart, bodyEnd) = wall.GetBodyCentreline(type.Structure);
+        var middle = ModelToScreen(bodyStart.MidpointTo(bodyEnd));
+        var face = ModelToScreen(bodyStart.MidpointTo(bodyEnd) + wall.ExteriorNormal * (type.Width / 2));
+
+        var outward = face - middle;
+        if (outward.Length < 1e-6)
+        {
+            var normal = ModelToScreen(bodyStart + wall.ExteriorNormal) - ModelToScreen(bodyStart);
+            outward = normal.Length < 1e-6 ? new Vector(0, -1) : normal / normal.Length;
+        }
+        else
+        {
+            outward /= outward.Length;
+        }
+
+        return face + outward * FlipControlGap;
+    }
+
+    private const double FlipControlGap = 16;
+    private const double FlipControlRadius = 10;
+
+    /// <summary>Two arrowheads pointing across the wall: the control that swaps its sides.</summary>
+    private void DrawFlipArrows(DrawingContext dc, Wall wall, WallType type)
+    {
+        var centre = FlipControlPosition(wall, type);
+
+        var along = ModelToScreen(wall.End) - ModelToScreen(wall.Start);
+        along = along.Length < 1e-6 ? new Vector(1, 0) : along / along.Length;
+        var across = new Vector(-along.Y, along.X);
+
+        var geometry = new StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            foreach (var sign in new[] { 1.0, -1.0 })
+            {
+                var tip = centre + across * (7 * sign);
+                var baseMid = centre + across * (1.5 * sign);
+
+                context.BeginFigure(tip, true, true);
+                context.LineTo(baseMid + along * 4.5, true, false);
+                context.LineTo(baseMid - along * 4.5, true, false);
+            }
+        }
+
+        geometry.Freeze();
+        dc.DrawGeometry(_selectedPen.Brush, null, geometry);
+    }
+
+    /// <summary>Whether a click lands on the selected wall's flip control.</summary>
+    private bool IsOnFlipControl(Wall wall, Point screen) =>
+        Document?.GetWallType(wall) is { } type &&
+        (FlipControlPosition(wall, type) - screen).Length <= FlipControlRadius;
 
     /// <summary>A ring showing that the cursor has locked onto an existing wall end.</summary>
     private void DrawSnapMarker(DrawingContext dc)

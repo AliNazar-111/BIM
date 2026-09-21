@@ -56,6 +56,21 @@ internal sealed class ProjectFileDto
     public List<SectionDto> Sections { get; set; } = new();
 
     public List<SheetDto> Sheets { get; set; } = new();
+
+    /// <summary>Views that leave something out. Missing from older files, where every view showed everything.</summary>
+    public List<ViewSettingsDto> ViewSettings { get; set; } = new();
+}
+
+/// <summary>What one view hides. The view is named the same way a viewport names it.</summary>
+internal sealed class ViewSettingsDto
+{
+    /// <summary>"FloorPlan", "Section" or "Model3D".</summary>
+    public string Kind { get; set; } = "FloorPlan";
+
+    /// <summary>The level or section marker. Empty for the 3D view.</summary>
+    public Guid TargetId { get; set; }
+
+    public List<string> HiddenWallFunctions { get; set; } = new();
 }
 
 /// <summary>

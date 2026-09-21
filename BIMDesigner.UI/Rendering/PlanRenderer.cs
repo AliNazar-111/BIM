@@ -198,7 +198,10 @@ public sealed class PlanRenderer
     private IEnumerable<T> OnActiveLevel<T>() where T : Element =>
         Document is null
             ? Enumerable.Empty<T>()
-            : Document.Elements.OfType<T>().Where(element => element is Grid || element.LevelId == ActiveLevelId);
+            : Document.Elements.OfType<T>().Where(element => element is Grid || (element.LevelId == ActiveLevelId && Filter(element)));
+
+    /// <summary>The view's filters: what it leaves out. Everything is shown unless set.</summary>
+    public Func<Element, bool> Filter { get; set; } = _ => true;
 
     // ---- the drawing -----------------------------------------------------------
 

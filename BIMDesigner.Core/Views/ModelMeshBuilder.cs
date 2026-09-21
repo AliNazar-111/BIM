@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 
@@ -26,11 +27,13 @@ public static class ModelMeshBuilder
     private const double LeafThickness = 40;
     private const double PaneThickness = 12;
 
-    public static IReadOnlyList<Mesh3D> Build(BimDocument document)
+    public static IReadOnlyList<Mesh3D> Build(BimDocument document, Func<Element, bool>? shows = null)
     {
+        shows ??= _ => true;
+
         var meshes = new List<Mesh3D>();
 
-        foreach (var wall in document.Walls) AddWall(document, wall, meshes);
+        foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, wall, meshes);
         foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, slab, meshes);
 
         return meshes.Where(mesh => !mesh.IsEmpty).ToList();

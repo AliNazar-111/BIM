@@ -289,6 +289,7 @@ public partial class MainWindow : Window
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array;
 
         OffsetOptions.Visibility = tool == PlanTool.Offset ? Visibility.Visible : Visibility.Collapsed;
+        WallDrawOptions.Visibility = tool == PlanTool.Wall ? Visibility.Visible : Visibility.Collapsed;
         MirrorOptions.Visibility = tool == PlanTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
         ArrayOptions.Visibility = tool == PlanTool.Array ? Visibility.Visible : Visibility.Collapsed;
 
@@ -535,6 +536,12 @@ public partial class MainWindow : Window
         Plan.RefreshModel();
         RefreshProperties();
         RefreshProjectBrowser();
+
+        // Every view is drawn from the model, so every open one follows the undo.
+        RefreshSchedule();
+        RefreshSection();
+        SheetSurface.Refresh();
+        Refresh3D();
     }
 
     // ---- view ------------------------------------------------------------------
@@ -583,6 +590,28 @@ public partial class MainWindow : Window
         Plan.DetailLevel = level;
         Plan.RefreshModel();
         StatusDetail.Text = $"Detail: {level}";
+    }
+
+    /// <summary>
+    /// The spacebar flips walls - the one being drawn, or the ones selected.
+    ///
+    /// It is caught on the way down, before a focused toolbar button can take it as a press:
+    /// with the wall tool just picked, its button still has focus, and Space would otherwise
+    /// click it again instead of flipping the wall.
+    /// </summary>
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        base.OnPreviewKeyDown(e);
+
+        if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None) return;
+        if (Keyboard.FocusedElement is TextBox or ComboBox or ComboBoxItem) return;
+        if (ModelPanel.Visibility == Visibility.Visible || SheetPanel.Visibility == Visibility.Visible) return;
+
+        if (Plan.Flip())
+        {
+            RefreshProperties();
+            e.Handled = true;
+        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -1411,6 +1440,75 @@ public partial class MainWindow : Window
 
         // Always rewrite the box in the app's own format, so what it says is what it will do.
         OffsetDistanceBox.Text = Units.FormatLength(Plan.OffsetDistance);
+    }
+
+    /// <summary>The wall tool's offset. Zero is allowed, and so is negative - the other side.</summary>
+    private void OnWallOffsetChanged(object sender, RoutedEventArgs e)
+    {
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, WallOffsetBox.Text, out var value) &&
+            value is double millimetres)
+        {
+            Plan.DrawOffset = millimetres;
+        }
+
+        WallOffsetBox.Text = Units.FormatLength(Plan.DrawOffset);
+    }
+
+    /// <summary>Enter commits the offset and hands the keyboard back to the drawing.</summary>
+    private void OnWallOffsetKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnWallOffsetChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    // ---- wall functions -----------------------------------------------------------
+
+    /// <summary>
+    /// Lists every view open right now - this level's plan, the section on screen, the 3D
+    /// view - each with its own set of wall functions to tick, since each keeps its own.
+    /// </summary>
+    private void OnWallFunctionsMenuOpened(object sender, RoutedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, WallFunctionsMenu)) return;
+
+        WallFunctionsMenu.Items.Clear();
+
+        var views = new List<ViewReference> { Plan.CurrentView };
+
+        if (SectionPanel.Visibility == Visibility.Visible && Section.Marker is { } marker)
+            views.Add(ViewReference.Section(marker.Id));
+
+        views.Add(ViewReference.Model3D);
+
+        foreach (var view in views)
+        {
+            var submenu = new MenuItem { Header = $"In {view.TitleIn(_document)}" };
+
+            foreach (var function in Enum.GetValues<WallFunction>())
+            {
+                var item = new MenuItem
+                {
+                    Header = EnumText.Humanise(function),
+                    IsCheckable = true,
+                    IsChecked = _document.ViewSettings.IsWallFunctionVisible(view, function),
+                    StaysOpenOnClick = true
+                };
+
+                item.Click += (_, _) =>
+                {
+                    _history.Execute(new SetWallFunctionVisibilityCommand(
+                        _document, view, function, item.IsChecked));
+                    AfterHistoryChange();
+                };
+
+                submenu.Items.Add(item);
+            }
+
+            WallFunctionsMenu.Items.Add(submenu);
+        }
     }
 
     private void OnMirrorKeepOriginalChanged(object sender, RoutedEventArgs e) =>

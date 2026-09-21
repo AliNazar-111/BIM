@@ -265,6 +265,11 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Manage levels | View → Levels... |
 | Storey below as underlay | View → Show Storey Below |
 | Reshape a wall | Select it, then drag a square end grip |
+| Flip a wall inside-out | Select it and press `Space`, or click the blue arrows on its exterior side |
+| Flip the wall being drawn | `Space` while drawing |
+| Draw a wall off the clicked line | Type an **Offset** on the option bar before drawing |
+| Attach a wall's top to a level | Properties → **Top Constraint** → Up to level |
+| Hide walls by function | View → Wall Functions → pick the view, untick the function |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |
@@ -298,8 +303,11 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
 
 The option bar above the canvas sets what new walls are made of: **wall type**, **level**
-and **location line**. Clicks snap to a 100 mm grid, and to nearby wall ends in preference
+and **location line**, and with the wall tool an **offset** from the clicked line. Clicks snap to a 100 mm grid, and to nearby wall ends in preference
 to the grid so corners meet exactly and mitre.
+
+Changing an existing wall's location line does not move the wall: the drawn line moves to
+the chosen face, and walls joined to it follow so their joins hold.
 
 ### Detail level
 

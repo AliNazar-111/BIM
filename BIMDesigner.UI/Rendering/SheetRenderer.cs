@@ -202,6 +202,7 @@ public sealed class SheetRenderer
             case ViewKind.FloorPlan:
                 _plan.Document = Document;
                 _plan.ActiveLevelId = viewport.View.TargetId;
+                _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
                 _plan.DetailLevel = DetailLevel.Fine;
 
                 // Paper has no selection: a highlight is an editing state, not a drawing.
@@ -226,7 +227,7 @@ public sealed class SheetRenderer
 
                 // Datum names are suppressed: they would spill outside the frame and be
                 // clipped, which reads as a mistake rather than as a label.
-                _section.DrawContent(dc, SectionProjection.Build(Document, marker), labelLevels: false);
+                _section.DrawContent(dc, SectionProjection.Build(Document, marker, Document.ViewSettings.FilterFor(Document, viewport.View)), labelLevels: false);
                 break;
             }
         }

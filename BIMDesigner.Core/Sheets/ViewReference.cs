@@ -11,7 +11,10 @@ public enum ViewKind
 {
     FloorPlan,
     Section,
-    Schedule
+    Schedule,
+
+    /// <summary>The 3D view. It cannot be placed on a sheet yet, but it has its own settings.</summary>
+    Model3D
 }
 
 /// <summary>
@@ -30,6 +33,8 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
 
     public static ViewReference Schedule(string name) => new(ViewKind.Schedule, Guid.Empty, name);
 
+    public static ViewReference Model3D => new(ViewKind.Model3D, Guid.Empty, string.Empty);
+
     /// <summary>Whether the view this refers to still exists in the project.</summary>
     public bool ExistsIn(BimDocument document)
     {
@@ -41,6 +46,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
             ViewKind.FloorPlan => document.FindLevel(targetId) is not null,
             ViewKind.Section => document.Elements.OfType<SectionMarker>().Any(s => s.Id == targetId),
             ViewKind.Schedule => !string.IsNullOrWhiteSpace(ScheduleName),
+            ViewKind.Model3D => true,
             _ => false
         };
     }
@@ -62,6 +68,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                 : "Section - missing marker",
 
             ViewKind.Schedule => string.IsNullOrWhiteSpace(ScheduleName) ? "Schedule" : ScheduleName,
+            ViewKind.Model3D => "3D",
             _ => "View"
         };
     }

@@ -105,6 +105,178 @@ public sealed class SplitWallCommand : IUndoableCommand
 }
 
 /// <summary>
+/// Changes which line of a wall's assembly its end points sit on, without moving the wall.
+///
+/// The stored end points are always on the location line, so switching from the centreline
+/// to a finish face moves them sideways by half the wall's width while the body stays put.
+/// The walls joined to it are carried along: a corner partner or a stem teeing into it has
+/// its end slid along its own line to meet the new location line, so the joins still find
+/// each other. Doors and windows keep their place in the wall.
+///
+/// Every position touched is recorded before and after, so undo restores them exactly
+/// instead of recomputing the reverse, which would drift by rounding.
+/// </summary>
+public sealed class ChangeLocationLineCommand : IUndoableCommand
+{
+    private readonly Wall _wall;
+    private readonly WallLocationLine _oldLine;
+    private readonly WallLocationLine _newLine;
+    private readonly List<(Wall Wall, Point2D Start, Point2D End, Point2D NewStart, Point2D NewEnd)> _walls = new();
+    private readonly List<(Opening Opening, double Distance, double NewDistance)> _openings = new();
+
+    public ChangeLocationLineCommand(BimDocument document, Wall wall, WallLocationLine newLine)
+    {
+        _wall = wall;
+        _oldLine = wall.LocationLine;
+        _newLine = newLine;
+
+        if (document.GetWallType(wall) is not { } type) return;
+
+        var shift = wall.ExteriorNormal *
+            (LocationOffset(wall, newLine, type) - wall.GetLocationLineOffset(type.Structure));
+        if (shift.Length < 1e-9) return;
+
+        var newLine2D = Line2D.Through(wall.Start + shift, wall.End + shift);
+        var moves = new Dictionary<Wall, (Point2D Start, Point2D End)>
+        {
+            [wall] = (wall.Start + shift, wall.End + shift)
+        };
+
+        void MoveEnd(Wall target, bool atStart, Point2D to)
+        {
+            var (start, end) = moves.TryGetValue(target, out var current) ? current : (target.Start, target.End);
+            moves[target] = atStart ? (to, end) : (start, to);
+        }
+
+        // Each end of this wall: follow whatever it is joined to.
+        foreach (var atStart in new[] { true, false })
+        {
+            var joint = atStart ? wall.Start : wall.End;
+            var shifted = joint + shift;
+
+            var others = document.Walls
+                .Where(other => !ReferenceEquals(other, wall) && other.LevelId == wall.LevelId)
+                .ToList();
+
+            var partners = others.Where(other => WallJoins.TouchesAt(other, joint)).ToList();
+
+            // A wall continuing in line keeps its own line; this end simply moves across.
+            if (partners.Any(partner => IsParallel(partner, wall)))
+            {
+                MoveEnd(wall, atStart, shifted);
+                continue;
+            }
+
+            // Corner partners - or the two halves of a split run this wall tees into - all
+            // lie along one line, so they meet the new location line at one point.
+            if (partners.Count > 0 && partners.All(partner => IsParallel(partner, partners[0])))
+            {
+                if (Meet(partners[0], newLine2D) is { } meeting && StaysNear(meeting, joint, type))
+                {
+                    MoveEnd(wall, atStart, meeting);
+                    foreach (var partner in partners)
+                        MoveEnd(partner, partner.Start.DistanceTo(joint) <= WallJoins.JoinTolerance, meeting);
+                    continue;
+                }
+            }
+
+            // Ending on the side of a wall that runs through: slide along to stay on it.
+            if (partners.Count == 0 &&
+                others.FirstOrDefault(other =>
+                    Line2D.DistanceFromSegment(joint, other.Start, other.End) <= WallJoins.JoinTolerance) is { } run &&
+                !IsParallel(run, wall) &&
+                Meet(run, newLine2D) is { } onRun && StaysNear(onRun, joint, type))
+            {
+                MoveEnd(wall, atStart, onRun);
+                continue;
+            }
+
+            MoveEnd(wall, atStart, shifted);
+        }
+
+        // Walls teeing into the side of this one follow its location line across.
+        foreach (var stem in document.Walls)
+        {
+            if (ReferenceEquals(stem, wall) || stem.LevelId != wall.LevelId || IsParallel(stem, wall)) continue;
+
+            foreach (var atStart in new[] { true, false })
+            {
+                var end = atStart ? stem.Start : stem.End;
+                if (WallJoins.TouchesAt(wall, end)) continue;
+                if (Line2D.DistanceFromSegment(end, wall.Start, wall.End) > WallJoins.JoinTolerance) continue;
+
+                if (Meet(stem, newLine2D) is { } meeting && StaysNear(meeting, end, type))
+                    MoveEnd(stem, atStart, meeting);
+            }
+        }
+
+        foreach (var (target, (newStart, newEnd)) in moves)
+        {
+            // A move that would turn a wall round or shrink it to nothing is not a move.
+            if (newStart.DistanceTo(newEnd) <= WallJoins.JoinTolerance ||
+                (newEnd - newStart).Dot(target.End - target.Start) <= 0)
+                continue;
+
+            _walls.Add((target, target.Start, target.End, newStart, newEnd));
+
+            // Openings are placed from the start, so if the start slid along the wall they
+            // have to be moved back by the same amount to stay in the same place.
+            var along = target.Direction;
+            var startShift = ReferenceEquals(target, wall) ? shift : new Vector2D(0, 0);
+            var slide = (newStart - (target.Start + startShift)).Dot(along);
+            if (Math.Abs(slide) < 1e-9) continue;
+
+            foreach (var opening in WallOpenings.Of(document, target))
+                _openings.Add((opening, opening.DistanceAlongWall, Math.Max(0, opening.DistanceAlongWall - slide)));
+        }
+    }
+
+    public string Name => "Change Location Line";
+
+    public void Redo()
+    {
+        foreach (var (wall, _, _, start, end) in _walls)
+        {
+            wall.Start = start;
+            wall.End = end;
+        }
+
+        foreach (var (opening, _, distance) in _openings) opening.DistanceAlongWall = distance;
+        _wall.LocationLine = _newLine;
+    }
+
+    public void Undo()
+    {
+        foreach (var (wall, start, end, _, _) in _walls)
+        {
+            wall.Start = start;
+            wall.End = end;
+        }
+
+        foreach (var (opening, distance, _) in _openings) opening.DistanceAlongWall = distance;
+        _wall.LocationLine = _oldLine;
+    }
+
+    private static double LocationOffset(Wall wall, WallLocationLine line, WallType type)
+    {
+        var probe = new Wall { LocationLine = line };
+        return probe.GetLocationLineOffset(type.Structure);
+    }
+
+    private static bool IsParallel(Wall a, Wall b) => Math.Abs(a.Direction.Cross(b.Direction)) <= 1e-6;
+
+    private static Point2D? Meet(Wall other, Line2D line) =>
+        Line2D.TryIntersect(Line2D.Through(other.Start, other.End), line, out var point) ? point : null;
+
+    /// <summary>
+    /// A very shallow angle can put the meeting point far down the line; past a few wall
+    /// widths that is no longer the same joint, so the join is let go instead.
+    /// </summary>
+    private static bool StaysNear(Point2D meeting, Point2D joint, WallType type) =>
+        meeting.DistanceTo(joint) <= 10 * Math.Max(type.Width, 1);
+}
+
+/// <summary>
 /// Trims or extends a wall so that one of its ends lands on another wall's location line
 /// (specification section 2.4, "trim/extend").
 ///
@@ -135,5 +307,90 @@ public static class WallTrim
 
         // A zero-length wall is not a wall.
         return newStart.DistanceTo(newEnd) > WallJoins.JoinTolerance;
+    }
+}
+
+/// <summary>
+/// Sets what a wall's top follows: a level with an offset, or nothing, with its own height.
+/// The three are changed together so undo puts back exactly the wall there was.
+/// </summary>
+public sealed class SetWallTopCommand : IUndoableCommand
+{
+    private readonly Wall _wall;
+    private readonly (Guid? Level, double Offset, double Height) _old;
+    private readonly (Guid? Level, double Offset, double Height) _new;
+
+    public SetWallTopCommand(Wall wall, Guid? topLevelId, double topOffset, double unconnectedHeight)
+    {
+        _wall = wall;
+        _old = (wall.TopLevelId, wall.TopOffset, wall.UnconnectedHeight);
+        _new = (topLevelId, topOffset, unconnectedHeight);
+    }
+
+    public string Name => "Change Top Constraint";
+
+    public void Redo() => Apply(_new);
+
+    public void Undo() => Apply(_old);
+
+    private void Apply((Guid? Level, double Offset, double Height) state)
+    {
+        _wall.TopLevelId = state.Level;
+        _wall.TopOffset = state.Offset;
+        _wall.UnconnectedHeight = state.Height;
+    }
+}
+
+/// <summary>
+/// Swaps the interior and exterior sides of walls (specification section 3.1).
+///
+/// The wall mirrors about its location line, which is the line the user drew and the one
+/// that stays put - so a wall drawn to its exterior face flips over that face, as it would
+/// on a drawing board.
+/// </summary>
+public sealed class FlipWallsCommand : IUndoableCommand
+{
+    private readonly List<Wall> _walls;
+
+    public FlipWallsCommand(IEnumerable<Wall> walls)
+    {
+        _walls = walls.Distinct().ToList();
+        Name = _walls.Count == 1 ? "Flip Wall" : $"Flip {_walls.Count} Walls";
+    }
+
+    public string Name { get; }
+
+    public void Redo()
+    {
+        foreach (var wall in _walls) wall.Flipped = !wall.Flipped;
+    }
+
+    public void Undo() => Redo();
+}
+
+/// <summary>
+/// Several edits that the user made as one action, undone and redone together - drawing a
+/// wall that also pulls the previous one round to meet it, for instance.
+/// </summary>
+public sealed class CompositeCommand : IUndoableCommand
+{
+    private readonly List<IUndoableCommand> _commands;
+
+    public CompositeCommand(string name, IEnumerable<IUndoableCommand> commands)
+    {
+        Name = name;
+        _commands = commands.ToList();
+    }
+
+    public string Name { get; }
+
+    public void Redo()
+    {
+        foreach (var command in _commands) command.Redo();
+    }
+
+    public void Undo()
+    {
+        for (var i = _commands.Count - 1; i >= 0; i--) _commands[i].Undo();
     }
 }

@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
@@ -117,6 +118,60 @@ public sealed class Wall : Element
         return height > 0 ? height : UnconnectedHeight;
     }
 
+    /// <summary>The name shown for a wall with no top level.</summary>
+    public const string Unconnected = "Unconnected";
+
+    /// <summary>The top constraint as shown in the property panel.</summary>
+    public string TopConstraintName(BimDocument document) =>
+        TopLevelId is { } id && document.FindLevel(id) is { } level ? $"Up to level: {level.Name}" : Unconnected;
+
+    /// <summary>
+    /// What the top can be set to: unconnected, or up to any level above the base. A level
+    /// at or below the base would give the wall no height, so it is not offered.
+    /// </summary>
+    public IReadOnlyList<string> TopConstraintChoices(BimDocument document)
+    {
+        var baseElevation = document.FindLevel(LevelId)?.Elevation ?? double.NegativeInfinity;
+
+        var choices = new List<string> { Unconnected };
+        choices.AddRange(document.Levels
+            .Where(level => level.Elevation > baseElevation || level.Id == TopLevelId)
+            .Select(level => $"Up to level: {level.Name}"));
+
+        return choices;
+    }
+
+    /// <summary>
+    /// The change that sets the top constraint to one of <see cref="TopConstraintChoices"/>,
+    /// or null if that would leave the wall with no height.
+    ///
+    /// Letting go of the top level keeps the wall the height it is now, rather than jumping
+    /// back to whatever unconnected height it had before it was attached.
+    /// </summary>
+    public IUndoableCommand? SetTopConstraint(BimDocument document, string choice)
+    {
+        if (choice == Unconnected)
+            return new SetWallTopCommand(this, null, TopOffset, GetHeight(document));
+
+        var level = document.Levels.FirstOrDefault(l => $"Up to level: {l.Name}" == choice);
+        if (level is null || !KeepsHeight(document, LevelId, BaseOffset, level.Id, TopOffset)) return null;
+
+        return new SetWallTopCommand(this, level.Id, TopOffset, UnconnectedHeight);
+    }
+
+    /// <summary>Whether these constraints leave the wall with a positive height.</summary>
+    public static bool KeepsHeight(
+        BimDocument document, Guid baseLevelId, double baseOffset, Guid? topLevelId, double topOffset)
+    {
+        if (topLevelId is not { } topId) return true;
+
+        var baseLevel = document.FindLevel(baseLevelId);
+        var topLevel = document.FindLevel(topId);
+        if (baseLevel is null || topLevel is null) return true;
+
+        return topLevel.Elevation + topOffset - (baseLevel.Elevation + baseOffset) > 0;
+    }
+
     /// <summary>Elevation area of one wall face, in mm². The quantity used for finishes.</summary>
     public double GetArea(BimDocument document) => Length * GetHeight(document);
 
@@ -163,32 +218,67 @@ public sealed class Wall : Element
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         // Constraints - specification section 13.1
-        yield return ParameterValue.BindChoice(
+        yield return ParameterValue.BindChoiceValidated(
             WallParameters.BaseConstraint,
             () => document.FindLevel(LevelId)?.Name ?? string.Empty,
             v =>
             {
                 var level = document.Levels.FirstOrDefault(l => l.Name == v);
-                if (level is not null) LevelId = level.Id;
+                if (level is null || !KeepsHeight(document, level.Id, BaseOffset, TopLevelId, TopOffset)) return false;
+                LevelId = level.Id;
+                return true;
             },
             document.Levels.Select(l => l.Name).ToArray());
-        yield return ParameterValue.Bind(WallParameters.BaseOffset, () => BaseOffset, v => BaseOffset = v);
-        yield return ParameterValue.ReadOnly(
-            WallParameters.TopConstraint,
-            () => TopLevelId is { } id ? document.FindLevel(id)?.Name ?? "Unconnected" : "Unconnected");
         yield return ParameterValue.BindValidated(
-            WallParameters.UnconnectedHeight,
-            () => UnconnectedHeight,
+            WallParameters.BaseOffset,
+            () => BaseOffset,
             v =>
             {
-                if (v <= 0) return false;
-                UnconnectedHeight = v;
+                if (!KeepsHeight(document, LevelId, v, TopLevelId, TopOffset)) return false;
+                BaseOffset = v;
                 return true;
             });
-        yield return ParameterValue.BindChoice(
+        yield return ParameterValue.BindChoiceCommand(
+            WallParameters.TopConstraint,
+            () => TopConstraintName(document),
+            v => SetTopConstraint(document, v),
+            TopConstraintChoices(document));
+
+        // The top offset only means something against a level, and the unconnected height
+        // only when there is none - each is shown read-only while the other is in charge.
+        if (TopLevelId is null)
+        {
+            yield return ParameterValue.ReadOnly(WallParameters.TopOffset, () => TopOffset);
+            yield return ParameterValue.BindValidated(
+                WallParameters.UnconnectedHeight,
+                () => UnconnectedHeight,
+                v =>
+                {
+                    if (v <= 0) return false;
+                    UnconnectedHeight = v;
+                    return true;
+                });
+        }
+        else
+        {
+            yield return ParameterValue.BindValidated(
+                WallParameters.TopOffset,
+                () => TopOffset,
+                v =>
+                {
+                    if (!KeepsHeight(document, LevelId, BaseOffset, TopLevelId, v)) return false;
+                    TopOffset = v;
+                    return true;
+                });
+            yield return ParameterValue.ReadOnly(WallParameters.UnconnectedHeight, () => UnconnectedHeight);
+        }
+
+        yield return ParameterValue.BindChoiceCommand(
             WallParameters.LocationLine,
             () => EnumText.Humanise(LocationLine),
-            v => { if (EnumText.TryParse<WallLocationLine>(v, out var l)) LocationLine = l; },
+            v => EnumText.TryParse<WallLocationLine>(v, out var line)
+                ? new ChangeLocationLineCommand(document, this, line)
+                : null,
             EnumText.Choices<WallLocationLine>());
         yield return ParameterValue.Bind(WallParameters.RoomBounding, () => RoomBounding, v => RoomBounding = v);
 
@@ -219,6 +309,9 @@ public static class WallParameters
 
     public static readonly ParameterDefinition TopConstraint =
         new("Top Constraint", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition TopOffset =
+        new("Top Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition UnconnectedHeight =
         new("Unconnected Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);

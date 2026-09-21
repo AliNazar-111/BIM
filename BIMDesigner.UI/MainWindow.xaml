@@ -205,6 +205,10 @@
                     <MenuItem x:Name="DetailMedium" Header="Medium" IsCheckable="True" Click="OnDetailLevelChanged"/>
                     <MenuItem x:Name="DetailFine" Header="Fine" IsCheckable="True" IsChecked="True" Click="OnDetailLevelChanged"/>
                 </MenuItem>
+                <MenuItem x:Name="WallFunctionsMenu" Header="_Wall Functions" SubmenuOpened="OnWallFunctionsMenuOpened"
+                          ToolTip="Show or hide walls by function, separately in each view">
+                    <MenuItem Header="(views)"/>
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="S_heets">
                 <MenuItem Header="_New Sheet" Click="OnNewSheet"/>
@@ -314,6 +318,14 @@
                 <ComboBox x:Name="LocationLinePicker" Style="{StaticResource OptionCombo}" MinWidth="175"
                           SelectionChanged="OnActiveLocationLineChanged"
                           ToolTip="Which line of the assembly you are drawing to"/>
+
+                <StackPanel x:Name="WallDrawOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Offset" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="WallOffsetBox" Width="90" VerticalAlignment="Center"
+                             Text="0 mm" LostFocus="OnWallOffsetChanged" KeyDown="OnWallOffsetKeyDown"
+                             ToolTip="Build the wall this far off the line you click, toward its exterior. Negative goes the other way."/>
+                    <TextBlock Text="Space flips" Style="{StaticResource OptionLabel}" Opacity="0.6"/>
+                </StackPanel>
 
                 <!-- Editing tool settings, shown only while their tool is active. -->
                 <StackPanel x:Name="OffsetOptions" Orientation="Horizontal" Visibility="Collapsed">

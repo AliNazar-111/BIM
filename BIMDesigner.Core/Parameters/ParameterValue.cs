@@ -1,4 +1,5 @@
 using System.Globalization;
+using BIMDesigner.Core.Documents.Commands;
 
 namespace BIMDesigner.Core.Parameters;
 
@@ -75,13 +76,21 @@ public sealed class ParameterValue
         Func<string> get,
         Action<string> set,
         IReadOnlyList<string> allowedValues) =>
+        BindChoiceValidated(definition, get, text => { set(text); return true; }, allowedValues);
+
+    /// <summary>
+    /// Binds a choice the element may still refuse, such as a base level that would put the
+    /// wall's foot above its top.
+    /// </summary>
+    public static ParameterValue BindChoiceValidated(
+        ParameterDefinition definition,
+        Func<string> get,
+        Func<string, bool> trySet,
+        IReadOnlyList<string> allowedValues) =>
         new(definition, () => get(), raw =>
         {
             var text = raw?.ToString();
-            if (text is null || !allowedValues.Contains(text)) return false;
-
-            set(text);
-            return true;
+            return text is not null && allowedValues.Contains(text) && trySet(text);
         })
         {
             AllowedValues = allowedValues
@@ -92,6 +101,52 @@ public sealed class ParameterValue
     /// changes nothing if the parameter is read-only or the value does not fit.
     /// </summary>
     public bool TrySet(object? value) => _set is not null && _set(value);
+
+    /// <summary>
+    /// Binds a choice whose change reaches beyond one property - a wall's location line
+    /// moves the ends of the walls joined to it. The change is made by a command, which is
+    /// kept so the edit can be undone exactly rather than by writing the old value back.
+    /// </summary>
+    public static ParameterValue BindChoiceCommand(
+        ParameterDefinition definition,
+        Func<string> get,
+        Func<string, IUndoableCommand?> change,
+        IReadOnlyList<string> allowedValues)
+    {
+        ParameterValue? parameter = null;
+
+        parameter = new ParameterValue(definition, () => get(), raw =>
+        {
+            var text = raw?.ToString();
+            if (text is null || !allowedValues.Contains(text)) return false;
+            if (text == get()) return true;
+
+            var command = change(text);
+            if (command is null) return false;
+
+            command.Redo();
+            parameter!._appliedChange = command;
+            return true;
+        })
+        {
+            AllowedValues = allowedValues
+        };
+
+        return parameter;
+    }
+
+    private IUndoableCommand? _appliedChange;
+
+    /// <summary>
+    /// The command that carried out the last write, if this parameter changes the model
+    /// through one. Taking it clears it, so it is recorded once.
+    /// </summary>
+    public IUndoableCommand? TakeAppliedChange()
+    {
+        var change = _appliedChange;
+        _appliedChange = null;
+        return change;
+    }
 
     /// <summary>Writes a value typed by the user, e.g. "3.20 m" into a length parameter.</summary>
     public bool TrySetFromText(string? text) =>

@@ -6,6 +6,7 @@ using BIMDesigner.Core;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
 using BIMDesigner.UI.Rendering;
 
@@ -100,7 +101,7 @@ public class SectionView : FrameworkElement
     public void Rebuild()
     {
         _drawing = _document is not null && _marker is not null
-            ? SectionProjection.Build(_document, _marker)
+            ? SectionProjection.Build(_document, _marker, _document.ViewSettings.FilterFor(_document, ViewReference.Section(_marker.Id)))
             : null;
 
         InvalidateVisual();

@@ -31,6 +31,9 @@ public sealed class BimDocument
 
     public ProjectInformation ProjectInformation { get; } = new();
 
+    /// <summary>What each view leaves out. Views not listed show everything.</summary>
+    public Views.ViewSettings ViewSettings { get; } = new();
+
     /// <summary>Everything placed in the project. Observable so views refresh themselves.</summary>
     public ObservableCollection<Element> Elements { get; } = new();
 

@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
 
 // Core has a Point3D of its own, in millimetres; this file draws with WPF's, in metres.
@@ -134,7 +135,7 @@ public class ModelView : Border
     /// <summary>Rebuilds every mesh from the model. Cheap enough to do after every edit.</summary>
     public void Rebuild()
     {
-        _meshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document);
+        _meshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document, _document.ViewSettings.FilterFor(_document, ViewReference.Model3D));
 
         // Converted once per rebuild. Selecting something or changing the style only swaps
         // materials, and should not pay to copy every vertex again.
