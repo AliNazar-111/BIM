@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run BIMDesigner (F5)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/BIMDesigner.UI/bin/Debug/net10.0-windows/BIMDesigner.UI.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}/BIMDesigner.UI",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ]
+}

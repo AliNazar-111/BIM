@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Windows-targeted with WPF so the PDF export can be tested. The export walks a WPF
+      drawing tree, and a silent bug in it produces a corrupt file that nothing else would
+      notice until someone tried to open a drawing set. Core and Infrastructure stay
+      framework-neutral; only the tests reach up into the UI.
+    -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+
+    <!-- A WPF target drops System.IO from the implicit usings; the file tests still need it. -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BIMDesigner.Core\BIMDesigner.Core.csproj" />
+    <ProjectReference Include="..\BIMDesigner.Infrastructure\BIMDesigner.Infrastructure.csproj" />
+    <ProjectReference Include="..\BIMDesigner.UI\BIMDesigner.UI.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="BIMDesigner.Core/BIMDesigner.Core.csproj" />
+  <Project Path="BIMDesigner.Infrastructure/BIMDesigner.Infrastructure.csproj" />
+  <Project Path="BIMDesigner.Tests/BIMDesigner.Tests.csproj" />
+  <Project Path="BIMDesigner.UI/BIMDesigner.UI.csproj" />
+</Solution>

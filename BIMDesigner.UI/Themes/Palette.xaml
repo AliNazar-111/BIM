@@ -1,0 +1,58 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        One palette for the whole application.
+
+        Every other theme file refers to these by name, so the application can be
+        re-skinned - or given the light theme section 12.3 implies - by swapping this one
+        dictionary. Contrast ratios against their intended background are noted where they
+        matter, because a CAD tool is read for hours at a time.
+    -->
+
+    <!-- Surfaces, darkest to lightest -->
+    <Color x:Key="Colour.Field">#FF12151A</Color>
+    <Color x:Key="Colour.Window">#FF171A21</Color>
+    <Color x:Key="Colour.Panel">#FF1E222B</Color>
+    <Color x:Key="Colour.Elevated">#FF272C37</Color>
+    <Color x:Key="Colour.Hover">#FF323845</Color>
+
+    <!-- Lines -->
+    <Color x:Key="Colour.Line">#FF323845</Color>
+    <Color x:Key="Colour.LineStrong">#FF444C5A</Color>
+
+    <!-- Text -->
+    <Color x:Key="Colour.Text">#FFEDEFF3</Color>
+    <Color x:Key="Colour.TextMuted">#FFA3ACBA</Color>
+    <Color x:Key="Colour.TextDisabled">#FF646F7F</Color>
+
+    <!-- Accent -->
+    <Color x:Key="Colour.Accent">#FF5AABFF</Color>
+    <Color x:Key="Colour.AccentDim">#FF2F5E92</Color>
+
+    <SolidColorBrush x:Key="Bg.Field" Color="{StaticResource Colour.Field}"/>
+    <SolidColorBrush x:Key="Bg.Window" Color="{StaticResource Colour.Window}"/>
+    <SolidColorBrush x:Key="Bg.Panel" Color="{StaticResource Colour.Panel}"/>
+    <SolidColorBrush x:Key="Bg.Elevated" Color="{StaticResource Colour.Elevated}"/>
+    <SolidColorBrush x:Key="Bg.Hover" Color="{StaticResource Colour.Hover}"/>
+    <SolidColorBrush x:Key="Bg.Selected" Color="{StaticResource Colour.AccentDim}"/>
+
+    <SolidColorBrush x:Key="Line" Color="{StaticResource Colour.Line}"/>
+    <SolidColorBrush x:Key="Line.Strong" Color="{StaticResource Colour.LineStrong}"/>
+
+    <SolidColorBrush x:Key="Text" Color="{StaticResource Colour.Text}"/>
+    <SolidColorBrush x:Key="Text.Muted" Color="{StaticResource Colour.TextMuted}"/>
+    <SolidColorBrush x:Key="Text.Disabled" Color="{StaticResource Colour.TextDisabled}"/>
+
+    <SolidColorBrush x:Key="Accent" Color="{StaticResource Colour.Accent}"/>
+    <SolidColorBrush x:Key="Accent.Dim" Color="{StaticResource Colour.AccentDim}"/>
+
+    <!-- Scroll bar thumb, deliberately low-contrast until hovered -->
+    <SolidColorBrush x:Key="Thumb" Color="#FF3E4553"/>
+    <SolidColorBrush x:Key="Thumb.Hover" Color="#FF515A6B"/>
+
+    <FontFamily x:Key="UiFont">Segoe UI</FontFamily>
+    <system:Double xmlns:system="clr-namespace:System;assembly=System.Runtime" x:Key="UiFontSize">12.5</system:Double>
+    <system:Double xmlns:system="clr-namespace:System;assembly=System.Runtime" x:Key="UiFontSizeSmall">11</system:Double>
+
+</ResourceDictionary>
