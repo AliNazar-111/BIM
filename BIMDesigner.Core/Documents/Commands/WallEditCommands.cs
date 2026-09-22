@@ -945,3 +945,41 @@ public sealed class MergeWallsCommand : IUndoableCommand
         (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _before;
     }
 }
+
+/// <summary>
+/// Locks two walls laid face to face so they move together, joining them first if they are
+/// not, or unlocks them and leaves them joined (specification section 3.1, "auto join and
+/// lock walls") - the padlock on the face they share.
+/// </summary>
+public sealed class SetWallLockCommand : IUndoableCommand
+{
+    private readonly Wall _holder;
+    private readonly Guid _partnerId;
+    private readonly bool _wasJoined;
+    private readonly bool _wasLocked;
+    private readonly bool _locked;
+
+    public SetWallLockCommand(Wall wall, Wall partner, bool locked)
+    {
+        // The join is kept on whichever of the two already holds it; a new one on the wall picked.
+        _holder = partner.JoinedTo.Contains(wall.Id) ? partner : wall;
+        _partnerId = ReferenceEquals(_holder, wall) ? partner.Id : wall.Id;
+        _wasJoined = _holder.JoinedTo.Contains(_partnerId);
+        _wasLocked = _holder.LockedToJoined;
+        _locked = locked;
+    }
+
+    public string Name => _locked ? "Lock Walls" : "Unlock Walls";
+
+    public void Redo()
+    {
+        if (!_holder.JoinedTo.Contains(_partnerId)) _holder.JoinedTo.Add(_partnerId);
+        _holder.LockedToJoined = _locked;
+    }
+
+    public void Undo()
+    {
+        if (!_wasJoined) _holder.JoinedTo.Remove(_partnerId);
+        _holder.LockedToJoined = _wasLocked;
+    }
+}

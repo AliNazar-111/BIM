@@ -209,3 +209,30 @@ public static class WallPlacement
             .ToList();
     }
 }
+
+/// <summary>
+/// Where two walls laid face to face meet, for the padlock drawn there: a quarter of the way
+/// along the face they share, clear of the grips and the length label in the middle.
+/// </summary>
+public static class WallLockPoint
+{
+    public static Point2D? Between(BimDocument document, Wall wall, Wall partner)
+    {
+        if (document.GetWallType(wall) is not { } type || document.GetWallType(partner) is not { } partnerType) return null;
+
+        var a = wall.Locate(type.Structure, partner.PointAt(partnerType.Structure, 0, 0)).Along;
+        var b = wall.Locate(type.Structure, partner.PointAt(partnerType.Structure, partner.Length, 0)).Along;
+        var from = Math.Max(0, Math.Min(a, b));
+        var to = Math.Min(wall.Length, Math.Max(a, b));
+        var middle = from < to ? from + (to - from) / 4 : wall.Length / 4;
+
+        // On this wall's face toward the partner.
+        var side = Math.Sign(wall.Locate(type.Structure, partner.PointAt(partnerType.Structure, partner.Length / 2, 0)).Across);
+        return wall.PointAt(type.Structure, middle, (side == 0 ? 1 : side) * type.Width / 2);
+    }
+
+    /// <summary>Whether two walls are locked together, whichever of them holds the join.</summary>
+    public static bool AreLocked(Wall wall, Wall partner) =>
+        (wall.LockedToJoined && wall.JoinedTo.Contains(partner.Id)) ||
+        (partner.LockedToJoined && partner.JoinedTo.Contains(wall.Id));
+}

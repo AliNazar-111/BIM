@@ -774,7 +774,7 @@
                                               Content="Auto Join" Click="OnPlaceWallJoinChanged"
                                               ToolTip="Join a new wall to the walls its faces lie against: their doors and windows cut through both"/>
                                 <ToggleButton x:Name="PlaceLock" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Lock}"
-                                              Content="Lock" Click="OnPlaceWallJoinChanged" IsEnabled="False"
+                                              Content="Lock" Click="OnPlaceWallJoinChanged"
                                               ToolTip="Auto Join and Lock: the joined walls also move together"/>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -870,7 +870,7 @@
                               Click="OnAutoJoinChanged"
                               ToolTip="Join a new wall to the walls its faces lie against: their doors and windows cut through both"/>
                     <CheckBox x:Name="LockJoinBox" Content="Lock" VerticalAlignment="Center" Margin="0,0,14,0"
-                              Click="OnAutoJoinChanged" IsEnabled="False"
+                              Click="OnLockJoinChanged"
                               ToolTip="Auto Join and Lock: the joined walls also move together"/>
                     <TextBlock Text="Space flips" Style="{StaticResource OptionLabel}" Opacity="0.6"/>
                 </WrapPanel>

@@ -994,6 +994,8 @@ public class PlanView : FrameworkElement
     private void RaiseSelectionChanged()
     {
         if (_selection.Count == 0 || !_selection.All(element => element is Wall)) AddingWallPoints = false;
+        if (ActiveTool == PlanTool.Select && LockGrips().Count > 0)
+            HintChanged?.Invoke(this, "Another wall lies against this one: click the padlock on their shared face to lock them together, so they move as one.");
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1360,6 +1362,13 @@ public class PlanView : FrameworkElement
 
             var target = SelectedWall ?? (HitTest(raw) is Wall hitWall && IsSelected(hitWall) ? hitWall : null);
             if (target is not null && ShapeWallAt(target, raw, e.ClickCount == 2)) return;
+        }
+
+        // The padlock on a face two walls share: locks or unlocks them.
+        if (LockGripAt(e.GetPosition(this)) is { } padlock)
+        {
+            ToggleLock(padlock.Partner);
+            return;
         }
 
         // A corner between selected walls, dragged: every wall meeting there follows.
@@ -1957,6 +1966,82 @@ public class PlanView : FrameworkElement
         Select(wall);
 
         HintChanged?.Invoke(this, $"{(curve.IsElliptical ? "Half ellipse" : "Arc")} placed. Click where the next one ends, or Esc to stop.");
+    }
+
+    // ---- padlocks between walls laid face to face ----------------------------------------
+
+    private static readonly Brush LockedBrush = CreateLockedBrush();
+
+    private static Brush CreateLockedBrush()
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(0xE8, 0xB8, 0x3A));
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>
+    /// The padlocks to show for the selected wall: one on each face it shares with another
+    /// wall - joined to it already, or only lying against it - where a click locks the two.
+    /// </summary>
+    private IReadOnlyList<(Point2D At, Wall Partner)> LockGrips()
+    {
+        if (Document is null || SelectedWall is not { } wall || !WallLamination.CanJoin(Document, wall))
+            return Array.Empty<(Point2D, Wall)>();
+
+        return WallLamination.Partners(Document, wall)
+            .Concat(WallLamination.Touching(Document, wall))
+            .Distinct()
+            .Where(partner => partner.LevelId == wall.LevelId && WallLamination.CanJoin(Document, partner))
+            .Select(partner => (At: WallLockPoint.Between(Document, wall, partner), Partner: partner))
+            .Where(grip => grip.At is not null)
+            .Select(grip => (grip.At!.Value, grip.Partner))
+            .ToList();
+    }
+
+    private (Point2D At, Wall Partner)? LockGripAt(Point screen)
+    {
+        foreach (var grip in LockGrips())
+            if ((ModelToScreen(grip.At) - screen).Length <= 10) return grip;
+
+        return null;
+    }
+
+    /// <summary>Locks the selected wall to one against it - joining them if they are not - or unlocks them.</summary>
+    private void ToggleLock(Wall partner)
+    {
+        if (Document is null || SelectedWall is not { } wall) return;
+
+        var locked = WallLockPoint.AreLocked(wall, partner);
+        if (!locked && (!WallLamination.CanLock(wall) || !WallLamination.CanLock(partner)))
+        {
+            HintChanged?.Invoke(this, "A leaning wall cannot be locked: its faces are not where the plan shows them.");
+            return;
+        }
+
+        Apply(new SetWallLockCommand(wall, partner, !locked));
+        HintChanged?.Invoke(this, locked
+            ? "Unlocked: the walls move separately now. They stay joined, so doors and windows still cut through both."
+            : "Locked: the two walls move together, and doors and windows cut through both.");
+        InvalidateVisual();
+    }
+
+    /// <summary>A padlock: shut and gold when the walls are locked, open when they are not.</summary>
+    private void DrawPadlock(DrawingContext dc, Point at, bool locked)
+    {
+        var shackle = new StreamGeometry();
+        using (var ctx = shackle.Open())
+        {
+            // An open lock has its shackle lifted clear of the body on one side.
+            var lift = locked ? 0 : 4;
+            ctx.BeginFigure(new Point(at.X - 4, at.Y - 1 - lift), false, false);
+            ctx.LineTo(new Point(at.X - 4, at.Y - 5 - lift), true, false);
+            ctx.ArcTo(new Point(at.X + 4, at.Y - 5 - lift), new Size(4, 4), 0, false, SweepDirection.Clockwise, true, false);
+            ctx.LineTo(new Point(at.X + 4, at.Y - (locked ? 1 : 3) - lift), true, false);
+        }
+
+        shackle.Freeze();
+        dc.DrawGeometry(null, _gripPen, shackle);
+        dc.DrawRoundedRectangle(locked ? LockedBrush : _gripBrush, _gripPen, new Rect(at.X - 6, at.Y - 1, 12, 9), 1.5, 1.5);
     }
 
     // ---- place by segment and by room ---------------------------------------------------
@@ -3361,6 +3446,10 @@ public class PlanView : FrameworkElement
         if (IsWholeSpline(wall))
             foreach (var (_, point) in wall.LocationCurve.SplinePoints())
                 dc.DrawEllipse(_gripBrush, _gripPen, ModelToScreen(point), 5, 5);
+
+        // The padlocks on faces shared with other walls.
+        foreach (var (at, partner) in LockGrips())
+            DrawPadlock(dc, ModelToScreen(at), WallLockPoint.AreLocked(wall, partner));
 
         if (Document?.GetWallType(wall) is { } type) DrawFlipArrows(dc, wall, type);
     }

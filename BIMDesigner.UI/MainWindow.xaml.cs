@@ -2313,7 +2313,6 @@ public partial class MainWindow : Window
         menu.Items.Add(Item("Auto Join", "Icon.AutoJoin", "AutoJoin", Plan.AutoJoinWalls,
             "Join new walls to the walls they lie against: doors and windows cut through both"));
         var lockItem = Item("Auto Join and Lock", "Icon.Lock", "Lock", Plan.LockJoinedWalls, "Joined walls also move together");
-        lockItem.IsEnabled = Plan.AutoJoinWalls;
         menu.Items.Add(lockItem);
 
         menu.IsOpen = true;
@@ -2340,6 +2339,7 @@ public partial class MainWindow : Window
 
             case "Lock":
                 LockJoinBox.IsChecked = !Plan.LockJoinedWalls;
+                if (LockJoinBox.IsChecked == true) AutoJoinBox.IsChecked = true;
                 OnAutoJoinChanged(sender, e);
                 return;
         }
@@ -2372,9 +2372,11 @@ public partial class MainWindow : Window
         Plan.Focus();
     }
 
+    private void OnLockJoinChanged(object sender, RoutedEventArgs e) => OnAutoJoinChanged(LockJoinBox, e);
+
     private void OnPlaceWallJoinChanged(object sender, RoutedEventArgs e)
     {
-        AutoJoinBox.IsChecked = PlaceAutoJoin.IsChecked == true;
+        AutoJoinBox.IsChecked = PlaceAutoJoin.IsChecked == true || (ReferenceEquals(sender, PlaceLock) && PlaceLock.IsChecked == true);
         LockJoinBox.IsChecked = PlaceLock.IsChecked == true;
         OnAutoJoinChanged(sender, e);
         Plan.Focus();
@@ -2383,11 +2385,13 @@ public partial class MainWindow : Window
     /// <summary>Auto Join, and Lock with it: Lock means nothing unless walls are joined.</summary>
     private void OnAutoJoinChanged(object sender, RoutedEventArgs e)
     {
+        // Locking walls joins them: Lock without Auto Join would lock nothing.
+        if (LockJoinBox.IsChecked == true && ReferenceEquals(sender, LockJoinBox)) AutoJoinBox.IsChecked = true;
+        if (AutoJoinBox.IsChecked != true) LockJoinBox.IsChecked = false;
+
         Plan.AutoJoinWalls = AutoJoinBox.IsChecked == true;
-        LockJoinBox.IsEnabled = Plan.AutoJoinWalls;
         Plan.LockJoinedWalls = Plan.AutoJoinWalls && LockJoinBox.IsChecked == true;
         PlaceAutoJoin.IsChecked = Plan.AutoJoinWalls;
-        PlaceLock.IsEnabled = Plan.AutoJoinWalls;
         PlaceLock.IsChecked = LockJoinBox.IsChecked = Plan.LockJoinedWalls;
 
         StatusHint.Text = !Plan.AutoJoinWalls ? "New walls are not joined to the walls they lie against."

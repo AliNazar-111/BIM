@@ -172,4 +172,38 @@ public class WallLaminationTests
         Assert.False(WallLamination.CanJoin(document, glass));
         Assert.Empty(WallLamination.Touching(document, glass));
     }
+
+    [Fact]
+    public void ThePadlockLocksWallsLyingAgainstEachOtherAndUndoes()
+    {
+        var (document, _, liningType, walls) = Room();
+        var host = Bottom(walls);
+        var lining = WallPlacement.BySegment(document, host, exteriorSide: false, liningType.Id, host.LevelId)!;
+        document.Add(lining);
+
+        // Placed without Auto Join: touching, but neither joined nor locked.
+        Assert.Contains(host, WallLamination.Touching(document, lining));
+        Assert.False(WallLockPoint.AreLocked(host, lining));
+
+        // The padlock sits on the face they share.
+        var padlock = WallLockPoint.Between(document, host, lining)!.Value;
+        var hostType = document.GetWallType(host)!;
+        Assert.Equal(-hostType.Width / 2, host.Locate(hostType.Structure, padlock).Across, precision: 6);
+
+        // Clicked from the older wall: it holds the new join, and they move as one.
+        var command = new SetWallLockCommand(host, lining, locked: true);
+        command.Redo();
+        Assert.True(WallLockPoint.AreLocked(host, lining));
+        Assert.Contains(lining, WallLamination.LockedGroup(document, host));
+
+        command.Undo();
+        Assert.False(WallLockPoint.AreLocked(host, lining));
+        Assert.Empty(WallLamination.Partners(document, host));
+
+        // Unlocking keeps them joined.
+        new SetWallLockCommand(host, lining, locked: true).Redo();
+        new SetWallLockCommand(lining, host, locked: false).Redo();
+        Assert.False(WallLockPoint.AreLocked(host, lining));
+        Assert.Contains(lining, WallLamination.Partners(document, host));
+    }
 }

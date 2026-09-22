@@ -329,7 +329,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Pick how walls are drawn | Choose the Wall tool: the green **Modify \| Place Wall** tab holds every shape (line, arc, rectangle, polygon, circle, oval, ellipse, spline, freehand, pick lines), Place by Segment and by Room, and Auto Join and Lock |
 | Line one face of a wall (an accent or finish wall) | Wall tool, **Place by Segment**, click beside the wall on the side the new wall goes. It runs that face's length between the walls it meets, and its location line is the face against the wall |
 | Line every face of a room | Wall tool, **Place by Room**, click inside the room |
-| Join a new wall to the wall it lies against | Turn on **Auto Join** on the Place Wall tab before placing: doors and windows in either then cut through both. Tick **Lock** too to make them move together; a joined wall's **Locked to Joined Walls** property switches it later |
+| Join a new wall to the wall it lies against | Turn on **Auto Join** on the Place Wall tab before placing: doors and windows in either then cut through both. Turn on **Lock** to make them move together (it turns Auto Join on with it) |
+| Lock two walls lying against each other | Select one: a padlock shows on the face they share. Click it to lock them so they move as one (it goes gold); click again to unlock. Works on walls already drawn |
 | Make a wall follow the floor or roof above | Select walls, Architecture tab → **Attach Top** (or **Attach Base**), then click the slab; **Detach** undoes it |
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
