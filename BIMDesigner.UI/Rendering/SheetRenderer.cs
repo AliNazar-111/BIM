@@ -204,6 +204,7 @@ public sealed class SheetRenderer
                 _plan.ActiveLevelId = viewport.View.TargetId;
                 _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
                 _plan.DetailLevel = DetailLevel.Fine;
+                _plan.View = viewport.View;
 
                 // Paper has no selection: a highlight is an editing state, not a drawing.
                 _plan.SetSelection(null);

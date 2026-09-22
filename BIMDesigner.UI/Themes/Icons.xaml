@@ -257,6 +257,20 @@
         <GeometryDrawing Brush="{StaticResource Ink.Line}" Geometry="M15,19 L17,19 L17,24 L15,24 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.WallJoins"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M3,3 L29,3 L29,11 L11,11 L11,29 L3,29 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Dash}" Geometry="M3,3 L11,11"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Blue}" Geometry="M16,16 L24,16 L24,24 L16,24 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.JoinGeometry"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M3,4 L29,4 L29,11 L3,11 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M3,21 L29,21 L29,28 L3,28 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M16,12 L16,20 M13,15 L16,12 L19,15 M13,17 L16,20 L19,17"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.AttachTop"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,3 L30,3 L30,7 L2,7 Z"/>

@@ -21,6 +21,20 @@ public sealed class ViewSettings
 {
     private readonly Dictionary<ViewReference, HashSet<WallFunction>> _hiddenWallFunctions = new();
     private readonly Dictionary<ViewReference, double> _scales = new();
+    private readonly Dictionary<ViewReference, WallJoinDisplay> _joinDisplays = new();
+
+    /// <summary>How the view cleans the wall joins left to it. Every join, unless set otherwise.</summary>
+    public WallJoinDisplay JoinDisplayOf(ViewReference view) =>
+        _joinDisplays.TryGetValue(view, out var display) ? display : WallJoinDisplay.CleanAllWallJoins;
+
+    public void SetJoinDisplay(ViewReference view, WallJoinDisplay display)
+    {
+        if (display == WallJoinDisplay.CleanAllWallJoins) _joinDisplays.Remove(view);
+        else _joinDisplays[view] = display;
+    }
+
+    /// <summary>Every view with its own Wall Join Display, for saving.</summary>
+    public IEnumerable<(ViewReference View, WallJoinDisplay Display)> JoinDisplays => _joinDisplays.Select(e => (e.Key, e.Value));
 
     /// <summary>The scale a view is drawn at when nobody has chosen one.</summary>
     public const double DefaultScale = 100;

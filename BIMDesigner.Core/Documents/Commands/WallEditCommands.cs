@@ -68,6 +68,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly List<Wall> _liningsOfWall = new();
     private readonly bool _originalEndLocked;
+    private readonly WallJoinCleanup _originalEndCleanup;
     private readonly double _splitAlong;
 
     public SplitWallCommand(BimDocument document, Wall wall, Point2D splitPoint)
@@ -175,6 +176,8 @@ public sealed class SplitWallCommand : IUndoableCommand
         // A locked end stays with the far half; the split itself is not a corner to lock.
         _remainder.EndLocked = wall.EndLocked;
         _originalEndLocked = wall.EndLocked;
+        _remainder.EndCleanup = wall.EndCleanup;
+        _originalEndCleanup = wall.EndCleanup;
         _liningsOfWall.AddRange(document.Walls.Where(other => other.JoinedTo.Contains(wall.Id)));
     }
 
@@ -195,6 +198,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _document.Add(_remainder);
         foreach (var lining in _liningsOfWall) lining.JoinedTo.Add(_remainder.Id);
         _wall.EndLocked = false;
+        _wall.EndCleanup = WallJoinCleanup.UseViewSetting;
 
         foreach (var (opening, distance) in _moved)
         {
@@ -213,6 +217,7 @@ public sealed class SplitWallCommand : IUndoableCommand
 
         foreach (var lining in _liningsOfWall) lining.JoinedTo.Remove(_remainder.Id);
         _wall.EndLocked = _originalEndLocked;
+        _wall.EndCleanup = _originalEndCleanup;
         _document.Remove(_remainder);
         _wall.End = _originalEnd;
         _wall.Bulge = _originalBulge;
@@ -1020,5 +1025,43 @@ public sealed class SetJointLockCommand : IUndoableCommand
     {
         if (atStart) wall.StartLocked = locked;
         else wall.EndLocked = locked;
+    }
+}
+
+/// <summary>
+/// Joins two walls with Join Geometry, or unjoins them (specification section 3.1, "join
+/// parallel walls"): joined, the doors and windows of either cut through both.
+/// </summary>
+public sealed class JoinWallsCommand : IUndoableCommand
+{
+    private readonly Wall _holder;
+    private readonly Guid _partnerId;
+    private readonly bool _join;
+    private readonly bool _wasJoined;
+    private readonly bool _wasLocked;
+
+    public JoinWallsCommand(Wall wall, Wall partner, bool join)
+    {
+        _holder = partner.JoinedTo.Contains(wall.Id) ? partner : wall;
+        _partnerId = ReferenceEquals(_holder, wall) ? partner.Id : wall.Id;
+        _join = join;
+        _wasJoined = _holder.JoinedTo.Contains(_partnerId);
+        _wasLocked = _holder.LockedToJoined;
+    }
+
+    public string Name => _join ? "Join Geometry" : "Unjoin Geometry";
+
+    public void Redo()
+    {
+        if (_join && !_holder.JoinedTo.Contains(_partnerId)) _holder.JoinedTo.Add(_partnerId);
+        if (!_join) _holder.JoinedTo.Remove(_partnerId);
+        if (_holder.JoinedTo.Count == 0) _holder.LockedToJoined = false;
+    }
+
+    public void Undo()
+    {
+        if (_wasJoined && !_holder.JoinedTo.Contains(_partnerId)) _holder.JoinedTo.Add(_partnerId);
+        if (!_wasJoined) _holder.JoinedTo.Remove(_partnerId);
+        _holder.LockedToJoined = _wasLocked;
     }
 }

@@ -491,6 +491,17 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Geometry" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="WallJoinsTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallJoins}"
+                                             Content="Wall Joins" Checked="OnToolChanged"
+                                             ToolTip="Pick where walls meet, then make it a butt, mitre or square-off join, change which wall carries on, clean it up or not, or keep the walls from joining"/>
+                                <RadioButton x:Name="JoinGeometryTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.JoinGeometry}"
+                                             Content="Join Geometry" Checked="OnToolChanged"
+                                             ToolTip="Join two parallel walls up to 150 mm apart, so doors and windows in either cut through both"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Modify" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="SplitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Split}"
@@ -891,6 +902,33 @@
                     <TextBox x:Name="SweepHeightBox" Width="80" VerticalAlignment="Center" Text="0 mm"
                              LostFocus="OnSweepHeightChanged" ToolTip="How high above the wall's base, e.g. 0 for a skirting, 900 for a dado rail"/>
                 </StackPanel>
+
+                <!-- The Wall Joins tool: what the picked junctions become. -->
+                <WrapPanel x:Name="JunctionOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Configuration" Style="{StaticResource OptionLabel}"/>
+                    <RadioButton x:Name="JunctionButt" Content="Butt" GroupName="JunctionType" VerticalAlignment="Center" Margin="0,0,10,0"
+                                 Click="OnJunctionTypeChanged" ToolTip="One wall carries on, the others stop against it"/>
+                    <RadioButton x:Name="JunctionMitre" Content="Miter" GroupName="JunctionType" VerticalAlignment="Center" Margin="0,0,10,0"
+                                 Click="OnJunctionTypeChanged" ToolTip="Each wall cut on the angle between them"/>
+                    <RadioButton x:Name="JunctionSquareOff" Content="Square Off" GroupName="JunctionType" VerticalAlignment="Center" Margin="0,0,14,0"
+                                 Click="OnJunctionTypeChanged" ToolTip="A wall end squared to 90 degrees past the other"/>
+                    <Button x:Name="JunctionPrevious" Content="Previous" Padding="10,3" Margin="0,0,6,0" Click="OnJunctionPrevious"
+                            ToolTip="The other way to put this join together: which wall carries on"/>
+                    <Button x:Name="JunctionNext" Content="Next" Padding="10,3" Margin="0,0,18,0" Click="OnJunctionNext"
+                            ToolTip="The other way to put this join together: which wall carries on"/>
+                    <TextBlock Text="Display" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="JunctionDisplayPicker" Style="{StaticResource OptionCombo}" MinWidth="140"
+                              SelectionChanged="OnJunctionDisplayChanged"
+                              ToolTip="Clean the join so the walls read as one, draw them butting, or do as the view says">
+                        <ComboBoxItem Content="Use View Setting"/>
+                        <ComboBoxItem Content="Clean Join"/>
+                        <ComboBoxItem Content="Don't Clean Join"/>
+                    </ComboBox>
+                    <RadioButton x:Name="JunctionAllow" Content="Allow Join" GroupName="JunctionAllowed" VerticalAlignment="Center" Margin="0,0,10,0"
+                                 Click="OnJunctionAllowedChanged"/>
+                    <RadioButton x:Name="JunctionDisallow" Content="Disallow Join" GroupName="JunctionAllowed" VerticalAlignment="Center"
+                                 Click="OnJunctionAllowedChanged" ToolTip="Keep these wall ends from joining anything, to leave a gap"/>
+                </WrapPanel>
 
                 <!-- Modify Returns: what a click on a sweep's end turns it into. -->
                 <StackPanel x:Name="SweepReturnOptions" Orientation="Horizontal" Visibility="Collapsed">

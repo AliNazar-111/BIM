@@ -471,7 +471,7 @@ public static class WallJoins
     /// at a cross the main wall carries through and the partitions stop against it. The id
     /// settles a perfect tie so the answer never depends on the order things were drawn in.
     /// </summary>
-    private static List<List<Wall>> RunsThrough(BimDocument document, IReadOnlyList<Wall> walls)
+    private static List<List<Wall>> RunsThrough(BimDocument document, IReadOnlyList<Wall> walls, Point2D joint)
     {
         var runs = new List<List<Wall>>();
 
@@ -484,7 +484,9 @@ public static class WallJoins
 
         return runs
             .Where(run => run.Count >= 2)
-            .OrderByDescending(run => run.Max(w => document.GetWallType(w)?.Width ?? 0))
+            // A run set to carry through, with the Wall Joins tool, does - before anything else.
+            .OrderByDescending(run => run.Any(w => JoinAt(w, joint) is WallJoinKind.RunThrough or WallJoinKind.SquareOff))
+            .ThenByDescending(run => run.Max(w => document.GetWallType(w)?.Width ?? 0))
             .ThenByDescending(run => run.Sum(w => w.Length))
             .ThenBy(run => run.Min(w => w.Id))
             .ToList();
@@ -528,9 +530,10 @@ public static class WallJoins
 
         // Straight runs through the joint.
         var everyone = partners.Append(wall).ToList();
-        var runs = RunsThrough(document, everyone);
+        var runs = RunsThrough(document, everyone, joint);
 
-        if (runs.Count > 0)
+        // Every end asked to mitre: no run carries through, and each wall is cut to its neighbours.
+        if (runs.Count > 0 && !everyone.All(w => JoinAt(w, joint) == WallJoinKind.Mitre))
         {
             var main = runs[0];
 

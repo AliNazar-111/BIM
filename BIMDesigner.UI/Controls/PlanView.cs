@@ -42,7 +42,13 @@ public enum PlanTool
     Mirror,
     Array,
     Sweep,
-    Reveal
+    Reveal,
+
+    /// <summary>Picks the junctions where walls meet, to change how they join.</summary>
+    WallJoins,
+
+    /// <summary>Joins two parallel walls near each other, so openings cut through both.</summary>
+    JoinGeometry
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -962,6 +968,13 @@ public class PlanView : FrameworkElement
     {
         ActiveTool = tool;
         CancelPendingOperation();
+        _joinFirst = null;
+        if (_selectedJunctions.Count > 0)
+        {
+            _selectedJunctions.Clear();
+            JunctionsChanged?.Invoke(this, EventArgs.Empty);
+        }
+
         Cursor = tool == PlanTool.Select ? Cursors.Arrow : Cursors.Cross;
         HintChanged?.Invoke(this, DefaultHintFor(tool));
     }
@@ -987,6 +1000,8 @@ public class PlanView : FrameworkElement
         PlanTool.Offset => "Click a wall on the side the copy should go. Set the distance above.",
         PlanTool.Mirror => "Select what to mirror first, then click two points on the mirror line.",
         PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
+        PlanTool.WallJoins => "Click the square at a wall join to change it; Ctrl+click adds more. Then choose on the option bar.",
+        PlanTool.JoinGeometry => "Click a wall, then a parallel wall beside it (up to 150 mm away) to join them, or two joined walls to unjoin them.",
         _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
 
@@ -1350,6 +1365,14 @@ public class PlanView : FrameworkElement
 
             case PlanTool.Array:
                 PlaceArrayPoint(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.WallJoins:
+                PickJunction(e.GetPosition(this));
+                return;
+
+            case PlanTool.JoinGeometry:
+                JoinGeometryAt(raw);
                 return;
         }
 
@@ -2017,6 +2040,153 @@ public class PlanView : FrameworkElement
         Select(wall);
 
         HintChanged?.Invoke(this, $"{(curve.IsElliptical ? "Half ellipse" : "Arc")} placed. Click where the next one ends, or Esc to stop.");
+    }
+
+    // ---- the Wall Joins tool --------------------------------------------------------------
+
+    private readonly List<Point2D> _selectedJunctions = new();
+
+    /// <summary>The junctions picked with the Wall Joins tool.</summary>
+    public IReadOnlyList<Point2D> SelectedJunctions => _selectedJunctions;
+
+    /// <summary>Raised when the junctions picked change, so the option bar can show their settings.</summary>
+    public event EventHandler? JunctionsChanged;
+
+    /// <summary>A click with the Wall Joins tool: the junction under it, added with Ctrl, or instead of the others.</summary>
+    private void PickJunction(Point screen)
+    {
+        if (Document is null) return;
+
+        var junction = WallJunctions.On(Document, ActiveLevelId)
+            .Cast<Point2D?>()
+            .FirstOrDefault(point => (ModelToScreen(point!.Value) - screen).Length <= 10);
+
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) _selectedJunctions.Clear();
+
+        if (junction is { } picked)
+        {
+            var already = _selectedJunctions.FindIndex(p => p.DistanceTo(picked) <= WallJoins.JoinTolerance);
+            if (already >= 0) _selectedJunctions.RemoveAt(already);
+            else _selectedJunctions.Add(picked);
+
+            if (WallJunctions.Ends(Document, ActiveLevelId, picked).Count > WallJunctions.MaximumWalls)
+                HintChanged?.Invoke(this, "More than four walls meet here. Change their ends one by one in Properties instead.");
+        }
+
+        JunctionsChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
+
+    /// <summary>Applies settings to every picked junction's wall ends, as one step.</summary>
+    private void ApplyToJunctions(Func<Point2D, IEnumerable<(Wall Wall, bool AtStart, WallJoinKind? Join, WallJoinCleanup? Cleanup)>> ends, string name)
+    {
+        if (Document is null || _selectedJunctions.Count == 0) return;
+
+        var all = _selectedJunctions.SelectMany(ends).ToList();
+        if (all.Count == 0) return;
+
+        Apply(new SetWallEndsCommand(all, name));
+        JunctionsChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
+
+    /// <summary>Butt, mitre or square off at the picked junctions, keeping each one's order.</summary>
+    public void SetJunctionType(JunctionType type) =>
+        ApplyToJunctions(point => WallJunctions
+            .Configure(Document!, ActiveLevelId, point, type, WallJunctions.OrderOf(Document!, ActiveLevelId, point))
+            .Select(e => (e.Wall, e.AtStart, (WallJoinKind?)e.Join, (WallJoinCleanup?)null)),
+            type switch { JunctionType.Mitre => "Mitre Join", JunctionType.SquareOff => "Square Off Join", _ => "Butt Join" });
+
+    /// <summary>Previous and Next: the one picked junction put together the other way round.</summary>
+    public void CycleJunctionOrder(int step)
+    {
+        if (Document is null || _selectedJunctions.Count != 1) return;
+
+        var point = _selectedJunctions[0];
+        var type = WallJunctions.TypeOf(Document, ActiveLevelId, point);
+        if (type == JunctionType.Mitre) return;
+
+        var order = WallJunctions.OrderOf(Document, ActiveLevelId, point) + step;
+        ApplyToJunctions(p => WallJunctions.Configure(Document, ActiveLevelId, p, type, order)
+            .Select(e => (e.Wall, e.AtStart, (WallJoinKind?)e.Join, (WallJoinCleanup?)null)), "Wall Join Order");
+    }
+
+    /// <summary>Whether Previous and Next have anything to step through.</summary>
+    public bool CanCycleJunctionOrder =>
+        Document is not null && _selectedJunctions.Count == 1 &&
+        WallJunctions.TypeOf(Document, ActiveLevelId, _selectedJunctions[0]) != JunctionType.Mitre &&
+        WallJunctions.Orders(Document, ActiveLevelId, _selectedJunctions[0]).Count > 1;
+
+    /// <summary>How the picked junctions are cleaned up in plan.</summary>
+    public void SetJunctionCleanup(WallJoinCleanup cleanup) =>
+        ApplyToJunctions(point => WallJunctions.Ends(Document!, ActiveLevelId, point)
+            .Select(e => (e.Wall, e.AtStart, (WallJoinKind?)null, (WallJoinCleanup?)cleanup)), "Wall Join Display");
+
+    /// <summary>Allow Join or Disallow Join at the picked junctions: disallowed, the ends stop joining anything.</summary>
+    public void SetJunctionsAllowed(bool allowed) =>
+        ApplyToJunctions(point => WallJunctions.Ends(Document!, ActiveLevelId, point)
+            .Select(e => (e.Wall, e.AtStart, (WallJoinKind?)(allowed ? WallJoinKind.Auto : WallJoinKind.Disallow), (WallJoinCleanup?)null)),
+            allowed ? "Allow Join" : "Disallow Join");
+
+    /// <summary>The junction squares: grey where walls meet, blue where picked.</summary>
+    private void DrawJunctions(DrawingContext dc)
+    {
+        if (Document is null || ActiveTool != PlanTool.WallJoins) return;
+
+        foreach (var point in WallJunctions.On(Document, ActiveLevelId))
+        {
+            var at = ModelToScreen(point);
+            var picked = _selectedJunctions.Any(p => p.DistanceTo(point) <= WallJoins.JoinTolerance);
+            dc.DrawRectangle(picked ? _gripBrush : JunctionBrush, picked ? _selectedPen : _gripPen, new Rect(at.X - 6, at.Y - 6, 12, 12));
+        }
+    }
+
+    private static readonly Brush JunctionBrush = CreateJunctionBrush();
+
+    private static Brush CreateJunctionBrush()
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(0x90, 0x9A, 0xA0, 0xA8));
+        brush.Freeze();
+        return brush;
+    }
+
+    // ---- Join Geometry for parallel walls -------------------------------------------------
+
+    private Wall? _joinFirst;
+
+    /// <summary>Join Geometry: the first wall clicked, then the one to join it to - or unjoin, if they are joined already.</summary>
+    private void JoinGeometryAt(Point2D raw)
+    {
+        if (Document is null) return;
+
+        if (HitTestWall(raw) is not { } wall)
+        {
+            HintChanged?.Invoke(this, "Click on a wall.");
+            return;
+        }
+
+        if (_joinFirst is not { } first || ReferenceEquals(first, wall))
+        {
+            _joinFirst = wall;
+            Select(wall);
+            HintChanged?.Invoke(this, "Now click the parallel wall to join it to, up to 150 mm away.");
+            return;
+        }
+
+        _joinFirst = null;
+        var joined = WallLamination.Partners(Document, first).Contains(wall);
+        if (!joined && !WallLamination.CanJoinGeometry(Document, first, wall))
+        {
+            HintChanged?.Invoke(this, "Those walls cannot be joined: they must be straight, parallel, alongside each other and no more than 150 mm apart.");
+            return;
+        }
+
+        Apply(new JoinWallsCommand(first, wall, join: !joined));
+        SelectMany(new Element[] { first, wall });
+        HintChanged?.Invoke(this, joined
+            ? "Unjoined: doors and windows in one no longer cut the other."
+            : "Joined: doors and windows in either wall now cut through both. Click two more walls, or Esc.");
+        InvalidateVisual();
     }
 
     // ---- padlocks between walls laid face to face ----------------------------------------
@@ -3443,6 +3613,7 @@ public class PlanView : FrameworkElement
         // reach a sheet - which is exactly why the renderer does not know about them.
         DrawTrimSubject(dc);
         DrawHover(dc);
+        DrawJunctions(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);
         DrawPendingDimension(dc);
@@ -3468,6 +3639,7 @@ public class PlanView : FrameworkElement
         _renderer.Filter = _shows;
         _renderer.Document = Document;
         _renderer.DetailLevel = DetailLevel;
+        _renderer.View = CurrentView;
         _renderer.SetSelection(_selection);
         _renderer.ActiveLevelId = ActiveLevelId;
         _renderer.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
@@ -3493,6 +3665,7 @@ public class PlanView : FrameworkElement
 
         _underlayRenderer.Document = Document;
         _underlayRenderer.DetailLevel = DetailLevel;
+        _underlayRenderer.View = CurrentView;
         _underlayRenderer.SetSelection(null);
         _underlayRenderer.ActiveLevelId = below.Id;
         _underlayRenderer.Filter = Document.ViewSettings.FilterFor(Document, ViewReference.FloorPlan(below.Id));

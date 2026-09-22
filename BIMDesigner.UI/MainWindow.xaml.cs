@@ -78,6 +78,7 @@ public partial class MainWindow : Window
         // nothing sensible to do between creating one and looking at it.
         Plan.SectionPlaced += (_, marker) => ShowSection(marker);
         Plan.SweepEditChanged += (_, _) => SyncSweepEditControls();
+        Plan.JunctionsChanged += (_, _) => RefreshJunctionOptions();
         Plan.WallPointModeChanged += (_, _) => ContextAddPoint.IsChecked = Plan.AddingWallPoints;
 
         Section.SelectionChanged += (_, _) =>
@@ -303,7 +304,10 @@ public partial class MainWindow : Window
         // offering one would be asking a question the tool never reads the answer to.
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
-            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array;
+            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry;
+
+        JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
 
         OffsetOptions.Visibility = tool == PlanTool.Offset ? Visibility.Visible : Visibility.Collapsed;
         WallDrawOptions.Visibility = tool == PlanTool.Wall ? Visibility.Visible : Visibility.Collapsed;
@@ -616,7 +620,7 @@ public partial class MainWindow : Window
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, FloorTool, CeilingTool, RoofTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
-        SweepTool, RevealTool
+        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool
     ];
 
     private void OnToolChanged(object sender, RoutedEventArgs e)
@@ -653,6 +657,8 @@ public partial class MainWindow : Window
             : ArrayTool.IsChecked == true ? PlanTool.Array
             : SweepTool.IsChecked == true ? PlanTool.Sweep
             : RevealTool.IsChecked == true ? PlanTool.Reveal
+            : WallJoinsTool.IsChecked == true ? PlanTool.WallJoins
+            : JoinGeometryTool.IsChecked == true ? PlanTool.JoinGeometry
             : PlanTool.Select);
 
         ShowOptionsForActiveTool();
@@ -957,18 +963,16 @@ public partial class MainWindow : Window
         }
 
         var changes = walls
-            .Select(wall => (Wall: wall, Top: top, Slab: top
-                ? WallAttachments.SlabAbove(_document, wall)
-                : WallAttachments.FloorBelow(_document, wall)))
-            .Where(change => change.Slab is not null)
-            .Select(change => (change.Wall, change.Top, (Guid?)change.Slab!.Id))
+            .Select(wall => (Wall: wall, Top: top, Target: AttachmentTarget(wall, top)))
+            .Where(change => change.Target is not null)
+            .Select(change => (change.Wall, change.Top, change.Target))
             .ToList();
 
         if (changes.Count == 0)
         {
             StatusHint.Text = top
-                ? "There is no floor, ceiling or roof over those walls to attach to."
-                : "There is no floor under those walls to stand them on.";
+                ? "There is no floor, ceiling, roof or wall over those walls to attach to."
+                : "There is no floor or wall under those walls to stand them on.";
             return;
         }
 
@@ -978,6 +982,33 @@ public partial class MainWindow : Window
         StatusHint.Text = changes.Count == walls.Count
             ? $"{Plural(changes.Count, "wall")} attached."
             : $"{changes.Count} of {walls.Count} walls attached; the rest have nothing {(top ? "over" : "under")} them.";
+    }
+
+    /// <summary>
+    /// What a wall's top or base attaches to: the nearer of the slab and the wall over it (or
+    /// under it). A wall already attached back to this one is passed over, so two walls are
+    /// never left holding each other up.
+    /// </summary>
+    private Guid? AttachmentTarget(Wall wall, bool top)
+    {
+        if (top)
+        {
+            var slab = WallAttachments.SlabAbove(_document, wall);
+            var above = WallAttachments.WallAbove(_document, wall);
+            if (above is not null && above.BaseAttachedTo == wall.Id) above = null;
+
+            if (above is null) return slab?.Id;
+            if (slab is null) return above.Id;
+            return above.GetBaseElevation(_document) < slab.GetBottomElevation(_document) ? above.Id : slab.Id;
+        }
+
+        var floor = WallAttachments.FloorBelow(_document, wall);
+        var below = WallAttachments.WallBelow(_document, wall);
+        if (below is not null && below.TopAttachedTo == wall.Id) below = null;
+
+        if (below is null) return floor?.Id;
+        if (floor is null) return below.Id;
+        return below.GetTopElevation(_document) > floor.GetTopElevation(_document) ? below.Id : floor.Id;
     }
 
     private void OnDetachWalls(object sender, RoutedEventArgs e)
@@ -1430,6 +1461,7 @@ public partial class MainWindow : Window
 
     private static readonly ParameterDefinition ViewScaleParameter = new("View Scale", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition DetailLevelParameter = new("Detail Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition JoinDisplayParameter = new("Wall Join Display", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition UnderlayParameter = new("Show Storey Below", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition VisualStyleParameter = new("Visual Style", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition EdgesParameter = new("Show Edges", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -1452,6 +1484,10 @@ public partial class MainWindow : Window
                 () => EnumText.Humanise(Plan.DetailLevel),
                 text => { if (EnumText.TryParse<DetailLevel>(text, out var level)) SetDetailLevel(level); },
                 details),
+            ParameterValue.BindChoice(JoinDisplayParameter,
+                () => _document.ViewSettings.JoinDisplayOf(view) == WallJoinDisplay.CleanAllWallJoins ? "Clean all wall joins" : "Clean same type wall joins",
+                text => { _document.ViewSettings.SetJoinDisplay(view, text == "Clean all wall joins" ? WallJoinDisplay.CleanAllWallJoins : WallJoinDisplay.CleanSameTypeWallJoins); Plan.RefreshModel(); },
+                new[] { "Clean all wall joins", "Clean same type wall joins" }),
             ParameterValue.Bind(UnderlayParameter, () => Plan.ShowUnderlay, show =>
             {
                 UnderlayMenuItem.IsChecked = PlanUnderlayToggle.IsChecked = show;
@@ -2231,6 +2267,81 @@ public partial class MainWindow : Window
             WallShape.ByRoom => "By room: click inside a room. A wall goes along every face round it, meeting at the corners.",
             _ => "Click the start of the wall, then its end."
         };
+    }
+
+    // ---- the Wall Joins tool's option bar -------------------------------------------------
+
+    /// <summary>Shows the picked junctions' settings: their join, its order, how it is cleaned, whether it is allowed.</summary>
+    private void RefreshJunctionOptions()
+    {
+        var picked = Plan.SelectedJunctions;
+        var any = picked.Count > 0;
+        foreach (var control in new Control[] { JunctionButt, JunctionMitre, JunctionSquareOff, JunctionDisplayPicker, JunctionAllow, JunctionDisallow })
+            control.IsEnabled = any;
+        JunctionPrevious.IsEnabled = JunctionNext.IsEnabled = Plan.CanCycleJunctionOrder;
+
+        if (!any) return;
+
+        var point = picked[0];
+        var level = Plan.ActiveLevelId;
+        var type = WallJunctions.TypeOf(_document, level, point);
+
+        _loadingOptions = true;
+        JunctionButt.IsChecked = type == JunctionType.Butt;
+        JunctionMitre.IsChecked = type == JunctionType.Mitre;
+        JunctionSquareOff.IsChecked = type == JunctionType.SquareOff;
+        JunctionDisplayPicker.SelectedIndex = (int)WallJunctions.CleanupOf(_document, level, point);
+        var disallowed = WallJunctions.IsDisallowed(_document, level, point);
+        JunctionAllow.IsChecked = !disallowed;
+        JunctionDisallow.IsChecked = disallowed;
+        _loadingOptions = false;
+
+        StatusHint.Text = picked.Count == 1
+            ? $"{WallJunctions.Ends(_document, level, point).Count} wall end{(WallJunctions.Ends(_document, level, point).Count == 1 ? "" : "s")} meet here." +
+              (Plan.CanCycleJunctionOrder ? " Previous and Next change which wall carries on." : string.Empty)
+            : $"{picked.Count} joins picked: changes go to all of them.";
+    }
+
+    private void OnJunctionTypeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions) return;
+        Plan.SetJunctionType(ReferenceEquals(sender, JunctionMitre) ? JunctionType.Mitre
+            : ReferenceEquals(sender, JunctionSquareOff) ? JunctionType.SquareOff
+            : JunctionType.Butt);
+        AfterJunctionEdit();
+    }
+
+    private void OnJunctionPrevious(object sender, RoutedEventArgs e)
+    {
+        Plan.CycleJunctionOrder(-1);
+        AfterJunctionEdit();
+    }
+
+    private void OnJunctionNext(object sender, RoutedEventArgs e)
+    {
+        Plan.CycleJunctionOrder(1);
+        AfterJunctionEdit();
+    }
+
+    private void OnJunctionDisplayChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null || JunctionDisplayPicker.SelectedIndex < 0) return;
+        Plan.SetJunctionCleanup((WallJoinCleanup)JunctionDisplayPicker.SelectedIndex);
+        AfterJunctionEdit();
+    }
+
+    private void OnJunctionAllowedChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions) return;
+        Plan.SetJunctionsAllowed(ReferenceEquals(sender, JunctionAllow));
+        AfterJunctionEdit();
+    }
+
+    /// <summary>A join changed: every view shows it, and the plan keeps the keyboard.</summary>
+    private void AfterJunctionEdit()
+    {
+        AfterHistoryChange();
+        Plan.Focus();
     }
 
     // ---- the Place Wall tab --------------------------------------------------------------

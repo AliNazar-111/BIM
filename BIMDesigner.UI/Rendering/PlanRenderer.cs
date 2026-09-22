@@ -140,6 +140,9 @@ public sealed class PlanRenderer
 
     public DetailLevel DetailLevel { get; set; } = DetailLevel.Fine;
 
+    /// <summary>The view being drawn, for the settings that belong to it: how its wall joins are cleaned.</summary>
+    public BIMDesigner.Core.Sheets.ViewReference View { get; set; }
+
     private HashSet<Guid> _selected = new();
 
     /// <summary>
@@ -602,6 +605,7 @@ public sealed class PlanRenderer
                 var cursor = a;
                 foreach (var (_, gapFrom, gapTo) in gaps
                              .Where(gap => gap.Exterior == exterior && gap.To > a && gap.From < b)
+                             .Where(gap => Clean(wall, curve.PointAt(Math.Clamp((gap.From + gap.To) / 2, 0, curve.Length)), type.Width))
                              .OrderBy(gap => gap.From))
                 {
                     if (gapFrom > cursor) Line(cursor, gapFrom);
@@ -633,13 +637,18 @@ public sealed class PlanRenderer
             Face(start[0], end[0], exterior: true);
             Face(start[^1], end[^1], exterior: false);
 
-            if (!slice.CutFrom.IsJoined) End(start);
-            if (!slice.CutTo.IsJoined) End(end);
+            // A join left uncleaned shows where each wall stops, as walls butting one another.
+            if (!slice.CutFrom.IsJoined || !Clean(wall, wall.Start)) End(start);
+            if (!slice.CutTo.IsJoined || !Clean(wall, wall.End)) End(end);
         }
 
         geometry.Freeze();
         return geometry;
     }
+
+    /// <summary>Whether the join at a point on a wall is drawn cleaned up: as its ends ask, or as this view says.</summary>
+    private bool Clean(Wall wall, Point2D joint, double reach = WallJoins.JoinTolerance) =>
+        Document is null || WallJunctions.IsClean(Document, View, wall, joint, reach);
 
     private void DrawWallLabel(DrawingContext dc, Wall wall)
     {

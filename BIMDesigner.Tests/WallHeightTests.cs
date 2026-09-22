@@ -139,7 +139,7 @@ public class WallHeightTests
         document.Remove(ceiling);
 
         Assert.Equal(2400, wall.GetHeight(document), precision: 6);
-        Assert.Equal("None (slab deleted)", wall.GetInstanceParameters(document).Single(p => p.Name == "Top Attached To").Value);
+        Assert.Equal("None (deleted)", wall.GetInstanceParameters(document).Single(p => p.Name == "Top Attached To").Value);
     }
 
     [Fact]

@@ -360,12 +360,20 @@ public static class ProjectFile
                 Kind = view.Kind.ToString(),
                 TargetId = view.TargetId,
                 HiddenWallFunctions = hidden.Select(function => function.ToString()).OrderBy(name => name).ToList(),
-                Scale = document.ViewSettings.Scaled.Where(s => s.View == view).Select(s => (double?)s.Scale).FirstOrDefault()
+                Scale = document.ViewSettings.Scaled.Where(s => s.View == view).Select(s => (double?)s.Scale).FirstOrDefault(),
+                JoinDisplay = document.ViewSettings.JoinDisplays.Where(s => s.View == view).Select(s => s.Display.ToString()).FirstOrDefault()
             });
 
-        // Views with a scale of their own but nothing hidden.
-        foreach (var (view, scale) in document.ViewSettings.Scaled.Where(s => document.ViewSettings.Filtered.All(f => f.View != s.View)))
-            dto.ViewSettings.Add(new ViewSettingsDto { Kind = view.Kind.ToString(), TargetId = view.TargetId, Scale = scale });
+        // Views with a scale or join display of their own but nothing hidden.
+        foreach (var view in document.ViewSettings.Scaled.Select(s => s.View).Concat(document.ViewSettings.JoinDisplays.Select(s => s.View)).Distinct()
+                     .Where(v => document.ViewSettings.Filtered.All(f => f.View != v)))
+            dto.ViewSettings.Add(new ViewSettingsDto
+            {
+                Kind = view.Kind.ToString(),
+                TargetId = view.TargetId,
+                Scale = document.ViewSettings.Scaled.Where(s => s.View == view).Select(s => (double?)s.Scale).FirstOrDefault(),
+                JoinDisplay = document.ViewSettings.JoinDisplays.Where(s => s.View == view).Select(s => s.Display.ToString()).FirstOrDefault()
+            });
 
         foreach (var grid in document.Elements.OfType<Grid>())
             dto.Grids.Add(new GridDto
@@ -475,6 +483,8 @@ public static class ProjectFile
                 LockedToJoined = wall.LockedToJoined,
                 StartLocked = wall.StartLocked,
                 EndLocked = wall.EndLocked,
+                StartCleanup = wall.StartCleanup == WallJoinCleanup.UseViewSetting ? null : wall.StartCleanup.ToString(),
+                EndCleanup = wall.EndCleanup == WallJoinCleanup.UseViewSetting ? null : wall.EndCleanup.ToString(),
                 SplineTo = wall.Spline?.To,
                 Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 ProfileLength = wall.ProfileLength,
@@ -822,6 +832,8 @@ public static class ProjectFile
                 LockedToJoined = wall.LockedToJoined,
                 StartLocked = wall.StartLocked,
                 EndLocked = wall.EndLocked,
+                StartCleanup = ParseEnum(wall.StartCleanup, WallJoinCleanup.UseViewSetting),
+                EndCleanup = ParseEnum(wall.EndCleanup, WallJoinCleanup.UseViewSetting),
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
@@ -1095,6 +1107,7 @@ public static class ProjectFile
                     document.ViewSettings.SetWallFunctionVisible(view, function, visible: false);
 
             if (settings.Scale is { } scale) document.ViewSettings.SetScale(view, scale);
+            if (settings.JoinDisplay is { } display) document.ViewSettings.SetJoinDisplay(view, ParseEnum(display, WallJoinDisplay.CleanAllWallJoins));
         }
 
         // A project written before a category existed carries no types for it. Fill those

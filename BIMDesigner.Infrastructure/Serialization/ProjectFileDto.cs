@@ -81,6 +81,9 @@ internal sealed class ViewSettingsDto
 
     /// <summary>The view's scale as the denominator of 1:n, when it has its own.</summary>
     public double? Scale { get; set; }
+
+    /// <summary>The view's Wall Join Display, when not the default of cleaning every join.</summary>
+    public string? JoinDisplay { get; set; }
 }
 
 /// <summary>
@@ -564,6 +567,10 @@ internal sealed class WallDto
     /// <summary>Whether the corners at the wall's start and end are locked.</summary>
     public bool StartLocked { get; set; }
     public bool EndLocked { get; set; }
+
+    /// <summary>How the joins at the wall's start and end are cleaned up in plan: "UseViewSetting", "Clean" or "DontClean".</summary>
+    public string? StartCleanup { get; set; }
+    public string? EndCleanup { get; set; }
 
     public List<double>? SplinePoints { get; set; }
     public double? SplineFrom { get; set; }

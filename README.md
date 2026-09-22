@@ -312,7 +312,10 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Draw a wall off the clicked line | Type an **Offset** on the option bar before drawing |
 | Attach a wall's top to a level | Properties → **Top Constraint** → Up to level |
 | Hide walls by function | View tab → **Wall Functions** → pick the view, untick the function |
-| Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
+| Change how a corner joins | Modify tab → **Wall Joins**, click the square at the join (Ctrl+click for more): **Butt**, **Miter** or **Square Off**; **Previous** / **Next** change which wall carries on; **Display** cleans the join or shows the walls butting; **Disallow Join** leaves a gap. Or per wall end: Properties → **Start Join** / **End Join** |
+| Clean joins only between walls of one type | With nothing selected, Properties → **Wall Join Display** → Clean same type wall joins |
+| Join two parallel walls near each other | Modify tab → **Join Geometry**, click one wall then the other (up to 150 mm apart): doors and windows in either cut through both. Click the pair again to unjoin |
+| Stand a wall on the wall below, or take it up to the wall above | Select it → **Attach Base** / **Attach Top**: it attaches to whichever is nearer, a slab or a wall in line with it |
 | Draw a curved wall | Wall tool, **Shape: Arc** on the option bar: click the start, the end, then a point the arc passes through |
 | Curve or straighten a wall | Select it and drag the diamond halfway along it; bring it back to the straight line to straighten |
 | Draw a whole shape of walls | Wall tool, **Shape**: Rectangle (Shift for a square), Polygon (set Sides; 3 is a triangle), Circle, Oval or Ellipse (Shift for round). Two clicks place every wall, joined |

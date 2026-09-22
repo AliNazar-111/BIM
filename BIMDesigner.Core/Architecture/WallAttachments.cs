@@ -46,6 +46,46 @@ public static class WallAttachments
     }
 
     /// <summary>
+    /// The wall directly over this one that its top can reach up to: the lowest whose base is
+    /// above this one's base, standing in the same vertical plane - straight, parallel and
+    /// overlapping along its length, on this wall's line (specification section 3.1, "attach
+    /// walls to walls above or below").
+    /// </summary>
+    public static Wall? WallAbove(BimDocument document, Wall wall)
+    {
+        var bottom = wall.GetBaseElevation(document);
+        return document.Walls
+            .Where(other => InSamePlane(document, wall, other) && other.GetBaseElevation(document) > bottom + 1)
+            .OrderBy(other => other.GetBaseElevation(document))
+            .FirstOrDefault();
+    }
+
+    /// <summary>The wall directly under this one that its base can stand on: the highest whose top is below this one's top.</summary>
+    public static Wall? WallBelow(BimDocument document, Wall wall)
+    {
+        var top = wall.GetTopElevation(document);
+        return document.Walls
+            .Where(other => InSamePlane(document, wall, other) && other.GetTopElevation(document) < top - 1)
+            .OrderByDescending(other => other.GetTopElevation(document))
+            .FirstOrDefault();
+    }
+
+    /// <summary>Whether two walls stand one over the other: straight, parallel, one's line within the other's body, overlapping.</summary>
+    private static bool InSamePlane(BimDocument document, Wall wall, Wall other)
+    {
+        if (ReferenceEquals(wall, other) || wall.IsCurved || other.IsCurved) return false;
+        if (document.GetWallType(wall) is not { } type || document.GetWallType(other) is not { } otherType) return false;
+        if (Math.Abs(wall.Direction.Cross(other.Direction)) > 1e-3) return false;
+
+        var (_, across) = wall.Locate(type.Structure, other.PointAt(otherType.Structure, other.Length / 2, 0));
+        if (Math.Abs(across) > type.Width / 2) return false;
+
+        var a = wall.Locate(type.Structure, other.Start).Along;
+        var b = wall.Locate(type.Structure, other.End).Along;
+        return Math.Min(wall.Length, Math.Max(a, b)) - Math.Max(0, Math.Min(a, b)) >= WallLamination.MinimumOverlap;
+    }
+
+    /// <summary>
     /// Whether a slab lies over or under a wall. Walls usually carry the edges of the slabs
     /// they hold up, so a wall along the outline counts as well as one inside it.
     /// </summary>

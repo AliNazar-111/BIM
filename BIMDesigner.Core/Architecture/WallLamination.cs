@@ -60,6 +60,30 @@ public static class WallLamination
         return found;
     }
 
+    /// <summary>How far apart two parallel walls may be and still be joined with Join Geometry, as in Revit: 150 mm.</summary>
+    public const double JoinGeometryGap = 150;
+
+    /// <summary>
+    /// Whether Join Geometry can join two walls (specification section 3.1, "join parallel
+    /// walls"): ordinary walls, straight and parallel, overlapping along their length, with no
+    /// more than <see cref="JoinGeometryGap"/> between their faces.
+    /// </summary>
+    public static bool CanJoinGeometry(BimDocument document, Wall wall, Wall other)
+    {
+        if (ReferenceEquals(wall, other) || wall.LevelId != other.LevelId || wall.IsCurved || other.IsCurved) return false;
+        if (!CanJoin(document, wall) || !CanJoin(document, other)) return false;
+        if (document.GetWallType(wall) is not { } type || document.GetWallType(other) is not { } otherType) return false;
+        if (Math.Abs(wall.Direction.Cross(other.Direction)) > 1e-6) return false;
+
+        var (_, across) = wall.Locate(type.Structure, other.PointAt(otherType.Structure, other.Length / 2, 0));
+        var gap = Math.Abs(across) - (type.Width + otherType.Width) / 2;
+        if (gap < -FaceTolerance || gap > JoinGeometryGap) return false;
+
+        var a = wall.Locate(type.Structure, other.Start).Along;
+        var b = wall.Locate(type.Structure, other.End).Along;
+        return Math.Min(wall.Length, Math.Max(a, b)) - Math.Max(0, Math.Min(a, b)) >= MinimumOverlap;
+    }
+
     /// <summary>The walls joined face to face with this one, whichever of the two holds the join.</summary>
     public static IReadOnlyList<Wall> Partners(BimDocument document, Wall wall) =>
         document.Walls

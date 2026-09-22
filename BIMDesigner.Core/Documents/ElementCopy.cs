@@ -102,6 +102,8 @@ public static class ElementCopy
             LockedToJoined = wall.LockedToJoined,
             StartLocked = wall.StartLocked,
             EndLocked = wall.EndLocked,
+            StartCleanup = wall.StartCleanup,
+            EndCleanup = wall.EndCleanup,
             UpperSlantAngle = wall.UpperSlantAngle,
             SlantBreakHeight = wall.SlantBreakHeight,
             OverrideTaper = wall.OverrideTaper,

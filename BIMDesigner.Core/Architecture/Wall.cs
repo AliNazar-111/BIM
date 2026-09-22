@@ -89,6 +89,12 @@ public sealed class Wall : Element
     /// <summary>Whether the corner at this wall's end is locked.</summary>
     public bool EndLocked { get; set; }
 
+    /// <summary>How the join at this wall's start is drawn in plan: cleaned, not, or as the view says.</summary>
+    public WallJoinCleanup StartCleanup { get; set; }
+
+    /// <summary>How the join at this wall's end is drawn in plan.</summary>
+    public WallJoinCleanup EndCleanup { get; set; }
+
     /// <summary>Whether the wall is an arc, elliptical or a spline rather than a straight line.</summary>
     public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge || IsElliptical || IsSpline;
 
@@ -228,10 +234,20 @@ public sealed class Wall : Element
     /// Where the wall starts, in project elevation: on the floor it is attached to, or at its
     /// base level plus the base offset.
     /// </summary>
-    public double GetBaseElevation(BimDocument document)
+    public double GetBaseElevation(BimDocument document) => GetBaseElevation(document, 0);
+
+    // Walls attached to walls follow one another up and down; the depth stops two walls
+    // attached to each other from going round for ever.
+    private const int MaxAttachmentChain = 8;
+
+    private double GetBaseElevation(BimDocument document, int depth)
     {
         if (BaseAttachedTo is { } slabId && FindSlab(document, slabId) is { } slab)
             return slab.GetTopElevation(document);
+
+        // Standing on the wall below: its top.
+        if (depth < MaxAttachmentChain && BaseAttachedTo is { } belowId && FindWall(document, belowId) is { } below)
+            return below.GetTopElevation(document, depth + 1);
 
         return (document.FindLevel(LevelId)?.Elevation ?? 0) + BaseOffset;
     }
@@ -242,14 +258,23 @@ public sealed class Wall : Element
     /// come at or below the base is ignored for the unconnected height, so a wall never
     /// vanishes because a level or slab moved.
     /// </summary>
-    public double GetTopElevation(BimDocument document)
+    public double GetTopElevation(BimDocument document) => GetTopElevation(document, 0);
+
+    private double GetTopElevation(BimDocument document, int depth)
     {
-        var bottom = GetBaseElevation(document);
+        var bottom = GetBaseElevation(document, depth + 1);
 
         if (TopAttachedTo is { } slabId && FindSlab(document, slabId) is { } slab)
         {
             var underside = slab.GetBottomElevation(document);
             if (underside > bottom) return underside;
+        }
+
+        // Up to the wall above: its base.
+        if (depth < MaxAttachmentChain && TopAttachedTo is { } aboveId && FindWall(document, aboveId) is { } above)
+        {
+            var foot = above.GetBaseElevation(document, depth + 1);
+            if (foot > bottom) return foot;
         }
 
         if (TopLevelId is { } topId && document.FindLevel(topId) is { } topLevel)
@@ -268,7 +293,9 @@ public sealed class Wall : Element
     private static string AttachmentName(BimDocument document, Guid? slabId)
     {
         if (slabId is not { } id) return "None";
-        if (FindSlab(document, id) is not { } slab) return "None (slab deleted)";
+        if (FindWall(document, id) is { } wall)
+            return $"Wall: {document.FindType<ElementType>(wall.TypeId)?.Name ?? "wall"}, {document.FindLevel(wall.LevelId)?.Name}";
+        if (FindSlab(document, id) is not { } slab) return "None (deleted)";
 
         var type = document.FindType<SlabType>(slab.TypeId)?.Name ?? slab.Category.ToString();
         var level = document.FindLevel(slab.LevelId)?.Name;
@@ -277,6 +304,9 @@ public sealed class Wall : Element
 
     private static Slab? FindSlab(BimDocument document, Guid id) =>
         document.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == id);
+
+    private static Wall? FindWall(BimDocument document, Guid id) =>
+        document.Walls.FirstOrDefault(wall => wall.Id == id);
 
     /// <summary>The name shown for a wall with no top level.</summary>
     public const string Unconnected = "Unconnected";

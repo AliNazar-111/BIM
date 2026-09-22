@@ -117,3 +117,22 @@ public sealed class WallCut
 
     public WallCut With(WallEndCondition condition) => new(Points, condition, Wrapping);
 }
+
+/// <summary>
+/// How a wall join is drawn in plan (specification section 3.1, "wall join cleanup"): cleaned,
+/// with no line across it so the walls read as one mass; not cleaned, each wall drawn whole and
+/// butting the next; or as the view's Wall Join Display says.
+/// </summary>
+public enum WallJoinCleanup
+{
+    UseViewSetting,
+    Clean,
+    DontClean
+}
+
+/// <summary>A view's rule for cleaning wall joins that are left to it: every join, or only those between walls of one type.</summary>
+public enum WallJoinDisplay
+{
+    CleanAllWallJoins,
+    CleanSameTypeWallJoins
+}
