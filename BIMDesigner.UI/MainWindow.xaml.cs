@@ -551,9 +551,26 @@ public partial class MainWindow : Window
 
     private void OnZoomToFit(object sender, RoutedEventArgs e) => Plan.ZoomToFit();
 
+    /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
+    private RadioButton[] ToolButtons() =>
+    [
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, FloorTool, CeilingTool, RoofTool, GridTool,
+        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool
+    ];
+
     private void OnToolChanged(object sender, RoutedEventArgs e)
     {
         if (Plan is null) return;
+
+        // One tool at a time. The buttons share a group, but WPF only keeps a group to one
+        // choice among buttons that are on screen, and most sit on ribbon tabs not showing -
+        // so a tool picked on one tab stayed on when another was picked on a different tab.
+        // The one just chosen switches every other off itself.
+        if (sender is RadioButton { IsChecked: true } chosen)
+        {
+            foreach (var other in ToolButtons().Where(button => button is not null && !ReferenceEquals(button, chosen)))
+                other.IsChecked = false;
+        }
 
         Plan.SetTool(
             WallTool.IsChecked == true ? PlanTool.Wall
