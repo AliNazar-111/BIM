@@ -365,6 +365,18 @@ public static class SectionProjection
             ? SolidHeights(document, openings, baseElevation, topElevation)
             : ProfileHeights(document, openings, baseElevation, profile, distanceAlong);
 
+        // A curtain wall embedded here takes its own height out of this wall.
+        foreach (var hole in CurtainEmbedding.In(document, wall).Where(h => distanceAlong > h.From && distanceAlong < h.To))
+        {
+            var (sill, head) = (baseElevation + hole.Sill, baseElevation + hole.Head);
+            solid = solid
+                .SelectMany(s => s.Top <= sill || s.Bottom >= head
+                    ? new[] { s }
+                    : new[] { (s.Bottom, Math.Min(s.Top, sill)), (Math.Max(s.Bottom, head), s.Top) })
+                .Where(s => s.Item2 - s.Item1 > Epsilon)
+                .ToList();
+        }
+
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
             // A membrane is a line with no volume: nothing to build or cut.

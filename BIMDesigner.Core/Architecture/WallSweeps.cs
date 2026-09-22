@@ -50,6 +50,18 @@ public static class WallSweeps
                 .ToList();
         }
 
+        foreach (var hole in CurtainEmbedding.In(document, wall))
+        {
+            if (wallBottom + hole.Head <= bottom || wallBottom + hole.Sill >= top) continue;
+
+            runs = runs
+                .SelectMany(run => run.To <= hole.From || run.From >= hole.To
+                    ? new[] { run }
+                    : new[] { (run.From, Math.Min(run.To, hole.From)), (Math.Max(run.From, hole.To), run.To) })
+                .Where(run => run.Item2 - run.Item1 > MinimumRun)
+                .ToList();
+        }
+
         // On an edited profile a sweep runs only where the wall is there for its whole height.
         // At the wall's ends it still reaches round to the joined face.
         if (WallProfile.Of(document, wall) is { } profile)

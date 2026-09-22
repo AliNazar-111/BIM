@@ -459,6 +459,7 @@ public sealed class BimDocument
 
         var storefront = new CurtainWallType("Curtain Wall - Storefront 1500")
         {
+            AutomaticallyEmbed = true,
             TypeMark = "CW1",
             AssemblyCode = "B2020",
             GlassMaterialId = glass.Id,

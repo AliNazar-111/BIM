@@ -307,6 +307,7 @@ public static class IfcExport
                 w.ObjectPlacement = PlacementFor(wall, bodyStart,
                     wall.GetBaseElevation(_document) - (_document.FindLevel(wall.LevelId)?.Elevation ?? 0));
                 w.Representation = WallLean.Leans(wall, type) || WallProfile.Of(_document, wall) is not null ||
+                                   CurtainEmbedding.In(_document, wall).Count > 0 ||
                                    _document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Reveal))
                     ? Tessellated(wall, bodyStart)
                     : ExtrudeTiers(wall, bodyStart, outline, height);

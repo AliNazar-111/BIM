@@ -73,7 +73,7 @@ public static class ModelMeshBuilder
 
         // Doors and windows are placed from the wall's base, whatever it is built of, and
         // cut through every tier they reach.
-        var openings = new List<(Opening Opening, OpeningType Type, double From, double To, double Sill, double Head)>();
+        var openings = new List<(Opening? Opening, OpeningType? Type, double From, double To, double Sill, double Head)>();
 
         foreach (var opening in WallOpenings.Of(document, wall))
         {
@@ -88,6 +88,10 @@ public static class ModelMeshBuilder
             var head = Math.Clamp(bottom + opening.SillHeight + openingType.Height, lowest, top);
             openings.Add((opening, openingType, from, to, sill, head));
         }
+
+        // Curtain walls set into this one leave a hole with nothing of this wall's in it.
+        foreach (var hole in CurtainEmbedding.In(document, wall))
+            openings.Add((null, null, hole.From, hole.To, Math.Clamp(bottom + hole.Sill, lowest, top), Math.Clamp(bottom + hole.Head, lowest, top)));
 
         if (profile is not null && document.GetWallType(wall) is { } profiledType)
         {
@@ -108,7 +112,7 @@ public static class ModelMeshBuilder
 
         var infill = meshes.Count;
         foreach (var (opening, _, from, to, sill, head) in openings)
-            AddOpeningInfill(wall, planType, opening, from, to, sill, head, meshes);
+            if (opening is not null) AddOpeningInfill(wall, planType, opening, from, to, sill, head, meshes);
 
         // Doors and windows lean with the wall they are in.
         Lean(wall, planType, bottom, meshes, infill);
@@ -142,7 +146,7 @@ public static class ModelMeshBuilder
     /// </summary>
     private static void AddTier(
         BimDocument document, Wall wall, WallType type, double bottom, double top,
-        IReadOnlyList<(Opening Opening, OpeningType Type, double From, double To, double Sill, double Head)> openings,
+        IReadOnlyList<(Opening? Opening, OpeningType? Type, double From, double To, double Sill, double Head)> openings,
         List<Mesh3D> meshes)
     {
         var structure = type.Structure;
@@ -318,7 +322,7 @@ public static class ModelMeshBuilder
     /// </summary>
     private static void AddProfiled(
         BimDocument document, Wall wall, WallType type, double baseElevation, IReadOnlyList<Point2D> profile,
-        IReadOnlyList<(Opening Opening, OpeningType Type, double From, double To, double Sill, double Head)> openings,
+        IReadOnlyList<(Opening? Opening, OpeningType? Type, double From, double To, double Sill, double Head)> openings,
         List<Mesh3D> meshes)
     {
         var structure = type.Structure;

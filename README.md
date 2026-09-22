@@ -324,6 +324,10 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
 | Give a wall a gable, steps or a notch | Select one straight wall, Architecture → **Edit Wall Profile...**: drag corners, double-click an edge to add one, Delete removes one |
+| Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
+| Change a curtain wall's grid or panels | Select it, Architecture → **Edit Curtain Grid...**: click a panel to make it glass, solid, empty or a door; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
+| Make or edit a curtain wall type | Architecture → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
+| Set a shopfront into a wall | Draw a curtain wall whose type has **Automatically embed** along inside the wall; it cuts its own opening |
 | Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |

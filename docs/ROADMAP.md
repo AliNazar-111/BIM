@@ -33,7 +33,8 @@ test before the next begins.
 | **1.3m** | **Sweeps and reveals** — skirtings, cornices, beads and plain mouldings run along a face, broken by doors and windows; grooves set back into the face; edited with the wall type; section, plan, 3D and IFC | §3.1 | ✅ |
 | **1.3n** | **Elliptical walls** — whole ellipses placed in a box and half ellipses through three clicks; true elliptical curves in plan, joins, rooms, sections, 3D and IFC; split, mirror, offset and location line keep the shape | §3.1 | ✅ |
 | **1.3o** | **Edit profile** — a straight wall's elevation outline edited by dragging corners or typing them, with rectangle, gable and stepped starts; doors and windows cut through it; plan cut at cut height, sections, 3D, quantities, sweeps, split and IFC follow the outline | §3.1 | ✅ |
-| 1.3p | Walls embedded in curtain walls (after curtain walls) | §3.1 | ⬜ |
+| **1.3p** | **Curtain walls** — types that set out vertical and horizontal grids by fixed distance, fixed number or maximum spacing; glazed, solid, empty and door panels; rectangular or round mullions with optional borders; per-wall grid and panel editing; straight or curved; plan, section, 3D, quantities, split and IFC (`IfcCurtainWall` of plates and members) | §3.1 | ✅ |
+| **1.3q** | **Embedded walls** — a curtain wall drawn inside another wall cuts its own opening there, its length and height, following it when moved; host plan, 3D, sections, sweeps and IFC | §3.1 | ✅ |
 | **1.4** | **Hosting** — doors and windows in walls, automatic openings, host delete cascades, plan symbols | §2.5 §3.5 §13.2 §13.3 | ✅ |
 | **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection | §3.7 §13.4 | ✅ |
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |
