@@ -24,6 +24,7 @@ public partial class LevelsWindow : Window
     public LevelsWindow(BimDocument document, UndoStack history)
     {
         InitializeComponent();
+        ScreenFit.Apply(this);
 
         _document = document;
         _history = history;

@@ -1444,8 +1444,8 @@ public class PlanView : FrameworkElement
 
         _pendingDimension = null;
         HintChanged?.Invoke(this, dimension.IsAssociative(Document)
-            ? $"{dimension.DisplayText(Document)} â€” follows the model."
-            : $"{dimension.DisplayText(Document)} â€” measured between points, not attached.");
+            ? $"{dimension.DisplayText(Document)} — follows the model."
+            : $"{dimension.DisplayText(Document)} — measured between points, not attached.");
 
         InvalidateVisual();
     }

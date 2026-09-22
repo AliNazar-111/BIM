@@ -26,6 +26,7 @@ public partial class EditProfileWindow : Window
     public EditProfileWindow(BimDocument document, Wall wall)
     {
         InitializeComponent();
+        ScreenFit.Apply(this);
 
         _length = wall.Length;
         _height = wall.GetHeight(document);

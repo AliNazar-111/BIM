@@ -43,6 +43,7 @@ public partial class WallTypesWindow : Window
     public WallTypesWindow(BimDocument document, UndoStack history, ElementType? start)
     {
         InitializeComponent();
+        ScreenFit.Apply(this);
 
         _document = document;
         _history = history;

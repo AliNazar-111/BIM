@@ -83,7 +83,7 @@
 
                 <DataGrid x:Name="CornerGrid" AutoGenerateColumns="False" HeadersVisibility="Column"
                           CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
-                          CanUserSortColumns="False" SelectionMode="Single" RowHeight="36"
+                          CanUserSortColumns="False" SelectionMode="Single" RowHeight="40"
                           SelectionChanged="OnCornerSelected">
                     <DataGrid.CellStyle>
                         <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
@@ -94,7 +94,9 @@
                     <DataGrid.Resources>
                         <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                             <Setter Property="VerticalAlignment" Value="Center"/>
-                            <Setter Property="MinHeight" Value="26"/>
+                            <Setter Property="Padding" Value="6,3"/>
+                            <Setter Property="MinHeight" Value="28"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
                         </Style>
                     </DataGrid.Resources>
                     <DataGrid.Columns>

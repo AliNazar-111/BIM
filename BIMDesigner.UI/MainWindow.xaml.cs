@@ -1143,8 +1143,8 @@ public partial class MainWindow : Window
             var item = new TreeViewItem
             {
                 Header = counts.Count == 0
-                    ? $"{level.Name}  â€”  empty"
-                    : $"{level.Name}  â€”  {string.Join(", ", counts)}",
+                    ? $"{level.Name}  —  empty"
+                    : $"{level.Name}  —  {string.Join(", ", counts)}",
                 Tag = level,
                 FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
                 IsSelected = isActive
@@ -1168,7 +1168,7 @@ public partial class MainWindow : Window
         {
             var item = new TreeViewItem
             {
-                Header = $"Section {marker.Name}  â€”  {Units.FormatLength(marker.Length)}",
+                Header = $"Section {marker.Name}  —  {Units.FormatLength(marker.Length)}",
                 Tag = marker
             };
 
@@ -1193,7 +1193,7 @@ public partial class MainWindow : Window
 
             var item = new TreeViewItem
             {
-                Header = $"{sheet.Number}  â€”  {sheet.Name}  ({views})",
+                Header = $"{sheet.Number}  —  {sheet.Name}  ({views})",
                 Tag = sheet
             };
 
@@ -2397,9 +2397,9 @@ public partial class MainWindow : Window
         var name = _path is null ? "Untitled" : Path.GetFileNameWithoutExtension(_path);
         var marker = _history.IsModified ? "*" : string.Empty;
 
-        Title = $"{name}{marker} â€” BIMDesigner 0.1";
+        Title = $"{name}{marker} — BIMDesigner 0.1";
         StatusSaved.Text = _path is null
-            ? _history.IsModified ? "Unsaved project â€” modified" : "Unsaved project"
-            : _history.IsModified ? $"{Path.GetFileName(_path)} â€” modified" : Path.GetFileName(_path);
+            ? _history.IsModified ? "Unsaved project — modified" : "Unsaved project"
+            : _history.IsModified ? $"{Path.GetFileName(_path)} — modified" : Path.GetFileName(_path);
     }
 }
