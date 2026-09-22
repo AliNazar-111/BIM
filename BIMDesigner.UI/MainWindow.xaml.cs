@@ -1075,7 +1075,7 @@ public partial class MainWindow : Window
         ContextSplit.Visibility = ContextTrim.Visibility = ContextOffset.Visibility = wallsOnly;
         ContextModePanel.Visibility = ContextWallPanel.Visibility = wallsOnly;
         ContextShapePanel.Visibility = wallsOnly;
-        ContextAddPoint.IsEnabled = selected is [Wall];
+        ContextAddPoint.IsEnabled = allWalls;
         ContextStraighten.IsEnabled = selected.OfType<Wall>().Any(wall => wall.IsCurved);
         ContextAddPoint.IsChecked = Plan.AddingWallPoints;
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);

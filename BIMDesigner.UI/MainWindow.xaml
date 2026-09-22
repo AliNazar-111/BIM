@@ -491,7 +491,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton x:Name="ContextAddPoint" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.AddPoint}"
                                               Content="Add Point" Click="OnAddWallPoint"
-                                              ToolTip="Click on the wall to add points, then drag them to stretch the wall into any curve. Double-clicking the wall does the same"/>
+                                              ToolTip="Click on a wall to add a corner point, then drag the round grip to pull the wall straight to wherever you put it. Double-clicking the wall does the same; double-click a point to take it out"/>
                                 <Button x:Name="ContextStraighten" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Straighten}"
                                         Content="Straighten" Click="OnStraightenWalls"
                                         ToolTip="Take every point and bend off the selected walls, back to a straight line between their ends"/>

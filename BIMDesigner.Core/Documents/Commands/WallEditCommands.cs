@@ -847,3 +847,92 @@ public sealed class EditPlacedSweepCommand : IUndoableCommand
         _sweep.ReturnAtEnd = state.End;
     }
 }
+
+/// <summary>
+/// Takes the corner point out from between two walls (specification section 3.1, "wall
+/// editing"): the first becomes one straight wall from its far end to the second's, and the
+/// second goes. Doors and windows in either stay where they were along the line, and sweeps
+/// placed on the second carry on along the first.
+/// </summary>
+public sealed class MergeWallsCommand : IUndoableCommand
+{
+    private readonly BimDocument _document;
+    private readonly Wall _keep;
+    private readonly Wall _remove;
+    private readonly (Point2D Start, Point2D End, WallJoinKind StartJoin, WallJoinKind EndJoin) _before, _after;
+    private readonly List<(Opening Opening, Guid Host, double Distance, double NewDistance)> _openings = new();
+    private readonly List<(PlacedSweep Sweep, List<Guid> Hosts, List<Guid> NewHosts)> _sweeps = new();
+
+    public MergeWallsCommand(BimDocument document, Wall keep, Wall remove)
+    {
+        _document = document;
+        _keep = keep;
+        _remove = remove;
+
+        var joint = WallCorners.SharedEnd(keep, remove) ?? keep.End;
+        var keepStartAtJoint = keep.Start.DistanceTo(joint) <= keep.End.DistanceTo(joint);
+        var removeStartAtJoint = remove.Start.DistanceTo(joint) <= remove.End.DistanceTo(joint);
+        var far = removeStartAtJoint ? remove.End : remove.Start;
+        var farJoin = removeStartAtJoint ? remove.EndJoin : remove.StartJoin;
+
+        _before = (keep.Start, keep.End, keep.StartJoin, keep.EndJoin);
+        _after = keepStartAtJoint
+            ? (far, keep.End, farJoin, keep.EndJoin)
+            : (keep.Start, far, keep.StartJoin, farJoin);
+
+        // Each door and window keeps its place: measured again along the new line from
+        // where it was.
+        var line = WallCurve.Of(_after.Start, _after.End, 0);
+        foreach (var host in new[] { keep, remove })
+        foreach (var opening in WallOpenings.Of(document, host))
+        {
+            var at = host.LocationCurve.PointAt(opening.DistanceAlongWall);
+            _openings.Add((opening, opening.HostWallId, opening.DistanceAlongWall,
+                Math.Clamp(line.Locate(at).Along, 0, line.Length)));
+        }
+
+        foreach (var sweep in document.Elements.OfType<PlacedSweep>().Where(s => s.HostWallIds.Contains(remove.Id)))
+        {
+            var hosts = sweep.HostWallIds.Select(id => id == remove.Id ? keep.Id : id).Distinct().ToList();
+            _sweeps.Add((sweep, sweep.HostWallIds.ToList(), hosts));
+        }
+    }
+
+    public string Name => "Remove Wall Point";
+
+    public void Redo()
+    {
+        (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _after;
+        foreach (var (opening, _, _, distance) in _openings)
+        {
+            opening.HostWallId = _keep.Id;
+            opening.DistanceAlongWall = distance;
+        }
+
+        foreach (var (sweep, _, hosts) in _sweeps)
+        {
+            sweep.HostWallIds.Clear();
+            sweep.HostWallIds.AddRange(hosts);
+        }
+
+        _document.Remove(_remove);
+    }
+
+    public void Undo()
+    {
+        _document.Add(_remove);
+        foreach (var (sweep, hosts, _) in _sweeps)
+        {
+            sweep.HostWallIds.Clear();
+            sweep.HostWallIds.AddRange(hosts);
+        }
+
+        foreach (var (opening, host, distance, _) in _openings)
+        {
+            opening.HostWallId = host;
+            opening.DistanceAlongWall = distance;
+        }
+
+        (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _before;
+    }
+}

@@ -160,6 +160,9 @@ public class PlanView : FrameworkElement
         /// <summary>Moving one of the points a spline wall passes through.</summary>
         SplinePoint,
 
+        /// <summary>Moving the corner where selected walls meet, and every wall end there with it.</summary>
+        Corner,
+
         /// <summary>Moving whatever is selected, however much of it there is.</summary>
         Move
     }
@@ -625,7 +628,7 @@ public class PlanView : FrameworkElement
         set
         {
             if (_addingWallPoints == value) return;
-            _addingWallPoints = value && SelectedWall is not null;
+            _addingWallPoints = value && _selection.Count > 0 && _selection.All(element => element is Wall);
             if (_addingWallPoints)
                 HintChanged?.Invoke(this, "Click on the wall to add a point, then drag the round grip to shape it. Double-click a point to remove it. Esc when done.");
             WallPointModeChanged?.Invoke(this, EventArgs.Empty);
@@ -660,6 +663,14 @@ public class PlanView : FrameworkElement
         var reach = (Document.GetWallType(wall)?.Width ?? 0) / 2 + 4 / PixelsPerMm;
         if (wall.LocationCurve.DistanceTo(raw) > reach) return false;
 
+        // A spline wall takes another smooth point; any other wall a corner, splitting it in two
+        // straight walls that meet there.
+        if (!wall.IsSpline)
+        {
+            AddCorner(wall, raw);
+            return true;
+        }
+
         if (WallPoints.AddPoint(wall, raw) is not { } more)
         {
             HintChanged?.Invoke(this, "Too close to an end or another point to add one there.");
@@ -668,8 +679,103 @@ public class PlanView : FrameworkElement
 
         Apply(new ReshapeSplineWallCommand(wall, wall.Spline, more, "Add Wall Point"));
         InvalidateVisual();
-        HintChanged?.Invoke(this, "Point added. Drag its round grip to stretch the wall; double-click it to remove it.");
+        HintChanged?.Invoke(this, "Point added. Drag its round grip to reshape the curve; double-click it to remove it.");
         return true;
+    }
+
+    /// <summary>
+    /// A corner point on a wall: split where it was clicked, the two halves selected, so the
+    /// round grip between them can be dragged at once.
+    /// </summary>
+    private void AddCorner(Wall wall, Point2D raw)
+    {
+        if (Document is null) return;
+
+        var curve = wall.LocationCurve;
+        var along = curve.Locate(raw).Along;
+        var margin = Math.Max(curve.Length * 0.02, 8 / PixelsPerMm);
+        if (along < margin || along > curve.Length - margin)
+        {
+            HintChanged?.Invoke(this, "Too close to the end of the wall to add a point there.");
+            return;
+        }
+
+        var split = new SplitWallCommand(Document, wall, curve.PointAt(along));
+        Apply(split);
+
+        var selection = _selection.Where(element => !ReferenceEquals(element, wall)).ToList();
+        selection.Add(wall);
+        selection.Add(split.Remainder);
+        SelectMany(selection);
+
+        HintChanged?.Invoke(this, "Point added. Drag the round grip to pull the corner anywhere; double-click it to take it out.");
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Where two or more selected walls meet end to end, under the cursor: a corner that can be
+    /// dragged. Only with more than one wall selected - a single wall's ends have their own grips.
+    /// </summary>
+    private Point2D? CornerAt(Point2D model)
+    {
+        var radius = GripPixelRadius / PixelsPerMm;
+        return Corners().Cast<Point2D?>().FirstOrDefault(corner => corner!.Value.DistanceTo(model) <= radius);
+    }
+
+    /// <summary>The points where two or more selected walls meet end to end.</summary>
+    private IReadOnlyList<Point2D> Corners()
+    {
+        var walls = _selection.OfType<Wall>().ToList();
+        if (walls.Count < 2) return Array.Empty<Point2D>();
+
+        var corners = new List<Point2D>();
+        foreach (var end in walls.SelectMany(w => new[] { w.Start, w.End }))
+        {
+            if (corners.Any(c => c.DistanceTo(end) <= WallJoins.JoinTolerance)) continue;
+            if (walls.Count(w => w.Start.DistanceTo(end) <= WallJoins.JoinTolerance || w.End.DistanceTo(end) <= WallJoins.JoinTolerance) >= 2)
+                corners.Add(end);
+        }
+
+        return corners;
+    }
+
+    /// <summary>Takes a corner out, making its two walls one straight wall again. Returns whether it could.</summary>
+    private bool RemoveCorner(Point2D corner)
+    {
+        if (Document is null) return false;
+
+        var walls = WallCorners.At(Document, ActiveLevelId, corner);
+        if (walls.Count != 2 || !WallCorners.CanMerge(walls[0].Wall, walls[1].Wall))
+        {
+            HintChanged?.Invoke(this, walls.Count == 2
+                ? "These two walls cannot become one: they differ in type, or one is curved, profiled or a curtain wall."
+                : "More than two walls meet here, so there is no single wall to make of them.");
+            return true;
+        }
+
+        var (keep, remove) = (walls[0].Wall, walls[1].Wall);
+        Apply(new MergeWallsCommand(Document, keep, remove));
+        SelectMany(_selection.Where(element => !ReferenceEquals(element, remove)).ToList());
+        HintChanged?.Invoke(this, "Point taken out: the two walls are one straight wall again.");
+        InvalidateVisual();
+        return true;
+    }
+
+    // The walls whose ends are being dragged with a corner, and where they were before.
+    private readonly List<(Wall Wall, bool AtStart, Point2D Start, Point2D End)> _cornerWalls = new();
+
+    private void BeginCornerDrag(Point2D corner, Point2D raw)
+    {
+        if (Document is null) return;
+
+        _cornerWalls.Clear();
+        foreach (var (wall, atStart) in WallCorners.At(Document, ActiveLevelId, corner))
+            _cornerWalls.Add((wall, atStart, wall.Start, wall.End));
+
+        _dragging = GripKind.Corner;
+        _dragAnchor = raw;
+        CaptureMouse();
+        Cursor = Cursors.SizeAll;
     }
 
     /// <summary>Starts Add/Remove Walls or Modify Returns on the selected placed sweep.</summary>
@@ -854,7 +960,7 @@ public class PlanView : FrameworkElement
     /// <summary>Tells the window the selection changed. Add Point is for one wall, so it ends with any other selection.</summary>
     private void RaiseSelectionChanged()
     {
-        if (SelectedWall is null) AddingWallPoints = false;
+        if (_selection.Count == 0 || !_selection.All(element => element is Wall)) AddingWallPoints = false;
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1200,8 +1306,21 @@ public class PlanView : FrameworkElement
 
         // Shaping a wall by hand: a double click on it adds a point, on a point takes it away;
         // with Add Point on, a single click on the wall adds one.
-        if (SelectedWall is { } shaped && (e.ClickCount == 2 || AddingWallPoints) && ShapeWallAt(shaped, raw, e.ClickCount == 2))
+        if (e.ClickCount == 2 || AddingWallPoints)
+        {
+            // A corner between selected walls: a double click takes it out.
+            if (e.ClickCount == 2 && CornerAt(raw) is { } corner && RemoveCorner(corner)) return;
+
+            var target = SelectedWall ?? (HitTest(raw) is Wall hitWall && IsSelected(hitWall) ? hitWall : null);
+            if (target is not null && ShapeWallAt(target, raw, e.ClickCount == 2)) return;
+        }
+
+        // A corner between selected walls, dragged: every wall meeting there follows.
+        if (CornerAt(raw) is { } dragged)
+        {
+            BeginCornerDrag(dragged, raw);
             return;
+        }
 
         var hit = HitTest(raw);
 
@@ -1509,6 +1628,22 @@ public class PlanView : FrameworkElement
             return;
         }
 
+        if (_dragging == GripKind.Corner)
+        {
+            var at = SnapToGrid(raw);
+            foreach (var (cornerWall, atStart, _, _) in _cornerWalls)
+            {
+                if (atStart) cornerWall.Start = at;
+                else cornerWall.End = at;
+            }
+
+            _cursorModel = at;
+            _cursorIsSnapped = false;
+            CursorMoved?.Invoke(this, _cursorModel);
+            InvalidateVisual();
+            return;
+        }
+
         if (SelectedWall is not { } wall) return;
 
         switch (_dragging)
@@ -1580,6 +1715,27 @@ public class PlanView : FrameworkElement
             if (!command.IsEmpty) History?.Record(command);
 
             _dragTotal = default;
+            ModelChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+            return;
+        }
+
+        if (grip == GripKind.Corner)
+        {
+            var shifted = _cornerWalls.Where(c => c.Wall.Start != c.Start || c.Wall.End != c.End).ToList();
+            if (shifted.Count == 0) return;
+
+            // A corner dragged onto a wall's other end would leave it no length at all.
+            if (shifted.Any(c => c.Wall.Length <= WallJoins.JoinTolerance))
+            {
+                foreach (var (cornerWall, _, start, end) in _cornerWalls) (cornerWall.Start, cornerWall.End) = (start, end);
+                HintChanged?.Invoke(this, "A wall cannot have zero length.");
+                InvalidateVisual();
+                return;
+            }
+
+            History?.Record(new CompositeCommand("Move Wall Point",
+                shifted.Select(c => new MoveWallCommand(c.Wall, c.Start, c.End, c.Wall.Start, c.Wall.End, "Move Wall Point"))));
             ModelChanged?.Invoke(this, EventArgs.Empty);
             InvalidateVisual();
             return;
@@ -2885,6 +3041,11 @@ public class PlanView : FrameworkElement
     /// <summary>Square handles at each end and a ring at the middle for moving the wall.</summary>
     private void DrawGrips(DrawingContext dc)
     {
+        // Corners between selected walls: round grips that pull the corner anywhere.
+        if (!_isPanning)
+            foreach (var corner in Corners())
+                dc.DrawEllipse(_gripBrush, _gripPen, ModelToScreen(corner), 5, 5);
+
         if (SelectedWall is not { } wall || _isPanning) return;
 
         foreach (var point in new[] { wall.Start, wall.End })

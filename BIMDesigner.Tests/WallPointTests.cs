@@ -5,7 +5,7 @@ using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.Tests;
 
-/// <summary>Points added to a wall by hand and dragged to stretch it into a curve.</summary>
+/// <summary>Points added to a wall by hand: corners on a straight wall, smooth points on a spline.</summary>
 public class WallPointTests
 {
     private static (BimDocument Document, Wall Wall) Straight()
@@ -123,5 +123,84 @@ public class WallPointTests
 
         command.Undo();
         Assert.Equal(0.3, wall.Bulge);
+    }
+
+    [Fact]
+    public void ACornerPointMakesTwoStraightWallsThatFollowItWhenDragged()
+    {
+        var (document, wall) = Straight();
+
+        var split = new SplitWallCommand(document, wall, new Point2D(2000, 0));
+        split.Redo();
+        var other = split.Remainder;
+
+        var corner = new Point2D(2000, 0);
+        var ends = WallCorners.At(document, wall.LevelId, corner);
+        Assert.Equal(2, ends.Count);
+
+        // Dragged up: both walls run straight to the new corner.
+        var moved = new Point2D(2000, 1500);
+        var drag = new CompositeCommand("Move Wall Point", ends.Select(e =>
+            new MoveWallCommand(e.Wall, e.Wall.Start, e.Wall.End,
+                e.AtStart ? moved : e.Wall.Start, e.AtStart ? e.Wall.End : moved, "Move Wall Point")).ToList());
+        drag.Redo();
+
+        Assert.False(wall.IsCurved);
+        Assert.False(other.IsCurved);
+        Assert.Equal(moved, wall.End);
+        Assert.Equal(moved, other.Start);
+        Assert.Equal(new Point2D(0, 0), wall.Start);
+        Assert.Equal(new Point2D(6000, 0), other.End);
+
+        var type = document.GetWallType(wall)!;
+        Assert.True(WallJoins.GetEndCuts(document, wall, type).End.IsJoined);
+
+        drag.Undo();
+        Assert.Equal(corner, wall.End);
+    }
+
+    [Fact]
+    public void TakingACornerOutMakesTheTwoWallsOneAgain()
+    {
+        var (document, wall) = Straight();
+        var door = document.TypesOf<DoorType>().First();
+        var opening = new Door { HostWallId = wall.Id, TypeId = door.Id, LevelId = wall.LevelId, DistanceAlongWall = 4500 };
+        document.Add(opening);
+
+        var split = new SplitWallCommand(document, wall, new Point2D(2000, 0));
+        split.Redo();
+        var other = split.Remainder;
+        Assert.Equal(other.Id, opening.HostWallId);
+        Assert.True(WallCorners.CanMerge(wall, other));
+
+        var merge = new MergeWallsCommand(document, wall, other);
+        merge.Redo();
+
+        Assert.DoesNotContain(other, document.Walls);
+        Assert.Equal(new Point2D(0, 0), wall.Start);
+        Assert.Equal(new Point2D(6000, 0), wall.End);
+        Assert.Equal(wall.Id, opening.HostWallId);
+        Assert.Equal(4500, opening.DistanceAlongWall, precision: 6);
+
+        merge.Undo();
+        Assert.Contains(other, document.Walls);
+        Assert.Equal(other.Id, opening.HostWallId);
+        Assert.Equal(new Point2D(2000, 0), wall.End);
+    }
+
+    [Fact]
+    public void WallsOfDifferentTypesOrCurvedOnesStaySeparate()
+    {
+        var (document, wall) = Straight();
+        var split = new SplitWallCommand(document, wall, new Point2D(3000, 0));
+        split.Redo();
+        var other = split.Remainder;
+
+        other.Bulge = 0.2;
+        Assert.False(WallCorners.CanMerge(wall, other));
+
+        other.Bulge = 0;
+        other.TypeId = document.TypesOf<WallType>().First(t => t.Id != wall.TypeId).Id;
+        Assert.False(WallCorners.CanMerge(wall, other));
     }
 }

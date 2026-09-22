@@ -1,12 +1,13 @@
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.Core.Architecture;
 
 /// <summary>
-/// Points added to a wall to shape it by hand (specification section 3.1, "spline walls"). A
-/// point goes onto the wall where it is clicked, so adding one changes nothing; dragging it
-/// then pulls the wall into a smooth curve through it. Any wall can take points - straight,
-/// arc, elliptical or already a spline - and becomes a spline wall once it has one.
+/// Smooth points added to a spline wall to shape it by hand (specification section 3.1,
+/// "spline walls"). A point goes onto the wall where it is clicked, so adding one changes
+/// nothing; dragging it then pulls the curve through it. Other walls take corner points
+/// instead - see <see cref="WallCorners"/> - but any wall given smooth points becomes a spline.
 /// </summary>
 public static class WallPoints
 {
@@ -61,5 +62,46 @@ public static class WallPoints
         return Enumerable.Range(1, pieces - 1)
             .Select(i => curve.Length * i / pieces)
             .Select(along => (along, curve.PointAt(along)));
+    }
+}
+
+/// <summary>
+/// Corner points between walls (specification section 3.1, "wall editing"). A point added to a
+/// straight wall splits it there, and the two walls meet at a corner that can be dragged
+/// anywhere: each stays straight, and the join between them follows. Taking the point away
+/// again makes them one wall.
+/// </summary>
+public static class WallCorners
+{
+    /// <summary>Every wall on a level with an end at a point, and which end.</summary>
+    public static IReadOnlyList<(Wall Wall, bool AtStart)> At(BimDocument document, Guid levelId, Point2D point) =>
+        document.Walls
+            .Where(wall => wall.LevelId == levelId)
+            .Select(wall => (Wall: wall, Start: wall.Start.DistanceTo(point) <= WallJoins.JoinTolerance, End: wall.End.DistanceTo(point) <= WallJoins.JoinTolerance))
+            .Where(w => w.Start != w.End)
+            .Select(w => (w.Wall, w.Start))
+            .ToList();
+
+    /// <summary>
+    /// Whether two walls can become one again: straight, of one type, on one level, meeting
+    /// end to end, and with nothing drawn on them - an edited profile or a curtain grid - that
+    /// belongs to one of them only.
+    /// </summary>
+    public static bool CanMerge(Wall first, Wall second) =>
+        !ReferenceEquals(first, second) &&
+        !first.IsCurved && !second.IsCurved &&
+        first.TypeId == second.TypeId && first.LevelId == second.LevelId &&
+        first.Profile is null && second.Profile is null &&
+        first.CurtainGrid is null && second.CurtainGrid is null &&
+        SharedEnd(first, second) is not null;
+
+    /// <summary>The point where two walls meet end to end, or null.</summary>
+    public static Point2D? SharedEnd(Wall first, Wall second)
+    {
+        foreach (var a in new[] { first.Start, first.End })
+        foreach (var b in new[] { second.Start, second.End })
+            if (a.DistanceTo(b) <= WallJoins.JoinTolerance) return a;
+
+        return null;
     }
 }
