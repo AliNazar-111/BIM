@@ -278,7 +278,7 @@ public static class ProjectFile
 
         foreach (var door in document.Elements.OfType<Door>())
         {
-            var doorDto = new DoorDto { SwingAngle = door.SwingAngle };
+            var doorDto = new DoorDto { SwingAngle = door.SwingAngle, FrameType = door.FrameType, Finish = door.Finish };
             WriteOpening(doorDto, door);
             dto.Doors.Add(doorDto);
         }
@@ -911,7 +911,9 @@ public static class ProjectFile
             var element = new Door
             {
                 Id = door.Id,
-                SwingAngle = door.SwingAngle is > 0 and <= 180 ? door.SwingAngle : 90
+                SwingAngle = door.SwingAngle is > 0 and <= 180 ? door.SwingAngle : 90,
+                FrameType = door.FrameType ?? string.Empty,
+                Finish = door.Finish ?? string.Empty
             };
 
             ReadOpening(element, door);

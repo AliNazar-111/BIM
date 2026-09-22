@@ -120,7 +120,9 @@ public static class ElementCopy
             SillHeight = door.SillHeight,
             FlipFacing = door.FlipFacing,
             FlipHand = door.FlipHand,
-            SwingAngle = door.SwingAngle
+            SwingAngle = door.SwingAngle,
+            FrameType = door.FrameType,
+            Finish = door.Finish
         }, door),
 
         Window window => CarryCommon(new Window

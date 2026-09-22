@@ -675,6 +675,9 @@ public sealed class PlanRenderer
     /// Draws a door or window in the gap its host wall leaves for it: the jambs, the frame,
     /// and the symbol that says which it is - a swing arc for a door, glazing for a window.
     /// </summary>
+    /// <summary>A door or window not yet in the model, drawn where it would go: the preview as one is placed.</summary>
+    public void DrawOpeningPreview(DrawingContext dc, Opening opening) => DrawOpening(dc, opening);
+
     private void DrawOpening(DrawingContext dc, Opening opening)
     {
         if (Document is null) return;

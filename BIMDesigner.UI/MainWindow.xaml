@@ -722,6 +722,12 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl x:Name="ContextHostPanel" Header="Host" Style="{StaticResource ContextRibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Door}"
+                                    Content="Pick New Host" Click="OnPickNewHost"
+                                    ToolTip="Move the selected door or window into another wall: click the wall where it should go"/>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl x:Name="ContextSweepPanel" Header="Profile" Style="{StaticResource ContextRibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton x:Name="ContextAddRemoveWalls" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.AddRemoveWalls}"
@@ -820,6 +826,9 @@
                 <ComboBox x:Name="WindowTypePicker" Style="{StaticResource OptionCombo}" MinWidth="250"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveWindowTypeChanged"
                           Visibility="Collapsed" ToolTip="The type new windows are placed as"/>
+                <CheckBox x:Name="TagOnPlacementBox" Content="Tag on Placement" VerticalAlignment="Center" Margin="0,0,18,0"
+                          Visibility="Collapsed" Click="OnTagOnPlacementChanged"
+                          ToolTip="Tag each door or window with its mark as it is placed. Space flips which side it hinges; point at the side of the wall it should open toward"/>
 
                 <ComboBox x:Name="SlabTypePicker" Style="{StaticResource OptionCombo}" MinWidth="250"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveSlabTypeChanged"

@@ -354,7 +354,10 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Pick something under something else | Hover over it and press `Tab` until it is outlined, then click. The status bar names what is outlined |
 | Set a plan's scale or detail | The bar under the plan: scale, detail level, storey below. With nothing selected, Properties shows the same |
 | Turn the 3D view to a face, edge or corner | Click the ViewCube in the corner; drag it to orbit; the house resets. Zoom buttons are under it |
-| Place a door | `Door` tool (`D`), click a wall |
+| Place a door | `Door` tool (`D`): a preview follows the cursor along the wall; point at the side it should swing toward, `Space` swaps the hinge side, click to place. New doors are marked 1, 2, 3…; tick **Tag on Placement** to tag each one |
+| Pick a door's design | Door types: **Leaf Design** - Flush, Panelled, Glazed, French Glazed (set **Glazing Rows** / **Columns**), Half Glazed, Louvred, Arched Top Light; with **Trim Width** and projections for the architrave. The template has French double, single glazed, louvred bi-fold and arched entrance doors |
+| Flip a door | Select it: click the ↕ arrows to flip which way it swings, the ↔ arrows to flip its hinge side; or press `Space` |
+| Move a door to another wall | Select it → **Modify \| Doors → Pick New Host**, click the wall where it should go |
 | Place a window | `Window` tool (`N`), click a wall |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |
 | Draw a gridline | `Grid` tool (`G`), click start, click end |

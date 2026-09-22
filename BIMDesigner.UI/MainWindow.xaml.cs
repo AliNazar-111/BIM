@@ -328,6 +328,7 @@ public partial class MainWindow : Window
             ? Visibility.Collapsed : Visibility.Visible;
         TypeLabel.Visibility = typeless || selecting ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
+        TagOnPlacementBox.Visibility = tool is PlanTool.Door or PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
         WindowTypePicker.Visibility = tool == PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
         SlabTypePicker.Visibility = isSlab ? Visibility.Visible : Visibility.Collapsed;
 
@@ -1085,6 +1086,14 @@ public partial class MainWindow : Window
         Plan.Focus();
     }
 
+    private void OnTagOnPlacementChanged(object sender, RoutedEventArgs e) => Plan.TagOnPlacement = TagOnPlacementBox.IsChecked == true;
+
+    private void OnPickNewHost(object sender, RoutedEventArgs e)
+    {
+        Plan.BeginPickNewHost();
+        Plan.Focus();
+    }
+
     private void OnResetProfile(object sender, RoutedEventArgs e)
     {
         var walls = Plan.SelectedElements.OfType<Wall>().Where(wall => wall.Profile is not null).ToList();
@@ -1147,6 +1156,7 @@ public partial class MainWindow : Window
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
+        ContextHostPanel.Visibility = selected is [Opening] ? Visibility.Visible : Visibility.Collapsed;
         ContextPropertiesPanel.Visibility = selected.Any(element => element.TypeId != Guid.Empty) ? Visibility.Visible : Visibility.Collapsed;
         SyncSweepEditControls();
 

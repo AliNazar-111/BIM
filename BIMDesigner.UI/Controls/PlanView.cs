@@ -542,6 +542,24 @@ public class PlanView : FrameworkElement
     /// </summary>
     public bool Flip()
     {
+        // Placing doors and windows: Space swaps the side the next one hinges from.
+        if (ActiveTool is PlanTool.Door or PlanTool.Window)
+        {
+            _placeFlipHand = !_placeFlipHand;
+            if (_openingPreview is not null) _openingPreview.FlipHand = _placeFlipHand;
+            HintChanged?.Invoke(this, "Hinged the other side. Move the cursor to the side of the wall it should swing toward.");
+            InvalidateVisual();
+            return true;
+        }
+
+        // A door or window selected: Space flips which way it faces.
+        if (_selection.Count == 1 && _selection[0] is Opening selectedOpening && Document is not null)
+        {
+            Apply(new FlipOpeningCommand(selectedOpening, facing: true));
+            InvalidateVisual();
+            return true;
+        }
+
         if (ActiveTool == PlanTool.Wall)
         {
             DrawFlipped = !DrawFlipped;
@@ -1076,6 +1094,7 @@ public class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = _pendingWallStart is not null
+                      || _rehosting is not null
                       || AddingWallPoints
                       || _stroke is not null
                       || _trimSubject is not null
@@ -1085,6 +1104,7 @@ public class PlanView : FrameworkElement
 
         EndSweepEdit();
         AddingWallPoints = false;
+        _rehosting = null;
         _pendingWallStart = null;
         _trimSubject = null;
         _pendingDimension = null;
@@ -1259,6 +1279,13 @@ public class PlanView : FrameworkElement
 
         UpdateHoverCursor(raw);
 
+        // The door or window a click here would place, shown where it would go.
+        if (ActiveTool is PlanTool.Door or PlanTool.Window)
+        {
+            _openingPreview = OpeningAt(raw, ActiveTool == PlanTool.Door, out _);
+            InvalidateVisual();
+        }
+
         // Placing against walls: the walls a click here would make, shown before it is made.
         if (ActiveTool == PlanTool.Wall && _drawShape is WallShape.BySegment or WallShape.ByRoom &&
             (_placementPreviewAt is not { } last || last.DistanceTo(raw) * PixelsPerMm > 6))
@@ -1295,6 +1322,7 @@ public class PlanView : FrameworkElement
         var raw = ScreenToModel(e.GetPosition(this));
 
         if (ActiveTool == PlanTool.Select && SweepEdit != SweepEditMode.None && SweepEditClick(raw)) return;
+        if (ActiveTool == PlanTool.Select && _rehosting is not null && RehostAt(raw)) return;
 
         switch (ActiveTool)
         {
@@ -1394,6 +1422,14 @@ public class PlanView : FrameworkElement
 
             var target = SelectedWall ?? (HitTest(raw) is Wall hitWall && IsSelected(hitWall) ? hitWall : null);
             if (target is not null && ShapeWallAt(target, raw, e.ClickCount == 2)) return;
+        }
+
+        // A door or window's flip arrows: facing across the wall, hand along it.
+        if (OpeningFlipAt(e.GetPosition(this)) is { } flip && _selection[0] is Opening flipped)
+        {
+            Apply(new FlipOpeningCommand(flipped, flip.Facing));
+            InvalidateVisual();
+            return;
         }
 
         // The padlock at a corner: locks or unlocks the walls meeting there.
@@ -3118,65 +3154,225 @@ public class PlanView : FrameworkElement
     /// Places a door or window in the wall under the cursor. The opening is positioned by
     /// its distance along that wall, so it stays put when the wall is later moved.
     /// </summary>
-    private void PlaceOpening(Point2D raw, bool isDoor)
+    /// <summary>Space while placing doors and windows: which side the next one hinges from.</summary>
+    private bool _placeFlipHand;
+
+    /// <summary>Tag on Placement: each door or window placed gets a tag of its mark beside it.</summary>
+    public bool TagOnPlacement { get; set; }
+
+    /// <summary>The door or window a click would place where the cursor is, shown before it is placed.</summary>
+    private Opening? _openingPreview;
+
+    /// <summary>
+    /// The door or window a click here would place, or why not: in the wall under the cursor,
+    /// snapped along it and kept inside it, swinging toward the side of the wall the cursor is
+    /// on and hinged as Space last set - as Revit places them.
+    /// </summary>
+    private Opening? OpeningAt(Point2D raw, bool isDoor, out string? problem)
     {
-        if (Document is null) return;
+        problem = null;
+        if (Document is null) return null;
 
         var wall = HitTestWall(raw);
         if (wall is null)
         {
-            HintChanged?.Invoke(this, isDoor
-                ? "A door needs a wall. Click on one."
-                : "A window needs a wall. Click on one.");
-            return;
+            problem = isDoor ? "A door needs a wall. Click on one." : "A window needs a wall. Click on one.";
+            return null;
         }
 
         // A curtain wall takes doors as panels of its own, not as holes cut in it.
         if (Document.IsCurtainWall(wall))
         {
-            HintChanged?.Invoke(this, isDoor
+            problem = isDoor
                 ? "That is a curtain wall: select it and use Edit Curtain Grid to make a panel a door."
-                : "That is a curtain wall: its panels are already glazed.");
-            return;
+                : "That is a curtain wall: its panels are already glazed.";
+            return null;
         }
 
-        var typeId = isDoor ? ActiveDoorTypeId : ActiveWindowTypeId;
-        var type = Document.FindType<OpeningType>(typeId);
+        var type = Document.FindType<OpeningType>(isDoor ? ActiveDoorTypeId : ActiveWindowTypeId);
         if (type is null)
         {
-            HintChanged?.Invoke(this, "No type is selected for that tool.");
-            return;
+            problem = "No type is selected for that tool.";
+            return null;
         }
 
         // Where along the wall the click landed, snapped, then nudged so it fits.
         var distance = Units.SnapToGrid(wall.LocationCurve.Locate(raw).Along, SnapStepMm);
-
         if (WallOpenings.ClampToWall(wall, type.Width, distance) is not { } placed)
         {
-            HintChanged?.Invoke(this,
-                $"That wall is {Units.FormatLength(wall.Length)} long - too short for a " +
-                $"{Units.FormatLength(type.Width)} {(isDoor ? "door" : "window")}.");
-            return;
+            problem = $"That wall is {Units.FormatLength(wall.Length)} long - too short for a " +
+                      $"{Units.FormatLength(type.Width)} {(isDoor ? "door" : "window")}.";
+            return null;
         }
 
         if (!WallOpenings.CanPlace(Document, wall, type.Width, placed))
         {
-            HintChanged?.Invoke(this, "There is already an opening there.");
-            return;
+            problem = "There is already an opening there.";
+            return null;
         }
 
-        Opening opening = isDoor
-            ? new Door { SillHeight = 0 }
-            : new BimWindow { SillHeight = 900 };
+        // It opens toward the side of the wall the cursor is on.
+        var interiorSide = Document.GetWallType(wall) is { } wallType && wall.Locate(wallType.Structure, raw).Across < 0;
 
+        Opening opening = isDoor ? new Door { SillHeight = 0 } : new BimWindow { SillHeight = 900 };
         opening.HostWallId = wall.Id;
         opening.DistanceAlongWall = placed;
         opening.TypeId = type.Id;
         opening.LevelId = wall.LevelId;
+        opening.FlipFacing = isDoor && interiorSide;
+        opening.FlipHand = _placeFlipHand;
+        return opening;
+    }
 
-        Apply(new AddElementCommand(Document, opening, isDoor ? "Place Door" : "Place Window"));
+    private void PlaceOpening(Point2D raw, bool isDoor)
+    {
+        if (Document is null) return;
+
+        if (OpeningAt(raw, isDoor, out var problem) is not { } opening)
+        {
+            HintChanged?.Invoke(this, problem ?? string.Empty);
+            return;
+        }
+
+        // Numbered as they are placed, from 1, as door and window tags read them.
+        opening.Mark = isDoor ? OpeningMarks.Next<Door>(Document) : OpeningMarks.Next<BimWindow>(Document);
+
+        var commands = new List<IUndoableCommand> { new AddElementCommand(Document, opening, isDoor ? "Place Door" : "Place Window") };
+        if (TagOnPlacement && TagBeside(opening) is { } tag)
+            commands.Add(new AddElementCommand(Document, tag, "Tag"));
+
+        Apply(commands.Count == 1 ? commands[0] : new CompositeCommand(isDoor ? "Place Door" : "Place Window", commands));
+        _openingPreview = null;
         Select(opening);
         HintChanged?.Invoke(this, DefaultHintFor(ActiveTool));
+    }
+
+    /// <summary>A tag of an opening's mark, set off the wall on the side away from its swing, clear of the leaf and its controls.</summary>
+    private Tag? TagBeside(Opening opening)
+    {
+        if (Document?.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return null;
+
+        var side = opening.FlipFacing ? 1.0 : -1.0;
+        return new Tag
+        {
+            TargetId = opening.Id,
+            Field = "Mark",
+            LevelId = opening.LevelId,
+            Position = wall.PointAt(type.Structure, opening.DistanceAlongWall, side * (type.Width / 2 + 450)),
+            ShowLeader = false
+        };
+    }
+
+    /// <summary>The door or window that would be placed where the cursor is, drawn over the plan.</summary>
+    private void DrawOpeningPreview(DrawingContext dc)
+    {
+        if (_openingPreview is null || ActiveTool is not (PlanTool.Door or PlanTool.Window)) return;
+        _renderer.DrawOpeningPreview(dc, _openingPreview);
+    }
+
+    // ---- flip controls and Pick New Host for a selected door or window ---------------------
+
+    /// <summary>
+    /// The flip controls of the one door or window selected: a pair of arrows across the wall
+    /// that flips which way it faces, and a pair along it that flips its hand.
+    /// </summary>
+    private IReadOnlyList<(Point2D At, Vector2D Direction, bool Facing)> OpeningFlipControls()
+    {
+        if (Document is null || _selection.Count != 1 || _selection[0] is not Opening opening) return Array.Empty<(Point2D, Vector2D, bool)>();
+        if (Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return Array.Empty<(Point2D, Vector2D, bool)>();
+        if (Document.FindType<OpeningType>(opening.TypeId) is not { } openingType) return Array.Empty<(Point2D, Vector2D, bool)>();
+
+        var side = opening.FlipFacing ? -1.0 : 1.0;
+        var away = type.Width / 2 + 22 / PixelsPerMm;
+        var normal = wall.ExteriorNormalAt(opening.DistanceAlongWall) * side;
+        var tangent = wall.TangentAt(opening.DistanceAlongWall);
+
+        return new[]
+        {
+            (wall.PointAt(type.Structure, opening.DistanceAlongWall, side * away), normal, true),
+            (wall.PointAt(type.Structure, opening.DistanceAlongWall + openingType.Width / 2 + 16 / PixelsPerMm, -side * away), tangent, false)
+        };
+    }
+
+    private (Point2D At, Vector2D Direction, bool Facing)? OpeningFlipAt(Point screen)
+    {
+        foreach (var control in OpeningFlipControls())
+            if ((ModelToScreen(control.At) - screen).Length <= 11) return control;
+
+        return null;
+    }
+
+    /// <summary>A flip control: a line with an arrowhead at each end, blue as the other controls are.</summary>
+    private void DrawOpeningFlipControls(DrawingContext dc)
+    {
+        foreach (var (at, direction, _) in OpeningFlipControls())
+        {
+            var centre = ModelToScreen(at);
+            var screenDirection = ModelToScreen(at + direction * (10 / PixelsPerMm)) - centre;
+            if (screenDirection.Length < 1e-6) continue;
+            screenDirection.Normalize();
+            var side = new Vector(-screenDirection.Y, screenDirection.X);
+
+            var a = centre - screenDirection * 9;
+            var b = centre + screenDirection * 9;
+            dc.DrawLine(_selectedPen, a, b);
+            foreach (var (tip, back) in new[] { (b, -screenDirection), (a, screenDirection) })
+            {
+                var head = new StreamGeometry();
+                using (var ctx = head.Open())
+                {
+                    ctx.BeginFigure(tip, true, true);
+                    ctx.PolyLineTo(new[] { tip + back * 6 + side * 4, tip + back * 6 - side * 4 }, true, false);
+                }
+
+                head.Freeze();
+                dc.DrawGeometry(_gripBrush, _gripPen, head);
+            }
+        }
+    }
+
+    /// <summary>The door or window being moved to another wall, while Pick New Host waits for the click.</summary>
+    private Opening? _rehosting;
+
+    /// <summary>Pick New Host: the next wall clicked takes the selected door or window.</summary>
+    public void BeginPickNewHost()
+    {
+        if (_selection.Count != 1 || _selection[0] is not Opening opening)
+        {
+            HintChanged?.Invoke(this, "Select one door or window first.");
+            return;
+        }
+
+        _rehosting = opening;
+        HintChanged?.Invoke(this, "Click the wall to move it into, where it should go along it. Esc cancels.");
+    }
+
+    /// <summary>A click while Pick New Host waits: the opening goes into that wall, there.</summary>
+    private bool RehostAt(Point2D raw)
+    {
+        if (Document is null || _rehosting is not { } opening) return false;
+
+        var type = Document.FindType<OpeningType>(opening.TypeId);
+        var wall = HitTestWall(raw);
+        if (wall is null || type is null || Document.IsCurtainWall(wall))
+        {
+            HintChanged?.Invoke(this, "Click a wall - not a curtain wall - to move it into.");
+            return true;
+        }
+
+        var distance = Units.SnapToGrid(wall.LocationCurve.Locate(raw).Along, SnapStepMm);
+        if (WallOpenings.ClampToWall(wall, type.Width, distance) is not { } placed)
+        {
+            HintChanged?.Invoke(this, "That wall is too short for it.");
+            return true;
+        }
+
+        _rehosting = null;
+        Apply(new RehostOpeningCommand(opening, wall, placed));
+        Select(opening);
+        HintChanged?.Invoke(this, "Moved into the new wall. Its type, sill and facing are as they were.");
+        InvalidateVisual();
+        return true;
     }
 
     /// <summary>
@@ -3705,6 +3901,8 @@ public class PlanView : FrameworkElement
         DrawHover(dc);
         DrawJunctions(dc);
         DrawSelectedOpenings(dc);
+        DrawOpeningPreview(dc);
+        DrawOpeningFlipControls(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);
         DrawPendingDimension(dc);

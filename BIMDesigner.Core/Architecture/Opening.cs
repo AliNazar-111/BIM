@@ -78,9 +78,10 @@ public abstract class Opening : Element, IHostedElement
                 : "<none>");
 
         yield return ParameterValue.Bind(OpeningParameters.SillHeight, () => SillHeight, v => SillHeight = v);
-        yield return ParameterValue.ReadOnly(
-            OpeningParameters.HeadHeight,
-            () => SillHeight + (type?.Height ?? 0));
+        // The head is the sill plus the type's height: set, it moves the opening, not its size.
+        yield return type is null
+            ? ParameterValue.ReadOnly(OpeningParameters.HeadHeight, () => SillHeight)
+            : ParameterValue.Bind(OpeningParameters.HeadHeight, () => SillHeight + type.Height, v => SillHeight = v - type.Height);
 
         yield return ParameterValue.Bind(
             OpeningParameters.DistanceAlongWall,
@@ -102,6 +103,12 @@ public sealed class Door : Opening
     /// <summary>How far the leaf is drawn open in plan, in degrees.</summary>
     public double SwingAngle { get; set; } = 90;
 
+    /// <summary>The kind of frame round this door, as it is ordered: "Timber lining", "Steel frame".</summary>
+    public string FrameType { get; set; } = string.Empty;
+
+    /// <summary>The finish on the frame and leaf of this door.</summary>
+    public string Finish { get; set; } = string.Empty;
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         var type = document.FindType<DoorType>(TypeId);
@@ -112,6 +119,9 @@ public sealed class Door : Opening
             DoorParameters.SwingAngle,
             () => SwingAngle,
             v => { if (v is > 0 and <= 180) SwingAngle = v; });
+
+        yield return ParameterValue.Bind(DoorParameters.FrameType, () => FrameType, v => FrameType = v ?? string.Empty);
+        yield return ParameterValue.Bind(DoorParameters.Finish, () => Finish, v => Finish = v ?? string.Empty);
     }
 }
 
@@ -152,4 +162,10 @@ public static class DoorParameters
 {
     public static readonly ParameterDefinition SwingAngle =
         new("Swing Angle", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FrameType =
+        new("Frame Type", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Finish =
+        new("Finish", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
 }

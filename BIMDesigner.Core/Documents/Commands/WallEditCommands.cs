@@ -1079,3 +1079,51 @@ public sealed class JoinWallsCommand : IUndoableCommand
         _holder.LockedToJoined = _wasLocked;
     }
 }
+
+/// <summary>Flips a door or window: its facing (which way it swings or faces) or its hand (which side it hinges).</summary>
+public sealed class FlipOpeningCommand : IUndoableCommand
+{
+    private readonly Opening _opening;
+    private readonly bool _facing;
+
+    public FlipOpeningCommand(Opening opening, bool facing)
+    {
+        _opening = opening;
+        _facing = facing;
+    }
+
+    public string Name => _facing ? "Flip Facing" : "Flip Hand";
+
+    public void Redo() => Toggle();
+
+    public void Undo() => Toggle();
+
+    private void Toggle()
+    {
+        if (_facing) _opening.FlipFacing = !_opening.FlipFacing;
+        else _opening.FlipHand = !_opening.FlipHand;
+    }
+}
+
+/// <summary>
+/// Moves a door or window into another wall (specification section 3.5, "pick new host"): it
+/// keeps its type, sill and orientation, and takes the place along the new wall it was put at.
+/// </summary>
+public sealed class RehostOpeningCommand : IUndoableCommand
+{
+    private readonly Opening _opening;
+    private readonly (Guid Host, Guid Level, double Distance) _before, _after;
+
+    public RehostOpeningCommand(Opening opening, Wall newHost, double distance)
+    {
+        _opening = opening;
+        _before = (opening.HostWallId, opening.LevelId, opening.DistanceAlongWall);
+        _after = (newHost.Id, newHost.LevelId, distance);
+    }
+
+    public string Name => "Pick New Host";
+
+    public void Redo() => (_opening.HostWallId, _opening.LevelId, _opening.DistanceAlongWall) = _after;
+
+    public void Undo() => (_opening.HostWallId, _opening.LevelId, _opening.DistanceAlongWall) = _before;
+}

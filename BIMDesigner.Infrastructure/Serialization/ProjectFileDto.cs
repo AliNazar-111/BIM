@@ -534,6 +534,8 @@ internal abstract class OpeningDto
 internal sealed class DoorDto : OpeningDto
 {
     public double SwingAngle { get; set; } = 90;
+    public string? FrameType { get; set; }
+    public string? Finish { get; set; }
 }
 
 internal sealed class WindowDto : OpeningDto

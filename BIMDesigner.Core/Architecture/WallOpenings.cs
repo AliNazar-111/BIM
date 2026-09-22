@@ -122,3 +122,16 @@ public static class WallOpenings
         return Math.Clamp(distanceAlongWall, width / 2, wall.Length - width / 2);
     }
 }
+
+/// <summary>
+/// Marks for doors and windows as they are placed (specification section 3.5, "door tags"):
+/// numbered from 1 up, one more than the highest already in the project, whatever the type.
+/// </summary>
+public static class OpeningMarks
+{
+    public static string Next<T>(BimDocument document) where T : Opening =>
+        (document.Elements.OfType<T>()
+            .Select(o => int.TryParse(o.Mark, out var n) ? n : 0)
+            .DefaultIfEmpty(0)
+            .Max() + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
