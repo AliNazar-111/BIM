@@ -40,7 +40,21 @@ public enum PlanTool
     Trim,
     Offset,
     Mirror,
-    Array
+    Array,
+    Sweep,
+    Reveal
+}
+
+/// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
+public enum SweepEditMode
+{
+    None,
+
+    /// <summary>Each wall clicked is added to the sweep, or taken off it if it is already on.</summary>
+    AddRemoveWalls,
+
+    /// <summary>Clicking near an end of the sweep turns its return on or off there.</summary>
+    ModifyReturns
 }
 
 /// <summary>
@@ -561,6 +575,174 @@ public class PlanView : FrameworkElement
 
     public double ZoomPercent => PixelsPerMm / 0.05 * 100.0;
 
+    // ---- placed sweeps and reveals ------------------------------------------------
+
+    /// <summary>The sweep type the Sweep tool places, and the reveal type the Reveal tool places.</summary>
+    public Guid ActiveSweepTypeId { get; set; }
+
+    public Guid ActiveRevealTypeId { get; set; }
+
+    /// <summary>Whether new sweeps stand upright at the click rather than running along the wall.</summary>
+    public bool NewSweepVertical { get; set; }
+
+    /// <summary>How high a new lying sweep sits above its wall's base. Millimetres.</summary>
+    public double NewSweepHeight { get; set; }
+
+    /// <summary>What clicking walls does to the selected placed sweep just now.</summary>
+    public SweepEditMode SweepEdit { get; private set; }
+
+    private PlacedSweep? _sweepEditTarget;
+
+    /// <summary>Raised when an Add/Remove Walls or Modify Returns mode starts or stops.</summary>
+    public event EventHandler? SweepEditChanged;
+
+    /// <summary>Starts Add/Remove Walls or Modify Returns on the selected placed sweep.</summary>
+    public void BeginSweepEdit(SweepEditMode mode)
+    {
+        if (SelectedElement is not PlacedSweep sweep || mode == SweepEditMode.None)
+        {
+            EndSweepEdit();
+            return;
+        }
+
+        SetTool(PlanTool.Select);
+        _sweepEditTarget = sweep;
+        SweepEdit = mode;
+        HintChanged?.Invoke(this, mode == SweepEditMode.AddRemoveWalls
+            ? "Click walls to add them to the sweep, or take them off it. Esc when done."
+            : "Click near an end of the sweep to turn its return on or off. Esc when done.");
+        SweepEditChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void EndSweepEdit()
+    {
+        if (SweepEdit == SweepEditMode.None) return;
+        SweepEdit = SweepEditMode.None;
+        _sweepEditTarget = null;
+        SweepEditChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Places a sweep or reveal on the wall clicked, on the face nearer the click: along the wall
+    /// at the height set on the options bar, or upright at the click (Revit's Wall: Sweep).
+    /// </summary>
+    private void PlaceSweep(Point2D raw, SweepKind kind)
+    {
+        if (Document is null) return;
+
+        if (HitTestWall(raw) is not { } wall || Document.GetWallType(wall) is not { } wallType)
+        {
+            HintChanged?.Invoke(this, $"A {kind.ToString().ToLowerInvariant()} goes on a wall. Click one, on the face it belongs on.");
+            return;
+        }
+
+        if (Document.IsCurtainWall(wall))
+        {
+            HintChanged?.Invoke(this, "That is a curtain wall: sweeps and reveals go on ordinary walls.");
+            return;
+        }
+
+        var typeId = kind == SweepKind.Sweep ? ActiveSweepTypeId : ActiveRevealTypeId;
+        if (Document.FindType<WallSweepType>(typeId) is not { } type || type.Kind != kind)
+        {
+            HintChanged?.Invoke(this, $"Pick a {kind.ToString().ToLowerInvariant()} type on the options bar first.");
+            return;
+        }
+
+        var (along, across) = wall.Locate(wallType.Structure, raw);
+        var placed = new PlacedSweep
+        {
+            TypeId = type.Id,
+            LevelId = wall.LevelId,
+            Kind = kind,
+            Side = across >= 0 ? WallSide.Exterior : WallSide.Interior,
+            Vertical = NewSweepVertical,
+            Elevation = Math.Max(0, NewSweepHeight),
+            Along = Math.Clamp(Units.SnapToGrid(along, SnapStepMm), 0, wall.Length)
+        };
+        placed.HostWallIds.Add(wall.Id);
+
+        Apply(new AddElementCommand(Document, placed, $"Place Wall {kind}"));
+        Select(placed);
+        HintChanged?.Invoke(this, $"{type.Name} placed on the {placed.Side.ToString().ToLowerInvariant()} face. Click another wall, or Esc.");
+    }
+
+    /// <summary>A click while Add/Remove Walls or Modify Returns is on. True if it was used.</summary>
+    private bool SweepEditClick(Point2D raw)
+    {
+        if (Document is null || _sweepEditTarget is not { } sweep || !Document.Elements.Contains(sweep)) return false;
+
+        if (SweepEdit == SweepEditMode.AddRemoveWalls)
+        {
+            if (HitTestWall(raw) is not { } wall) return true;
+
+            var hosts = sweep.HostWallIds.ToList();
+            if (hosts.Contains(wall.Id))
+            {
+                if (hosts.Count == 1)
+                {
+                    HintChanged?.Invoke(this, "A sweep needs one wall. Delete it instead to take it off its last wall.");
+                    return true;
+                }
+
+                hosts.Remove(wall.Id);
+            }
+            else if (!Document.IsCurtainWall(wall))
+            {
+                hosts.Add(wall.Id);
+            }
+
+            Apply(new EditPlacedSweepCommand(sweep, hosts, sweep.ReturnAtStart, sweep.ReturnAtEnd, "Add/Remove Walls"));
+            HintChanged?.Invoke(this, $"The sweep is on {hosts.Count} wall{(hosts.Count == 1 ? "" : "s")}. Click more, or Esc when done.");
+            return true;
+        }
+
+        if (SweepEdit == SweepEditMode.ModifyReturns)
+        {
+            var walls = sweep.HostWallIds.Select(id => Document.Walls.FirstOrDefault(w => w.Id == id)).OfType<Wall>().ToList();
+            if (walls.Count == 0) return true;
+
+            // The sweep's own two ends: where its first wall starts and its last wall ends.
+            var nearStart = raw.DistanceTo(walls[0].Start) <= raw.DistanceTo(walls[^1].End);
+            Apply(new EditPlacedSweepCommand(sweep, sweep.HostWallIds,
+                nearStart ? !sweep.ReturnAtStart : sweep.ReturnAtStart,
+                nearStart ? sweep.ReturnAtEnd : !sweep.ReturnAtEnd,
+                "Modify Returns"));
+            var now = nearStart ? sweep.ReturnAtStart : sweep.ReturnAtEnd;
+            HintChanged?.Invoke(this, $"That end now {(now ? "returns round the wall end" : "is cut straight")}. A return shows where the wall end is exposed.");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The placed sweep or reveal under the cursor, drawn beside or in a wall face.</summary>
+    private PlacedSweep? HitTestSweep(Point2D model)
+    {
+        if (Document is null) return null;
+        var reach = 5 / PixelsPerMm;
+
+        foreach (var placed in OnActiveLevel<PlacedSweep>())
+        foreach (var id in placed.HostWallIds)
+        {
+            if (Document.Walls.FirstOrDefault(w => w.Id == id) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
+            if (placed.On(Document, wall) is not { } sweep) continue;
+
+            var (along, across) = wall.Locate(type.Structure, model);
+            var half = type.Width / 2;
+            var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
+            var outward = sign * across - half;
+
+            var (from, to) = sweep.Vertical ? (sweep.Along - sweep.Height / 2, sweep.Along + sweep.Height / 2) : (0.0, wall.Length);
+            var (inner, outer) = sweep.Kind == SweepKind.Reveal ? (-sweep.Depth, 0.0) : (sweep.Offset, sweep.Offset + sweep.Depth);
+
+            if (along >= from - reach && along <= to + reach && outward >= inner - reach && outward <= outer + reach)
+                return placed;
+        }
+
+        return null;
+    }
+
     public void SetTool(PlanTool tool)
     {
         ActiveTool = tool;
@@ -573,6 +755,8 @@ public class PlanView : FrameworkElement
     {
         PlanTool.Wall => "Click to set the wall start, click again to set the end. Esc cancels.",
         PlanTool.Door => "Click a wall where the door should go.",
+        PlanTool.Sweep => "Click a wall on the face the sweep goes on. Set the height, or Vertical, above.",
+        PlanTool.Reveal => "Click a wall on the face the reveal is cut into. Set the height, or Vertical, above.",
         PlanTool.Window => "Click a wall where the window should go.",
         PlanTool.Grid => "Click to start a gridline, click again to finish it.",
         PlanTool.Section => "Click to start the cut line, click again to finish it.",
@@ -650,8 +834,10 @@ public class PlanView : FrameworkElement
         var changed = _pendingWallStart is not null
                       || _trimSubject is not null
                       || _pendingDimension is not null
-                      || _bandStart is not null;
+                      || _bandStart is not null
+                      || SweepEdit != SweepEditMode.None;
 
+        EndSweepEdit();
         _pendingWallStart = null;
         _trimSubject = null;
         _pendingDimension = null;
@@ -834,6 +1020,8 @@ public class PlanView : FrameworkElement
         if (Document is null) return;
         var raw = ScreenToModel(e.GetPosition(this));
 
+        if (ActiveTool == PlanTool.Select && SweepEdit != SweepEditMode.None && SweepEditClick(raw)) return;
+
         switch (ActiveTool)
         {
             case PlanTool.Wall:
@@ -859,6 +1047,14 @@ public class PlanView : FrameworkElement
 
             case PlanTool.Text:
                 PlaceTextNote(raw);
+                return;
+
+            case PlanTool.Sweep:
+                PlaceSweep(raw, SweepKind.Sweep);
+                return;
+
+            case PlanTool.Reveal:
+                PlaceSweep(raw, SweepKind.Reveal);
                 return;
 
             case PlanTool.Door:
@@ -2200,6 +2396,9 @@ public class PlanView : FrameworkElement
             if (DistanceToSegment(model, centre, centre) <= Math.Max(type.Width, wallType.Width) / 2)
                 return opening;
         }
+
+        // Sweeps sit on wall faces, so they are picked before the walls they are on.
+        if (HitTestSweep(model) is { } hitSweep) return hitSweep;
 
         // Walls before rooms: a room covers the whole floor, so it would swallow every click.
         if (HitTestWall(model) is { } hitWall) return hitWall;

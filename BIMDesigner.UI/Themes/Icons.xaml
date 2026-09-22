@@ -140,6 +140,19 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M11,8.5 L21,12.5 M21,8.5 L11,12.5"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Sweep"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Pen="{StaticResource Stroke}" Geometry="M4,4 L20,4 L20,28 L4,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M20,20 L26,20 L28,23 L28,28 L20,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M20,4 L29,4 L29,7 L26,9 L23,9 L20,11 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Reveal"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Pen="{StaticResource Stroke}" Geometry="M4,4 L24,4 L24,13 L19,13 L19,18 L24,18 L24,28 L4,28 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M26,15.5 L30,15.5"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <!-- ========================= Rooms and datums ========================= -->
 
     <DrawingImage x:Key="Icon.Room"><DrawingImage.Drawing><DrawingGroup>

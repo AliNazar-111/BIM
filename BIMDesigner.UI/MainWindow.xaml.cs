@@ -284,6 +284,7 @@ public partial class MainWindow : Window
     {
         var tool = Plan.ActiveTool;
         var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof;
+        var isSweep = tool is PlanTool.Sweep or PlanTool.Reveal;
 
         // Grids, sections, annotation and the editing tools are not built from a type, so
         // offering one would be asking a question the tool never reads the answer to.
@@ -296,7 +297,11 @@ public partial class MainWindow : Window
         MirrorOptions.Visibility = tool == PlanTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
         ArrayOptions.Visibility = tool == PlanTool.Array ? Visibility.Visible : Visibility.Collapsed;
 
-        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window || isSlab || typeless
+        SweepOptions.Visibility = isSweep ? Visibility.Visible : Visibility.Collapsed;
+        SweepTypePicker.Visibility = isSweep ? Visibility.Visible : Visibility.Collapsed;
+        if (isSweep) LoadSweepTypes(tool == PlanTool.Sweep ? SweepKind.Sweep : SweepKind.Reveal);
+
+        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window || isSlab || isSweep || typeless
             ? Visibility.Collapsed : Visibility.Visible;
         TypeLabel.Visibility = typeless ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
@@ -329,6 +334,8 @@ public partial class MainWindow : Window
             PlanTool.Floor => "Floor type",
             PlanTool.Ceiling => "Ceiling type",
             PlanTool.Roof => "Roof type",
+            PlanTool.Sweep => "Sweep type",
+            PlanTool.Reveal => "Reveal type",
             _ => "Wall type"
         };
 
@@ -336,6 +343,39 @@ public partial class MainWindow : Window
         var forWalls = tool is PlanTool.Select or PlanTool.Wall or PlanTool.Split or PlanTool.Trim;
         LocationLineLabel.Visibility = forWalls ? Visibility.Visible : Visibility.Collapsed;
         LocationLinePicker.Visibility = forWalls ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>The sweep or reveal types, whichever the tool places, with the last one used chosen.</summary>
+    private void LoadSweepTypes(SweepKind kind)
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<WallSweepType>().Where(t => t.Kind == kind).OrderBy(t => t.Name).ToList();
+        var active = kind == SweepKind.Sweep ? Plan.ActiveSweepTypeId : Plan.ActiveRevealTypeId;
+        SweepTypePicker.ItemsSource = types;
+        SweepTypePicker.SelectedItem = types.FirstOrDefault(t => t.Id == active) ?? types.FirstOrDefault();
+        _loadingOptions = false;
+        OnActiveSweepTypeChanged(this, null!);
+    }
+
+    private void OnActiveSweepTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null || SweepTypePicker.SelectedItem is not WallSweepType type) return;
+        if (type.Kind == SweepKind.Sweep) Plan.ActiveSweepTypeId = type.Id;
+        else Plan.ActiveRevealTypeId = type.Id;
+    }
+
+    private void OnSweepPlacementChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Plan is null) return;
+        Plan.NewSweepVertical = SweepPlacementPicker.SelectedIndex == 1;
+        SweepHeightLabel.Visibility = SweepHeightBox.Visibility = Plan.NewSweepVertical ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnSweepHeightChanged(object sender, RoutedEventArgs e)
+    {
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, SweepHeightBox.Text, out var value) && value is double millimetres && millimetres >= 0)
+            Plan.NewSweepHeight = millimetres;
+        SweepHeightBox.Text = Units.FormatLength(Plan.NewSweepHeight);
     }
 
     private Guid ActiveSlabTypeId(PlanTool tool) => tool switch
@@ -555,7 +595,8 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, FloorTool, CeilingTool, RoofTool, GridTool,
-        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool
+        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
+        SweepTool, RevealTool
     ];
 
     private void OnToolChanged(object sender, RoutedEventArgs e)
@@ -590,6 +631,8 @@ public partial class MainWindow : Window
             : OffsetTool.IsChecked == true ? PlanTool.Offset
             : MirrorTool.IsChecked == true ? PlanTool.Mirror
             : ArrayTool.IsChecked == true ? PlanTool.Array
+            : SweepTool.IsChecked == true ? PlanTool.Sweep
+            : RevealTool.IsChecked == true ? PlanTool.Reveal
             : PlanTool.Select);
 
         ShowOptionsForActiveTool();

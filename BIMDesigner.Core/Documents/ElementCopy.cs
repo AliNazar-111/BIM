@@ -185,6 +185,8 @@ public static class ElementCopy
             LeaderEnd = note.LeaderEnd
         }, note),
 
+        PlacedSweep placed => CarryPlacedSweep(placed),
+
         _ => null
     };
 
@@ -201,6 +203,25 @@ public static class ElementCopy
     /// a mark identifies one element, and two doors both marked D-04 is a defect that reaches
     /// the site through the door schedule.
     /// </summary>
+    private static Element CarryPlacedSweep(PlacedSweep placed)
+    {
+        var copy = new PlacedSweep
+        {
+            Kind = placed.Kind,
+            Side = placed.Side,
+            Vertical = placed.Vertical,
+            Elevation = placed.Elevation,
+            Along = placed.Along,
+            Offset = placed.Offset,
+            Flip = placed.Flip,
+            ReturnAtStart = placed.ReturnAtStart,
+            ReturnAtEnd = placed.ReturnAtEnd,
+            Mark = placed.Mark
+        };
+        copy.HostWallIds.AddRange(placed.HostWallIds);
+        return CarryCommon(copy, placed);
+    }
+
     private static Element CarryCommon(Element copy, Element original)
     {
         copy.TypeId = original.TypeId;
@@ -230,6 +251,11 @@ public static class ElementCopy
         {
             case Opening opening when replacements.TryGetValue(opening.HostWallId, out var host):
                 opening.HostWallId = host;
+                break;
+
+            case PlacedSweep placed:
+                for (var i = 0; i < placed.HostWallIds.Count; i++)
+                    if (replacements.TryGetValue(placed.HostWallIds[i], out var wall)) placed.HostWallIds[i] = wall;
                 break;
 
             case Tag tag when replacements.TryGetValue(tag.TargetId, out var target):

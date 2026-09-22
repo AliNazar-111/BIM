@@ -760,3 +760,35 @@ public sealed class SetCurtainLayoutCommand : IUndoableCommand
 
     public void Undo() => (_wall.CurtainGrid, _wall.CurtainPanels) = _old;
 }
+
+/// <summary>
+/// Changes which walls a placed sweep runs along, or how its ends finish, as one step:
+/// Revit's Add/Remove Walls and Modify Returns.
+/// </summary>
+public sealed class EditPlacedSweepCommand : IUndoableCommand
+{
+    private readonly PlacedSweep _sweep;
+    private readonly (List<Guid> Hosts, bool Start, bool End) _before, _after;
+
+    public EditPlacedSweepCommand(PlacedSweep sweep, IEnumerable<Guid> hosts, bool returnAtStart, bool returnAtEnd, string name)
+    {
+        _sweep = sweep;
+        _before = (sweep.HostWallIds.ToList(), sweep.ReturnAtStart, sweep.ReturnAtEnd);
+        _after = (hosts.Distinct().ToList(), returnAtStart, returnAtEnd);
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public void Redo() => Apply(_after);
+
+    public void Undo() => Apply(_before);
+
+    private void Apply((List<Guid> Hosts, bool Start, bool End) state)
+    {
+        _sweep.HostWallIds.Clear();
+        _sweep.HostWallIds.AddRange(state.Hosts);
+        _sweep.ReturnAtStart = state.Start;
+        _sweep.ReturnAtEnd = state.End;
+    }
+}

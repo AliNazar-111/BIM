@@ -134,8 +134,11 @@ public sealed class WallSweepType : ElementType
 /// Its geometry is its walls': it moves when they do, and is built by the same code as the
 /// sweeps a wall type carries.
 /// </summary>
-public sealed class PlacedSweep : Element
+public sealed class PlacedSweep : Element, IHostedElement
 {
+    /// <summary>The wall it starts on: deleting that wall deletes the sweep, copying it copies the sweep.</summary>
+    public Guid HostId => HostWallIds.Count > 0 ? HostWallIds[0] : Guid.Empty;
+
     public override BuiltInCategory Category => Kind == SweepKind.Reveal ? BuiltInCategory.WallReveals : BuiltInCategory.WallSweeps;
 
     /// <summary>Set from the type when placed: whether this is a sweep or a reveal.</summary>

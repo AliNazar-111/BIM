@@ -252,6 +252,12 @@
 
                         <HeaderedContentControl Header="Wall" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="SweepTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Sweep}"
+                                             Content="Sweep" Checked="OnToolChanged"
+                                             ToolTip="Place a skirting, cornice or other profile along a wall, or upright on it"/>
+                                <RadioButton x:Name="RevealTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Reveal}"
+                                             Content="Reveal" Checked="OnToolChanged"
+                                             ToolTip="Cut a groove along a wall, or up it"/>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
                                         Content="Edit Profile" Click="OnEditProfile"
                                         ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
@@ -467,6 +473,10 @@
                           DisplayMemberPath="Name" SelectionChanged="OnActiveSlabTypeChanged"
                           Visibility="Collapsed" ToolTip="The build-up new slabs are placed as"/>
 
+                <ComboBox x:Name="SweepTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"
+                          DisplayMemberPath="Name" SelectionChanged="OnActiveSweepTypeChanged"
+                          Visibility="Collapsed" ToolTip="The sweep or reveal type to place"/>
+
                 <TextBlock Text="Level" Style="{StaticResource OptionLabel}"/>
                 <ComboBox x:Name="LevelPicker" Style="{StaticResource OptionCombo}" MinWidth="140"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveLevelChanged"
@@ -521,6 +531,19 @@
                 </StackPanel>
 
                 <!-- Editing tool settings, shown only while their tool is active. -->
+                <StackPanel x:Name="SweepOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Placement" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="SweepPlacementPicker" Style="{StaticResource OptionCombo}" MinWidth="110"
+                              SelectedIndex="0" SelectionChanged="OnSweepPlacementChanged"
+                              ToolTip="Horizontal runs along the wall at a height; vertical stands full height where you click">
+                        <ComboBoxItem Content="Horizontal"/>
+                        <ComboBoxItem Content="Vertical"/>
+                    </ComboBox>
+                    <TextBlock x:Name="SweepHeightLabel" Text="Offset from base" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="SweepHeightBox" Width="80" VerticalAlignment="Center" Text="0 mm"
+                             LostFocus="OnSweepHeightChanged" ToolTip="How high above the wall's base, e.g. 0 for a skirting, 900 for a dado rail"/>
+                </StackPanel>
+
                 <StackPanel x:Name="OffsetOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Distance" Style="{StaticResource OptionLabel}"/>
                     <TextBox x:Name="OffsetDistanceBox" Width="90" VerticalAlignment="Center"

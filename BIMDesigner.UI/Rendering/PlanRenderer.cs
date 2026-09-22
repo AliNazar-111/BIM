@@ -276,11 +276,34 @@ public sealed class PlanRenderer
         var structure = type.Structure;
         var curve = wall.LocationCurve;
 
-        foreach (var (sweep, elementId) in sweeps.Where(s => s.Sweep.Kind == SweepKind.Sweep))
+        foreach (var (sweep, elementId) in sweeps)
         {
+            var placed = elementId != wall.Id;
+            if (sweep.Kind == SweepKind.Reveal && !placed) continue;
+
             var fill = MaterialBrush(sweep.MaterialId);
-            var pen = elementId != wall.Id && _selected.Contains(elementId) ? _selectedPen : _wallOutlinePen;
+            var selected = placed && _selected.Contains(elementId);
+            var pen = selected ? _selectedPen : _wallOutlinePen;
             var shape = sweep.Shape(Document);
+
+            // A placed one that the cut misses is still shown, faintly, so it can be seen and picked:
+            // a sweep as the outline of its full depth, a reveal as a dashed line at the back of its groove.
+            if (placed && !sweep.Vertical)
+            {
+                var (low, high) = sweep.Span(wallBottom, wallTop);
+                if (sweep.Kind == SweepKind.Reveal || _cutElevation <= low || _cutElevation >= high)
+                {
+                    var o = sweep.Kind == SweepKind.Reveal ? -sweep.Depth : sweep.OutAt(1);
+                    var edge = new List<double> { 0 };
+                    edge.AddRange(curve.Between(0, wall.Length, wall.LeftOf(structure, WallSweeps.Across(type, sweep, o))));
+                    edge.Add(wall.Length);
+                    DrawPolyline(dc, selected ? _selectedPen : sweep.Kind == SweepKind.Reveal ? _membranePen : _layerPen,
+                        edge.Select(a => Cut(new[] { wall.PointAt(structure, a, WallSweeps.Across(type, sweep, o)) })[0]).ToList());
+                    continue;
+                }
+            }
+
+            if (sweep.Kind == SweepKind.Reveal) continue;
 
             if (sweep.Vertical)
             {
