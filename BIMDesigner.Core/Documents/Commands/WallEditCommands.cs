@@ -60,6 +60,8 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly double _firstBulge;
     private readonly WallEllipse? _originalEllipse;
     private readonly WallEllipse? _firstEllipse;
+    private readonly WallSpline? _originalSpline;
+    private readonly WallSpline? _firstSpline;
     private readonly (IReadOnlyList<Point2D>? Profile, double Length) _originalProfile, _firstProfile;
     private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _originalCurtain, _firstCurtain;
     private readonly Wall _remainder;
@@ -74,6 +76,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _originalEndJoin = wall.EndJoin;
         _originalBulge = wall.Bulge;
         _originalEllipse = wall.Ellipse;
+        _originalSpline = wall.Spline;
 
         // On a curved wall the split lands on the arc, and each half keeps its share of the
         // curve, so together they are exactly the wall that was there.
@@ -84,6 +87,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         var second = curve.Part(_splitAlong, curve.Length);
         _firstBulge = first.Bulge;
         _firstEllipse = first.Ellipse;
+        _firstSpline = first.Spline;
 
         // An edited profile is cut at the split too, each half keeping its own part of it.
         _originalProfile = (wall.Profile, wall.ProfileLength);
@@ -129,12 +133,15 @@ public sealed class SplitWallCommand : IUndoableCommand
             End = wall.End,
             Bulge = second.Bulge,
             Ellipse = second.Ellipse,
+            Spline = second.Spline,
             Profile = secondProfile.Profile,
             ProfileLength = secondProfile.Length,
             CurtainGrid = secondCurtain.Grid,
             CurtainPanels = secondCurtain.Panels,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
+            UpperSlantAngle = wall.UpperSlantAngle,
+            SlantBreakHeight = wall.SlantBreakHeight,
             OverrideTaper = wall.OverrideTaper,
             ExteriorTaper = wall.ExteriorTaper,
             InteriorTaper = wall.InteriorTaper,
@@ -169,6 +176,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.End = _splitPoint;
         _wall.Bulge = _firstBulge;
         _wall.Ellipse = _firstEllipse;
+        _wall.Spline = _firstSpline;
         (_wall.Profile, _wall.ProfileLength) = _firstProfile;
         (_wall.CurtainGrid, _wall.CurtainPanels) = _firstCurtain;
         _wall.EndJoin = WallJoinKind.Auto;
@@ -193,6 +201,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.End = _originalEnd;
         _wall.Bulge = _originalBulge;
         _wall.Ellipse = _originalEllipse;
+        _wall.Spline = _originalSpline;
         (_wall.Profile, _wall.ProfileLength) = _originalProfile;
         (_wall.CurtainGrid, _wall.CurtainPanels) = _originalCurtain;
         _wall.EndJoin = _originalEndJoin;
@@ -220,6 +229,8 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
     private readonly List<(Opening Opening, double Distance, double NewDistance)> _openings = new();
     private readonly WallEllipse? _oldEllipse;
     private WallEllipse? _newEllipse;
+    private readonly WallSpline? _oldSpline;
+    private WallSpline? _newSpline;
 
     public ChangeLocationLineCommand(BimDocument document, Wall wall, WallLocationLine newLine)
     {
@@ -227,6 +238,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         _oldLine = wall.LocationLine;
         _newLine = newLine;
         _oldEllipse = _newEllipse = wall.Ellipse;
+        _oldSpline = _newSpline = wall.Spline;
 
         if (document.GetWallType(wall) is not { } type) return;
 
@@ -350,6 +362,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         foreach (var (opening, _, distance) in _openings) opening.DistanceAlongWall = distance;
         _wall.LocationLine = _newLine;
         _wall.Ellipse = _newEllipse;
+        _wall.Spline = _newSpline;
     }
 
     public void Undo()
@@ -363,6 +376,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         foreach (var (opening, distance, _) in _openings) opening.DistanceAlongWall = distance;
         _wall.LocationLine = _oldLine;
         _wall.Ellipse = _oldEllipse;
+        _wall.Spline = _oldSpline;
     }
 
     /// <summary>
@@ -379,12 +393,14 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
             [wall] = (wall.Start + wall.ExteriorNormalAt(0) * delta, wall.End + wall.ExteriorNormalAt(curve.Length) * delta)
         };
 
-        // An elliptical wall has no concentric curve: its axes grow or shrink by the shift instead.
-        if (curve.IsElliptical)
+        // An elliptical or spline wall has no concentric curve: an ellipse's axes grow or shrink by
+        // the shift instead, and a spline is drawn again through its points moved across.
+        if (curve.IsElliptical || curve.IsSpline)
         {
             var shifted = curve.Offset(wall.ExteriorNormalAt(0).Dot(curve.LeftAt(0)) * delta);
             moves[wall] = (shifted.Start, shifted.End);
             _newEllipse = shifted.Ellipse;
+            _newSpline = shifted.Spline;
         }
 
         var others = document.Walls
@@ -413,7 +429,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         }
 
         // Stems ending on the arc are carried to the new arc along their own lines.
-        var newCurve = WallCurve.Of(moves[wall].Start, moves[wall].End, wall.Bulge, _newEllipse);
+        var newCurve = WallCurve.Of(moves[wall].Start, moves[wall].End, wall.Bulge, _newEllipse, _newSpline);
         foreach (var stem in others)
         {
             foreach (var atStart in new[] { true, false })
@@ -698,6 +714,30 @@ public sealed class BendWallCommand : IUndoableCommand
     public void Redo() => _wall.Bulge = _newBulge;
 
     public void Undo() => _wall.Bulge = _oldBulge;
+}
+
+/// <summary>
+/// Reshapes a spline wall by moving one of the points it passes through (specification section
+/// 3.1, "spline walls"). The ends stay where they are, so joins hold.
+/// </summary>
+public sealed class ReshapeSplineWallCommand : IUndoableCommand
+{
+    private readonly Wall _wall;
+    private readonly WallSpline? _oldSpline;
+    private readonly WallSpline? _newSpline;
+
+    public ReshapeSplineWallCommand(Wall wall, WallSpline? oldSpline, WallSpline? newSpline)
+    {
+        _wall = wall;
+        _oldSpline = oldSpline;
+        _newSpline = newSpline;
+    }
+
+    public string Name => "Move Spline Point";
+
+    public void Redo() => _wall.Spline = _newSpline;
+
+    public void Undo() => _wall.Spline = _oldSpline;
 }
 
 /// <summary>

@@ -108,6 +108,16 @@ public class PlanView : FrameworkElement
     /// <summary>An arc wall's end, once clicked, while its third point is being chosen.</summary>
     private Point2D? _pendingArcEnd;
 
+    /// <summary>The points clicked so far on a spline wall, after its start.</summary>
+    private readonly List<Point2D> _splinePoints = new();
+
+    /// <summary>A freehand stroke being dragged out, in model space, or null.</summary>
+    private List<Point2D>? _stroke;
+
+    /// <summary>Which of a spline wall's points is being dragged, and its shape before the drag.</summary>
+    private int _dragSplineIndex;
+    private WallSpline? _dragOriginalSpline;
+
     /// <summary>
     /// The chain being drawn: the wall placed by the last click, and the first one with the
     /// click it started from. An offset chain pulls each corner round to where the offset
@@ -146,6 +156,9 @@ public class PlanView : FrameworkElement
 
         /// <summary>Bending one wall into an arc through the cursor, or straightening it.</summary>
         Bend,
+
+        /// <summary>Moving one of the points a spline wall passes through.</summary>
+        SplinePoint,
 
         /// <summary>Moving whatever is selected, however much of it there is.</summary>
         Move
@@ -303,6 +316,8 @@ public class PlanView : FrameworkElement
             _drawShape = value;
             _pendingWallStart = null;
             _pendingArcEnd = null;
+            _splinePoints.Clear();
+            _stroke = null;
             InvalidateVisual();
         }
     }
@@ -468,6 +483,7 @@ public class PlanView : FrameworkElement
 
     private string FirstClickHint() => _drawShape switch
     {
+        WallShape.Spline => "Click points the wall curves through. Enter or a double click finishes, the first point closes a loop, Esc cancels.",
         WallShape.Arc => "Click where the arc ends. Space flips it, Esc cancels.",
         WallShape.Rectangle => "Click the opposite corner. Shift makes it square, Space flips the walls, Esc cancels.",
         WallShape.Polygon => PolygonInscribed
@@ -835,6 +851,7 @@ public class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = _pendingWallStart is not null
+                      || _stroke is not null
                       || _trimSubject is not null
                       || _pendingDimension is not null
                       || _bandStart is not null
@@ -846,6 +863,8 @@ public class PlanView : FrameworkElement
         _pendingDimension = null;
         _bandStart = null;
         _pendingArcEnd = null;
+        _splinePoints.Clear();
+        _stroke = null;
 
         if (!changed) return false;
 
@@ -968,6 +987,18 @@ public class PlanView : FrameworkElement
 
         var raw = ScreenToModel(screen);
 
+        // A freehand stroke follows the mouse for as long as the button is down.
+        if (_stroke is not null)
+        {
+            if (e.LeftButton == MouseButtonState.Pressed && _stroke[^1].DistanceTo(raw) * PixelsPerMm >= 2)
+            {
+                _stroke.Add(raw);
+                InvalidateVisual();
+            }
+
+            return;
+        }
+
         if (_dragging != GripKind.None)
         {
             DragTo(raw);
@@ -1029,6 +1060,8 @@ public class PlanView : FrameworkElement
         {
             case PlanTool.Wall:
                 if (DrawShape == WallShape.Pick) PickLine(raw);
+                else if (DrawShape == WallShape.Freehand) BeginStroke(raw);
+                else if (DrawShape == WallShape.Spline && e.ClickCount == 2 && _pendingWallStart is not null) FinishSpline(closed: false);
                 else PlaceWallPoint(SnapPoint(raw, null, out _));
                 return;
 
@@ -1121,7 +1154,7 @@ public class PlanView : FrameworkElement
             }
 
             var grip = GripAt(selected, raw);
-            if (grip is GripKind.Start or GripKind.End or GripKind.Bend)
+            if (grip is GripKind.Start or GripKind.End or GripKind.Bend or GripKind.SplinePoint)
             {
                 BeginEndGripDrag(grip, raw);
                 return;
@@ -1149,6 +1182,12 @@ public class PlanView : FrameworkElement
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
+        if (_stroke is not null)
+        {
+            FinishStroke();
+            return;
+        }
+
         EndBand();
         EndDrag();
     }
@@ -1157,6 +1196,7 @@ public class PlanView : FrameworkElement
     {
         base.OnLostMouseCapture(e);
         _bandStart = null;
+        _stroke = null;
         EndDrag();
     }
 
@@ -1303,11 +1343,31 @@ public class PlanView : FrameworkElement
 
         if (wall.Start.DistanceTo(model) <= radius) return GripKind.Start;
         if (wall.End.DistanceTo(model) <= radius) return GripKind.End;
-        // An elliptical wall keeps its shape: bending it would make it an arc.
-        if (!wall.IsElliptical && BendGrip(wall).DistanceTo(model) <= radius) return GripKind.Bend;
+        if (SplineGripAt(wall, model) is not null) return GripKind.SplinePoint;
+
+        // An elliptical or spline wall keeps its shape: bending it would make it an arc.
+        if (!wall.IsElliptical && !wall.IsSpline && BendGrip(wall).DistanceTo(model) <= radius) return GripKind.Bend;
 
         return GripKind.None;
     }
+
+    /// <summary>
+    /// Which of a spline wall's points is under the cursor. Only a whole spline has them to
+    /// drag: a wall split off one is a stretch of a curve whose other points are in another wall.
+    /// </summary>
+    private int? SplineGripAt(Wall wall, Point2D model)
+    {
+        if (!IsWholeSpline(wall)) return null;
+
+        var radius = GripPixelRadius / PixelsPerMm;
+        foreach (var (index, point) in wall.LocationCurve.SplinePoints())
+            if (point.DistanceTo(model) <= radius) return index;
+
+        return null;
+    }
+
+    private static bool IsWholeSpline(Wall wall) =>
+        wall.IsSpline && wall.Spline!.From == 0 && wall.Spline.To == wall.Spline.Segments;
 
     /// <summary>Where the bend grip sits: halfway along the wall, on its drawn line.</summary>
     private static Point2D BendGrip(Wall wall) => wall.LocationCurve.PointAt(wall.Length / 2);
@@ -1330,6 +1390,8 @@ public class PlanView : FrameworkElement
         _dragOriginalStart = wall.Start;
         _dragOriginalEnd = wall.End;
         _dragOriginalBulge = wall.Bulge;
+        _dragOriginalSpline = wall.Spline;
+        if (grip == GripKind.SplinePoint) _dragSplineIndex = SplineGripAt(wall, raw) ?? 0;
 
         CaptureMouse();
         Cursor = Cursors.SizeAll;
@@ -1388,6 +1450,20 @@ public class PlanView : FrameworkElement
                 wall.End = SnapPoint(raw, wall, out _cursorIsSnapped);
                 break;
 
+            case GripKind.SplinePoint:
+            {
+                // The point goes where the cursor is, in the frame the wall's ends set, and the
+                // curve is drawn again through it.
+                var at = SnapPoint(raw, wall, out _cursorIsSnapped);
+                wall.Spline = wall.Spline!.WithPointAt(_dragSplineIndex, at, wall.Start, wall.End);
+
+                _cursorModel = at;
+                CursorMoved?.Invoke(this, _cursorModel);
+                HintChanged?.Invoke(this, $"Length {Units.FormatLength(wall.Length)}.");
+                InvalidateVisual();
+                return;
+            }
+
             case GripKind.Bend:
             {
                 // The arc passes through the cursor, unless the cursor is back on the straight
@@ -1440,6 +1516,16 @@ public class PlanView : FrameworkElement
 
         if (SelectedWall is not { } wall) return;
 
+        if (grip == GripKind.SplinePoint)
+        {
+            if (Equals(wall.Spline, _dragOriginalSpline)) return;
+
+            History?.Record(new ReshapeSplineWallCommand(wall, _dragOriginalSpline, wall.Spline));
+            ModelChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+            return;
+        }
+
         if (grip == GripKind.Bend)
         {
             if (wall.Bulge == _dragOriginalBulge) return;
@@ -1483,11 +1569,16 @@ public class PlanView : FrameworkElement
             _chainFirstWall = null;
             _chainFirstClick = model;
             _pendingArcEnd = null;
+            _splinePoints.Clear();
             HintChanged?.Invoke(this, FirstClickHint());
         }
         else if (DrawsClosedShape)
         {
             PlaceShape(model);
+        }
+        else if (_drawShape == WallShape.Spline)
+        {
+            PlaceSplinePoint(model);
         }
         else if (DrawArcs)
         {
@@ -1580,6 +1671,149 @@ public class PlanView : FrameworkElement
 
         HintChanged?.Invoke(this, $"{(curve.IsElliptical ? "Half ellipse" : "Arc")} placed. Click where the next one ends, or Esc to stop.");
     }
+
+    // ---- spline and freehand walls ------------------------------------------------------
+
+    /// <summary>How near its first point a spline or stroke has to come back to close into a loop, in screen pixels.</summary>
+    private const double ClosePixels = 10;
+
+    /// <summary>
+    /// A click on a spline wall: another point it passes through. Clicking the last point
+    /// again finishes it there, and clicking the first closes it into a loop.
+    /// </summary>
+    private void PlaceSplinePoint(Point2D model)
+    {
+        if (_pendingWallStart is not { } start) return;
+
+        if (_splinePoints.Count >= 2 && model.DistanceTo(start) * PixelsPerMm <= ClosePixels)
+        {
+            FinishSpline(closed: true);
+            return;
+        }
+
+        var last = _splinePoints.Count > 0 ? _splinePoints[^1] : start;
+        if (last.DistanceTo(model) < SnapStepMm)
+        {
+            if (_splinePoints.Count > 0) FinishSpline(closed: false);
+            return;
+        }
+
+        _splinePoints.Add(model);
+        HintChanged?.Invoke(this, $"{_splinePoints.Count + 1} points. Keep clicking; Enter or a double click finishes at the last one, the first point closes the loop, Esc cancels.");
+        InvalidateVisual();
+    }
+
+    /// <summary>Enter while drawing: finishes a spline wall at its last point. Returns whether there was one to finish.</summary>
+    public bool FinishDrawing()
+    {
+        if (ActiveTool != PlanTool.Wall || _drawShape != WallShape.Spline || _pendingWallStart is null || _splinePoints.Count == 0)
+            return false;
+
+        FinishSpline(closed: false);
+        return true;
+    }
+
+    private void FinishSpline(bool closed)
+    {
+        if (_pendingWallStart is not { } start || _splinePoints.Count == 0) return;
+
+        var points = new List<Point2D> { start };
+        points.AddRange(_splinePoints);
+        _pendingWallStart = null;
+        _splinePoints.Clear();
+
+        PlaceCurvePieces(WallShapes.Spline(points, closed), closed ? "Draw Spline Loop" : "Draw Spline Wall");
+    }
+
+    private void BeginStroke(Point2D raw)
+    {
+        _stroke = new List<Point2D> { raw };
+        CaptureMouse();
+        HintChanged?.Invoke(this, "Drawing: let go to place the wall. End where you started to close it into a loop.");
+    }
+
+    /// <summary>The end of a freehand stroke: a smooth wall along what it meant.</summary>
+    private void FinishStroke()
+    {
+        var stroke = _stroke;
+        _stroke = null;
+        ReleaseMouseCapture();
+        if (stroke is null || Document is null) return;
+
+        var length = stroke.Zip(stroke.Skip(1), (a, b) => a.DistanceTo(b)).Sum();
+        if (length * PixelsPerMm < 20)
+        {
+            HintChanged?.Invoke(this, "Too short to build. Hold the button down and drag out the line of the wall.");
+            InvalidateVisual();
+            return;
+        }
+
+        // Ending back where it began, having gone somewhere in between, closes it.
+        var closed = stroke[0].DistanceTo(stroke[^1]) * PixelsPerMm <= ClosePixels * 2 &&
+                     stroke.Max(p => p.DistanceTo(stroke[0])) * PixelsPerMm > ClosePixels * 4;
+
+        // What the stroke meant without the wobble of a hand: points within a few pixels of
+        // the straight line between their neighbours are dropped.
+        var points = WallShapes.Simplify(stroke, Math.Max(6 / PixelsPerMm, 10)).ToList();
+        if (closed && points.Count > 3) points.RemoveAt(points.Count - 1);
+
+        PlaceCurvePieces(WallShapes.Spline(points, closed), "Draw Freehand Wall");
+    }
+
+    /// <summary>Builds the walls of a spline or freehand shape, moved off the line drawn by the offset toward their exterior.</summary>
+    private void PlaceCurvePieces(IReadOnlyList<WallPiece> pieces, string name)
+    {
+        if (Document is null) return;
+
+        var walls = WallShapes.Walls(WallShapes.Offset(pieces, DrawFlipped ? -DrawOffset : DrawOffset),
+                ActiveWallTypeId, ActiveLevelId, ActiveLocationLine, DrawFlipped)
+            .Select(Configured)
+            .ToList();
+
+        if (walls.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Too small to build. Spread the points further apart.");
+            InvalidateVisual();
+            return;
+        }
+
+        Apply(walls.Count == 1 ? new AddElementCommand(Document, walls[0], name) : new AddElementsCommand(Document, walls, name));
+        SelectMany(walls);
+
+        HintChanged?.Invoke(this, walls.Count == 1
+            ? "Wall placed. Drag its round grips to reshape the curve. Draw another, or Esc to stop."
+            : $"{walls.Count} walls placed round the loop. Draw another, or Esc to stop.");
+        InvalidateVisual();
+    }
+
+    /// <summary>The spline being clicked out, through the cursor, as it will be built.</summary>
+    private void DrawPendingSpline(DrawingContext dc, WallType? type)
+    {
+        if (_pendingWallStart is not { } start) return;
+
+        var points = new List<Point2D> { start };
+        points.AddRange(_splinePoints);
+
+        var closing = _splinePoints.Count >= 2 && _cursorModel.DistanceTo(start) * PixelsPerMm <= ClosePixels;
+        foreach (var point in points) dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(point), 4, 4);
+        if (!closing && _cursorModel.DistanceTo(points[^1]) >= SnapStepMm) points.Add(_cursorModel);
+
+        var drawn = WallShapes.Spline(points, closing);
+        foreach (var piece in drawn) DrawModelPolyline(dc, _previewPen, piece.Curve.Points());
+        if (type is null) return;
+
+        var pieces = WallShapes.Offset(drawn, DrawFlipped ? -DrawOffset : DrawOffset);
+        foreach (var piece in pieces)
+            DrawWallBody(dc, PreviewWall(piece), type, _previewPen);
+
+        if (pieces.Count > 0) DrawFlipArrows(dc, PreviewWall(pieces[0]), type);
+    }
+
+    private Wall PreviewWall(WallPiece piece) => new()
+    {
+        Start = piece.Start, End = piece.End, Bulge = piece.Bulge, Ellipse = piece.Ellipse, Spline = piece.Spline,
+        LocationLine = ActiveLocationLine, Flipped = DrawFlipped
+    };
 
     /// <summary>
     /// Works out what the user is pointing at, so a dimension can follow it afterwards.
@@ -2601,7 +2835,12 @@ public class PlanView : FrameworkElement
         }
 
         diamond.Freeze();
-        if (!wall.IsElliptical) dc.DrawGeometry(_gripBrush, _gripPen, diamond);
+        if (!wall.IsElliptical && !wall.IsSpline) dc.DrawGeometry(_gripBrush, _gripPen, diamond);
+
+        // A spline wall's points: round grips that reshape the curve when dragged.
+        if (IsWholeSpline(wall))
+            foreach (var (_, point) in wall.LocationCurve.SplinePoints())
+                dc.DrawEllipse(_gripBrush, _gripPen, ModelToScreen(point), 5, 5);
 
         if (Document?.GetWallType(wall) is { } type) DrawFlipArrows(dc, wall, type);
     }
@@ -2638,9 +2877,22 @@ public class PlanView : FrameworkElement
 
     private void DrawPendingWall(DrawingContext dc)
     {
+        // A freehand stroke is shown as it is being drawn; the wall comes when it is let go.
+        if (_stroke is { Count: > 1 } stroke)
+        {
+            DrawModelPolyline(dc, _previewPen, stroke);
+            return;
+        }
+
         if (_pendingWallStart is null) return;
 
         var type = Document?.PlanWallType(ActiveWallTypeId, NewWallHeight);
+
+        if (_drawShape == WallShape.Spline)
+        {
+            DrawPendingSpline(dc, type);
+            return;
+        }
 
         // A closed shape is shown whole, every wall of it, as it will be built.
         if (DrawsClosedShape)

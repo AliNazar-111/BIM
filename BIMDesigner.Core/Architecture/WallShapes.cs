@@ -19,13 +19,19 @@ public enum WallShape
     PartialEllipse,
 
     /// <summary>A wall along an existing line - a gridline - picked with one click.</summary>
-    Pick
+    Pick,
+
+    /// <summary>A smooth curve through clicked points, finished with Enter or a double click.</summary>
+    Spline,
+
+    /// <summary>A smooth curve following a stroke dragged with the mouse.</summary>
+    Freehand
 }
 
-/// <summary>One wall of a shape: where it runs, and how far it bows - as an arc, or as a piece of an ellipse.</summary>
-public readonly record struct WallPiece(Point2D Start, Point2D End, double Bulge, WallEllipse? Ellipse = null)
+/// <summary>One wall of a shape: where it runs, and how far it bows - as an arc, a piece of an ellipse or a spline.</summary>
+public readonly record struct WallPiece(Point2D Start, Point2D End, double Bulge, WallEllipse? Ellipse = null, WallSpline? Spline = null)
 {
-    public WallCurve Curve => WallCurve.Of(Start, End, Bulge, Ellipse);
+    public WallCurve Curve => WallCurve.Of(Start, End, Bulge, Ellipse, Spline);
 }
 
 /// <summary>
@@ -218,7 +224,7 @@ public static class WallShapes
         var curves = pieces.Select(p => p.Curve).ToList();
 
         // An elliptical piece grows or shrinks as a whole, keeping its ends at its own axes.
-        var grown = curves.Select(c => c.IsElliptical ? c.Offset(offset) : null).ToArray();
+        var grown = curves.Select(c => c.IsElliptical || c.IsSpline ? c.Offset(offset) : null).ToArray();
 
         // Left of travel is outside, so the offset curve is to the left.
         var starts = curves.Select((c, i) => grown[i]?.Start ?? c.At(0, offset)).ToArray();
@@ -237,7 +243,93 @@ public static class WallShapes
             starts[next] = corner;
         }
 
-        return pieces.Select((piece, i) => new WallPiece(starts[i], ends[i], piece.Bulge, grown[i]?.Ellipse ?? piece.Ellipse)).ToList();
+        return pieces.Select((piece, i) => new WallPiece(starts[i], ends[i], piece.Bulge, grown[i]?.Ellipse ?? piece.Ellipse, grown[i] is { } g ? g.Spline : piece.Spline)).ToList();
+    }
+
+    /// <summary>
+    /// Walls along a smooth curve through clicked points (specification section 3.1, "spline
+    /// walls"). Open, it is one wall from the first point to the last, passing all the others.
+    ///
+    /// Closed, it comes back round to the first point without a corner, as two walls - a wall
+    /// has two ends, and a loop has none. Both are stretches of one spline taken on round the
+    /// loop a little past its start, so each point, the two joins included, has neighbours on
+    /// both sides and the curve runs smoothly through all of them. Like every other shape it
+    /// runs clockwise, so the walls face out.
+    /// </summary>
+    public static IReadOnlyList<WallPiece> Spline(IReadOnlyList<Point2D> points, bool closed)
+    {
+        // Double clicks, and a stroke that dwelt in one place, leave points on top of each other.
+        var distinct = new List<Point2D>();
+        foreach (var point in points)
+            if (distinct.Count == 0 || distinct[^1].DistanceTo(point) >= MinimumPiece) distinct.Add(point);
+
+        if (closed && distinct.Count > 1 && distinct[^1].DistanceTo(distinct[0]) < MinimumPiece) distinct.RemoveAt(distinct.Count - 1);
+
+        if (!closed || distinct.Count < 3)
+        {
+            if (distinct.Count < 2) return Array.Empty<WallPiece>();
+            if (distinct.Count == 2) return new[] { new WallPiece(distinct[0], distinct[1], 0) };
+
+            var open = WallSpline.Between(distinct[0], distinct[^1], distinct.Skip(1).SkipLast(1));
+            return open is { IsValid: true }
+                ? new[] { new WallPiece(distinct[0], distinct[^1], 0, null, open) }
+                : new[] { new WallPiece(distinct[0], distinct[^1], 0) };
+        }
+
+        if (Polygon2D.SignedArea(distinct) > 0)
+        {
+            // Anticlockwise: turned round, from the same first point.
+            distinct.Reverse(1, distinct.Count - 1);
+        }
+
+        // P0 ... Pn-1, then round again through P0, P1 and P2, so the loop from P1 back to P1
+        // is inside the spline with a point either side of both its ends.
+        var n = distinct.Count;
+        var knots = distinct.Concat(new[] { distinct[0], distinct[1], distinct[2] }).ToList();
+        if (WallSpline.Between(knots[0], knots[^1], knots.Skip(1).SkipLast(1)) is not { } whole) return Array.Empty<WallPiece>();
+
+        var half = Math.Max(1, n / 2);
+        var middle = distinct[(1 + half) % n];
+        return new[]
+        {
+            new WallPiece(distinct[1], middle, 0, null, whole.Part(1, 1 + half)),
+            new WallPiece(middle, distinct[1], 0, null, whole.Part(1 + half, n + 1))
+        };
+    }
+
+    /// <summary>
+    /// The points of a stroke drawn freehand that its shape depends on: every point further
+    /// than the tolerance from the line between those kept either side of it, and none of the
+    /// wobble in between (the Douglas-Peucker method). A spline through them is the freeform
+    /// wall the stroke meant.
+    /// </summary>
+    public static IReadOnlyList<Point2D> Simplify(IReadOnlyList<Point2D> stroke, double tolerance)
+    {
+        if (stroke.Count <= 2) return stroke.ToList();
+
+        var keep = new bool[stroke.Count];
+        keep[0] = keep[^1] = true;
+
+        var spans = new Stack<(int From, int To)>();
+        spans.Push((0, stroke.Count - 1));
+        while (spans.Count > 0)
+        {
+            var (from, to) = spans.Pop();
+            var (furthest, distance) = (-1, 0.0);
+            for (var i = from + 1; i < to; i++)
+            {
+                var d = Line2D.DistanceFromSegment(stroke[i], stroke[from], stroke[to]);
+                if (d > distance) (furthest, distance) = (i, d);
+            }
+
+            if (furthest < 0 || distance <= tolerance) continue;
+
+            keep[furthest] = true;
+            spans.Push((from, furthest));
+            spans.Push((furthest, to));
+        }
+
+        return stroke.Where((_, i) => keep[i]).ToList();
     }
 
     /// <summary>The walls of a shape, as they will be built.</summary>
@@ -251,6 +343,7 @@ public static class WallShapes
                 End = piece.End,
                 Bulge = piece.Bulge,
                 Ellipse = piece.Ellipse,
+                Spline = piece.Spline,
                 TypeId = typeId,
                 LevelId = levelId,
                 LocationLine = locationLine,

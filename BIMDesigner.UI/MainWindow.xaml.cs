@@ -265,7 +265,8 @@ public partial class MainWindow : Window
 
         _loadingOptions = false;
 
-        Plan.ActiveWallTypeId = wallTypes.FirstOrDefault()?.Id ?? Guid.Empty;
+        // Whatever the picker shows: it starts on an exterior wall, not the first type by name.
+        Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as ElementType)?.Id ?? Guid.Empty;
         Plan.ActiveDoorTypeId = doorTypes.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveWindowTypeId = windowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveFloorTypeId = _document.TypesOf<FloorType>().FirstOrDefault()?.Id ?? Guid.Empty;
@@ -782,6 +783,10 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
+            case Key.Enter:
+                // Finishes a spline wall at its last point.
+                if (Plan.FinishDrawing()) e.Handled = true;
+                break;
             case Key.Escape:
                 // Esc first abandons whatever tool operation is half-done, and only then lets
                 // go of the selection - so it takes two presses to lose a selection by accident.
@@ -1944,6 +1949,8 @@ public partial class MainWindow : Window
             WallShape.Ellipse => "Ellipse: click one corner of its box, then the opposite one. Hold Shift for a circle.",
             WallShape.PartialEllipse => "Partial ellipse: click one end of an axis, the other end, then a point the ellipse passes through.",
             WallShape.Pick => "Pick lines: click a gridline to put a wall along it. The offset moves it toward the side you click.",
+            WallShape.Spline => "Spline: click the start, then points the wall curves through. Enter or a double click finishes; click the first point to close a loop.",
+            WallShape.Freehand => "Freehand: hold the mouse button and draw the wall. Let go to build it; end where you began to close a loop.",
             _ => "Click the start of the wall, then its end."
         };
     }

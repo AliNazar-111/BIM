@@ -140,6 +140,9 @@ public static class ModelMeshBuilder
 
         for (var i = first; i < meshes.Count; i++)
         {
+            // A bent wall is folded at its bend, so it needs a line of points there to fold on.
+            foreach (var bend in WallLean.Bends(wall, double.PositiveInfinity)) meshes[i].SplitAt(bottom + bend);
+
             meshes[i].Transform(point =>
             {
                 var moved = WallLean.Move(wall, type, new Point2D(point.X, point.Y), point.Z - bottom);

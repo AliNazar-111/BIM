@@ -65,11 +65,20 @@ public sealed class Wall : Element
     /// </summary>
     public WallEllipse? Ellipse { get; set; }
 
-    /// <summary>Whether the wall is an arc or elliptical rather than a straight line.</summary>
-    public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge || IsElliptical;
+    /// <summary>
+    /// The shape of a spline or freeform wall, or null. Takes precedence over <see cref="Ellipse"/>
+    /// and <see cref="Bulge"/>. See <see cref="WallSpline"/>.
+    /// </summary>
+    public WallSpline? Spline { get; set; }
+
+    /// <summary>Whether the wall is an arc, elliptical or a spline rather than a straight line.</summary>
+    public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge || IsElliptical || IsSpline;
 
     /// <summary>Whether the wall is a piece of an ellipse.</summary>
-    public bool IsElliptical => Ellipse is { IsValid: true };
+    public bool IsElliptical => !IsSpline && Ellipse is { IsValid: true };
+
+    /// <summary>Whether the wall follows a spline.</summary>
+    public bool IsSpline => Spline is { IsValid: true };
 
     /// <summary>The line the wall was drawn along - the location line - straight or curved.</summary>
     public WallCurve LocationCurve
@@ -78,10 +87,10 @@ public sealed class Wall : Element
         {
             // An elliptical curve is measured along its length when made, so it is kept until
             // the wall's ends or shape change.
-            var key = (Start, End, Bulge, Ellipse);
-            if (_curve is null || _curveKey != key)
+            var key = (Start, End, Bulge, Ellipse, Spline);
+            if (_curve is null || !_curveKey.Equals(key))
             {
-                _curve = WallCurve.Of(Start, End, Bulge, Ellipse);
+                _curve = WallCurve.Of(Start, End, Bulge, Ellipse, Spline);
                 _curveKey = key;
             }
 
@@ -90,7 +99,7 @@ public sealed class Wall : Element
     }
 
     private WallCurve? _curve;
-    private (Point2D, Point2D, double, WallEllipse?) _curveKey;
+    private (Point2D, Point2D, double, WallEllipse?, WallSpline?) _curveKey;
 
     public WallLocationLine LocationLine { get; set; } = WallLocationLine.WallCentreline;
 
@@ -128,6 +137,12 @@ public sealed class Wall : Element
 
     /// <summary>How far a slanted wall leans from vertical, in degrees. Positive leans toward the exterior.</summary>
     public double SlantAngle { get; set; }
+
+    /// <summary>How far a double-slanted wall leans above its break, in degrees. Positive leans toward the exterior.</summary>
+    public double UpperSlantAngle { get; set; }
+
+    /// <summary>Where a double-slanted wall changes its lean, in millimetres above its base.</summary>
+    public double SlantBreakHeight { get; set; } = 1500;
 
     /// <summary>Whether this wall's taper angles are its own rather than its type's.</summary>
     public bool OverrideTaper { get; set; }
@@ -462,13 +477,30 @@ public sealed class Wall : Element
             v => { if (EnumText.TryParse<WallCrossSection>(v, out var section)) CrossSection = section; },
             EnumText.Choices<WallCrossSection>());
 
-        if (CrossSection == WallCrossSection.Slanted)
-            yield return ParameterValue.BindValidated(WallParameters.SlantAngle, () => SlantAngle, v =>
+        if (CrossSection is WallCrossSection.Slanted or WallCrossSection.DoubleSlanted)
+            yield return ParameterValue.BindValidated(
+                CrossSection == WallCrossSection.DoubleSlanted ? WallParameters.LowerSlantAngle : WallParameters.SlantAngle, () => SlantAngle, v =>
             {
                 if (Math.Abs(v) > WallLean.MaxAngle) return false;
                 SlantAngle = v;
                 return true;
             });
+
+        if (CrossSection == WallCrossSection.DoubleSlanted)
+        {
+            yield return ParameterValue.BindValidated(WallParameters.UpperSlantAngle, () => UpperSlantAngle, v =>
+            {
+                if (Math.Abs(v) > WallLean.MaxAngle) return false;
+                UpperSlantAngle = v;
+                return true;
+            });
+            yield return ParameterValue.BindValidated(WallParameters.SlantBreakHeight, () => SlantBreakHeight, v =>
+            {
+                if (!double.IsFinite(v) || v < 0) return false;
+                SlantBreakHeight = v;
+                return true;
+            });
+        }
 
         if (CrossSection == WallCrossSection.Tapered)
         {
@@ -593,6 +625,15 @@ public static class WallParameters
 
     public static readonly ParameterDefinition SlantAngle =
         new("Angle from Vertical", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition LowerSlantAngle =
+        new("Lower Angle from Vertical", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition UpperSlantAngle =
+        new("Upper Angle from Vertical", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition SlantBreakHeight =
+        new("Slant Break Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition OverrideTaper =
         new("Override Type Taper", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);

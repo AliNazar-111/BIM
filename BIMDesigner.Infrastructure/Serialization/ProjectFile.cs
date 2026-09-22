@@ -464,6 +464,9 @@ public static class ProjectFile
                 EllipseRatio = wall.Ellipse?.Ratio,
                 EllipseFrom = wall.Ellipse?.From,
                 EllipseTo = wall.Ellipse?.To,
+                SplinePoints = wall.Spline?.Through.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                SplineFrom = wall.Spline?.From,
+                SplineTo = wall.Spline?.To,
                 Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 ProfileLength = wall.ProfileLength,
                 CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
@@ -473,6 +476,8 @@ public static class ProjectFile
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
                 SlantAngle = wall.SlantAngle,
+                UpperSlantAngle = wall.UpperSlantAngle,
+                SlantBreakHeight = wall.SlantBreakHeight,
                 OverrideTaper = wall.OverrideTaper,
                 ExteriorTaper = wall.ExteriorTaper,
                 InteriorTaper = wall.InteriorTaper,
@@ -804,6 +809,7 @@ public static class ProjectFile
                 StructuralUsage = ParseEnum(wall.StructuralUsage, StructuralUsage.NonBearing),
                 Bulge = double.IsFinite(wall.Bulge) ? wall.Bulge : 0,
                 Ellipse = ReadEllipse(wall),
+                Spline = ReadSpline(wall),
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
@@ -817,6 +823,8 @@ public static class ProjectFile
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = ParseEnum(wall.CrossSection, WallCrossSection.Vertical),
                 SlantAngle = Math.Clamp(wall.SlantAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
+                UpperSlantAngle = Math.Clamp(wall.UpperSlantAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
+                SlantBreakHeight = double.IsFinite(wall.SlantBreakHeight) ? Math.Max(0, wall.SlantBreakHeight) : 0,
                 OverrideTaper = wall.OverrideTaper,
                 ExteriorTaper = Math.Clamp(wall.ExteriorTaper, -WallLean.MaxAngle, WallLean.MaxAngle),
                 InteriorTaper = Math.Clamp(wall.InteriorTaper, -WallLean.MaxAngle, WallLean.MaxAngle),
@@ -1081,6 +1089,16 @@ public static class ProjectFile
         new WallEllipse(ratio, from, to) is { IsValid: true } ellipse
             ? ellipse
             : null;
+
+    /// <summary>A spline wall's shape, or null when there is none or it could not describe a curve.</summary>
+    private static WallSpline? ReadSpline(WallDto wall)
+    {
+        if (wall.SplinePoints is not { Count: >= 2 } values || values.Count % 2 != 0) return null;
+
+        var points = Enumerable.Range(0, values.Count / 2).Select(i => new Point2D(values[2 * i], values[2 * i + 1]));
+        var spline = new WallSpline(points, wall.SplineFrom, wall.SplineTo);
+        return spline.IsValid ? spline : null;
+    }
 
     /// <summary>A wall's edited profile, or null when there is none or it could not be one.</summary>
     private static IReadOnlyList<Point2D>? ReadProfile(WallDto wall)

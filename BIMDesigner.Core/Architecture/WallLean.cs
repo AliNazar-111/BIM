@@ -11,6 +11,9 @@ public enum WallCrossSection
     /// <summary>The whole wall leans, by its angle from vertical.</summary>
     Slanted,
 
+    /// <summary>The whole wall leans one way up to a break height and another way above it: a bent wall.</summary>
+    DoubleSlanted,
+
     /// <summary>Its faces lean in as it rises, so it is thinner at the top than the bottom.</summary>
     Tapered
 }
@@ -35,9 +38,19 @@ public static class WallLean
     private const double MinimumCore = 1;
 
     /// <summary>Whether a wall leans at all.</summary>
+    /// <summary>
+    /// The heights above the base where a wall bends, so a solid built straight up can be cut
+    /// there before it is leaned: a double-slanted wall's break, when it is inside the wall.
+    /// </summary>
+    public static IReadOnlyList<double> Bends(Wall wall, double height) =>
+        wall.CrossSection == WallCrossSection.DoubleSlanted && wall.SlantBreakHeight > 1e-6 && wall.SlantBreakHeight < height - 1e-6
+            ? new[] { wall.SlantBreakHeight }
+            : Array.Empty<double>();
+
     public static bool Leans(Wall wall, WallType type) => wall.CrossSection switch
     {
         WallCrossSection.Slanted => Math.Abs(wall.SlantAngle) > 1e-9,
+        WallCrossSection.DoubleSlanted => Math.Abs(wall.SlantAngle) > 1e-9 || Math.Abs(wall.UpperSlantAngle) > 1e-9,
         WallCrossSection.Tapered => Math.Abs(ExteriorTaper(wall, type)) > 1e-9 || Math.Abs(InteriorTaper(wall, type)) > 1e-9,
         _ => false
     };
@@ -58,6 +71,15 @@ public static class WallLean
         {
             case WallCrossSection.Slanted:
                 return Math.Tan(Clamp(wall.SlantAngle) * Math.PI / 180) * height;
+
+            case WallCrossSection.DoubleSlanted:
+            {
+                // Each part leans by its own angle over its own height, so the two meet at the break.
+                var lower = Math.Min(height, wall.SlantBreakHeight);
+                var upper = Math.Max(0, height - wall.SlantBreakHeight);
+                return Math.Tan(Clamp(wall.SlantAngle) * Math.PI / 180) * lower +
+                       Math.Tan(Clamp(wall.UpperSlantAngle) * Math.PI / 180) * upper;
+            }
 
             case WallCrossSection.Tapered:
             {

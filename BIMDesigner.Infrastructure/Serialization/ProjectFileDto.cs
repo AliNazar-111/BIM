@@ -553,6 +553,11 @@ internal sealed class WallDto
     public double? EllipseFrom { get; set; }
     public double? EllipseTo { get; set; }
 
+    /// <summary>A spline wall's points between its ends as x, y pairs in its own frame, and the stretch of it this wall is. Absent otherwise.</summary>
+    public List<double>? SplinePoints { get; set; }
+    public double? SplineFrom { get; set; }
+    public double? SplineTo { get; set; }
+
     /// <summary>An edited elevation outline as x, y pairs (along, height above base), and the wall length it was edited at.</summary>
     public List<double>? Profile { get; set; }
     public double ProfileLength { get; set; }
@@ -566,9 +571,13 @@ internal sealed class WallDto
     public Guid? TopAttachedTo { get; set; }
     public Guid? BaseAttachedTo { get; set; }
 
-    /// <summary>"Vertical", "Slanted" or "Tapered", and the angles for them, in degrees.</summary>
+    /// <summary>"Vertical", "Slanted", "DoubleSlanted" or "Tapered", and the angles for them, in degrees.</summary>
     public string CrossSection { get; set; } = "Vertical";
     public double SlantAngle { get; set; }
+
+    /// <summary>A double-slanted wall's lean above its break, in degrees, and the break's height above the base in millimetres.</summary>
+    public double UpperSlantAngle { get; set; }
+    public double SlantBreakHeight { get; set; }
     public bool OverrideTaper { get; set; }
     public double ExteriorTaper { get; set; }
     public double InteriorTaper { get; set; }

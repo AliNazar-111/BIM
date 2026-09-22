@@ -99,6 +99,7 @@ public static class ElementTransforms
                 // A mirror image turns the other way.
                 wall.Bulge = -wall.Bulge;
                 wall.Ellipse = wall.Ellipse?.Mirrored();
+                wall.Spline = wall.Spline?.Mirrored();
                 break;
 
             case Slab slab:

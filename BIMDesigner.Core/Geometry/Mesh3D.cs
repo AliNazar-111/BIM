@@ -73,6 +73,78 @@ public sealed class Mesh3D
         for (var i = 0; i < _edges.Count; i++) _edges[i] = (map(_edges[i].From), map(_edges[i].To));
     }
 
+    /// <summary>
+    /// Cuts every face that crosses a height into the part below and the part above, and
+    /// every edge likewise, so the solid can be bent there by <see cref="Transform"/>: a bent
+    /// wall is built straight, cut at its bend, then leaned. The cut becomes an edge of its
+    /// own, as the fold it will be.
+    /// </summary>
+    public void SplitAt(double z)
+    {
+        const double onPlane = 1e-6;
+        var positions = _positions.ToList();
+        var indices = _indices.ToList();
+        _positions.Clear();
+        _indices.Clear();
+
+        static Point3D Cross(Point3D p, Point3D q, double z)
+        {
+            var t = (z - p.Z) / (q.Z - p.Z);
+            return new Point3D(p.X + (q.X - p.X) * t, p.Y + (q.Y - p.Y) * t, z);
+        }
+
+        void Fan(IReadOnlyList<Point3D> polygon)
+        {
+            for (var i = 1; i + 1 < polygon.Count; i++) AddTriangle(polygon[0], polygon[i], polygon[i + 1]);
+        }
+
+        for (var t = 0; t + 2 < indices.Count; t += 3)
+        {
+            var corners = new[] { positions[indices[t]], positions[indices[t + 1]], positions[indices[t + 2]] };
+            var sides = corners.Select(p => Math.Abs(p.Z - z) <= onPlane ? 0 : Math.Sign(p.Z - z)).ToArray();
+
+            if (!sides.Contains(-1) || !sides.Contains(1))
+            {
+                AddTriangle(corners[0], corners[1], corners[2]);
+                continue;
+            }
+
+            // Walked round the face, each corner goes to its side and each crossing to both.
+            var below = new List<Point3D>();
+            var above = new List<Point3D>();
+            var cut = new List<Point3D>();
+            for (var i = 0; i < 3; i++)
+            {
+                var (p, q) = (corners[i], corners[(i + 1) % 3]);
+                var (sp, sq) = (sides[i], sides[(i + 1) % 3]);
+                if (sp <= 0) below.Add(p);
+                if (sp >= 0) above.Add(p);
+                if (sp == 0) cut.Add(p);
+                if (sp * sq < 0)
+                {
+                    var crossing = Cross(p, q, z);
+                    below.Add(crossing);
+                    above.Add(crossing);
+                    cut.Add(crossing);
+                }
+            }
+
+            Fan(below);
+            Fan(above);
+            if (cut.Count == 2) AddEdge(cut[0], cut[1]);
+        }
+
+        for (var i = _edges.Count - 1; i >= 0; i--)
+        {
+            var (from, to) = _edges[i];
+            if ((from.Z - z) * (to.Z - z) >= 0 || Math.Abs(from.Z - z) <= onPlane || Math.Abs(to.Z - z) <= onPlane) continue;
+
+            var crossing = Cross(from, to, z);
+            _edges[i] = (from, crossing);
+            _edges.Add((crossing, to));
+        }
+    }
+
     /// <summary>Index triples into <see cref="Positions"/>.</summary>
     public IReadOnlyList<int> Indices => _indices;
 
@@ -159,10 +231,12 @@ public sealed class Mesh3D
 
             AddQuad(Low(i), Low(j), High(j), High(i));
 
-            // The outline at both ends, and the corner joining them.
+            // The outline at both ends, and the corner joining them - where there is a corner. A
+            // curved wall is drawn as many short faces, and a line up each join between them
+            // would stripe what is one smooth surface.
             AddEdge(Low(i), Low(j));
             AddEdge(High(i), High(j));
-            AddEdge(Low(i), High(i));
+            if (IsCorner(ring, i)) AddEdge(Low(i), High(i));
         }
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(ring))
@@ -172,6 +246,21 @@ public sealed class Mesh3D
             // The underside faces down, so it winds the other way.
             AddTriangle(Low(i), Low(k), Low(j));
         }
+    }
+
+    /// <summary>The most an outline may turn at a point and still be one smooth face, in degrees.</summary>
+    private const double SmoothTurn = 15;
+
+    /// <summary>Whether an outline turns at a point by more than a curve drawn in pieces does.</summary>
+    private static bool IsCorner(IReadOnlyList<Point2D> ring, int i)
+    {
+        var n = ring.Count;
+        var before = ring[i] - ring[(i - 1 + n) % n];
+        var after = ring[(i + 1) % n] - ring[i];
+        if (before.Length <= 1e-9 || after.Length <= 1e-9) return true;
+
+        var turn = Math.Abs(Math.Atan2(before.Cross(after), before.Dot(after))) * 180 / Math.PI;
+        return turn > SmoothTurn;
     }
 
     /// <summary>

@@ -317,6 +317,9 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Curve or straighten a wall | Select it and drag the diamond halfway along it; bring it back to the straight line to straighten |
 | Draw a whole shape of walls | Wall tool, **Shape**: Rectangle (Shift for a square), Polygon (set Sides; 3 is a triangle), Circle, Oval or Ellipse (Shift for round). Two clicks place every wall, joined |
 | Draw half an ellipse | Wall tool, **Shape: Partial ellipse**: click both ends of an axis, then a point the ellipse passes through |
+| Draw a spline wall | Wall tool, **Shape: Spline**: click the start, then points the wall curves through; `Enter` or a double click finishes, clicking the first point closes a smooth loop |
+| Draw a freeform wall | Wall tool, **Shape: Freehand**: hold the mouse button and draw; let go to build it, end where you began to close a loop |
+| Reshape a spline wall | Select it and drag the round grips on its points |
 | Make or edit a wall type | Architecture tab → **Wall Types**, or **Edit Type...** in Properties with a wall selected |
 | Change the type of several walls | Select them, then pick a type at the top of Properties |
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |
@@ -325,12 +328,17 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Make a wall follow the floor or roof above | Select walls, Architecture tab → **Attach Top** (or **Attach Base**), then click the slab; **Detach** undoes it |
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
+| Bend a wall partway up | Properties → **Cross-Section** → Double Slanted: set the **Lower** and **Upper Angle from Vertical** and the **Slant Break Height** |
 | Give a wall a gable, steps or a notch | Select one straight wall, Architecture tab → **Edit Profile**: drag corners, double-click an edge to add one, Delete removes one |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
 | Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass, solid, empty or a door; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
 | Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
 | Set a shopfront into a wall | Draw a curtain wall whose type has **Automatically embed** along inside the wall; it cuts its own opening |
 | Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |
+| Draw your own sweep profile | Wall Types → **Profiles...**: draw the outline, or start from a preset |
+| Put a sweep or reveal on some walls | Architecture tab → **Sweep** / **Reveal**, pick a type and Horizontal or Vertical on the option bar, click a wall face |
+| Carry a sweep onto more walls, or turn its ends | Select the sweep → **Modify \| Wall Sweeps** tab → **Add/Remove Walls**, or **Modify Returns** with Straight Cut / Return on the option bar |
+| Find what can be done to a selection | Select it: the green **Modify \| …** tab holds its tools |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |

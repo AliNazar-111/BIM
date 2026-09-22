@@ -358,16 +358,19 @@ public static class SectionProjection
             return x + (moved - point).Dot(marker.Direction);
         }
 
-        return piece with
-        {
-            Shape = new[]
-            {
-                (Along(bounds.Left, bounds.Bottom), bounds.Bottom),
-                (Along(bounds.Right, bounds.Bottom), bounds.Bottom),
-                (Along(bounds.Right, bounds.Top), bounds.Top),
-                (Along(bounds.Left, bounds.Top), bounds.Top)
-            }
-        };
+        // From the bottom left, up the right side and back down the left, with a corner at any
+        // bend on the way: the same four corners as ever for a wall that does not bend.
+        var heights = new List<double> { bounds.Bottom };
+        heights.AddRange(WallLean.Bends(wall, double.PositiveInfinity)
+            .Select(bend => baseElevation + bend)
+            .Where(elevation => elevation > bounds.Bottom + 1e-6 && elevation < bounds.Top - 1e-6));
+        heights.Add(bounds.Top);
+
+        var shape = new List<(double, double)> { (Along(bounds.Left, bounds.Bottom), bounds.Bottom) };
+        shape.AddRange(heights.Select(h => (Along(bounds.Right, h), h)));
+        shape.AddRange(Enumerable.Reverse(heights).SkipLast(1).Select(h => (Along(bounds.Left, h), h)));
+
+        return piece with { Shape = shape };
     }
 
     private static void AddWallAs(

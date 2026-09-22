@@ -11,7 +11,9 @@ namespace BIMDesigner.Core.Geometry;
 /// trimming - works on curved walls unchanged, and moving or mirroring a wall never has to
 /// reconstruct its centre.
 ///
-/// An elliptical piece is held the same way, by its ends and a <see cref="WallEllipse"/>.
+/// An elliptical piece is held the same way, by its ends and a <see cref="WallEllipse"/>, and
+/// a spline by its ends and a <see cref="WallSpline"/>. Both are measured by sampling a
+/// parameter along them, and share the code that does it.
 ///
 /// Positions along the curve are distances along it from the start. Positions across it are
 /// offsets to the left of the direction of travel.
@@ -37,13 +39,34 @@ public sealed class WallCurve
     private readonly double _semiU, _semiV, _t0, _t1;
     private readonly double[]? _lengths;
 
-    private WallCurve(Point2D start, Point2D end, double bulge, WallEllipse? ellipse = null)
+    // A spline: the map from its own frame to the plan, as a point it is pinned at and a turn
+    // and scale taken as a complex number.
+    private readonly Point2D _splineOrigin;
+    private readonly Vector2D _splineFrame;
+
+    private WallCurve(Point2D start, Point2D end, double bulge, WallEllipse? ellipse = null, WallSpline? spline = null)
     {
         Start = start;
         End = end;
 
         var chord = end - start;
         var chordLength = chord.Length;
+
+        if (spline is { IsValid: true } curve && chordLength >= 1e-9)
+        {
+            Spline = curve;
+            _t0 = curve.From;
+            _t1 = curve.To;
+
+            // The spline's own frame is turned and scaled so its two ends land on the wall's.
+            var from = curve.LocalAt(_t0);
+            _splineOrigin = from;
+            _splineFrame = WallSpline.Divide(chord, curve.LocalAt(_t1) - from);
+
+            _lengths = MeasureEllipse();
+            Length = _lengths[^1];
+            return;
+        }
 
         if (ellipse is { IsValid: true } shape && chordLength >= 1e-9)
         {
@@ -100,6 +123,9 @@ public sealed class WallCurve
     /// <summary>A curve that is a piece of an ellipse when one is given, otherwise a line or arc.</summary>
     public static WallCurve Of(Point2D start, Point2D end, double bulge, WallEllipse? ellipse) => new(start, end, bulge, ellipse);
 
+    /// <summary>A spline curve when one is given, else a piece of an ellipse, else a line or arc.</summary>
+    public static WallCurve Of(Point2D start, Point2D end, double bulge, WallEllipse? ellipse, WallSpline? spline) => new(start, end, bulge, ellipse, spline);
+
     /// <summary>The bulge of the arc from start to end that passes through a third point.</summary>
     public static double BulgeThrough(Point2D start, Point2D end, Point2D through)
     {
@@ -135,8 +161,16 @@ public sealed class WallCurve
 
     public bool IsElliptical => Ellipse is not null;
 
+    /// <summary>The spline this is a stretch of, or null.</summary>
+    public WallSpline? Spline { get; }
+
+    public bool IsSpline => Spline is not null;
+
+    /// <summary>Whether this is measured by sampling a parameter - an ellipse or a spline - rather than worked out exactly.</summary>
+    private bool IsSampled => IsElliptical || IsSpline;
+
     /// <summary>Whether this is anything but a straight line.</summary>
-    public bool IsCurved => IsArc || IsElliptical;
+    public bool IsCurved => IsArc || IsSampled;
 
     /// <summary>
     /// The tightest the curve bends: the radius of an arc, the smallest radius of curvature of
@@ -147,7 +181,7 @@ public sealed class WallCurve
         get
         {
             if (IsArc) return Radius;
-            if (!IsElliptical) return double.PositiveInfinity;
+            if (!IsSampled) return double.PositiveInfinity;
 
             var smallest = double.PositiveInfinity;
             for (var i = 0; i <= EllipseSamples; i++) smallest = Math.Min(smallest, CurvatureRadius(ParameterOf(i)));
@@ -167,13 +201,28 @@ public sealed class WallCurve
 
     public double StartAngle { get; }
 
+    /// <summary>
+    /// Where a spline's points between its ends are on the plan, each with its place in the
+    /// spline's list. Only the ones this stretch of it passes; none for any other curve.
+    /// </summary>
+    public IReadOnlyList<(int Index, Point2D Point)> SplinePoints()
+    {
+        if (Spline is not { } spline) return Array.Empty<(int, Point2D)>();
+
+        return spline.Through
+            .Select((local, i) => (Index: i, Knot: i + 1.0, Local: local))
+            .Where(p => p.Knot > _t0 + 1e-9 && p.Knot < _t1 - 1e-9)
+            .Select(p => (p.Index, Start + WallSpline.Multiply(p.Local - _splineOrigin, _splineFrame)))
+            .ToList();
+    }
+
     /// <summary>The point this far along the curve.</summary>
     public Point2D PointAt(double along) => At(along, 0);
 
     /// <summary>The point this far along, and this far to the left of the direction of travel.</summary>
     public Point2D At(double along, double left)
     {
-        if (IsElliptical)
+        if (IsSampled)
         {
             var t = ParameterAt(along);
             return EllipsePoint(t) + EllipseTangent(t).PerpendicularLeft() * left;
@@ -196,7 +245,7 @@ public sealed class WallCurve
     /// <summary>The direction of travel at this distance along.</summary>
     public Vector2D TangentAt(double along)
     {
-        if (IsElliptical) return EllipseTangent(ParameterAt(along));
+        if (IsSampled) return EllipseTangent(ParameterAt(along));
 
         if (!IsArc) return (End - Start).NormalisedOrDefault(Vector2D.UnitX);
 
@@ -215,7 +264,7 @@ public sealed class WallCurve
     /// </summary>
     public (double Along, double Left) Locate(Point2D point)
     {
-        if (IsElliptical) return LocateOnEllipse(point);
+        if (IsSampled) return LocateOnEllipse(point);
 
         if (!IsArc)
         {
@@ -252,7 +301,7 @@ public sealed class WallCurve
     /// </summary>
     public Point2D? Intersect(Line2D line, double left, Point2D near)
     {
-        if (IsElliptical) return IntersectEllipse(line, left, near);
+        if (IsSampled) return IntersectEllipse(line, left, near);
 
         if (!IsArc)
         {
@@ -294,10 +343,10 @@ public sealed class WallCurve
                    a >= -slack && a <= Length + slack && b >= -slack && b <= other.Length + slack;
         }
 
-        if (IsElliptical || other.IsElliptical)
+        if (IsSampled || other.IsSampled)
         {
             // Walked along whichever is elliptical, watching for the other one's side to change.
-            var (walked, against) = IsElliptical ? (this, other) : (other, this);
+            var (walked, against) = IsSampled ? (this, other) : (other, this);
             return walked.CrossingsWith(against).Where(OnBoth).ToList();
         }
 
@@ -351,7 +400,7 @@ public sealed class WallCurve
     /// </summary>
     public IEnumerable<double> Between(double from, double to, double left = 0)
     {
-        if (IsElliptical)
+        if (IsSampled)
         {
             foreach (var along in EllipseBetween(from, to, left)) yield return along;
             yield break;
@@ -380,11 +429,13 @@ public sealed class WallCurve
     }
 
     /// <summary>The same curve moved sideways by this much, as a new curve with the same bulge.</summary>
-    public WallCurve Offset(double left) => IsElliptical ? OffsetEllipse(left) : new(At(0, left), At(Length, left), Bulge);
+    public WallCurve Offset(double left) =>
+        IsSpline ? OffsetSpline(left) : IsElliptical ? OffsetEllipse(left) : new(At(0, left), At(Length, left), Bulge);
 
     /// <summary>The part of the curve between two distances along it.</summary>
     public WallCurve Part(double from, double to)
     {
+        if (IsSpline) return new WallCurve(PointAt(from), PointAt(to), 0, null, Spline!.Part(ParameterAt(from), ParameterAt(to)));
         if (IsElliptical) return new WallCurve(PointAt(from), PointAt(to), 0, Ellipse!.Value with { From = ParameterAt(from), To = ParameterAt(to) });
 
         if (!IsArc) return new WallCurve(PointAt(from), PointAt(to), 0);
@@ -407,28 +458,60 @@ public sealed class WallCurve
 
     private double ParameterOf(int sample) => _t0 + (_t1 - _t0) * sample / EllipseSamples;
 
+    // The same parameter machinery serves a spline: its point, first and second derivatives
+    // are the spline's own, carried from its frame onto the plan.
+
     private Point2D EllipsePoint(double t) =>
-        _ellipseCentre + _axisU * (_semiU * Math.Cos(t)) + _axisV * (_semiV * Math.Sin(t));
+        IsSpline
+            ? Start + WallSpline.Multiply(Spline!.LocalAt(t) - _splineOrigin, _splineFrame)
+            : _ellipseCentre + _axisU * (_semiU * Math.Cos(t)) + _axisV * (_semiV * Math.Sin(t));
 
     private Vector2D EllipseDerivative(double t) =>
-        _axisU * (-_semiU * Math.Sin(t)) + _axisV * (_semiV * Math.Cos(t));
+        IsSpline
+            ? WallSpline.Multiply(Spline!.LocalDerivative(t), _splineFrame)
+            : _axisU * (-_semiU * Math.Sin(t)) + _axisV * (_semiV * Math.Cos(t));
 
     private Vector2D EllipseSecondDerivative(double t) =>
-        _axisU * (-_semiU * Math.Cos(t)) + _axisV * (-_semiV * Math.Sin(t));
+        IsSpline
+            ? WallSpline.Multiply(Spline!.LocalSecondDerivative(t), _splineFrame)
+            : _axisU * (-_semiU * Math.Cos(t)) + _axisV * (-_semiV * Math.Sin(t));
 
     private double Speed(double t) => EllipseDerivative(t).Length;
 
     private Vector2D EllipseTangent(double t) => (EllipseDerivative(t) * Turn).NormalisedOrDefault(Vector2D.UnitX);
 
-    /// <summary>Radius of curvature at a parameter: speed cubed over the (constant) cross product of the derivatives.</summary>
+    /// <summary>Radius of curvature at a parameter: speed cubed over the cross product of the derivatives. Infinite where it runs straight.</summary>
     private double CurvatureRadius(double t)
     {
         var speed = Speed(t);
-        return speed * speed * speed / (_semiU * _semiV);
+        var cross = Math.Abs(EllipseDerivative(t).Cross(EllipseSecondDerivative(t)));
+        return cross < 1e-12 ? double.PositiveInfinity : speed * speed * speed / cross;
+    }
+
+    /// <summary>+1 where the curve bends left in the direction of travel, -1 where it bends right.</summary>
+    private double BendAt(double t)
+    {
+        var bend = Math.Sign(EllipseDerivative(t).Cross(EllipseSecondDerivative(t))) * Turn;
+        return bend == 0 ? 1 : bend;
     }
 
     /// <summary>Length of the curve over a stretch of parameter, by three-point Gauss-Legendre.</summary>
     private double StretchLength(double t, double span)
+    {
+        // A spline bends differently either side of each of its points, which the rule below
+        // cannot see across, so a stretch over one is measured as two.
+        if (IsSpline)
+        {
+            var (low, high) = span >= 0 ? (t, t + span) : (t + span, t);
+            var knot = Math.Floor(high - 1e-12);
+            if (knot > low + 1e-12 && knot < high - 1e-12)
+                return GaussLength(low, knot - low) + GaussLength(knot, high - knot);
+        }
+
+        return GaussLength(t, span);
+    }
+
+    private double GaussLength(double t, double span)
     {
         const double node = 0.7745966692414834;
         var half = span / 2;
@@ -477,7 +560,7 @@ public sealed class WallCurve
     private (double Along, double Left) LocateOnEllipse(Point2D point)
     {
         // The nearest of a coarse set of points, then narrowed down between its neighbours.
-        const int coarse = 128;
+        var coarse = IsSpline ? Math.Min(128 * Spline!.Segments, 4096) : 128;
         var best = 0;
         var bestDistance = double.PositiveInfinity;
         for (var i = 0; i <= coarse; i++)
@@ -523,7 +606,10 @@ public sealed class WallCurve
 
         // A crossing that lands on a sample - as it does at the ends of an axis - can come out a
         // hair either side of zero, so near enough counts as on the line.
-        const int steps = 720;
+        // The whole ellipse, all the way round; for a spline its whole length and a piece beyond
+        // each end, where it runs on straight - a wall end is often cut just past its curve.
+        var steps = IsSpline ? 240 * (Spline!.Segments + 2) : 720;
+        var (first, span) = IsSpline ? (-1.0, Spline!.Segments + 2.0) : (_t0, Turn * 2 * Math.PI);
         const double onLine = 1e-7;
         Point2D? nearest = null;
 
@@ -534,8 +620,8 @@ public sealed class WallCurve
 
         for (var i = 0; i < steps; i++)
         {
-            var a = _t0 + Turn * 2 * Math.PI * i / steps;
-            var b = _t0 + Turn * 2 * Math.PI * (i + 1) / steps;
+            var a = first + span * i / steps;
+            var b = first + span * (i + 1) / steps;
             var (sa, sb) = (Side(a), Side(b));
 
             if (Math.Abs(sa) < onLine)
@@ -610,10 +696,16 @@ public sealed class WallCurve
         // starts, measured on the edge being drawn rather than the location line.
         while (true)
         {
-            var radius = CurvatureRadius(ParameterAt(along));
-            var edgeRadius = Math.Max(radius - Turn * left, 1);
+            var t = ParameterAt(along);
+            var radius = CurvatureRadius(t);
+            var edgeRadius = Math.Max(radius - BendAt(t) * left, 1);
             var toleranceStep = 2 * Math.Acos(Math.Clamp(1 - ChordTolerance / edgeRadius, -1, 1));
-            along += Math.Min(MaxStepRadians, Math.Max(toleranceStep, 1e-3)) * radius;
+            var step = Math.Min(MaxStepRadians, Math.Max(toleranceStep, 1e-3)) * radius;
+
+            // A spline runs nearly straight in places, where the step would jump right over the
+            // next bend; it is kept short enough to see each piece between its points.
+            if (IsSpline) step = Math.Min(step, Length / (8.0 * Spline!.Segments));
+            along += step;
 
             if (along >= high - 1e-6) break;
             positions.Add(along);
@@ -628,6 +720,22 @@ public sealed class WallCurve
     /// The true offset of an ellipse is not an ellipse; this one matches it exactly at the four
     /// ends of the axes and stays within a hair of it between them for any ordinary wall.
     /// </summary>
+    private WallCurve OffsetSpline(double left)
+    {
+        // The true offset of a spline is not a spline either. This one passes through the
+        // offset of its ends and of points close along it, and follows the same bends between.
+        var spline = Spline!;
+        // Every 200 mm or so, so the new curve cannot wander from the true offset where the old
+        // one bends tightly - within a tenth of a millimetre or two for any wall drawn by hand.
+        var count = Math.Clamp((int)Math.Ceiling(Length / 200), 8, 96);
+        var through = Enumerable.Range(1, count - 1).Select(i => At(Length * i / count, left)).ToList();
+
+        var (start, end) = (At(0, left), At(Length, left));
+        return WallSpline.Between(start, end, through) is { IsValid: true } shifted
+            ? new WallCurve(start, end, 0, null, shifted)
+            : new WallCurve(start, end, 0);
+    }
+
     private WallCurve OffsetEllipse(double left)
     {
         var growth = -Turn * left;
