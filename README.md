@@ -319,6 +319,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Draw half an ellipse | Wall tool, **Shape: Partial ellipse**: click both ends of an axis, then a point the ellipse passes through |
 | Draw a spline wall | Wall tool, **Shape: Spline**: click the start, then points the wall curves through; `Enter` or a double click finishes, clicking the first point closes a smooth loop |
 | Draw a freeform wall | Wall tool, **Shape: Freehand**: hold the mouse button and draw; let go to build it, end where you began to close a loop |
+| Stretch any wall into a curve | Select it and double-click on it (or **Modify | Walls → Add Point**) to add a point, then drag the round grip; double-click a point to remove it, **Straighten** takes them all off |
 | Reshape a spline wall | Select it and drag the round grips on its points |
 | Make or edit a wall type | Architecture tab → **Wall Types**, or **Edit Type...** in Properties with a wall selected |
 | Change the type of several walls | Select them, then pick a type at the top of Properties |
