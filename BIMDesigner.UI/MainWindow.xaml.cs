@@ -1132,6 +1132,12 @@ public partial class MainWindow : Window
         Plan.RefreshModel();
         RefreshProjectBrowser();
 
+        // A type edit - a door made sliding, a window made a bay - shows everywhere at once.
+        RefreshSection();
+        SheetSurface.Refresh();
+        Refresh3D();
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshSchedule);
+
         // Editing one parameter can change derived ones, so rebuild the whole panel - but
         // after this edit has finished, or the row being edited is destroyed mid-binding.
         Dispatcher.BeginInvoke(RefreshProperties);
@@ -2342,6 +2348,9 @@ public partial class MainWindow : Window
         Plan.RefreshModel();
         RefreshProjectBrowser();
         RefreshProperties();
+        RefreshSection();
+        SheetSurface.Refresh();
+        Refresh3D();
 
         // Totals and any derived column move with it, so the table is rebuilt after the edit.
         Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshSchedule);

@@ -23,10 +23,6 @@ public static class ModelMeshBuilder
     private static readonly ColourRgb GlazingColour = new(0x8C, 0xC4, 0xE0);
     private static readonly ColourRgb LeafColour = new(0xA8, 0x84, 0x5C);
 
-    /// <summary>Thickness of a door leaf and a pane of glass, in millimetres.</summary>
-    private const double LeafThickness = 40;
-    private const double PaneThickness = 12;
-
     public static IReadOnlyList<Mesh3D> Build(BimDocument document, Func<Element, bool>? shows = null)
     {
         shows ??= _ => true;
@@ -111,8 +107,11 @@ public static class ModelMeshBuilder
         if (document.GetWallType(wall) is not { } planType) return;
 
         var infill = meshes.Count;
-        foreach (var (opening, _, from, to, sill, head) in openings)
-            if (opening is not null) AddOpeningInfill(wall, planType, opening, from, to, sill, head, meshes);
+        foreach (var (opening, openingType, from, to, sill, head) in openings)
+        {
+            if (opening is not null && openingType is not null)
+                OpeningModel.Add(wall, planType, opening, openingType, from, to, sill, head, meshes);
+        }
 
         // Doors and windows lean with the wall they are in.
         Lean(wall, planType, bottom, meshes, infill);
@@ -251,6 +250,12 @@ public static class ModelMeshBuilder
             };
             if (mesh is null) continue;
 
+            if (cell.Kind == CurtainPanelKind.Door)
+            {
+                AddCurtainDoor(wall, body, cell, bottom, doors, glass);
+                continue;
+            }
+
             mesh.AddExtrusion(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half),
                 bottom + cell.ClearBottom, bottom + cell.ClearTop);
         }
@@ -278,6 +283,39 @@ public static class ModelMeshBuilder
         }
 
         meshes.AddRange(new[] { glass, solid, doors, frame });
+    }
+
+    /// <summary>
+    /// A door in a curtain wall's panel: a glazed leaf - a slim frame round a pane - with a
+    /// long pull handle on each face, the way storefront doors are made.
+    /// </summary>
+    private static void AddCurtainDoor(Wall wall, WallType body, CurtainCell cell, double bottom, Mesh3D leaf, Mesh3D glass)
+    {
+        const double stile = 90;
+        const double rail = 110;
+        const double depth = 25;
+
+        var (u0, u1, z0, z1) = (cell.ClearFrom, cell.ClearTo, bottom + cell.ClearBottom, bottom + cell.ClearTop);
+        if (u1 - u0 <= 2 * stile || z1 - z0 <= 2 * rail)
+        {
+            leaf.AddExtrusion(CurtainGeometry.Band(wall, body, u0, u1, depth, -depth), z0, z1);
+            return;
+        }
+
+        void Part(Mesh3D mesh, double a0, double a1, double outer, double inner, double low, double high) =>
+            mesh.AddExtrusion(CurtainGeometry.Band(wall, body, a0, a1, outer, inner), low, high);
+
+        Part(leaf, u0, u0 + stile, depth, -depth, z0, z1);
+        Part(leaf, u1 - stile, u1, depth, -depth, z0, z1);
+        Part(leaf, u0 + stile, u1 - stile, depth, -depth, z1 - rail, z1);
+        Part(leaf, u0 + stile, u1 - stile, depth, -depth, z0, z0 + rail * 1.6);
+        Part(glass, u0 + stile, u1 - stile, 6, -6, z0 + rail * 1.6, z1 - rail);
+
+        // A pull bar on each face, near the leaf's free edge.
+        var at = u1 - stile / 2;
+        var middle = z0 + Math.Min(1000, (z1 - z0) / 2);
+        foreach (var side in new[] { 1.0, -1.0 })
+            Part(leaf, at - 12, at + 12, side * (depth + 55), side * (depth + 35), middle - 350, middle + 350);
     }
 
     /// <summary>A round bar lying along a path at one height: a round transom.</summary>
@@ -431,41 +469,6 @@ public static class ModelMeshBuilder
     /// </summary>
     private static WallCut Unwrapped(WallCut cut) =>
         cut.Condition == WallEndCondition.Jamb ? new WallCut(cut.Points, cut.Condition) : cut;
-
-    /// <summary>
-    /// What fills a hole: a pane of glass for a window, a closed leaf for a door. Both sit in
-    /// the middle of the wall, which is where a frame is fixed.
-    /// </summary>
-    private static void AddOpeningInfill(
-        Wall wall, WallType type, Opening opening, double from, double to, double sill, double head,
-        List<Mesh3D> meshes)
-    {
-        if (head <= sill) return;
-
-        var structure = type.Structure;
-        var isWindow = opening is Window;
-        var half = (isWindow ? PaneThickness : LeafThickness) / 2;
-
-        // Built in the wall's own frame, so in a curved wall the glass or leaf follows the
-        // curve and fills the hole exactly.
-        var curve = wall.LocationCurve;
-        var stations = new List<double> { from };
-        stations.AddRange(curve.Between(from, to));
-        stations.Add(to);
-
-        var outline = stations.Select(along => wall.PointAt(structure, along, half))
-            .Concat(stations.AsEnumerable().Reverse().Select(along => wall.PointAt(structure, along, -half)))
-            .ToArray();
-
-        var mesh = new Mesh3D(
-            opening.Id, opening.LevelId,
-            isWindow ? MeshKind.Glazing : MeshKind.DoorLeaf,
-            isWindow ? GlazingColour : LeafColour,
-            isWindow ? "Glazing" : "Door leaf");
-
-        mesh.AddExtrusion(outline, sill, head);
-        meshes.Add(mesh);
-    }
 
     // ---- slabs -----------------------------------------------------------------
 

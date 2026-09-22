@@ -296,15 +296,15 @@ public class ModelMeshTests
         Assert.DoesNotContain(wallMesh.Positions,
             p => p.X > 2400 + Tolerance && p.X < 3600 - Tolerance && p.Z > 900 + Tolerance && p.Z < 2100 - Tolerance);
 
-        // And the glass fills exactly the hole.
-        var glass = Assert.Single(meshes, m => m.ElementId == window.Id);
-        Assert.Equal(MeshKind.Glazing, glass.Kind);
-        Assert.True(glass.Opacity < 1);
+        // And the window fills the hole: a frame to its edges, glass within it.
+        var frame = Assert.Single(meshes, m => m.ElementId == window.Id && m.Description == "Window frame").Bounds()!.Value;
+        Assert.Equal(2100, frame.Max.Z, precision: 6);
 
-        var glassBounds = glass.Bounds()!.Value;
-        Assert.Equal(900, glassBounds.Min.Z, precision: 6);
-        Assert.Equal(2100, glassBounds.Max.Z, precision: 6);
-        Assert.Equal(1200, glassBounds.Max.X - glassBounds.Min.X, precision: 6);
+        var glass = meshes.Where(m => m.ElementId == window.Id && m.Kind == MeshKind.Glazing).ToList();
+        Assert.NotEmpty(glass);
+        Assert.All(glass, pane => Assert.True(pane.Opacity < 1));
+        Assert.All(glass.SelectMany(pane => pane.Positions), p =>
+            Assert.True(p.X >= 2400 - Tolerance && p.X <= 3600 + Tolerance && p.Z >= 900 - Tolerance && p.Z <= 2100 + Tolerance));
     }
 
     [Fact]
@@ -323,10 +323,12 @@ public class ModelMeshTests
         };
         document.Add(door);
 
-        var leaf = Assert.Single(ModelMeshBuilder.Build(document), m => m.ElementId == door.Id);
-        var bounds = leaf.Bounds()!.Value;
+        // The door - frame, leaf and handles together - fills the doorway exactly.
+        var parts = ModelMeshBuilder.Build(document).Where(m => m.ElementId == door.Id).ToList();
+        Assert.Contains(parts, m => m.Kind == MeshKind.DoorLeaf && m.Description == "Door leaf");
+        var points = parts.SelectMany(m => m.Positions).ToList();
+        var bounds = (Min: new Point3D(points.Min(p => p.X), 0, points.Min(p => p.Z)), Max: new Point3D(points.Max(p => p.X), 0, points.Max(p => p.Z)));
 
-        Assert.Equal(MeshKind.DoorLeaf, leaf.Kind);
         Assert.Equal(0, bounds.Min.Z, precision: 6);
         Assert.Equal(doorType.Height, bounds.Max.Z, precision: 6);
         Assert.Equal(2550, bounds.Min.X, precision: 6);
