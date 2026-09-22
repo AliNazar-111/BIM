@@ -340,6 +340,10 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Put a sweep or reveal on some walls | Architecture tab → **Sweep** / **Reveal**, pick a type and Horizontal or Vertical on the option bar, click a wall face |
 | Carry a sweep onto more walls, or turn its ends | Select the sweep → **Modify \| Wall Sweeps** tab → **Add/Remove Walls**, or **Modify Returns** with Straight Cut / Return on the option bar |
 | Find what can be done to a selection | Select it: the green **Modify \| …** tab holds its tools |
+| Edit several elements at once | Select them: Properties shows **Walls (2)** and edits all of them; a blank value means they differ. Pick another category from that list when the selection is mixed |
+| Pick something under something else | Hover over it and press `Tab` until it is outlined, then click. The status bar names what is outlined |
+| Set a plan's scale or detail | The bar under the plan: scale, detail level, storey below. With nothing selected, Properties shows the same |
+| Turn the 3D view to a face, edge or corner | Click the ViewCube in the corner; drag it to orbit; the house resets. Zoom buttons are under it |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |

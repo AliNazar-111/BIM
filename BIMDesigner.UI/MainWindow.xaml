@@ -49,17 +49,70 @@
             <Setter Property="Margin" Value="14,14,14,8"/>
         </Style>
 
-        <!-- Parameter group heading inside the property panel: "Constraints". -->
-        <Style x:Key="ParameterGroupHeader" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
-            <Setter Property="FontSize" Value="{StaticResource UiFontSizeSmall}"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Margin" Value="0,12,0,5"/>
+        <!-- The Properties palette, as Revit's: groups that fold shut under a band with a
+             chevron, and rows ruled into a two-column grid. -->
+        <vm:PaletteGroupState x:Key="PaletteGroupOpen"/>
+
+        <Style x:Key="PaletteGroupHeader" TargetType="ToggleButton">
+            <EventSetter Event="Click" Handler="OnPaletteGroupToggled"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Band" Background="{StaticResource Bg.Elevated}" Padding="6,4"
+                                BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                            <StackPanel Orientation="Horizontal">
+                                <Path x:Name="Chevron" Data="M0,0 L8,0 L4,5 Z" Fill="{StaticResource Text.Muted}"
+                                      Width="8" Height="5" Margin="2,0,8,0" VerticalAlignment="Center"
+                                      RenderTransformOrigin="0.5,0.5"/>
+                                <ContentPresenter VerticalAlignment="Center" TextElement.FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="Chevron" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="-90"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Band" Property="Background" Value="{StaticResource Bg.Hover}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
-        <DataTemplate x:Key="ParameterGroupHeaderTemplate">
-            <TextBlock Text="{Binding Name}" Style="{StaticResource ParameterGroupHeader}"/>
-        </DataTemplate>
+        <Style x:Key="PaletteGroup" TargetType="GroupItem">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupItem">
+                        <StackPanel>
+                            <ToggleButton x:Name="Header" Style="{StaticResource PaletteGroupHeader}"
+                                          Content="{Binding Name}"
+                                          IsChecked="{Binding Name, Mode=OneTime, Converter={StaticResource PaletteGroupOpen}}"/>
+                            <ItemsPresenter x:Name="Rows"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger SourceName="Header" Property="IsChecked" Value="False">
+                                <Setter TargetName="Rows" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- A heading between the palette's sections: Type Properties, Structure. -->
+        <Style x:Key="PaletteSectionBand" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Bg.Window}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="0,1,0,1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Margin" Value="0,8,0,0"/>
+        </Style>
 
         <!-- Toolbar tool buttons behave like radio buttons: one active tool at a time. -->
         <Style x:Key="ToolButton" TargetType="RadioButton">
@@ -109,38 +162,114 @@
             <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
         </Style>
 
-        <!-- One parameter: name on the left, an editor chosen by the parameter itself. -->
+        <!-- The strip under a view that says how it is drawn: scale, detail, style. -->
+        <Style x:Key="ViewControlBar" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Bg.Elevated}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="0,1,0,0"/>
+            <Setter Property="Padding" Value="6,3"/>
+        </Style>
+
+        <Style x:Key="ViewControlCaption" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="4,0,12,0"/>
+        </Style>
+
+        <Style x:Key="ViewControlCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="Padding" Value="6,2"/>
+        </Style>
+
+        <Style x:Key="ViewControlButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Padding" Value="9,2"/>
+        </Style>
+
+        <Style x:Key="ViewControlToggle" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="Padding" Value="9,2"/>
+        </Style>
+
+        <!-- The navigation bar under the ViewCube: a column of small square buttons. -->
+        <Style x:Key="NavigationBar" TargetType="Border">
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+            <Setter Property="Margin" Value="0,2,4,0"/>
+            <Setter Property="Background" Value="{StaticResource Bg.Elevated}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="3"/>
+        </Style>
+
+        <Style x:Key="NavigationButton" TargetType="Button">
+            <Style.Resources>
+                <Style TargetType="Path">
+                    <Setter Property="Stroke" Value="{StaticResource Text}"/>
+                    <Setter Property="StrokeThickness" Value="1.5"/>
+                    <Setter Property="Width" Value="16"/>
+                    <Setter Property="Height" Value="16"/>
+                </Style>
+            </Style.Resources>
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Bg.Hover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Accent.Dim}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- One parameter, as a row of the palette's ruled grid: its name on the left, and on
+             the right an editor chosen by the parameter itself. -->
         <DataTemplate DataType="{x:Type vm:ParameterRow}">
-            <Grid MinHeight="28">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="132"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                <Grid MinHeight="26">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="45*"/>
+                        <ColumnDefinition Width="55*"/>
+                    </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
-                           ToolTip="{Binding Name}" VerticalAlignment="Center"
-                           Foreground="{StaticResource Text.Muted}" Margin="0,0,10,0"/>
+                    <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" Padding="10,0,6,0">
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding Name}" VerticalAlignment="Center"/>
+                    </Border>
 
-                <!-- Computed values: length, area, volume. Not editable by design. -->
-                <TextBlock Grid.Column="1" Text="{Binding Text, Mode=OneWay}" VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           Visibility="{Binding IsReadOnly, Converter={StaticResource BoolToVisibility}}"/>
+                    <!-- Computed values: length, area, volume. Not editable by design. -->
+                    <TextBlock Grid.Column="1" Text="{Binding Text, Mode=OneWay}" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Margin="6,0" Foreground="{StaticResource Text.Muted}"
+                               Visibility="{Binding IsReadOnly, Converter={StaticResource BoolToVisibility}}"/>
 
-                <TextBox Grid.Column="1" Text="{Binding Text, UpdateSourceTrigger=LostFocus}"
-                         VerticalAlignment="Center"
-                         Visibility="{Binding IsEditableText, Converter={StaticResource BoolToVisibility}}"/>
+                    <TextBox Grid.Column="1" Text="{Binding Text, UpdateSourceTrigger=LostFocus}"
+                             VerticalAlignment="Center" Margin="2,1" Padding="4,1" MinHeight="22"
+                             Visibility="{Binding IsEditableText, Converter={StaticResource BoolToVisibility}}"/>
 
-                <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}"
-                          SelectedItem="{Binding SelectedChoice}" VerticalAlignment="Center"
-                          Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}"
+                              SelectedItem="{Binding SelectedChoice}" VerticalAlignment="Center" Margin="2,1" Padding="6,1" MinHeight="22"
+                              Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibility}}"/>
 
-                <CheckBox Grid.Column="1" IsChecked="{Binding Flag}" VerticalAlignment="Center"
-                          Visibility="{Binding IsFlag, Converter={StaticResource BoolToVisibility}}"/>
-            </Grid>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding Flag}" VerticalAlignment="Center" Margin="6,0"
+                              Visibility="{Binding IsFlag, Converter={StaticResource BoolToVisibility}}"/>
+                </Grid>
+            </Border>
         </DataTemplate>
 
         <Style x:Key="ParameterList" TargetType="ItemsControl">
-            <Setter Property="Margin" Value="14,0,14,10"/>
+            <Setter Property="Margin" Value="0"/>
         </Style>
     </Window.Resources>
 
@@ -699,92 +828,121 @@
                             <TextBlock Text="Properties" FontWeight="SemiBold"/>
                         </Border>
 
-                    <TextBlock x:Name="NoSelectionHint" DockPanel.Dock="Top" Margin="14,0,14,14"
+                    <TextBlock x:Name="NoSelectionHint" DockPanel.Dock="Top" Margin="14,0,14,14" Visibility="Collapsed"
                                TextWrapping="Wrap" LineHeight="19" Foreground="{StaticResource Text.Muted}"
-                               Text="Nothing selected.&#x0a;&#x0a;Pick the Wall tool, choose a wall type above the canvas, then click twice on the plan. Clicks snap to the 100 mm grid.&#x0a;&#x0a;Right-drag to pan, scroll to zoom, Esc to stop drawing."/>
+                               Text="Nothing selected."/>
 
                     <ScrollViewer x:Name="PropertyScroll" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                                  HorizontalScrollBarVisibility="Disabled">
                         <StackPanel>
-                            <!-- Element identity and its type -->
-                            <Border Background="{StaticResource Bg.Elevated}" Padding="14,11" Margin="0,0,0,2">
-                                <StackPanel>
-                                    <TextBlock x:Name="SelectedCategory" Text="WALLS"
-                                               Foreground="{StaticResource Text.Muted}"
-                                               FontSize="{StaticResource UiFontSizeSmall}" FontWeight="SemiBold"/>
-                                    <TextBlock x:Name="SelectedTypeName" Text="" FontSize="14"
-                                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,3,0,9"/>
-                                    <ComboBox x:Name="SelectedTypePicker" DisplayMemberPath="Name"
-                                              SelectionChanged="OnSelectedTypeChanged"
-                                              ToolTip="Change this wall's type. Every wall of a type shares its layers."/>
-                                    <Button x:Name="EditTypeButton" Content="Edit Type..." Margin="0,8,0,0"
-                                            Padding="10,4" HorizontalAlignment="Left" Click="OnEditSelectedType"
-                                            ToolTip="Change the layers of this type, or duplicate it to make a new one"/>
-                                </StackPanel>
+                            <!-- The type selector: a picture of what it is, its family and type, and the list of types. -->
+                            <Border Background="{StaticResource Bg.Elevated}" Padding="10,10,10,8"
+                                    BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <Border Width="50" Height="50" Background="{StaticResource Bg.Field}" CornerRadius="3"
+                                            BorderBrush="{StaticResource Line}" BorderThickness="1">
+                                        <Image x:Name="SelectedTypeImage" Width="34" Height="34"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="SelectedFamilyName" Foreground="{StaticResource Text.Muted}"
+                                                   FontSize="{StaticResource UiFontSizeSmall}"/>
+                                        <TextBlock x:Name="SelectedTypeName" FontSize="14" FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" Margin="0,1,0,0"/>
+                                    </StackPanel>
+
+                                    <ComboBox x:Name="SelectedTypePicker" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
+                                              DisplayMemberPath="Name" SelectionChanged="OnSelectedTypeChanged"
+                                              ToolTip="Change the type of the selection. Every element of a type shares its type properties."/>
+                                </Grid>
                             </Border>
 
-                            <!-- Instance parameters: this placed wall -->
-                            <TextBlock Text="INSTANCE PARAMETERS" Style="{StaticResource SectionCaption}"
-                                       Margin="14,14,14,0"/>
-                            <TextBlock x:Name="InstanceHint" Margin="14,2,14,0" TextWrapping="Wrap"
-                                       FontSize="{StaticResource UiFontSizeSmall}"
-                                       Foreground="{StaticResource Text.Disabled}"
-                                       Text="This element only."/>
+                            <!-- Which of the selection these properties are for, and its type's own editor. -->
+                            <Border Padding="8,6" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="PropertyCategoryPicker" SelectionChanged="OnPropertyCategoryChanged"
+                                              ToolTip="Which of the selected elements these properties are for"/>
+                                    <Button x:Name="EditTypeButton" Grid.Column="1" Margin="8,0,0,0" Padding="10,3"
+                                            Click="OnEditSelectedType"
+                                            ToolTip="Edit the type: its layers, or its type properties, or duplicate it to make a new one">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Image Source="{StaticResource Icon.EditType}" Width="14" Height="14" Margin="0,0,5,0"/>
+                                            <TextBlock Text="Edit Type" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                            </Border>
+
+                            <!-- This element's own parameters, in folding groups. -->
                             <ItemsControl x:Name="InstanceParameterList" Style="{StaticResource ParameterList}">
                                 <ItemsControl.GroupStyle>
-                                    <GroupStyle HeaderTemplate="{StaticResource ParameterGroupHeaderTemplate}"/>
+                                    <GroupStyle ContainerStyle="{StaticResource PaletteGroup}"/>
                                 </ItemsControl.GroupStyle>
                             </ItemsControl>
 
-                            <Rectangle Height="1" Fill="{StaticResource Line}" Margin="14,6"/>
+                            <!-- The type's parameters: shared by every element of it. -->
+                            <StackPanel x:Name="TypeSection">
+                                <Border Style="{StaticResource PaletteSectionBand}">
+                                    <StackPanel>
+                                        <TextBlock Text="Type Properties" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="TypeHint" TextWrapping="Wrap" FontSize="{StaticResource UiFontSizeSmall}"
+                                                   Foreground="{StaticResource Text.Muted}"/>
+                                    </StackPanel>
+                                </Border>
+                                <ItemsControl x:Name="TypeParameterList" Style="{StaticResource ParameterList}">
+                                    <ItemsControl.GroupStyle>
+                                        <GroupStyle ContainerStyle="{StaticResource PaletteGroup}"/>
+                                    </ItemsControl.GroupStyle>
+                                </ItemsControl>
+                            </StackPanel>
 
-                            <!-- Type parameters: shared by every wall of this type -->
-                            <TextBlock Text="TYPE PARAMETERS" Style="{StaticResource SectionCaption}"
-                                       Margin="14,8,14,0"/>
-                            <TextBlock x:Name="TypeHint" Margin="14,2,14,0" TextWrapping="Wrap"
-                                       FontSize="{StaticResource UiFontSizeSmall}"
-                                       Foreground="{StaticResource Text.Disabled}"
-                                       Text="Shared by every element of this type. Editing one changes them all."/>
-                            <ItemsControl x:Name="TypeParameterList" Style="{StaticResource ParameterList}">
-                                <ItemsControl.GroupStyle>
-                                    <GroupStyle HeaderTemplate="{StaticResource ParameterGroupHeaderTemplate}"/>
-                                </ItemsControl.GroupStyle>
-                            </ItemsControl>
-
-                            <Rectangle Height="1" Fill="{StaticResource Line}" Margin="14,6"/>
-
-                            <!-- The assembly this type is built from. Walls only. -->
-                            <TextBlock x:Name="StructureCaption" Text="STRUCTURE"
-                                       Style="{StaticResource SectionCaption}" Margin="14,8,14,0"/>
-                            <TextBlock x:Name="StructureHint" Margin="14,2,14,6" TextWrapping="Wrap"
-                                       FontSize="{StaticResource UiFontSizeSmall}"
-                                       Foreground="{StaticResource Text.Disabled}"
-                                       Text="Exterior face to interior face."/>
-                            <ItemsControl x:Name="LayerList" Margin="14,0,14,20">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid MinHeight="34">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Rectangle Grid.Column="0" Width="9" RadiusX="2" RadiusY="2"
-                                                       Margin="0,3,10,3" Fill="{Binding Swatch}"/>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding MaterialName}"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           ToolTip="{Binding MaterialName}"/>
-                                                <TextBlock Text="{Binding FunctionName}"
-                                                           FontSize="{StaticResource UiFontSizeSmall}"
-                                                           Foreground="{StaticResource Text.Muted}"/>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="2" Text="{Binding Thickness}"
-                                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            <!-- The assembly the type is built from. Walls and slabs. -->
+                            <StackPanel x:Name="StructureSection" Margin="0,0,0,16">
+                                <Border Style="{StaticResource PaletteSectionBand}">
+                                    <StackPanel>
+                                        <TextBlock Text="Structure" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="StructureHint" FontSize="{StaticResource UiFontSizeSmall}"
+                                                   Foreground="{StaticResource Text.Muted}" Text="Exterior face to interior face."/>
+                                    </StackPanel>
+                                </Border>
+                                <ItemsControl x:Name="LayerList" Margin="10,4,10,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid MinHeight="34">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Rectangle Grid.Column="0" Width="9" RadiusX="2" RadiusY="2"
+                                                           Margin="0,3,10,3" Fill="{Binding Swatch}"/>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding MaterialName}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding MaterialName}"/>
+                                                    <TextBlock Text="{Binding FunctionName}"
+                                                               FontSize="{StaticResource UiFontSizeSmall}"
+                                                               Foreground="{StaticResource Text.Muted}"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{Binding Thickness}"
+                                                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                     </DockPanel>
@@ -832,6 +990,27 @@
                             <StackPanel Orientation="Horizontal">
                                 <Image Source="{StaticResource Icon.Plan}" Width="16" Height="16" Margin="0,0,6,0"/>
                                 <TextBlock x:Name="PlanTitle" Text="Floor Plan" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <!-- The view control bar: how this plan is drawn and what it is placed on a sheet at. -->
+                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ViewControlBar}">
+                            <StackPanel Orientation="Horizontal">
+                                <ComboBox x:Name="PlanScalePicker" Style="{StaticResource ViewControlCombo}" MinWidth="78"
+                                          SelectionChanged="OnPlanScaleChanged"
+                                          ToolTip="View scale: what this plan is placed on a sheet at"/>
+                                <Image Source="{StaticResource Icon.Detail}" Width="14" Height="14" Margin="0,0,4,0" ToolTip="Detail level"/>
+                                <ComboBox x:Name="PlanDetailPicker" Style="{StaticResource ViewControlCombo}" MinWidth="78"
+                                          SelectionChanged="OnPlanDetailChanged"
+                                          ToolTip="Detail level: coarse draws walls as outlines, fine shows every layer">
+                                    <ComboBoxItem Content="Coarse"/>
+                                    <ComboBoxItem Content="Medium"/>
+                                    <ComboBoxItem Content="Fine"/>
+                                </ComboBox>
+                                <ToggleButton x:Name="PlanUnderlayToggle" Style="{StaticResource ViewControlToggle}" IsChecked="True"
+                                              Content="Storey Below" Click="OnPlanUnderlayToggled"
+                                              ToolTip="Show the storey below faintly under the plan"/>
+                                <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnPlanZoomToFit"
+                                        ToolTip="Frame the whole plan (F)"/>
                             </StackPanel>
                         </Border>
                         <controls:PlanView x:Name="Plan"/>
@@ -961,10 +1140,6 @@
                                 <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto"
                                               VerticalScrollBarVisibility="Disabled" Padding="0,0,10,0">
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="Style" Style="{StaticResource OptionLabel}"/>
-                                        <ComboBox x:Name="VisualStylePicker" Style="{StaticResource OptionCombo}"
-                                                  MinWidth="130" SelectionChanged="OnVisualStyleChanged"/>
-
                                         <TextBlock Text="Show" Style="{StaticResource OptionLabel}"/>
                                         <CheckBox x:Name="ShowRoofsBox" Content="Roofs" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
@@ -997,22 +1172,56 @@
                                 </ScrollViewer>
 
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <Button Content="Reset View" Padding="12,5" Margin="0,0,8,0"
-                                            Click="OnReset3DView" ToolTip="Back to the three-quarter view (Home)"/>
-                                    <Button Content="Zoom to Fit" Padding="12,5" Margin="0,0,8,0"
-                                            Click="OnZoom3DToFit" ToolTip="Frame the whole model (F)"/>
                                     <Button Content="Close" Padding="12,5" Click="OnClose3D"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
 
-                        <Border DockPanel.Dock="Bottom" Padding="12,5" Background="{StaticResource Bg.Elevated}"
-                                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
-                            <TextBlock Foreground="{StaticResource Text.Muted}"
-                                       Text="Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select  ·  F fits  ·  Home resets"/>
+                        <!-- The view control bar: how this view is drawn, as under every Revit view. -->
+                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ViewControlBar}">
+                            <DockPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="3D View" Style="{StaticResource ViewControlCaption}"/>
+                                    <Image Source="{StaticResource Icon.View3D}" Width="14" Height="14" Margin="0,0,4,0"
+                                           ToolTip="Visual style"/>
+                                    <ComboBox x:Name="VisualStylePicker" Style="{StaticResource ViewControlCombo}"
+                                              MinWidth="110" SelectionChanged="OnVisualStyleChanged"
+                                              ToolTip="Visual style: shaded, flat colours, or see-through"/>
+                                    <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnZoom3DToFit"
+                                            ToolTip="Frame the whole model (F)"/>
+                                    <Button Style="{StaticResource ViewControlButton}" Content="Reset" Click="OnReset3DView"
+                                            ToolTip="Back to the three-quarter view (Home)"/>
+                                </StackPanel>
+                                <TextBlock Foreground="{StaticResource Text.Muted}" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                           TextTrimming="CharacterEllipsis" Margin="12,0,0,0"
+                                           Text="Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select"/>
+                            </DockPanel>
                         </Border>
 
-                        <controls:ModelView x:Name="Model3D"/>
+                        <Grid>
+                            <controls:ModelView x:Name="Model3D"/>
+
+                            <!-- The ViewCube and navigation bar, top right, as in Revit. -->
+                            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,8,0">
+                                <controls:ViewCube x:Name="Cube"/>
+                                <Border Style="{StaticResource NavigationBar}">
+                                    <StackPanel>
+                                        <Button Style="{StaticResource NavigationButton}" Click="OnZoom3DToFit" ToolTip="Zoom to fit (F)"
+                                                AutomationProperties.Name="Zoom to Fit">
+                                            <Path Data="M1,5 L1,1 L5,1 M11,1 L15,1 L15,5 M15,11 L15,15 L11,15 M5,15 L1,15 L1,11 M5,5 L11,5 L11,11 L5,11 Z"/>
+                                        </Button>
+                                        <Button Style="{StaticResource NavigationButton}" Click="OnZoom3DIn" ToolTip="Zoom in"
+                                                AutomationProperties.Name="Zoom In">
+                                            <Path Data="M8,2 L8,14 M2,8 L14,8"/>
+                                        </Button>
+                                        <Button Style="{StaticResource NavigationButton}" Click="OnZoom3DOut" ToolTip="Zoom out"
+                                                AutomationProperties.Name="Zoom Out">
+                                            <Path Data="M2,8 L14,8"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
                     </DockPanel>
                 </Border>
             </Grid>

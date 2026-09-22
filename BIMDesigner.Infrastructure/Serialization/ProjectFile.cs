@@ -359,8 +359,13 @@ public static class ProjectFile
             {
                 Kind = view.Kind.ToString(),
                 TargetId = view.TargetId,
-                HiddenWallFunctions = hidden.Select(function => function.ToString()).OrderBy(name => name).ToList()
+                HiddenWallFunctions = hidden.Select(function => function.ToString()).OrderBy(name => name).ToList(),
+                Scale = document.ViewSettings.Scaled.Where(s => s.View == view).Select(s => (double?)s.Scale).FirstOrDefault()
             });
+
+        // Views with a scale of their own but nothing hidden.
+        foreach (var (view, scale) in document.ViewSettings.Scaled.Where(s => document.ViewSettings.Filtered.All(f => f.View != s.View)))
+            dto.ViewSettings.Add(new ViewSettingsDto { Kind = view.Kind.ToString(), TargetId = view.TargetId, Scale = scale });
 
         foreach (var grid in document.Elements.OfType<Grid>())
             dto.Grids.Add(new GridDto
@@ -1074,6 +1079,8 @@ public static class ProjectFile
             foreach (var name in settings.HiddenWallFunctions)
                 if (Enum.TryParse<WallFunction>(name, out var function))
                     document.ViewSettings.SetWallFunctionVisible(view, function, visible: false);
+
+            if (settings.Scale is { } scale) document.ViewSettings.SetScale(view, scale);
         }
 
         // A project written before a category existed carries no types for it. Fill those

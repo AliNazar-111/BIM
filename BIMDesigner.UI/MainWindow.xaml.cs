@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Cube.Model = Model3D;
+        PlanDetailPicker.SelectedIndex = (int)DetailLevel.Fine;
         DarkThemeToggle.IsChecked = !AppTheme.IsLight;
 
         Plan.CursorMoved += OnCursorMoved;
@@ -201,6 +203,7 @@ public partial class MainWindow : Window
             // What the selection can have done to it may have changed with it: a wall given a
             // point can be straightened.
             if (ContextTab.Visibility == Visibility.Visible) RefreshContextTab(bringForward: false);
+            RefreshPlanScale();
         };
 
         Plan.History = _history;
@@ -653,13 +656,17 @@ public partial class MainWindow : Window
         ShowOptionsForActiveTool();
     }
 
-    private void OnDetailLevelChanged(object sender, RoutedEventArgs e)
-    {
-        var chosen = sender;
+    private void OnDetailLevelChanged(object sender, RoutedEventArgs e) =>
+        SetDetailLevel(ReferenceEquals(sender, DetailCoarse) ? DetailLevel.Coarse
+            : ReferenceEquals(sender, DetailMedium) ? DetailLevel.Medium
+            : DetailLevel.Fine);
 
-        var level = ReferenceEquals(chosen, DetailCoarse) ? DetailLevel.Coarse
-            : ReferenceEquals(chosen, DetailMedium) ? DetailLevel.Medium
-            : DetailLevel.Fine;
+    /// <summary>The plan's detail level, from the ribbon or the view control bar: both show it.</summary>
+    private void SetDetailLevel(DetailLevel level)
+    {
+        _loadingOptions = true;
+        PlanDetailPicker.SelectedIndex = (int)level;
+        _loadingOptions = false;
 
         DetailCoarse.IsChecked = level == DetailLevel.Coarse;
         DetailMedium.IsChecked = level == DetailLevel.Medium;
@@ -680,6 +687,15 @@ public partial class MainWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
+
+        // TAB over the plan steps through what is under the cursor, as in Revit, rather than
+        // moving the keyboard focus to the next control.
+        if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None && Plan.IsMouseOver &&
+            Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem) && Plan.CycleHover())
+        {
+            e.Handled = true;
+            return;
+        }
 
         if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None) return;
         if (Keyboard.FocusedElement is TextBox or ComboBox or ComboBoxItem) return;
@@ -907,12 +923,12 @@ public partial class MainWindow : Window
     /// <summary>Re-types the selected element, which swaps its whole definition at once.</summary>
     private void OnSelectedTypeChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loadingOptions || Plan?.SelectedElement is not { } element) return;
-        if (SelectedTypePicker.SelectedItem is not ElementType type || type.Id == element.TypeId) return;
+        if (_loadingOptions || Plan is null || SelectedTypePicker.SelectedItem is not ElementType type) return;
 
         // Every selected element that can take this type gets it: picking a type for four
         // selected walls should not change only the last of them.
         var targets = Plan.SelectedElements.Where(selected => selected.Category == type.Category).ToList();
+        if (targets.All(target => target.TypeId == type.Id)) return;
 
         _history.Execute(new SetElementsTypeCommand(targets, type));
         AfterHistoryChange();
@@ -1226,7 +1242,9 @@ public partial class MainWindow : Window
 
     private void OnEditSelectedType(object sender, RoutedEventArgs e)
     {
-        var type = Plan.SelectedElement is { } element ? _document.FindType<ElementType>(element.TypeId) : null;
+        // The category the Properties palette is showing, when the selection has several.
+        var element = Plan.SelectedElements.LastOrDefault(selected => selected.Category == _propertyCategory) ?? Plan.SelectedElement;
+        var type = element is null ? null : _document.FindType<ElementType>(element.TypeId);
         if (type is null or WallType or StackedWallType or CurtainWallType)
         {
             ShowWallTypes(type);
@@ -1267,53 +1285,83 @@ public partial class MainWindow : Window
 
     // ---- property panel --------------------------------------------------------
 
+    /// <summary>Which category of a mixed selection the panel is showing, as picked from its list.</summary>
+    private BuiltInCategory? _propertyCategory;
+
+    /// <summary>One entry in the panel's category list: "Walls (2)".</summary>
+    private sealed record PropertyCategoryChoice(BuiltInCategory Category, int Count)
+    {
+        public override string ToString() => $"{CategoryTitle(Category)} ({Count})";
+    }
+
     /// <summary>
-    /// Rebuilds the panel for whatever is selected. Nothing here knows about walls or doors
-    /// specifically: an element reports its own parameters and the panel renders them, which
-    /// is why a new category needs no new property-panel code.
+    /// Rebuilds the panel for whatever is selected, in the shape of Revit's Properties palette:
+    /// the type with its picture, the category of the selection with how many, then the
+    /// parameters in folding groups. Nothing here knows about walls or doors specifically: an
+    /// element reports its own parameters and the panel renders them, which is why a new
+    /// category needs no new property-panel code.
+    ///
+    /// With several elements of a category selected, each row stands for all of them: an edit
+    /// goes to every one, and a value they do not share is left blank.
     /// </summary>
     private void RefreshProperties()
     {
-        var element = Plan.SelectedElement;
-
-        if (element is null)
-        {
-            PropertyScroll.Visibility = Visibility.Collapsed;
-            NoSelectionHint.Visibility = Visibility.Visible;
-            return;
-        }
-
         NoSelectionHint.Visibility = Visibility.Collapsed;
         PropertyScroll.Visibility = Visibility.Visible;
 
-        var type = _document.ElementTypes.FirstOrDefault(t => t.Id == element.TypeId);
+        var selected = Plan.SelectedElements;
+        if (selected.Count == 0)
+        {
+            ShowViewProperties();
+            return;
+        }
 
-        // With several selected the panel shows the last one picked, and says so - otherwise
-        // an edit here would look as if it applied to all of them.
-        var others = Plan.SelectedElements.Count - 1;
-        SelectedCategory.Text = others > 0
-            ? $"{CategoryTitle(element.Category).ToUpperInvariant()}  ·  {others + 1} SELECTED, SHOWING LAST"
-            : CategoryTitle(element.Category).ToUpperInvariant();
-        SelectedTypeName.Text = type?.Name ?? "<no type>";
-
-        // "Doors" -> "door", so the hints read naturally for whatever is selected.
-        var noun = CategoryTitle(element.Category).TrimEnd('s').ToLowerInvariant();
-        InstanceHint.Text = $"This {noun} only.";
-        TypeHint.Text = $"Shared by every {noun} of this type. Editing one changes them all.";
-
-        // Only types of the same category can be swapped in: a door cannot become a wall.
-        _loadingOptions = true;
-        SelectedTypePicker.ItemsSource = _document.ElementTypes
-            .Where(candidate => candidate.Category == element.Category)
-            .OrderBy(candidate => candidate.Name)
+        var categories = selected
+            .GroupBy(element => element.Category)
+            .Select(group => new PropertyCategoryChoice(group.Key, group.Count()))
             .ToList();
-        SelectedTypePicker.SelectedItem = type;
+        var category = categories.Any(c => c.Category == _propertyCategory) ? _propertyCategory!.Value : selected[^1].Category;
+        _propertyCategory = category;
+
+        var elements = selected.Where(element => element.Category == category).ToList();
+        var element = elements[^1];
+
+        _loadingOptions = true;
+        PropertyCategoryPicker.ItemsSource = categories;
+        PropertyCategoryPicker.SelectedItem = categories.First(c => c.Category == category);
+        PropertyCategoryPicker.IsEnabled = true;
         _loadingOptions = false;
 
-        InstanceParameterList.ItemsSource = BuildGroupedRows(element.GetInstanceParameters(_document));
-        TypeParameterList.ItemsSource = type is null
-            ? null
-            : BuildGroupedRows(type.GetTypeParameters());
+        var typeIds = elements.Select(e => e.TypeId).Distinct().ToList();
+        var type = typeIds.Count == 1 ? _document.ElementTypes.FirstOrDefault(t => t.Id == typeIds[0]) : null;
+
+        SelectedTypeImage.Source = TryFindResource(IconFor(element, type)) as System.Windows.Media.ImageSource;
+        SelectedFamilyName.Text = FamilyName(category, type);
+        SelectedTypeName.Text = typeIds.Count > 1 ? "Multiple Types" : type?.Name ?? CategoryTitle(category);
+
+        // "Doors" -> "door", so the hint reads naturally for whatever is selected.
+        var noun = CategoryTitle(category).TrimEnd('s').ToLowerInvariant();
+        TypeHint.Text = $"Shared by every {noun} of this type: editing one changes them all.";
+
+        // Only types of the same category can be swapped in: a door cannot become a wall.
+        var types = _document.ElementTypes
+            .Where(candidate => candidate.Category == category)
+            .OrderBy(candidate => candidate.Name)
+            .ToList();
+        _loadingOptions = true;
+        SelectedTypePicker.ItemsSource = types;
+        SelectedTypePicker.SelectedItem = type;
+        SelectedTypePicker.Visibility = types.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _loadingOptions = false;
+
+        InstanceParameterList.ItemsSource = BuildGroupedRows(
+            elements.Select(e => (IReadOnlyList<ParameterValue>)e.GetInstanceParameters(_document).ToList()).ToList());
+
+        // Type parameters when the selection shares one type; several types have no one set of them.
+        var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.GetTypeParameters().ToList() });
+        TypeParameterList.ItemsSource = typeRows;
+        TypeSection.Visibility = type is null ? Visibility.Collapsed : Visibility.Visible;
+        EditTypeButton.IsEnabled = type is not null;
 
         // Walls and slabs are both layered build-ups, so both show their assembly.
         var layers = type switch
@@ -1323,30 +1371,153 @@ public partial class MainWindow : Window
             _ => null
         };
 
-        StructureCaption.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
-        EditTypeButton.Visibility = type is WallType or StackedWallType or CurtainWallType ? Visibility.Visible : Visibility.Collapsed;
-        StructureHint.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
-        StructureHint.Text = type is SlabType
-            ? "Upper surface down."
-            : "Exterior face to interior face.";
-
+        StructureSection.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
+        StructureHint.Text = type is SlabType ? "Upper surface down." : "Exterior face to interior face.";
         LayerList.ItemsSource = layers?
             .Select(layer => new LayerRow(layer, _document))
             .ToList();
     }
 
+    private void OnPropertyCategoryChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || PropertyCategoryPicker.SelectedItem is not PropertyCategoryChoice choice) return;
+
+        _propertyCategory = choice.Category;
+        RefreshProperties();
+    }
+
+    /// <summary>
+    /// With nothing selected, the view's own properties, as Revit shows them: its scale and
+    /// detail level for a plan, its visual style for the 3D view.
+    /// </summary>
+    private void ShowViewProperties()
+    {
+        var threeD = ModelCoversPlan;
+        var levelName = _document.FindLevel(Plan.ActiveLevelId)?.Name ?? "Floor Plan";
+
+        SelectedTypeImage.Source = TryFindResource(threeD ? "Icon.View3D" : "Icon.Plan") as System.Windows.Media.ImageSource;
+        SelectedFamilyName.Text = threeD ? "3D View" : "Floor Plan";
+        SelectedTypeName.Text = threeD ? "{3D}" : levelName;
+        SelectedTypePicker.Visibility = Visibility.Collapsed;
+
+        _loadingOptions = true;
+        PropertyCategoryPicker.ItemsSource = new[] { threeD ? "3D View: {3D}" : $"Floor Plan: {levelName}" };
+        PropertyCategoryPicker.SelectedIndex = 0;
+        PropertyCategoryPicker.IsEnabled = false;
+        _loadingOptions = false;
+
+        EditTypeButton.IsEnabled = false;
+        InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { threeD ? ModelViewParameters() : PlanViewParameters(levelName) });
+        TypeSection.Visibility = Visibility.Collapsed;
+        StructureSection.Visibility = Visibility.Collapsed;
+    }
+
+    private static readonly ParameterDefinition ViewScaleParameter = new("View Scale", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition DetailLevelParameter = new("Detail Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition UnderlayParameter = new("Show Storey Below", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition VisualStyleParameter = new("Visual Style", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition EdgesParameter = new("Show Edges", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition LevelParameter = new("Associated Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    private static readonly ParameterDefinition ViewNameParameter = new("View Name", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    private IReadOnlyList<ParameterValue> PlanViewParameters(string levelName)
+    {
+        var view = Plan.CurrentView;
+        var scales = ViewScale.Common.Select(d => new ViewScale(d).ToString()).ToList();
+        var details = EnumText.Choices<DetailLevel>();
+
+        return new[]
+        {
+            ParameterValue.BindChoice(ViewScaleParameter,
+                () => new ViewScale(_document.ViewSettings.ScaleOf(view)).ToString(),
+                text => _document.ViewSettings.SetScale(view, ViewScale.Common[scales.IndexOf(text)]),
+                scales),
+            ParameterValue.BindChoice(DetailLevelParameter,
+                () => EnumText.Humanise(Plan.DetailLevel),
+                text => { if (EnumText.TryParse<DetailLevel>(text, out var level)) SetDetailLevel(level); },
+                details),
+            ParameterValue.Bind(UnderlayParameter, () => Plan.ShowUnderlay, show =>
+            {
+                UnderlayMenuItem.IsChecked = PlanUnderlayToggle.IsChecked = show;
+                Plan.ShowUnderlay = show;
+            }),
+            ParameterValue.ReadOnly(LevelParameter, () => levelName),
+            ParameterValue.ReadOnly(ViewNameParameter, () => $"Floor Plan: {levelName}")
+        };
+    }
+
+    private IReadOnlyList<ParameterValue> ModelViewParameters()
+    {
+        var styles = VisualStylePicker.Items.Cast<object>().Select(item => item.ToString() ?? string.Empty).ToList();
+
+        return new[]
+        {
+            ParameterValue.BindChoice(VisualStyleParameter,
+                () => VisualStylePicker.SelectedItem?.ToString() ?? string.Empty,
+                text => VisualStylePicker.SelectedIndex = styles.IndexOf(text),
+                styles),
+            ParameterValue.Bind(EdgesParameter, () => ShowEdgesBox.IsChecked == true, show =>
+            {
+                ShowEdgesBox.IsChecked = show;
+                OnModelCategoryToggled(ShowEdgesBox, new RoutedEventArgs());
+            }),
+            ParameterValue.ReadOnly(ViewNameParameter, () => "{3D}")
+        };
+    }
+
+    /// <summary>The picture beside a type: the ribbon icon of what it is.</summary>
+    private string IconFor(Element element, ElementType? type) => element switch
+    {
+        Wall wall when _document.IsCurtainWall(wall) => "Icon.CurtainWall",
+        Wall => "Icon.Wall",
+        Door => "Icon.Door",
+        BIMDesigner.Core.Architecture.Window => "Icon.Window",
+        Floor => "Icon.Floor",
+        Ceiling => "Icon.Ceiling",
+        Roof => "Icon.Roof",
+        Room => "Icon.Room",
+        BIMDesigner.Core.Datums.Grid => "Icon.Grid",
+        BIMDesigner.Core.Annotation.Dimension => "Icon.Dimension",
+        BIMDesigner.Core.Annotation.Tag => "Icon.Tag",
+        BIMDesigner.Core.Annotation.TextNote => "Icon.Text",
+        SectionMarker => "Icon.Section",
+        PlacedSweep { Kind: SweepKind.Reveal } => "Icon.Reveal",
+        PlacedSweep => "Icon.Sweep",
+        _ => "Icon.Select"
+    };
+
+    /// <summary>What kind of thing the type is, the line above its name: "Basic Wall", "Curtain Wall".</summary>
+    private static string FamilyName(BuiltInCategory category, ElementType? type) => type switch
+    {
+        CurtainWallType => "Curtain Wall",
+        StackedWallType => "Stacked Wall",
+        WallType => "Basic Wall",
+        WallSweepType { Kind: SweepKind.Reveal } => "Reveal",
+        WallSweepType => "Wall Sweep",
+        _ => CategoryTitle(category).TrimEnd('s')
+    };
+
     /// <summary>
     /// Wraps parameters as editable rows grouped by their parameter group, which is what
-    /// produces the "Constraints / Dimensions / Identity Data" sections in the panel.
+    /// produces the "Constraints / Dimensions / Identity Data" sections in the panel. Each list
+    /// is one element's parameters; a row is made for each parameter they all have, standing
+    /// for all of them, and the last element's order is the one kept.
     /// </summary>
-    private ICollectionView BuildGroupedRows(IEnumerable<ParameterValue> parameters)
+    private ICollectionView BuildGroupedRows(IReadOnlyList<IReadOnlyList<ParameterValue>> perElement)
     {
-        var rows = parameters.Select(parameter =>
+        var primary = perElement[^1];
+        var others = perElement.Take(perElement.Count - 1).ToList();
+
+        var rows = new List<ParameterRow>();
+        foreach (var parameter in primary)
         {
-            var row = new ParameterRow(parameter);
+            var same = others.Select(list => list.FirstOrDefault(p => p.Name == parameter.Name)).ToList();
+            if (same.Any(p => p is null)) continue;
+
+            var row = new ParameterRow(same.Prepend(parameter).OfType<ParameterValue>().ToList());
             row.ValueCommitted += OnParameterCommitted;
-            return row;
-        }).ToList();
+            rows.Add(row);
+        }
 
         var view = new CollectionViewSource { Source = rows }.View;
         view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ParameterRow.GroupName)));
@@ -1355,7 +1526,8 @@ public partial class MainWindow : Window
 
     private void OnParameterCommitted(object? sender, ParameterCommittedEventArgs e)
     {
-        _history.Record(new ParameterChangeCommand(e.Parameter, e.OldValue, e.NewValue));
+        var commands = e.Changes.Select(change => new ParameterChangeCommand(change.Parameter, change.OldValue, change.NewValue)).ToList();
+        _history.Record(commands.Count == 1 ? commands[0] : new CompositeCommand(commands[0].Name, commands));
 
         Plan.RefreshModel();
         RefreshProjectBrowser();
@@ -1371,11 +1543,21 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(RefreshProperties);
     }
 
+    /// <summary>A folding group opened or closed: remembered, so it stays that way from one selection to the next.</summary>
+    private void OnPaletteGroupToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Primitives.ToggleButton { Content: string name } toggle) return;
+
+        if (toggle.IsChecked == true) PaletteGroupState.Collapsed.Remove(name);
+        else PaletteGroupState.Collapsed.Add(name);
+    }
+
     // ---- project browser -------------------------------------------------------
 
     private void RefreshProjectBrowser()
     {
         PlanTitle.Text = _document.FindLevel(Plan.ActiveLevelId) is { } shown ? $"Floor Plan: {shown.Name}" : "Floor Plan";
+        RefreshPlanScale();
 
         var project = new TreeViewItem
         {
@@ -1664,8 +1846,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // The scale is chosen to fit the drawing area both ways, then the drawing is laid out
-        // beside whatever is already on the sheet rather than on top of it.
+        // The drawing is laid out beside whatever is already on the sheet rather than on top of it.
         var extent = ViewExtent.Of(_document, option.View).OrAtLeast(1000);
 
         var availableWidth = sheet.Width - TitleBlock.Width(sheet) - TitleBlock.Margin * 3;
@@ -1673,7 +1854,11 @@ public partial class MainWindow : Window
         // Room is left under the drawing for its title and scale.
         var availableHeight = sheet.Height - TitleBlock.Margin * 2 - 16;
 
-        var scale = ViewScale.FittingInto(extent.Width, extent.Height, availableWidth, availableHeight);
+        // The view's own scale when the drawing fits the sheet at it, else the largest that does.
+        var own = new ViewScale(_document.ViewSettings.ScaleOf(option.View));
+        var scale = own.ToPaper(extent.Width) <= availableWidth && own.ToPaper(extent.Height) <= availableHeight
+            ? own
+            : ViewScale.FittingInto(extent.Width, extent.Height, availableWidth, availableHeight);
 
         var viewport = new Viewport { View = option.View, Scale = scale };
         var size = viewport.PaperBounds(_document);
@@ -1767,6 +1952,7 @@ public partial class MainWindow : Window
         });
 
         StatusHint.Text = "3D view. Drag to orbit, right-drag to pan, scroll to zoom, click to select.";
+        RefreshProperties();
     }
 
     private void OnClose3D(object sender, RoutedEventArgs e)
@@ -1774,6 +1960,7 @@ public partial class MainWindow : Window
         ModelPanel.Visibility = Visibility.Collapsed;
         ModelMenuItem.IsChecked = false;
         if (_tiled) SetTiled(false);
+        RefreshProperties();
         Plan.Focus();
     }
 
@@ -1901,6 +2088,45 @@ public partial class MainWindow : Window
     private void OnReset3DView(object sender, RoutedEventArgs e) => Model3D.ResetView();
 
     private void OnZoom3DToFit(object sender, RoutedEventArgs e) => Model3D.ZoomToFit();
+
+    private void OnZoom3DIn(object sender, RoutedEventArgs e) => Model3D.Zoom(0.8);
+
+    private void OnZoom3DOut(object sender, RoutedEventArgs e) => Model3D.Zoom(1.25);
+
+    // ---- the plan's view control bar ----------------------------------------------------
+
+    /// <summary>Shows the scale of the plan now on screen, which each storey keeps for itself.</summary>
+    private void RefreshPlanScale()
+    {
+        _loadingOptions = true;
+        PlanScalePicker.ItemsSource ??= ViewScale.Common.Select(d => new ViewScale(d)).ToList();
+        var scale = _document.ViewSettings.ScaleOf(Plan.CurrentView);
+        PlanScalePicker.SelectedItem = ((IEnumerable<ViewScale>)PlanScalePicker.ItemsSource).FirstOrDefault(s => s.Denominator == scale);
+        _loadingOptions = false;
+    }
+
+    private void OnPlanScaleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || PlanScalePicker.SelectedItem is not ViewScale scale) return;
+        if (_document.ViewSettings.ScaleOf(Plan.CurrentView) == scale.Denominator) return;
+
+        _history.Execute(new SetViewScaleCommand(_document, Plan.CurrentView, scale.Denominator));
+        StatusHint.Text = $"This plan is drawn at {scale}: it goes on a sheet at that scale when it fits.";
+    }
+
+    private void OnPlanDetailChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || PlanDetailPicker.SelectedIndex < 0) return;
+        SetDetailLevel((DetailLevel)PlanDetailPicker.SelectedIndex);
+    }
+
+    private void OnPlanUnderlayToggled(object sender, RoutedEventArgs e)
+    {
+        UnderlayMenuItem.IsChecked = PlanUnderlayToggle.IsChecked == true;
+        OnToggleUnderlay(sender, e);
+    }
+
+    private void OnPlanZoomToFit(object sender, RoutedEventArgs e) => Plan.ZoomToFit();
 
     // ---- editing ---------------------------------------------------------------
 
@@ -2118,6 +2344,7 @@ public partial class MainWindow : Window
     private void OnToggleUnderlay(object sender, RoutedEventArgs e)
     {
         Plan.ShowUnderlay = UnderlayMenuItem.IsChecked == true;
+        PlanUnderlayToggle.IsChecked = Plan.ShowUnderlay;
         StatusHint.Text = Plan.ShowUnderlay
             ? "Showing the storey below as an underlay."
             : "Underlay hidden.";

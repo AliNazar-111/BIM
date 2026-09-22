@@ -20,6 +20,25 @@ namespace BIMDesigner.Core.Views;
 public sealed class ViewSettings
 {
     private readonly Dictionary<ViewReference, HashSet<WallFunction>> _hiddenWallFunctions = new();
+    private readonly Dictionary<ViewReference, double> _scales = new();
+
+    /// <summary>The scale a view is drawn at when nobody has chosen one.</summary>
+    public const double DefaultScale = 100;
+
+    /// <summary>
+    /// The scale a view is meant to be drawn at, as the denominator of 1:n. It is what the view
+    /// is placed on a sheet at, when it fits.
+    /// </summary>
+    public double ScaleOf(ViewReference view) => _scales.TryGetValue(view, out var scale) ? scale : DefaultScale;
+
+    public void SetScale(ViewReference view, double denominator)
+    {
+        if (!double.IsFinite(denominator) || denominator <= 0 || denominator == DefaultScale) _scales.Remove(view);
+        else _scales[view] = denominator;
+    }
+
+    /// <summary>Every view with a scale of its own, for saving.</summary>
+    public IEnumerable<(ViewReference View, double Scale)> Scaled => _scales.Select(entry => (entry.Key, entry.Value));
 
     /// <summary>The wall functions this view does not draw.</summary>
     public IReadOnlySet<WallFunction> HiddenWallFunctions(ViewReference view) =>
@@ -76,6 +95,29 @@ public sealed class ViewSettings
             _ => true
         };
     }
+}
+
+/// <summary>Sets the scale a view is drawn at.</summary>
+public sealed class SetViewScaleCommand : IUndoableCommand
+{
+    private readonly BimDocument _document;
+    private readonly ViewReference _view;
+    private readonly double _old;
+    private readonly double _new;
+
+    public SetViewScaleCommand(BimDocument document, ViewReference view, double denominator)
+    {
+        _document = document;
+        _view = view;
+        _old = document.ViewSettings.ScaleOf(view);
+        _new = denominator;
+    }
+
+    public string Name => "View Scale";
+
+    public void Redo() => _document.ViewSettings.SetScale(_view, _new);
+
+    public void Undo() => _document.ViewSettings.SetScale(_view, _old);
 }
 
 /// <summary>Shows or hides walls of one function in one view.</summary>

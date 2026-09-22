@@ -51,5 +51,8 @@ public enum ParameterGroup
     IdentityData,
     Analytical,
     Phasing,
-    Other
+    Other,
+
+    /// <summary>How a view is drawn: its scale, detail level, style.</summary>
+    Graphics
 }

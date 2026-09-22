@@ -539,6 +539,64 @@ public class ModelView : Border
         UpdateCamera();
     }
 
+    /// <summary>Which way the camera looks from, in degrees: round from east, anticlockwise.</summary>
+    public double Yaw => _yaw;
+
+    /// <summary>How far above the horizon the camera is, in degrees.</summary>
+    public double Pitch => _pitch;
+
+    /// <summary>Raised whenever the camera moves, so the ViewCube can turn with it.</summary>
+    public event EventHandler? CameraChanged;
+
+    /// <summary>The steepest the camera looks down or up: just short of straight, where "up" is lost.</summary>
+    public const double MaxPitch = 89.5;
+
+    // A turn to a new direction, eased over a moment rather than jumped, so it is plain which
+    // way the model turned.
+    private (double Yaw, double Pitch, double ToYaw, double ToPitch, DateTime Started)? _turn;
+    private static readonly TimeSpan TurnTime = TimeSpan.FromMilliseconds(320);
+
+    /// <summary>Turns the camera to look from a direction, round the same point and at the same distance.</summary>
+    public void LookFrom(double yaw, double pitch)
+    {
+        pitch = Math.Clamp(pitch, -MaxPitch, MaxPitch);
+
+        // The short way round.
+        var turn = ((yaw - _yaw) % 360 + 540) % 360 - 180;
+        if (_turn is null) CompositionTarget.Rendering += OnTurnFrame;
+        _turn = (_yaw, _pitch, _yaw + turn, pitch, DateTime.Now);
+    }
+
+    private void OnTurnFrame(object? sender, EventArgs e)
+    {
+        if (_turn is not { } turn) return;
+
+        var t = Math.Min(1, (DateTime.Now - turn.Started).TotalMilliseconds / TurnTime.TotalMilliseconds);
+        var eased = 1 - Math.Pow(1 - t, 3);
+        _yaw = turn.Yaw + (turn.ToYaw - turn.Yaw) * eased;
+        _pitch = turn.Pitch + (turn.ToPitch - turn.Pitch) * eased;
+        UpdateCamera();
+
+        if (t < 1) return;
+        _turn = null;
+        CompositionTarget.Rendering -= OnTurnFrame;
+    }
+
+    /// <summary>Turns the camera round the model by this much, as dragging does.</summary>
+    public void Orbit(double yawDegrees, double pitchDegrees)
+    {
+        _yaw += yawDegrees;
+        _pitch = Math.Clamp(_pitch + pitchDegrees, -MaxPitch, MaxPitch);
+        UpdateCamera();
+    }
+
+    /// <summary>Moves the camera in toward what it looks at, or out: below 1 is in.</summary>
+    public void Zoom(double factor)
+    {
+        _distance = Math.Clamp(_distance * factor, 0.5, 5000);
+        UpdateCamera();
+    }
+
     /// <summary>Back to the standard three-quarter view from the south-west.</summary>
     public void ResetView()
     {
@@ -567,6 +625,7 @@ public class ModelView : Border
         // flicker against each other.
         _camera.NearPlaneDistance = Math.Max(0.01, _distance * 0.005);
         _camera.FarPlaneDistance = _distance * 12 + 200;
+        CameraChanged?.Invoke(this, EventArgs.Empty);
 
         // Edge width follows the camera, but rebuilding on every wheel notch would be wasted
         // work - a quarter of the distance either way is the point at which it starts to show.
@@ -607,7 +666,7 @@ public class ModelView : Border
 
             // Stop short of straight up and straight down, where "up" stops meaning anything
             // and the view would flip.
-            _pitch = Math.Clamp(_pitch + delta.Y * 0.4, -85, 85);
+            _pitch = Math.Clamp(_pitch + delta.Y * 0.4, -MaxPitch, MaxPitch);
         }
         else
         {

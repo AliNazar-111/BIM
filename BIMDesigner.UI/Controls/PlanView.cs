@@ -899,12 +899,21 @@ public class PlanView : FrameworkElement
     }
 
     /// <summary>The placed sweep or reveal under the cursor, drawn beside or in a wall face.</summary>
-    private PlacedSweep? HitTestSweep(Point2D model)
+    private PlacedSweep? HitTestSweep(Point2D model) => SweepsAt(model).FirstOrDefault();
+
+    /// <summary>Every placed sweep or reveal under the cursor.</summary>
+    private IEnumerable<PlacedSweep> SweepsAt(Point2D model)
     {
-        if (Document is null) return null;
+        if (Document is null) return Array.Empty<PlacedSweep>();
         var reach = 5 / PixelsPerMm;
 
-        foreach (var placed in OnActiveLevel<PlacedSweep>())
+        return OnActiveLevel<PlacedSweep>().Where(placed => IsOnSweep(placed, model, reach)).ToList();
+    }
+
+    private bool IsOnSweep(PlacedSweep placed, Point2D model, double reach)
+    {
+        if (Document is null) return false;
+
         foreach (var id in placed.HostWallIds)
         {
             if (Document.Walls.FirstOrDefault(w => w.Id == id) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
@@ -919,10 +928,10 @@ public class PlanView : FrameworkElement
             var (inner, outer) = sweep.Kind == SweepKind.Reveal ? (-sweep.Depth, 0.0) : (sweep.Offset, sweep.Offset + sweep.Depth);
 
             if (along >= from - reach && along <= to + reach && outward >= inner - reach && outward <= outer + reach)
-                return placed;
+                return true;
         }
 
-        return null;
+        return false;
     }
 
     public void SetTool(PlanTool tool)
@@ -954,7 +963,7 @@ public class PlanView : FrameworkElement
         PlanTool.Offset => "Click a wall on the side the copy should go. Set the distance above.",
         PlanTool.Mirror => "Select what to mirror first, then click two points on the mirror line.",
         PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
-        _ => "Click to select, Ctrl+click to add, or drag a box. Drag a selection to move it."
+        _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
 
     /// <summary>Tells the window the selection changed. Add Point is for one wall, so it ends with any other selection.</summary>
@@ -1083,6 +1092,7 @@ public class PlanView : FrameworkElement
 
     private void OnElementsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        _hoverCandidates.Clear();
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }
@@ -1203,6 +1213,9 @@ public class PlanView : FrameworkElement
 
         UpdateHoverCursor(raw);
 
+        if (ActiveTool == PlanTool.Select && _dragging == GripKind.None && _bandStart is null && SweepEdit == SweepEditMode.None)
+            UpdateHover(raw);
+
         if (_pendingWallStart is not null || _pendingDimension is not null || _cursorIsSnapped)
             InvalidateVisual();
     }
@@ -1322,7 +1335,8 @@ public class PlanView : FrameworkElement
             return;
         }
 
-        var hit = HitTest(raw);
+        // What the cursor has outlined - TAB may have stepped past the first thing under it.
+        var hit = Hovered is { } outlined && _hoverAnchor.DistanceTo(raw) * PixelsPerMm < HoverSlop ? outlined : HitTest(raw);
 
         // Ctrl adds to or removes from the selection rather than replacing it. It never starts
         // a drag: extending a selection and moving it are different intentions, and doing both
@@ -2822,9 +2836,154 @@ public class PlanView : FrameworkElement
     }
 
     /// <summary>Picks whatever is under the point, preferring openings over their host.</summary>
-    private Element? HitTest(Point2D model)
+    private Element? HitTest(Point2D model) => HitCandidates(model).FirstOrDefault();
+
+    // ---- pre-highlighting and TAB ------------------------------------------------------
+
+    /// <summary>How far, in screen pixels, the cursor may drift before what is under it is looked for again.</summary>
+    private const double HoverSlop = 4;
+
+    // Everything under the cursor where it last settled, in pick order, and which of them is
+    // outlined: the first, until TAB steps on.
+    private List<Element> _hoverCandidates = new();
+    private int _hoverIndex;
+    private Point2D _hoverAnchor;
+
+    private Element? Hovered => _hoverCandidates.Count == 0 ? null : _hoverCandidates[_hoverIndex % _hoverCandidates.Count];
+
+    private readonly Pen _hoverPen = CreateHoverPen();
+
+    private static Pen CreateHoverPen()
     {
-        if (Document is null) return null;
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xA0, 0x2B, 0x8A, 0xE6)), 3) { LineJoin = PenLineJoin.Round };
+        pen.Freeze();
+        return pen;
+    }
+
+    /// <summary>
+    /// Outlines what a click would pick, as Revit pre-highlights it, and names it in the status
+    /// bar - with how many other things are under the cursor for TAB to reach.
+    /// </summary>
+    private void UpdateHover(Point2D raw)
+    {
+        if (_hoverCandidates.Count > 0 && _hoverAnchor.DistanceTo(raw) * PixelsPerMm < HoverSlop) return;
+
+        var before = Hovered;
+        _hoverCandidates = HitCandidates(raw).Distinct().ToList();
+        _hoverIndex = 0;
+        _hoverAnchor = raw;
+
+        if (ReferenceEquals(before, Hovered)) return;
+        ReportHover();
+        InvalidateVisual();
+    }
+
+    /// <summary>TAB: outlines the next thing under the cursor. Returns whether there was another.</summary>
+    public bool CycleHover()
+    {
+        if (ActiveTool != PlanTool.Select || _hoverCandidates.Count < 2) return false;
+
+        _hoverIndex = (_hoverIndex + 1) % _hoverCandidates.Count;
+        ReportHover();
+        InvalidateVisual();
+        return true;
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoverCandidates.Count == 0) return;
+
+        _hoverCandidates.Clear();
+        InvalidateVisual();
+    }
+
+    /// <summary>"Walls : Exterior - Brick on Block", and "TAB for alternates (1 of 3)" when there are more.</summary>
+    private void ReportHover()
+    {
+        if (Hovered is not { } element || Document is null)
+        {
+            HintChanged?.Invoke(this, DefaultHintFor(PlanTool.Select));
+            return;
+        }
+
+        var category = string.Concat(element.Category.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? " " + c : c.ToString()));
+        var type = Document.ElementTypes.FirstOrDefault(t => t.Id == element.TypeId);
+        var name = type is null ? category : $"{category} : {type.Name}";
+
+        HintChanged?.Invoke(this, _hoverCandidates.Count > 1
+            ? $"{name}   ·   TAB for alternates ({_hoverIndex + 1} of {_hoverCandidates.Count})"
+            : name);
+    }
+
+    /// <summary>The outline of whatever the cursor has picked out, drawn over the plan.</summary>
+    private void DrawHover(DrawingContext dc)
+    {
+        if (Document is null || _isPanning || Hovered is not { } element || IsSelected(element)) return;
+
+        IReadOnlyList<Point2D>? ring = null;
+        switch (element)
+        {
+            case Wall wall when Document.GetWallType(wall) is { } type:
+                ring = WallJoins.GetBandOutline(Document, wall, type, type.Width / 2, -type.Width / 2);
+                break;
+
+            case Opening opening when Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is { } host &&
+                                      Document.GetWallType(host) is { } hostType &&
+                                      Document.FindType<OpeningType>(opening.TypeId) is { } openingType:
+            {
+                var (from, to) = opening.GetSpan(openingType);
+                var half = hostType.Width / 2;
+                ring = new[]
+                {
+                    host.PointAt(hostType.Structure, from, half), host.PointAt(hostType.Structure, to, half),
+                    host.PointAt(hostType.Structure, to, -half), host.PointAt(hostType.Structure, from, -half)
+                };
+                break;
+            }
+
+            case Slab slab:
+                ring = slab.Boundary;
+                break;
+
+            case Room room:
+                ring = room.GetBoundary(Document).Polygon;
+                break;
+
+            case Grid grid:
+                DrawModelPolyline(dc, _hoverPen, new[] { grid.Start, grid.End });
+                return;
+
+            case SectionMarker section:
+                DrawModelPolyline(dc, _hoverPen, new[] { section.Start, section.End });
+                return;
+
+            case Dimension dimension:
+            {
+                var (from, to) = dimension.GetDimensionLine(Document);
+                DrawModelPolyline(dc, _hoverPen, new[] { from, to });
+                return;
+            }
+        }
+
+        if (ring is { Count: > 1 })
+        {
+            DrawModelPolyline(dc, _hoverPen, ring.Append(ring[0]).ToList());
+            return;
+        }
+
+        // Anything else - a tag, a note, a sweep - is ringed where the cursor found it.
+        dc.DrawEllipse(null, _hoverPen, ModelToScreen(_hoverAnchor), 9, 9);
+    }
+
+    /// <summary>
+    /// Everything under a point, in the order a click picks them: annotation on top, then what
+    /// is in or on walls, the walls, rooms, grids, and slabs under it all. The first is what a
+    /// click takes; TAB steps through the rest, as in Revit, to reach what is underneath.
+    /// </summary>
+    private IEnumerable<Element> HitCandidates(Point2D model)
+    {
+        if (Document is null) yield break;
         RefreshViewFilter();
 
         // Annotation first: it is drawn on top of everything, so it must be picked from on
@@ -2833,21 +2992,21 @@ public class PlanView : FrameworkElement
         var labelPick = 14 / PixelsPerMm;
 
         foreach (var tag in OnActiveLevel<Tag>())
-            if (tag.Position.DistanceTo(model) <= labelPick) return tag;
+            if (tag.Position.DistanceTo(model) <= labelPick) yield return tag;
 
         foreach (var note in OnActiveLevel<TextNote>())
-            if (note.Position.DistanceTo(model) <= labelPick) return note;
+            if (note.Position.DistanceTo(model) <= labelPick) yield return note;
 
         foreach (var dimension in OnActiveLevel<Dimension>())
         {
             var (from, to) = dimension.GetDimensionLine(Document);
-            if (DistanceToSegment(model, from, to) <= 6 / PixelsPerMm) return dimension;
+            if (DistanceToSegment(model, from, to) <= 6 / PixelsPerMm) yield return dimension;
         }
 
         // A section marker crosses whatever it cuts, so it has to be picked from above the
         // walls - otherwise it could never be selected where it matters.
         foreach (var section in OnActiveLevel<SectionMarker>())
-            if (DistanceToSegment(model, section.Start, section.End) <= 6 / PixelsPerMm) return section;
+            if (DistanceToSegment(model, section.Start, section.End) <= 6 / PixelsPerMm) yield return section;
 
         foreach (var opening in OnActiveLevel<Opening>())
         {
@@ -2858,41 +3017,38 @@ public class PlanView : FrameworkElement
 
             var centre = opening.GetCentre(wall);
             if (DistanceToSegment(model, centre, centre) <= Math.Max(type.Width, wallType.Width) / 2)
-                return opening;
+                yield return opening;
         }
 
         // Sweeps sit on wall faces, so they are picked before the walls they are on.
-        if (HitTestSweep(model) is { } hitSweep) return hitSweep;
+        foreach (var sweep in SweepsAt(model)) yield return sweep;
 
         // Walls before rooms: a room covers the whole floor, so it would swallow every click.
-        if (HitTestWall(model) is { } hitWall) return hitWall;
+        foreach (var wall in WallsAt(model)) yield return wall;
 
-        if (OnActiveLevel<Room>()
-                .FirstOrDefault(room => ContainsPoint(room.GetBoundary(Document), model)) is { } hitRoom)
-        {
-            return hitRoom;
-        }
+        foreach (var room in OnActiveLevel<Room>().Where(room => ContainsPoint(room.GetBoundary(Document), model)))
+            yield return room;
 
         // Grids are thin, so they are picked by proximity rather than by containing a point.
         var gridTolerance = 5 / PixelsPerMm;
-        if (OnActiveLevel<Grid>().FirstOrDefault(grid =>
-                DistanceToSegment(model, grid.Start, grid.End) <= gridTolerance) is { } hitGrid)
-        {
-            return hitGrid;
-        }
+        foreach (var grid in OnActiveLevel<Grid>().Where(grid => DistanceToSegment(model, grid.Start, grid.End) <= gridTolerance))
+            yield return grid;
 
         // Slabs last: they are under everything, so anything above them wins the click.
-        return OnActiveLevel<Slab>().LastOrDefault(slab => slab.Contains(model));
+        foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
+            yield return slab;
     }
 
     /// <summary>Picks the wall whose body the point falls in, nearest first.</summary>
-    private Wall? HitTestWall(Point2D model)
+    private Wall? HitTestWall(Point2D model) => WallsAt(model).FirstOrDefault();
+
+    /// <summary>Every wall whose body the point falls in, nearest first.</summary>
+    private IEnumerable<Wall> WallsAt(Point2D model)
     {
-        if (Document is null) return null;
+        if (Document is null) return Array.Empty<Wall>();
         RefreshViewFilter();
 
-        Wall? best = null;
-        var bestDistance = double.MaxValue;
+        var found = new List<(Wall Wall, double Distance)>();
 
         foreach (var wall in OnActiveLevel<Wall>())
         {
@@ -2907,14 +3063,10 @@ public class PlanView : FrameworkElement
                            model.DistanceTo(wall.PointAt(type.Structure, wall.Length, 0)));
             var tolerance = type.Width / 2 + 4 / PixelsPerMm;
 
-            if (distance <= tolerance && distance < bestDistance)
-            {
-                best = wall;
-                bestDistance = distance;
-            }
+            if (distance <= tolerance) found.Add((wall, distance));
         }
 
-        return best;
+        return found.OrderBy(f => f.Distance).Select(f => f.Wall).ToList();
     }
 
     private static double DistanceToSegment(Point2D p, Point2D a, Point2D b)
@@ -2951,6 +3103,7 @@ public class PlanView : FrameworkElement
         // walls belong to the editor rather than to the drawing, so none of them may ever
         // reach a sheet - which is exactly why the renderer does not know about them.
         DrawTrimSubject(dc);
+        DrawHover(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);
         DrawPendingDimension(dc);

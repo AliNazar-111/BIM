@@ -78,6 +78,9 @@ internal sealed class ViewSettingsDto
     public Guid TargetId { get; set; }
 
     public List<string> HiddenWallFunctions { get; set; } = new();
+
+    /// <summary>The view's scale as the denominator of 1:n, when it has its own.</summary>
+    public double? Scale { get; set; }
 }
 
 /// <summary>
