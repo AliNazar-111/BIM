@@ -295,10 +295,40 @@ public class PlanView : FrameworkElement
 
     private WallShape _drawShape = WallShape.Line;
 
-    private bool DrawArcs => _drawShape == WallShape.Arc;
+    private bool DrawArcs => _drawShape is WallShape.Arc or WallShape.PartialEllipse;
+
+    /// <summary>
+    /// The curve of an arc or partial-ellipse wall from its start and end through a third point,
+    /// or null when the point is on the straight line between them.
+    /// </summary>
+    private WallCurve? ThreePointCurve(Point2D start, Point2D end, Point2D through)
+    {
+        if (_drawShape == WallShape.PartialEllipse)
+            return WallShapes.PartialEllipse(start, end, through) is { } ellipse ? WallCurve.Of(start, end, 0, ellipse) : null;
+
+        var bulge = WallCurve.BulgeThrough(start, end, through);
+        return bulge == 0 ? null : WallCurve.Of(start, end, bulge);
+    }
+
+    /// <summary>A three-point wall moved off its clicks by the offset, toward the exterior side.</summary>
+    private Wall ThreePointWall(WallCurve curve)
+    {
+        var placed = curve.Offset(DrawOffset * (DrawFlipped ? -1 : 1));
+        return new Wall
+        {
+            Start = placed.Start,
+            End = placed.End,
+            Bulge = placed.Bulge,
+            Ellipse = placed.Ellipse,
+            TypeId = ActiveWallTypeId,
+            LevelId = ActiveLevelId,
+            LocationLine = ActiveLocationLine,
+            Flipped = DrawFlipped
+        };
+    }
 
     /// <summary>Whether the shape being drawn is a closed one, placed whole with two clicks.</summary>
-    private bool DrawsClosedShape => _drawShape is WallShape.Rectangle or WallShape.Polygon or WallShape.Circle or WallShape.Oval;
+    private bool DrawsClosedShape => _drawShape is WallShape.Rectangle or WallShape.Polygon or WallShape.Circle or WallShape.Oval or WallShape.Ellipse;
 
     /// <summary>Whether new walls hang down from their level by <see cref="NewWallHeight"/>, like a foundation wall.</summary>
     public bool NewWallDepth { get; set; }
@@ -344,7 +374,7 @@ public class PlanView : FrameworkElement
     private IReadOnlyList<WallPiece> ShapeFrom(Point2D anchor, Point2D to)
     {
         var square = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
-        if (square && _drawShape is WallShape.Rectangle or WallShape.Oval) to = WallShapes.SquareCorner(anchor, to);
+        if (square && _drawShape is WallShape.Rectangle or WallShape.Oval or WallShape.Ellipse) to = WallShapes.SquareCorner(anchor, to);
 
         var pieces = _drawShape switch
         {
@@ -352,6 +382,7 @@ public class PlanView : FrameworkElement
             WallShape.Polygon => WallShapes.Polygon(anchor, to, PolygonSides, PolygonInscribed),
             WallShape.Circle => WallShapes.Circle(anchor, to),
             WallShape.Oval => WallShapes.Oval(anchor, to),
+            WallShape.Ellipse => WallShapes.Ellipse(anchor, to),
             _ => Array.Empty<WallPiece>()
         };
 
@@ -430,6 +461,8 @@ public class PlanView : FrameworkElement
             : "Click where the middle of a side goes. Esc cancels.",
         WallShape.Circle => "Click a point on the circle. Esc cancels.",
         WallShape.Oval => "Click the opposite corner of the oval. Shift makes it round, Esc cancels.",
+        WallShape.Ellipse => "Click the opposite corner of the ellipse. Shift makes it round, Esc cancels.",
+        WallShape.PartialEllipse => "Click the other end of the axis. Space flips it, Esc cancels.",
         _ => "Click again to set the end of the wall. Space flips it, Esc cancels."
     };
 
@@ -1071,7 +1104,8 @@ public class PlanView : FrameworkElement
 
         if (wall.Start.DistanceTo(model) <= radius) return GripKind.Start;
         if (wall.End.DistanceTo(model) <= radius) return GripKind.End;
-        if (BendGrip(wall).DistanceTo(model) <= radius) return GripKind.Bend;
+        // An elliptical wall keeps its shape: bending it would make it an arc.
+        if (!wall.IsElliptical && BendGrip(wall).DistanceTo(model) <= radius) return GripKind.Bend;
 
         return GripKind.None;
     }
@@ -1321,32 +1355,21 @@ public class PlanView : FrameworkElement
             if (from.DistanceTo(model) < SnapStepMm) return;
 
             _pendingArcEnd = model;
-            HintChanged?.Invoke(this, "Now click a point the arc passes through. Esc cancels.");
+            HintChanged?.Invoke(this, _drawShape == WallShape.PartialEllipse
+                ? "Now click a point the ellipse passes through: it sets the other axis. Esc cancels."
+                : "Now click a point the arc passes through. Esc cancels.");
             return;
         }
 
         var end = _pendingArcEnd.Value;
-        var bulge = WallCurve.BulgeThrough(from, end, model);
-        if (bulge == 0)
+        if (ThreePointCurve(from, end, model) is not { } curve)
         {
             HintChanged?.Invoke(this, "That point is on the straight line between the ends. Pick one off it.");
             return;
         }
 
-        // An offset moves the arc in or out, keeping its sweep, toward the exterior side.
-        var curve = WallCurve.Of(from, end, bulge);
-        var left = DrawOffset * (DrawFlipped ? -1 : 1);
-
-        var wall = new Wall
-        {
-            Start = curve.At(0, left),
-            End = curve.At(curve.Length, left),
-            Bulge = bulge,
-            TypeId = ActiveWallTypeId,
-            LevelId = ActiveLevelId,
-            LocationLine = ActiveLocationLine,
-            Flipped = DrawFlipped
-        };
+        // An offset moves the curve in or out toward the exterior side.
+        var wall = ThreePointWall(curve);
 
         Apply(new AddElementCommand(Document, Configured(wall), "Draw Wall"));
 
@@ -1356,7 +1379,7 @@ public class PlanView : FrameworkElement
         _chainFirstWall ??= wall;
         Select(wall);
 
-        HintChanged?.Invoke(this, "Arc placed. Click where the next one ends, or Esc to stop.");
+        HintChanged?.Invoke(this, $"{(curve.IsElliptical ? "Half ellipse" : "Arc")} placed. Click where the next one ends, or Esc to stop.");
     }
 
     /// <summary>
@@ -2367,7 +2390,7 @@ public class PlanView : FrameworkElement
         }
 
         diamond.Freeze();
-        dc.DrawGeometry(_gripBrush, _gripPen, diamond);
+        if (!wall.IsElliptical) dc.DrawGeometry(_gripBrush, _gripPen, diamond);
 
         if (Document?.GetWallType(wall) is { } type) DrawFlipArrows(dc, wall, type);
     }
@@ -2416,12 +2439,12 @@ public class PlanView : FrameworkElement
             var pieces = ShapeFrom(_pendingWallStart.Value, _cursorModel);
             foreach (var piece in pieces)
             {
-                DrawModelPolyline(dc, _previewPen, WallCurve.Of(piece.Start, piece.End, piece.Bulge).Points());
+                DrawModelPolyline(dc, _previewPen, piece.Curve.Points());
                 if (type is null) continue;
 
                 var shapeWall = new Wall
                 {
-                    Start = piece.Start, End = piece.End, Bulge = piece.Bulge,
+                    Start = piece.Start, End = piece.End, Bulge = piece.Bulge, Ellipse = piece.Ellipse,
                     LocationLine = ActiveLocationLine, Flipped = DrawFlipped
                 };
                 DrawWallBody(dc, shapeWall, type, _previewPen);
@@ -2432,7 +2455,7 @@ public class PlanView : FrameworkElement
                 var first = pieces[0];
                 DrawFlipArrows(dc, new Wall
                 {
-                    Start = first.Start, End = first.End, Bulge = first.Bulge,
+                    Start = first.Start, End = first.End, Bulge = first.Bulge, Ellipse = first.Ellipse,
                     LocationLine = ActiveLocationLine, Flipped = DrawFlipped
                 }, type);
             }
@@ -2440,11 +2463,10 @@ public class PlanView : FrameworkElement
             return;
         }
 
-        // An arc waiting for its third point bends through the cursor as it moves.
+        // An arc or half ellipse waiting for its third point bends through the cursor as it moves.
         if (_pendingArcEnd is { } arcEnd)
         {
-            var bulge = WallCurve.BulgeThrough(_pendingWallStart.Value, arcEnd, _cursorModel);
-            var curve = WallCurve.Of(_pendingWallStart.Value, arcEnd, bulge);
+            var curve = ThreePointCurve(_pendingWallStart.Value, arcEnd, _cursorModel) ?? WallCurve.Of(_pendingWallStart.Value, arcEnd, 0);
 
             dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(_pendingWallStart.Value), 4, 4);
             dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(arcEnd), 4, 4);
@@ -2452,15 +2474,7 @@ public class PlanView : FrameworkElement
 
             if (type is null) return;
 
-            var left = DrawOffset * (DrawFlipped ? -1 : 1);
-            var arc = new Wall
-            {
-                Start = curve.At(0, left),
-                End = curve.At(curve.Length, left),
-                Bulge = bulge,
-                LocationLine = ActiveLocationLine,
-                Flipped = DrawFlipped
-            };
+            var arc = ThreePointWall(curve);
 
             DrawWallBody(dc, arc, type, _previewPen);
             DrawFlipArrows(dc, arc, type);

@@ -12,15 +12,24 @@ public enum WallShape
     Circle,
     Oval,
 
+    /// <summary>A whole ellipse filling a box, as two half-ellipse walls.</summary>
+    Ellipse,
+
+    /// <summary>Half an ellipse on the line between two clicks, bowed out through a third, one wall at a time.</summary>
+    PartialEllipse,
+
     /// <summary>A wall along an existing line - a gridline - picked with one click.</summary>
     Pick
 }
 
-/// <summary>One wall of a shape: where it runs, and how far it bows.</summary>
-public readonly record struct WallPiece(Point2D Start, Point2D End, double Bulge);
+/// <summary>One wall of a shape: where it runs, and how far it bows - as an arc, or as a piece of an ellipse.</summary>
+public readonly record struct WallPiece(Point2D Start, Point2D End, double Bulge, WallEllipse? Ellipse = null)
+{
+    public WallCurve Curve => WallCurve.Of(Start, End, Bulge, Ellipse);
+}
 
 /// <summary>
-/// Closed shapes of walls: rectangles, regular polygons, circles and rounded ovals, each
+/// Closed shapes of walls: rectangles, regular polygons, circles, rounded ovals and ellipses, each
 /// placed with two clicks as a set of walls that meet exactly and join cleanly.
 ///
 /// Every shape runs clockwise. A wall's exterior is on the left of the way it runs, and on a
@@ -150,6 +159,53 @@ public static class WallShapes
     }
 
     /// <summary>
+    /// An ellipse filling a box, its axes along the box's sides. Two half-ellipse walls, meeting
+    /// at the ends of the horizontal axis. A square box gives a circle.
+    /// </summary>
+    public static IReadOnlyList<WallPiece> Ellipse(Point2D corner, Point2D opposite)
+    {
+        var (minX, maxX) = (Math.Min(corner.X, opposite.X), Math.Max(corner.X, opposite.X));
+        var (minY, maxY) = (Math.Min(corner.Y, opposite.Y), Math.Max(corner.Y, opposite.Y));
+        var width = maxX - minX;
+        var height = maxY - minY;
+        if (width < MinimumPiece || height < MinimumPiece) return Array.Empty<WallPiece>();
+
+        var middle = (minY + maxY) / 2;
+        var right = new Point2D(maxX, middle);
+        var left = new Point2D(minX, middle);
+
+        // Right to left under the middle, then back over the top: each half bows to the left of
+        // its travel, which on this loop is clockwise, so the walls face out.
+        var half = WallEllipse.Half(height / width, toLeft: true);
+        return new[] { new WallPiece(right, left, 0, half), new WallPiece(left, right, 0, half) };
+    }
+
+    /// <summary>
+    /// Half an ellipse with one axis on the line between two points, its other semi-axis set so
+    /// it passes through a third - the elliptical counterpart of an arc through three points.
+    /// Null when the third point is on that line, or the first two coincide.
+    /// </summary>
+    public static WallEllipse? PartialEllipse(Point2D start, Point2D end, Point2D through)
+    {
+        var chord = end - start;
+        var semi = chord.Length / 2;
+        if (semi < MinimumPiece / 2) return null;
+
+        var direction = chord / chord.Length;
+        var fromMiddle = through - start.MidpointTo(end);
+        var along = fromMiddle.Dot(direction);
+        var left = fromMiddle.Dot(direction.PerpendicularLeft());
+        if (Math.Abs(left) < MinimumPiece) return null;
+
+        // On the ellipse, (along/a)² + (left/b)² = 1. Beyond the ends of the axis no ellipse
+        // passes through, so the point then just says how far it bows.
+        var share = along / semi;
+        var other = Math.Abs(share) < 0.99 ? Math.Abs(left) / Math.Sqrt(1 - share * share) : Math.Abs(left);
+
+        return WallEllipse.Half(other / semi, toLeft: left > 0);
+    }
+
+    /// <summary>
     /// The shape moved out by an offset - or in, for a negative one - so that its walls are
     /// built that far from the clicked outline, toward their exterior. Straight sides meet
     /// again at new corners; arcs grow or shrink about their own centres, and still meet the
@@ -159,16 +215,19 @@ public static class WallShapes
     {
         if (offset == 0 || pieces.Count == 0) return pieces;
 
-        var curves = pieces.Select(p => WallCurve.Of(p.Start, p.End, p.Bulge)).ToList();
+        var curves = pieces.Select(p => p.Curve).ToList();
+
+        // An elliptical piece grows or shrinks as a whole, keeping its ends at its own axes.
+        var grown = curves.Select(c => c.IsElliptical ? c.Offset(offset) : null).ToArray();
 
         // Left of travel is outside, so the offset curve is to the left.
-        var starts = curves.Select(c => c.At(0, offset)).ToArray();
-        var ends = curves.Select(c => c.At(c.Length, offset)).ToArray();
+        var starts = curves.Select((c, i) => grown[i]?.Start ?? c.At(0, offset)).ToArray();
+        var ends = curves.Select((c, i) => grown[i]?.End ?? c.At(c.Length, offset)).ToArray();
 
         for (var i = 0; i < curves.Count; i++)
         {
             var next = (i + 1) % curves.Count;
-            if (curves[i].IsArc || curves[next].IsArc) continue;
+            if (curves[i].IsCurved || curves[next].IsCurved) continue;
 
             var here = Line2D.Through(starts[i], ends[i]);
             var there = Line2D.Through(starts[next], ends[next]);
@@ -178,7 +237,7 @@ public static class WallShapes
             starts[next] = corner;
         }
 
-        return pieces.Select((piece, i) => new WallPiece(starts[i], ends[i], piece.Bulge)).ToList();
+        return pieces.Select((piece, i) => new WallPiece(starts[i], ends[i], piece.Bulge, grown[i]?.Ellipse ?? piece.Ellipse)).ToList();
     }
 
     /// <summary>The walls of a shape, as they will be built.</summary>
@@ -191,6 +250,7 @@ public static class WallShapes
                 Start = piece.Start,
                 End = piece.End,
                 Bulge = piece.Bulge,
+                Ellipse = piece.Ellipse,
                 TypeId = typeId,
                 LevelId = levelId,
                 LocationLine = locationLine,

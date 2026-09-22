@@ -31,7 +31,8 @@ test before the next begins.
 | **1.3k** | **Stacked walls** — a wall type built from tiers of other wall types, one tier taking up the height, plan cut through the tier at cut height; 3D, sections, quantities and IFC per tier | §3.1 | ✅ |
 | **1.3l** | **Slanted and tapered walls** — a wall leaning from vertical, or tapering on either face by type or per wall; plan cut at cut height, sections and 3D follow | §3.1 | ✅ |
 | **1.3m** | **Sweeps and reveals** — skirtings, cornices, beads and plain mouldings run along a face, broken by doors and windows; grooves set back into the face; edited with the wall type; section, plan, 3D and IFC | §3.1 | ✅ |
-| 1.3n | Elliptical walls, edited elevation profiles, walls embedded in curtain walls | §3.1 | ⬜ |
+| **1.3n** | **Elliptical walls** — whole ellipses placed in a box and half ellipses through three clicks; true elliptical curves in plan, joins, rooms, sections, 3D and IFC; split, mirror, offset and location line keep the shape | §3.1 | ✅ |
+| 1.3o | Edited elevation profiles, walls embedded in curtain walls | §3.1 | ⬜ |
 | **1.4** | **Hosting** — doors and windows in walls, automatic openings, host delete cascades, plan symbols | §2.5 §3.5 §13.2 §13.3 | ✅ |
 | **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection | §3.7 §13.4 | ✅ |
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |

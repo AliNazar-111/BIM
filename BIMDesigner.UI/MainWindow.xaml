@@ -350,6 +350,8 @@
                         <ComboBoxItem Content="Polygon"/>
                         <ComboBoxItem Content="Circle"/>
                         <ComboBoxItem Content="Oval"/>
+                        <ComboBoxItem Content="Ellipse"/>
+                        <ComboBoxItem Content="Partial ellipse"/>
                         <ComboBoxItem Content="Pick lines"/>
                     </ComboBox>
                     <StackPanel x:Name="PolygonOptions" Orientation="Horizontal" Visibility="Collapsed">

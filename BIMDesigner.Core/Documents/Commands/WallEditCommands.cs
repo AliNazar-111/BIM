@@ -58,6 +58,8 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly WallJoinKind _originalEndJoin;
     private readonly double _originalBulge;
     private readonly double _firstBulge;
+    private readonly WallEllipse? _originalEllipse;
+    private readonly WallEllipse? _firstEllipse;
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly double _splitAlong;
@@ -69,13 +71,17 @@ public sealed class SplitWallCommand : IUndoableCommand
         _originalEnd = wall.End;
         _originalEndJoin = wall.EndJoin;
         _originalBulge = wall.Bulge;
+        _originalEllipse = wall.Ellipse;
 
         // On a curved wall the split lands on the arc, and each half keeps its share of the
         // curve, so together they are exactly the wall that was there.
         var curve = wall.LocationCurve;
         _splitAlong = Math.Clamp(curve.Locate(splitPoint).Along, 0, curve.Length);
         _splitPoint = wall.IsCurved ? curve.PointAt(_splitAlong) : splitPoint;
-        _firstBulge = curve.Part(0, _splitAlong).Bulge;
+        var first = curve.Part(0, _splitAlong);
+        var second = curve.Part(_splitAlong, curve.Length);
+        _firstBulge = first.Bulge;
+        _firstEllipse = first.Ellipse;
 
         // Doors and windows beyond the split belong to the far half now.
         foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
@@ -85,7 +91,8 @@ public sealed class SplitWallCommand : IUndoableCommand
         {
             Start = _splitPoint,
             End = wall.End,
-            Bulge = curve.Part(_splitAlong, curve.Length).Bulge,
+            Bulge = second.Bulge,
+            Ellipse = second.Ellipse,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             OverrideTaper = wall.OverrideTaper,
@@ -121,6 +128,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     {
         _wall.End = _splitPoint;
         _wall.Bulge = _firstBulge;
+        _wall.Ellipse = _firstEllipse;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
 
@@ -142,6 +150,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _document.Remove(_remainder);
         _wall.End = _originalEnd;
         _wall.Bulge = _originalBulge;
+        _wall.Ellipse = _originalEllipse;
         _wall.EndJoin = _originalEndJoin;
     }
 }
@@ -165,12 +174,15 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
     private readonly WallLocationLine _newLine;
     private readonly List<(Wall Wall, Point2D Start, Point2D End, Point2D NewStart, Point2D NewEnd)> _walls = new();
     private readonly List<(Opening Opening, double Distance, double NewDistance)> _openings = new();
+    private readonly WallEllipse? _oldEllipse;
+    private WallEllipse? _newEllipse;
 
     public ChangeLocationLineCommand(BimDocument document, Wall wall, WallLocationLine newLine)
     {
         _wall = wall;
         _oldLine = wall.LocationLine;
         _newLine = newLine;
+        _oldEllipse = _newEllipse = wall.Ellipse;
 
         if (document.GetWallType(wall) is not { } type) return;
 
@@ -293,6 +305,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
 
         foreach (var (opening, _, distance) in _openings) opening.DistanceAlongWall = distance;
         _wall.LocationLine = _newLine;
+        _wall.Ellipse = _newEllipse;
     }
 
     public void Undo()
@@ -305,6 +318,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
 
         foreach (var (opening, distance, _) in _openings) opening.DistanceAlongWall = distance;
         _wall.LocationLine = _oldLine;
+        _wall.Ellipse = _oldEllipse;
     }
 
     /// <summary>
@@ -320,6 +334,14 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         {
             [wall] = (wall.Start + wall.ExteriorNormalAt(0) * delta, wall.End + wall.ExteriorNormalAt(curve.Length) * delta)
         };
+
+        // An elliptical wall has no concentric curve: its axes grow or shrink by the shift instead.
+        if (curve.IsElliptical)
+        {
+            var shifted = curve.Offset(wall.ExteriorNormalAt(0).Dot(curve.LeftAt(0)) * delta);
+            moves[wall] = (shifted.Start, shifted.End);
+            _newEllipse = shifted.Ellipse;
+        }
 
         var others = document.Walls
             .Where(other => !ReferenceEquals(other, wall) && other.LevelId == wall.LevelId && !other.IsCurved)
@@ -347,7 +369,7 @@ public sealed class ChangeLocationLineCommand : IUndoableCommand
         }
 
         // Stems ending on the arc are carried to the new arc along their own lines.
-        var newCurve = WallCurve.Of(moves[wall].Start, moves[wall].End, wall.Bulge);
+        var newCurve = WallCurve.Of(moves[wall].Start, moves[wall].End, wall.Bulge, _newEllipse);
         foreach (var stem in others)
         {
             foreach (var atStart in new[] { true, false })

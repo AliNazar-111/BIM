@@ -1632,6 +1632,8 @@ public partial class MainWindow : Window
             WallShape.Polygon => "Polygon: click the centre, then a corner. Set the number of sides on the bar.",
             WallShape.Circle => "Circle: click the centre, then a point on the circle.",
             WallShape.Oval => "Oval: click one corner of its box, then the opposite one. Hold Shift for a circle.",
+            WallShape.Ellipse => "Ellipse: click one corner of its box, then the opposite one. Hold Shift for a circle.",
+            WallShape.PartialEllipse => "Partial ellipse: click one end of an axis, the other end, then a point the ellipse passes through.",
             WallShape.Pick => "Pick lines: click a gridline to put a wall along it. The offset moves it toward the side you click.",
             _ => "Click the start of the wall, then its end."
         };

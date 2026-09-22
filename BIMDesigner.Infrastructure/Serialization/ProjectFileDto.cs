@@ -499,6 +499,11 @@ internal sealed class WallDto
     /// <summary>How far the wall bows: 0 for straight. See WallCurve for the convention.</summary>
     public double Bulge { get; set; }
 
+    /// <summary>An elliptical wall's shape: semi-axis ratio and parameter range. Absent for straight and arc walls.</summary>
+    public double? EllipseRatio { get; set; }
+    public double? EllipseFrom { get; set; }
+    public double? EllipseTo { get; set; }
+
     /// <summary>The slabs the top and base are attached to, if any.</summary>
     public Guid? TopAttachedTo { get; set; }
     public Guid? BaseAttachedTo { get; set; }

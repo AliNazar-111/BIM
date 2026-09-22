@@ -313,7 +313,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
 | Draw a curved wall | Wall tool, **Shape: Arc** on the option bar: click the start, the end, then a point the arc passes through |
 | Curve or straighten a wall | Select it and drag the diamond halfway along it; bring it back to the straight line to straighten |
-| Draw a whole shape of walls | Wall tool, **Shape**: Rectangle (Shift for a square), Polygon (set Sides; 3 is a triangle), Circle, Oval (Shift for round). Two clicks place every wall, joined |
+| Draw a whole shape of walls | Wall tool, **Shape**: Rectangle (Shift for a square), Polygon (set Sides; 3 is a triangle), Circle, Oval or Ellipse (Shift for round). Two clicks place every wall, joined |
+| Draw half an ellipse | Wall tool, **Shape: Partial ellipse**: click both ends of an axis, then a point the ellipse passes through |
 | Make or edit a wall type | Architecture → Wall Types..., or **Edit Type...** in Properties with a wall selected |
 | Change the type of several walls | Select them, then pick a type at the top of Properties |
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |

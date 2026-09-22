@@ -1,8 +1,8 @@
 namespace BIMDesigner.Core.Geometry;
 
 /// <summary>
-/// The line a wall is drawn along: straight, or an arc of a circle (specification section 3.1,
-/// "straight, arc and curved walls").
+/// The line a wall is drawn along: straight, an arc of a circle, or a piece of an ellipse
+/// (specification section 3.1, "straight, arc and curved walls", "elliptical walls").
 ///
 /// An arc is given by its two ends and a <em>bulge</em>, the tangent of a quarter of the angle
 /// it turns through - the convention CAD has used for decades. Zero is straight, positive
@@ -10,6 +10,8 @@ namespace BIMDesigner.Core.Geometry;
 /// the defining points means everything that works on wall ends - joins, snapping, grips,
 /// trimming - works on curved walls unchanged, and moving or mirroring a wall never has to
 /// reconstruct its centre.
+///
+/// An elliptical piece is held the same way, by its ends and a <see cref="WallEllipse"/>.
 ///
 /// Positions along the curve are distances along it from the start. Positions across it are
 /// offsets to the left of the direction of travel.
@@ -25,14 +27,52 @@ public sealed class WallCurve
     /// <summary>The largest angle one straight piece of a drawn arc may turn through.</summary>
     private const double MaxStepRadians = 5 * Math.PI / 180;
 
-    private WallCurve(Point2D start, Point2D end, double bulge)
+    /// <summary>How many pieces an elliptical curve is measured in to find distances along it.</summary>
+    private const int EllipseSamples = 1024;
+
+    // An elliptical curve: its centre, axes and parameter range, and the distance along it at
+    // each of the evenly spaced parameters it is measured at.
+    private readonly Point2D _ellipseCentre;
+    private readonly Vector2D _axisU, _axisV;
+    private readonly double _semiU, _semiV, _t0, _t1;
+    private readonly double[]? _lengths;
+
+    private WallCurve(Point2D start, Point2D end, double bulge, WallEllipse? ellipse = null)
     {
         Start = start;
         End = end;
-        Bulge = Math.Abs(bulge) < StraightBulge || start.DistanceTo(end) < 1e-9 ? 0 : bulge;
 
         var chord = end - start;
         var chordLength = chord.Length;
+
+        if (ellipse is { IsValid: true } shape && chordLength >= 1e-9)
+        {
+            Ellipse = shape;
+            _t0 = shape.From;
+            _t1 = shape.To;
+
+            // The line between the ends in the ellipse's own frame, for an ellipse with a unit
+            // first semi-axis. Its length gives the size, its direction the rotation.
+            var local = new Vector2D(Math.Cos(_t1) - Math.Cos(_t0), shape.Ratio * (Math.Sin(_t1) - Math.Sin(_t0)));
+            if (local.Length > 1e-9)
+            {
+                _semiU = chordLength / local.Length;
+                _semiV = _semiU * shape.Ratio;
+
+                var rotation = Math.Atan2(chord.Y, chord.X) - Math.Atan2(local.Y, local.X);
+                _axisU = new Vector2D(Math.Cos(rotation), Math.Sin(rotation));
+                _axisV = _axisU.PerpendicularLeft();
+                _ellipseCentre = start - _axisU * (_semiU * Math.Cos(_t0)) - _axisV * (_semiV * Math.Sin(_t0));
+
+                _lengths = MeasureEllipse();
+                Length = _lengths[^1];
+                return;
+            }
+
+            Ellipse = null;
+        }
+
+        Bulge = Math.Abs(bulge) < StraightBulge || chordLength < 1e-9 ? 0 : bulge;
 
         if (!IsArc)
         {
@@ -56,6 +96,9 @@ public sealed class WallCurve
     }
 
     public static WallCurve Of(Point2D start, Point2D end, double bulge) => new(start, end, bulge);
+
+    /// <summary>A curve that is a piece of an ellipse when one is given, otherwise a line or arc.</summary>
+    public static WallCurve Of(Point2D start, Point2D end, double bulge, WallEllipse? ellipse) => new(start, end, bulge, ellipse);
 
     /// <summary>The bulge of the arc from start to end that passes through a third point.</summary>
     public static double BulgeThrough(Point2D start, Point2D end, Point2D through)
@@ -84,7 +127,33 @@ public sealed class WallCurve
 
     public double Bulge { get; }
 
+    /// <summary>Whether this is an arc of a circle.</summary>
     public bool IsArc => Bulge != 0;
+
+    /// <summary>The ellipse this is a piece of, or null for a line or an arc.</summary>
+    public WallEllipse? Ellipse { get; }
+
+    public bool IsElliptical => Ellipse is not null;
+
+    /// <summary>Whether this is anything but a straight line.</summary>
+    public bool IsCurved => IsArc || IsElliptical;
+
+    /// <summary>
+    /// The tightest the curve bends: the radius of an arc, the smallest radius of curvature of
+    /// an elliptical piece, infinite for a line.
+    /// </summary>
+    public double MinRadius
+    {
+        get
+        {
+            if (IsArc) return Radius;
+            if (!IsElliptical) return double.PositiveInfinity;
+
+            var smallest = double.PositiveInfinity;
+            for (var i = 0; i <= EllipseSamples; i++) smallest = Math.Min(smallest, CurvatureRadius(ParameterOf(i)));
+            return smallest;
+        }
+    }
 
     /// <summary>Length along the curve, in millimetres.</summary>
     public double Length { get; }
@@ -104,6 +173,12 @@ public sealed class WallCurve
     /// <summary>The point this far along, and this far to the left of the direction of travel.</summary>
     public Point2D At(double along, double left)
     {
+        if (IsElliptical)
+        {
+            var t = ParameterAt(along);
+            return EllipsePoint(t) + EllipseTangent(t).PerpendicularLeft() * left;
+        }
+
         if (!IsArc)
         {
             var direction = (End - Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -121,6 +196,8 @@ public sealed class WallCurve
     /// <summary>The direction of travel at this distance along.</summary>
     public Vector2D TangentAt(double along)
     {
+        if (IsElliptical) return EllipseTangent(ParameterAt(along));
+
         if (!IsArc) return (End - Start).NormalisedOrDefault(Vector2D.UnitX);
 
         var angle = AngleAt(along);
@@ -138,6 +215,8 @@ public sealed class WallCurve
     /// </summary>
     public (double Along, double Left) Locate(Point2D point)
     {
+        if (IsElliptical) return LocateOnEllipse(point);
+
         if (!IsArc)
         {
             var direction = (End - Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -159,7 +238,7 @@ public sealed class WallCurve
     /// <summary>Distance from a point to the curve itself, between its ends.</summary>
     public double DistanceTo(Point2D point)
     {
-        if (!IsArc) return Line2D.DistanceFromSegment(point, Start, End);
+        if (!IsCurved) return Line2D.DistanceFromSegment(point, Start, End);
 
         var (along, _) = Locate(point);
         return along < 0 || along > Length
@@ -173,6 +252,8 @@ public sealed class WallCurve
     /// </summary>
     public Point2D? Intersect(Line2D line, double left, Point2D near)
     {
+        if (IsElliptical) return IntersectEllipse(line, left, near);
+
         if (!IsArc)
         {
             var edge = new Line2D(At(0, left), TangentAt(0));
@@ -211,6 +292,13 @@ public sealed class WallCurve
             var (b, otherLeft) = other.Locate(point);
             return Math.Abs(left) < 1e-3 && Math.Abs(otherLeft) < 1e-3 &&
                    a >= -slack && a <= Length + slack && b >= -slack && b <= other.Length + slack;
+        }
+
+        if (IsElliptical || other.IsElliptical)
+        {
+            // Walked along whichever is elliptical, watching for the other one's side to change.
+            var (walked, against) = IsElliptical ? (this, other) : (other, this);
+            return walked.CrossingsWith(against).Where(OnBoth).ToList();
         }
 
         var candidates = new List<Point2D>();
@@ -263,6 +351,12 @@ public sealed class WallCurve
     /// </summary>
     public IEnumerable<double> Between(double from, double to, double left = 0)
     {
+        if (IsElliptical)
+        {
+            foreach (var along in EllipseBetween(from, to, left)) yield return along;
+            yield break;
+        }
+
         if (!IsArc || Math.Abs(to - from) < 1e-9) yield break;
 
         var radius = Math.Max(Radius - Math.Sign(Sweep) * left, 1);
@@ -286,11 +380,13 @@ public sealed class WallCurve
     }
 
     /// <summary>The same curve moved sideways by this much, as a new curve with the same bulge.</summary>
-    public WallCurve Offset(double left) => new(At(0, left), At(Length, left), Bulge);
+    public WallCurve Offset(double left) => IsElliptical ? OffsetEllipse(left) : new(At(0, left), At(Length, left), Bulge);
 
     /// <summary>The part of the curve between two distances along it.</summary>
     public WallCurve Part(double from, double to)
     {
+        if (IsElliptical) return new WallCurve(PointAt(from), PointAt(to), 0, Ellipse!.Value with { From = ParameterAt(from), To = ParameterAt(to) });
+
         if (!IsArc) return new WallCurve(PointAt(from), PointAt(to), 0);
 
         var sweep = (to - from) / Radius * Math.Sign(Sweep);
@@ -298,6 +394,249 @@ public sealed class WallCurve
     }
 
     private double AngleAt(double along) => StartAngle + Math.Sign(Sweep) * along / Radius;
+
+    // ----- Elliptical pieces -----
+    //
+    // An ellipse has no closed form for distance along it, so the curve is measured once at
+    // evenly spaced parameters when it is made, and a distance along is turned back into a
+    // parameter by looking it up. Everything else - points, tangents, offsets - is exact at
+    // that parameter.
+
+    /// <summary>+1 when the parameter rises from start to end (turning left), -1 when it falls.</summary>
+    private double Turn => Math.Sign(_t1 - _t0);
+
+    private double ParameterOf(int sample) => _t0 + (_t1 - _t0) * sample / EllipseSamples;
+
+    private Point2D EllipsePoint(double t) =>
+        _ellipseCentre + _axisU * (_semiU * Math.Cos(t)) + _axisV * (_semiV * Math.Sin(t));
+
+    private Vector2D EllipseDerivative(double t) =>
+        _axisU * (-_semiU * Math.Sin(t)) + _axisV * (_semiV * Math.Cos(t));
+
+    private Vector2D EllipseSecondDerivative(double t) =>
+        _axisU * (-_semiU * Math.Cos(t)) + _axisV * (-_semiV * Math.Sin(t));
+
+    private double Speed(double t) => EllipseDerivative(t).Length;
+
+    private Vector2D EllipseTangent(double t) => (EllipseDerivative(t) * Turn).NormalisedOrDefault(Vector2D.UnitX);
+
+    /// <summary>Radius of curvature at a parameter: speed cubed over the (constant) cross product of the derivatives.</summary>
+    private double CurvatureRadius(double t)
+    {
+        var speed = Speed(t);
+        return speed * speed * speed / (_semiU * _semiV);
+    }
+
+    /// <summary>Length of the curve over a stretch of parameter, by three-point Gauss-Legendre.</summary>
+    private double StretchLength(double t, double span)
+    {
+        const double node = 0.7745966692414834;
+        var half = span / 2;
+        var middle = t + half;
+        return Math.Abs(half) * (8.0 / 9 * Speed(middle) + 5.0 / 9 * (Speed(middle - half * node) + Speed(middle + half * node)));
+    }
+
+    private double[] MeasureEllipse()
+    {
+        var lengths = new double[EllipseSamples + 1];
+        var span = (_t1 - _t0) / EllipseSamples;
+        for (var i = 0; i < EllipseSamples; i++) lengths[i + 1] = lengths[i] + StretchLength(ParameterOf(i), span);
+        return lengths;
+    }
+
+    /// <summary>The parameter this far along. Past either end the curve runs on along its end tangent's pace.</summary>
+    private double ParameterAt(double along)
+    {
+        var lengths = _lengths!;
+        if (along <= 0) return _t0 + Turn * along / Math.Max(Speed(_t0), 1e-9);
+        if (along >= Length) return _t1 + Turn * (along - Length) / Math.Max(Speed(_t1), 1e-9);
+
+        var index = Array.BinarySearch(lengths, along);
+        if (index >= 0) return ParameterOf(index);
+
+        var i = Math.Clamp(~index - 1, 0, EllipseSamples - 1);
+        var piece = lengths[i + 1] - lengths[i];
+        var fraction = piece > 0 ? (along - lengths[i]) / piece : 0;
+        var t = ParameterOf(i) + (_t1 - _t0) / EllipseSamples * fraction;
+
+        // The pace along the curve changes within a piece, so the guess is polished by Newton's
+        // method until the distance along it gives back is the one asked for.
+        for (var k = 0; k < 3; k++) t += Turn * (along - AlongAt(t)) / Math.Max(Speed(t), 1e-9);
+        return t;
+    }
+
+    /// <summary>The distance along at a parameter between the ends.</summary>
+    private double AlongAt(double t)
+    {
+        var position = (t - _t0) / (_t1 - _t0) * EllipseSamples;
+        var i = Math.Clamp((int)Math.Floor(position), 0, EllipseSamples - 1);
+        var from = ParameterOf(i);
+        return _lengths![i] + StretchLength(from, t - from);
+    }
+
+    private (double Along, double Left) LocateOnEllipse(Point2D point)
+    {
+        // The nearest of a coarse set of points, then narrowed down between its neighbours.
+        const int coarse = 128;
+        var best = 0;
+        var bestDistance = double.PositiveInfinity;
+        for (var i = 0; i <= coarse; i++)
+        {
+            var distance = (EllipsePoint(_t0 + (_t1 - _t0) * i / coarse) - point).Length;
+            if (distance < bestDistance) (best, bestDistance) = (i, distance);
+        }
+
+        var step = (_t1 - _t0) / coarse;
+        var (low, high) = (_t0 + step * Math.Max(best - 1, 0), _t0 + step * Math.Min(best + 1, coarse));
+        if (low > high) (low, high) = (high, low);
+
+        for (var k = 0; k < 80; k++)
+        {
+            var a = low + (high - low) / 3;
+            var b = high - (high - low) / 3;
+            if ((EllipsePoint(a) - point).Length < (EllipsePoint(b) - point).Length) high = b;
+            else low = a;
+        }
+
+        var t = (low + high) / 2;
+
+        // Past an end the point is measured along that end's tangent, as for a line.
+        var startTangent = EllipseTangent(_t0);
+        var beforeStart = (point - Start).Dot(startTangent);
+        if (Math.Abs(t - _t0) < 1e-9 && beforeStart < 0)
+            return (beforeStart, (point - Start).Dot(startTangent.PerpendicularLeft()));
+
+        var endTangent = EllipseTangent(_t1);
+        var pastEnd = (point - End).Dot(endTangent);
+        if (Math.Abs(t - _t1) < 1e-9 && pastEnd > 0)
+            return (Length + pastEnd, (point - End).Dot(endTangent.PerpendicularLeft()));
+
+        return (AlongAt(t), (point - EllipsePoint(t)).Dot(EllipseTangent(t).PerpendicularLeft()));
+    }
+
+    /// <summary>Where a line crosses the whole ellipse, offset this far left, nearest a point.</summary>
+    private Point2D? IntersectEllipse(Line2D line, double left, Point2D near)
+    {
+        var across = line.Direction.NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+        Point2D Offset(double t) => EllipsePoint(t) + EllipseTangent(t).PerpendicularLeft() * left;
+        double Side(double t) => (Offset(t) - line.Origin).Dot(across);
+
+        // A crossing that lands on a sample - as it does at the ends of an axis - can come out a
+        // hair either side of zero, so near enough counts as on the line.
+        const int steps = 720;
+        const double onLine = 1e-7;
+        Point2D? nearest = null;
+
+        void Consider(Point2D point)
+        {
+            if (nearest is null || point.DistanceTo(near) < nearest.Value.DistanceTo(near)) nearest = point;
+        }
+
+        for (var i = 0; i < steps; i++)
+        {
+            var a = _t0 + Turn * 2 * Math.PI * i / steps;
+            var b = _t0 + Turn * 2 * Math.PI * (i + 1) / steps;
+            var (sa, sb) = (Side(a), Side(b));
+
+            if (Math.Abs(sa) < onLine)
+            {
+                Consider(Offset(a));
+                continue;
+            }
+
+            if (Math.Abs(sb) < onLine || sa * sb > 0) continue;
+
+            for (var k = 0; k < 60; k++)
+            {
+                var m = (a + b) / 2;
+                var sm = Side(m);
+                if (sa * sm <= 0) b = m;
+                else (a, sa) = (m, sm);
+            }
+
+            Consider(Offset((a + b) / 2));
+        }
+
+        return nearest;
+    }
+
+    /// <summary>Points where this elliptical piece passes from one side of another curve to the other.</summary>
+    private IEnumerable<Point2D> CrossingsWith(WallCurve other)
+    {
+        var positions = new List<double> { 0 };
+        positions.AddRange(Between(0, Length));
+        positions.Add(Length);
+
+        double Side(double along) => other.Locate(PointAt(along)).Left;
+
+        var found = new List<Point2D>();
+        void Add(Point2D point)
+        {
+            if (found.All(p => p.DistanceTo(point) > 1e-6)) found.Add(point);
+        }
+
+        for (var i = 0; i + 1 < positions.Count; i++)
+        {
+            double a = positions[i], b = positions[i + 1];
+            double sa = Side(a), sb = Side(b);
+            const double onLine = 1e-7;
+            if (Math.Abs(sa) < onLine) Add(PointAt(a));
+            if (Math.Abs(sb) < onLine) Add(PointAt(b));
+            if (Math.Abs(sa) < onLine || Math.Abs(sb) < onLine || sa * sb > 0) continue;
+
+            for (var k = 0; k < 60; k++)
+            {
+                var m = (a + b) / 2;
+                var sm = Side(m);
+                if (sa * sm <= 0) b = m;
+                else (a, sa) = (m, sm);
+            }
+
+            Add(PointAt((a + b) / 2));
+        }
+
+        return found;
+    }
+
+    private IEnumerable<double> EllipseBetween(double from, double to, double left)
+    {
+        if (Math.Abs(to - from) < 1e-9) return Array.Empty<double>();
+
+        var (low, high) = from < to ? (from, to) : (to, from);
+        var positions = new List<double>();
+        var along = low;
+
+        // Each piece turns through no more than the tolerance allows at the curvature where it
+        // starts, measured on the edge being drawn rather than the location line.
+        while (true)
+        {
+            var radius = CurvatureRadius(ParameterAt(along));
+            var edgeRadius = Math.Max(radius - Turn * left, 1);
+            var toleranceStep = 2 * Math.Acos(Math.Clamp(1 - ChordTolerance / edgeRadius, -1, 1));
+            along += Math.Min(MaxStepRadians, Math.Max(toleranceStep, 1e-3)) * radius;
+
+            if (along >= high - 1e-6) break;
+            positions.Add(along);
+        }
+
+        if (from > to) positions.Reverse();
+        return positions;
+    }
+
+    /// <summary>
+    /// The piece moved sideways: an ellipse with both semi-axes grown or shrunk by the offset.
+    /// The true offset of an ellipse is not an ellipse; this one matches it exactly at the four
+    /// ends of the axes and stays within a hair of it between them for any ordinary wall.
+    /// </summary>
+    private WallCurve OffsetEllipse(double left)
+    {
+        var growth = -Turn * left;
+        var (u, v) = (_semiU + growth, _semiV + growth);
+        if (u <= 1e-6 || v <= 1e-6) return new WallCurve(At(0, left), At(Length, left), 0, Ellipse);
+
+        Point2D Grown(double t) => _ellipseCentre + _axisU * (u * Math.Cos(t)) + _axisV * (v * Math.Sin(t));
+        return new WallCurve(Grown(_t0), Grown(_t1), 0, Ellipse!.Value with { Ratio = v / u });
+    }
 
     private static double Normalise(double angle)
     {

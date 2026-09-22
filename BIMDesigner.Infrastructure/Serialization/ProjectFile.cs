@@ -378,6 +378,9 @@ public static class ProjectFile
                 RoomBounding = wall.RoomBounding,
                 StructuralUsage = wall.StructuralUsage.ToString(),
                 Bulge = wall.Bulge,
+                EllipseRatio = wall.Ellipse?.Ratio,
+                EllipseFrom = wall.Ellipse?.From,
+                EllipseTo = wall.Ellipse?.To,
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
@@ -633,6 +636,7 @@ public static class ProjectFile
                 RoomBounding = wall.RoomBounding,
                 StructuralUsage = ParseEnum(wall.StructuralUsage, StructuralUsage.NonBearing),
                 Bulge = double.IsFinite(wall.Bulge) ? wall.Bulge : 0,
+                Ellipse = ReadEllipse(wall),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = ParseEnum(wall.CrossSection, WallCrossSection.Vertical),
@@ -869,6 +873,13 @@ public static class ProjectFile
 
         return document;
     }
+
+    /// <summary>An elliptical wall's shape, or null when there is none or it could not describe a piece of ellipse.</summary>
+    private static WallEllipse? ReadEllipse(WallDto wall) =>
+        wall is { EllipseRatio: { } ratio, EllipseFrom: { } from, EllipseTo: { } to } &&
+        new WallEllipse(ratio, from, to) is { IsValid: true } ellipse
+            ? ellipse
+            : null;
 
     /// <summary>
     /// One layer of a build-up, or null if it cannot be one.

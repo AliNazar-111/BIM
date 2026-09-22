@@ -91,6 +91,7 @@ public static class ElementCopy
             RoomBounding = wall.RoomBounding,
             StructuralUsage = wall.StructuralUsage,
             Bulge = wall.Bulge,
+            Ellipse = wall.Ellipse,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             OverrideTaper = wall.OverrideTaper,

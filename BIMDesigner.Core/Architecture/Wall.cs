@@ -59,11 +59,38 @@ public sealed class Wall : Element
     /// </summary>
     public double Bulge { get; set; }
 
-    /// <summary>Whether the wall is an arc rather than a straight line.</summary>
-    public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge;
+    /// <summary>
+    /// The shape of an elliptical wall, or null when the wall is straight or an arc. Takes
+    /// precedence over <see cref="Bulge"/>. See <see cref="WallEllipse"/>.
+    /// </summary>
+    public WallEllipse? Ellipse { get; set; }
+
+    /// <summary>Whether the wall is an arc or elliptical rather than a straight line.</summary>
+    public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge || IsElliptical;
+
+    /// <summary>Whether the wall is a piece of an ellipse.</summary>
+    public bool IsElliptical => Ellipse is { IsValid: true };
 
     /// <summary>The line the wall was drawn along - the location line - straight or curved.</summary>
-    public WallCurve LocationCurve => WallCurve.Of(Start, End, Bulge);
+    public WallCurve LocationCurve
+    {
+        get
+        {
+            // An elliptical curve is measured along its length when made, so it is kept until
+            // the wall's ends or shape change.
+            var key = (Start, End, Bulge, Ellipse);
+            if (_curve is null || _curveKey != key)
+            {
+                _curve = WallCurve.Of(Start, End, Bulge, Ellipse);
+                _curveKey = key;
+            }
+
+            return _curve;
+        }
+    }
+
+    private WallCurve? _curve;
+    private (Point2D, Point2D, double, WallEllipse?) _curveKey;
 
     public WallLocationLine LocationLine { get; set; } = WallLocationLine.WallCentreline;
 

@@ -249,7 +249,7 @@ public static class WallJoins
                 // so its corners sit a hair off the arc; the allowance covers that.
                 var (alongA, across) = wall.Locate(structure, a);
                 var (alongB, acrossB) = wall.Locate(structure, b);
-                var allowance = wall.IsCurved ? 0.5 + otherType.Width * otherType.Width / (8 * curve.Radius) : 0.5;
+                var allowance = wall.IsCurved ? 0.5 + otherType.Width * otherType.Width / (8 * curve.MinRadius) : 0.5;
 
                 if (Math.Abs(Math.Abs(across) - half) > allowance) continue;
                 if (Math.Abs(acrossB - across) > 2 * allowance) continue;
