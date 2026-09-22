@@ -9,11 +9,12 @@ namespace BIMDesigner.Core.Geometry;
 /// wall's ends place, turn and scale that frame. So moving, rotating or scaling a wall never
 /// has to touch this, and mirroring it just negates the points' second coordinate.
 ///
-/// The curve through the points is a Hermite spline whose tangent at each point runs parallel
-/// to the line joining its two neighbours, and whose tangent at each end is turned so the end
-/// piece bends as a circle would. Tangents are scaled by the piece they start or finish, so
-/// unevenly spaced points do not make the curve overshoot. Every step of that is unchanged by
-/// moving, turning or scaling the points, which is what lets the frame be relative.
+/// The curve through the points is a Hermite spline whose tangent at each point follows the
+/// circle through it and its two neighbours, and whose tangent at each end is turned so the end
+/// piece bends as a circle would. Points on a circle give that circle, however they are spaced.
+/// Tangents are scaled by the piece they start or finish, so unevenly spaced points do not
+/// make the curve overshoot. Every step of that is unchanged by moving, turning or scaling
+/// the points, which is what lets the frame be relative.
 ///
 /// A wall made by splitting a spline wall is a part of the same spline: <see cref="From"/> and
 /// <see cref="To"/> say which part, as a parameter from 0 at the first end to
@@ -173,7 +174,15 @@ public sealed class WallSpline : IEquatable<WallSpline>
         var n = knots.Count;
         var tangents = new Vector2D[n];
         for (var i = 1; i < n - 1; i++)
-            tangents[i] = (knots[i + 1] - knots[i - 1]).NormalisedOrDefault((knots[i + 1] - knots[i]).NormalisedOrDefault(Vector2D.UnitX));
+        {
+            // Along the circle through the point and its two neighbours: each chord weighted by
+            // the square of the other. Evenly spaced, that is the line joining the neighbours;
+            // unevenly, it still follows a circle exactly, so an arc given points stays an arc.
+            var before = knots[i] - knots[i - 1];
+            var after = knots[i + 1] - knots[i];
+            var direction = after * before.Dot(before) + before * after.Dot(after);
+            tangents[i] = direction.NormalisedOrDefault(after.NormalisedOrDefault(Vector2D.UnitX));
+        }
 
         tangents[0] = Reflect(tangents[1], (knots[1] - knots[0]).NormalisedOrDefault(Vector2D.UnitX));
         tangents[n - 1] = Reflect(tangents[n - 2], (knots[n - 1] - knots[n - 2]).NormalisedOrDefault(Vector2D.UnitX));

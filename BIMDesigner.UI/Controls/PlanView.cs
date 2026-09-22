@@ -213,7 +213,7 @@ public class PlanView : FrameworkElement
             if (_document is not null)
                 _document.Elements.CollectionChanged += OnElementsChanged;
 
-            SelectionChanged?.Invoke(this, EventArgs.Empty);
+            RaiseSelectionChanged();
             InvalidateVisual();
         }
     }
@@ -615,6 +615,63 @@ public class PlanView : FrameworkElement
     /// <summary>Raised when an Add/Remove Walls or Modify Returns mode starts or stops.</summary>
     public event EventHandler? SweepEditChanged;
 
+    /// <summary>
+    /// Add Point: clicks on the selected wall put points on it to drag its shape out by. Ends
+    /// when the selection is no longer one wall.
+    /// </summary>
+    public bool AddingWallPoints
+    {
+        get => _addingWallPoints;
+        set
+        {
+            if (_addingWallPoints == value) return;
+            _addingWallPoints = value && SelectedWall is not null;
+            if (_addingWallPoints)
+                HintChanged?.Invoke(this, "Click on the wall to add a point, then drag the round grip to shape it. Double-click a point to remove it. Esc when done.");
+            WallPointModeChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+        }
+    }
+
+    private bool _addingWallPoints;
+
+    public event EventHandler? WallPointModeChanged;
+
+    /// <summary>
+    /// A click that shapes a wall: on one of its points, a double click removes it; anywhere
+    /// else on the wall, a point is added there. Returns whether the click was taken.
+    /// </summary>
+    private bool ShapeWallAt(Wall wall, Point2D raw, bool doubleClick)
+    {
+        if (Document is null) return false;
+
+        if (SplineGripAt(wall, raw) is { } index)
+        {
+            // A single click on a point is the start of dragging it.
+            if (!doubleClick) return false;
+
+            var fewer = WallPoints.RemovePoint(wall, index);
+            Apply(new ReshapeSplineWallCommand(wall, wall.Spline, fewer, "Remove Wall Point"));
+            InvalidateVisual();
+            HintChanged?.Invoke(this, fewer is null ? "Last point removed: the wall is straight again." : "Point removed.");
+            return true;
+        }
+
+        var reach = (Document.GetWallType(wall)?.Width ?? 0) / 2 + 4 / PixelsPerMm;
+        if (wall.LocationCurve.DistanceTo(raw) > reach) return false;
+
+        if (WallPoints.AddPoint(wall, raw) is not { } more)
+        {
+            HintChanged?.Invoke(this, "Too close to an end or another point to add one there.");
+            return true;
+        }
+
+        Apply(new ReshapeSplineWallCommand(wall, wall.Spline, more, "Add Wall Point"));
+        InvalidateVisual();
+        HintChanged?.Invoke(this, "Point added. Drag its round grip to stretch the wall; double-click it to remove it.");
+        return true;
+    }
+
     /// <summary>Starts Add/Remove Walls or Modify Returns on the selected placed sweep.</summary>
     public void BeginSweepEdit(SweepEditMode mode)
     {
@@ -794,6 +851,13 @@ public class PlanView : FrameworkElement
         _ => "Click to select, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
 
+    /// <summary>Tells the window the selection changed. Add Point is for one wall, so it ends with any other selection.</summary>
+    private void RaiseSelectionChanged()
+    {
+        if (SelectedWall is null) AddingWallPoints = false;
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>Replaces the selection with one element, or clears it.</summary>
     public void Select(Element? element) =>
         SelectMany(element is null ? Array.Empty<Element>() : new[] { element });
@@ -806,7 +870,7 @@ public class PlanView : FrameworkElement
         _selection.Clear();
         _selection.AddRange(replacement);
 
-        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        RaiseSelectionChanged();
         InvalidateVisual();
     }
 
@@ -815,7 +879,7 @@ public class PlanView : FrameworkElement
     {
         if (!_selection.Remove(element)) _selection.Add(element);
 
-        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        RaiseSelectionChanged();
         InvalidateVisual();
     }
 
@@ -851,6 +915,7 @@ public class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = _pendingWallStart is not null
+                      || AddingWallPoints
                       || _stroke is not null
                       || _trimSubject is not null
                       || _pendingDimension is not null
@@ -858,6 +923,7 @@ public class PlanView : FrameworkElement
                       || SweepEdit != SweepEditMode.None;
 
         EndSweepEdit();
+        AddingWallPoints = false;
         _pendingWallStart = null;
         _trimSubject = null;
         _pendingDimension = null;
@@ -1131,6 +1197,11 @@ public class PlanView : FrameworkElement
                 PlaceArrayPoint(SnapPoint(raw, null, out _));
                 return;
         }
+
+        // Shaping a wall by hand: a double click on it adds a point, on a point takes it away;
+        // with Add Point on, a single click on the wall adds one.
+        if (SelectedWall is { } shaped && (e.ClickCount == 2 || AddingWallPoints) && ShapeWallAt(shaped, raw, e.ClickCount == 2))
+            return;
 
         var hit = HitTest(raw);
 

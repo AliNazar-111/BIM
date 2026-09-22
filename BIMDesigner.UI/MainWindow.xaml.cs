@@ -76,6 +76,7 @@ public partial class MainWindow : Window
         // nothing sensible to do between creating one and looking at it.
         Plan.SectionPlaced += (_, marker) => ShowSection(marker);
         Plan.SweepEditChanged += (_, _) => SyncSweepEditControls();
+        Plan.WallPointModeChanged += (_, _) => ContextAddPoint.IsChecked = Plan.AddingWallPoints;
 
         Section.SelectionChanged += (_, _) =>
         {
@@ -196,6 +197,10 @@ public partial class MainWindow : Window
             RefreshSection();
             SheetSurface.Refresh();
             Refresh3D();
+
+            // What the selection can have done to it may have changed with it: a wall given a
+            // point can be straightened.
+            if (ContextTab.Visibility == Visibility.Visible) RefreshContextTab(bringForward: false);
         };
 
         Plan.History = _history;
@@ -1046,7 +1051,7 @@ public partial class MainWindow : Window
     /// the panels that apply to it, and puts the ribbon back where it was when the selection
     /// is let go.
     /// </summary>
-    private void RefreshContextTab()
+    private void RefreshContextTab(bool bringForward = true)
     {
         var selected = Plan.SelectedElements;
 
@@ -1069,6 +1074,10 @@ public partial class MainWindow : Window
         var wallsOnly = allWalls ? Visibility.Visible : Visibility.Collapsed;
         ContextSplit.Visibility = ContextTrim.Visibility = ContextOffset.Visibility = wallsOnly;
         ContextModePanel.Visibility = ContextWallPanel.Visibility = wallsOnly;
+        ContextShapePanel.Visibility = wallsOnly;
+        ContextAddPoint.IsEnabled = selected is [Wall];
+        ContextStraighten.IsEnabled = selected.OfType<Wall>().Any(wall => wall.IsCurved);
+        ContextAddPoint.IsChecked = Plan.AddingWallPoints;
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
@@ -1083,7 +1092,7 @@ public partial class MainWindow : Window
 
         // Picking something brings its tab forward. While a tool is placing things (a sweep
         // selects each one it puts down) the tab holding that tool stays open instead.
-        if (Plan.ActiveTool == PlanTool.Select) Ribbon.SelectedItem = ContextTab;
+        if (bringForward && Plan.ActiveTool == PlanTool.Select) Ribbon.SelectedItem = ContextTab;
     }
 
     /// <summary>"WallSweeps" to "Wall Sweeps": the category as a tab caption.</summary>
@@ -1104,6 +1113,30 @@ public partial class MainWindow : Window
         };
 
         if (tool is not null) tool.IsChecked = true;
+    }
+
+    private void OnAddWallPoint(object sender, RoutedEventArgs e)
+    {
+        Plan.AddingWallPoints = ContextAddPoint.IsChecked == true;
+        ContextAddPoint.IsChecked = Plan.AddingWallPoints;
+        Plan.Focus();
+    }
+
+    /// <summary>Straightens the selected walls: points, arcs and ellipses all go, the ends stay.</summary>
+    private void OnStraightenWalls(object sender, RoutedEventArgs e)
+    {
+        var walls = Plan.SelectedElements.OfType<Wall>().Where(wall => wall.IsCurved).ToList();
+        if (walls.Count == 0)
+        {
+            StatusHint.Text = "The selected walls are straight already.";
+            return;
+        }
+
+        _history.Execute(new CompositeCommand("Straighten",
+            walls.Select(wall => new ReshapeSplineWallCommand(wall, wall.Spline, null, "Straighten", straighten: true))));
+        AfterHistoryChange();
+        RefreshContextTab();
+        StatusHint.Text = $"Straightened {Plural(walls.Count, "wall")}.";
     }
 
     private void OnAddRemoveSweepWalls(object sender, RoutedEventArgs e) =>

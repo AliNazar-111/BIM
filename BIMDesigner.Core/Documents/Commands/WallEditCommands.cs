@@ -725,19 +725,34 @@ public sealed class ReshapeSplineWallCommand : IUndoableCommand
     private readonly Wall _wall;
     private readonly WallSpline? _oldSpline;
     private readonly WallSpline? _newSpline;
+    private readonly (double Bulge, WallEllipse? Ellipse) _oldCurve, _newCurve;
 
-    public ReshapeSplineWallCommand(Wall wall, WallSpline? oldSpline, WallSpline? newSpline)
+    public ReshapeSplineWallCommand(Wall wall, WallSpline? oldSpline, WallSpline? newSpline, string name = "Move Spline Point", bool straighten = false)
     {
         _wall = wall;
         _oldSpline = oldSpline;
         _newSpline = newSpline;
+        Name = name;
+
+        // A wall given points becomes a spline and nothing else: an arc or ellipse it was is
+        // in the points now, and taking them all away later leaves it straight, not bowed.
+        _oldCurve = (wall.Bulge, wall.Ellipse);
+        _newCurve = straighten || (oldSpline is null && newSpline is not null) ? (0, null) : _oldCurve;
     }
 
-    public string Name => "Move Spline Point";
+    public string Name { get; }
 
-    public void Redo() => _wall.Spline = _newSpline;
+    public void Redo()
+    {
+        _wall.Spline = _newSpline;
+        (_wall.Bulge, _wall.Ellipse) = _newCurve;
+    }
 
-    public void Undo() => _wall.Spline = _oldSpline;
+    public void Undo()
+    {
+        _wall.Spline = _oldSpline;
+        (_wall.Bulge, _wall.Ellipse) = _oldCurve;
+    }
 }
 
 /// <summary>
