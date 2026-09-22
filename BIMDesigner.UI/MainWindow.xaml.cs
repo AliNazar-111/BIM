@@ -2210,8 +2210,21 @@ public partial class MainWindow : Window
             WallShape.Pick => "Pick lines: click a gridline to put a wall along it. The offset moves it toward the side you click.",
             WallShape.Spline => "Spline: click the start, then points the wall curves through. Enter or a double click finishes; click the first point to close a loop.",
             WallShape.Freehand => "Freehand: hold the mouse button and draw the wall. Let go to build it; end where you began to close a loop.",
+            WallShape.BySegment => "By segment: click beside a wall, on the side the new wall goes. It runs the length of that face, between the walls it meets.",
+            WallShape.ByRoom => "By room: click inside a room. A wall goes along every face round it, meeting at the corners.",
             _ => "Click the start of the wall, then its end."
         };
+    }
+
+    /// <summary>Auto Join, and Lock with it: Lock means nothing unless walls are joined.</summary>
+    private void OnAutoJoinChanged(object sender, RoutedEventArgs e)
+    {
+        Plan.AutoJoinWalls = AutoJoinBox.IsChecked == true;
+        LockJoinBox.IsEnabled = Plan.AutoJoinWalls;
+        Plan.LockJoinedWalls = Plan.AutoJoinWalls && LockJoinBox.IsChecked == true;
+        StatusHint.Text = !Plan.AutoJoinWalls ? "New walls are not joined to the walls they lie against."
+            : Plan.LockJoinedWalls ? "Auto Join and Lock: new walls against others are joined, and move with them."
+            : "Auto Join: new walls against others are joined, so doors and windows cut through both.";
     }
 
     private void OnPolygonSidesChanged(object sender, RoutedEventArgs e)

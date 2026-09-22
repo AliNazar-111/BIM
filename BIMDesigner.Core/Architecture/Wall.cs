@@ -71,6 +71,15 @@ public sealed class Wall : Element
     /// </summary>
     public WallSpline? Spline { get; set; }
 
+    /// <summary>
+    /// The walls this one was laid against and joined to, face to face: their doors and windows
+    /// cut through it and its through them. See <see cref="WallLamination"/>.
+    /// </summary>
+    public List<Guid> JoinedTo { get; } = new();
+
+    /// <summary>Whether this wall moves with the walls it is joined to, and they with it.</summary>
+    public bool LockedToJoined { get; set; }
+
     /// <summary>Whether the wall is an arc, elliptical or a spline rather than a straight line.</summary>
     public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge || IsElliptical || IsSpline;
 
@@ -469,6 +478,18 @@ public sealed class Wall : Element
             yield return ParameterValue.ReadOnly(WallParameters.UnconnectedHeight, () => UnconnectedHeight);
         }
 
+        // Walls joined face to face: how many, and whether they move together.
+        if (JoinedTo.Count > 0)
+        {
+            yield return ParameterValue.ReadOnly(WallParameters.JoinedWalls, () => JoinedTo.Count);
+            yield return ParameterValue.BindValidated(WallParameters.LockedToJoined, () => LockedToJoined, v =>
+            {
+                if (v && !WallLamination.CanLock(this)) return false;
+                LockedToJoined = v;
+                return true;
+            });
+        }
+
         // Leaning: the profile, and the angles that apply to it. Each is editable only when it
         // means something for the profile chosen.
         yield return ParameterValue.BindChoice(
@@ -625,6 +646,12 @@ public static class WallParameters
 
     public static readonly ParameterDefinition SlantAngle =
         new("Angle from Vertical", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition JoinedWalls =
+        new("Joined Walls", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition LockedToJoined =
+        new("Locked to Joined Walls", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition LowerSlantAngle =
         new("Lower Angle from Vertical", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);

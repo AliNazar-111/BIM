@@ -326,6 +326,9 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |
 | Draw a wall going down (foundation, retaining) | Wall tool, set **Depth** instead of Height on the option bar |
 | Place walls on existing lines | Wall tool, **Shape: Pick lines**, click grid lines |
+| Line one face of a wall (an accent or finish wall) | Wall tool, **Shape: By segment**, click beside the wall on the side the new wall goes. It runs that face's length between the walls it meets, and its location line is the face against the wall |
+| Line every face of a room | Wall tool, **Shape: By room**, click inside the room |
+| Join a new wall to the wall it lies against | Tick **Auto Join** on the option bar before placing: doors and windows in either then cut through both. Tick **Lock** too to make them move together; a joined wall's **Locked to Joined Walls** property switches it later |
 | Make a wall follow the floor or roof above | Select walls, Architecture tab → **Attach Top** (or **Attach Base**), then click the slab; **Detach** undoes it |
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |

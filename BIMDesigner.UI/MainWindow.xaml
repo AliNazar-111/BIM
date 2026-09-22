@@ -739,6 +739,8 @@
                         <ComboBoxItem Content="Pick lines"/>
                         <ComboBoxItem Content="Spline"/>
                         <ComboBoxItem Content="Freehand"/>
+                        <ComboBoxItem Content="By segment"/>
+                        <ComboBoxItem Content="By room"/>
                     </ComboBox>
                     <StackPanel x:Name="PolygonOptions" Orientation="Horizontal" Visibility="Collapsed">
                         <TextBlock Text="Sides" Style="{StaticResource OptionLabel}"/>
@@ -753,6 +755,12 @@
                     <TextBox x:Name="WallOffsetBox" Width="90" VerticalAlignment="Center"
                              Text="0 mm" LostFocus="OnWallOffsetChanged" KeyDown="OnWallOffsetKeyDown"
                              ToolTip="Build the wall this far off the line you click, toward its exterior. Negative goes the other way."/>
+                    <CheckBox x:Name="AutoJoinBox" Content="Auto Join" VerticalAlignment="Center" Margin="4,0,10,0"
+                              Click="OnAutoJoinChanged"
+                              ToolTip="Join a new wall to the walls its faces lie against: their doors and windows cut through both"/>
+                    <CheckBox x:Name="LockJoinBox" Content="Lock" VerticalAlignment="Center" Margin="0,0,14,0"
+                              Click="OnAutoJoinChanged" IsEnabled="False"
+                              ToolTip="Auto Join and Lock: the joined walls also move together"/>
                     <TextBlock Text="Space flips" Style="{StaticResource OptionLabel}" Opacity="0.6"/>
                 </StackPanel>
 

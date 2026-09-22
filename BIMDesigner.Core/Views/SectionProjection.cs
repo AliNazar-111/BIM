@@ -415,7 +415,7 @@ public static class SectionProjection
             : ProfileHeights(document, openings, baseElevation, profile, distanceAlong);
 
         // A curtain wall embedded here takes its own height out of this wall.
-        foreach (var hole in CurtainEmbedding.In(document, wall).Where(h => distanceAlong > h.From && distanceAlong < h.To))
+        foreach (var hole in WallHoles.Of(document, wall).Where(h => distanceAlong > h.From && distanceAlong < h.To))
         {
             var (sill, head) = (baseElevation + hole.Sill, baseElevation + hole.Head);
             solid = solid

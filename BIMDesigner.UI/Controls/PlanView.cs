@@ -322,6 +322,8 @@ public class PlanView : FrameworkElement
             _splinePoints.Clear();
             _stroke = null;
             InvalidateVisual();
+            _placementPreview = Array.Empty<Wall>();
+            _placementPreviewAt = null;
         }
     }
 
@@ -371,9 +373,31 @@ public class PlanView : FrameworkElement
     /// <summary>The unconnected height, or the depth, of new walls. Millimetres.</summary>
     public double NewWallHeight { get; set; } = 3000;
 
+    /// <summary>
+    /// Auto Join: a new wall laid against the face of one already there is joined to it, so the
+    /// doors and windows of either cut through both.
+    /// </summary>
+    public bool AutoJoinWalls { get; set; }
+
+    /// <summary>Auto Join and Lock: joined walls also move together.</summary>
+    public bool LockJoinedWalls { get; set; }
+
+    /// <summary>Joins a wall about to be placed to the walls its faces lie against, when Auto Join is on.</summary>
+    private void JoinToTouching(Wall wall, IEnumerable<Wall>? alsoAgainst = null)
+    {
+        if (!AutoJoinWalls || Document is null || !WallLamination.CanJoin(Document, wall)) return;
+
+        foreach (var other in WallLamination.Touching(Document, wall).Concat(alsoAgainst ?? Array.Empty<Wall>()))
+            if (!wall.JoinedTo.Contains(other.Id) && WallLamination.CanJoin(Document, other)) wall.JoinedTo.Add(other.Id);
+
+        wall.LockedToJoined = LockJoinedWalls && wall.JoinedTo.Count > 0 && WallLamination.CanLock(wall);
+    }
+
     /// <summary>Gives a wall about to be placed the height or depth set on the option bar.</summary>
     private Wall Configured(Wall wall)
     {
+        JoinToTouching(wall);
+
         if (NewWallDepth)
         {
             // Up to its own level, from that far below it.
@@ -1213,6 +1237,15 @@ public class PlanView : FrameworkElement
 
         UpdateHoverCursor(raw);
 
+        // Placing against walls: the walls a click here would make, shown before it is made.
+        if (ActiveTool == PlanTool.Wall && _drawShape is WallShape.BySegment or WallShape.ByRoom &&
+            (_placementPreviewAt is not { } last || last.DistanceTo(raw) * PixelsPerMm > 6))
+        {
+            _placementPreview = PlacementAt(raw, out _);
+            _placementPreviewAt = raw;
+            InvalidateVisual();
+        }
+
         if (ActiveTool == PlanTool.Select && _dragging == GripKind.None && _bandStart is null && SweepEdit == SweepEditMode.None)
             UpdateHover(raw);
 
@@ -1246,6 +1279,7 @@ public class PlanView : FrameworkElement
             case PlanTool.Wall:
                 if (DrawShape == WallShape.Pick) PickLine(raw);
                 else if (DrawShape == WallShape.Freehand) BeginStroke(raw);
+                else if (DrawShape is WallShape.BySegment or WallShape.ByRoom) PlaceAgainst(raw);
                 else if (DrawShape == WallShape.Spline && e.ClickCount == 2 && _pendingWallStart is not null) FinishSpline(closed: false);
                 else PlaceWallPoint(SnapPoint(raw, null, out _));
                 return;
@@ -1608,11 +1642,23 @@ public class PlanView : FrameworkElement
     /// as one command on release. Recording each mouse move would bury real edits under
     /// hundreds of one-pixel nudges.
     /// </summary>
+    /// <summary>What a move drag carries: the selection, and whatever is locked to it.</summary>
+    private readonly List<Element> _moveSet = new();
+
     private void BeginMoveDrag(Point2D raw)
     {
         if (!_selection.Any(ElementTransforms.CanMove)) return;
 
         _dragging = GripKind.Move;
+
+        // Walls locked to the ones selected move with them, as Revit's locked joins do.
+        _moveSet.Clear();
+        _moveSet.AddRange(_selection);
+        if (Document is not null)
+            foreach (var wall in _selection.OfType<Wall>().ToList())
+            foreach (var locked in WallLamination.LockedGroup(Document, wall))
+                if (!_moveSet.Contains(locked)) _moveSet.Add(locked);
+
         _dragAnchor = raw;
         _dragLastPoint = SnapToGrid(raw);
         _dragTotal = default;
@@ -1630,7 +1676,7 @@ public class PlanView : FrameworkElement
 
             if (step.X == 0 && step.Y == 0) return;
 
-            foreach (var element in _selection)
+            foreach (var element in _moveSet)
                 if (ElementTransforms.CanMove(element))
                     ElementTransforms.Move(element, step);
 
@@ -1725,7 +1771,7 @@ public class PlanView : FrameworkElement
         {
             if (_dragTotal.X == 0 && _dragTotal.Y == 0) return;
 
-            var command = new MoveElementsCommand(_selection.ToList(), _dragTotal);
+            var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal);
             if (!command.IsEmpty) History?.Record(command);
 
             _dragTotal = default;
@@ -1911,6 +1957,95 @@ public class PlanView : FrameworkElement
         Select(wall);
 
         HintChanged?.Invoke(this, $"{(curve.IsElliptical ? "Half ellipse" : "Arc")} placed. Click where the next one ends, or Esc to stop.");
+    }
+
+    // ---- place by segment and by room ---------------------------------------------------
+
+    // The walls a click where the cursor is would place, and where they were worked out.
+    private IReadOnlyList<Wall> _placementPreview = Array.Empty<Wall>();
+    private Point2D? _placementPreviewAt;
+
+    /// <summary>
+    /// The wall a click beside it would line, and on which side: the nearest one whose body
+    /// the cursor is on or just off.
+    /// </summary>
+    private (Wall Host, bool Exterior)? SegmentHostAt(Point2D raw)
+    {
+        if (Document is null) return null;
+        RefreshViewFilter();
+
+        (Wall Wall, bool Exterior, double Off)? best = null;
+        foreach (var wall in OnActiveLevel<Wall>())
+        {
+            if (Document.GetWallType(wall) is not { } type || Document.IsCurtainWall(wall)) continue;
+
+            var (along, across) = wall.Locate(type.Structure, raw);
+            if (along < 0 || along > wall.Length) continue;
+
+            var off = Math.Abs(across) - type.Width / 2;
+            if (off > 24 / PixelsPerMm) continue;
+            if (best is null || off < best.Value.Off) best = (wall, across >= 0, off);
+        }
+
+        return best is { } found ? (found.Wall, found.Exterior) : null;
+    }
+
+    /// <summary>The walls a click here would place, and the wall they are laid against for Place by Segment.</summary>
+    private IReadOnlyList<Wall> PlacementAt(Point2D raw, out IReadOnlyList<Wall> against)
+    {
+        against = Array.Empty<Wall>();
+        if (Document is null) return Array.Empty<Wall>();
+
+        if (_drawShape == WallShape.BySegment)
+        {
+            if (SegmentHostAt(raw) is not { } target) return Array.Empty<Wall>();
+
+            against = new[] { target.Host };
+            return WallPlacement.BySegment(Document, target.Host, target.Exterior, ActiveWallTypeId, ActiveLevelId) is { } lining
+                ? new[] { lining }
+                : Array.Empty<Wall>();
+        }
+
+        var boundary = RoomBoundary.Trace(Document, ActiveLevelId, raw);
+        return boundary.IsEnclosed
+            ? WallPlacement.ByRoom(boundary.Polygon, ActiveWallTypeId, ActiveLevelId)
+            : Array.Empty<Wall>();
+    }
+
+    /// <summary>
+    /// Place by Segment: a wall along the face of the wall clicked beside. Place by Room: walls
+    /// round every face of the room clicked in. Both as one step, joined where Auto Join is on.
+    /// </summary>
+    private void PlaceAgainst(Point2D raw)
+    {
+        if (Document is null) return;
+
+        var walls = PlacementAt(raw, out var against).ToList();
+        if (walls.Count == 0)
+        {
+            HintChanged?.Invoke(this, _drawShape == WallShape.BySegment
+                ? "Click beside a wall, on the side the new wall goes."
+                : "Click inside a space enclosed by walls.");
+            return;
+        }
+
+        foreach (var wall in walls)
+        {
+            Configured(wall);
+            JoinToTouching(wall, against);
+        }
+
+        var name = _drawShape == WallShape.BySegment ? "Place by Segment" : "Place by Room";
+        Apply(walls.Count == 1 ? new AddElementCommand(Document, walls[0], name) : new AddElementsCommand(Document, walls, name));
+        SelectMany(walls);
+
+        _placementPreview = Array.Empty<Wall>();
+        _placementPreviewAt = null;
+
+        var joined = walls.Count(wall => wall.JoinedTo.Count > 0);
+        HintChanged?.Invoke(this, (walls.Count == 1 ? "Wall placed along the face." : $"{walls.Count} walls placed round the room.") +
+            (joined > 0 ? $" Joined: doors and windows cut through{(walls.Any(w => w.LockedToJoined) ? ", and they move together" : string.Empty)}." : string.Empty));
+        InvalidateVisual();
     }
 
     // ---- spline and freehand walls ------------------------------------------------------
@@ -3262,6 +3397,14 @@ public class PlanView : FrameworkElement
 
     private void DrawPendingWall(DrawingContext dc)
     {
+        // Placing by segment or room shows the walls a click would place where the cursor is.
+        if (ActiveTool == PlanTool.Wall && _drawShape is WallShape.BySegment or WallShape.ByRoom)
+        {
+            if (Document?.PlanWallType(ActiveWallTypeId, NewWallHeight) is { } previewType)
+                foreach (var wall in _placementPreview) DrawWallBody(dc, wall, previewType, _previewPen);
+            return;
+        }
+
         // A freehand stroke is shown as it is being drawn; the wall comes when it is let go.
         if (_stroke is { Count: > 1 } stroke)
         {

@@ -90,7 +90,7 @@ public static class WallSweeps
             }
         }
 
-        foreach (var hole in CurtainEmbedding.In(document, wall))
+        foreach (var hole in WallHoles.Of(document, wall))
         {
             if (wallBottom + hole.Head <= bottom || wallBottom + hole.Sill >= top) continue;
             Break(hole.From, hole.To);

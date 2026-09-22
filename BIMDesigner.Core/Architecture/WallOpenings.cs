@@ -44,8 +44,9 @@ public static class WallOpenings
             if (to > from) holes.Add((from, to));
         }
 
-        // A curtain wall embedded in this one opens it up the same way.
-        holes.AddRange(CurtainEmbedding.In(document, wall).Select(hole => (hole.From, hole.To)));
+        // A curtain wall embedded in this one opens it up the same way, as do the doors and
+        // windows of the walls joined to its faces.
+        holes.AddRange(WallHoles.Of(document, wall).Select(hole => (hole.From, hole.To)));
 
         if (holes.Count == 0) return new[] { (0.0, length) };
 

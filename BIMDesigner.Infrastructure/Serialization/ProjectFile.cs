@@ -471,6 +471,8 @@ public static class ProjectFile
                 EllipseTo = wall.Ellipse?.To,
                 SplinePoints = wall.Spline?.Through.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 SplineFrom = wall.Spline?.From,
+                JoinedTo = wall.JoinedTo.Count > 0 ? wall.JoinedTo.ToList() : null,
+                LockedToJoined = wall.LockedToJoined,
                 SplineTo = wall.Spline?.To,
                 Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 ProfileLength = wall.ProfileLength,
@@ -815,6 +817,7 @@ public static class ProjectFile
                 Bulge = double.IsFinite(wall.Bulge) ? wall.Bulge : 0,
                 Ellipse = ReadEllipse(wall),
                 Spline = ReadSpline(wall),
+                LockedToJoined = wall.LockedToJoined,
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
@@ -843,6 +846,13 @@ public static class ProjectFile
                     ? null
                     : ParseEnum(wall.PhaseDemolished, DesignPhase.New)
             });
+
+        // Walls joined face to face, once they are all there to be joined to.
+        foreach (var saved in dto.Walls.Where(w => w.JoinedTo is { Count: > 0 }))
+        {
+            var wall = document.Walls.First(w => w.Id == saved.Id);
+            wall.JoinedTo.AddRange(saved.JoinedTo!.Where(id => id != wall.Id && document.Walls.Any(w => w.Id == id)).Distinct());
+        }
 
         // The id has to be set here rather than in ReadOpening: it is init-only, so it can
         // only be given a value while the object is being constructed. Getting this wrong gave

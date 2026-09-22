@@ -78,7 +78,7 @@ public static class ElementCopy
     /// </summary>
     public static Element? Clone(Element element) => element switch
     {
-        Wall wall => CarryCommon(new Wall
+        Wall wall => CarryJoins(wall, CarryCommon(new Wall
         {
             Start = wall.Start,
             End = wall.End,
@@ -99,6 +99,7 @@ public static class ElementCopy
             CurtainPanels = wall.CurtainPanels,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
+            LockedToJoined = wall.LockedToJoined,
             UpperSlantAngle = wall.UpperSlantAngle,
             SlantBreakHeight = wall.SlantBreakHeight,
             OverrideTaper = wall.OverrideTaper,
@@ -106,7 +107,7 @@ public static class ElementCopy
             InteriorTaper = wall.InteriorTaper,
             StartJoin = wall.StartJoin,
             EndJoin = wall.EndJoin
-        }, wall),
+        }, wall)),
 
         Door door => CarryCommon(new Door
         {
@@ -193,6 +194,13 @@ public static class ElementCopy
         _ => null
     };
 
+    /// <summary>The walls a copy is joined to face to face: the same ones, until <see cref="Redirect"/> points them at copies.</summary>
+    private static Element CarryJoins(Wall original, Element copy)
+    {
+        ((Wall)copy).JoinedTo.AddRange(original.JoinedTo);
+        return copy;
+    }
+
     private static Slab CloneSlab(Slab copy, Slab original)
     {
         copy.HeightOffset = original.HeightOffset;
@@ -254,6 +262,16 @@ public static class ElementCopy
         {
             case Opening opening when replacements.TryGetValue(opening.HostWallId, out var host):
                 opening.HostWallId = host;
+                break;
+
+            case Wall joined when joined.JoinedTo.Count > 0:
+                // A lining copied without the wall it lines is no longer against it: the join goes.
+                for (var i = joined.JoinedTo.Count - 1; i >= 0; i--)
+                {
+                    if (replacements.TryGetValue(joined.JoinedTo[i], out var partner)) joined.JoinedTo[i] = partner;
+                    else joined.JoinedTo.RemoveAt(i);
+                }
+
                 break;
 
             case PlacedSweep placed:

@@ -66,6 +66,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _originalCurtain, _firstCurtain;
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
+    private readonly List<Wall> _liningsOfWall = new();
     private readonly double _splitAlong;
 
     public SplitWallCommand(BimDocument document, Wall wall, Point2D splitPoint)
@@ -164,6 +165,12 @@ public sealed class SplitWallCommand : IUndoableCommand
             PhaseCreated = wall.PhaseCreated,
             PhaseDemolished = wall.PhaseDemolished
         };
+
+        // Both halves stay joined to what the wall was joined to face to face, and the walls
+        // joined to it are joined to both halves.
+        _remainder.JoinedTo.AddRange(wall.JoinedTo);
+        _remainder.LockedToJoined = wall.LockedToJoined;
+        _liningsOfWall.AddRange(document.Walls.Where(other => other.JoinedTo.Contains(wall.Id)));
     }
 
     public string Name => "Split Wall";
@@ -181,6 +188,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         (_wall.CurtainGrid, _wall.CurtainPanels) = _firstCurtain;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
+        foreach (var lining in _liningsOfWall) lining.JoinedTo.Add(_remainder.Id);
 
         foreach (var (opening, distance) in _moved)
         {
@@ -197,6 +205,7 @@ public sealed class SplitWallCommand : IUndoableCommand
             opening.DistanceAlongWall = distance;
         }
 
+        foreach (var lining in _liningsOfWall) lining.JoinedTo.Remove(_remainder.Id);
         _document.Remove(_remainder);
         _wall.End = _originalEnd;
         _wall.Bulge = _originalBulge;

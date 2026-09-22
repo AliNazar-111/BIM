@@ -25,7 +25,13 @@ public enum WallShape
     Spline,
 
     /// <summary>A smooth curve following a stroke dragged with the mouse.</summary>
-    Freehand
+    Freehand,
+
+    /// <summary>A wall along one face of a wall already there, on the side clicked.</summary>
+    BySegment,
+
+    /// <summary>Walls round every face of a room, clicked inside it.</summary>
+    ByRoom
 }
 
 /// <summary>One wall of a shape: where it runs, and how far it bows - as an arc, a piece of an ellipse or a spline.</summary>

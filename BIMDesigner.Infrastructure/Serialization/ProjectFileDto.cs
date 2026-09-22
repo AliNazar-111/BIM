@@ -557,6 +557,10 @@ internal sealed class WallDto
     public double? EllipseTo { get; set; }
 
     /// <summary>A spline wall's points between its ends as x, y pairs in its own frame, and the stretch of it this wall is. Absent otherwise.</summary>
+    /// <summary>The walls this one is joined to face to face, and whether it is locked to them.</summary>
+    public List<Guid>? JoinedTo { get; set; }
+    public bool LockedToJoined { get; set; }
+
     public List<double>? SplinePoints { get; set; }
     public double? SplineFrom { get; set; }
     public double? SplineTo { get; set; }

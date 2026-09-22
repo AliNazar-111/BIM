@@ -93,8 +93,9 @@ public static class ModelMeshBuilder
             openings.Add((opening, openingType, from, to, sill, head));
         }
 
-        // Curtain walls set into this one leave a hole with nothing of this wall's in it.
-        foreach (var hole in CurtainEmbedding.In(document, wall))
+        // Curtain walls set into this one, and the doors and windows of walls joined to its
+        // faces, leave a hole with nothing of this wall's in it.
+        foreach (var hole in WallHoles.Of(document, wall))
             openings.Add((null, null, hole.From, hole.To, Math.Clamp(bottom + hole.Sill, lowest, top), Math.Clamp(bottom + hole.Head, lowest, top)));
 
         if (profile is not null && document.GetWallType(wall) is { } profiledType)
