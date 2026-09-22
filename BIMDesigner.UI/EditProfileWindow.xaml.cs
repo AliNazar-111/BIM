@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using BIMDesigner.Core;
@@ -6,6 +7,8 @@ using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Parameters;
+using BIMDesigner.UI.Controls;
 using BIMDesigner.UI.ViewModels;
 using Window = System.Windows.Window;
 
@@ -45,13 +48,18 @@ public partial class EditProfileWindow : Window
             .ToList();
 
         Editor.Show(WallProfile.Of(document, wall) ?? WallProfile.Rectangle(_length, _height), _length, _height, holes);
-        Editor.Edited += (_, _) => FromDrawing();
+        Editor.Edited += (_, _) =>
+        {
+            FromDrawing();
+            ShowSelectedEdge();
+        };
         Editor.SelectionChanged += (_, _) =>
         {
             if (_syncing) return;
             _syncing = true;
             CornerGrid.SelectedIndex = Editor.SelectedIndex;
             _syncing = false;
+            ShowSelectedEdge();
         };
 
         CornerGrid.ItemsSource = _rows;
@@ -117,6 +125,56 @@ public partial class EditProfileWindow : Window
         _syncing = true;
         Editor.Select(CornerGrid.SelectedIndex);
         _syncing = false;
+        ShowSelectedEdge();
+    }
+
+    /// <summary>Shows the selected corner's edge from the one before, ready to be typed over.</summary>
+    private void ShowSelectedEdge()
+    {
+        var index = Editor.SelectedIndex;
+        if (index < 0 || Editor.Corners.Count < 3)
+        {
+            PlaceLengthBox.Text = PlaceAngleBox.Text = string.Empty;
+            return;
+        }
+
+        var previous = Editor.Corners[(index + Editor.Corners.Count - 1) % Editor.Corners.Count];
+        var corner = Editor.Corners[index];
+        PlaceLengthBox.Text = Units.FormatLength(previous.DistanceTo(corner));
+        PlaceAngleBox.Text = $"{ProfileEditor.AngleBetween(previous, corner):0.##}";
+    }
+
+    private void OnPlaceCorner(object sender, RoutedEventArgs e)
+    {
+        if (Editor.SelectedIndex < 0)
+        {
+            ProblemText.Text = "Select a corner to place, on the drawing or in the table.";
+            return;
+        }
+
+        if (!ParameterFormatter.TryParse(ParameterDataType.Length, PlaceLengthBox.Text, out var parsed) ||
+            parsed is not double length || length <= 0)
+        {
+            ProblemText.Text = "Type how far from the corner before, such as 1500 or 1.5 m.";
+            return;
+        }
+
+        if (!double.TryParse(PlaceAngleBox.Text.Replace("°", string.Empty).Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out var angle) &&
+            !double.TryParse(PlaceAngleBox.Text.Replace("°", string.Empty).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out angle))
+        {
+            ProblemText.Text = "Type an angle in degrees: 0 along the wall, 90 straight up, 270 down.";
+            return;
+        }
+
+        Editor.PlaceFromPrevious(length, angle);
+        FromDrawing();
+        ShowSelectedEdge();
+    }
+
+    private void OnAngleStepChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Editor is null) return;
+        Editor.AngleStep = AngleStepPicker.SelectedIndex switch { 0 => 90, 1 => 45, 2 => 15, _ => 0 };
     }
 
     private void OnAddCorner(object sender, RoutedEventArgs e) => Editor.AddCorner();

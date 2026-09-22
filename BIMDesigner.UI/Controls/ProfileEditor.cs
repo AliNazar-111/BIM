@@ -30,12 +30,16 @@ public sealed class ProfileEditor : FrameworkElement
     private static readonly Pen OutlinePen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0xF0, 0xF2, 0xF5))), 1.6));
     private static readonly Pen GroundPen = Frozen(new Pen(MutedBrush, 1));
     private static readonly Pen GhostPen = Frozen(new Pen(MutedBrush, 1) { DashStyle = DashStyles.Dash });
+    private static readonly Pen GuidePen = Frozen(new Pen(SelectedBrush, 1) { DashStyle = DashStyles.Dash });
 
     private List<Point2D> _corners = new();
     private IReadOnlyList<(double From, double To, double Sill, double Head)> _holes = Array.Empty<(double, double, double, double)>();
     private double _length = 1;
     private double _height = 1;
     private int _dragging = -1;
+
+    // The corners the dragged one is locked to by angle, drawn as guide lines through it.
+    private IReadOnlyList<Point2D> _guides = Array.Empty<Point2D>();
 
     // The model area on screen, kept still while a corner is dragged so the view does not
     // slide under the cursor; refitted when the drag ends.
@@ -136,6 +140,24 @@ public sealed class ProfileEditor : FrameworkElement
         foreach (var (from, to, sill, head) in _holes)
             dc.DrawRectangle(HoleBrush, null, new Rect(ToScreen(new Point2D(from, head)), ToScreen(new Point2D(to, sill))));
 
+        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+
+        // The angle a dragged corner is locked at, along the line it is locked to.
+        if (_dragging >= 0)
+        {
+            var reach = Math.Max(_frame.Width, _frame.Height);
+            foreach (var guide in _guides)
+            {
+                var direction = (_corners[_dragging] - guide).NormalisedOrDefault(Vector2D.UnitX);
+                dc.DrawLine(GuidePen, ToScreen(guide - direction * reach), ToScreen(guide + direction * reach));
+
+                var label = new FormattedText($"{AngleBetween(guide, _corners[_dragging]):0.#}°", CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight, new Typeface("Segoe UI"), 12, SelectedBrush, dpi);
+                var at = ToScreen(guide.MidpointTo(_corners[_dragging]));
+                dc.DrawText(label, new Point(at.X + 6, at.Y - label.Height - 2));
+            }
+        }
+
         for (var i = 0; i < _corners.Count; i++)
         {
             var centre = ToScreen(_corners[i]);
@@ -143,10 +165,9 @@ public sealed class ProfileEditor : FrameworkElement
                 new Rect(centre.X - HandleRadius, centre.Y - HandleRadius, 2 * HandleRadius, 2 * HandleRadius));
         }
 
-        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var hint = SelectedIndex >= 0 && SelectedIndex < _corners.Count
-            ? $"Corner {SelectedIndex + 1}: {Units.FormatLength(_corners[SelectedIndex].X)} along, {Units.FormatLength(_corners[SelectedIndex].Y)} high"
-            : "Drag a corner. Double-click an edge to add one; Delete removes the selected corner.";
+            ? $"Corner {SelectedIndex + 1}: {Units.FormatLength(_corners[SelectedIndex].X)} along, {Units.FormatLength(_corners[SelectedIndex].Y)} high   ·   {EdgeText()}"
+            : "Drag a corner: it locks to the snap angle from its neighbours, Shift holds the lock. Double-click an edge to add one; Delete removes one.";
         dc.DrawText(new FormattedText(hint, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface("Segoe UI"), 11, SelectedIndex >= 0 ? TextBrush : MutedBrush, dpi), new Point(8, 6));
     }
@@ -190,7 +211,9 @@ public sealed class ProfileEditor : FrameworkElement
         base.OnMouseMove(e);
         if (_dragging < 0 || e.LeftButton != MouseButtonState.Pressed) return;
 
-        _corners[_dragging] = Snapped(ToModel(e.GetPosition(this)));
+        var (corner, guides) = SnapCorner(_dragging, ToModel(e.GetPosition(this)), Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
+        _corners[_dragging] = corner;
+        _guides = guides;
         Changed();
     }
 
@@ -201,6 +224,7 @@ public sealed class ProfileEditor : FrameworkElement
 
         _dragging = -1;
         ReleaseMouseCapture();
+        _guides = Array.Empty<Point2D>();
         Refit();
     }
 
@@ -219,6 +243,102 @@ public sealed class ProfileEditor : FrameworkElement
         Edited?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }
+
+    /// <summary>
+    /// The step angles snap to, in degrees: an edge being dragged locks to a multiple of it
+    /// from the corner at either end. Zero turns angle snapping off.
+    /// </summary>
+    public double AngleStep { get; set; } = 45;
+
+    /// <summary>How close, on screen, the cursor must come to an angle for the corner to lock to it.</summary>
+    private const double AngleSnapPixels = 10;
+
+    /// <summary>
+    /// Where a dragged corner goes. Each neighbouring corner offers a line at the nearest step
+    /// angle; if the cursor is near one the corner goes onto it, and if near both, to where
+    /// they cross. Shift keeps the lock however far off the cursor is. Otherwise the corner
+    /// snaps to the grid. The neighbours it locked to are returned, to draw as guides.
+    /// </summary>
+    private (Point2D Corner, IReadOnlyList<Point2D> Guides) SnapCorner(int index, Point2D raw, bool force)
+    {
+        if (AngleStep <= 0 || _corners.Count < 3) return (Snapped(raw), Array.Empty<Point2D>());
+
+        var tolerance = AngleSnapPixels / Math.Max(Scale, 1e-9);
+        var neighbours = new[] { _corners[(index + _corners.Count - 1) % _corners.Count], _corners[(index + 1) % _corners.Count] };
+
+        var locks = neighbours
+            .Select(n => (Neighbour: n, Line: Ray(n, raw)))
+            .Where(l => l.Line is not null)
+            .Select(l => (l.Neighbour, Direction: l.Line!.Value, Point: l.Neighbour + l.Line!.Value * (raw - l.Neighbour).Dot(l.Line!.Value)))
+            .Select(l => (l.Neighbour, l.Direction, l.Point, Off: l.Point.DistanceTo(raw)))
+            .ToList();
+
+        // Both at once: where the two lines cross, if that is near the cursor.
+        if (locks.Count == 2 &&
+            Line2D.TryIntersect(new Line2D(locks[0].Neighbour, locks[0].Direction), new Line2D(locks[1].Neighbour, locks[1].Direction), out var crossing) &&
+            crossing.DistanceTo(raw) <= tolerance)
+        {
+            return (Clamped(crossing), new[] { locks[0].Neighbour, locks[1].Neighbour });
+        }
+
+        var candidates = locks.Where(l => force || l.Off <= tolerance).OrderBy(l => l.Off).ToList();
+        if (candidates.Count == 0) return (Snapped(raw), Array.Empty<Point2D>());
+        var best = candidates[0];
+
+        // Along the locked line, a whole number of snap steps from the neighbour.
+        var distance = Math.Round((best.Point - best.Neighbour).Dot(best.Direction) / Snap) * Snap;
+        return (Clamped(best.Neighbour + best.Direction * distance), new[] { best.Neighbour });
+
+        // The unit direction from a corner at the step angle nearest the cursor's.
+        Vector2D? Ray(Point2D from, Point2D to)
+        {
+            var toward = to - from;
+            if (toward.Length < 1e-9) return null;
+
+            var step = AngleStep * Math.PI / 180;
+            var angle = Math.Round(Math.Atan2(toward.Y, toward.X) / step) * step;
+            return new Vector2D(Math.Cos(angle), Math.Sin(angle));
+        }
+    }
+
+    /// <summary>
+    /// Puts the selected corner an exact distance and angle from the corner before it. The
+    /// angle is measured anticlockwise from the direction along the wall: 0° runs toward the
+    /// wall's end, 90° straight up.
+    /// </summary>
+    public bool PlaceFromPrevious(double length, double angleDegrees)
+    {
+        if (SelectedIndex < 0 || _corners.Count < 3) return false;
+
+        var previous = _corners[(SelectedIndex + _corners.Count - 1) % _corners.Count];
+        var angle = angleDegrees * Math.PI / 180;
+        _corners[SelectedIndex] = Clamped(previous + new Vector2D(Math.Cos(angle), Math.Sin(angle)) * length);
+        Changed();
+        Refit();
+        return true;
+    }
+
+    /// <summary>The angle from one corner to another, anticlockwise from along the wall, 0 to 360.</summary>
+    public static double AngleBetween(Point2D from, Point2D to)
+    {
+        var degrees = Math.Atan2(to.Y - from.Y, to.X - from.X) * 180 / Math.PI;
+        degrees = Math.Round(degrees, 6);
+        return degrees < 0 ? degrees + 360 : degrees;
+    }
+
+    /// <summary>The edge from the previous corner to the selected one: its length and angle.</summary>
+    public string EdgeText()
+    {
+        if (SelectedIndex < 0 || _corners.Count < 3) return string.Empty;
+
+        var previous = _corners[(SelectedIndex + _corners.Count - 1) % _corners.Count];
+        var corner = _corners[SelectedIndex];
+        var number = (SelectedIndex + _corners.Count - 1) % _corners.Count + 1;
+        return $"from corner {number}: {Units.FormatLength(previous.DistanceTo(corner))} at {AngleBetween(previous, corner):0.##}°";
+    }
+
+    /// <summary>Kept between the ends of the wall, without rounding.</summary>
+    private Point2D Clamped(Point2D point) => new(Math.Clamp(point.X, 0, _length), point.Y);
 
     /// <summary>Rounded to the snap, and kept between the ends of the wall.</summary>
     private Point2D Snapped(Point2D point) =>

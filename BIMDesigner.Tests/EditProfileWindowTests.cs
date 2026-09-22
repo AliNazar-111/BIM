@@ -82,6 +82,17 @@ public class EditProfileWindowTests
             rows[1].AlongText = "not a length";
             Assert.False(ok.IsEnabled);
 
+            // Placed exactly: the third corner 2 m straight up from the second.
+            Click(window, "OnRectangle");
+            editor.Select(2);
+            ((TextBox)window.FindName("PlaceLengthBox")).Text = "2000";
+            ((TextBox)window.FindName("PlaceAngleBox")).Text = "90";
+            Click(window, "OnPlaceCorner");
+            Assert.Equal(6000, editor.Corners[2].X, precision: 9);
+            Assert.Equal(2000, editor.Corners[2].Y, precision: 9);
+            Assert.Equal(new Point2D(6000, 2000), rows[2].Corner);
+            Assert.Equal(90, ProfileEditor.AngleBetween(editor.Corners[1], editor.Corners[2]), precision: 9);
+
             window.Close();
         });
     }
