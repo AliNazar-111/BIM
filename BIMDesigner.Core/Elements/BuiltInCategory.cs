@@ -32,6 +32,7 @@ public enum BuiltInCategory
     LightingFixtures,
     WallSweeps,
     WallReveals,
+    WallOpenings,
     Profiles
 }
 

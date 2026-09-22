@@ -67,6 +67,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly List<Wall> _liningsOfWall = new();
+    private readonly List<WallOpening> _movedCuts = new();
     private readonly bool _originalEndLocked;
     private readonly WallJoinCleanup _originalEndCleanup;
     private readonly double _splitAlong;
@@ -129,6 +130,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         // Doors and windows beyond the split belong to the far half now.
         foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
             _moved.Add((opening, opening.DistanceAlongWall));
+        _movedCuts.AddRange(document.Elements.OfType<WallOpening>().Where(o => o.HostWallId == wall.Id && o.DistanceAlongWall > _splitAlong));
 
         _remainder = new Wall
         {
@@ -205,6 +207,12 @@ public sealed class SplitWallCommand : IUndoableCommand
             opening.HostWallId = _remainder.Id;
             opening.DistanceAlongWall = distance - _splitAlong;
         }
+
+        foreach (var cut in _movedCuts)
+        {
+            cut.HostWallId = _remainder.Id;
+            cut.DistanceAlongWall -= _splitAlong;
+        }
     }
 
     public void Undo()
@@ -213,6 +221,12 @@ public sealed class SplitWallCommand : IUndoableCommand
         {
             opening.HostWallId = _wall.Id;
             opening.DistanceAlongWall = distance;
+        }
+
+        foreach (var cut in _movedCuts)
+        {
+            cut.HostWallId = _wall.Id;
+            cut.DistanceAlongWall += _splitAlong;
         }
 
         foreach (var lining in _liningsOfWall) lining.JoinedTo.Remove(_remainder.Id);

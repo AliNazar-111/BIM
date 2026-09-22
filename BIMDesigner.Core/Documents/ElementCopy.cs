@@ -195,6 +195,15 @@ public static class ElementCopy
 
         PlacedSweep placed => CarryPlacedSweep(placed),
 
+        WallOpening opening => CarryCommon(new WallOpening
+        {
+            HostWallId = opening.HostWallId,
+            DistanceAlongWall = opening.DistanceAlongWall,
+            Width = opening.Width,
+            Height = opening.Height,
+            SillHeight = opening.SillHeight
+        }, opening),
+
         _ => null
     };
 
@@ -266,6 +275,10 @@ public static class ElementCopy
         {
             case Opening opening when replacements.TryGetValue(opening.HostWallId, out var host):
                 opening.HostWallId = host;
+                break;
+
+            case WallOpening cut when replacements.TryGetValue(cut.HostWallId, out var cutHost):
+                cut.HostWallId = cutHost;
                 break;
 
             case Wall joined when joined.JoinedTo.Count > 0:

@@ -181,6 +181,17 @@ public partial class EditProfileWindow : Window
 
     private void OnRemoveCorner(object sender, RoutedEventArgs e) => Editor.RemoveCorner();
 
+    private void OnMakeArc(object sender, RoutedEventArgs e)
+    {
+        if (!ParameterFormatter.TryParse(ParameterDataType.Length, ArcRiseBox.Text, out var value) || value is not double rise)
+        {
+            ArcRiseBox.Text = "500 mm";
+            return;
+        }
+
+        if (!Editor.MakeArc(rise)) MessageBox.Show(this, "Pick a corner first: the edge after it becomes the arc.", "Make Arc");
+    }
+
     private void OnRectangle(object sender, RoutedEventArgs e) => Replace(WallProfile.Rectangle(_length, _height));
 
     private void OnGable(object sender, RoutedEventArgs e) => Replace(new[]

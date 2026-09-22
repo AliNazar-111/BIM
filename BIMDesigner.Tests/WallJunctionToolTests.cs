@@ -196,4 +196,52 @@ public class WallJunctionToolTests
         Assert.True(double.IsFinite(lower.GetTopElevation(document)));
         Assert.True(double.IsFinite(upper.GetBaseElevation(document)));
     }
+    [Fact]
+    public void AWallOpeningCutsThroughAnyWallAndGoesWithIt()
+    {
+        var (document, type) = Project();
+        var straight = Add(document, type, new Point2D(0, 0), new Point2D(5000, 0));
+        var curved = Add(document, type, new Point2D(0, 5000), new Point2D(5000, 5000));
+        curved.Bulge = 0.4;
+
+        foreach (var wall in new[] { straight, curved })
+        {
+            var opening = new WallOpening { HostWallId = wall.Id, LevelId = wall.LevelId, DistanceAlongWall = wall.Length / 2, Width = 1200, Height = 800, SillHeight = 1000 };
+            document.Add(opening);
+
+            var hole = Assert.Single(WallHoles.Of(document, wall));
+            Assert.Equal(1200, hole.To - hole.From, precision: 6);
+            Assert.Equal(1000, hole.Sill);
+            Assert.Equal(1800, hole.Head);
+            Assert.Equal(2, WallOpenings.GetSolidRuns(document, wall).Count);
+        }
+
+        // Split beyond it, it stays; split before it, it goes to the far half.
+        var split = new SplitWallCommand(document, straight, new Point2D(1000, 0));
+        split.Redo();
+        var moved = document.Elements.OfType<WallOpening>().Single(o => o.HostWallId == split.Remainder.Id);
+        Assert.Equal(1500, moved.DistanceAlongWall, precision: 6);
+        split.Undo();
+        Assert.Equal(straight.Id, moved.HostWallId);
+
+        // Copied with its wall, it goes onto the copy.
+        var copies = ElementCopy.Duplicate(document, new[] { straight });
+        var copiedWall = copies.OfType<Wall>().Single();
+        Assert.Equal(copiedWall.Id, copies.OfType<WallOpening>().Single().HostWallId);
+
+        var path = Path.Combine(Path.GetTempPath(), $"bimtest-{Guid.NewGuid():N}{ProjectFile.Extension}");
+        try
+        {
+            ProjectFile.Save(document, path);
+            var loaded = ProjectFile.Load(path);
+            Assert.Equal(2, loaded.Elements.OfType<WallOpening>().Count());
+            var reloaded = loaded.Elements.OfType<WallOpening>().Single(o => o.HostWallId == curved.Id);
+            Assert.Equal(1200, reloaded.Width);
+            Assert.Single(WallHoles.Of(loaded, loaded.Walls.Single(w => w.Id == curved.Id)));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

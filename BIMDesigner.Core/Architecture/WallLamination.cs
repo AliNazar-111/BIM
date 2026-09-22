@@ -119,7 +119,8 @@ public readonly record struct WallHole(double From, double To, double Sill, doub
 
 /// <summary>
 /// The holes in a wall that are not its own doors and windows: a curtain wall embedded in it,
-/// and the doors and windows of the walls joined to its faces, which cut through both.
+/// wall openings cut through it, and the doors and windows of the walls joined to its faces,
+/// which cut through both.
 /// </summary>
 public static class WallHoles
 {
@@ -128,6 +129,9 @@ public static class WallHoles
         var holes = CurtainEmbedding.In(document, wall)
             .Select(hole => new WallHole(hole.From, hole.To, hole.Sill, hole.Head))
             .ToList();
+
+        // Openings cut through the wall on their own.
+        holes.AddRange(document.Elements.OfType<WallOpening>().Where(o => o.HostWallId == wall.Id).Select(o => o.Hole(wall)).Where(h => h.To - h.From > WallJoins.JoinTolerance));
 
         if (!WallLamination.CanJoin(document, wall) || document.GetWallType(wall) is not { } type) return holes;
 

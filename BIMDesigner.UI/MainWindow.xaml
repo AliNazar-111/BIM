@@ -435,6 +435,9 @@
                                 <RadioButton x:Name="RevealTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Reveal}"
                                              Content="Reveal" Checked="OnToolChanged"
                                              ToolTip="Cut a groove along a wall, or up it"/>
+                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallOpening}"
+                                             Content="Wall Opening" Checked="OnToolChanged"
+                                             ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
                                         Content="Edit Profile" Click="OnEditProfile"
                                         ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
@@ -901,6 +904,19 @@
                     <TextBlock x:Name="SweepHeightLabel" Text="Offset from base" Style="{StaticResource OptionLabel}"/>
                     <TextBox x:Name="SweepHeightBox" Width="80" VerticalAlignment="Center" Text="0 mm"
                              LostFocus="OnSweepHeightChanged" ToolTip="How high above the wall's base, e.g. 0 for a skirting, 900 for a dado rail"/>
+                </StackPanel>
+
+                <!-- Wall Opening: the size of the next opening cut. -->
+                <StackPanel x:Name="WallOpeningOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Width" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="OpeningWidthBox" Width="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,14,0"
+                             LostFocus="OnOpeningSizeChanged"/>
+                    <TextBlock Text="Height" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="OpeningHeightBox" Width="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,14,0"
+                             LostFocus="OnOpeningSizeChanged"/>
+                    <TextBlock Text="Sill" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="OpeningSillBox" Width="80" VerticalAlignment="Center" Text="900 mm"
+                             LostFocus="OnOpeningSizeChanged" ToolTip="How high its underside is above the wall's base; 0 for a pass-through to the floor"/>
                 </StackPanel>
 
                 <!-- The Wall Joins tool: what the picked junctions become. -->

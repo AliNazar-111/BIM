@@ -105,6 +105,36 @@ public sealed class ProfileEditor : FrameworkElement
     }
 
     /// <summary>Removes the selected corner, as long as three are left.</summary>
+    /// <summary>
+    /// Turns the edge after the selected corner into an arc rising this far from its middle - out
+    /// of the outline when positive, into it when negative - traced as short straight pieces, as
+    /// every other curve here is. The ends stay where they were.
+    /// </summary>
+    public bool MakeArc(double rise)
+    {
+        if (SelectedIndex < 0 || _corners.Count < 3 || Math.Abs(rise) < 1) return false;
+
+        var a = _corners[SelectedIndex];
+        var b = _corners[(SelectedIndex + 1) % _corners.Count];
+        var chord = b - a;
+        if (chord.Length < 1) return false;
+
+        // Outward is to the right of an anticlockwise outline's edges, to the left of a clockwise one's.
+        var anticlockwise = Polygon2D.SignedArea(_corners) > 0;
+        var left = chord.NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+        var outward = anticlockwise ? -left : left;
+        var through = a.MidpointTo(b) + outward * rise;
+
+        var arc = WallCurve.Of(a, b, WallCurve.BulgeThrough(a, b, through));
+        var between = arc.Points().Skip(1).SkipLast(1).Select(Clamped).ToList();
+        if (between.Count == 0) return false;
+
+        _corners.InsertRange(SelectedIndex + 1, between);
+        Edited?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
     public void RemoveCorner()
     {
         if (SelectedIndex < 0 || _corners.Count <= 3) return;

@@ -35,6 +35,7 @@ internal sealed class ProjectFileDto
     public List<SweepProfileTypeDto> SweepProfiles { get; set; } = new();
     public List<WallSweepTypeDto> WallSweepTypes { get; set; } = new();
     public List<PlacedSweepDto> PlacedSweeps { get; set; } = new();
+    public List<WallOpeningDto> WallOpenings { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
 
@@ -635,6 +636,20 @@ internal sealed class WallSweepTypeDto
     public double Setback { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>A rectangular opening cut through a wall.</summary>
+internal sealed class WallOpeningDto
+{
+    public Guid Id { get; set; }
+    public Guid HostWallId { get; set; }
+    public Guid LevelId { get; set; }
+    public double DistanceAlongWall { get; set; }
+    public double Width { get; set; }
+    public double Height { get; set; }
+    public double SillHeight { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
 }
 
 internal sealed class PlacedSweepDto

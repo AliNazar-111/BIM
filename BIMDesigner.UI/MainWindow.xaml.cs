@@ -304,7 +304,9 @@ public partial class MainWindow : Window
         // offering one would be asking a question the tool never reads the answer to.
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
-            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry;
+            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening;
+
+        WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -620,7 +622,7 @@ public partial class MainWindow : Window
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, FloorTool, CeilingTool, RoofTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
-        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool
+        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, WallOpeningTool
     ];
 
     private void OnToolChanged(object sender, RoutedEventArgs e)
@@ -659,6 +661,7 @@ public partial class MainWindow : Window
             : RevealTool.IsChecked == true ? PlanTool.Reveal
             : WallJoinsTool.IsChecked == true ? PlanTool.WallJoins
             : JoinGeometryTool.IsChecked == true ? PlanTool.JoinGeometry
+            : WallOpeningTool.IsChecked == true ? PlanTool.WallOpening
             : PlanTool.Select);
 
         ShowOptionsForActiveTool();
@@ -2267,6 +2270,22 @@ public partial class MainWindow : Window
             WallShape.ByRoom => "By room: click inside a room. A wall goes along every face round it, meeting at the corners.",
             _ => "Click the start of the wall, then its end."
         };
+    }
+
+    /// <summary>The size of the next wall opening, from the option bar; an entry that is not a length is put back.</summary>
+    private void OnOpeningSizeChanged(object sender, RoutedEventArgs e)
+    {
+        double Read(TextBox box, double current, bool mayBeZero)
+        {
+            var ok = ParameterFormatter.TryParse(ParameterDataType.Length, box.Text, out var value) && value is double length && (mayBeZero ? length >= 0 : length > 0);
+            var result = ok ? (double)value! : current;
+            box.Text = Units.FormatLength(result);
+            return result;
+        }
+
+        Plan.NewOpeningWidth = Read(OpeningWidthBox, Plan.NewOpeningWidth, false);
+        Plan.NewOpeningHeight = Read(OpeningHeightBox, Plan.NewOpeningHeight, false);
+        Plan.NewOpeningSill = Read(OpeningSillBox, Plan.NewOpeningSill, true);
     }
 
     // ---- the Wall Joins tool's option bar -------------------------------------------------

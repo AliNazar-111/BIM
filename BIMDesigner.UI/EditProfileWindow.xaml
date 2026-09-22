@@ -106,6 +106,10 @@
                     <Button Content="Add Corner" Padding="12,5" Margin="0,0,8,0" Click="OnAddCorner"
                             ToolTip="A new corner halfway along the edge after the selected one"/>
                     <Button Content="Remove Corner" Padding="12,5" Click="OnRemoveCorner"/>
+                    <TextBox x:Name="ArcRiseBox" Width="72" Margin="14,0,6,0" Padding="6,3" VerticalContentAlignment="Center" Text="500 mm"
+                             ToolTip="How far the arc rises from the middle of the edge: positive bows out, negative bows in"/>
+                    <Button Content="Make Arc" Padding="12,5" Click="OnMakeArc"
+                            ToolTip="Turn the edge after the selected corner into an arc"/>
                 </StackPanel>
 
                 <DataGrid x:Name="CornerGrid" AutoGenerateColumns="False" HeadersVisibility="Column"

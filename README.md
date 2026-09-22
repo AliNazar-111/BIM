@@ -339,7 +339,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
 | Bend a wall partway up | Properties → **Cross-Section** → Double Slanted: set the **Lower** and **Upper Angle from Vertical** and the **Slant Break Height** |
-| Give a wall a gable, steps or a notch | Select one straight wall, Architecture tab → **Edit Profile**: drag corners, double-click an edge to add one, Delete removes one |
+| Give a wall a gable, steps or a notch | Select one straight wall, Architecture tab → **Edit Profile**: drag corners, double-click an edge to add one, Delete removes one; pick a corner and **Make Arc** curves the edge after it by the rise typed beside it (negative bows in) |
+| Cut a hole through a wall | Architecture tab → **Wall Opening**, set width, height and sill on the option bar, click the wall - curved walls too. Change it afterwards in Properties |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
 | Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass, solid, empty or a door; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
 | Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |

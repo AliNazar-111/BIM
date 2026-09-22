@@ -49,6 +49,10 @@ public enum PlanTool
 
     /// <summary>Joins two parallel walls near each other, so openings cut through both.</summary>
     JoinGeometry
+,
+
+    /// <summary>Cuts a rectangular opening through a wall where it is clicked.</summary>
+    WallOpening
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -1002,6 +1006,7 @@ public class PlanView : FrameworkElement
         PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
         PlanTool.WallJoins => "Click the square at a wall join to change it; Ctrl+click adds more. Then choose on the option bar.",
         PlanTool.JoinGeometry => "Click a wall, then a parallel wall beside it (up to 150 mm away) to join them, or two joined walls to unjoin them.",
+        PlanTool.WallOpening => "Click a wall where the opening goes. Set its size on the option bar; change it afterwards in Properties.",
         _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
 
@@ -1373,6 +1378,10 @@ public class PlanView : FrameworkElement
 
             case PlanTool.JoinGeometry:
                 JoinGeometryAt(raw);
+                return;
+
+            case PlanTool.WallOpening:
+                PlaceWallOpening(raw);
                 return;
         }
 
@@ -2148,6 +2157,80 @@ public class PlanView : FrameworkElement
         var brush = new SolidColorBrush(Color.FromArgb(0x90, 0x9A, 0xA0, 0xA8));
         brush.Freeze();
         return brush;
+    }
+
+    // ---- wall openings ----------------------------------------------------------------------
+
+    /// <summary>The size a new wall opening is cut at, from the option bar. Millimetres.</summary>
+    public double NewOpeningWidth { get; set; } = 1000;
+
+    public double NewOpeningHeight { get; set; } = 1000;
+
+    public double NewOpeningSill { get; set; } = 900;
+
+    /// <summary>Wall Opening: a rectangular hole through the wall clicked, centred where it was clicked and kept inside the wall.</summary>
+    private void PlaceWallOpening(Point2D raw)
+    {
+        if (Document is null) return;
+
+        if (HitTestWall(raw) is not { } wall || Document.IsCurtainWall(wall))
+        {
+            HintChanged?.Invoke(this, "Click on a wall - not a curtain wall - where the opening goes.");
+            return;
+        }
+
+        var width = Math.Min(NewOpeningWidth, wall.Length);
+        var along = Math.Clamp(wall.LocationCurve.Locate(raw).Along, width / 2, wall.Length - width / 2);
+        var opening = new WallOpening
+        {
+            HostWallId = wall.Id,
+            LevelId = wall.LevelId,
+            DistanceAlongWall = along,
+            Width = width,
+            Height = NewOpeningHeight,
+            SillHeight = NewOpeningSill
+        };
+
+        Apply(new AddElementCommand(Document, opening, "Wall Opening"));
+        HintChanged?.Invoke(this, $"Opening cut, {Units.FormatLength(width)} wide and {Units.FormatLength(NewOpeningHeight)} high. Click another wall, or Esc.");
+        InvalidateVisual();
+    }
+
+    /// <summary>The wall openings whose part of their wall the point is in.</summary>
+    private IEnumerable<WallOpening> WallOpeningsAt(Point2D model)
+    {
+        if (Document is null) yield break;
+
+        foreach (var cut in OnActiveLevel<WallOpening>())
+        {
+            if (Document.Walls.FirstOrDefault(w => w.Id == cut.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
+
+            var hole = cut.Hole(wall);
+            var (along, across) = wall.Locate(type.Structure, model);
+            if (along >= hole.From && along <= hole.To && Math.Abs(across) <= type.Width / 2 + 4 / PixelsPerMm) yield return cut;
+        }
+    }
+
+    /// <summary>The opening's footprint in plan: where it runs through its wall, face to face.</summary>
+    private IReadOnlyList<Point2D>? OpeningOutline(WallOpening cut)
+    {
+        if (Document?.Walls.FirstOrDefault(w => w.Id == cut.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return null;
+
+        var hole = cut.Hole(wall);
+        var half = type.Width / 2;
+        return new[]
+        {
+            wall.PointAt(type.Structure, hole.From, half), wall.PointAt(type.Structure, hole.To, half),
+            wall.PointAt(type.Structure, hole.To, -half), wall.PointAt(type.Structure, hole.From, -half)
+        };
+    }
+
+    /// <summary>Selected openings outlined, since in plan an opening is otherwise only a gap.</summary>
+    private void DrawSelectedOpenings(DrawingContext dc)
+    {
+        foreach (var cut in _selection.OfType<WallOpening>())
+            if (OpeningOutline(cut) is { } ring)
+                DrawModelPolyline(dc, _selectedPen, ring.Append(ring[0]).ToList());
     }
 
     // ---- Join Geometry for parallel walls -------------------------------------------------
@@ -3451,6 +3534,10 @@ public class PlanView : FrameworkElement
                 break;
             }
 
+            case WallOpening cut:
+                ring = OpeningOutline(cut);
+                break;
+
             case Slab slab:
                 ring = slab.Boundary;
                 break;
@@ -3528,6 +3615,9 @@ public class PlanView : FrameworkElement
             if (DistanceToSegment(model, centre, centre) <= Math.Max(type.Width, wallType.Width) / 2)
                 yield return opening;
         }
+
+        // Openings are holes in walls, so they are picked before the walls they are in.
+        foreach (var cut in WallOpeningsAt(model)) yield return cut;
 
         // Sweeps sit on wall faces, so they are picked before the walls they are on.
         foreach (var sweep in SweepsAt(model)) yield return sweep;
@@ -3614,6 +3704,7 @@ public class PlanView : FrameworkElement
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);
+        DrawSelectedOpenings(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);
         DrawPendingDimension(dc);

@@ -128,6 +128,20 @@ public static class ProjectFile
                 Description = sweepType.Description
             });
 
+        foreach (var opening in document.Elements.OfType<WallOpening>())
+            dto.WallOpenings.Add(new WallOpeningDto
+            {
+                Id = opening.Id,
+                HostWallId = opening.HostWallId,
+                LevelId = opening.LevelId,
+                DistanceAlongWall = opening.DistanceAlongWall,
+                Width = opening.Width,
+                Height = opening.Height,
+                SillHeight = opening.SillHeight,
+                Mark = opening.Mark,
+                Comments = opening.Comments
+            });
+
         foreach (var placed in document.Elements.OfType<PlacedSweep>())
             dto.PlacedSweeps.Add(new PlacedSweepDto
             {
@@ -949,6 +963,20 @@ public static class ProjectFile
 
         // After the walls they sit on; one whose walls have all gone is dropped.
         var wallIds = document.Walls.Select(w => w.Id).ToHashSet();
+        foreach (var saved in dto.WallOpenings.Where(o => wallIds.Contains(o.HostWallId) && o.Width > 0 && o.Height > 0))
+            document.Add(new WallOpening
+            {
+                Id = saved.Id,
+                HostWallId = saved.HostWallId,
+                LevelId = saved.LevelId,
+                DistanceAlongWall = double.IsFinite(saved.DistanceAlongWall) ? Math.Max(0, saved.DistanceAlongWall) : 0,
+                Width = saved.Width,
+                Height = saved.Height,
+                SillHeight = double.IsFinite(saved.SillHeight) ? saved.SillHeight : 0,
+                Mark = saved.Mark ?? string.Empty,
+                Comments = saved.Comments ?? string.Empty
+            });
+
         foreach (var dtoPlaced in dto.PlacedSweeps)
         {
             var placed = new PlacedSweep
