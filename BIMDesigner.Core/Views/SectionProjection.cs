@@ -162,6 +162,12 @@ public static class SectionProjection
     private static void AddWall(
         BimDocument document, SectionMarker marker, Wall wall, List<SectionPiece> pieces)
     {
+        if (CurtainLayout.Of(document, wall) is { } curtain)
+        {
+            AddCurtainWall(document, marker, wall, curtain, pieces);
+            return;
+        }
+
         // An edited profile is one construction that sets its own heights: nothing to trim to.
         if (WallProfile.Of(document, wall) is not null && document.GetWallType(wall) is { } profiled)
         {
@@ -583,6 +589,102 @@ public static class SectionProjection
     /// The heights at which the wall is still solid once its openings have been taken out of
     /// it - the same idea as the solid runs along a wall in plan, turned on its side.
     /// </summary>
+    /// <summary>
+    /// A curtain wall in section. Where the cut crosses it: through a mullion, the mullion full
+    /// height; otherwise the panels of that bay and the transoms between them. Beyond the cut,
+    /// its grid seen face-on: every panel and mullion.
+    /// </summary>
+    private static void AddCurtainWall(
+        BimDocument document, SectionMarker marker, Wall wall, CurtainLayout layout, List<SectionPiece> pieces)
+    {
+        var type = layout.Type;
+        var body = type.Body;
+        var structure = body.Structure;
+        var bottom = wall.GetBaseElevation(document);
+        var panelHalf = type.PanelThickness / 2;
+        var mullionHalf = type.MullionThickness / 2;
+
+        var glass = document.FindMaterial(type.GlassMaterialId);
+        var solid = document.FindMaterial(type.SolidMaterialId);
+        var metal = document.FindMaterial(type.MullionMaterialId);
+
+        SectionPiece Piece(double left, double right, double low, double high, SectionPart part, SectionDepth depth, Material? material, ColourRgb fallback) =>
+            new(new SectionRect(Math.Min(left, right), bottom + low, Math.Max(left, right), bottom + high), part, depth,
+                (depth == SectionDepth.Cut ? material?.CutColour : material?.SurfaceColour) ?? fallback,
+                material?.Name ?? type.Name, wall.Id);
+
+        // Where the section line crosses the wall, as distances along it.
+        var line = WallCurve.Of(marker.Start, marker.End, 0);
+        var crossings = line.Crossings(wall.LocationCurve)
+            .Select(p => wall.Locate(structure, p).Along)
+            .Where(s => s >= -Epsilon && s <= layout.Length + Epsilon)
+            .ToList();
+
+        if (crossings.Count > 0)
+        {
+            foreach (var s in crossings)
+            {
+                double X(double across) => marker.DistanceAlong(wall.PointAt(structure, s, across));
+
+                var through = layout.Mullions.FirstOrDefault(m => m.IsVertical && s >= m.From && s <= m.To);
+                if (through is not null)
+                {
+                    pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), through.Bottom, through.Top,
+                        SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
+                    continue;
+                }
+
+                foreach (var cell in layout.Cells.Where(c => s >= c.From && s <= c.To))
+                {
+                    if (cell.ClearTop - cell.ClearBottom <= Epsilon) continue;
+
+                    var piece = cell.Kind switch
+                    {
+                        CurtainPanelKind.Glazed => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.Glazing, SectionDepth.Cut, glass, GlazingColour),
+                        CurtainPanelKind.Solid => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.WallLayer, SectionDepth.Cut, solid, DefaultCut),
+                        CurtainPanelKind.Door => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, SectionDepth.Cut, null, LeafColour),
+                        _ => null
+                    };
+                    if (piece is not null) pieces.Add(piece);
+                }
+
+                foreach (var transom in layout.Mullions.Where(m => !m.IsVertical && s >= m.From && s <= m.To))
+                    pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), transom.Bottom, transom.Top, SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
+            }
+
+            return;
+        }
+
+        // Not cut: seen, if it is in front of the section and within its depth.
+        var outline = CurtainGeometry.Band(wall, body, 0, layout.Length, body.Width / 2, -body.Width / 2);
+        var depths = outline.Select(marker.DepthOf).ToList();
+        if (depths.Max() <= Epsilon || depths.Min() >= marker.ViewDepth) return;
+
+        double Seen(double along) => marker.DistanceAlong(wall.PointAt(structure, along, 0));
+
+        SectionPiece Face(double from, double to, double low, double high, SectionPart part, Material? material, ColourRgb fallback)
+        {
+            var (a, b) = (Seen(from), Seen(to));
+            return Piece(a, b, low, high, part, SectionDepth.Seen, material, fallback) with
+            {
+                Shape = new[] { (a, bottom + low), (b, bottom + low), (b, bottom + high), (a, bottom + high) }
+            };
+        }
+
+        foreach (var cell in layout.Cells.Where(c => c.Kind != CurtainPanelKind.Empty && c.ClearTo > c.ClearFrom && c.ClearTop > c.ClearBottom))
+        {
+            pieces.Add(cell.Kind switch
+            {
+                CurtainPanelKind.Solid => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.WallFace, solid, DefaultCut),
+                CurtainPanelKind.Door => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, null, LeafColour),
+                _ => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.Glazing, glass, GlazingColour)
+            });
+        }
+
+        foreach (var mullion in layout.Mullions)
+            pieces.Add(Face(mullion.From, mullion.To, mullion.Bottom, mullion.Top, SectionPart.Frame, metal, DefaultCut));
+    }
+
     /// <summary>
     /// The heights a wall with an edited profile is solid at, this far along it: the spans of
     /// its outline there, less any door or window.

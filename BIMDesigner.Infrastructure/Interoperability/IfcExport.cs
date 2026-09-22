@@ -286,6 +286,12 @@ public static class IfcExport
             var (bodyStart, _) = wall.GetBodyCentreline(structure);
             var half = structure.TotalWidth / 2;
 
+            if (_document.FindType<CurtainWallType>(wall.TypeId) is { } curtainType)
+            {
+                ExportCurtainWall(wall, curtainType, bodyStart);
+                return;
+            }
+
             // The outline the plan and the 3D view draw, mitres and all, so the exported wall
             // is the wall that was modelled rather than an idealised rectangle.
             var outline = WallJoins.GetBandOutline(_document, wall, type, half, -half);
@@ -774,19 +780,66 @@ public static class IfcExport
         // ---- geometry ------------------------------------------------------------
 
         /// <summary>
-        /// A closed outline swept straight up. Every element in this model is one of these,
-        /// which is why the export can be real solids rather than triangles.
-        /// </summary>
-        /// <summary>
         /// A stable id for a wall's sweeps, made from the wall's: the same wall exports its sweeps
         /// under the same id every time, as it does itself.
         /// </summary>
-        private static Guid SweepId(Guid wallId)
+        private static Guid SweepId(Guid wallId) => PartId(wallId, 0x5A, 0xA5);
+
+        /// <summary>A stable id for one part of a wall, made from the wall's and a salt for the part.</summary>
+        private static Guid PartId(Guid wallId, byte salt, byte pepper)
         {
             var bytes = wallId.ToByteArray();
-            bytes[15] ^= 0x5A;
-            bytes[14] ^= 0xA5;
+            bytes[15] ^= salt;
+            bytes[14] ^= pepper;
             return new Guid(bytes);
+        }
+
+        /// <summary>
+        /// A curtain wall as IFC has it: an <c>IfcCurtainWall</c> made up of its panels, as one
+        /// <c>IfcPlate</c>, and its mullions, as one <c>IfcMember</c>, each with its real shape.
+        /// </summary>
+        private void ExportCurtainWall(CoreWall wall, CurtainWallType type, Point2D bodyStart)
+        {
+            var elevation = wall.GetBaseElevation(_document) - (_document.FindLevel(wall.LevelId)?.Elevation ?? 0);
+
+            var curtain = New<IfcCurtainWall>(c =>
+            {
+                c.GlobalId = wall.Id.ToIfc();
+                c.Name = $"{type.Name} {wall.Mark}".Trim();
+                c.Tag = wall.Mark;
+                c.PredefinedType = IfcCurtainWallTypeEnum.NOTDEFINED;
+                c.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
+            });
+            Contain(wall, curtain);
+
+            var panels = New<IfcPlate>(p =>
+            {
+                p.GlobalId = IfcGloballyUniqueId.ConvertToBase64(PartId(wall.Id, 0x3C, 0xC3));
+                p.Name = $"Panels {wall.Mark}".Trim();
+                p.PredefinedType = IfcPlateTypeEnum.CURTAIN_PANEL;
+                p.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
+                p.Representation = Tessellated(wall, bodyStart, MeshKind.Glazing, MeshKind.Wall, MeshKind.DoorLeaf);
+            });
+            Aggregate(curtain, panels);
+
+            if (type.MullionWidth > 0)
+            {
+                var mullions = New<IfcMember>(m =>
+                {
+                    m.GlobalId = IfcGloballyUniqueId.ConvertToBase64(PartId(wall.Id, 0x69, 0x96));
+                    m.Name = $"Mullions {wall.Mark}".Trim();
+                    m.PredefinedType = IfcMemberTypeEnum.MULLION;
+                    m.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
+                    m.Representation = Tessellated(wall, bodyStart, MeshKind.Mullion);
+                });
+                Aggregate(curtain, mullions);
+            }
+
+            AddProperties(curtain, wall, "Pset_CurtainWallCommon", new Dictionary<string, IfcValue?>
+            {
+                ["IsExternal"] = new IfcBoolean(type.Function == WallFunction.Exterior),
+                ["Reference"] = new IfcIdentifier(type.Name)
+            });
         }
 
         /// <summary>
@@ -794,7 +847,7 @@ public static class IfcExport
         /// outline, so it is written as the triangles of its solids - the same ones the 3D view
         /// draws - in the wall's own coordinates.
         /// </summary>
-        private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, MeshKind kind = MeshKind.Wall)
+        private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, params MeshKind[] kinds)
         {
             var baseElevation = wall.GetBaseElevation(_document);
             var direction = wall.Direction;
@@ -806,7 +859,7 @@ public static class IfcExport
                 r.RepresentationIdentifier = "Body";
                 r.RepresentationType = "Tessellation";
 
-                foreach (var mesh in ModelMeshBuilder.BuildWall(_document, wall).Where(m => m.Kind == kind))
+                foreach (var mesh in ModelMeshBuilder.BuildWall(_document, wall).Where(m => kinds.Length == 0 ? m.Kind == MeshKind.Wall : kinds.Contains(m.Kind)))
                 {
                     var points = New<IfcCartesianPointList3D>(list =>
                     {

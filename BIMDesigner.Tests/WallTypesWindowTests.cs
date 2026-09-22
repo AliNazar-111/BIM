@@ -16,6 +16,7 @@ namespace BIMDesigner.Tests;
 /// apply. Mostly this proves the window builds at all - a XAML mistake only shows when the
 /// window is created - and that its buttons reach the model through the undo stack.
 /// </summary>
+[Collection("Wpf")]
 public class WallTypesWindowTests
 {
     private static void OnUiThread(Action action)

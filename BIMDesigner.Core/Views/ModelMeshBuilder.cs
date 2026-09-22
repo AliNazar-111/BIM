@@ -57,6 +57,12 @@ public static class ModelMeshBuilder
     {
         if (wall.Length <= WallJoins.JoinTolerance) return;
 
+        if (CurtainLayout.Of(document, wall) is { } curtain)
+        {
+            AddCurtainWall(document, wall, curtain, meshes);
+            return;
+        }
+
         var bottom = wall.GetBaseElevation(document);
 
         // An edited profile says how high the wall is, and may dip below its base.
@@ -203,6 +209,106 @@ public static class ModelMeshBuilder
         }
 
         AddSweeps(document, wall, type, bottom, top, meshes);
+    }
+
+    /// <summary>
+    /// A curtain wall as what it is made of: a pane in each cell - glass, a solid panel, a door
+    /// or nothing - and the mullions framing them, square or round, all following the wall
+    /// round a curve.
+    /// </summary>
+    private static void AddCurtainWall(BimDocument document, Wall wall, CurtainLayout layout, List<Mesh3D> meshes)
+    {
+        var type = layout.Type;
+        var body = type.Body;
+        var bottom = wall.GetBaseElevation(document);
+        var half = type.PanelThickness / 2;
+
+        Mesh3D NewMesh(MeshKind kind, Guid materialId, ColourRgb fallback)
+        {
+            var material = document.FindMaterial(materialId);
+            return new Mesh3D(wall.Id, wall.LevelId, kind, material?.SurfaceColour ?? fallback, material?.Name ?? kind.ToString());
+        }
+
+        var glass = NewMesh(MeshKind.Glazing, type.GlassMaterialId, GlazingColour);
+        var solid = NewMesh(MeshKind.Wall, type.SolidMaterialId, DefaultSurface);
+        var doors = NewMesh(MeshKind.DoorLeaf, type.MullionMaterialId, LeafColour);
+        var frame = NewMesh(MeshKind.Mullion, type.MullionMaterialId, DefaultSurface);
+
+        foreach (var cell in layout.Cells)
+        {
+            if (cell.ClearTo - cell.ClearFrom <= 1e-6 || cell.ClearTop - cell.ClearBottom <= 1e-6) continue;
+
+            var mesh = cell.Kind switch
+            {
+                CurtainPanelKind.Glazed => glass,
+                CurtainPanelKind.Solid => solid,
+                CurtainPanelKind.Door => doors,
+                _ => null
+            };
+            if (mesh is null) continue;
+
+            mesh.AddExtrusion(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half),
+                bottom + cell.ClearBottom, bottom + cell.ClearTop);
+        }
+
+        var radius = type.MullionWidth / 2;
+        var depth = type.MullionDepth / 2;
+
+        foreach (var mullion in layout.Mullions)
+        {
+            if (type.MullionProfile == MullionProfile.Rectangular)
+            {
+                frame.AddExtrusion(CurtainGeometry.Band(wall, body, mullion.From, mullion.To, depth, -depth),
+                    bottom + mullion.Bottom, bottom + mullion.Top);
+            }
+            else if (mullion.IsVertical)
+            {
+                frame.AddExtrusion(CurtainGeometry.Circle(wall, body, (mullion.From + mullion.To) / 2, radius),
+                    bottom + mullion.Bottom, bottom + mullion.Top);
+            }
+            else
+            {
+                AddTube(frame, CurtainGeometry.Path(wall, body, mullion.From, mullion.To),
+                    bottom + (mullion.Bottom + mullion.Top) / 2, radius);
+            }
+        }
+
+        meshes.AddRange(new[] { glass, solid, doors, frame });
+    }
+
+    /// <summary>A round bar lying along a path at one height: a round transom.</summary>
+    private static void AddTube(Mesh3D mesh, IReadOnlyList<(Point2D Point, Vector2D Across)> path, double height, double radius)
+    {
+        if (path.Count < 2 || radius <= 0) return;
+
+        const int sides = CurtainGeometry.RoundSides;
+        Point3D[] Ring((Point2D Point, Vector2D Across) at) =>
+            Enumerable.Range(0, sides)
+                .Select(i => 2 * Math.PI * i / sides)
+                .Select(angle =>
+                {
+                    var sideways = at.Across * (radius * Math.Cos(angle));
+                    return new Point3D(at.Point.X + sideways.X, at.Point.Y + sideways.Y, height + radius * Math.Sin(angle));
+                })
+                .ToArray();
+
+        var rings = path.Select(Ring).ToList();
+        for (var k = 0; k + 1 < rings.Count; k++)
+        for (var i = 0; i < sides; i++)
+        {
+            var j = (i + 1) % sides;
+            mesh.AddQuad(rings[k][i], rings[k + 1][i], rings[k + 1][j], rings[k][j]);
+        }
+
+        // Closed at both ends.
+        foreach (var (ring, flip) in new[] { (rings[0], true), (rings[^1], false) })
+        for (var i = 1; i + 1 < sides; i++)
+        {
+            if (flip) mesh.AddTriangle(ring[0], ring[i + 1], ring[i]);
+            else mesh.AddTriangle(ring[0], ring[i], ring[i + 1]);
+        }
+
+        mesh.AddEdge(new Point3D(path[0].Point.X, path[0].Point.Y, height + radius), new Point3D(path[^1].Point.X, path[^1].Point.Y, height + radius));
     }
 
     /// <summary>

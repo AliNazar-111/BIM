@@ -235,3 +235,27 @@ public sealed class EditStackedWallTypeCommand : IUndoableCommand
         _type.Tiers.AddRange(state.Tiers);
     }
 }
+
+/// <summary>
+/// Changes every setting of a curtain wall type as one step: its grid, panels and mullions.
+/// The design is a detached copy the editor filled in; its settings are copied across.
+/// </summary>
+public sealed class EditCurtainWallTypeCommand : IUndoableCommand
+{
+    private readonly CurtainWallType _type;
+    private readonly CurtainWallType _before;
+    private readonly CurtainWallType _after;
+
+    public EditCurtainWallTypeCommand(CurtainWallType type, CurtainWallType design)
+    {
+        _type = type;
+        _before = type.Duplicate(type.Name);
+        _after = design.Duplicate(design.Name.Trim());
+    }
+
+    public string Name => $"Edit Type {_after.Name}";
+
+    public void Redo() => _type.CopyFrom(_after);
+
+    public void Undo() => _type.CopyFrom(_before);
+}

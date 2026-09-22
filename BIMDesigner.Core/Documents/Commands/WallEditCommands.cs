@@ -61,6 +61,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly WallEllipse? _originalEllipse;
     private readonly WallEllipse? _firstEllipse;
     private readonly (IReadOnlyList<Point2D>? Profile, double Length) _originalProfile, _firstProfile;
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _originalCurtain, _firstCurtain;
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly double _splitAlong;
@@ -97,6 +98,27 @@ public sealed class SplitWallCommand : IUndoableCommand
             secondProfile = after.Count >= 3 ? (after, curve.Length - _splitAlong) : (null, 0);
         }
 
+        // A curtain wall keeps its grid where it is: each half takes the lines and panels on its side.
+        _originalCurtain = (wall.CurtainGrid, wall.CurtainPanels);
+        _firstCurtain = _originalCurtain;
+        (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) secondCurtain = (null, null);
+        if (CurtainLayout.Of(document, wall) is { } layout)
+        {
+            var inner = layout.Verticals.Skip(1).SkipLast(1).ToList();
+            var horizontals = layout.Horizontals.Skip(1).SkipLast(1).ToList();
+            // The columns the near half keeps, and the first column of the far half: the same one
+            // when the split falls inside a bay, the next when it falls on a line.
+            var firstColumns = layout.Verticals.Count(v => v < _splitAlong - 1e-6);
+            var farStart = layout.Verticals.Count(v => v <= _splitAlong + 1e-6) - 1;
+            var panels = wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>();
+
+            _firstCurtain = (new CurtainGrid(inner.Where(v => v < _splitAlong).ToList(), horizontals),
+                panels.Where(p => p.Column < firstColumns).ToList());
+            secondCurtain = (new CurtainGrid(inner.Where(v => v > _splitAlong).Select(v => v - _splitAlong).ToList(), horizontals),
+                panels.Where(p => p.Column >= farStart)
+                    .Select(p => p with { Column = p.Column - farStart }).ToList());
+        }
+
         // Doors and windows beyond the split belong to the far half now.
         foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
             _moved.Add((opening, opening.DistanceAlongWall));
@@ -109,6 +131,8 @@ public sealed class SplitWallCommand : IUndoableCommand
             Ellipse = second.Ellipse,
             Profile = secondProfile.Profile,
             ProfileLength = secondProfile.Length,
+            CurtainGrid = secondCurtain.Grid,
+            CurtainPanels = secondCurtain.Panels,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             OverrideTaper = wall.OverrideTaper,
@@ -146,6 +170,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.Bulge = _firstBulge;
         _wall.Ellipse = _firstEllipse;
         (_wall.Profile, _wall.ProfileLength) = _firstProfile;
+        (_wall.CurtainGrid, _wall.CurtainPanels) = _firstCurtain;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
 
@@ -169,6 +194,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.Bulge = _originalBulge;
         _wall.Ellipse = _originalEllipse;
         (_wall.Profile, _wall.ProfileLength) = _originalProfile;
+        (_wall.CurtainGrid, _wall.CurtainPanels) = _originalCurtain;
         _wall.EndJoin = _originalEndJoin;
     }
 }
@@ -709,4 +735,28 @@ public sealed class SetWallProfileCommand : IUndoableCommand
         _wall.Profile = _oldProfile;
         _wall.ProfileLength = _oldLength;
     }
+}
+
+/// <summary>
+/// Sets a curtain wall's own grid and the panels in it (specification section 3.1, "curtain
+/// walls"): lines added, moved or taken away, cells glazed, solid, empty or made a door.
+/// </summary>
+public sealed class SetCurtainLayoutCommand : IUndoableCommand
+{
+    private readonly Wall _wall;
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _old, _new;
+
+    public SetCurtainLayoutCommand(Wall wall, CurtainGrid? grid, IReadOnlyList<CurtainPanelOverride>? panels, string name = "Edit Curtain Grid")
+    {
+        _wall = wall;
+        _old = (wall.CurtainGrid, wall.CurtainPanels);
+        _new = (grid, panels?.ToList());
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public void Redo() => (_wall.CurtainGrid, _wall.CurtainPanels) = _new;
+
+    public void Undo() => (_wall.CurtainGrid, _wall.CurtainPanels) = _old;
 }

@@ -377,7 +377,7 @@ public class ModelView : Border
 
     /// <summary>A door leaf and a pane go with the walls they sit in, not a kind of their own.</summary>
     private bool IsHiddenKind(MeshKind kind) =>
-        _hiddenKinds.Contains(kind is MeshKind.Glazing or MeshKind.DoorLeaf ? MeshKind.Wall : kind);
+        _hiddenKinds.Contains(kind is MeshKind.Glazing or MeshKind.DoorLeaf or MeshKind.Mullion ? MeshKind.Wall : kind);
 
     private static MeshGeometry3D ToGeometry(Mesh3D mesh)
     {

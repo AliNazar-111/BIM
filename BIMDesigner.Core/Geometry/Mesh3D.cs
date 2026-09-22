@@ -19,7 +19,10 @@ public enum MeshKind
     DoorLeaf,
 
     /// <summary>A profile run along a wall face: a skirting, plinth, cornice.</summary>
-    Sweep
+    Sweep,
+
+    /// <summary>The frame of a curtain wall: mullions along its grid lines.</summary>
+    Mullion
 }
 
 /// <summary>

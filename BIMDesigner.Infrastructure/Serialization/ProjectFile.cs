@@ -101,6 +101,35 @@ public static class ProjectFile
                 Tiers = stacked.Tiers.Select(tier => new StackTierDto { WallTypeId = tier.WallTypeId, Height = tier.Height }).ToList()
             });
 
+        foreach (var curtain in document.TypesOf<CurtainWallType>())
+            dto.CurtainWallTypes.Add(new CurtainWallTypeDto
+            {
+                Id = curtain.Id,
+                Name = curtain.Name,
+                TypeMark = curtain.TypeMark,
+                AssemblyCode = curtain.AssemblyCode,
+                Description = curtain.Description,
+                Cost = curtain.Cost,
+                Function = curtain.Function.ToString(),
+                VerticalLayout = curtain.VerticalLayout.ToString(),
+                VerticalSpacing = curtain.VerticalSpacing,
+                VerticalCount = curtain.VerticalCount,
+                VerticalJustification = curtain.VerticalJustification.ToString(),
+                HorizontalLayout = curtain.HorizontalLayout.ToString(),
+                HorizontalSpacing = curtain.HorizontalSpacing,
+                HorizontalCount = curtain.HorizontalCount,
+                HorizontalJustification = curtain.HorizontalJustification.ToString(),
+                PanelThickness = curtain.PanelThickness,
+                GlassMaterialId = curtain.GlassMaterialId,
+                SolidMaterialId = curtain.SolidMaterialId,
+                MullionProfile = curtain.MullionProfile.ToString(),
+                MullionWidth = curtain.MullionWidth,
+                MullionDepth = curtain.MullionDepth,
+                MullionMaterialId = curtain.MullionMaterialId,
+                BorderMullions = curtain.BorderMullions,
+                AutomaticallyEmbed = curtain.AutomaticallyEmbed
+            });
+
         foreach (var type in document.TypesOf<WallType>())
             dto.WallTypes.Add(new WallTypeDto
             {
@@ -383,6 +412,9 @@ public static class ProjectFile
                 EllipseTo = wall.Ellipse?.To,
                 Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 ProfileLength = wall.ProfileLength,
+                CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
+                CurtainHorizontals = wall.CurtainGrid?.Horizontals.ToList(),
+                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString() }).ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
@@ -592,6 +624,51 @@ public static class ProjectFile
             document.AddType(stacked);
         }
 
+        foreach (var dtoCurtain in dto.CurtainWallTypes)
+        {
+            var curtain = new CurtainWallType(dtoCurtain.Name)
+            {
+                Id = dtoCurtain.Id,
+                TypeMark = dtoCurtain.TypeMark,
+                AssemblyCode = dtoCurtain.AssemblyCode,
+                Description = dtoCurtain.Description,
+                Cost = dtoCurtain.Cost,
+                Function = ParseEnum(dtoCurtain.Function, WallFunction.Exterior),
+                VerticalLayout = ParseEnum(dtoCurtain.VerticalLayout, CurtainGridLayout.FixedDistance),
+                VerticalSpacing = dtoCurtain.VerticalSpacing,
+                VerticalCount = dtoCurtain.VerticalCount,
+                VerticalJustification = ParseEnum(dtoCurtain.VerticalJustification, CurtainGridJustification.Centre),
+                HorizontalLayout = ParseEnum(dtoCurtain.HorizontalLayout, CurtainGridLayout.FixedDistance),
+                HorizontalSpacing = dtoCurtain.HorizontalSpacing,
+                HorizontalCount = dtoCurtain.HorizontalCount,
+                HorizontalJustification = ParseEnum(dtoCurtain.HorizontalJustification, CurtainGridJustification.Beginning),
+                PanelThickness = dtoCurtain.PanelThickness,
+                GlassMaterialId = dtoCurtain.GlassMaterialId,
+                SolidMaterialId = dtoCurtain.SolidMaterialId,
+                MullionProfile = ParseEnum(dtoCurtain.MullionProfile, MullionProfile.Rectangular),
+                MullionWidth = dtoCurtain.MullionWidth,
+                MullionDepth = dtoCurtain.MullionDepth,
+                MullionMaterialId = dtoCurtain.MullionMaterialId,
+                BorderMullions = dtoCurtain.BorderMullions,
+                AutomaticallyEmbed = dtoCurtain.AutomaticallyEmbed
+            };
+
+            // A type that could not be built from is put back to the storefront defaults' sizes.
+            if (curtain.Problem() is not null)
+            {
+                var defaults = new CurtainWallType(curtain.Name);
+                curtain.VerticalSpacing = defaults.VerticalSpacing;
+                curtain.HorizontalSpacing = defaults.HorizontalSpacing;
+                curtain.VerticalCount = defaults.VerticalCount;
+                curtain.HorizontalCount = defaults.HorizontalCount;
+                curtain.PanelThickness = defaults.PanelThickness;
+                curtain.MullionWidth = defaults.MullionWidth;
+                curtain.MullionDepth = defaults.MullionDepth;
+            }
+
+            document.AddType(curtain);
+        }
+
         foreach (var type in dto.DoorTypes)
         {
             var doorType = new DoorType(type.Name, PositiveOr(type.Width, 900), PositiveOr(type.Height, 2100))
@@ -641,6 +718,13 @@ public static class ProjectFile
                 Ellipse = ReadEllipse(wall),
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
+                CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
+                    ? new CurtainGrid(verticals.Where(double.IsFinite).ToList(), horizontals.Where(double.IsFinite).ToList())
+                    : null,
+                CurtainPanels = wall.CurtainPanels?
+                    .Where(p => p.Column >= 0 && p.Row >= 0)
+                    .Select(p => new CurtainPanelOverride(p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed)))
+                    .ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = ParseEnum(wall.CrossSection, WallCrossSection.Vertical),

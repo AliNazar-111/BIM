@@ -153,6 +153,15 @@ public sealed class Wall : Element
     /// <summary>How long the wall was when its profile was edited: corners at that distance stay on the end.</summary>
     public double ProfileLength { get; set; }
 
+    /// <summary>
+    /// A curtain wall's own grid lines, replacing the ones its type sets out; null to follow the
+    /// type. See <see cref="CurtainLayout"/>.
+    /// </summary>
+    public CurtainGrid? CurtainGrid { get; set; }
+
+    /// <summary>The cells of a curtain wall filled with something other than glass.</summary>
+    public IReadOnlyList<CurtainPanelOverride>? CurtainPanels { get; set; }
+
     /// <summary>Length of the location line, in millimetres.</summary>
     public double Length => IsCurved ? LocationCurve.Length : Start.DistanceTo(End);
 
@@ -300,6 +309,9 @@ public sealed class Wall : Element
     /// <summary>Gross volume, in mm³. The quantity used for concrete and masonry takeoff.</summary>
     public double GetVolume(BimDocument document)
     {
+        // A curtain wall is its panels and mullions, not a solid the size of its frame.
+        if (CurtainLayout.Of(document, this) is { } curtain) return curtain.Volume;
+
         // Each tier of a stacked wall is as thick as its own construction.
         if (document.FindType<WallType>(TypeId) is null && document.FindType<StackedWallType>(TypeId) is null) return 0;
 
@@ -498,6 +510,12 @@ public sealed class Wall : Element
         yield return ParameterValue.ReadOnly(WallParameters.Height, () => GetHeight(document));
         yield return ParameterValue.ReadOnly(WallParameters.Area, () => GetArea(document));
         yield return ParameterValue.ReadOnly(WallParameters.Volume, () => GetVolume(document));
+        if (CurtainLayout.Of(document, this) is not null)
+        {
+            yield return ParameterValue.ReadOnly(WallParameters.CurtainPanels, () => CurtainLayout.Of(document, this)?.PanelCount ?? 0);
+            yield return ParameterValue.ReadOnly(WallParameters.MullionLength, () => CurtainLayout.Of(document, this)?.MullionLength ?? 0);
+        }
+
         yield return ParameterValue.ReadOnly(WallParameters.Profile, () => WallProfile.Of(document, this) is null
             ? Profile is null ? "Rectangular" : "Edited (not in use: the wall must be straight, upright and not stacked)"
             : "Edited");
@@ -563,6 +581,12 @@ public static class WallParameters
 
     public static readonly ParameterDefinition Profile =
         new("Profile", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition CurtainPanels =
+        new("Panels", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition MullionLength =
+        new("Mullion Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition CrossSection =
         new("Cross-Section", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);

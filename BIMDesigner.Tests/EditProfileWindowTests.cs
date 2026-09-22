@@ -16,6 +16,7 @@ namespace BIMDesigner.Tests;
 /// The profile editor window builds, its presets and corners table reach the drawing, and a
 /// bad outline keeps OK disabled.
 /// </summary>
+[Collection("Wpf")]
 public class EditProfileWindowTests
 {
     private static void OnUiThread(Action action)

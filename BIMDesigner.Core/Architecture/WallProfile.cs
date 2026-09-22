@@ -47,7 +47,8 @@ public static class WallProfile
     public static bool CanHave(BimDocument document, Wall wall) =>
         !wall.IsCurved &&
         wall.CrossSection == WallCrossSection.Vertical &&
-        document.FindType<StackedWallType>(wall.TypeId) is null;
+        document.FindType<StackedWallType>(wall.TypeId) is null &&
+        document.FindType<CurtainWallType>(wall.TypeId) is null;
 
     /// <summary>
     /// The outline in force for a wall, or null when it has none or cannot take one now.

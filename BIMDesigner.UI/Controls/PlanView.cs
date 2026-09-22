@@ -1865,6 +1865,15 @@ public class PlanView : FrameworkElement
             return;
         }
 
+        // A curtain wall takes doors as panels of its own, not as holes cut in it.
+        if (Document.IsCurtainWall(wall))
+        {
+            HintChanged?.Invoke(this, isDoor
+                ? "That is a curtain wall: select it and use Edit Curtain Grid to make a panel a door."
+                : "That is a curtain wall: its panels are already glazed.");
+            return;
+        }
+
         var typeId = isDoor ? ActiveDoorTypeId : ActiveWindowTypeId;
         var type = Document.FindType<OpeningType>(typeId);
         if (type is null)

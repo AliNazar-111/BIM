@@ -323,6 +323,12 @@ public sealed class PlanRenderer
 
         var isSelected = IsSelected(wall);
 
+        if (CurtainLayout.Of(Document, wall) is { } curtain)
+        {
+            DrawCurtainWall(dc, wall, curtain, isSelected);
+            return;
+        }
+
         // A slanted or tapered wall is drawn where the plan cuts it, which is not where it
         // stands: every point of it moves across by how far it leans at the cut height.
         var cutHeight = Math.Min(StackedWallType.PlanCutHeight, wall.GetHeight(Document));
@@ -358,6 +364,65 @@ public sealed class PlanRenderer
         // Show where the user actually drew, so the effect of the location line is visible.
         if (isSelected && wall.LocationLine != WallLocationLine.WallCentreline)
             DrawPolyline(dc, _locationLinePen, wall.LocationCurve.Points());
+    }
+
+    /// <summary>
+    /// A curtain wall where the plan cuts it: in each bay the panel at cut height - a line of
+    /// glass, a solid panel, nothing, or a door with its swing - and the mullions cut through,
+    /// square or round.
+    /// </summary>
+    private void DrawCurtainWall(DrawingContext dc, Wall wall, CurtainLayout layout, bool isSelected)
+    {
+        var type = layout.Type;
+        var body = type.Body;
+        var structure = body.Structure;
+        var half = type.PanelThickness / 2;
+        var cut = Math.Min(StackedWallType.PlanCutHeight, layout.Height / 2);
+
+        foreach (var cell in layout.Cells.Where(c => c.Bottom <= cut && c.Top > cut))
+        {
+            if (cell.ClearTo - cell.ClearFrom <= 1e-6) continue;
+
+            switch (cell.Kind)
+            {
+                case CurtainPanelKind.Glazed:
+                    dc.DrawGeometry(null, _glassPen,
+                        BuildOutline(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half)));
+                    break;
+
+                case CurtainPanelKind.Solid:
+                    dc.DrawGeometry(MaterialBrush(type.SolidMaterialId), _wallOutlinePen,
+                        BuildOutline(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half)));
+                    break;
+
+                case CurtainPanelKind.Door:
+                {
+                    // Hinged at the start of the bay, opening to the inside.
+                    var hinge = wall.PointAt(structure, cell.ClearFrom, 0);
+                    var other = wall.PointAt(structure, cell.ClearTo, 0);
+                    var width = hinge.DistanceTo(other);
+                    if (width <= 1e-6) break;
+
+                    DrawLeafAndArc(dc, _openingPen, hinge, (other - hinge) / width,
+                        -wall.ExteriorNormalAt(cell.ClearFrom), width, 90);
+                    break;
+                }
+            }
+        }
+
+        foreach (var mullion in layout.Mullions.Where(m => m.IsVertical))
+        {
+            var outline = type.MullionProfile == MullionProfile.Circular
+                ? CurtainGeometry.Circle(wall, body, (mullion.From + mullion.To) / 2, type.MullionWidth / 2)
+                : CurtainGeometry.Band(wall, body, mullion.From, mullion.To, type.MullionDepth / 2, -type.MullionDepth / 2);
+            dc.DrawGeometry(MaterialBrush(type.MullionMaterialId), _wallOutlinePen, BuildOutline(outline));
+        }
+
+        if (isSelected)
+        {
+            var width = body.Width / 2;
+            dc.DrawGeometry(null, _selectedPen, BuildOutline(CurtainGeometry.Band(wall, body, 0, wall.Length, width, -width)));
+        }
     }
 
     /// <summary>An open line through model points - a curve drawn as its short straight pieces.</summary>

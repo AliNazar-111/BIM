@@ -60,6 +60,9 @@ public sealed class BimDocument
     /// <summary>The wall type an element uses, or the first available type as a fallback.</summary>
     public WallType? GetWallType(Wall wall)
     {
+        // A curtain wall joins, bounds rooms and is drawn round as the thin wall its mullions make.
+        if (FindType<CurtainWallType>(wall.TypeId) is { } curtain) return curtain.Body;
+
         // A stacked wall is drawn in plan as the tier the plan cuts through.
         if (FindType<StackedWallType>(wall.TypeId) is { } stacked)
             return stacked.TierAt(this, wall.GetHeight(this), StackedWallType.PlanCutHeight)
@@ -75,7 +78,10 @@ public sealed class BimDocument
     public WallType? PlanWallType(Guid typeId, double height = 3000) =>
         FindType<StackedWallType>(typeId) is { } stacked
             ? stacked.TierAt(this, height, StackedWallType.PlanCutHeight)
-            : FindType<WallType>(typeId);
+            : FindType<CurtainWallType>(typeId)?.Body ?? FindType<WallType>(typeId);
+
+    /// <summary>Whether a wall is a curtain wall.</summary>
+    public bool IsCurtainWall(Wall wall) => FindType<CurtainWallType>(wall.TypeId) is not null;
 
     /// <summary>
     /// Every construction a wall is built of, with the elevations it runs between: one for an
@@ -147,7 +153,12 @@ public sealed class BimDocument
         var template = CreateDefault();
         var present = _types.Values.Select(type => type.Category).ToHashSet();
 
-        foreach (var type in template.ElementTypes.Where(type => !present.Contains(type.Category)))
+        // Curtain walls share their category with walls, so a project from before they existed
+        // has walls but no curtain wall types to draw one with.
+        var hasCurtain = _types.Values.OfType<CurtainWallType>().Any();
+
+        foreach (var type in template.ElementTypes.Where(type =>
+                     type is CurtainWallType ? !hasCurtain : !present.Contains(type.Category)))
         {
             foreach (var materialId in MaterialsUsedBy(type))
             {
@@ -163,6 +174,7 @@ public sealed class BimDocument
     private static IEnumerable<Guid> MaterialsUsedBy(ElementType type) => type switch
     {
         WallType wall => wall.Structure.Layers.Select(layer => layer.MaterialId),
+        CurtainWallType curtain => new[] { curtain.GlassMaterialId, curtain.SolidMaterialId, curtain.MullionMaterialId },
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
         _ => Array.Empty<Guid>()
     };
@@ -418,9 +430,58 @@ public sealed class BimDocument
             CoarseScaleFillColour = ColourRgb.FromHex("6E7A86")
         };
 
+        // Curtain walls: a framed storefront, and a plain glass wall to divide as needed.
+        var glass = new Material("Glass, Clear")
+        {
+            Density = 2500,
+            ThermalConductivity = 1.0,
+            SurfaceColour = ColourRgb.FromHex("8CC4E0"),
+            CutColour = ColourRgb.FromHex("6FA9C7"),
+            CostPerCubicMetre = 900m
+        };
+        var aluminium = new Material("Aluminium, Anodised")
+        {
+            Density = 2700,
+            ThermalConductivity = 160,
+            SurfaceColour = ColourRgb.FromHex("B8BCC2"),
+            CutColour = ColourRgb.FromHex("9DA2A9"),
+            CostPerCubicMetre = 9000m
+        };
+        var spandrel = new Material("Spandrel Panel, Insulated")
+        {
+            Density = 150,
+            ThermalConductivity = 0.03,
+            SurfaceColour = ColourRgb.FromHex("4F5B66"),
+            CutColour = ColourRgb.FromHex("434E58"),
+            CostPerCubicMetre = 600m
+        };
+        foreach (var material in new[] { glass, aluminium, spandrel }) document.AddMaterial(material);
+
+        var storefront = new CurtainWallType("Curtain Wall - Storefront 1500")
+        {
+            TypeMark = "CW1",
+            AssemblyCode = "B2020",
+            GlassMaterialId = glass.Id,
+            SolidMaterialId = spandrel.Id,
+            MullionMaterialId = aluminium.Id,
+            Cost = 420m
+        };
+        var plainGlass = new CurtainWallType("Curtain Wall - Glazed")
+        {
+            TypeMark = "CW2",
+            AssemblyCode = "B2020",
+            VerticalLayout = CurtainGridLayout.None,
+            HorizontalLayout = CurtainGridLayout.None,
+            GlassMaterialId = glass.Id,
+            SolidMaterialId = spandrel.Id,
+            MullionMaterialId = aluminium.Id,
+            Cost = 380m
+        };
+
         foreach (var type in new ElementType[]
                  {
                      generic, exterior, partition,
+                     storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, casement, picture,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof
                  })

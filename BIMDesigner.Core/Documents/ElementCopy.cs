@@ -94,6 +94,8 @@ public static class ElementCopy
             Ellipse = wall.Ellipse,
             Profile = wall.Profile?.ToList(),
             ProfileLength = wall.ProfileLength,
+            CurtainGrid = wall.CurtainGrid,
+            CurtainPanels = wall.CurtainPanels,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             OverrideTaper = wall.OverrideTaper,

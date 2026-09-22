@@ -31,6 +31,7 @@ internal sealed class ProjectFileDto
 
     /// <summary>Walls built of other wall types one above another. Missing from older files.</summary>
     public List<StackedWallTypeDto> StackedWallTypes { get; set; } = new();
+    public List<CurtainWallTypeDto> CurtainWallTypes { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
 
@@ -364,6 +365,44 @@ internal sealed class StackedWallTypeDto
     public List<StackTierDto> Tiers { get; set; } = new();
 }
 
+internal sealed class CurtainWallTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Curtain Wall";
+    public string TypeMark { get; set; } = string.Empty;
+    public string AssemblyCode { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public decimal Cost { get; set; }
+    public string Function { get; set; } = "Exterior";
+
+    public string VerticalLayout { get; set; } = "FixedDistance";
+    public double VerticalSpacing { get; set; } = 1500;
+    public int VerticalCount { get; set; } = 4;
+    public string VerticalJustification { get; set; } = "Centre";
+    public string HorizontalLayout { get; set; } = "FixedDistance";
+    public double HorizontalSpacing { get; set; } = 1500;
+    public int HorizontalCount { get; set; } = 2;
+    public string HorizontalJustification { get; set; } = "Beginning";
+
+    public double PanelThickness { get; set; } = 25;
+    public Guid GlassMaterialId { get; set; }
+    public Guid SolidMaterialId { get; set; }
+
+    public string MullionProfile { get; set; } = "Rectangular";
+    public double MullionWidth { get; set; } = 50;
+    public double MullionDepth { get; set; } = 150;
+    public Guid MullionMaterialId { get; set; }
+    public bool BorderMullions { get; set; } = true;
+    public bool AutomaticallyEmbed { get; set; }
+}
+
+internal sealed class CurtainPanelDto
+{
+    public int Column { get; set; }
+    public int Row { get; set; }
+    public string Kind { get; set; } = "Glazed";
+}
+
 internal sealed class StackTierDto
 {
     public Guid WallTypeId { get; set; }
@@ -507,6 +546,11 @@ internal sealed class WallDto
     /// <summary>An edited elevation outline as x, y pairs (along, height above base), and the wall length it was edited at.</summary>
     public List<double>? Profile { get; set; }
     public double ProfileLength { get; set; }
+
+    /// <summary>A curtain wall's own grid lines, when it does not follow its type's.</summary>
+    public List<double>? CurtainVerticals { get; set; }
+    public List<double>? CurtainHorizontals { get; set; }
+    public List<CurtainPanelDto>? CurtainPanels { get; set; }
 
     /// <summary>The slabs the top and base are attached to, if any.</summary>
     public Guid? TopAttachedTo { get; set; }
