@@ -64,6 +64,7 @@ public partial class MainWindow : Window
         Plan.SelectionChanged += (_, _) =>
         {
             RefreshProperties();
+            RefreshContextTab();
             SyncScheduleToPlan();
             SyncSectionToPlan();
 
@@ -74,6 +75,7 @@ public partial class MainWindow : Window
         // Drawing a section opens it: the marker and the view are the same thing, so there is
         // nothing sensible to do between creating one and looking at it.
         Plan.SectionPlaced += (_, marker) => ShowSection(marker);
+        Plan.SweepEditChanged += (_, _) => SyncSweepEditControls();
 
         Section.SelectionChanged += (_, _) =>
         {
@@ -301,9 +303,13 @@ public partial class MainWindow : Window
         SweepTypePicker.Visibility = isSweep ? Visibility.Visible : Visibility.Collapsed;
         if (isSweep) LoadSweepTypes(tool == PlanTool.Sweep ? SweepKind.Sweep : SweepKind.Reveal);
 
-        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window || isSlab || isSweep || typeless
+        // Selecting builds nothing, so the bar names the selection instead of offering types.
+        var selecting = tool == PlanTool.Select;
+        ModifyCaption.Visibility = selecting ? Visibility.Visible : Visibility.Collapsed;
+
+        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window || isSlab || isSweep || typeless || selecting
             ? Visibility.Collapsed : Visibility.Visible;
-        TypeLabel.Visibility = typeless ? Visibility.Collapsed : Visibility.Visible;
+        TypeLabel.Visibility = typeless || selecting ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
         WindowTypePicker.Visibility = tool == PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
         SlabTypePicker.Visibility = isSlab ? Visibility.Visible : Visibility.Collapsed;
@@ -340,7 +346,7 @@ public partial class MainWindow : Window
         };
 
         // The location line only means anything while drawing walls.
-        var forWalls = tool is PlanTool.Select or PlanTool.Wall or PlanTool.Split or PlanTool.Trim;
+        var forWalls = tool is PlanTool.Wall or PlanTool.Split or PlanTool.Trim;
         LocationLineLabel.Visibility = forWalls ? Visibility.Visible : Visibility.Collapsed;
         LocationLinePicker.Visibility = forWalls ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -352,7 +358,10 @@ public partial class MainWindow : Window
         var types = _document.TypesOf<WallSweepType>().Where(t => t.Kind == kind).OrderBy(t => t.Name).ToList();
         var active = kind == SweepKind.Sweep ? Plan.ActiveSweepTypeId : Plan.ActiveRevealTypeId;
         SweepTypePicker.ItemsSource = types;
-        SweepTypePicker.SelectedItem = types.FirstOrDefault(t => t.Id == active) ?? types.FirstOrDefault();
+        // First time round a skirting, the sweep most often placed, rather than the first by name.
+        SweepTypePicker.SelectedItem = types.FirstOrDefault(t => t.Id == active)
+            ?? types.FirstOrDefault(t => t.Profile == SweepProfile.Skirting)
+            ?? types.FirstOrDefault();
         _loadingOptions = false;
         OnActiveSweepTypeChanged(this, null!);
     }
@@ -1008,6 +1017,116 @@ public partial class MainWindow : Window
             : "Profile applied. The plan cuts the wall where it reaches the cut height.";
     }
 
+    private void OnResetProfile(object sender, RoutedEventArgs e)
+    {
+        var walls = Plan.SelectedElements.OfType<Wall>().Where(wall => wall.Profile is not null).ToList();
+        if (walls.Count == 0)
+        {
+            StatusHint.Text = "None of the selected walls has an edited profile.";
+            return;
+        }
+
+        _history.Execute(new CompositeCommand("Reset Profile", walls.Select(wall => new SetWallProfileCommand(wall, null))));
+        AfterHistoryChange();
+        StatusHint.Text = $"Profile reset on {Plural(walls.Count, "wall")}: each is its plain rectangle again.";
+    }
+
+    // ---- contextual tab ----------------------------------------------------------------
+
+    /// <summary>The tab that was open before a selection brought up "Modify | ...", to go back to.</summary>
+    private TabItem? _tabBeforeContext;
+
+    /// <summary>
+    /// Shows "Modify | Walls" (or doors, sweeps, ...) while something is selected, with only
+    /// the panels that apply to it, and puts the ribbon back where it was when the selection
+    /// is let go.
+    /// </summary>
+    private void RefreshContextTab()
+    {
+        var selected = Plan.SelectedElements;
+
+        if (selected.Count == 0)
+        {
+            ModifyCaption.Text = "Modify";
+            if (ContextTab.Visibility != Visibility.Visible) return;
+
+            var wasOpen = ReferenceEquals(Ribbon.SelectedItem, ContextTab);
+            ContextTab.Visibility = Visibility.Collapsed;
+            if (wasOpen) Ribbon.SelectedItem = _tabBeforeContext ?? Ribbon.Items[0];
+            return;
+        }
+
+        var categories = selected.Select(element => element.Category).Distinct().ToList();
+        ContextTab.Header = "Modify | " + (categories is [var only] ? CategoryTitle(only) : "Multi-Select");
+        ModifyCaption.Text = selected.Count > 1 ? $"{ContextTab.Header}  ({selected.Count})" : (string)ContextTab.Header;
+
+        var allWalls = selected.All(element => element is Wall);
+        var wallsOnly = allWalls ? Visibility.Visible : Visibility.Collapsed;
+        ContextSplit.Visibility = ContextTrim.Visibility = ContextOffset.Visibility = wallsOnly;
+        ContextModePanel.Visibility = ContextWallPanel.Visibility = wallsOnly;
+        ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
+        ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
+        ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
+        ContextPropertiesPanel.Visibility = selected.Any(element => element.TypeId != Guid.Empty) ? Visibility.Visible : Visibility.Collapsed;
+        SyncSweepEditControls();
+
+        if (ContextTab.Visibility != Visibility.Visible)
+        {
+            _tabBeforeContext = Ribbon.SelectedItem as TabItem;
+            ContextTab.Visibility = Visibility.Visible;
+        }
+
+        // Picking something brings its tab forward. While a tool is placing things (a sweep
+        // selects each one it puts down) the tab holding that tool stays open instead.
+        if (Plan.ActiveTool == PlanTool.Select) Ribbon.SelectedItem = ContextTab;
+    }
+
+    /// <summary>"WallSweeps" to "Wall Sweeps": the category as a tab caption.</summary>
+    private static string CategoryTitle(BuiltInCategory category) =>
+        string.Concat(category.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? " " + c : c.ToString()));
+
+    /// <summary>A Modify tool picked from the contextual tab: the same tool as on the Modify tab.</summary>
+    private void OnContextTool(object sender, RoutedEventArgs e)
+    {
+        RadioButton? tool = (sender as Button)?.CommandParameter as string switch
+        {
+            "Split" => SplitTool,
+            "Trim" => TrimTool,
+            "Offset" => OffsetTool,
+            "Mirror" => MirrorTool,
+            "Array" => ArrayTool,
+            _ => null
+        };
+
+        if (tool is not null) tool.IsChecked = true;
+    }
+
+    private void OnAddRemoveSweepWalls(object sender, RoutedEventArgs e) =>
+        ToggleSweepEdit(SweepEditMode.AddRemoveWalls, ContextAddRemoveWalls.IsChecked == true);
+
+    private void OnModifySweepReturns(object sender, RoutedEventArgs e) =>
+        ToggleSweepEdit(SweepEditMode.ModifyReturns, ContextModifyReturns.IsChecked == true);
+
+    private void ToggleSweepEdit(SweepEditMode mode, bool on)
+    {
+        if (on) Plan.BeginSweepEdit(mode);
+        else Plan.EndSweepEdit();
+
+        SyncSweepEditControls();
+        Plan.Focus();
+    }
+
+    /// <summary>The two sweep buttons stay pressed while their mode lasts; Modify Returns brings its options.</summary>
+    private void SyncSweepEditControls()
+    {
+        ContextAddRemoveWalls.IsChecked = Plan.SweepEdit == SweepEditMode.AddRemoveWalls;
+        ContextModifyReturns.IsChecked = Plan.SweepEdit == SweepEditMode.ModifyReturns;
+        SweepReturnOptions.Visibility = Plan.SweepEdit == SweepEditMode.ModifyReturns ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnSweepReturnChoiceChanged(object sender, RoutedEventArgs e) =>
+        Plan.ReturnOnClick = ReturnChoice.IsChecked == true;
+
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     // ---- new wall height ---------------------------------------------------------------
@@ -1067,8 +1186,19 @@ public partial class MainWindow : Window
 
     private void OnManageWallTypes(object sender, RoutedEventArgs e) => ShowWallTypes(null);
 
-    private void OnEditSelectedType(object sender, RoutedEventArgs e) =>
-        ShowWallTypes(Plan.SelectedElement is { } element ? _document.FindType<ElementType>(element.TypeId) : null);
+    private void OnEditSelectedType(object sender, RoutedEventArgs e)
+    {
+        var type = Plan.SelectedElement is { } element ? _document.FindType<ElementType>(element.TypeId) : null;
+        if (type is null or WallType or StackedWallType or CurtainWallType)
+        {
+            ShowWallTypes(type);
+            return;
+        }
+
+        // Other types have no dialog of their own: their type parameters are edited in place.
+        TypeParameterList.BringIntoView();
+        StatusHint.Text = $"{type.Name}: edit its type parameters in the Properties panel. A change there applies to every one of this type.";
+    }
 
     private void ShowWallTypes(ElementType? start)
     {
@@ -1124,12 +1254,12 @@ public partial class MainWindow : Window
         // an edit here would look as if it applied to all of them.
         var others = Plan.SelectedElements.Count - 1;
         SelectedCategory.Text = others > 0
-            ? $"{element.Category.ToString().ToUpperInvariant()}  Â·  {others + 1} SELECTED, SHOWING LAST"
-            : element.Category.ToString().ToUpperInvariant();
+            ? $"{CategoryTitle(element.Category).ToUpperInvariant()}  ·  {others + 1} SELECTED, SHOWING LAST"
+            : CategoryTitle(element.Category).ToUpperInvariant();
         SelectedTypeName.Text = type?.Name ?? "<no type>";
 
         // "Doors" -> "door", so the hints read naturally for whatever is selected.
-        var noun = element.Category.ToString().TrimEnd('s').ToLowerInvariant();
+        var noun = CategoryTitle(element.Category).TrimEnd('s').ToLowerInvariant();
         InstanceHint.Text = $"This {noun} only.";
         TypeHint.Text = $"Shared by every {noun} of this type. Editing one changes them all.";
 
@@ -1224,7 +1354,7 @@ public partial class MainWindow : Window
                 .Where(element => element.LevelId == level.Id)
                 .GroupBy(element => element.Category)
                 .OrderBy(group => group.Key.ToString())
-                .Select(group => $"{group.Count()} {group.Key.ToString().ToLowerInvariant()}")
+                .Select(group => $"{group.Count()} {(group.Count() == 1 ? CategoryTitle(group.Key).TrimEnd('s') : CategoryTitle(group.Key)).ToLowerInvariant()}")
                 .ToList();
 
             var isActive = level.Id == Plan.ActiveLevelId;

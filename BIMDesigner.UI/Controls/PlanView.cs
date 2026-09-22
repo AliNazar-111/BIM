@@ -591,6 +591,9 @@ public class PlanView : FrameworkElement
     /// <summary>What clicking walls does to the selected placed sweep just now.</summary>
     public SweepEditMode SweepEdit { get; private set; }
 
+    /// <summary>Modify Returns: whether a clicked end is given a return, or cut straight.</summary>
+    public bool ReturnOnClick { get; set; } = true;
+
     private PlacedSweep? _sweepEditTarget;
 
     /// <summary>Raised when an Add/Remove Walls or Modify Returns mode starts or stops.</summary>
@@ -610,7 +613,7 @@ public class PlanView : FrameworkElement
         SweepEdit = mode;
         HintChanged?.Invoke(this, mode == SweepEditMode.AddRemoveWalls
             ? "Click walls to add them to the sweep, or take them off it. Esc when done."
-            : "Click near an end of the sweep to turn its return on or off. Esc when done.");
+            : "Click near an end of the sweep to give it the return or straight cut chosen in the options bar. Esc when done.");
         SweepEditChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -705,8 +708,8 @@ public class PlanView : FrameworkElement
             // The sweep's own two ends: where its first wall starts and its last wall ends.
             var nearStart = raw.DistanceTo(walls[0].Start) <= raw.DistanceTo(walls[^1].End);
             Apply(new EditPlacedSweepCommand(sweep, sweep.HostWallIds,
-                nearStart ? !sweep.ReturnAtStart : sweep.ReturnAtStart,
-                nearStart ? sweep.ReturnAtEnd : !sweep.ReturnAtEnd,
+                nearStart ? ReturnOnClick : sweep.ReturnAtStart,
+                nearStart ? sweep.ReturnAtEnd : ReturnOnClick,
                 "Modify Returns"));
             var now = nearStart ? sweep.ReturnAtStart : sweep.ReturnAtEnd;
             HintChanged?.Invoke(this, $"That end now {(now ? "returns round the wall end" : "is cut straight")}. A return shows where the wall end is exposed.");

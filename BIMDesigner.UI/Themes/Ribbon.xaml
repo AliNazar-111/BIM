@@ -181,6 +181,52 @@
         </Setter>
     </Style>
 
+    <!-- The "Modify | Walls" tab that appears for a selection: green, as contextual tabs are in
+         Revit, so it reads as belonging to what is picked rather than to the application. -->
+    <SolidColorBrush x:Key="Context.Accent" Color="#FF3F9A3F"/>
+    <SolidColorBrush x:Key="Context.Wash" Color="#2A3F9A3F"/>
+
+    <Style x:Key="ContextRibbonTab" TargetType="TabItem">
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="Chrome" Background="{StaticResource Context.Wash}" BorderBrush="{StaticResource Context.Accent}"
+                            BorderThickness="1,3,1,0" Padding="13,2,13,5" Margin="6,0,0,0">
+                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center"
+                                          TextElement.FontWeight="SemiBold"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Bg.Elevated}"/>
+                            <Setter Property="Panel.ZIndex" Value="1"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A panel on the contextual tab: its caption in the tab's green. -->
+    <Style x:Key="ContextRibbonPanel" TargetType="HeaderedContentControl" BasedOn="{StaticResource RibbonPanel}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="HeaderedContentControl">
+                    <Border BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" Padding="4,4,4,0">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Bottom" Background="{StaticResource Context.Wash}" Margin="-4,2,-4,0">
+                                <TextBlock Text="{TemplateBinding Header}" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource Text}" Margin="0,1,0,2"
+                                           FontSize="{StaticResource UiFontSizeSmall}"/>
+                            </Border>
+                            <ContentPresenter/>
+                        </DockPanel>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- The File button at the head of the tabs: the one coloured tab, as it is in CAD ribbons. -->
     <Style x:Key="FileTabButton" TargetType="Button">
         <Setter Property="Foreground" Value="White"/>

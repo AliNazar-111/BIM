@@ -119,6 +119,35 @@
         <GeometryDrawing Brush="{StaticResource Ink.Blue}" Geometry="M1.5,12.5 L4.5,12.5 L4.5,15.5 L1.5,15.5 Z M14.5,2.5 L17.5,2.5 L17.5,5.5 L14.5,5.5 Z M27.5,12.5 L30.5,12.5 L30.5,15.5 L27.5,15.5 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.ResetProfile"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M3,28 L3,10 L29,10 L29,28 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Dash}" Geometry="M3,10 L16,2 L29,10"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M11,15 L21,23 M21,15 L11,23"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.EditType"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M4,3 L22,3 L22,29 L4,29 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M8,9 L18,9 M8,14 L18,14 M8,19 L14,19"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M17,27 L27,17 L30,20 L20,30 L16,30 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.AddRemoveWalls"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Pen="{StaticResource Stroke}" Geometry="M2,8 L20,8 L20,28 L2,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M2,22 L20,22 L20,25 L2,25 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Green}" Geometry="M26,3 L26,13 M21,8 L31,8"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M22,22 L31,22"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Returns"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M6,4 L16,4 L16,28 L6,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M16,10 L22,10 L22,28 L16,28 Z M6,4 L16,4 L22,10 L16,10 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M26,24 A6,6 0 0 0 26,12 M24,10 L26,12 L24,14"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.AttachTop"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,3 L30,3 L30,7 L2,7 Z"/>
