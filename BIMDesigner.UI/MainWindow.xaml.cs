@@ -2263,6 +2263,94 @@ public partial class MainWindow : Window
                 : Ribbon.Items[0];
     }
 
+    /// <summary>
+    /// The list under the arrow beside Wall: every way of placing walls in one place - the
+    /// shapes, by segment or by room, sweeps and reveals, and joining - each ticked when on.
+    /// </summary>
+    private void OnWallMenu(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = WallMenuButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        var drawing = Plan.ActiveTool == PlanTool.Wall;
+
+        MenuItem Item(string header, string icon, string tag, bool ticked, string? hint = null)
+        {
+            var item = new MenuItem
+            {
+                Header = header,
+                Tag = tag,
+                IsChecked = ticked,
+                ToolTip = hint,
+                Icon = new Image { Source = TryFindResource(icon) as System.Windows.Media.ImageSource, Width = 16, Height = 16 }
+            };
+            item.Click += OnWallMenuItem;
+            return item;
+        }
+
+        foreach (var (header, icon, shape) in new[]
+        {
+            ("Line", "Icon.DrawLine", WallShape.Line), ("Arc", "Icon.DrawArc", WallShape.Arc),
+            ("Rectangle", "Icon.DrawRectangle", WallShape.Rectangle), ("Polygon", "Icon.DrawPolygon", WallShape.Polygon),
+            ("Circle", "Icon.DrawCircle", WallShape.Circle), ("Oval", "Icon.DrawOval", WallShape.Oval),
+            ("Ellipse", "Icon.DrawEllipse", WallShape.Ellipse), ("Partial Ellipse", "Icon.DrawHalfEllipse", WallShape.PartialEllipse),
+            ("Spline", "Icon.DrawSpline", WallShape.Spline), ("Freehand", "Icon.DrawFreehand", WallShape.Freehand),
+            ("Pick Lines", "Icon.DrawPick", WallShape.Pick)
+        })
+        {
+            menu.Items.Add(Item(header, icon, shape.ToString(), drawing && Plan.DrawShape == shape));
+        }
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Place by Segment", "Icon.PlaceBySegment", nameof(WallShape.BySegment), drawing && Plan.DrawShape == WallShape.BySegment,
+            "Click beside a wall: a new wall runs along that face"));
+        menu.Items.Add(Item("Place by Room", "Icon.PlaceByRoom", nameof(WallShape.ByRoom), drawing && Plan.DrawShape == WallShape.ByRoom,
+            "Click inside a room: a new wall along every face round it"));
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Wall: Sweep", "Icon.Sweep", "Sweep", Plan.ActiveTool == PlanTool.Sweep));
+        menu.Items.Add(Item("Wall: Reveal", "Icon.Reveal", "Reveal", Plan.ActiveTool == PlanTool.Reveal));
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Auto Join", "Icon.AutoJoin", "AutoJoin", Plan.AutoJoinWalls,
+            "Join new walls to the walls they lie against: doors and windows cut through both"));
+        var lockItem = Item("Auto Join and Lock", "Icon.Lock", "Lock", Plan.LockJoinedWalls, "Joined walls also move together");
+        lockItem.IsEnabled = Plan.AutoJoinWalls;
+        menu.Items.Add(lockItem);
+
+        menu.IsOpen = true;
+    }
+
+    private void OnWallMenuItem(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag }) return;
+
+        switch (tag)
+        {
+            case "Sweep":
+                SweepTool.IsChecked = true;
+                return;
+
+            case "Reveal":
+                RevealTool.IsChecked = true;
+                return;
+
+            case "AutoJoin":
+                AutoJoinBox.IsChecked = !Plan.AutoJoinWalls;
+                OnAutoJoinChanged(sender, e);
+                return;
+
+            case "Lock":
+                LockJoinBox.IsChecked = !Plan.LockJoinedWalls;
+                OnAutoJoinChanged(sender, e);
+                return;
+        }
+
+        if (!Enum.TryParse<WallShape>(tag, out var shape)) return;
+
+        WallTool.IsChecked = true;
+        WallShapePicker.SelectedIndex = (int)shape;
+        Plan.Focus();
+    }
+
     private IEnumerable<RadioButton> WallShapeButtons() => new[]
     {
         ShapeLine, ShapeArc, ShapePick, ShapeRectangle, ShapePolygon, ShapeCircle, ShapeOval, ShapeEllipse,

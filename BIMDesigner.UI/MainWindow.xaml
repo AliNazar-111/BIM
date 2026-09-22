@@ -162,6 +162,32 @@
             <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
         </Style>
 
+        <!-- The narrow arrow beside a ribbon button that opens its list, as on Revit's Wall button. -->
+        <Style x:Key="RibbonDropArrow" TargetType="Button">
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Margin" Value="-2,0,2,0"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" CornerRadius="2">
+                            <Path Data="M0,0 L8,0 L4,5 Z" Fill="{StaticResource Text}" Width="8" Height="5"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Bg.Hover}"/>
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource Line.Strong}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Accent.Dim}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- The wall shapes on the Place Wall tab: one of them at a time, apart from the tools. -->
         <Style x:Key="WallShapeRadio" TargetType="RadioButton" BasedOn="{StaticResource RibbonSmallRadio}">
             <Setter Property="GroupName" Value="WallShape"/>
@@ -377,6 +403,9 @@
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="WallTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Wall}"
                                              Content="Wall" Checked="OnToolChanged" ToolTip="Draw walls, including curtain walls (W)"/>
+                                <Button x:Name="WallMenuButton" Style="{StaticResource RibbonDropArrow}" Click="OnWallMenu"
+                                        AutomationProperties.Name="Wall options"
+                                        ToolTip="Every way to draw a wall: shapes, place by segment or room, sweeps and reveals, auto join"/>
                                 <RadioButton x:Name="DoorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Door}"
                                              Content="Door" Checked="OnToolChanged" ToolTip="Place a door in a wall (D)"/>
                                 <RadioButton x:Name="WindowTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Window}"
