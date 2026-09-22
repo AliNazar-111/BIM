@@ -102,6 +102,39 @@ public static class WallSlices
     }
 
     /// <summary>
+    /// The solid stretches a plan cuts through at this height above the wall's base: every
+    /// solid stretch, less wherever an edited profile does not reach the cut. Where it stops
+    /// short the wall simply ends there, square across and unwrapped - it is not an opening.
+    /// </summary>
+    public static IReadOnlyList<WallSlice> InPlan(BimDocument document, Wall wall, WallType type, double cutHeight)
+    {
+        var solid = Solid(document, wall, type);
+        if (WallProfile.Of(document, wall) is not { } profile) return solid;
+
+        var runs = WallProfile.RunsAt(profile, cutHeight, wall.Length);
+        var slices = new List<WallSlice>();
+
+        foreach (var slice in solid)
+        foreach (var (runFrom, runTo) in runs)
+        {
+            var from = Math.Max(slice.From, runFrom);
+            var to = Math.Min(slice.To, runTo);
+            if (to - from <= WallJoins.JoinTolerance) continue;
+
+            var cutFrom = from > slice.From + WallJoins.JoinTolerance
+                ? WallCut.Along(CrossCutAt(wall, type, from), wall, WallEndCondition.Free)
+                : slice.CutFrom;
+            var cutTo = to < slice.To - WallJoins.JoinTolerance
+                ? WallCut.Along(CrossCutAt(wall, type, to), wall, WallEndCondition.Free)
+                : slice.CutTo;
+
+            if (!IsInsideOut(wall, type, cutFrom, cutTo)) slices.Add(new WallSlice(from, to, cutFrom, cutTo));
+        }
+
+        return slices;
+    }
+
+    /// <summary>
     /// Whether the two cuts have crossed, so that the stretch between them has no length left
     /// - or has turned over and would be drawn back to front.
     ///

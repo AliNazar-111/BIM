@@ -162,6 +162,13 @@ public static class SectionProjection
     private static void AddWall(
         BimDocument document, SectionMarker marker, Wall wall, List<SectionPiece> pieces)
     {
+        // An edited profile is one construction that sets its own heights: nothing to trim to.
+        if (WallProfile.Of(document, wall) is not null && document.GetWallType(wall) is { } profiled)
+        {
+            AddWallAs(document, marker, wall, profiled, pieces);
+            return;
+        }
+
         foreach (var (type, bottom, top) in document.GetWallTiers(wall))
         {
             var tier = new List<SectionPiece>();
@@ -319,7 +326,8 @@ public static class SectionProjection
         if (width <= 0 || wall.Length <= Epsilon) return;
 
         var baseElevation = wall.GetBaseElevation(document);
-        var topElevation = baseElevation + wall.GetHeight(document);
+        var profile = WallProfile.Of(document, wall);
+        var topElevation = baseElevation + (profile is null ? wall.GetHeight(document) : WallProfile.Top(profile));
         if (topElevation <= baseElevation) return;
 
         if (wall.IsCurved)
@@ -347,7 +355,9 @@ public static class SectionProjection
         var distanceAlong = (crossing - wall.Start).Dot(wall.Direction);
 
         var openings = OpeningsAt(document, wall, distanceAlong);
-        var solid = SolidHeights(document, openings, baseElevation, topElevation);
+        var solid = profile is null
+            ? SolidHeights(document, openings, baseElevation, topElevation)
+            : ProfileHeights(document, openings, baseElevation, profile, distanceAlong);
 
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
@@ -483,13 +493,31 @@ public static class SectionProjection
         var right = Math.Min(marker.Length, alongs.Max());
         if (right - left <= Epsilon) return;
 
-        pieces.Add(new SectionPiece(
-            new SectionRect(left, baseElevation, right, topElevation),
-            SectionPart.WallFace,
-            SectionDepth.Seen,
-            type.CoarseScaleFillColour,
-            type.Name,
-            wall.Id));
+        // An edited profile is seen as its outline: each corner where it falls along the section.
+        if (WallProfile.Of(document, wall) is { } profile)
+        {
+            var shape = profile
+                .Select(p => (X: marker.DistanceAlong(wall.LocationCurve.PointAt(Math.Clamp(p.X, 0, wall.Length))), Y: baseElevation + p.Y))
+                .ToList();
+
+            pieces.Add(new SectionPiece(
+                new SectionRect(shape.Min(p => p.X), shape.Min(p => p.Y), shape.Max(p => p.X), shape.Max(p => p.Y)),
+                SectionPart.WallFace,
+                SectionDepth.Seen,
+                type.CoarseScaleFillColour,
+                type.Name,
+                wall.Id) { Shape = shape });
+        }
+        else
+        {
+            pieces.Add(new SectionPiece(
+                new SectionRect(left, baseElevation, right, topElevation),
+                SectionPart.WallFace,
+                SectionDepth.Seen,
+                type.CoarseScaleFillColour,
+                type.Name,
+                wall.Id));
+        }
 
         foreach (var opening in WallOpenings.Of(document, wall))
         {
@@ -555,6 +583,35 @@ public static class SectionProjection
     /// The heights at which the wall is still solid once its openings have been taken out of
     /// it - the same idea as the solid runs along a wall in plan, turned on its side.
     /// </summary>
+    /// <summary>
+    /// The heights a wall with an edited profile is solid at, this far along it: the spans of
+    /// its outline there, less any door or window.
+    /// </summary>
+    private static List<(double Bottom, double Top)> ProfileHeights(
+        BimDocument document,
+        List<(Opening Opening, OpeningType Type)> openings,
+        double baseElevation,
+        IReadOnlyList<Point2D> profile,
+        double along)
+    {
+        var spans = WallProfile.HeightsAt(profile, along).Select(s => (Bottom: baseElevation + s.Bottom, Top: baseElevation + s.Top)).ToList();
+
+        foreach (var (opening, openingType) in openings)
+        {
+            var sill = baseElevation + opening.SillHeight;
+            var head = sill + openingType.Height;
+
+            spans = spans
+                .SelectMany(s => s.Top <= sill || s.Bottom >= head
+                    ? new[] { s }
+                    : new[] { (s.Bottom, Math.Min(s.Top, sill)), (Math.Max(s.Bottom, head), s.Top) })
+                .Where(s => s.Item2 - s.Item1 > Epsilon)
+                .ToList();
+        }
+
+        return spans;
+    }
+
     private static List<(double Bottom, double Top)> SolidHeights(
         BimDocument document,
         List<(Opening Opening, OpeningType Type)> openings,

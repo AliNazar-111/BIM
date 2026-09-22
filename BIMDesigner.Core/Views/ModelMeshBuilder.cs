@@ -58,8 +58,12 @@ public static class ModelMeshBuilder
         if (wall.Length <= WallJoins.JoinTolerance) return;
 
         var bottom = wall.GetBaseElevation(document);
-        var top = bottom + wall.GetHeight(document);
-        if (top <= bottom) return;
+
+        // An edited profile says how high the wall is, and may dip below its base.
+        var profile = WallProfile.Of(document, wall);
+        var top = profile is null ? bottom + wall.GetHeight(document) : bottom + WallProfile.Top(profile);
+        var lowest = profile is null ? bottom : Math.Min(bottom, bottom + WallProfile.Bottom(profile));
+        if (top <= lowest) return;
 
         // Doors and windows are placed from the wall's base, whatever it is built of, and
         // cut through every tier they reach.
@@ -74,14 +78,20 @@ public static class ModelMeshBuilder
             to = Math.Min(wall.Length, to);
             if (to - from <= WallJoins.JoinTolerance) continue;
 
-            var sill = Math.Clamp(bottom + opening.SillHeight, bottom, top);
-            var head = Math.Clamp(bottom + opening.SillHeight + openingType.Height, bottom, top);
+            var sill = Math.Clamp(bottom + opening.SillHeight, lowest, top);
+            var head = Math.Clamp(bottom + opening.SillHeight + openingType.Height, lowest, top);
             openings.Add((opening, openingType, from, to, sill, head));
+        }
+
+        if (profile is not null && document.GetWallType(wall) is { } profiledType)
+        {
+            AddProfiled(document, wall, profiledType, bottom, profile, openings, meshes);
+            AddSweeps(document, wall, profiledType, bottom, top, meshes);
         }
 
         // Each construction the wall is made of, between its own heights: one for an ordinary
         // wall, one per tier for a stacked one.
-        foreach (var (type, tierBottom, tierTop) in document.GetWallTiers(wall))
+        foreach (var (type, tierBottom, tierTop) in document.GetWallTiers(wall).Where(_ => profile is null))
         {
             var first = meshes.Count;
             AddTier(document, wall, type, tierBottom, tierTop, openings, meshes);
@@ -193,6 +203,56 @@ public static class ModelMeshBuilder
         }
 
         AddSweeps(document, wall, type, bottom, top, meshes);
+    }
+
+    /// <summary>
+    /// A wall with an edited profile, as its layers: the outline in vertical strips, each built
+    /// like an ordinary stretch of wall - joined at the wall's ends, square at a door or window -
+    /// but running from the strip's own bottom edge to its own top edge, which may slope.
+    /// </summary>
+    private static void AddProfiled(
+        BimDocument document, Wall wall, WallType type, double baseElevation, IReadOnlyList<Point2D> profile,
+        IReadOnlyList<(Opening Opening, OpeningType Type, double From, double To, double Sill, double Head)> openings,
+        List<Mesh3D> meshes)
+    {
+        var structure = type.Structure;
+        if (structure.TotalWidth <= 0) return;
+
+        var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
+        var half = structure.TotalWidth / 2;
+
+        var holes = openings.Select(o => (o.From, o.To, o.Sill - baseElevation, o.Head - baseElevation));
+        var strips = WallProfile.Strips(profile, wall.Length, holes)
+            .Select(strip => (Strip: strip, Slice: WallSlices.Between(document, wall, type, strip.From, strip.To, startCut, endCut)))
+            .Where(entry => entry.Slice is not null)
+            .ToList();
+
+        double Along(Point2D point) => wall.Locate(structure, point).Along;
+
+        foreach (var (layer, start, end) in structure.GetLayerOffsets())
+        {
+            if (layer.Thickness <= 0) continue;
+
+            var material = document.FindMaterial(layer.MaterialId);
+            var mesh = new Mesh3D(
+                wall.Id, wall.LevelId, MeshKind.Wall,
+                material?.SurfaceColour ?? DefaultSurface,
+                material?.Name ?? layer.Function.ToString());
+
+            foreach (var (strip, slice) in strips)
+            {
+                var outline = WallJoins.GetBandOutline(
+                    wall, type, half - start, half - end, Unwrapped(slice!.Value.CutFrom), Unwrapped(slice.Value.CutTo));
+
+                // Straight top and bottom edges in elevation are planes across the plan outline,
+                // so each corner takes its height from how far along the wall it is.
+                mesh.AddExtrusion(outline,
+                    point => baseElevation + strip.Bottom(Along(point)),
+                    point => baseElevation + strip.Top(Along(point)));
+            }
+
+            meshes.Add(mesh);
+        }
     }
 
     /// <summary>

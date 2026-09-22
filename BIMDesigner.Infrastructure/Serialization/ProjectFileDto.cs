@@ -504,6 +504,10 @@ internal sealed class WallDto
     public double? EllipseFrom { get; set; }
     public double? EllipseTo { get; set; }
 
+    /// <summary>An edited elevation outline as x, y pairs (along, height above base), and the wall length it was edited at.</summary>
+    public List<double>? Profile { get; set; }
+    public double ProfileLength { get; set; }
+
     /// <summary>The slabs the top and base are attached to, if any.</summary>
     public Guid? TopAttachedTo { get; set; }
     public Guid? BaseAttachedTo { get; set; }

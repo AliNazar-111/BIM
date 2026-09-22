@@ -323,6 +323,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Make a wall follow the floor or roof above | Select walls, Architecture → **Attach Wall Tops** (or **Bases**), then click the slab; **Detach** undoes it |
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
+| Give a wall a gable, steps or a notch | Select one straight wall, Architecture → **Edit Wall Profile...**: drag corners, double-click an edge to add one, Delete removes one |
 | Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |
 | Place a door | `Door` tool (`D`), click a wall |
 | Place a window | `Window` tool (`N`), click a wall |

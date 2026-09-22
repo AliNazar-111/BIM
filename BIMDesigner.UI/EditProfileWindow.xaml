@@ -1,0 +1,117 @@
+<Window x:Class="BIMDesigner.UI.EditProfileWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:BIMDesigner.UI.Controls"
+        Title="Edit Profile" Height="620" Width="1000" MinHeight="480" MinWidth="780"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg.Window}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource UiFont}"
+        FontSize="{StaticResource UiFontSize}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="FontSize" Value="{StaticResource UiFontSizeSmall}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Buttons along the bottom -->
+        <Border DockPanel.Dock="Bottom" Padding="16,10,16,14"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="ProblemText" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Foreground="#E8806A"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="OkButton" Content="OK" Padding="22,5" Margin="0,0,8,0" IsDefault="True"
+                            Click="OnOk" ToolTip="Give the wall this profile"/>
+                    <Button Content="Cancel" Padding="18,5" IsCancel="True"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Margin="16,14,16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="18"/>
+                <ColumnDefinition Width="280"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- The elevation -->
+            <DockPanel Grid.Column="0">
+                <TextBlock x:Name="WallCaption" DockPanel.Dock="Top" Text="ELEVATION" Style="{StaticResource Caption}"
+                           Margin="0,0,0,8"/>
+                <Border BorderBrush="{StaticResource Line}" BorderThickness="1" Background="{StaticResource Bg.Panel}">
+                    <controls:ProfileEditor x:Name="Editor"/>
+                </Border>
+            </DockPanel>
+
+            <!-- Corners and shapes -->
+            <DockPanel Grid.Column="2">
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+                    <TextBlock Text="START FROM" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                    <WrapPanel>
+                        <Button Content="Rectangle" Padding="12,5" Margin="0,0,8,8" Click="OnRectangle"
+                                ToolTip="The wall's plain outline, to edit from scratch"/>
+                        <Button Content="Gable" Padding="12,5" Margin="0,0,8,8" Click="OnGable"
+                                ToolTip="A ridge halfway along, half the wall's length again above the eaves at 45°"/>
+                        <Button Content="Stepped" Padding="12,5" Margin="0,0,8,8" Click="OnStepped"
+                                ToolTip="Three steps down from the start"/>
+                    </WrapPanel>
+                    <Button x:Name="RemoveProfileButton" Content="Remove Profile" Padding="12,5" HorizontalAlignment="Left"
+                            Click="OnRemoveProfile" ToolTip="Put the wall back to the rectangle its length and height give"/>
+                </StackPanel>
+
+                <TextBlock DockPanel.Dock="Top" Text="CORNERS" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button Content="Add Corner" Padding="12,5" Margin="0,0,8,0" Click="OnAddCorner"
+                            ToolTip="A new corner halfway along the edge after the selected one"/>
+                    <Button Content="Remove Corner" Padding="12,5" Click="OnRemoveCorner"/>
+                </StackPanel>
+
+                <DataGrid x:Name="CornerGrid" AutoGenerateColumns="False" HeadersVisibility="Column"
+                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                          CanUserSortColumns="False" SelectionMode="Single" RowHeight="36"
+                          SelectionChanged="OnCornerSelected">
+                    <DataGrid.CellStyle>
+                        <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                            <Setter Property="Padding" Value="4,3"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        </Style>
+                    </DataGrid.CellStyle>
+                    <DataGrid.Resources>
+                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="MinHeight" Value="26"/>
+                        </Style>
+                    </DataGrid.Resources>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding Number}" IsReadOnly="True" Width="32"/>
+                        <DataGridTemplateColumn Header="Along" Width="*">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <TextBox Text="{Binding AlongText, UpdateSourceTrigger=LostFocus}"/>
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Height" Width="*">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <TextBox Text="{Binding HeightText, UpdateSourceTrigger=LostFocus}"/>
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -225,6 +225,9 @@
                 <MenuItem Header="Attach Wall _Bases" Click="OnAttachBases"
                           ToolTip="Stand the selected walls on the floor under each"/>
                 <MenuItem Header="_Detach Wall Tops and Bases" Click="OnDetachWalls"/>
+                <Separator/>
+                <MenuItem Header="Edit Wall _Profile..." Click="OnEditProfile"
+                          ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
             </MenuItem>
             <MenuItem Header="_Structure" IsEnabled="False"/>
             <MenuItem Header="_Help" IsEnabled="False"/>

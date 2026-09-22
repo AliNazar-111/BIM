@@ -341,7 +341,16 @@ public sealed class PlanRenderer
         // cannot disagree about the shape of a wall.
         var gaps = WallJoins.FaceGaps(Document, wall, type);
 
-        foreach (var slice in WallSlices.Solid(Document, wall, type))
+        // A wall with an edited profile is cut only where it reaches the cut height; below it,
+        // the rest is seen from above, as its outline.
+        if (WallProfile.Of(Document, wall) is not null)
+        {
+            var half = type.Width / 2;
+            foreach (var slice in WallSlices.Solid(Document, wall, type))
+                dc.DrawGeometry(null, _layerPen, BuildOutline(WallJoins.GetBandOutline(wall, type, half, -half, slice.CutFrom, slice.CutTo)));
+        }
+
+        foreach (var slice in WallSlices.InPlan(Document, wall, type, cutHeight))
             DrawWallRun(dc, wall, type, slice, gaps, isSelected);
 
         DrawSweeps(dc, wall, type, wallBottom, wallBottom + wall.GetHeight(Document));

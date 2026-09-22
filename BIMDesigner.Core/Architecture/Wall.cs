@@ -144,6 +144,15 @@ public sealed class Wall : Element
     /// <summary>How the end of the wall is joined to whatever meets it there.</summary>
     public WallJoinKind EndJoin { get; set; } = WallJoinKind.Auto;
 
+    /// <summary>
+    /// The wall's edited elevation outline, or null for the rectangle its length and height give.
+    /// Points are distance along the location line and height above the base. See <see cref="WallProfile"/>.
+    /// </summary>
+    public IReadOnlyList<Point2D>? Profile { get; set; }
+
+    /// <summary>How long the wall was when its profile was edited: corners at that distance stay on the end.</summary>
+    public double ProfileLength { get; set; }
+
     /// <summary>Length of the location line, in millimetres.</summary>
     public double Length => IsCurved ? LocationCurve.Length : Start.DistanceTo(End);
 
@@ -283,13 +292,19 @@ public sealed class Wall : Element
     }
 
     /// <summary>Elevation area of one wall face, in mm². The quantity used for finishes.</summary>
-    public double GetArea(BimDocument document) => Length * GetHeight(document);
+    public double GetArea(BimDocument document) =>
+        WallProfile.Of(document, this) is { } profile
+            ? WallProfile.Strips(profile, Length).Sum(strip => strip.Area)
+            : Length * GetHeight(document);
 
     /// <summary>Gross volume, in mm³. The quantity used for concrete and masonry takeoff.</summary>
     public double GetVolume(BimDocument document)
     {
         // Each tier of a stacked wall is as thick as its own construction.
         if (document.FindType<WallType>(TypeId) is null && document.FindType<StackedWallType>(TypeId) is null) return 0;
+
+        // An edited profile is one construction, its elevation area through its thickness.
+        if (WallProfile.Of(document, this) is not null && document.GetWallType(this) is { } type) return GetArea(document) * type.Width;
 
         return document.GetWallTiers(this).Sum(tier => Length * (tier.Top - tier.Bottom) * tier.Type.Width);
     }
@@ -483,6 +498,9 @@ public sealed class Wall : Element
         yield return ParameterValue.ReadOnly(WallParameters.Height, () => GetHeight(document));
         yield return ParameterValue.ReadOnly(WallParameters.Area, () => GetArea(document));
         yield return ParameterValue.ReadOnly(WallParameters.Volume, () => GetVolume(document));
+        yield return ParameterValue.ReadOnly(WallParameters.Profile, () => WallProfile.Of(document, this) is null
+            ? Profile is null ? "Rectangular" : "Edited (not in use: the wall must be straight, upright and not stacked)"
+            : "Edited");
 
         // Joins - one setting per end, kept in step with the wall at the other side of it
         foreach (var atStart in new[] { true, false })
@@ -542,6 +560,9 @@ public static class WallParameters
 
     public static readonly ParameterDefinition Volume =
         new("Volume", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Profile =
+        new("Profile", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition CrossSection =
         new("Cross-Section", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);

@@ -300,7 +300,8 @@ public static class IfcExport
                 // base offset or the top of a floor it stands on.
                 w.ObjectPlacement = PlacementFor(wall, bodyStart,
                     wall.GetBaseElevation(_document) - (_document.FindLevel(wall.LevelId)?.Elevation ?? 0));
-                w.Representation = WallLean.Leans(wall, type) || _document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Reveal))
+                w.Representation = WallLean.Leans(wall, type) || WallProfile.Of(_document, wall) is not null ||
+                                   _document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Reveal))
                     ? Tessellated(wall, bodyStart)
                     : ExtrudeTiers(wall, bodyStart, outline, height);
             });

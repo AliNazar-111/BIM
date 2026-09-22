@@ -903,6 +903,30 @@ public partial class MainWindow : Window
         StatusHint.Text = "Detached. The walls keep their own constraints again.";
     }
 
+    private void OnEditProfile(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements.OfType<Wall>().ToList() is not [var wall])
+        {
+            StatusHint.Text = "Select one wall to edit its profile.";
+            return;
+        }
+
+        if (!WallProfile.CanHave(_document, wall))
+        {
+            StatusHint.Text = "Only a straight, upright wall of one construction can have its profile edited.";
+            return;
+        }
+
+        var dialog = new EditProfileWindow(_document, wall) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        _history.Execute(new SetWallProfileCommand(wall, dialog.Result));
+        AfterHistoryChange();
+        StatusHint.Text = dialog.Result is null
+            ? "Profile removed: the wall is its plain rectangle again."
+            : "Profile applied. The plan cuts the wall where it reaches the cut height.";
+    }
+
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     // ---- new wall height ---------------------------------------------------------------

@@ -92,6 +92,8 @@ public static class ElementCopy
             StructuralUsage = wall.StructuralUsage,
             Bulge = wall.Bulge,
             Ellipse = wall.Ellipse,
+            Profile = wall.Profile?.ToList(),
+            ProfileLength = wall.ProfileLength,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             OverrideTaper = wall.OverrideTaper,

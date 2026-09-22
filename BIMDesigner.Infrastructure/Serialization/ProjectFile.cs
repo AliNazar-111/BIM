@@ -381,6 +381,8 @@ public static class ProjectFile
                 EllipseRatio = wall.Ellipse?.Ratio,
                 EllipseFrom = wall.Ellipse?.From,
                 EllipseTo = wall.Ellipse?.To,
+                Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                ProfileLength = wall.ProfileLength,
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
@@ -637,6 +639,8 @@ public static class ProjectFile
                 StructuralUsage = ParseEnum(wall.StructuralUsage, StructuralUsage.NonBearing),
                 Bulge = double.IsFinite(wall.Bulge) ? wall.Bulge : 0,
                 Ellipse = ReadEllipse(wall),
+                Profile = ReadProfile(wall),
+                ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = ParseEnum(wall.CrossSection, WallCrossSection.Vertical),
@@ -880,6 +884,18 @@ public static class ProjectFile
         new WallEllipse(ratio, from, to) is { IsValid: true } ellipse
             ? ellipse
             : null;
+
+    /// <summary>A wall's edited profile, or null when there is none or it could not be one.</summary>
+    private static IReadOnlyList<Point2D>? ReadProfile(WallDto wall)
+    {
+        if (wall.Profile is not { Count: >= 6 } values || values.Count % 2 != 0 ||
+            values.Any(v => !double.IsFinite(v)) || !(wall.ProfileLength > 0))
+            return null;
+
+        var points = new List<Point2D>();
+        for (var i = 0; i + 1 < values.Count; i += 2) points.Add(new Point2D(values[i], values[i + 1]));
+        return WallProfile.Problem(points, wall.ProfileLength) is null ? points : null;
+    }
 
     /// <summary>
     /// One layer of a build-up, or null if it cannot be one.

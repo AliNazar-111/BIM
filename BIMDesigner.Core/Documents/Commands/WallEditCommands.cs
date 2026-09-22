@@ -60,6 +60,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly double _firstBulge;
     private readonly WallEllipse? _originalEllipse;
     private readonly WallEllipse? _firstEllipse;
+    private readonly (IReadOnlyList<Point2D>? Profile, double Length) _originalProfile, _firstProfile;
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly double _splitAlong;
@@ -83,6 +84,19 @@ public sealed class SplitWallCommand : IUndoableCommand
         _firstBulge = first.Bulge;
         _firstEllipse = first.Ellipse;
 
+        // An edited profile is cut at the split too, each half keeping its own part of it.
+        _originalProfile = (wall.Profile, wall.ProfileLength);
+        _firstProfile = _originalProfile;
+        (IReadOnlyList<Point2D>? Profile, double Length) secondProfile = (null, 0);
+        if (wall.Profile is { } profile)
+        {
+            // As it stands now: corners on the far end are on the wall's end, however long it has become.
+            var current = profile.Select(p => p.X >= wall.ProfileLength - 1e-6 ? new Point2D(curve.Length, p.Y) : p).ToList();
+            var (before, after) = WallProfile.Split(current, _splitAlong);
+            _firstProfile = before.Count >= 3 ? (before, _splitAlong) : (null, 0);
+            secondProfile = after.Count >= 3 ? (after, curve.Length - _splitAlong) : (null, 0);
+        }
+
         // Doors and windows beyond the split belong to the far half now.
         foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
             _moved.Add((opening, opening.DistanceAlongWall));
@@ -93,6 +107,8 @@ public sealed class SplitWallCommand : IUndoableCommand
             End = wall.End,
             Bulge = second.Bulge,
             Ellipse = second.Ellipse,
+            Profile = secondProfile.Profile,
+            ProfileLength = secondProfile.Length,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             OverrideTaper = wall.OverrideTaper,
@@ -129,6 +145,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.End = _splitPoint;
         _wall.Bulge = _firstBulge;
         _wall.Ellipse = _firstEllipse;
+        (_wall.Profile, _wall.ProfileLength) = _firstProfile;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
 
@@ -151,6 +168,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.End = _originalEnd;
         _wall.Bulge = _originalBulge;
         _wall.Ellipse = _originalEllipse;
+        (_wall.Profile, _wall.ProfileLength) = _originalProfile;
         _wall.EndJoin = _originalEndJoin;
     }
 }
@@ -654,4 +672,41 @@ public sealed class BendWallCommand : IUndoableCommand
     public void Redo() => _wall.Bulge = _newBulge;
 
     public void Undo() => _wall.Bulge = _oldBulge;
+}
+
+/// <summary>
+/// Gives a wall an edited elevation outline, or takes it away to go back to the rectangle
+/// (specification section 3.1, "edit profile"). The outline is kept as the wall's length stood
+/// when it was edited, so its far end stays on the wall's end if the wall later changes length.
+/// </summary>
+public sealed class SetWallProfileCommand : IUndoableCommand
+{
+    private readonly Wall _wall;
+    private readonly IReadOnlyList<Point2D>? _oldProfile;
+    private readonly double _oldLength;
+    private readonly IReadOnlyList<Point2D>? _newProfile;
+    private readonly double _newLength;
+
+    public SetWallProfileCommand(Wall wall, IReadOnlyList<Point2D>? profile)
+    {
+        _wall = wall;
+        _oldProfile = wall.Profile;
+        _oldLength = wall.ProfileLength;
+        _newProfile = profile?.ToList();
+        _newLength = profile is null ? 0 : wall.Length;
+    }
+
+    public string Name => _newProfile is null ? "Reset Profile" : "Edit Profile";
+
+    public void Redo()
+    {
+        _wall.Profile = _newProfile;
+        _wall.ProfileLength = _newLength;
+    }
+
+    public void Undo()
+    {
+        _wall.Profile = _oldProfile;
+        _wall.ProfileLength = _oldLength;
+    }
 }

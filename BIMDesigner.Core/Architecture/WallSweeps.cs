@@ -50,6 +50,25 @@ public static class WallSweeps
                 .ToList();
         }
 
+        // On an edited profile a sweep runs only where the wall is there for its whole height.
+        // At the wall's ends it still reaches round to the joined face.
+        if (WallProfile.Of(document, wall) is { } profile)
+        {
+            var length = wall.Length;
+            var covered = WallProfile.RunsAt(profile, bottom - wallBottom + 1e-3, length)
+                .SelectMany(low => WallProfile.RunsAt(profile, top - wallBottom - 1e-3, length)
+                    .Select(high => (From: Math.Max(low.From, high.From), To: Math.Min(low.To, high.To))))
+                .Where(run => run.To > run.From)
+                .Select(run => (From: run.From <= 1e-6 ? double.NegativeInfinity : run.From,
+                                To: run.To >= length - 1e-6 ? double.PositiveInfinity : run.To))
+                .ToList();
+
+            runs = runs
+                .SelectMany(run => covered.Select(c => (From: Math.Max(run.From, c.From), To: Math.Min(run.To, c.To))))
+                .Where(run => run.To - run.From > MinimumRun)
+                .ToList();
+        }
+
         return runs;
     }
 

@@ -127,31 +127,47 @@ public sealed class Mesh3D
     /// </summary>
     public void AddExtrusion(IReadOnlyList<Point2D> outline, double bottom, double top)
     {
-        if (outline.Count < 3 || top - bottom <= 1e-6) return;
+        if (top - bottom <= 1e-6) return;
+        AddExtrusion(outline, _ => bottom, _ => top);
+    }
+
+    /// <summary>
+    /// A prism whose top and bottom need not be level: each corner of the plan outline runs
+    /// from its own bottom height to its own top height. For the sloping top of a wall with an
+    /// edited profile, where the heights are planes across the outline.
+    /// </summary>
+    public void AddExtrusion(IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top)
+    {
+        if (outline.Count < 3) return;
 
         // Anticlockwise from above, so the caps and sides all face outward.
         var ring = Polygon2D.SignedArea(outline) >= 0 ? outline : outline.Reverse().ToList();
+        var low = ring.Select(bottom).ToArray();
+        var high = ring.Select(top).ToArray();
+        if (Enumerable.Range(0, ring.Count).All(i => high[i] - low[i] <= 1e-6)) return;
+
+        Point3D Low(int i) => Point3D.On(ring[i], low[i]);
+        Point3D High(int i) => Point3D.On(ring[i], high[i]);
 
         for (var i = 0; i < ring.Count; i++)
         {
-            var a = ring[i];
-            var b = ring[(i + 1) % ring.Count];
-            if (a.DistanceTo(b) <= 1e-9) continue;
+            var j = (i + 1) % ring.Count;
+            if (ring[i].DistanceTo(ring[j]) <= 1e-9) continue;
 
-            AddQuad(Point3D.On(a, bottom), Point3D.On(b, bottom), Point3D.On(b, top), Point3D.On(a, top));
+            AddQuad(Low(i), Low(j), High(j), High(i));
 
             // The outline at both ends, and the corner joining them.
-            AddEdge(Point3D.On(a, bottom), Point3D.On(b, bottom));
-            AddEdge(Point3D.On(a, top), Point3D.On(b, top));
-            AddEdge(Point3D.On(a, bottom), Point3D.On(a, top));
+            AddEdge(Low(i), Low(j));
+            AddEdge(High(i), High(j));
+            AddEdge(Low(i), High(i));
         }
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(ring))
         {
-            AddTriangle(Point3D.On(ring[i], top), Point3D.On(ring[j], top), Point3D.On(ring[k], top));
+            AddTriangle(High(i), High(j), High(k));
 
             // The underside faces down, so it winds the other way.
-            AddTriangle(Point3D.On(ring[i], bottom), Point3D.On(ring[k], bottom), Point3D.On(ring[j], bottom));
+            AddTriangle(Low(i), Low(k), Low(j));
         }
     }
 
