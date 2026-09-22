@@ -561,6 +561,10 @@ internal sealed class WallDto
     public List<Guid>? JoinedTo { get; set; }
     public bool LockedToJoined { get; set; }
 
+    /// <summary>Whether the corners at the wall's start and end are locked.</summary>
+    public bool StartLocked { get; set; }
+    public bool EndLocked { get; set; }
+
     public List<double>? SplinePoints { get; set; }
     public double? SplineFrom { get; set; }
     public double? SplineTo { get; set; }

@@ -473,6 +473,8 @@ public static class ProjectFile
                 SplineFrom = wall.Spline?.From,
                 JoinedTo = wall.JoinedTo.Count > 0 ? wall.JoinedTo.ToList() : null,
                 LockedToJoined = wall.LockedToJoined,
+                StartLocked = wall.StartLocked,
+                EndLocked = wall.EndLocked,
                 SplineTo = wall.Spline?.To,
                 Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 ProfileLength = wall.ProfileLength,
@@ -818,6 +820,8 @@ public static class ProjectFile
                 Ellipse = ReadEllipse(wall),
                 Spline = ReadSpline(wall),
                 LockedToJoined = wall.LockedToJoined,
+                StartLocked = wall.StartLocked,
+                EndLocked = wall.EndLocked,
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals

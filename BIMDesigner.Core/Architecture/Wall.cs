@@ -80,6 +80,15 @@ public sealed class Wall : Element
     /// <summary>Whether this wall moves with the walls it is joined to, and they with it.</summary>
     public bool LockedToJoined { get; set; }
 
+    /// <summary>
+    /// Whether the corner at this wall's start is locked: the walls meeting there stay meeting
+    /// when any of them is moved. See <see cref="WallJointLock"/>.
+    /// </summary>
+    public bool StartLocked { get; set; }
+
+    /// <summary>Whether the corner at this wall's end is locked.</summary>
+    public bool EndLocked { get; set; }
+
     /// <summary>Whether the wall is an arc, elliptical or a spline rather than a straight line.</summary>
     public bool IsCurved => Math.Abs(Bulge) >= WallCurve.StraightBulge || IsElliptical || IsSpline;
 

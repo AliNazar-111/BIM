@@ -688,6 +688,9 @@
 
                         <HeaderedContentControl x:Name="ContextWallPanel" Header="Modify Wall" Style="{StaticResource ContextRibbonPanel}">
                             <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Lock}"
+                                        Content="Lock Ends" Click="OnLockCorners"
+                                        ToolTip="Lock the corners where the selected walls meet others, so they stay joined when any of them moves. Click again to unlock"/>
                                 <Button x:Name="ContextCurtainGrid" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
                                         Content="Curtain Grid" Click="OnEditCurtainGrid"
                                         ToolTip="Add, move or delete the grid lines of the selected curtain wall"/>

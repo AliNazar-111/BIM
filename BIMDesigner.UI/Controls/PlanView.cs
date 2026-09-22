@@ -1364,6 +1364,13 @@ public class PlanView : FrameworkElement
             if (target is not null && ShapeWallAt(target, raw, e.ClickCount == 2)) return;
         }
 
+        // The padlock at a corner: locks or unlocks the walls meeting there.
+        if (CornerLockAt(e.GetPosition(this)) is { } lockedCorner)
+        {
+            ToggleCornerLock(lockedCorner);
+            return;
+        }
+
         // The padlock on a face two walls share: locks or unlocks them.
         if (LockGripAt(e.GetPosition(this)) is { } padlock)
         {
@@ -1640,6 +1647,16 @@ public class PlanView : FrameworkElement
         _dragOriginalSpline = wall.Spline;
         if (grip == GripKind.SplinePoint) _dragSplineIndex = SplineGripAt(wall, raw) ?? 0;
 
+        // At a locked corner the other walls' ends go where this end goes.
+        _followers.Clear();
+        if (Document is not null && grip is GripKind.Start or GripKind.End)
+        {
+            var corner = grip == GripKind.Start ? wall.Start : wall.End;
+            if (WallJointLock.IsLocked(Document, wall.LevelId, corner))
+                foreach (var (other, atStart) in WallCorners.At(Document, wall.LevelId, corner).Where(e => !ReferenceEquals(e.Wall, wall)))
+                    _followers.Add((other, atStart, other.Start, other.End));
+        }
+
         CaptureMouse();
         Cursor = Cursors.SizeAll;
     }
@@ -1651,6 +1668,22 @@ public class PlanView : FrameworkElement
     /// as one command on release. Recording each mouse move would bury real edits under
     /// hundreds of one-pixel nudges.
     /// </summary>
+    /// <summary>The wall ends at locked corners that follow a drag, and where their walls were before it.</summary>
+    private readonly List<(Wall Wall, bool AtStart, Point2D Start, Point2D End)> _followers = new();
+
+    private void MoveFollowersTo(Point2D corner)
+    {
+        foreach (var (follower, atStart, _, _) in _followers)
+        {
+            if (atStart) follower.Start = corner;
+            else follower.End = corner;
+        }
+    }
+
+    /// <summary>The following walls' moves, to record with the drag that caused them.</summary>
+    private IEnumerable<IUndoableCommand> FollowerMoves() =>
+        _followers.Select(f => (IUndoableCommand)new MoveWallCommand(f.Wall, f.Start, f.End, f.Wall.Start, f.Wall.End, "Move"));
+
     /// <summary>What a move drag carries: the selection, and whatever is locked to it.</summary>
     private readonly List<Element> _moveSet = new();
 
@@ -1667,6 +1700,12 @@ public class PlanView : FrameworkElement
             foreach (var wall in _selection.OfType<Wall>().ToList())
             foreach (var locked in WallLamination.LockedGroup(Document, wall))
                 if (!_moveSet.Contains(locked)) _moveSet.Add(locked);
+
+        // At the locked corners of what moves, the walls staying put stretch to keep meeting it.
+        _followers.Clear();
+        if (Document is not null)
+            foreach (var (follower, atStart) in WallJointLock.Followers(Document, _moveSet.OfType<Wall>().ToList()))
+                _followers.Add((follower, atStart, follower.Start, follower.End));
 
         _dragAnchor = raw;
         _dragLastPoint = SnapToGrid(raw);
@@ -1688,6 +1727,12 @@ public class PlanView : FrameworkElement
             foreach (var element in _moveSet)
                 if (ElementTransforms.CanMove(element))
                     ElementTransforms.Move(element, step);
+
+            foreach (var (follower, atStart, _, _) in _followers)
+            {
+                if (atStart) follower.Start += step;
+                else follower.End += step;
+            }
 
             _dragLastPoint = target;
             _dragTotal += step;
@@ -1718,11 +1763,13 @@ public class PlanView : FrameworkElement
         switch (_dragging)
         {
             case GripKind.Start:
-                wall.Start = SnapPoint(raw, wall, out _cursorIsSnapped);
+                wall.Start = _followers.Count > 0 ? SnapToGrid(raw) : SnapPoint(raw, wall, out _cursorIsSnapped);
+                MoveFollowersTo(wall.Start);
                 break;
 
             case GripKind.End:
-                wall.End = SnapPoint(raw, wall, out _cursorIsSnapped);
+                wall.End = _followers.Count > 0 ? SnapToGrid(raw) : SnapPoint(raw, wall, out _cursorIsSnapped);
+                MoveFollowersTo(wall.End);
                 break;
 
             case GripKind.SplinePoint:
@@ -1781,7 +1828,8 @@ public class PlanView : FrameworkElement
             if (_dragTotal.X == 0 && _dragTotal.Y == 0) return;
 
             var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal);
-            if (!command.IsEmpty) History?.Record(command);
+            if (_followers.Count > 0) History?.Record(new CompositeCommand("Move", FollowerMoves().Prepend(command).ToList()));
+            else if (!command.IsEmpty) History?.Record(command);
 
             _dragTotal = default;
             ModelChanged?.Invoke(this, EventArgs.Empty);
@@ -1836,17 +1884,20 @@ public class PlanView : FrameworkElement
         if (!moved) return;
 
         // A drag that collapses a wall to nothing is refused rather than recorded.
-        if (wall.Length <= WallJoins.JoinTolerance)
+        if (wall.Length <= WallJoins.JoinTolerance || _followers.Any(f => f.Wall.Length <= WallJoins.JoinTolerance))
         {
             wall.Start = _dragOriginalStart;
             wall.End = _dragOriginalEnd;
+            foreach (var (follower, _, start, end) in _followers) (follower.Start, follower.End) = (start, end);
             HintChanged?.Invoke(this, "A wall cannot have zero length.");
             InvalidateVisual();
             return;
         }
 
-        History?.Record(new MoveWallCommand(
-            wall, _dragOriginalStart, _dragOriginalEnd, wall.Start, wall.End, "Move Wall End"));
+        var endMove = new MoveWallCommand(wall, _dragOriginalStart, _dragOriginalEnd, wall.Start, wall.End, "Move Wall End");
+        History?.Record(_followers.Count == 0
+            ? endMove
+            : new CompositeCommand("Move Wall End", FollowerMoves().Prepend(endMove).ToList()));
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -2004,6 +2055,74 @@ public class PlanView : FrameworkElement
             if ((ModelToScreen(grip.At) - screen).Length <= 10) return grip;
 
         return null;
+    }
+
+    /// <summary>
+    /// The padlocks at the selected wall's corners: at each end where other walls meet it,
+    /// drawn a little in from the end so the end's own grip stays clear.
+    /// </summary>
+    private IReadOnlyList<(Point2D Corner, Point2D At)> CornerLocks()
+    {
+        if (Document is null || SelectedWall is not { } wall) return Array.Empty<(Point2D, Point2D)>();
+
+        var inset = Math.Min(24 / PixelsPerMm, wall.Length / 3);
+        var locks = new List<(Point2D, Point2D)>();
+        foreach (var atStart in new[] { true, false })
+        {
+            var corner = atStart ? wall.Start : wall.End;
+            if (!WallJointLock.IsCorner(Document, wall.LevelId, corner)) continue;
+
+            var along = atStart ? inset : wall.Length - inset;
+            locks.Add((corner, wall.LocationCurve.PointAt(along)));
+        }
+
+        return locks;
+    }
+
+    private Point2D? CornerLockAt(Point screen)
+    {
+        foreach (var (corner, at) in CornerLocks())
+            if ((ModelToScreen(at) - screen).Length <= 10) return corner;
+
+        return null;
+    }
+
+    /// <summary>Locks the corner, so the walls meeting there stay meeting when any of them moves, or unlocks it.</summary>
+    private void ToggleCornerLock(Point2D corner)
+    {
+        if (Document is null || SelectedWall is not { } wall) return;
+
+        var locked = WallJointLock.IsLocked(Document, wall.LevelId, corner);
+        Apply(new SetJointLockCommand(Document, wall.LevelId, corner, !locked));
+        HintChanged?.Invoke(this, locked
+            ? "Corner unlocked: moving one of these walls leaves the others where they are."
+            : "Corner locked: move any of these walls and the others stretch to stay joined at it.");
+        InvalidateVisual();
+    }
+
+    /// <summary>Locks every corner of the walls given, or unlocks them all when they are all locked already.</summary>
+    public void ToggleCornerLocks(IReadOnlyList<Wall> walls)
+    {
+        if (Document is null) return;
+
+        var corners = walls
+            .SelectMany(w => new[] { (w.LevelId, Point: w.Start), (w.LevelId, Point: w.End) })
+            .Where(c => WallJointLock.IsCorner(Document, c.LevelId, c.Point))
+            .DistinctBy(c => (c.LevelId, Math.Round(c.Point.X), Math.Round(c.Point.Y)))
+            .ToList();
+        if (corners.Count == 0)
+        {
+            HintChanged?.Invoke(this, "None of the selected walls meets another at an end.");
+            return;
+        }
+
+        var lockThem = corners.Any(c => !WallJointLock.IsLocked(Document, c.LevelId, c.Point));
+        Apply(new CompositeCommand(lockThem ? "Lock Corners" : "Unlock Corners",
+            corners.Select(c => (IUndoableCommand)new SetJointLockCommand(Document, c.LevelId, c.Point, lockThem)).ToList()));
+        HintChanged?.Invoke(this, lockThem
+            ? $"{corners.Count} corner{(corners.Count == 1 ? "" : "s")} locked: the walls stay joined there when moved."
+            : "Corners unlocked.");
+        InvalidateVisual();
     }
 
     /// <summary>Locks the selected wall to one against it - joining them if they are not - or unlocks them.</summary>
@@ -3446,6 +3565,10 @@ public class PlanView : FrameworkElement
         if (IsWholeSpline(wall))
             foreach (var (_, point) in wall.LocationCurve.SplinePoints())
                 dc.DrawEllipse(_gripBrush, _gripPen, ModelToScreen(point), 5, 5);
+
+        // The padlocks at its corners with other walls.
+        foreach (var (corner, at) in CornerLocks())
+            DrawPadlock(dc, ModelToScreen(at), WallJointLock.IsLocked(Document!, wall.LevelId, corner));
 
         // The padlocks on faces shared with other walls.
         foreach (var (at, partner) in LockGrips())

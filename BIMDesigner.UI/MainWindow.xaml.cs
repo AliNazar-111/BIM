@@ -1045,6 +1045,12 @@ public partial class MainWindow : Window
             : "Profile applied. The plan cuts the wall where it reaches the cut height.";
     }
 
+    private void OnLockCorners(object sender, RoutedEventArgs e)
+    {
+        Plan.ToggleCornerLocks(Plan.SelectedElements.OfType<Wall>().ToList());
+        Plan.Focus();
+    }
+
     private void OnResetProfile(object sender, RoutedEventArgs e)
     {
         var walls = Plan.SelectedElements.OfType<Wall>().Where(wall => wall.Profile is not null).ToList();

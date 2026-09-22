@@ -100,6 +100,8 @@ public static class ElementCopy
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             LockedToJoined = wall.LockedToJoined,
+            StartLocked = wall.StartLocked,
+            EndLocked = wall.EndLocked,
             UpperSlantAngle = wall.UpperSlantAngle,
             SlantBreakHeight = wall.SlantBreakHeight,
             OverrideTaper = wall.OverrideTaper,

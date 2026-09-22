@@ -67,6 +67,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly List<Wall> _liningsOfWall = new();
+    private readonly bool _originalEndLocked;
     private readonly double _splitAlong;
 
     public SplitWallCommand(BimDocument document, Wall wall, Point2D splitPoint)
@@ -170,6 +171,10 @@ public sealed class SplitWallCommand : IUndoableCommand
         // joined to it are joined to both halves.
         _remainder.JoinedTo.AddRange(wall.JoinedTo);
         _remainder.LockedToJoined = wall.LockedToJoined;
+
+        // A locked end stays with the far half; the split itself is not a corner to lock.
+        _remainder.EndLocked = wall.EndLocked;
+        _originalEndLocked = wall.EndLocked;
         _liningsOfWall.AddRange(document.Walls.Where(other => other.JoinedTo.Contains(wall.Id)));
     }
 
@@ -189,6 +194,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
         foreach (var lining in _liningsOfWall) lining.JoinedTo.Add(_remainder.Id);
+        _wall.EndLocked = false;
 
         foreach (var (opening, distance) in _moved)
         {
@@ -206,6 +212,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         }
 
         foreach (var lining in _liningsOfWall) lining.JoinedTo.Remove(_remainder.Id);
+        _wall.EndLocked = _originalEndLocked;
         _document.Remove(_remainder);
         _wall.End = _originalEnd;
         _wall.Bulge = _originalBulge;
@@ -981,5 +988,37 @@ public sealed class SetWallLockCommand : IUndoableCommand
     {
         if (!_wasJoined) _holder.JoinedTo.Remove(_partnerId);
         _holder.LockedToJoined = _wasLocked;
+    }
+}
+
+/// <summary>Locks or unlocks the corner where walls meet end to end: every wall end there together.</summary>
+public sealed class SetJointLockCommand : IUndoableCommand
+{
+    private readonly List<(Wall Wall, bool AtStart, bool Was)> _ends = new();
+    private readonly bool _locked;
+
+    public SetJointLockCommand(BimDocument document, Guid levelId, Point2D corner, bool locked)
+    {
+        _locked = locked;
+        foreach (var (wall, atStart) in WallCorners.At(document, levelId, corner))
+            _ends.Add((wall, atStart, atStart ? wall.StartLocked : wall.EndLocked));
+    }
+
+    public string Name => _locked ? "Lock Corner" : "Unlock Corner";
+
+    public void Redo()
+    {
+        foreach (var (wall, atStart, _) in _ends) Set(wall, atStart, _locked);
+    }
+
+    public void Undo()
+    {
+        foreach (var (wall, atStart, was) in _ends) Set(wall, atStart, was);
+    }
+
+    private static void Set(Wall wall, bool atStart, bool locked)
+    {
+        if (atStart) wall.StartLocked = locked;
+        else wall.EndLocked = locked;
     }
 }

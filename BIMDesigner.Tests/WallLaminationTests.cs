@@ -206,4 +206,45 @@ public class WallLaminationTests
         Assert.False(WallLockPoint.AreLocked(host, lining));
         Assert.Contains(lining, WallLamination.Partners(document, host));
     }
+    [Fact]
+    public void ALockedCornerKeepsItsWallsMeetingWhenOneMoves()
+    {
+        var (document, _, _, walls) = Room();
+        var corner = walls[0].End;
+        var level = walls[0].LevelId;
+
+        Assert.True(WallJointLock.IsCorner(document, level, corner));
+        Assert.False(WallJointLock.IsLocked(document, level, corner));
+        Assert.Empty(WallJointLock.Followers(document, new[] { walls[0] }));
+
+        var command = new SetJointLockCommand(document, level, corner, locked: true);
+        command.Redo();
+        Assert.True(WallJointLock.IsLocked(document, level, corner));
+
+        // Moving the first wall: the wall it meets at the locked corner follows by its end there,
+        // and nothing at the other, unlocked corner does.
+        var followers = WallJointLock.Followers(document, new[] { walls[0] });
+        var follower = Assert.Single(followers);
+        Assert.Equal(walls[1], follower.Wall);
+        Assert.True(follower.AtStart);
+
+        command.Undo();
+        Assert.False(WallJointLock.IsLocked(document, level, corner));
+    }
+
+    [Fact]
+    public void ALockedEndGoesWithTheFarHalfOfASplit()
+    {
+        var (document, _, _, walls) = Room();
+        var wall = walls[0];
+        wall.EndLocked = true;
+
+        var split = new SplitWallCommand(document, wall, wall.LocationCurve.PointAt(wall.Length / 2));
+        split.Redo();
+        Assert.False(wall.EndLocked);
+        Assert.True(split.Remainder.EndLocked);
+
+        split.Undo();
+        Assert.True(wall.EndLocked);
+    }
 }

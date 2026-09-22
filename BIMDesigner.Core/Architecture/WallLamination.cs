@@ -236,3 +236,39 @@ public static class WallLockPoint
         (wall.LockedToJoined && wall.JoinedTo.Contains(partner.Id)) ||
         (partner.LockedToJoined && partner.JoinedTo.Contains(wall.Id));
 }
+
+/// <summary>
+/// Locked corners (specification section 3.1, "wall joins"): where walls meet end to end and
+/// the corner is locked, moving any of them stretches the others so the corner stays a corner.
+/// The lock is kept on each wall end at the corner, so it survives saving, copying and undo.
+/// </summary>
+public static class WallJointLock
+{
+    /// <summary>Whether the corner at a point is locked: any wall end there locked.</summary>
+    public static bool IsLocked(BimDocument document, Guid levelId, Point2D point) =>
+        WallCorners.At(document, levelId, point).Any(end => end.AtStart ? end.Wall.StartLocked : end.Wall.EndLocked);
+
+    /// <summary>Whether a point is a corner at all: two or more walls ending there.</summary>
+    public static bool IsCorner(BimDocument document, Guid levelId, Point2D point) =>
+        WallCorners.At(document, levelId, point).Count >= 2;
+
+    /// <summary>
+    /// The wall ends that follow when these walls move: at each locked corner of theirs, the
+    /// ends of the walls not moving with them, which stretch to stay on the corner.
+    /// </summary>
+    public static IReadOnlyList<(Wall Wall, bool AtStart)> Followers(BimDocument document, IReadOnlyCollection<Wall> moving)
+    {
+        var followers = new List<(Wall, bool)>();
+        foreach (var wall in moving)
+        foreach (var atStart in new[] { true, false })
+        {
+            var point = atStart ? wall.Start : wall.End;
+            if (!IsLocked(document, wall.LevelId, point)) continue;
+
+            foreach (var end in WallCorners.At(document, wall.LevelId, point))
+                if (!moving.Contains(end.Wall) && !followers.Contains((end.Wall, end.AtStart))) followers.Add((end.Wall, end.AtStart));
+        }
+
+        return followers;
+    }
+}
