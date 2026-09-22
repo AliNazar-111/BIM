@@ -259,3 +259,35 @@ public sealed class EditCurtainWallTypeCommand : IUndoableCommand
 
     public void Undo() => _type.CopyFrom(_before);
 }
+
+/// <summary>Renames a drawn sweep profile and replaces its outline, as one step.</summary>
+public sealed class EditSweepProfileCommand : IUndoableCommand
+{
+    private readonly SweepProfileType _profile;
+    private readonly (string Name, List<BIMDesigner.Core.Geometry.Point2D> Points) _before, _after;
+
+    public EditSweepProfileCommand(SweepProfileType profile, string name, IEnumerable<BIMDesigner.Core.Geometry.Point2D> points)
+    {
+        _profile = profile;
+        _before = (profile.Name, profile.Points.ToList());
+        _after = (name.Trim(), points.ToList());
+    }
+
+    public string Name => $"Edit Profile {_after.Name}";
+
+    public void Redo() => Apply(_after);
+
+    public void Undo() => Apply(_before);
+
+    private void Apply((string Name, List<BIMDesigner.Core.Geometry.Point2D> Points) state)
+    {
+        _profile.Name = state.Name;
+        _profile.Points.Clear();
+        _profile.Points.AddRange(state.Points);
+    }
+
+    /// <summary>Whether any wall type or sweep type draws its sweeps with this profile.</summary>
+    public static bool InUse(BimDocument document, SweepProfileType profile) =>
+        document.TypesOf<WallType>().Any(t => t.Sweeps.Any(s => s.ProfileId == profile.Id)) ||
+        document.TypesOf<WallSweepType>().Any(t => t.ProfileId == profile.Id);
+}

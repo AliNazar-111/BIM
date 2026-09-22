@@ -114,6 +114,11 @@ public static class ModelMeshBuilder
 
         if (document.GetWallType(wall) is not { } planType) return;
 
+        // Sweeps placed on this wall on their own, built like the type's and carrying their own
+        // id, so clicking one selects it rather than the wall. Placed reveals are cut into the wall above.
+        foreach (var (sweep, id) in WallSweeps.Placed(document, wall).Where(p => p.Sweep.Kind == SweepKind.Sweep))
+            AddSweep(document, wall, planType, sweep, id, bottom, top, meshes);
+
         var infill = meshes.Count;
         foreach (var (opening, openingType, from, to, sill, head) in openings)
         {
@@ -183,8 +188,15 @@ public static class ModelMeshBuilder
 
         // Reveals take the wall back from its face between their heights, so every piece is
         // built in bands: full thickness outside a reveal, thinner within one.
-        var reveals = WallSweeps.Reveals(type, bottom, top);
+        var reveals = WallSweeps.Reveals(document, wall, type, bottom, top);
         var breaks = reveals.SelectMany(r => new[] { r.Bottom, r.Top }).ToList();
+
+        // Upright reveals split each piece along the wall, the part in the groove built thinner.
+        var verticals = WallSweeps.VerticalReveals(document, wall);
+        var split = pieces
+            .SelectMany(piece => WallSweeps.SplitAtVerticalReveals(wall, type, piece.Slice, verticals)
+                .Select(part => (part.Slice, piece.Bottom, piece.Top, Reveals: part.Bands.Count == 0 ? reveals : reveals.Concat(part.Bands).ToList())))
+            .ToList();
 
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
@@ -197,7 +209,7 @@ public static class ModelMeshBuilder
                 material?.SurfaceColour ?? DefaultSurface,
                 material?.Name ?? layer.Function.ToString());
 
-            foreach (var (slice, pieceBottom, pieceTop) in pieces)
+            foreach (var (slice, pieceBottom, pieceTop, pieceReveals) in split)
             {
                 var heights = breaks.Where(z => z > pieceBottom && z < pieceTop)
                     .Append(pieceBottom).Append(pieceTop)
@@ -205,7 +217,7 @@ public static class ModelMeshBuilder
 
                 for (var i = 0; i + 1 < heights.Count; i++)
                 {
-                    if (WallSweeps.Recess(half - start, half - end, half, reveals, (heights[i] + heights[i + 1]) / 2)
+                    if (WallSweeps.Recess(half - start, half - end, half, pieceReveals, (heights[i] + heights[i + 1]) / 2)
                         is not var (outer, inner))
                         continue;
 
@@ -417,57 +429,129 @@ public static class ModelMeshBuilder
     /// </summary>
     private static void AddSweeps(BimDocument document, Wall wall, WallType type, double bottom, double top, List<Mesh3D> meshes)
     {
-        var structure = type.Structure;
-        var half = type.Width / 2;
-        var curve = wall.LocationCurve;
-
         foreach (var sweep in type.Sweeps.Where(s => s.Kind == SweepKind.Sweep))
+            AddSweep(document, wall, type, sweep, wall.Id, bottom, top, meshes);
+    }
+
+    /// <summary>
+    /// One sweep on one wall, as a solid: the profile carried along each run of the face - its
+    /// ends cut along the join where the wall meets another, so two walls' sweeps meet in a mitre,
+    /// and turned round an exposed end when it returns - or, upright, stood full height.
+    /// </summary>
+    private static void AddSweep(
+        BimDocument document, Wall wall, WallType type, WallSweep sweep, Guid elementId,
+        double wallBottom, double wallTop, List<Mesh3D> meshes)
+    {
+        var structure = type.Structure;
+        var shape = sweep.Shape(document);
+        var material = document.FindMaterial(sweep.MaterialId);
+        var mesh = new Mesh3D(
+            elementId, wall.LevelId, MeshKind.Sweep,
+            material?.SurfaceColour ?? DefaultSurface,
+            material?.Name ?? "Sweep");
+
+        if (sweep.Vertical)
         {
-            var (sweepBottom, sweepTop) = sweep.Span(bottom, top);
-            var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
-            var shape = sweep.Shape();
-
-            Point3D At(double along, (double Out, double Up) corner)
-            {
-                var plan = wall.PointAt(structure, along, sign * (half + corner.Out * sweep.Depth));
-                return new Point3D(plan.X, plan.Y, sweepBottom + corner.Up * sweep.Height);
-            }
-
-            var material = document.FindMaterial(sweep.MaterialId);
-            var mesh = new Mesh3D(
-                wall.Id, wall.LevelId, MeshKind.Sweep,
-                material?.SurfaceColour ?? DefaultSurface,
-                material?.Name ?? "Sweep");
-
-            foreach (var (from, to) in WallSweeps.Runs(document, wall, type, sweep.Side, sweepBottom, sweepTop))
-            {
-                var stations = new List<double> { from };
-                stations.AddRange(curve.Between(from, to, wall.LeftOf(structure, sign * half)));
-                stations.Add(to);
-
-                for (var s = 0; s + 1 < stations.Count; s++)
-                for (var k = 0; k < shape.Count; k++)
-                {
-                    var a = shape[k];
-                    var b = shape[(k + 1) % shape.Count];
-                    mesh.AddQuad(At(stations[s], a), At(stations[s + 1], a), At(stations[s + 1], b), At(stations[s], b));
-                    mesh.AddEdge(At(stations[s], a), At(stations[s + 1], a));
-                }
-
-                // The profile itself, closing each end.
-                var profile = shape.Select(p => new Point2D(p.Out, p.Up)).ToList();
-                foreach (var along in new[] { from, to })
-                {
-                    foreach (var (i, j, k) in Polygon2D.Triangulate(profile))
-                        mesh.AddTriangle(At(along, shape[i]), At(along, shape[j]), At(along, shape[k]));
-
-                    for (var k = 0; k < shape.Count; k++)
-                        mesh.AddEdge(At(along, shape[k]), At(along, shape[(k + 1) % shape.Count]));
-                }
-            }
-
+            // Upright: the profile laid flat in plan, its height along the wall, stood from the
+            // wall's base to its top.
+            var outline = shape
+                .Select(p => wall.PointAt(structure,
+                    Math.Clamp(sweep.Along + (p.Up - 0.5) * sweep.Height, 0, wall.Length),
+                    WallSweeps.Across(type, sweep, sweep.OutAt(p.Out))))
+                .ToList();
+            mesh.AddExtrusion(outline, wallBottom, wallTop);
             meshes.Add(mesh);
+            return;
         }
+
+        var (sweepBottom, sweepTop) = sweep.Span(wallBottom, wallTop);
+        var curve = wall.LocationCurve;
+        var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
+        var half = type.Width / 2;
+
+        Point3D At(double along, double across, (double Out, double Up) corner)
+        {
+            var plan = wall.PointAt(structure, along, across);
+            return new Point3D(plan.X, plan.Y, sweepBottom + corner.Up * sweep.Height);
+        }
+
+        foreach (var run in WallSweeps.Runs(document, wall, type, sweep, sweepBottom, sweepTop))
+        {
+            var stations = new List<double> { run.From };
+            stations.AddRange(curve.Between(run.From, run.To, wall.LeftOf(structure, sign * half)));
+            stations.Add(run.To);
+
+            // Each ring of the loft: every profile point at its own place along the wall, which
+            // differs only at the two ends, where the cut is along a join or turns a corner.
+            var rings = stations.Select((along, s) => shape.Select(p =>
+            {
+                var o = sweep.OutAt(p.Out);
+                var at = s == 0 ? WallSweeps.EndAlong(wall, type, sweep, run.Start, along, atStart: true, o)
+                    : s == stations.Count - 1 ? WallSweeps.EndAlong(wall, type, sweep, run.End, along, atStart: false, o)
+                    : along;
+                return At(at, WallSweeps.Across(type, sweep, o), p);
+            }).ToArray()).ToList();
+
+            for (var s = 0; s + 1 < rings.Count; s++)
+            for (var k = 0; k < shape.Count; k++)
+            {
+                var j = (k + 1) % shape.Count;
+                mesh.AddQuad(rings[s][k], rings[s + 1][k], rings[s + 1][j], rings[s][j]);
+                mesh.AddEdge(rings[s][k], rings[s + 1][k]);
+            }
+
+            foreach (var (ring, end, atStart, along) in new[] { (rings[0], run.Start, true, run.From), (rings[^1], run.End, false, run.To) })
+            {
+                if (end.Kind == SweepEndKind.Free && sweep.Returns)
+                {
+                    AddReturn(mesh, wall, type, sweep, shape, ring, along, atStart, sweepBottom);
+                    continue;
+                }
+
+                Cap(mesh, shape, ring);
+            }
+        }
+
+        meshes.Add(mesh);
+    }
+
+    /// <summary>
+    /// The return round an exposed end: the profile turned the corner in a mitre and carried
+    /// across the end of the wall to its other face, where it stops flush.
+    /// </summary>
+    private static void AddReturn(
+        Mesh3D mesh, Wall wall, WallType type, WallSweep sweep, IReadOnlyList<(double Out, double Up)> shape,
+        Point3D[] corner, double along, bool atStart, double sweepBottom)
+    {
+        var structure = type.Structure;
+        var farFace = -WallSweeps.Across(type, sweep, 0);
+
+        var far = shape.Select(p =>
+        {
+            var o = sweep.OutAt(p.Out);
+            var plan = wall.PointAt(structure, atStart ? along - o : along + o, farFace);
+            return new Point3D(plan.X, plan.Y, sweepBottom + p.Up * sweep.Height);
+        }).ToArray();
+
+        for (var k = 0; k < shape.Count; k++)
+        {
+            var j = (k + 1) % shape.Count;
+            mesh.AddQuad(corner[k], far[k], far[j], corner[j]);
+            mesh.AddEdge(corner[k], far[k]);
+        }
+
+        Cap(mesh, shape, far);
+    }
+
+    /// <summary>Closes the end of a run with the profile's own shape.</summary>
+    private static void Cap(Mesh3D mesh, IReadOnlyList<(double Out, double Up)> shape, Point3D[] ring)
+    {
+        var profile = shape.Select(p => new Point2D(p.Out, p.Up)).ToList();
+        foreach (var (i, j, k) in Polygon2D.Triangulate(profile))
+            mesh.AddTriangle(ring[i], ring[j], ring[k]);
+
+        for (var k = 0; k < ring.Length; k++)
+            mesh.AddEdge(ring[k], ring[(k + 1) % ring.Length]);
     }
 
     /// <summary>

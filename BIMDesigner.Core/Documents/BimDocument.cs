@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Elements;
+using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 
 namespace BIMDesigner.Core.Documents;
@@ -175,6 +176,7 @@ public sealed class BimDocument
     {
         WallType wall => wall.Structure.Layers.Select(layer => layer.MaterialId),
         CurtainWallType curtain => new[] { curtain.GlassMaterialId, curtain.SolidMaterialId, curtain.MullionMaterialId },
+        WallSweepType sweep => new[] { sweep.MaterialId },
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
         _ => Array.Empty<Guid>()
     };
@@ -479,9 +481,32 @@ public sealed class BimDocument
             Cost = 380m
         };
 
+        // Sweeps and reveals to place on walls one by one, and a drawn profile for a dado rail.
+        var dadoProfile = new SweepProfileType("Dado Rail");
+        dadoProfile.Points.AddRange(new[]
+        {
+            new Point2D(0, 0), new Point2D(12, 0), new Point2D(18, 8), new Point2D(18, 22), new Point2D(26, 32),
+            new Point2D(26, 48), new Point2D(18, 58), new Point2D(18, 62), new Point2D(10, 70), new Point2D(0, 70)
+        });
+        var skirting = new WallSweepType("Skirting - 20 x 100", SweepKind.Sweep)
+        {
+            Profile = SweepProfile.Skirting, Depth = 20, Height = 100, MaterialId = plaster.Id
+        };
+        var cornice = new WallSweepType("Cornice - 80 x 150", SweepKind.Sweep)
+        {
+            Profile = SweepProfile.Cornice, Depth = 80, Height = 150, MaterialId = plaster.Id, Cuttable = false
+        };
+        var dado = new WallSweepType("Dado Rail - 26 x 70", SweepKind.Sweep)
+        {
+            ProfileId = dadoProfile.Id, Depth = 26, Height = 70, MaterialId = plaster.Id
+        };
+        var reveal = new WallSweepType("Reveal - 20 x 20", SweepKind.Reveal) { Depth = 20, Height = 20, MaterialId = brick.Id };
+        var shadowGap = new WallSweepType("Shadow Gap - 10 x 10", SweepKind.Reveal) { Depth = 10, Height = 10, MaterialId = plaster.Id };
+
         foreach (var type in new ElementType[]
                  {
                      generic, exterior, partition,
+                     dadoProfile, skirting, cornice, dado, reveal, shadowGap,
                      storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, casement, picture,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof

@@ -507,6 +507,17 @@ public partial class WallTypesWindow : Window
 
     private Guid DefaultMaterial() => _document.Materials.OrderBy(m => m.Name).First().Id;
 
+    /// <summary>Draws and edits the shapes sweeps can be given; the sweeps table picks them up afterwards.</summary>
+    private void OnSweepProfiles(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SweepProfilesWindow(_document, _history) { Owner = this };
+        dialog.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        dialog.ShowDialog();
+
+        // New profiles appear in the Profile column; unsaved edits here are kept as they are.
+        if (!_dirty) Load(Current);
+    }
+
     private void OnRemoveSweep(object sender, RoutedEventArgs e)
     {
         if (SelectedSweep is not { } row) return;

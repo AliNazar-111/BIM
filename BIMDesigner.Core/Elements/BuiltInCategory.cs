@@ -29,7 +29,10 @@ public enum BuiltInCategory
     Furniture,
     Ducts,
     Pipes,
-    LightingFixtures
+    LightingFixtures,
+    WallSweeps,
+    WallReveals,
+    Profiles
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

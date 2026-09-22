@@ -1,0 +1,126 @@
+<Window x:Class="BIMDesigner.UI.SweepProfilesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:BIMDesigner.UI.Controls"
+        Title="Sweep Profiles" Height="640" Width="1080" MinHeight="480" MinWidth="820"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg.Window}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource UiFont}"
+        FontSize="{StaticResource UiFontSize}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="FontSize" Value="{StaticResource UiFontSizeSmall}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Padding="16,10,16,14" Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ProblemText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#E8806A"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="ApplyButton" Content="Apply" Padding="18,5" Margin="0,0,8,0" Click="OnApply"
+                            ToolTip="Save this profile - every sweep drawn with it changes"/>
+                    <Button Content="Close" Padding="18,5" IsCancel="True"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Margin="16,14,16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="260"/>
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="PROFILES" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                <WrapPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                    <Button Content="New" Padding="12,5" Margin="0,0,8,8" Click="OnNew"/>
+                    <Button Content="Duplicate" Padding="12,5" Margin="0,0,8,8" Click="OnDuplicate"/>
+                    <Button x:Name="DeleteButton" Content="Delete" Padding="12,5" Margin="0,0,8,8" Click="OnDelete"
+                            ToolTip="Only a profile no sweep uses can be deleted"/>
+                </WrapPanel>
+                <ListBox x:Name="ProfileList" DisplayMemberPath="Name" SelectionChanged="OnProfileSelected"
+                         Background="{StaticResource Bg.Panel}" BorderBrush="{StaticResource Line}" Foreground="{StaticResource Text}"/>
+            </DockPanel>
+
+            <DockPanel Grid.Column="2">
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Name" Foreground="{StaticResource Text.Muted}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBox x:Name="NameBox" Grid.Column="1" TextChanged="OnNameChanged"/>
+                </Grid>
+                <TextBlock DockPanel.Dock="Top" Style="{StaticResource Caption}" Margin="0,0,0,6"
+                           Text="THE WALL FACE IS THE LEFT EDGE; THE PROFILE STANDS OUT TO THE RIGHT"/>
+                <Border BorderBrush="{StaticResource Line}" BorderThickness="1" Background="{StaticResource Bg.Panel}">
+                    <controls:ProfileEditor x:Name="Editor"/>
+                </Border>
+            </DockPanel>
+
+            <DockPanel Grid.Column="4">
+                <TextBlock DockPanel.Dock="Top" Text="CORNERS  (OUT FROM THE FACE, UP)" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button Content="Add Corner" Padding="12,5" Margin="0,0,8,0" Click="OnAddCorner"/>
+                        <Button Content="Remove Corner" Padding="12,5" Click="OnRemoveCorner"/>
+                    </StackPanel>
+                    <TextBlock Text="START FROM" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                    <WrapPanel>
+                        <Button Content="Board" Padding="12,5" Margin="0,0,8,8" Click="OnBoard"/>
+                        <Button Content="Ovolo" Padding="12,5" Margin="0,0,8,8" Click="OnOvolo"/>
+                        <Button Content="Stepped" Padding="12,5" Margin="0,0,8,8" Click="OnStepped"/>
+                    </WrapPanel>
+                </StackPanel>
+                <DataGrid x:Name="CornerGrid" AutoGenerateColumns="False" HeadersVisibility="Column"
+                          CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="False"
+                          CanUserSortColumns="False" SelectionMode="Single" RowHeight="40"
+                          SelectionChanged="OnCornerSelected">
+                    <DataGrid.CellStyle>
+                        <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                            <Setter Property="Padding" Value="4,3"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        </Style>
+                    </DataGrid.CellStyle>
+                    <DataGrid.Resources>
+                        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                            <Setter Property="Padding" Value="6,3"/>
+                            <Setter Property="MinHeight" Value="28"/>
+                            <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        </Style>
+                    </DataGrid.Resources>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding Number}" IsReadOnly="True" Width="32"/>
+                        <DataGridTemplateColumn Header="Out" Width="*">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <TextBox Text="{Binding AlongText, UpdateSourceTrigger=LostFocus}"/>
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Up" Width="*">
+                            <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                <TextBox Text="{Binding HeightText, UpdateSourceTrigger=LostFocus}"/>
+                            </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</Window>

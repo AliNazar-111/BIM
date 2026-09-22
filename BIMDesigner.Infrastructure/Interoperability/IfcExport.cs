@@ -308,7 +308,8 @@ public static class IfcExport
                     wall.GetBaseElevation(_document) - (_document.FindLevel(wall.LevelId)?.Elevation ?? 0));
                 w.Representation = WallLean.Leans(wall, type) || WallProfile.Of(_document, wall) is not null ||
                                    CurtainEmbedding.In(_document, wall).Count > 0 ||
-                                   _document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Reveal))
+                                   _document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Reveal || s.CutsWall)) ||
+                                   WallSweeps.Placed(_document, wall).Any(p => p.Sweep.Kind == SweepKind.Reveal || p.Sweep.CutsWall)
                     ? Tessellated(wall, bodyStart)
                     : ExtrudeTiers(wall, bodyStart, outline, height);
             });
@@ -319,7 +320,8 @@ public static class IfcExport
 
             // Sweeps go with their wall but are not part of its body: a skirting is its own
             // thing to a receiving application, so it is exported as one.
-            if (_document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Sweep)))
+            if (_document.GetWallTiers(wall).Any(t => t.Type.Sweeps.Any(s => s.Kind == SweepKind.Sweep)) ||
+                WallSweeps.Placed(_document, wall).Any(p => p.Sweep.Kind == SweepKind.Sweep))
             {
                 var sweeps = New<IfcBuildingElementProxy>(p =>
                 {

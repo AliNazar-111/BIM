@@ -32,6 +32,9 @@ internal sealed class ProjectFileDto
     /// <summary>Walls built of other wall types one above another. Missing from older files.</summary>
     public List<StackedWallTypeDto> StackedWallTypes { get; set; } = new();
     public List<CurtainWallTypeDto> CurtainWallTypes { get; set; } = new();
+    public List<SweepProfileTypeDto> SweepProfiles { get; set; } = new();
+    public List<WallSweepTypeDto> WallSweepTypes { get; set; } = new();
+    public List<PlacedSweepDto> PlacedSweeps { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
 
@@ -351,6 +354,13 @@ internal sealed class WallSweepDto
     public double Elevation { get; set; }
     public bool FromTop { get; set; }
     public Guid MaterialId { get; set; }
+    public double Offset { get; set; }
+    public bool Flip { get; set; }
+    public double Setback { get; set; }
+    public bool CutsWall { get; set; }
+    public bool Cuttable { get; set; } = true;
+    public Guid? ProfileId { get; set; }
+    public bool Returns { get; set; }
 }
 
 internal sealed class StackedWallTypeDto
@@ -571,4 +581,50 @@ internal sealed class WallDto
     public string Workset { get; set; } = "Workset1";
     public string PhaseCreated { get; set; } = "New";
     public string? PhaseDemolished { get; set; }
+}
+
+internal sealed class SweepProfileTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Profile";
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>The outline as out, up pairs, millimetres.</summary>
+    public List<double> Points { get; set; } = new();
+}
+
+internal sealed class WallSweepTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Sweep";
+    public string Kind { get; set; } = "Sweep";
+    public string Profile { get; set; } = "Rectangle";
+    public Guid? ProfileId { get; set; }
+    public double Depth { get; set; } = 20;
+    public double Height { get; set; } = 100;
+    public Guid MaterialId { get; set; }
+    public bool CutsWall { get; set; }
+    public bool Cuttable { get; set; } = true;
+    public double Setback { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class PlacedSweepDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public string Kind { get; set; } = "Sweep";
+    public List<Guid> HostWallIds { get; set; } = new();
+    public string Side { get; set; } = "Exterior";
+    public bool Vertical { get; set; }
+    public double Elevation { get; set; }
+    public double Along { get; set; }
+    public double Offset { get; set; }
+    public bool Flip { get; set; }
+    public bool ReturnAtStart { get; set; }
+    public bool ReturnAtEnd { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }

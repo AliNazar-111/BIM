@@ -194,7 +194,15 @@ public static class SectionProjection
                     pieces.Add(WallLean.Leans(wall, type) ? Leaned(document, marker, wall, type, recessed) : recessed);
             }
 
-            AddSweepProfiles(document, marker, wall, type, bottom, top, pieces);
+            AddSweepProfiles(document, marker, wall, type, bottom, top, type.Sweeps.Select(s => (s, wall.Id)), pieces);
+        }
+
+        // Sweeps placed on the wall on their own, once, over its whole height.
+        if (document.GetWallType(wall) is { } host)
+        {
+            var wallBottom = wall.GetBaseElevation(document);
+            AddSweepProfiles(document, marker, wall, host, wallBottom, wallBottom + wall.GetHeight(document),
+                WallSweeps.Placed(document, wall), pieces);
         }
     }
 
@@ -205,8 +213,13 @@ public static class SectionProjection
     private static IEnumerable<SectionPiece> Recessed(
         BimDocument document, SectionMarker marker, Wall wall, WallType type, SectionPiece piece, double bottom, double top)
     {
-        var reveals = WallSweeps.Reveals(type, bottom, top)
+        // The horizontal reveals across this piece, and any upright one the cut passes through.
+        var cutAlong = wall.Locate(type.Structure, marker.Start + marker.Direction * ((piece.Bounds.Left + piece.Bounds.Right) / 2)).Along;
+        var reveals = WallSweeps.Reveals(document, wall, type, bottom, top)
             .Where(r => r.Top > piece.Bounds.Bottom && r.Bottom < piece.Bounds.Top)
+            .Concat(WallSweeps.VerticalReveals(document, wall)
+                .Where(v => cutAlong > v.From && cutAlong < v.To)
+                .Select(v => (Bottom: double.NegativeInfinity, Top: double.PositiveInfinity, v.Side, v.Depth)))
             .ToList();
 
         if (piece.Part != SectionPart.WallLayer || piece.Depth != SectionDepth.Cut || reveals.Count == 0)
@@ -251,49 +264,82 @@ public static class SectionProjection
 
     /// <summary>
     /// Where the cut crosses a wall with sweeps, each sweep's profile as the section sees it -
-    /// the actual cornice or skirting shape, standing out from the face.
+    /// the actual cornice or skirting shape, standing out from the face - and, where it passes
+    /// through an upright sweep, that sweep cut full height.
     /// </summary>
     private static void AddSweepProfiles(
-        BimDocument document, SectionMarker marker, Wall wall, WallType type, double bottom, double top, List<SectionPiece> pieces)
+        BimDocument document, SectionMarker marker, Wall wall, WallType type, double bottom, double top,
+        IEnumerable<(WallSweep Sweep, Guid ElementId)> all, List<SectionPiece> pieces)
     {
-        var sweeps = type.Sweeps.Where(s => s.Kind == SweepKind.Sweep).ToList();
+        var sweeps = all.Where(s => s.Sweep.Kind == SweepKind.Sweep).ToList();
         if (sweeps.Count == 0) return;
 
         var structure = type.Structure;
-        var half = type.Width / 2;
         var cutLine = WallCurve.Of(marker.Start, marker.End, 0);
 
         foreach (var crossing in wall.LocationCurve.Crossings(cutLine))
         {
             var along = wall.LocationCurve.Locate(crossing).Along;
 
-            foreach (var sweep in sweeps)
+            foreach (var (sweep, elementId) in sweeps)
             {
-                var (sweepBottom, sweepTop) = sweep.Span(bottom, top);
-                if (!WallSweeps.Runs(document, wall, type, sweep.Side, sweepBottom, sweepTop)
-                        .Any(run => along >= run.From && along <= run.To))
-                    continue;
-
-                var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
-                var shape = sweep.Shape()
-                    .Select(p => (
-                        X: marker.DistanceAlong(wall.PointAt(structure, along, sign * (half + p.Out * sweep.Depth))),
-                        Y: sweepBottom + p.Up * sweep.Height))
-                    .ToList();
-
                 var material = document.FindMaterial(sweep.MaterialId);
+                var shape = sweep.Shape(document);
+                IReadOnlyList<(double X, double Y)> outline;
+
+                if (sweep.Vertical)
+                {
+                    // Cut across an upright sweep: its section is as far out as the profile
+                    // reaches at this point along it, the wall's full height.
+                    var up = (along - sweep.Along) / sweep.Height + 0.5;
+                    if (up <= 0 || up >= 1) continue;
+
+                    var reach = Reach(shape, up);
+                    var near = marker.DistanceAlong(wall.PointAt(structure, along, WallSweeps.Across(type, sweep, sweep.Offset)));
+                    var far = marker.DistanceAlong(wall.PointAt(structure, along, WallSweeps.Across(type, sweep, sweep.OutAt(reach))));
+                    outline = new[] { (near, bottom), (far, bottom), (far, top), (near, top) };
+                }
+                else
+                {
+                    var (sweepBottom, sweepTop) = sweep.Span(bottom, top);
+                    if (!WallSweeps.Runs(document, wall, type, sweep, sweepBottom, sweepTop)
+                            .Any(run => along >= run.From && along <= run.To))
+                        continue;
+
+                    outline = shape
+                        .Select(p => (
+                            X: marker.DistanceAlong(wall.PointAt(structure, along, WallSweeps.Across(type, sweep, sweep.OutAt(p.Out)))),
+                            Y: sweepBottom + p.Up * sweep.Height))
+                        .ToList();
+                }
+
                 pieces.Add(new SectionPiece(
-                    new SectionRect(shape.Min(p => p.X), shape.Min(p => p.Y), shape.Max(p => p.X), shape.Max(p => p.Y)),
+                    new SectionRect(outline.Min(p => p.X), outline.Min(p => p.Y), outline.Max(p => p.X), outline.Max(p => p.Y)),
                     SectionPart.WallLayer,
                     SectionDepth.Cut,
                     material?.CutColour ?? DefaultCut,
                     material?.Name ?? "Sweep",
-                    wall.Id)
+                    elementId)
                 {
-                    Shape = shape
+                    Shape = outline
                 });
             }
         }
+    }
+
+    /// <summary>How far out a profile reaches at a height through it, both as fractions of its size.</summary>
+    private static double Reach(IReadOnlyList<(double Out, double Up)> shape, double up)
+    {
+        var reach = 0.0;
+        for (var i = 0; i < shape.Count; i++)
+        {
+            var a = shape[i];
+            var b = shape[(i + 1) % shape.Count];
+            if ((a.Up - up) * (b.Up - up) > 0 || Math.Abs(b.Up - a.Up) < 1e-12) continue;
+            reach = Math.Max(reach, a.Out + (b.Out - a.Out) * (up - a.Up) / (b.Up - a.Up));
+        }
+
+        return reach;
     }
 
     /// <summary>

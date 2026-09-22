@@ -262,38 +262,79 @@ public sealed class PlanRenderer
     private IReadOnlyList<(double Bottom, double Top, WallSide Side, double Depth)> _reveals = Array.Empty<(double, double, WallSide, double)>();
 
     /// <summary>
-    /// The sweeps the plan cuts through: each drawn as the band it makes beside the wall face,
-    /// as far out as its profile reaches at the cut height.
+    /// The sweeps the plan cuts through: each drawn as the band it makes beside the wall face, as
+    /// far out as its profile reaches at the cut height - mitred into its neighbour's at a corner,
+    /// turned round an exposed end when it returns. An upright sweep runs through every cut, so
+    /// it is always drawn, as the shape it has in plan.
     /// </summary>
-    private void DrawSweeps(DrawingContext dc, Wall wall, WallType type, double wallBottom, double wallTop)
+    private void DrawSweeps(
+        DrawingContext dc, Wall wall, WallType type, IEnumerable<(WallSweep Sweep, Guid ElementId)> sweeps,
+        double wallBottom, double wallTop)
     {
         if (Document is null) return;
 
         var structure = type.Structure;
-        var half = type.Width / 2;
         var curve = wall.LocationCurve;
 
-        foreach (var sweep in type.Sweeps.Where(s => s.Kind == SweepKind.Sweep))
+        foreach (var (sweep, elementId) in sweeps.Where(s => s.Sweep.Kind == SweepKind.Sweep))
         {
+            var fill = MaterialBrush(sweep.MaterialId);
+            var pen = elementId != wall.Id && _selected.Contains(elementId) ? _selectedPen : _wallOutlinePen;
+            var shape = sweep.Shape(Document);
+
+            if (sweep.Vertical)
+            {
+                var outline = shape
+                    .Select(p => wall.PointAt(structure,
+                        Math.Clamp(sweep.Along + (p.Up - 0.5) * sweep.Height, 0, wall.Length),
+                        WallSweeps.Across(type, sweep, sweep.OutAt(p.Out))))
+                    .ToList();
+                dc.DrawGeometry(fill, pen, BuildOutline(Cut(outline)));
+                continue;
+            }
+
             var (bottom, top) = sweep.Span(wallBottom, wallTop);
             if (_cutElevation <= bottom || _cutElevation >= top) continue;
 
-            var reach = ProfileReach(sweep.Shape(), (_cutElevation - bottom) / sweep.Height) * sweep.Depth;
+            var reach = ProfileReach(shape, (_cutElevation - bottom) / sweep.Height);
             if (reach <= 0) continue;
 
+            var inner = sweep.Offset;
+            var outer = sweep.OutAt(reach);
             var sign = sweep.Side == WallSide.Exterior ? 1.0 : -1.0;
 
-            foreach (var (from, to) in WallSweeps.Runs(Document, wall, type, sweep.Side, bottom, top))
+            foreach (var run in WallSweeps.Runs(Document, wall, type, sweep, bottom, top))
             {
-                var stations = new List<double> { from };
-                stations.AddRange(curve.Between(from, to, wall.LeftOf(structure, sign * half)));
-                stations.Add(to);
+                var stations = new List<double> { run.From };
+                stations.AddRange(curve.Between(run.From, run.To, wall.LeftOf(structure, sign * type.Width / 2)));
+                stations.Add(run.To);
 
-                var band = stations.Select(along => wall.PointAt(structure, along, sign * half))
-                    .Concat(stations.AsEnumerable().Reverse().Select(along => wall.PointAt(structure, along, sign * (half + reach))))
+                double At(int s, double o) =>
+                    s == 0 ? WallSweeps.EndAlong(wall, type, sweep, run.Start, stations[0], atStart: true, o)
+                    : s == stations.Count - 1 ? WallSweeps.EndAlong(wall, type, sweep, run.End, stations[^1], atStart: false, o)
+                    : stations[s];
+
+                var band = stations.Select((_, s) => wall.PointAt(structure, At(s, inner), WallSweeps.Across(type, sweep, inner)))
+                    .Concat(stations.Select((_, s) => wall.PointAt(structure, At(s, outer), WallSweeps.Across(type, sweep, outer))).Reverse())
                     .ToList();
+                dc.DrawGeometry(fill, pen, BuildOutline(Cut(band)));
 
-                dc.DrawGeometry(MaterialBrush(sweep.MaterialId), _wallOutlinePen, BuildOutline(Cut(band)));
+                // A return: the band carried round the end, across to the wall's far face.
+                foreach (var (end, along, atStart) in new[] { (run.Start, run.From, true), (run.End, run.To, false) })
+                {
+                    if (end.Kind != SweepEndKind.Free || !sweep.Returns) continue;
+
+                    var direction = atStart ? -1.0 : 1.0;
+                    var far = -WallSweeps.Across(type, sweep, 0);
+                    var corner = new[]
+                    {
+                        wall.PointAt(structure, along + direction * inner, WallSweeps.Across(type, sweep, inner)),
+                        wall.PointAt(structure, along + direction * outer, WallSweeps.Across(type, sweep, outer)),
+                        wall.PointAt(structure, along + direction * outer, far),
+                        wall.PointAt(structure, along + direction * inner, far)
+                    };
+                    dc.DrawGeometry(fill, pen, BuildOutline(Cut(corner)));
+                }
             }
         }
     }
@@ -339,7 +380,7 @@ public sealed class PlanRenderer
         // Reveals and sweeps show in plan only where the plan cuts them.
         var wallBottom = wall.GetBaseElevation(Document);
         _cutElevation = wallBottom + cutHeight;
-        _reveals = WallSweeps.Reveals(type, wallBottom, wallBottom + wall.GetHeight(Document));
+        _reveals = WallSweeps.Reveals(Document, wall, type, wallBottom, wallBottom + wall.GetHeight(Document));
 
         // The wall is drawn as the stretches that remain solid. An opening is not painted
         // over the wall afterwards - the wall genuinely is not there (section 2.5). Where
@@ -356,10 +397,21 @@ public sealed class PlanRenderer
                 dc.DrawGeometry(null, _layerPen, BuildOutline(WallJoins.GetBandOutline(wall, type, half, -half, slice.CutFrom, slice.CutTo)));
         }
 
+        // An upright reveal is a groove down the face: the wall is drawn thinner along it.
+        var verticals = WallSweeps.VerticalReveals(Document, wall);
+        var horizontal = _reveals;
         foreach (var slice in WallSlices.InPlan(Document, wall, type, cutHeight))
-            DrawWallRun(dc, wall, type, slice, gaps, isSelected);
+        foreach (var (part, bands) in WallSweeps.SplitAtVerticalReveals(wall, type, slice, verticals))
+        {
+            _reveals = bands.Count == 0 ? horizontal : horizontal.Concat(bands).ToList();
+            DrawWallRun(dc, wall, type, part, gaps, isSelected);
+        }
 
-        DrawSweeps(dc, wall, type, wallBottom, wallBottom + wall.GetHeight(Document));
+        _reveals = horizontal;
+
+        var wallTop = wallBottom + wall.GetHeight(Document);
+        DrawSweeps(dc, wall, type, type.Sweeps.Select(s => (s, wall.Id)), wallBottom, wallTop);
+        DrawSweeps(dc, wall, type, WallSweeps.Placed(Document, wall), wallBottom, wallTop);
 
         // Show where the user actually drew, so the effect of the location line is visible.
         if (isSelected && wall.LocationLine != WallLocationLine.WallCentreline)

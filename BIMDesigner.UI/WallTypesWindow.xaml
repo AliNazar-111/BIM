@@ -135,13 +135,15 @@
                         <TextBlock Text="SWEEPS AND REVEALS" Style="{StaticResource Caption}"/>
                         <TextBlock Margin="0,3,0,0" Foreground="{StaticResource Text.Disabled}"
                                    FontSize="{StaticResource UiFontSizeSmall}" TextWrapping="Wrap"
-                                   Text="A sweep stands out from the face, a reveal is cut into it. Depth is how far out or in; the offset is from the wall's base or down from its top."/>
+                                   Text="A sweep stands out from the face, a reveal is cut into it. Depth is how far out or in; Distance is up from the base or down from the top; Offset moves it off the face. Scroll right for Setback, Flip, Cuts Wall, Cuttable and Returns."/>
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="Add Sweep" Padding="12,5" Margin="0,0,8,0" Click="OnAddSweep"/>
                         <Button Content="Add Reveal" Padding="12,5" Margin="0,0,8,0" Click="OnAddReveal"/>
-                        <Button x:Name="RemoveSweepButton" Content="Remove" Padding="12,5" Click="OnRemoveSweep"/>
+                        <Button x:Name="RemoveSweepButton" Content="Remove" Padding="12,5" Margin="0,0,8,0" Click="OnRemoveSweep"/>
+                        <Button Content="Profiles..." Padding="12,5" Click="OnSweepProfiles"
+                                ToolTip="Draw your own sweep shapes to use here and in placed sweeps"/>
                     </StackPanel>
 
                     <DataGrid x:Name="SweepGrid" Height="130" AutoGenerateColumns="False" HeadersVisibility="Column"
@@ -194,15 +196,52 @@
                                     <ComboBox ItemsSource="{Binding FromChoices}" SelectedItem="{Binding FromName, UpdateSourceTrigger=PropertyChanged}"/>
                                 </DataTemplate></DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="Offset" Width="80">
+                            <DataGridTemplateColumn Header="Distance" Width="80">
                                 <DataGridTemplateColumn.CellTemplate><DataTemplate>
-                                    <TextBox Text="{Binding ElevationText, UpdateSourceTrigger=LostFocus}"/>
+                                    <TextBox Text="{Binding ElevationText, UpdateSourceTrigger=LostFocus}"
+                                             ToolTip="How far up from the wall's base, or down from its top"/>
                                 </DataTemplate></DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="Material" Width="*">
+                            <DataGridTemplateColumn Header="Material" Width="140">
                                 <DataGridTemplateColumn.CellTemplate><DataTemplate>
                                     <ComboBox ItemsSource="{Binding Materials}" DisplayMemberPath="Name" SelectedValuePath="Id"
                                               SelectedValue="{Binding MaterialId, UpdateSourceTrigger=PropertyChanged}"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Offset" Width="72">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <TextBox Text="{Binding OffsetText, UpdateSourceTrigger=LostFocus}"
+                                             ToolTip="Off the face; negative sets it into the wall"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Setback" Width="72">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <TextBox Text="{Binding SetbackText, UpdateSourceTrigger=LostFocus}"
+                                             ToolTip="How far it stops short of the wall's ends"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Flip" Width="44">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <CheckBox IsChecked="{Binding Flip, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                              ToolTip="Turn the profile upside down"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Cuts Wall" Width="70">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <CheckBox IsChecked="{Binding CutsWall, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                              ToolTip="Set into the wall with a negative offset, it cuts its own recess"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Cuttable" Width="66">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <CheckBox IsChecked="{Binding Cuttable, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                              ToolTip="Broken by doors and windows"/>
+                                </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Returns" Width="62">
+                                <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                    <CheckBox IsChecked="{Binding Returns, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                              ToolTip="Turn round an exposed wall end instead of stopping flat"/>
                                 </DataTemplate></DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>

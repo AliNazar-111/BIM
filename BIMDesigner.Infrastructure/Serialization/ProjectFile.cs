@@ -101,6 +101,53 @@ public static class ProjectFile
                 Tiers = stacked.Tiers.Select(tier => new StackTierDto { WallTypeId = tier.WallTypeId, Height = tier.Height }).ToList()
             });
 
+        foreach (var profile in document.TypesOf<SweepProfileType>())
+            dto.SweepProfiles.Add(new SweepProfileTypeDto
+            {
+                Id = profile.Id,
+                Name = profile.Name,
+                Description = profile.Description,
+                Points = profile.Points.SelectMany(p => new[] { p.X, p.Y }).ToList()
+            });
+
+        foreach (var sweepType in document.TypesOf<WallSweepType>())
+            dto.WallSweepTypes.Add(new WallSweepTypeDto
+            {
+                Id = sweepType.Id,
+                Name = sweepType.Name,
+                Kind = sweepType.Kind.ToString(),
+                Profile = sweepType.Profile.ToString(),
+                ProfileId = sweepType.ProfileId,
+                Depth = sweepType.Depth,
+                Height = sweepType.Height,
+                MaterialId = sweepType.MaterialId,
+                CutsWall = sweepType.CutsWall,
+                Cuttable = sweepType.Cuttable,
+                Setback = sweepType.Setback,
+                Cost = sweepType.Cost,
+                Description = sweepType.Description
+            });
+
+        foreach (var placed in document.Elements.OfType<PlacedSweep>())
+            dto.PlacedSweeps.Add(new PlacedSweepDto
+            {
+                Id = placed.Id,
+                TypeId = placed.TypeId,
+                LevelId = placed.LevelId,
+                Kind = placed.Kind.ToString(),
+                HostWallIds = placed.HostWallIds.ToList(),
+                Side = placed.Side.ToString(),
+                Vertical = placed.Vertical,
+                Elevation = placed.Elevation,
+                Along = placed.Along,
+                Offset = placed.Offset,
+                Flip = placed.Flip,
+                ReturnAtStart = placed.ReturnAtStart,
+                ReturnAtEnd = placed.ReturnAtEnd,
+                Mark = placed.Mark,
+                Comments = placed.Comments
+            });
+
         foreach (var curtain in document.TypesOf<CurtainWallType>())
             dto.CurtainWallTypes.Add(new CurtainWallTypeDto
             {
@@ -162,7 +209,14 @@ public static class ProjectFile
                     Height = sweep.Height,
                     Elevation = sweep.Elevation,
                     FromTop = sweep.FromTop,
-                    MaterialId = sweep.MaterialId
+                    MaterialId = sweep.MaterialId,
+                    Offset = sweep.Offset,
+                    Flip = sweep.Flip,
+                    Setback = sweep.Setback,
+                    CutsWall = sweep.CutsWall,
+                    Cuttable = sweep.Cuttable,
+                    ProfileId = sweep.ProfileId,
+                    Returns = sweep.Returns
                 }).ToList(),
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
                 Layers = type.Structure.Layers.Select(layer => new MaterialLayerDto
@@ -606,7 +660,14 @@ public static class ProjectFile
                     sweep.Height,
                     Math.Max(0, sweep.Elevation),
                     sweep.FromTop,
-                    sweep.MaterialId)));
+                    sweep.MaterialId,
+                    double.IsFinite(sweep.Offset) ? sweep.Offset : 0,
+                    sweep.Flip,
+                    double.IsFinite(sweep.Setback) ? Math.Max(0, sweep.Setback) : 0,
+                    sweep.CutsWall,
+                    sweep.Cuttable,
+                    sweep.ProfileId,
+                    sweep.Returns)));
         }
 
         // After the wall types, which their tiers are made of.
@@ -622,6 +683,33 @@ public static class ProjectFile
 
             stacked.Tiers.AddRange(dtoStacked.Tiers.Select(tier => new StackTier(tier.WallTypeId, Math.Max(0, tier.Height))));
             document.AddType(stacked);
+        }
+
+        foreach (var dtoProfile in dto.SweepProfiles)
+        {
+            var profile = new SweepProfileType(dtoProfile.Name) { Id = dtoProfile.Id, Description = dtoProfile.Description };
+            for (var i = 0; i + 1 < dtoProfile.Points.Count; i += 2)
+                if (double.IsFinite(dtoProfile.Points[i]) && double.IsFinite(dtoProfile.Points[i + 1]))
+                    profile.Points.Add(new Point2D(dtoProfile.Points[i], dtoProfile.Points[i + 1]));
+            if (profile.Points.Count >= 3) document.AddType(profile);
+        }
+
+        foreach (var dtoSweep in dto.WallSweepTypes)
+        {
+            document.AddType(new WallSweepType(dtoSweep.Name, ParseEnum(dtoSweep.Kind, SweepKind.Sweep))
+            {
+                Id = dtoSweep.Id,
+                Profile = ParseEnum(dtoSweep.Profile, SweepProfile.Rectangle),
+                ProfileId = dtoSweep.ProfileId,
+                Depth = PositiveOr(dtoSweep.Depth, 20),
+                Height = PositiveOr(dtoSweep.Height, 100),
+                MaterialId = dtoSweep.MaterialId,
+                CutsWall = dtoSweep.CutsWall,
+                Cuttable = dtoSweep.Cuttable,
+                Setback = double.IsFinite(dtoSweep.Setback) ? Math.Max(0, dtoSweep.Setback) : 0,
+                Cost = dtoSweep.Cost,
+                Description = dtoSweep.Description
+            });
         }
 
         foreach (var dtoCurtain in dto.CurtainWallTypes)
@@ -818,6 +906,31 @@ public static class ProjectFile
             element.PhaseCreated = ParseEnum(slab.PhaseCreated, DesignPhase.New);
 
             document.Add(element);
+        }
+
+        // After the walls they sit on; one whose walls have all gone is dropped.
+        var wallIds = document.Walls.Select(w => w.Id).ToHashSet();
+        foreach (var dtoPlaced in dto.PlacedSweeps)
+        {
+            var placed = new PlacedSweep
+            {
+                Id = dtoPlaced.Id,
+                TypeId = dtoPlaced.TypeId,
+                LevelId = dtoPlaced.LevelId,
+                Kind = ParseEnum(dtoPlaced.Kind, SweepKind.Sweep),
+                Side = ParseEnum(dtoPlaced.Side, WallSide.Exterior),
+                Vertical = dtoPlaced.Vertical,
+                Elevation = double.IsFinite(dtoPlaced.Elevation) ? Math.Max(0, dtoPlaced.Elevation) : 0,
+                Along = double.IsFinite(dtoPlaced.Along) ? dtoPlaced.Along : 0,
+                Offset = double.IsFinite(dtoPlaced.Offset) ? dtoPlaced.Offset : 0,
+                Flip = dtoPlaced.Flip,
+                ReturnAtStart = dtoPlaced.ReturnAtStart,
+                ReturnAtEnd = dtoPlaced.ReturnAtEnd,
+                Mark = dtoPlaced.Mark,
+                Comments = dtoPlaced.Comments
+            };
+            placed.HostWallIds.AddRange(dtoPlaced.HostWallIds.Where(wallIds.Contains).Distinct());
+            if (placed.HostWallIds.Count > 0) document.Add(placed);
         }
 
         foreach (var room in dto.Rooms)
