@@ -162,6 +162,25 @@
             <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
         </Style>
 
+        <!-- The wall shapes on the Place Wall tab: one of them at a time, apart from the tools. -->
+        <Style x:Key="WallShapeRadio" TargetType="RadioButton" BasedOn="{StaticResource RibbonSmallRadio}">
+            <Setter Property="GroupName" Value="WallShape"/>
+            <EventSetter Event="Click" Handler="OnPlaceWallShape"/>
+        </Style>
+
+        <Style x:Key="WallShapeLargeRadio" TargetType="RadioButton">
+            <Setter Property="AutomationProperties.Name" Value="{Binding Content, RelativeSource={RelativeSource Self}}"/>
+            <Setter Property="GroupName" Value="WallShape"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Padding" Value="5,3"/>
+            <Setter Property="Margin" Value="1,0"/>
+            <Setter Property="MinWidth" Value="48"/>
+            <Setter Property="MaxWidth" Value="76"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Template" Value="{StaticResource RibbonLargeTemplate}"/>
+            <EventSetter Event="Click" Handler="OnPlaceWallShape"/>
+        </Style>
+
         <!-- The strip under a view that says how it is drawn: scale, detail, style. -->
         <Style x:Key="ViewControlBar" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource Bg.Elevated}"/>
@@ -669,6 +688,69 @@
                         </HeaderedContentControl>
                     </StackPanel>
                 </TabItem>
+
+                <!-- ==================== MODIFY | PLACE WALL ==================== -->
+                <!-- Shown while the Wall tool is on: how the walls are drawn, as Revit's contextual tab. -->
+                <TabItem x:Name="PlaceWallTab" Header="Modify | Place Wall" Style="{StaticResource ContextRibbonTab}" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Draw" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="ShapeLine" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawLine}"
+                                                 Content="Line" CommandParameter="Line" ToolTip="One straight wall at a time, chained click to click"/>
+                                    <RadioButton x:Name="ShapeArc" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawArc}"
+                                                 Content="Arc" CommandParameter="Arc" ToolTip="Start, end, then a point the arc passes through"/>
+                                    <RadioButton x:Name="ShapePick" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawPick}"
+                                                 Content="Pick Lines" CommandParameter="Pick" ToolTip="Click a gridline to put a wall along it"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="ShapeRectangle" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawRectangle}"
+                                                 Content="Rectangle" CommandParameter="Rectangle" ToolTip="Two opposite corners; Shift for a square"/>
+                                    <RadioButton x:Name="ShapePolygon" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawPolygon}"
+                                                 Content="Polygon" CommandParameter="Polygon" ToolTip="The centre, then a corner; sides on the option bar"/>
+                                    <RadioButton x:Name="ShapeCircle" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawCircle}"
+                                                 Content="Circle" CommandParameter="Circle" ToolTip="The centre, then a point on the circle"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="ShapeOval" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawOval}"
+                                                 Content="Oval" CommandParameter="Oval" ToolTip="Two opposite corners of its box"/>
+                                    <RadioButton x:Name="ShapeEllipse" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawEllipse}"
+                                                 Content="Ellipse" CommandParameter="Ellipse" ToolTip="Two opposite corners of its box"/>
+                                    <RadioButton x:Name="ShapePartialEllipse" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawHalfEllipse}"
+                                                 Content="Partial Ellipse" CommandParameter="PartialEllipse" ToolTip="Both ends of an axis, then a point it passes through"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="ShapeSpline" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawSpline}"
+                                                 Content="Spline" CommandParameter="Spline" ToolTip="Click points the wall curves through; Enter or a double click finishes"/>
+                                    <RadioButton x:Name="ShapeFreehand" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawFreehand}"
+                                                 Content="Freehand" CommandParameter="Freehand" ToolTip="Hold the mouse button and draw the wall"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Placement" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="ShapeBySegment" Style="{StaticResource WallShapeLargeRadio}" Tag="{StaticResource Icon.PlaceBySegment}"
+                                             Content="Place by Segment" CommandParameter="BySegment"
+                                             ToolTip="Click beside a wall: a new wall runs along that face, on the side clicked"/>
+                                <RadioButton x:Name="ShapeByRoom" Style="{StaticResource WallShapeLargeRadio}" Tag="{StaticResource Icon.PlaceByRoom}"
+                                             Content="Place by Room" CommandParameter="ByRoom"
+                                             ToolTip="Click inside a room: a new wall goes along every face round it"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Join" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="PlaceAutoJoin" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.AutoJoin}"
+                                              Content="Auto Join" Click="OnPlaceWallJoinChanged"
+                                              ToolTip="Join a new wall to the walls its faces lie against: their doors and windows cut through both"/>
+                                <ToggleButton x:Name="PlaceLock" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Lock}"
+                                              Content="Lock" Click="OnPlaceWallJoinChanged" IsEnabled="False"
+                                              ToolTip="Auto Join and Lock: the joined walls also move together"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
             </TabControl>
         </DockPanel>
 
@@ -676,7 +758,7 @@
         <!-- =================== OPTIONS BAR (active tool) =================== -->
         <Border Grid.Row="2" Background="{StaticResource Bg.Elevated}"
                 BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,1" Padding="12,8">
-            <StackPanel Orientation="Horizontal">
+            <WrapPanel Orientation="Horizontal">
                 <!-- Selecting: says what is picked, as the contextual tab does. -->
                 <TextBlock x:Name="ModifyCaption" Text="Modify" FontWeight="SemiBold" VerticalAlignment="Center"
                            Margin="0,0,18,0" Visibility="Collapsed"/>
@@ -711,7 +793,7 @@
                           SelectionChanged="OnActiveLocationLineChanged"
                           ToolTip="Which line of the assembly you are drawing to"/>
 
-                <StackPanel x:Name="WallDrawOptions" Orientation="Horizontal" Visibility="Collapsed">
+                <WrapPanel x:Name="WallDrawOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <ComboBox x:Name="HeightModePicker" Style="{StaticResource OptionCombo}" MinWidth="80"
                               SelectedIndex="0" SelectionChanged="OnNewWallHeightChanged"
                               ToolTip="Height: the wall rises from its level. Depth: it hangs down from it, like a foundation wall.">
@@ -762,7 +844,7 @@
                               Click="OnAutoJoinChanged" IsEnabled="False"
                               ToolTip="Auto Join and Lock: the joined walls also move together"/>
                     <TextBlock Text="Space flips" Style="{StaticResource OptionLabel}" Opacity="0.6"/>
-                </StackPanel>
+                </WrapPanel>
 
                 <!-- Editing tool settings, shown only while their tool is active. -->
                 <StackPanel x:Name="SweepOptions" Orientation="Horizontal" Visibility="Collapsed">
@@ -807,7 +889,7 @@
                              Text="3" LostFocus="OnArrayCountChanged"
                              ToolTip="How many in total, including the original"/>
                 </StackPanel>
-            </StackPanel>
+            </WrapPanel>
         </Border>
 
         <!-- ========================= WORKSPACE ========================= -->

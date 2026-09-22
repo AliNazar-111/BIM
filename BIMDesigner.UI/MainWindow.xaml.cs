@@ -294,6 +294,8 @@ public partial class MainWindow : Window
     private void ShowOptionsForActiveTool()
     {
         var tool = Plan.ActiveTool;
+        RefreshPlaceWallTab();
+        if (tool == PlanTool.Select && Plan.SelectedElements.Count > 0) RefreshContextTab();
         var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof;
         var isSweep = tool is PlanTool.Sweep or PlanTool.Reveal;
 
@@ -1069,6 +1071,14 @@ public partial class MainWindow : Window
     /// </summary>
     private void RefreshContextTab(bool bringForward = true)
     {
+        // While walls are being placed, the Place Wall tab is the one to have: the walls just
+        // placed are selected, but it is not them being edited.
+        if (Plan.ActiveTool == PlanTool.Wall)
+        {
+            ContextTab.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         var selected = Plan.SelectedElements;
 
         if (selected.Count == 0)
@@ -2197,6 +2207,7 @@ public partial class MainWindow : Window
         var shape = (WallShape)Math.Max(0, WallShapePicker.SelectedIndex);
         Plan.DrawShape = shape;
         PolygonOptions.Visibility = shape == WallShape.Polygon ? Visibility.Visible : Visibility.Collapsed;
+        SyncWallShapeButtons();
 
         StatusHint.Text = shape switch
         {
@@ -2216,12 +2227,81 @@ public partial class MainWindow : Window
         };
     }
 
+    // ---- the Place Wall tab --------------------------------------------------------------
+
+    /// <summary>The tab that was open before the Wall tool brought up Place Wall, to go back to.</summary>
+    private TabItem? _tabBeforePlaceWall;
+
+    /// <summary>
+    /// Shows "Modify | Place Wall" while the Wall tool is on, as Revit does: the shapes to draw
+    /// with, placing by segment or by room, and joining - all at hand rather than at the far end
+    /// of the option bar.
+    /// </summary>
+    private void RefreshPlaceWallTab()
+    {
+        if (Plan.ActiveTool == PlanTool.Wall)
+        {
+            if (PlaceWallTab.Visibility != Visibility.Visible)
+            {
+                _tabBeforePlaceWall = Ribbon.SelectedItem as TabItem;
+                PlaceWallTab.Visibility = Visibility.Visible;
+            }
+
+            ContextTab.Visibility = Visibility.Collapsed;
+            Ribbon.SelectedItem = PlaceWallTab;
+            SyncWallShapeButtons();
+            return;
+        }
+
+        if (PlaceWallTab.Visibility != Visibility.Visible) return;
+
+        var wasOpen = ReferenceEquals(Ribbon.SelectedItem, PlaceWallTab);
+        PlaceWallTab.Visibility = Visibility.Collapsed;
+        if (wasOpen)
+            Ribbon.SelectedItem = _tabBeforePlaceWall is { Visibility: Visibility.Visible } before && !ReferenceEquals(before, PlaceWallTab)
+                ? before
+                : Ribbon.Items[0];
+    }
+
+    private IEnumerable<RadioButton> WallShapeButtons() => new[]
+    {
+        ShapeLine, ShapeArc, ShapePick, ShapeRectangle, ShapePolygon, ShapeCircle, ShapeOval, ShapeEllipse,
+        ShapePartialEllipse, ShapeSpline, ShapeFreehand, ShapeBySegment, ShapeByRoom
+    };
+
+    /// <summary>The shape buttons on the tab show the shape the option bar has.</summary>
+    private void SyncWallShapeButtons()
+    {
+        var shape = Plan.DrawShape.ToString();
+        foreach (var button in WallShapeButtons()) button.IsChecked = (button.CommandParameter as string) == shape;
+    }
+
+    private void OnPlaceWallShape(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton { CommandParameter: string name } && Enum.TryParse<WallShape>(name, out var shape))
+            WallShapePicker.SelectedIndex = (int)shape;
+
+        Plan.Focus();
+    }
+
+    private void OnPlaceWallJoinChanged(object sender, RoutedEventArgs e)
+    {
+        AutoJoinBox.IsChecked = PlaceAutoJoin.IsChecked == true;
+        LockJoinBox.IsChecked = PlaceLock.IsChecked == true;
+        OnAutoJoinChanged(sender, e);
+        Plan.Focus();
+    }
+
     /// <summary>Auto Join, and Lock with it: Lock means nothing unless walls are joined.</summary>
     private void OnAutoJoinChanged(object sender, RoutedEventArgs e)
     {
         Plan.AutoJoinWalls = AutoJoinBox.IsChecked == true;
         LockJoinBox.IsEnabled = Plan.AutoJoinWalls;
         Plan.LockJoinedWalls = Plan.AutoJoinWalls && LockJoinBox.IsChecked == true;
+        PlaceAutoJoin.IsChecked = Plan.AutoJoinWalls;
+        PlaceLock.IsEnabled = Plan.AutoJoinWalls;
+        PlaceLock.IsChecked = LockJoinBox.IsChecked = Plan.LockJoinedWalls;
+
         StatusHint.Text = !Plan.AutoJoinWalls ? "New walls are not joined to the walls they lie against."
             : Plan.LockJoinedWalls ? "Auto Join and Lock: new walls against others are joined, and move with them."
             : "Auto Join: new walls against others are joined, so doors and windows cut through both.";
