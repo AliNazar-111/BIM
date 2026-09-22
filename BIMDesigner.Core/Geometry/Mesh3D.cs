@@ -174,6 +174,87 @@ public sealed class Mesh3D
         }
     }
 
+    /// <summary>
+    /// Takes out the edges that are only where two of this mesh's blocks meet flush.
+    ///
+    /// A wall with a window in it is built as blocks - beside the window, under the sill,
+    /// over the head - and each block records its own outline. Where two blocks touch, both
+    /// record the same line, and drawn it cuts across what is one flat face of wall. A real
+    /// edge - the corner of the reveal, the top of the wall - belongs to one block only. So:
+    /// an edge recorded twice is a seam and goes; a vertical corner goes wherever two blocks'
+    /// corners overlap, and stays where only one block has it.
+    /// </summary>
+    public void RemoveSeams()
+    {
+        const double tolerance = 1e-3;
+        static long Round(double value) => (long)Math.Round(value / tolerance);
+
+        var verticals = new Dictionary<(long X, long Y), (Point3D At, List<(double Low, double High)> Spans)>();
+        var others = new Dictionary<((long, long, long), (long, long, long)), ((Point3D From, Point3D To) Edge, int Count)>();
+
+        foreach (var (from, to) in _edges)
+        {
+            if (Math.Abs(from.X - to.X) < tolerance && Math.Abs(from.Y - to.Y) < tolerance)
+            {
+                var key = (Round(from.X), Round(from.Y));
+                if (!verticals.TryGetValue(key, out var entry))
+                {
+                    entry = (from, new List<(double, double)>());
+                    verticals[key] = entry;
+                }
+
+                entry.Spans.Add((Math.Min(from.Z, to.Z), Math.Max(from.Z, to.Z)));
+                continue;
+            }
+
+            var a = (Round(from.X), Round(from.Y), Round(from.Z));
+            var b = (Round(to.X), Round(to.Y), Round(to.Z));
+            var pair = a.CompareTo(b) <= 0 ? (a, b) : (b, a);
+            others[pair] = others.TryGetValue(pair, out var seen) ? (seen.Edge, seen.Count + 1) : ((from, to), 1);
+        }
+
+        var kept = others.Values.Where(e => e.Count == 1).Select(e => e.Edge).ToList();
+
+        foreach (var (at, spans) in verticals.Values)
+        {
+            var heights = spans.SelectMany(s => new[] { s.Low, s.High }).Distinct().OrderBy(z => z).ToList();
+            double? runStart = null;
+            var runEnd = 0.0;
+
+            for (var i = 0; i + 1 < heights.Count; i++)
+            {
+                var (low, high) = (heights[i], heights[i + 1]);
+                if (high - low <= tolerance) continue;
+
+                var middle = (low + high) / 2;
+                var covering = spans.Count(s => s.Low <= middle && s.High >= middle);
+
+                if (covering == 1)
+                {
+                    if (runStart is null || Math.Abs(runEnd - low) > tolerance) Flush();
+                    runStart ??= low;
+                    runEnd = high;
+                }
+                else
+                {
+                    Flush();
+                }
+            }
+
+            Flush();
+
+            void Flush()
+            {
+                if (runStart is { } start && runEnd - start > tolerance)
+                    kept.Add((new Point3D(at.X, at.Y, start), new Point3D(at.X, at.Y, runEnd)));
+                runStart = null;
+            }
+        }
+
+        _edges.Clear();
+        _edges.AddRange(kept);
+    }
+
     /// <summary>The smallest box around everything, or null for an empty mesh.</summary>
     public (Point3D Min, Point3D Max)? Bounds()
     {

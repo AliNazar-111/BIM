@@ -32,7 +32,15 @@ public static class ModelMeshBuilder
         foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, wall, meshes);
         foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, slab, meshes);
 
-        return meshes.Where(mesh => !mesh.IsEmpty).ToList();
+        return Finished(meshes);
+    }
+
+    /// <summary>The meshes worth drawing, with the seams between their blocks taken out.</summary>
+    private static IReadOnlyList<Mesh3D> Finished(List<Mesh3D> meshes)
+    {
+        var drawn = meshes.Where(mesh => !mesh.IsEmpty).ToList();
+        foreach (var mesh in drawn) mesh.RemoveSeams();
+        return drawn;
     }
 
     // ---- walls -----------------------------------------------------------------
@@ -42,7 +50,7 @@ public static class ModelMeshBuilder
     {
         var meshes = new List<Mesh3D>();
         AddWall(document, wall, meshes);
-        return meshes.Where(mesh => !mesh.IsEmpty).ToList();
+        return Finished(meshes);
     }
 
     /// <summary>
