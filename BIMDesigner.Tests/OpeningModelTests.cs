@@ -62,7 +62,7 @@ public class OpeningModelTests
     [Fact]
     public void AGlazedDoorHasGlassInIt()
     {
-        var (document, wall, door, _) = WallWith(new DoorType("Glazed", 900, 2100) { PanelMaterial = "Oak, Glazed" });
+        var (document, wall, door, _) = WallWith(new DoorType("Glazed", 900, 2100) { PanelMaterial = "Oak, Glazed", LeafDesign = DoorLeafDesign.Glazed });
         Assert.Contains(MeshesOf(document, wall, door), m => m.Kind == MeshKind.Glazing);
     }
 
@@ -72,10 +72,9 @@ public class OpeningModelTests
         var (document, wall, door, _) = WallWith(new DoorType("Twin", 1800, 2100) { Operation = DoorOperation.Sliding, LeafCount = 2 });
         var leaf = MeshesOf(document, wall, door).Single(m => m.Description == "Door leaf").Bounds()!.Value;
 
-        // One track each side of the centreline, so the leaves can pass: 25 off it, 40 thick,
-        // with a 3 mm panel moulding on each face.
-        Assert.Equal(-48, leaf.Min.Y, precision: 6);
-        Assert.Equal(48, leaf.Max.Y, precision: 6);
+        // One track each side of the centreline, so the leaves can pass: 25 off it, 40 thick.
+        Assert.Equal(-45, leaf.Min.Y, precision: 6);
+        Assert.Equal(45, leaf.Max.Y, precision: 6);
     }
 
     [Fact]

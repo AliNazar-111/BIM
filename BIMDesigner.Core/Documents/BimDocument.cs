@@ -308,6 +308,7 @@ public sealed class BimDocument
             Operation = DoorOperation.Swing,
             LeafCount = 1,
             PanelMaterial = "Timber, Painted",
+            LeafDesign = DoorLeafDesign.Panelled,
             FrameMaterial = "Timber",
             FireRating = "30 min",
             AcousticRating = 29,
@@ -321,6 +322,7 @@ public sealed class BimDocument
             Operation = DoorOperation.DoubleSwing,
             LeafCount = 2,
             PanelMaterial = "Timber, Painted",
+            LeafDesign = DoorLeafDesign.Panelled,
             FrameMaterial = "Timber",
             FireRating = "60 min",
             AcousticRating = 32,
@@ -336,6 +338,7 @@ public sealed class BimDocument
             Operation = DoorOperation.Sliding,
             LeafCount = 2,
             PanelMaterial = "Oak, Glazed",
+            LeafDesign = DoorLeafDesign.Glazed,
             FrameMaterial = "Oak",
             AcousticRating = 26,
             Cost = 720m
@@ -348,9 +351,66 @@ public sealed class BimDocument
             Operation = DoorOperation.Sliding,
             LeafCount = 1,
             PanelMaterial = "Timber, Painted",
+            LeafDesign = DoorLeafDesign.Flush,
             FrameMaterial = "Timber",
             AcousticRating = 24,
             Cost = 410m
+        };
+
+        // The designs door families come in, as Revit's library shows them: a glazed French pair,
+        // a single glazed door with glazing bars, a louvred bi-fold closet door, and a panelled
+        // front door under an arched sunburst light.
+        var frenchDoor = new DoorType("French Double - 1500 x 2100", 1500, 2100)
+        {
+            TypeMark = "D5",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.DoubleSwing,
+            LeafCount = 2,
+            LeafDesign = DoorLeafDesign.FrenchGlazed,
+            GlazingRows = 4,
+            PanelMaterial = "Pine, Glazed",
+            FrameMaterial = "Pine",
+            Function = DoorFunction.Exterior,
+            Cost = 980m
+        };
+
+        var glazedDoor = new DoorType("Single Glazed - 800 x 2100", 800, 2100)
+        {
+            TypeMark = "D6",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.Swing,
+            LeafDesign = DoorLeafDesign.FrenchGlazed,
+            GlazingRows = 4,
+            PanelMaterial = "Pine, Glazed",
+            FrameMaterial = "Pine",
+            Cost = 520m
+        };
+
+        var bifold = new DoorType("Bi-fold Louvred - 1600 x 2100", 1600, 2100)
+        {
+            TypeMark = "D7",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.Folding,
+            LeafCount = 2,
+            LeafDesign = DoorLeafDesign.Louvred,
+            PanelMaterial = "Pine",
+            FrameMaterial = "Pine",
+            Thickness = 60,
+            Cost = 460m
+        };
+
+        var entrance = new DoorType("Entrance Arched Light - 1000 x 2300", 1000, 2300)
+        {
+            TypeMark = "D8",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.Swing,
+            LeafDesign = DoorLeafDesign.ArchedTopLight,
+            PanelMaterial = "Walnut",
+            FrameMaterial = "Walnut",
+            Function = DoorFunction.Exterior,
+            FireRating = "30 min",
+            TrimWidth = 90,
+            Cost = 1450m
         };
 
         var casement = new WindowType("Casement - 1200 x 1200", 1200, 1200)
@@ -508,7 +568,7 @@ public sealed class BimDocument
                      generic, exterior, partition,
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
                      storefront, plainGlass,
-                     singleDoor, doubleDoor, twinSlider, singleSlider, casement, picture,
+                     singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, casement, picture,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof
                  })
         {

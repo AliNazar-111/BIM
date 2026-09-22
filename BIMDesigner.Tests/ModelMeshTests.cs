@@ -323,16 +323,17 @@ public class ModelMeshTests
         };
         document.Add(door);
 
-        // The door - frame, leaf and handles together - fills the doorway exactly.
+        // The door - frame, leaf and handles together - fills the doorway exactly, and its
+        // architrave runs round it on the faces of the wall, its width past the opening.
         var parts = ModelMeshBuilder.Build(document).Where(m => m.ElementId == door.Id).ToList();
         Assert.Contains(parts, m => m.Kind == MeshKind.DoorLeaf && m.Description == "Door leaf");
         var points = parts.SelectMany(m => m.Positions).ToList();
         var bounds = (Min: new Point3D(points.Min(p => p.X), 0, points.Min(p => p.Z)), Max: new Point3D(points.Max(p => p.X), 0, points.Max(p => p.Z)));
 
         Assert.Equal(0, bounds.Min.Z, precision: 6);
-        Assert.Equal(doorType.Height, bounds.Max.Z, precision: 6);
-        Assert.Equal(2550, bounds.Min.X, precision: 6);
-        Assert.Equal(3450, bounds.Max.X, precision: 6);
+        Assert.Equal(doorType.Height + doorType.TrimWidth, bounds.Max.Z, precision: 6);
+        Assert.Equal(2550 - doorType.TrimWidth, bounds.Min.X, precision: 6);
+        Assert.Equal(3450 + doorType.TrimWidth, bounds.Max.X, precision: 6);
     }
 
     // ---- slabs ------------------------------------------------------------------

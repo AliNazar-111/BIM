@@ -249,7 +249,14 @@ public static class ProjectFile
                 Operation = type.Operation.ToString(),
                 LeafCount = type.LeafCount,
                 PanelMaterial = type.PanelMaterial,
-                HardwareSet = type.HardwareSet
+                HardwareSet = type.HardwareSet,
+                LeafDesign = type.LeafDesign.ToString(),
+                GlazingRows = type.GlazingRows,
+                GlazingColumns = type.GlazingColumns,
+                Function = type.Function.ToString(),
+                TrimWidth = type.TrimWidth,
+                TrimProjectionExterior = type.TrimProjectionExterior,
+                TrimProjectionInterior = type.TrimProjectionInterior
             };
 
             WriteOpeningType(doorType, type);
@@ -803,7 +810,18 @@ public static class ProjectFile
                 Operation = ParseEnum(type.Operation, DoorOperation.Swing),
                 LeafCount = type.LeafCount > 0 ? type.LeafCount : 1,
                 PanelMaterial = type.PanelMaterial,
-                HardwareSet = type.HardwareSet
+                HardwareSet = type.HardwareSet,
+
+                // Saved before leaf designs: glass was said in the panel material, panels otherwise.
+                LeafDesign = type.LeafDesign is { } design
+                    ? ParseEnum(design, DoorLeafDesign.Panelled)
+                    : type.PanelMaterial.Contains("glaz", StringComparison.OrdinalIgnoreCase) ? DoorLeafDesign.Glazed : DoorLeafDesign.Panelled,
+                GlazingRows = type.GlazingRows is > 0 and <= 12 ? type.GlazingRows : 4,
+                GlazingColumns = type.GlazingColumns is > 0 and <= 6 ? type.GlazingColumns : 1,
+                Function = ParseEnum(type.Function, DoorFunction.Interior),
+                TrimWidth = type.TrimWidth is >= 0 and var trim ? trim : 70,
+                TrimProjectionExterior = type.TrimProjectionExterior is >= 0 and var outside ? outside : 20,
+                TrimProjectionInterior = type.TrimProjectionInterior is >= 0 and var inside ? inside : 20
             };
 
             ReadOpeningType(doorType, type);

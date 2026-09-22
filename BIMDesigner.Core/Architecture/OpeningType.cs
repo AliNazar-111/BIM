@@ -14,6 +14,30 @@ public enum DoorOperation
     Overhead
 }
 
+/// <summary>
+/// What a door leaf looks like (specification section 3.5, "door types"): the designs door
+/// families come in - a plain flush leaf, raised panels, one pane of glass, glass divided by
+/// glazing bars as a French door, glass over panels, louvres over a panel as a bi-fold closet
+/// door has, or panels under an arched, sunburst top light as a front door has.
+/// </summary>
+public enum DoorLeafDesign
+{
+    Flush,
+    Panelled,
+    Glazed,
+    FrenchGlazed,
+    HalfGlazed,
+    Louvred,
+    ArchedTopLight
+}
+
+/// <summary>Whether a door is inside the building or on its envelope, which is what schedules and energy analysis ask.</summary>
+public enum DoorFunction
+{
+    Interior,
+    Exterior
+}
+
 /// <summary>How a window opens (specification section 3.5).</summary>
 public enum WindowOperation
 {
@@ -93,6 +117,23 @@ public sealed class DoorType : OpeningType
 
     public string HardwareSet { get; set; } = string.Empty;
 
+    /// <summary>What the leaves look like. See <see cref="DoorLeafDesign"/>.</summary>
+    public DoorLeafDesign LeafDesign { get; set; } = DoorLeafDesign.Panelled;
+
+    /// <summary>For glass divided by bars: panes up and across each leaf.</summary>
+    public int GlazingRows { get; set; } = 4;
+
+    public int GlazingColumns { get; set; } = 1;
+
+    public DoorFunction Function { get; set; } = DoorFunction.Interior;
+
+    /// <summary>The architrave round the opening on each face: how wide, and how far it stands off the wall.</summary>
+    public double TrimWidth { get; set; } = 70;
+
+    public double TrimProjectionExterior { get; set; } = 20;
+
+    public double TrimProjectionInterior { get; set; } = 20;
+
     public override IEnumerable<ParameterValue> GetTypeParameters()
     {
         foreach (var parameter in GetOpeningTypeParameters()) yield return parameter;
@@ -106,6 +147,26 @@ public sealed class DoorType : OpeningType
         yield return ParameterValue.Bind(DoorTypeParameters.LeafCount, () => LeafCount, v => { if (v > 0) LeafCount = v; });
         yield return ParameterValue.Bind(DoorTypeParameters.PanelMaterial, () => PanelMaterial, v => PanelMaterial = v);
         yield return ParameterValue.Bind(DoorTypeParameters.HardwareSet, () => HardwareSet, v => HardwareSet = v);
+
+        yield return ParameterValue.BindChoice(
+            DoorTypeParameters.LeafDesign,
+            () => EnumText.Humanise(LeafDesign),
+            v => { if (EnumText.TryParse<DoorLeafDesign>(v, out var d)) LeafDesign = d; },
+            EnumText.Choices<DoorLeafDesign>());
+        yield return ParameterValue.Bind(DoorTypeParameters.GlazingRows, () => GlazingRows, v => { if (v is > 0 and <= 12) GlazingRows = v; });
+        yield return ParameterValue.Bind(DoorTypeParameters.GlazingColumns, () => GlazingColumns, v => { if (v is > 0 and <= 6) GlazingColumns = v; });
+        yield return ParameterValue.BindChoice(
+            DoorTypeParameters.Function,
+            () => EnumText.Humanise(Function),
+            v => { if (EnumText.TryParse<DoorFunction>(v, out var f)) Function = f; },
+            EnumText.Choices<DoorFunction>());
+        yield return ParameterValue.Bind(DoorTypeParameters.TrimWidth, () => TrimWidth, v => { if (v >= 0) TrimWidth = v; });
+        yield return ParameterValue.Bind(DoorTypeParameters.TrimProjectionExterior, () => TrimProjectionExterior, v => { if (v >= 0) TrimProjectionExterior = v; });
+        yield return ParameterValue.Bind(DoorTypeParameters.TrimProjectionInterior, () => TrimProjectionInterior, v => { if (v >= 0) TrimProjectionInterior = v; });
+
+        // The hole the wall is left with, for ordering and export: the opening, as it is here.
+        yield return ParameterValue.ReadOnly(DoorTypeParameters.RoughWidth, () => Width);
+        yield return ParameterValue.ReadOnly(DoorTypeParameters.RoughHeight, () => Height);
     }
 }
 
@@ -179,6 +240,33 @@ public static class DoorTypeParameters
 
     public static readonly ParameterDefinition HardwareSet =
         new("Hardware Set", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LeafDesign =
+        new("Leaf Design", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition GlazingRows =
+        new("Glazing Rows", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition GlazingColumns =
+        new("Glazing Columns", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Function =
+        new("Function", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition TrimWidth =
+        new("Trim Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition TrimProjectionExterior =
+        new("Trim Projection Ext", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition TrimProjectionInterior =
+        new("Trim Projection Int", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition RoughWidth =
+        new("Rough Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition RoughHeight =
+        new("Rough Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
 }
 
 public static class WindowTypeParameters

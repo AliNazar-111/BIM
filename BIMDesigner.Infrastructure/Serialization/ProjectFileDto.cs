@@ -490,6 +490,15 @@ internal sealed class DoorTypeDto : OpeningTypeDto
     public int LeafCount { get; set; } = 1;
     public string PanelMaterial { get; set; } = string.Empty;
     public string HardwareSet { get; set; } = string.Empty;
+
+    /// <summary>The leaf design, and the glazing and trim it is drawn with. Absent in projects saved before designs.</summary>
+    public string? LeafDesign { get; set; }
+    public int GlazingRows { get; set; }
+    public int GlazingColumns { get; set; }
+    public string? Function { get; set; }
+    public double? TrimWidth { get; set; }
+    public double? TrimProjectionExterior { get; set; }
+    public double? TrimProjectionInterior { get; set; }
 }
 
 internal sealed class WindowTypeDto : OpeningTypeDto
