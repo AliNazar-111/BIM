@@ -37,6 +37,7 @@ public partial class WallTypesWindow : Window
 
     private WallType? _editing;
     private StackedWallType? _stacked;
+    private CurtainWallType? _curtain;
     private bool _loading;
     private bool _dirty;
 
@@ -54,11 +55,22 @@ public partial class WallTypesWindow : Window
             .Select(wrapping => EnumText.Humanise(wrapping))
             .ToList();
 
+        CurtainFunctionPicker.ItemsSource = EnumText.Choices<WallFunction>();
+        VerticalLayoutPicker.ItemsSource = EnumText.Choices<CurtainGridLayout>();
+        HorizontalLayoutPicker.ItemsSource = EnumText.Choices<CurtainGridLayout>();
+        VerticalJustificationPicker.ItemsSource = EnumText.Choices<CurtainGridJustification>();
+        HorizontalJustificationPicker.ItemsSource = EnumText.Choices<CurtainGridJustification>();
+        MullionProfilePicker.ItemsSource = EnumText.Choices<MullionProfile>();
+        var materials = _document.Materials.OrderBy(m => m.Name).ToList();
+        GlassPicker.ItemsSource = materials;
+        SolidPicker.ItemsSource = materials;
+        MullionMaterialPicker.ItemsSource = materials;
+
         LayerGrid.ItemsSource = _rows;
         TierGrid.ItemsSource = _tiers;
         SweepGrid.ItemsSource = _sweeps;
 
-        ShowTypes(start is WallType or StackedWallType
+        ShowTypes(start is WallType or StackedWallType or CurtainWallType
             ? start
             : _document.TypesOf<WallType>().OrderBy(t => t.Name).FirstOrDefault());
     }
@@ -73,7 +85,7 @@ public partial class WallTypesWindow : Window
     private TierDraftRow? SelectedTier => TierGrid.SelectedItem as TierDraftRow;
 
     /// <summary>The type being edited, whichever kind it is.</summary>
-    private ElementType? Current => (ElementType?)_editing ?? _stacked;
+    private ElementType? Current => (ElementType?)_editing ?? (ElementType?)_stacked ?? _curtain;
 
     // ---- the list of types ----------------------------------------------------------
 
@@ -86,11 +98,12 @@ public partial class WallTypesWindow : Window
         }
 
         var items = _document.ElementTypes
-            .Where(type => type is WallType or StackedWallType)
+            .Where(type => type is WallType or StackedWallType or CurtainWallType)
             .OrderBy(type => type.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(type => type switch
             {
                 StackedWallType stacked => new TypeItem(type, type.Name, $"Stacked, {stacked.Tiers.Count} tiers  ·  {Walls(type)}"),
+                CurtainWallType curtain => new TypeItem(type, type.Name, $"Curtain, {Units.FormatLength(curtain.Width)}  ·  {Walls(type)}"),
                 WallType wall => new TypeItem(type, type.Name, $"{Units.FormatLength(wall.Width)}  ·  {Walls(type)}"),
                 _ => new TypeItem(type, type.Name, string.Empty)
             })
@@ -131,6 +144,7 @@ public partial class WallTypesWindow : Window
         ElementType copy = source switch
         {
             StackedWallType stacked => stacked.Duplicate(name),
+            CurtainWallType curtain => curtain.Duplicate(name),
             WallType wall => wall.Duplicate(name),
             _ => throw new InvalidOperationException("Only wall types are listed here.")
         };
@@ -141,7 +155,7 @@ public partial class WallTypesWindow : Window
         ShowTypes(copy);
 
         // A duplicate is made to be changed, and the first change is nearly always its name.
-        var nameBox = copy is StackedWallType ? StackNameBox : NameBox;
+        var nameBox = copy switch { StackedWallType => StackNameBox, CurtainWallType => CurtainNameBox, _ => NameBox };
         nameBox.Focus();
         nameBox.SelectAll();
     }
@@ -210,6 +224,7 @@ public partial class WallTypesWindow : Window
     {
         _editing = type as WallType;
         _stacked = type as StackedWallType;
+        _curtain = type as CurtainWallType;
         _loading = true;
 
         foreach (var row in _rows) row.Edited -= OnRowEdited;
@@ -219,8 +234,9 @@ public partial class WallTypesWindow : Window
         foreach (var sweep in _sweeps) sweep.Edited -= OnRowEdited;
         _sweeps.Clear();
 
-        LayeredPanel.Visibility = _stacked is null ? Visibility.Visible : Visibility.Collapsed;
+        LayeredPanel.Visibility = _stacked is null && _curtain is null ? Visibility.Visible : Visibility.Collapsed;
         StackedPanel.Visibility = _stacked is null ? Visibility.Collapsed : Visibility.Visible;
+        CurtainPanel.Visibility = _curtain is null ? Visibility.Collapsed : Visibility.Visible;
 
         if (_editing is { } wall)
         {
@@ -238,6 +254,10 @@ public partial class WallTypesWindow : Window
 
             // Shown top first: a wall is read from the top down, the way it is drawn in section.
             foreach (var tier in Enumerable.Reverse(stacked.Tiers)) AddTier(new TierDraftRow(_document, tier));
+        }
+        else if (_curtain is { } curtain)
+        {
+            ShowCurtain(curtain);
         }
         else
         {
@@ -315,6 +335,19 @@ public partial class WallTypesWindow : Window
 
     private string? Problem()
     {
+        if (_curtain is { } curtainType)
+        {
+            var name = CurtainNameBox.Text.Trim();
+            if (name.Length == 0) return "The type needs a name.";
+            if (_document.ElementTypes.Any(type => !ReferenceEquals(type, curtainType) &&
+                                                   string.Equals(type.Name, name, StringComparison.OrdinalIgnoreCase)))
+                return $"Another type is already called {name}.";
+
+            return CurtainDesign() is { } curtainDesign
+                ? curtainDesign.Problem()
+                : "Every spacing, thickness and size needs a length, such as 1500 or 1.5 m, and every number of panels a whole number.";
+        }
+
         if (_stacked is { } stacked)
         {
             var name = StackNameBox.Text.Trim();
@@ -339,7 +372,11 @@ public partial class WallTypesWindow : Window
     /// <summary>Brings the markers, the previews, the width and the buttons up to date.</summary>
     private void UpdateState()
     {
-        if (_stacked is not null)
+        if (_curtain is not null)
+        {
+            CurtainPreview.Show(CurtainDesign());
+        }
+        else if (_stacked is not null)
         {
             if (Tiers() is { } tiers) StackPreview.Show(_document, tiers);
 
@@ -529,6 +566,103 @@ public partial class WallTypesWindow : Window
         MarkChanged();
     }
 
+    // ---- curtain types --------------------------------------------------------------
+
+    /// <summary>A new curtain type to start from: the first one in the project, or a framed storefront.</summary>
+    private void OnNewCurtain(object sender, RoutedEventArgs e)
+    {
+        if (!SettlePendingChanges()) return;
+
+        var name = TypeNames.Unique(_document, "Curtain Wall");
+        var curtain = _document.TypesOf<CurtainWallType>().OrderBy(t => t.Name).FirstOrDefault()?.Duplicate(name)
+                      ?? new CurtainWallType(name)
+                      {
+                          GlassMaterialId = MaterialLike("Glass"),
+                          SolidMaterialId = MaterialLike("Panel"),
+                          MullionMaterialId = MaterialLike("Alumin")
+                      };
+
+        _history.Execute(new AddTypeCommand(_document, curtain));
+        Changed?.Invoke(this, EventArgs.Empty);
+
+        ShowTypes(curtain);
+        CurtainNameBox.Focus();
+        CurtainNameBox.SelectAll();
+    }
+
+    /// <summary>A material whose name contains the word, or the first one there is.</summary>
+    private Guid MaterialLike(string word) =>
+        (_document.Materials.FirstOrDefault(m => m.Name.Contains(word, StringComparison.OrdinalIgnoreCase))
+         ?? _document.Materials.OrderBy(m => m.Name).First()).Id;
+
+    private void ShowCurtain(CurtainWallType curtain)
+    {
+        CurtainNameBox.Text = curtain.Name;
+        CurtainFunctionPicker.SelectedItem = EnumText.Humanise(curtain.Function);
+        VerticalLayoutPicker.SelectedItem = EnumText.Humanise(curtain.VerticalLayout);
+        HorizontalLayoutPicker.SelectedItem = EnumText.Humanise(curtain.HorizontalLayout);
+        VerticalSpacingBox.Text = Units.FormatLength(curtain.VerticalSpacing);
+        HorizontalSpacingBox.Text = Units.FormatLength(curtain.HorizontalSpacing);
+        VerticalCountBox.Text = curtain.VerticalCount.ToString();
+        HorizontalCountBox.Text = curtain.HorizontalCount.ToString();
+        VerticalJustificationPicker.SelectedItem = EnumText.Humanise(curtain.VerticalJustification);
+        HorizontalJustificationPicker.SelectedItem = EnumText.Humanise(curtain.HorizontalJustification);
+        PanelThicknessBox.Text = Units.FormatLength(curtain.PanelThickness);
+        GlassPicker.SelectedValue = curtain.GlassMaterialId;
+        SolidPicker.SelectedValue = curtain.SolidMaterialId;
+        MullionProfilePicker.SelectedItem = EnumText.Humanise(curtain.MullionProfile);
+        MullionWidthBox.Text = Units.FormatLength(curtain.MullionWidth);
+        MullionDepthBox.Text = Units.FormatLength(curtain.MullionDepth);
+        MullionMaterialPicker.SelectedValue = curtain.MullionMaterialId;
+        BorderMullionsBox.IsChecked = curtain.BorderMullions;
+        EmbedBox.IsChecked = curtain.AutomaticallyEmbed;
+    }
+
+    /// <summary>The curtain type as it stands in the editor, detached from the model, or null while a value will not read.</summary>
+    private CurtainWallType? CurtainDesign()
+    {
+        if (_curtain is null) return null;
+
+        static double? Length(TextBox box) =>
+            ParameterFormatter.TryParse(ParameterDataType.Length, box.Text, out var value) && value is double millimetres
+                ? millimetres
+                : null;
+
+        static int? Count(TextBox box) => int.TryParse(box.Text.Trim(), out var n) ? n : null;
+
+        T Choice<T>(ComboBox picker, T fallback) where T : struct, Enum =>
+            EnumText.TryParse<T>(picker.SelectedItem as string, out var value) ? value : fallback;
+
+        if (Length(VerticalSpacingBox) is not { } verticalSpacing || Length(HorizontalSpacingBox) is not { } horizontalSpacing ||
+            Count(VerticalCountBox) is not { } verticalCount || Count(HorizontalCountBox) is not { } horizontalCount ||
+            Length(PanelThicknessBox) is not { } thickness || Length(MullionWidthBox) is not { } mullionWidth ||
+            Length(MullionDepthBox) is not { } mullionDepth)
+        {
+            return null;
+        }
+
+        var design = _curtain.Duplicate(CurtainNameBox.Text.Trim());
+        design.Function = Choice(CurtainFunctionPicker, _curtain.Function);
+        design.VerticalLayout = Choice(VerticalLayoutPicker, _curtain.VerticalLayout);
+        design.HorizontalLayout = Choice(HorizontalLayoutPicker, _curtain.HorizontalLayout);
+        design.VerticalSpacing = verticalSpacing;
+        design.HorizontalSpacing = horizontalSpacing;
+        design.VerticalCount = verticalCount;
+        design.HorizontalCount = horizontalCount;
+        design.VerticalJustification = Choice(VerticalJustificationPicker, _curtain.VerticalJustification);
+        design.HorizontalJustification = Choice(HorizontalJustificationPicker, _curtain.HorizontalJustification);
+        design.PanelThickness = thickness;
+        design.MullionProfile = Choice(MullionProfilePicker, _curtain.MullionProfile);
+        design.MullionWidth = mullionWidth;
+        design.MullionDepth = mullionDepth;
+        design.BorderMullions = BorderMullionsBox.IsChecked == true;
+        design.AutomaticallyEmbed = EmbedBox.IsChecked == true;
+        if (GlassPicker.SelectedValue is Guid glass) design.GlassMaterialId = glass;
+        if (SolidPicker.SelectedValue is Guid solid) design.SolidMaterialId = solid;
+        if (MullionMaterialPicker.SelectedValue is Guid metal) design.MullionMaterialId = metal;
+        return design;
+    }
+
     // ---- applying -------------------------------------------------------------------
 
     private bool Apply()
@@ -541,7 +675,9 @@ public partial class WallTypesWindow : Window
             return false;
         }
 
-        if (_stacked is { } stacked)
+        if (_curtain is { } curtainType)
+            _history.Execute(new EditCurtainWallTypeCommand(curtainType, CurtainDesign()!));
+        else if (_stacked is { } stacked)
             _history.Execute(new EditStackedWallTypeCommand(stacked, StackNameBox.Text, Tiers()!));
         else
             _history.Execute(new EditWallTypeCommand(_editing!, Design()!));

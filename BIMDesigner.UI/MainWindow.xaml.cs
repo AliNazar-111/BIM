@@ -903,6 +903,24 @@ public partial class MainWindow : Window
         StatusHint.Text = "Detached. The walls keep their own constraints again.";
     }
 
+    private void OnEditCurtainGrid(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements.OfType<Wall>().ToList() is not [var wall] || !_document.IsCurtainWall(wall))
+        {
+            StatusHint.Text = "Select one curtain wall to edit its grid.";
+            return;
+        }
+
+        var dialog = new EditCurtainGridWindow(_document, wall) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        _history.Execute(new SetCurtainLayoutCommand(wall, dialog.ResultGrid, dialog.ResultPanels));
+        AfterHistoryChange();
+        StatusHint.Text = dialog.ResultGrid is null
+            ? "Panels set. The grid still follows the wall type."
+            : "Grid and panels set on this wall.";
+    }
+
     private void OnEditProfile(object sender, RoutedEventArgs e)
     {
         if (Plan.SelectedElements.OfType<Wall>().ToList() is not [var wall])
@@ -977,10 +995,10 @@ public partial class MainWindow : Window
 
     // ---- wall types --------------------------------------------------------------------
 
-    /// <summary>What the wall tool can build: every layered and stacked wall type, by name.</summary>
+    /// <summary>What the wall tool can build: every layered, stacked and curtain wall type, by name.</summary>
     private List<ElementType> WallTypeChoices() =>
         _document.ElementTypes
-            .Where(type => type is WallType or StackedWallType)
+            .Where(type => type is WallType or StackedWallType or CurtainWallType)
             .OrderBy(type => type.Name)
             .ToList();
 
@@ -1075,7 +1093,7 @@ public partial class MainWindow : Window
         };
 
         StructureCaption.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
-        EditTypeButton.Visibility = type is WallType or StackedWallType ? Visibility.Visible : Visibility.Collapsed;
+        EditTypeButton.Visibility = type is WallType or StackedWallType or CurtainWallType ? Visibility.Visible : Visibility.Collapsed;
         StructureHint.Visibility = layers is null ? Visibility.Collapsed : Visibility.Visible;
         StructureHint.Text = type is SlabType
             ? "Upper surface down."

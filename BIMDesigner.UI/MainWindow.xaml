@@ -228,6 +228,8 @@
                 <Separator/>
                 <MenuItem Header="Edit Wall _Profile..." Click="OnEditProfile"
                           ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
+                <MenuItem Header="Edit _Curtain Grid..." Click="OnEditCurtainGrid"
+                          ToolTip="Add, move or delete the grid lines of the selected curtain wall, and make panels solid, empty or doors"/>
             </MenuItem>
             <MenuItem Header="_Structure" IsEnabled="False"/>
             <MenuItem Header="_Help" IsEnabled="False"/>

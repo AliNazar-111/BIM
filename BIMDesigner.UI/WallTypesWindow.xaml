@@ -63,14 +63,16 @@
             <DockPanel Grid.Column="0">
                 <TextBlock DockPanel.Dock="Top" Text="WALL TYPES" Style="{StaticResource Caption}"/>
 
-                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
-                    <Button Content="Duplicate" Padding="12,5" Margin="0,0,8,0" Click="OnDuplicate"
+                <WrapPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                    <Button Content="Duplicate" Padding="12,5" Margin="0,0,8,8" Click="OnDuplicate"
                             ToolTip="A new type starting from this one, to change without touching its walls"/>
-                    <Button Content="New Stacked" Padding="12,5" Margin="0,0,8,0" Click="OnNewStacked"
-                            ToolTip="A wall of other wall types one above another"/>
-                    <Button x:Name="DeleteButton" Content="Delete" Padding="12,5" Click="OnDelete"
+                    <Button x:Name="DeleteButton" Content="Delete" Padding="12,5" Margin="0,0,8,8" Click="OnDelete"
                             ToolTip="Only a type no wall uses can be deleted"/>
-                </StackPanel>
+                    <Button Content="New Stacked" Padding="12,5" Margin="0,0,8,8" Click="OnNewStacked"
+                            ToolTip="A wall of other wall types one above another"/>
+                    <Button Content="New Curtain" Padding="12,5" Margin="0,0,8,8" Click="OnNewCurtain"
+                            ToolTip="A wall of glass panels held in mullions"/>
+                </WrapPanel>
 
                 <ListBox x:Name="TypeList" Margin="0,8,0,0" SelectionChanged="OnTypeSelected"
                          Background="{StaticResource Bg.Panel}" BorderBrush="{StaticResource Line}"
@@ -384,6 +386,116 @@
                         </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
+            </DockPanel>
+
+            <!-- A curtain wall type: its grid, panels and mullions -->
+            <DockPanel x:Name="CurtainPanel" Grid.Column="2" Visibility="Collapsed">
+                <controls:CurtainWallPreview x:Name="CurtainPreview" DockPanel.Dock="Bottom" Height="190" Margin="0,12,0,0"/>
+
+                <Grid DockPanel.Dock="Top">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="24"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="6"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="6"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="6"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="CurtainNameBox" Grid.Column="1" Grid.ColumnSpan="4" TextChanged="OnDesignChanged"/>
+
+                    <TextBlock Grid.Row="2" Text="Function" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="CurtainFunctionPicker" Grid.Row="2" Grid.Column="1" SelectionChanged="OnDesignChanged"/>
+
+                    <!-- Grid lines -->
+                    <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="VERTICAL GRID  (ALONG THE WALL)" Style="{StaticResource Caption}"/>
+                    <TextBlock Grid.Row="4" Grid.Column="3" Grid.ColumnSpan="2" Text="HORIZONTAL GRID  (UP THE WALL)" Style="{StaticResource Caption}"/>
+
+                    <TextBlock Grid.Row="6" Text="Layout" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="VerticalLayoutPicker" Grid.Row="6" Grid.Column="1" SelectionChanged="OnDesignChanged"/>
+                    <TextBlock Grid.Row="6" Grid.Column="3" Text="Layout" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="HorizontalLayoutPicker" Grid.Row="6" Grid.Column="4" SelectionChanged="OnDesignChanged"/>
+
+                    <TextBlock Grid.Row="8" Text="Spacing" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal">
+                        <TextBox x:Name="VerticalSpacingBox" Width="90" TextChanged="OnDesignChanged"
+                                 ToolTip="Between lines for a fixed distance; the widest a panel may be for a maximum spacing"/>
+                        <TextBlock Text="Panels" Style="{StaticResource FieldLabel}" Margin="12,0,8,0"/>
+                        <TextBox x:Name="VerticalCountBox" Width="44" TextChanged="OnDesignChanged"
+                                 ToolTip="How many equal panels along the wall, for a fixed number"/>
+                    </StackPanel>
+                    <TextBlock Grid.Row="8" Grid.Column="3" Text="Spacing" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="8" Grid.Column="4" Orientation="Horizontal">
+                        <TextBox x:Name="HorizontalSpacingBox" Width="90" TextChanged="OnDesignChanged"/>
+                        <TextBlock Text="Panels" Style="{StaticResource FieldLabel}" Margin="12,0,8,0"/>
+                        <TextBox x:Name="HorizontalCountBox" Width="44" TextChanged="OnDesignChanged"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="10" Text="Start from" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="VerticalJustificationPicker" Grid.Row="10" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="For a fixed distance: which end the lines are measured from, which is where the odd-sized panel goes"/>
+                    <TextBlock Grid.Row="10" Grid.Column="3" Text="Start from" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="HorizontalJustificationPicker" Grid.Row="10" Grid.Column="4" SelectionChanged="OnDesignChanged"/>
+
+                    <!-- Panels -->
+                    <TextBlock Grid.Row="12" Grid.ColumnSpan="2" Text="PANELS" Style="{StaticResource Caption}"/>
+                    <TextBlock Grid.Row="12" Grid.Column="3" Grid.ColumnSpan="2" Text="MULLIONS" Style="{StaticResource Caption}"/>
+
+                    <TextBlock Grid.Row="14" Text="Thickness" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="PanelThicknessBox" Grid.Row="14" Grid.Column="1" Width="90" HorizontalAlignment="Left" TextChanged="OnDesignChanged"/>
+                    <TextBlock Grid.Row="14" Grid.Column="3" Text="Profile" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="14" Grid.Column="4" Orientation="Horizontal">
+                        <ComboBox x:Name="MullionProfilePicker" Width="120" SelectionChanged="OnDesignChanged"/>
+                        <CheckBox x:Name="BorderMullionsBox" Content="Border mullions" Margin="12,0,0,0" VerticalAlignment="Center"
+                                  Checked="OnDesignChanged" Unchecked="OnDesignChanged"
+                                  ToolTip="Frame the ends, top and bottom of the wall as well as the lines between panels"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="16" Text="Glass" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="GlassPicker" Grid.Row="16" Grid.Column="1" DisplayMemberPath="Name" SelectedValuePath="Id"
+                              SelectionChanged="OnDesignChanged"/>
+                    <TextBlock Grid.Row="16" Grid.Column="3" Text="Size" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="16" Grid.Column="4" Orientation="Horizontal">
+                        <TextBox x:Name="MullionWidthBox" Width="70" TextChanged="OnDesignChanged"
+                                 ToolTip="Width seen face-on, or the diameter of a round mullion. 0 for no mullions"/>
+                        <TextBlock Text="by" Style="{StaticResource FieldLabel}" Margin="8,0,8,0"/>
+                        <TextBox x:Name="MullionDepthBox" Width="70" TextChanged="OnDesignChanged"
+                                 ToolTip="How deep a rectangular mullion is through the wall"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="18" Text="Solid panel" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="SolidPicker" Grid.Row="18" Grid.Column="1" DisplayMemberPath="Name" SelectedValuePath="Id"
+                              SelectionChanged="OnDesignChanged"/>
+                    <TextBlock Grid.Row="18" Grid.Column="3" Text="Material" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="MullionMaterialPicker" Grid.Row="18" Grid.Column="4" DisplayMemberPath="Name" SelectedValuePath="Id"
+                              SelectionChanged="OnDesignChanged"/>
+
+                    <CheckBox x:Name="EmbedBox" Grid.Row="20" Grid.ColumnSpan="5" Content="Automatically embed: drawn inside another wall, cut an opening in it"
+                              Checked="OnDesignChanged" Unchecked="OnDesignChanged"/>
+                </Grid>
             </DockPanel>
         </Grid>
         </ScrollViewer>
