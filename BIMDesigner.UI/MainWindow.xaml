@@ -146,8 +146,8 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>   <!-- menu -->
-            <RowDefinition Height="Auto"/>   <!-- toolbar -->
+            <RowDefinition Height="Auto"/>   <!-- quick access -->
+            <RowDefinition Height="Auto"/>   <!-- ribbon -->
             <RowDefinition Height="Auto"/>   <!-- options bar -->
             <RowDefinition Height="*"/>      <!-- workspace -->
             <RowDefinition Height="Auto"/>   <!-- schedule splitter -->
@@ -155,151 +155,296 @@
             <RowDefinition Height="Auto"/>   <!-- status bar -->
         </Grid.RowDefinitions>
 
-        <!-- ============================ MENU ============================ -->
-        <Menu Grid.Row="0" Padding="5,3">
-            <MenuItem Header="_File">
-                <MenuItem Header="_New Project" Command="New"/>
-                <MenuItem Header="_Open Project..." Command="Open"/>
-                <Separator/>
-                <MenuItem Header="_Save" Command="Save"/>
-                <MenuItem Header="Save _As..." Command="SaveAs" InputGestureText="Ctrl+Shift+S"/>
-                <Separator/>
-                <MenuItem Header="Export _IFC..." Click="OnExportIfc"/>
-                <Separator/>
-                <MenuItem Header="_Export This Sheet to PDF..." Click="OnExportSheetPdf"/>
-                <MenuItem Header="Export _Drawing Set to PDF..." Click="OnExportDrawingSetPdf"/>
-                <MenuItem Header="_Print..." Click="OnPrintSheets" InputGestureText="Ctrl+P"/>
-                <Separator/>
-                <MenuItem Header="E_xit" Click="OnExit"/>
-            </MenuItem>
-            <MenuItem Header="_Edit">
-                <MenuItem x:Name="UndoItem" Header="_Undo" Command="Undo"/>
-                <MenuItem x:Name="RedoItem" Header="_Redo" Command="Redo"/>
-                <Separator/>
-                <MenuItem Header="_Copy" Click="OnCopy" InputGestureText="Ctrl+C"/>
-                <MenuItem Header="_Paste" Click="OnPaste" InputGestureText="Ctrl+V"/>
-                <MenuItem Header="Paste in Pl_ace" Click="OnPasteInPlace" InputGestureText="Ctrl+Shift+V"/>
-                <Separator/>
-                <MenuItem Header="Select _All on Level" Click="OnSelectAll" InputGestureText="Ctrl+A"/>
-                <MenuItem Header="_Delete" Command="Delete" InputGestureText="Del"/>
-            </MenuItem>
-            <MenuItem Header="_View">
-                <MenuItem Header="Zoom to _Fit" Click="OnZoomToFit" InputGestureText="F"/>
-                <Separator/>
-                <MenuItem Header="_Levels..." Click="OnManageLevels"/>
-                <MenuItem x:Name="UnderlayMenuItem" Header="Show Storey _Below" IsCheckable="True"
-                          IsChecked="True" Click="OnToggleUnderlay"/>
-                <Separator/>
-                <MenuItem x:Name="SectionMenuItem" Header="Se_ction View" IsCheckable="True"
-                          Click="OnToggleSection"/>
-                <MenuItem x:Name="SheetMenuItem" Header="S_heet" IsCheckable="True"
-                          Click="OnToggleSheet" InputGestureText="Ctrl+H"/>
-                <MenuItem x:Name="ModelMenuItem" Header="_3D View" IsCheckable="True"
-                          Click="OnToggle3D" InputGestureText="Ctrl+3"/>
-                <MenuItem x:Name="ScheduleMenuItem" Header="_Schedules" IsCheckable="True"
-                          Click="OnToggleSchedules" InputGestureText="Ctrl+T"/>
-                <MenuItem Header="_Material Takeoff..." Click="OnShowTakeoff"/>
-                <Separator/>
-                <MenuItem Header="Detail _Level">
-                    <MenuItem x:Name="DetailCoarse" Header="Coarse" IsCheckable="True" Click="OnDetailLevelChanged"/>
-                    <MenuItem x:Name="DetailMedium" Header="Medium" IsCheckable="True" Click="OnDetailLevelChanged"/>
-                    <MenuItem x:Name="DetailFine" Header="Fine" IsCheckable="True" IsChecked="True" Click="OnDetailLevelChanged"/>
-                </MenuItem>
-                <MenuItem x:Name="WallFunctionsMenu" Header="_Wall Functions" SubmenuOpened="OnWallFunctionsMenuOpened"
-                          ToolTip="Show or hide walls by function, separately in each view">
-                    <MenuItem Header="(views)"/>
-                </MenuItem>
-            </MenuItem>
-            <MenuItem Header="S_heets">
-                <MenuItem Header="_New Sheet" Click="OnNewSheet"/>
-                <MenuItem Header="_Place View on Sheet..." Click="OnPlaceViewOnSheet"/>
-                <Separator/>
-                <MenuItem Header="_Delete Sheet" Click="OnDeleteSheet"/>
-            </MenuItem>
-            <MenuItem Header="_Building" IsEnabled="False"/>
-            <MenuItem Header="_Architecture">
-                <MenuItem Header="_Wall Types..." Click="OnManageWallTypes"/>
-                <Separator/>
-                <MenuItem Header="Attach Wall _Tops" Click="OnAttachTops"
-                          ToolTip="Take the selected walls up to the floor, ceiling or roof over each"/>
-                <MenuItem Header="Attach Wall _Bases" Click="OnAttachBases"
-                          ToolTip="Stand the selected walls on the floor under each"/>
-                <MenuItem Header="_Detach Wall Tops and Bases" Click="OnDetachWalls"/>
-                <Separator/>
-                <MenuItem Header="Edit Wall _Profile..." Click="OnEditProfile"
-                          ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
-                <MenuItem Header="Edit _Curtain Grid..." Click="OnEditCurtainGrid"
-                          ToolTip="Add, move or delete the grid lines of the selected curtain wall, and make panels solid, empty or doors"/>
-            </MenuItem>
-            <MenuItem Header="_Structure" IsEnabled="False"/>
-            <MenuItem Header="_Help" IsEnabled="False"/>
-        </Menu>
-
-        <!-- ========================== TOOLBAR ========================== -->
-        <Border Grid.Row="1" Background="{StaticResource Bg.Panel}"
-                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="9,7">
+        <!-- ======================== QUICK ACCESS ======================== -->
+        <Border Grid.Row="0" Background="{StaticResource Bg.Window}" Padding="6,2">
             <StackPanel Orientation="Horizontal">
-                <RadioButton x:Name="SelectTool" Style="{StaticResource ToolButton}"
-                             Content="Select" IsChecked="True" Checked="OnToolChanged"
-                             ToolTip="Select and edit elements (S)"/>
-                <RadioButton x:Name="WallTool" Style="{StaticResource ToolButton}"
-                             Content="Wall" Checked="OnToolChanged"
-                             ToolTip="Draw walls (W)"/>
-                <Rectangle Width="1" Margin="10,3" Fill="{StaticResource Line}"/>
-                <RadioButton x:Name="SplitTool" Style="{StaticResource ToolButton}"
-                             Content="Split" Checked="OnToolChanged"
-                             ToolTip="Split a wall in two where you click (X)"/>
-                <RadioButton x:Name="TrimTool" Style="{StaticResource ToolButton}"
-                             Content="Trim / Extend" Checked="OnToolChanged"
-                             ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
-                <RadioButton x:Name="OffsetTool" Style="{StaticResource ToolButton}"
-                             Content="Offset" Checked="OnToolChanged"
-                             ToolTip="Make a parallel copy of a wall a set distance away (O)"/>
-                <RadioButton x:Name="MirrorTool" Style="{StaticResource ToolButton}"
-                             Content="Mirror" Checked="OnToolChanged"
-                             ToolTip="Reflect the selection about a line (I)"/>
-                <RadioButton x:Name="ArrayTool" Style="{StaticResource ToolButton}"
-                             Content="Array" Checked="OnToolChanged"
-                             ToolTip="Repeat the selection at a regular spacing (Y)"/>
-                <Rectangle Width="1" Margin="10,3" Fill="{StaticResource Line}"/>
-                <RadioButton x:Name="DoorTool" Style="{StaticResource ToolButton}"
-                             Content="Door" Checked="OnToolChanged"
-                             ToolTip="Place a door in a wall (D)"/>
-                <RadioButton x:Name="WindowTool" Style="{StaticResource ToolButton}"
-                             Content="Window" Checked="OnToolChanged"
-                             ToolTip="Place a window in a wall (N)"/>
-                <RadioButton x:Name="RoomTool" Style="{StaticResource ToolButton}"
-                             Content="Room" Checked="OnToolChanged"
-                             ToolTip="Place a room in an enclosed space (R)"/>
-                <RadioButton x:Name="FloorTool" Style="{StaticResource ToolButton}"
-                             Content="Floor" Checked="OnToolChanged"
-                             ToolTip="Lay a floor over an enclosed space (F2)"/>
-                <RadioButton x:Name="CeilingTool" Style="{StaticResource ToolButton}"
-                             Content="Ceiling" Checked="OnToolChanged"
-                             ToolTip="Put a ceiling over an enclosed space (F3)"/>
-                <RadioButton x:Name="RoofTool" Style="{StaticResource ToolButton}"
-                             Content="Roof" Checked="OnToolChanged"
-                             ToolTip="Roof an enclosed space, flat roofs only (F4)"/>
-                <Rectangle Width="1" Margin="10,3" Fill="{StaticResource Line}"/>
-                <RadioButton x:Name="GridTool" Style="{StaticResource ToolButton}"
-                             Content="Grid" Checked="OnToolChanged"
-                             ToolTip="Draw a setting-out gridline (G)"/>
-                <RadioButton x:Name="SectionTool" Style="{StaticResource ToolButton}"
-                             Content="Section" Checked="OnToolChanged"
-                             ToolTip="Cut a section through the building (C)"/>
-                <RadioButton Style="{StaticResource ToolButton}" Content="Column" IsEnabled="False"/>
-                <Rectangle Width="1" Margin="10,3" Fill="{StaticResource Line}"/>
-                <RadioButton x:Name="DimensionTool" Style="{StaticResource ToolButton}"
-                             Content="Dimension" Checked="OnToolChanged"
-                             ToolTip="Measure between two points or elements (M)"/>
-                <RadioButton x:Name="TagTool" Style="{StaticResource ToolButton}"
-                             Content="Tag" Checked="OnToolChanged"
-                             ToolTip="Label an element with one of its parameters (A)"/>
-                <RadioButton x:Name="TextTool" Style="{StaticResource ToolButton}"
-                             Content="Text" Checked="OnToolChanged"
-                             ToolTip="Write a note on the drawing (E)"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Open}" Command="Open" ToolTip="Open project (Ctrl+O)"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Save}" Command="Save" ToolTip="Save (Ctrl+S)"/>
+                <Rectangle Width="1" Margin="5,3" Fill="{StaticResource Line}"/>
+                <Button x:Name="QuickUndo" Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Undo}" Command="Undo" ToolTip="Undo (Ctrl+Z)"/>
+                <Button x:Name="QuickRedo" Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Redo}" Command="Redo" ToolTip="Redo (Ctrl+Y)"/>
+                <Rectangle Width="1" Margin="5,3" Fill="{StaticResource Line}"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Print}" Click="OnPrintSheets" ToolTip="Print (Ctrl+P)"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Dimension}" Click="OnQuickDimension" ToolTip="Dimension (M)"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Text}" Click="OnQuickText" ToolTip="Text (E)"/>
+                <Rectangle Width="1" Margin="5,3" Fill="{StaticResource Line}"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.View3D}" Click="OnToggle3D" ToolTip="3D view (Ctrl+3)"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Section}" Click="OnQuickSection" ToolTip="Section (C)"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Tile}" Click="OnQuickTile" ToolTip="Tile the plan and the 3D view side by side"/>
             </StackPanel>
         </Border>
+
+        <!-- =========================== RIBBON =========================== -->
+        <DockPanel Grid.Row="1" Background="{StaticResource Bg.Window}">
+            <!-- The File menu hangs off the blue button, as in CAD ribbons. -->
+            <Button x:Name="FileButton" DockPanel.Dock="Left" VerticalAlignment="Top" Content="File"
+                    Style="{StaticResource FileTabButton}" Click="OnFileButton">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="_New Project" Command="New" InputGestureText="Ctrl+N">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.New}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="_Open Project..." Command="Open" InputGestureText="Ctrl+O">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Open}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="_Save" Command="Save" InputGestureText="Ctrl+S">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Save}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Save _As..." Command="SaveAs" InputGestureText="Ctrl+Shift+S"/>
+                        <Separator/>
+                        <MenuItem x:Name="UndoItem" Header="_Undo" Command="Undo" InputGestureText="Ctrl+Z">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Undo}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem x:Name="RedoItem" Header="_Redo" Command="Redo" InputGestureText="Ctrl+Y">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Redo}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Export _IFC..." Click="OnExportIfc">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Export}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="_Export This Sheet to PDF..." Click="OnExportSheetPdf">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Pdf}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem Header="Export _Drawing Set to PDF..." Click="OnExportDrawingSetPdf"/>
+                        <MenuItem Header="_Print..." Click="OnPrintSheets" InputGestureText="Ctrl+P">
+                            <MenuItem.Icon><Image Source="{StaticResource Icon.Print}" Width="16"/></MenuItem.Icon>
+                        </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="E_xit" Click="OnExit"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
+
+            <TabControl x:Name="Ribbon" Style="{StaticResource RibbonTabs}">
+                <!-- ========================= ARCHITECTURE ========================= -->
+                <TabItem Header="Architecture" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Select" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="SelectTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Select}"
+                                         Content="Modify" IsChecked="True" Checked="OnToolChanged" ToolTip="Select and edit elements (S)"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Build" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="WallTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Wall}"
+                                             Content="Wall" Checked="OnToolChanged" ToolTip="Draw walls, including curtain walls (W)"/>
+                                <RadioButton x:Name="DoorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Door}"
+                                             Content="Door" Checked="OnToolChanged" ToolTip="Place a door in a wall (D)"/>
+                                <RadioButton x:Name="WindowTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Window}"
+                                             Content="Window" Checked="OnToolChanged" ToolTip="Place a window in a wall (N)"/>
+                                <RadioButton Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Column}"
+                                             Content="Column" IsEnabled="False" ToolTip="Columns are not built yet"/>
+                                <RadioButton x:Name="RoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
+                                             Content="Roof" Checked="OnToolChanged" ToolTip="Roof an enclosed space, flat roofs only (F4)"/>
+                                <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Ceiling}"
+                                             Content="Ceiling" Checked="OnToolChanged" ToolTip="Put a ceiling over an enclosed space (F3)"/>
+                                <RadioButton x:Name="FloorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Floor}"
+                                             Content="Floor" Checked="OnToolChanged" ToolTip="Lay a floor over an enclosed space (F2)"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
+                                        Content="Curtain Grid" Click="OnEditCurtainGrid"
+                                        ToolTip="Add, move or delete the grid lines of the selected curtain wall, and make panels solid, empty or doors"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallTypes}"
+                                        Content="Wall Types" Click="OnManageWallTypes"
+                                        ToolTip="Layered, stacked and curtain wall types"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Wall" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
+                                        Content="Edit Profile" Click="OnEditProfile"
+                                        ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
+                                            Content="Attach Top" Click="OnAttachTops"
+                                            ToolTip="Take the selected walls up to the floor, ceiling or roof over each"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachBase}"
+                                            Content="Attach Base" Click="OnAttachBases"
+                                            ToolTip="Stand the selected walls on the floor under each"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Detach}"
+                                            Content="Detach" Click="OnDetachWalls"
+                                            ToolTip="Detach the tops and bases of the selected walls"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Room &amp; Area" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="RoomTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Room}"
+                                         Content="Room" Checked="OnToolChanged" ToolTip="Place a room in an enclosed space (R)"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Datum" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Level}"
+                                        Content="Level" Click="OnManageLevels" ToolTip="Add, rename, move and delete storeys"/>
+                                <RadioButton x:Name="GridTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Grid}"
+                                             Content="Grid" Checked="OnToolChanged" ToolTip="Draw a setting-out gridline (G)"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <!-- ============================ MODIFY ============================ -->
+                <TabItem Header="Modify" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Select" Style="{StaticResource RibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Select}"
+                                    Content="Modify" Click="OnSelectModify" ToolTip="Back to selecting (S)"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Clipboard" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Paste}"
+                                        Content="Paste" Click="OnPaste" ToolTip="Paste onto the current level (Ctrl+V)"/>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Copy}"
+                                            Content="Copy" Click="OnCopy" ToolTip="Copy the selection (Ctrl+C)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Paste}"
+                                            Content="Paste in Place" Click="OnPasteInPlace" ToolTip="Paste where it came from (Ctrl+Shift+V)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Select}"
+                                            Content="Select All" Click="OnSelectAll" ToolTip="Everything on this level (Ctrl+A)"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Modify" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="SplitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Split}"
+                                             Content="Split" Checked="OnToolChanged" ToolTip="Split a wall in two where you click (X)"/>
+                                <RadioButton x:Name="TrimTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Trim}"
+                                             Content="Trim / Extend" Checked="OnToolChanged" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
+                                <RadioButton x:Name="OffsetTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Offset}"
+                                             Content="Offset" Checked="OnToolChanged" ToolTip="Make a parallel copy of a wall a set distance away (O)"/>
+                                <RadioButton x:Name="MirrorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Mirror}"
+                                             Content="Mirror" Checked="OnToolChanged" ToolTip="Reflect the selection about a line (I)"/>
+                                <RadioButton x:Name="ArrayTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Array}"
+                                             Content="Array" Checked="OnToolChanged" ToolTip="Repeat the selection at a regular spacing (Y)"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Delete}"
+                                        Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <!-- =========================== ANNOTATE =========================== -->
+                <TabItem Header="Annotate" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Dimension" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="DimensionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Dimension}"
+                                         Content="Aligned" Checked="OnToolChanged" ToolTip="Measure between two points or elements (M)"/>
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Header="Tag" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="TagTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Tag}"
+                                         Content="Tag" Checked="OnToolChanged" ToolTip="Label an element with one of its parameters (A)"/>
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Header="Text" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="TextTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Text}"
+                                         Content="Text" Checked="OnToolChanged" ToolTip="Write a note on the drawing (E)"/>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <!-- ============================= VIEW ============================= -->
+                <TabItem Header="View" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Graphics" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel>
+                                    <RadioButton x:Name="DetailCoarse" GroupName="Detail" Style="{StaticResource RibbonSmallRadio}"
+                                                 Tag="{StaticResource Icon.Detail}" Content="Coarse" Click="OnDetailLevelChanged"/>
+                                    <RadioButton x:Name="DetailMedium" GroupName="Detail" Style="{StaticResource RibbonSmallRadio}"
+                                                 Tag="{StaticResource Icon.Detail}" Content="Medium" Click="OnDetailLevelChanged"/>
+                                    <RadioButton x:Name="DetailFine" GroupName="Detail" Style="{StaticResource RibbonSmallRadio}"
+                                                 Tag="{StaticResource Icon.Detail}" Content="Fine" IsChecked="True" Click="OnDetailLevelChanged"/>
+                                </StackPanel>
+                                <ToggleButton x:Name="UnderlayMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Underlay}"
+                                              Content="Storey Below" IsChecked="True" Click="OnToggleUnderlay"
+                                              ToolTip="Show the storey below faintly under the plan"/>
+                                <Button x:Name="WallFunctionsButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Filter}"
+                                        Content="Wall Functions" Click="OnWallFunctionsButton"
+                                        ToolTip="Show or hide walls by function, separately in each view">
+                                    <Button.ContextMenu>
+                                        <ContextMenu x:Name="WallFunctionsMenu" Opened="OnWallFunctionsMenuOpened">
+                                            <MenuItem Header="(views)"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Create" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="ModelMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.View3D}"
+                                              Content="3D View" Click="OnToggle3D" ToolTip="Ctrl+3"/>
+                                <RadioButton x:Name="SectionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Section}"
+                                             Content="Section" Checked="OnToolChanged" ToolTip="Cut a section through the building (C)"/>
+                                <ToggleButton x:Name="SectionMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Plan}"
+                                              Content="Section View" Click="OnToggleSection" ToolTip="Show or hide the section under the plan"/>
+                                <ToggleButton x:Name="ScheduleMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Schedule}"
+                                              Content="Schedules" Click="OnToggleSchedules" ToolTip="Ctrl+T"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Takeoff}"
+                                        Content="Material Takeoff" Click="OnShowTakeoff"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Sheet Composition" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="SheetMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Sheet}"
+                                              Content="Sheet" Click="OnToggleSheet" ToolTip="Ctrl+H"/>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Sheet}"
+                                            Content="New Sheet" Click="OnNewSheet"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.PlaceView}"
+                                            Content="Place View" Click="OnPlaceViewOnSheet"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
+                                            Content="Delete Sheet" Click="OnDeleteSheet"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Windows" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="TileToggle" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Tile}"
+                                              Content="Tile Views" Click="OnToggleTile"
+                                              ToolTip="The plan and the 3D view side by side, the section under the plan"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Plan}"
+                                        Content="Zoom to Fit" Click="OnZoomToFit" ToolTip="F"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <!-- ============================ MANAGE ============================ -->
+                <TabItem Header="Manage" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Settings" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallTypes}"
+                                        Content="Wall Types" Click="OnManageWallTypes"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Level}"
+                                        Content="Levels" Click="OnManageLevels"/>
+                                <ToggleButton x:Name="DarkThemeToggle" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Theme}"
+                                              Content="Dark Theme" Click="OnToggleDarkTheme"
+                                              ToolTip="Light or dark. Takes effect the next time BIMDesigner starts."/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Export" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Export}"
+                                        Content="IFC" Click="OnExportIfc" ToolTip="Export the model as IFC4"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Pdf}"
+                                        Content="PDF Set" Click="OnExportDrawingSetPdf" ToolTip="Every sheet to one PDF"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Print}"
+                                        Content="Print" Click="OnPrintSheets" ToolTip="Ctrl+P"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+            </TabControl>
+        </DockPanel>
+
 
         <!-- =================== OPTIONS BAR (active tool) =================== -->
         <Border Grid.Row="2" Background="{StaticResource Bg.Elevated}"
@@ -399,32 +544,151 @@
         </Border>
 
         <!-- ========================= WORKSPACE ========================= -->
+        <!--
+            Palettes docked on the left - properties over the project browser - and the views
+            filling the rest, as desktop BIM tools lay themselves out.
+        -->
         <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="262" MinWidth="180"/>
+                <ColumnDefinition Width="310" MinWidth="220"/>
                 <ColumnDefinition Width="4"/>
                 <ColumnDefinition Width="*" MinWidth="260"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="340" MinWidth="260"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Project browser -->
-            <Border Grid.Column="0" Background="{StaticResource Bg.Panel}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="PROJECT BROWSER" Style="{StaticResource SectionCaption}"/>
-                    <TreeView x:Name="ProjectBrowser" Margin="8,0,4,8"/>
-                </DockPanel>
-            </Border>
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="3*" MinHeight="140"/>
+                    <RowDefinition Height="4"/>
+                    <RowDefinition Height="2*" MinHeight="100"/>
+                </Grid.RowDefinitions>
+
+                <!-- Properties, generated from the selected element's own parameters -->
+                <Border Grid.Row="0" Background="{StaticResource Bg.Panel}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PaletteTitle}">
+                            <TextBlock Text="Properties" FontWeight="SemiBold"/>
+                        </Border>
+
+                    <TextBlock x:Name="NoSelectionHint" DockPanel.Dock="Top" Margin="14,0,14,14"
+                               TextWrapping="Wrap" LineHeight="19" Foreground="{StaticResource Text.Muted}"
+                               Text="Nothing selected.&#x0a;&#x0a;Pick the Wall tool, choose a wall type above the canvas, then click twice on the plan. Clicks snap to the 100 mm grid.&#x0a;&#x0a;Right-drag to pan, scroll to zoom, Esc to stop drawing."/>
+
+                    <ScrollViewer x:Name="PropertyScroll" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                        <StackPanel>
+                            <!-- Element identity and its type -->
+                            <Border Background="{StaticResource Bg.Elevated}" Padding="14,11" Margin="0,0,0,2">
+                                <StackPanel>
+                                    <TextBlock x:Name="SelectedCategory" Text="WALLS"
+                                               Foreground="{StaticResource Text.Muted}"
+                                               FontSize="{StaticResource UiFontSizeSmall}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="SelectedTypeName" Text="" FontSize="14"
+                                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,3,0,9"/>
+                                    <ComboBox x:Name="SelectedTypePicker" DisplayMemberPath="Name"
+                                              SelectionChanged="OnSelectedTypeChanged"
+                                              ToolTip="Change this wall's type. Every wall of a type shares its layers."/>
+                                    <Button x:Name="EditTypeButton" Content="Edit Type..." Margin="0,8,0,0"
+                                            Padding="10,4" HorizontalAlignment="Left" Click="OnEditSelectedType"
+                                            ToolTip="Change the layers of this type, or duplicate it to make a new one"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Instance parameters: this placed wall -->
+                            <TextBlock Text="INSTANCE PARAMETERS" Style="{StaticResource SectionCaption}"
+                                       Margin="14,14,14,0"/>
+                            <TextBlock x:Name="InstanceHint" Margin="14,2,14,0" TextWrapping="Wrap"
+                                       FontSize="{StaticResource UiFontSizeSmall}"
+                                       Foreground="{StaticResource Text.Disabled}"
+                                       Text="This element only."/>
+                            <ItemsControl x:Name="InstanceParameterList" Style="{StaticResource ParameterList}">
+                                <ItemsControl.GroupStyle>
+                                    <GroupStyle HeaderTemplate="{StaticResource ParameterGroupHeaderTemplate}"/>
+                                </ItemsControl.GroupStyle>
+                            </ItemsControl>
+
+                            <Rectangle Height="1" Fill="{StaticResource Line}" Margin="14,6"/>
+
+                            <!-- Type parameters: shared by every wall of this type -->
+                            <TextBlock Text="TYPE PARAMETERS" Style="{StaticResource SectionCaption}"
+                                       Margin="14,8,14,0"/>
+                            <TextBlock x:Name="TypeHint" Margin="14,2,14,0" TextWrapping="Wrap"
+                                       FontSize="{StaticResource UiFontSizeSmall}"
+                                       Foreground="{StaticResource Text.Disabled}"
+                                       Text="Shared by every element of this type. Editing one changes them all."/>
+                            <ItemsControl x:Name="TypeParameterList" Style="{StaticResource ParameterList}">
+                                <ItemsControl.GroupStyle>
+                                    <GroupStyle HeaderTemplate="{StaticResource ParameterGroupHeaderTemplate}"/>
+                                </ItemsControl.GroupStyle>
+                            </ItemsControl>
+
+                            <Rectangle Height="1" Fill="{StaticResource Line}" Margin="14,6"/>
+
+                            <!-- The assembly this type is built from. Walls only. -->
+                            <TextBlock x:Name="StructureCaption" Text="STRUCTURE"
+                                       Style="{StaticResource SectionCaption}" Margin="14,8,14,0"/>
+                            <TextBlock x:Name="StructureHint" Margin="14,2,14,6" TextWrapping="Wrap"
+                                       FontSize="{StaticResource UiFontSizeSmall}"
+                                       Foreground="{StaticResource Text.Disabled}"
+                                       Text="Exterior face to interior face."/>
+                            <ItemsControl x:Name="LayerList" Margin="14,0,14,20">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid MinHeight="34">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Rectangle Grid.Column="0" Width="9" RadiusX="2" RadiusY="2"
+                                                       Margin="0,3,10,3" Fill="{Binding Swatch}"/>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding MaterialName}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding MaterialName}"/>
+                                                <TextBlock Text="{Binding FunctionName}"
+                                                           FontSize="{StaticResource UiFontSizeSmall}"
+                                                           Foreground="{StaticResource Text.Muted}"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding Thickness}"
+                                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                    </DockPanel>
+                </Border>
+
+                <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                              Background="{StaticResource Line}" ResizeDirection="Rows"/>
+
+                <!-- Project browser -->
+                <Border Grid.Row="2" Background="{StaticResource Bg.Panel}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PaletteTitle}">
+                            <TextBlock Text="Project Browser" FontWeight="SemiBold"/>
+                        </Border>
+                        <TreeView x:Name="ProjectBrowser" Margin="4,4,4,8"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
 
             <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
                           Background="{StaticResource Line}" ResizeBehavior="PreviousAndNext"/>
 
             <!--
-                Drawing views, stacked. The section sits under the plan rather than beside it
-                because a section is wide and shallow, and because keeping the plan visible is
-                what lets the marker and the cut it produces be read against each other.
+                The views. The plan, with the section under it and a sheet over it, fills the
+                first column; the 3D view either covers it or, tiled, takes a column of its own.
             -->
-            <Grid Grid.Column="2">
+            <Grid x:Name="ViewArea" Grid.Column="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="200"/>
+                    <ColumnDefinition x:Name="TileSplitterColumn" Width="0"/>
+                    <ColumnDefinition x:Name="TileColumn" Width="0"/>
+                </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" MinHeight="120"/>
                     <RowDefinition Height="Auto"/>
@@ -433,7 +697,15 @@
 
                 <!-- 2D plan view: drawn in C#, not composed from XAML controls -->
                 <Border Grid.Row="0" Background="{StaticResource Bg.Field}">
-                    <controls:PlanView x:Name="Plan"/>
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Style="{StaticResource ViewTitle}">
+                            <StackPanel Orientation="Horizontal">
+                                <Image Source="{StaticResource Icon.Plan}" Width="16" Height="16" Margin="0,0,6,0"/>
+                                <TextBlock x:Name="PlanTitle" Text="Floor Plan" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                        <controls:PlanView x:Name="Plan"/>
+                    </DockPanel>
                 </Border>
 
                 <GridSplitter x:Name="SectionSplitter" Grid.Row="1" Height="4"
@@ -540,8 +812,12 @@
                     </DockPanel>
                 </Border>
 
-                <!-- The 3D view, like a sheet, takes over the whole drawing area. -->
-                <Border x:Name="ModelPanel" Grid.Row="0" Grid.RowSpan="3" Visibility="Collapsed"
+            </Grid>
+
+                <GridSplitter x:Name="TileSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+                              Background="{StaticResource Line}" ResizeBehavior="PreviousAndNext" Visibility="Collapsed"/>
+
+                <Border x:Name="ModelPanel" Grid.Column="0" Panel.ZIndex="2" Visibility="Collapsed"
                         Background="{StaticResource Bg.Field}">
                     <DockPanel>
                         <Border DockPanel.Dock="Top" Padding="12,7" Background="{StaticResource Bg.Elevated}"
@@ -610,106 +886,8 @@
                     </DockPanel>
                 </Border>
             </Grid>
-
-            <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch"
-                          Background="{StaticResource Line}" ResizeBehavior="PreviousAndNext"/>
-
-            <!-- Properties, generated from the selected element's own parameters -->
-            <Border Grid.Column="4" Background="{StaticResource Bg.Panel}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="PROPERTIES" Style="{StaticResource SectionCaption}"/>
-
-                    <TextBlock x:Name="NoSelectionHint" DockPanel.Dock="Top" Margin="14,0,14,14"
-                               TextWrapping="Wrap" LineHeight="19" Foreground="{StaticResource Text.Muted}"
-                               Text="Nothing selected.&#x0a;&#x0a;Pick the Wall tool, choose a wall type above the canvas, then click twice on the plan. Clicks snap to the 100 mm grid.&#x0a;&#x0a;Right-drag to pan, scroll to zoom, Esc to stop drawing."/>
-
-                    <ScrollViewer x:Name="PropertyScroll" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
-                        <StackPanel>
-                            <!-- Element identity and its type -->
-                            <Border Background="{StaticResource Bg.Elevated}" Padding="14,11" Margin="0,0,0,2">
-                                <StackPanel>
-                                    <TextBlock x:Name="SelectedCategory" Text="WALLS"
-                                               Foreground="{StaticResource Text.Muted}"
-                                               FontSize="{StaticResource UiFontSizeSmall}" FontWeight="SemiBold"/>
-                                    <TextBlock x:Name="SelectedTypeName" Text="" FontSize="14"
-                                               FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,3,0,9"/>
-                                    <ComboBox x:Name="SelectedTypePicker" DisplayMemberPath="Name"
-                                              SelectionChanged="OnSelectedTypeChanged"
-                                              ToolTip="Change this wall's type. Every wall of a type shares its layers."/>
-                                    <Button x:Name="EditTypeButton" Content="Edit Type..." Margin="0,8,0,0"
-                                            Padding="10,4" HorizontalAlignment="Left" Click="OnEditSelectedType"
-                                            ToolTip="Change the layers of this type, or duplicate it to make a new one"/>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Instance parameters: this placed wall -->
-                            <TextBlock Text="INSTANCE PARAMETERS" Style="{StaticResource SectionCaption}"
-                                       Margin="14,14,14,0"/>
-                            <TextBlock x:Name="InstanceHint" Margin="14,2,14,0" TextWrapping="Wrap"
-                                       FontSize="{StaticResource UiFontSizeSmall}"
-                                       Foreground="{StaticResource Text.Disabled}"
-                                       Text="This element only."/>
-                            <ItemsControl x:Name="InstanceParameterList" Style="{StaticResource ParameterList}">
-                                <ItemsControl.GroupStyle>
-                                    <GroupStyle HeaderTemplate="{StaticResource ParameterGroupHeaderTemplate}"/>
-                                </ItemsControl.GroupStyle>
-                            </ItemsControl>
-
-                            <Rectangle Height="1" Fill="{StaticResource Line}" Margin="14,6"/>
-
-                            <!-- Type parameters: shared by every wall of this type -->
-                            <TextBlock Text="TYPE PARAMETERS" Style="{StaticResource SectionCaption}"
-                                       Margin="14,8,14,0"/>
-                            <TextBlock x:Name="TypeHint" Margin="14,2,14,0" TextWrapping="Wrap"
-                                       FontSize="{StaticResource UiFontSizeSmall}"
-                                       Foreground="{StaticResource Text.Disabled}"
-                                       Text="Shared by every element of this type. Editing one changes them all."/>
-                            <ItemsControl x:Name="TypeParameterList" Style="{StaticResource ParameterList}">
-                                <ItemsControl.GroupStyle>
-                                    <GroupStyle HeaderTemplate="{StaticResource ParameterGroupHeaderTemplate}"/>
-                                </ItemsControl.GroupStyle>
-                            </ItemsControl>
-
-                            <Rectangle Height="1" Fill="{StaticResource Line}" Margin="14,6"/>
-
-                            <!-- The assembly this type is built from. Walls only. -->
-                            <TextBlock x:Name="StructureCaption" Text="STRUCTURE"
-                                       Style="{StaticResource SectionCaption}" Margin="14,8,14,0"/>
-                            <TextBlock x:Name="StructureHint" Margin="14,2,14,6" TextWrapping="Wrap"
-                                       FontSize="{StaticResource UiFontSizeSmall}"
-                                       Foreground="{StaticResource Text.Disabled}"
-                                       Text="Exterior face to interior face."/>
-                            <ItemsControl x:Name="LayerList" Margin="14,0,14,20">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid MinHeight="34">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Rectangle Grid.Column="0" Width="9" RadiusX="2" RadiusY="2"
-                                                       Margin="0,3,10,3" Fill="{Binding Swatch}"/>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding MaterialName}"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           ToolTip="{Binding MaterialName}"/>
-                                                <TextBlock Text="{Binding FunctionName}"
-                                                           FontSize="{StaticResource UiFontSizeSmall}"
-                                                           Foreground="{StaticResource Text.Muted}"/>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="2" Text="{Binding Thickness}"
-                                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
-                    </ScrollViewer>
-                </DockPanel>
-            </Border>
         </Grid>
+
 
         <!-- ======================== SCHEDULE VIEW ======================== -->
         <GridSplitter x:Name="ScheduleSplitter" Grid.Row="4" Height="4"

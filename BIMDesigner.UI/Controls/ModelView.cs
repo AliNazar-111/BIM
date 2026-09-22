@@ -89,8 +89,8 @@ public class ModelView : Border
         // A gradient rather than a flat fill: it reads as a horizon, which gives the eye
         // something to orient against when the model is small in the view.
         Background = new LinearGradientBrush(
-            Color.FromRgb(0x25, 0x2B, 0x36),
-            Color.FromRgb(0x11, 0x14, 0x1A),
+            AppTheme.Pick(Color.FromRgb(0xC4, 0xD6, 0xE8), Color.FromRgb(0x25, 0x2B, 0x36)),
+            AppTheme.Pick(Color.FromRgb(0xF4, 0xF6, 0xF8), Color.FromRgb(0x11, 0x14, 0x1A)),
             new Point(0.5, 0),
             new Point(0.5, 1));
 
@@ -302,7 +302,7 @@ public class ModelView : Border
             foreach (var (from, to) in mesh.Edges) target.Add(ToUnits(from), ToUnits(to), width);
         }
 
-        AddEdgeModel(plain, Color.FromRgb(0x14, 0x17, 0x1C));
+        AddEdgeModel(plain, AppTheme.Pick(Color.FromRgb(0x3A, 0x3E, 0x44), Color.FromRgb(0x14, 0x17, 0x1C)));
         AddEdgeModel(selected, Color.FromRgb(0x4A, 0x9B, 0xFF));
     }
 
@@ -437,7 +437,7 @@ public class ModelView : Border
     /// </summary>
     private static void AddLights(Model3DGroup root)
     {
-        root.Children.Add(new AmbientLight(Color.FromRgb(0x33, 0x36, 0x3C)));
+        root.Children.Add(new AmbientLight(AppTheme.Pick(Color.FromRgb(0x5C, 0x5E, 0x62), Color.FromRgb(0x33, 0x36, 0x3C))));
 
         // The sun, from over the viewer's left shoulder - the convention that makes a
         // three-quarter view read as solid.
@@ -491,7 +491,7 @@ public class ModelView : Border
         };
         ground.Freeze();
 
-        var brush = new SolidColorBrush(Color.FromRgb(0x26, 0x2B, 0x33));
+        var brush = new SolidColorBrush(AppTheme.Pick(Color.FromRgb(0xC8, 0xCC, 0xC4), Color.FromRgb(0x26, 0x2B, 0x33)));
         brush.Freeze();
 
         var material = new MaterialGroup

@@ -299,34 +299,36 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Offset a wall | `Offset` tool (`O`), set the distance, click the wall on the side to copy to |
 | Mirror | Select, `Mirror` tool (`I`), click two points on the mirror line |
 | Array | Select, `Array` tool (`Y`), set the count, click two points for the spacing |
-| 3D view | `Ctrl+3`, View → 3D View, or "3D View" in the project browser |
+| 3D view | `Ctrl+3`, View tab → **3D View**, the cube on the quick access bar, or "3D View" in the project browser |
+| Plan and 3D side by side | View tab → **Tile Views**, or the tile button on the quick access bar |
+| Light or dark theme | Manage tab → **Dark Theme**; takes effect the next time the app starts |
 | Orbit / pan / zoom in 3D | Drag / right-drag / scroll. `F` fits, `Home` resets |
 | See inside in 3D | Untick a storey in the 3D bar, or switch Style to X-ray |
-| Manage levels | View → Levels... |
-| Storey below as underlay | View → Show Storey Below |
+| Manage levels | Architecture tab → **Level** (or Manage tab → Levels) |
+| Storey below as underlay | View tab → **Storey Below** |
 | Reshape a wall | Select it, then drag a square end grip |
 | Flip a wall inside-out | Select it and press `Space`, or click the blue arrows on its exterior side |
 | Flip the wall being drawn | `Space` while drawing |
 | Draw a wall off the clicked line | Type an **Offset** on the option bar before drawing |
 | Attach a wall's top to a level | Properties → **Top Constraint** → Up to level |
-| Hide walls by function | View → Wall Functions → pick the view, untick the function |
+| Hide walls by function | View tab → **Wall Functions** → pick the view, untick the function |
 | Change how a corner joins | Select a wall → Properties → **Start Join** / **End Join** (Mitre, Butt, Run Through, Square Off, Disallow) |
 | Draw a curved wall | Wall tool, **Shape: Arc** on the option bar: click the start, the end, then a point the arc passes through |
 | Curve or straighten a wall | Select it and drag the diamond halfway along it; bring it back to the straight line to straighten |
 | Draw a whole shape of walls | Wall tool, **Shape**: Rectangle (Shift for a square), Polygon (set Sides; 3 is a triangle), Circle, Oval or Ellipse (Shift for round). Two clicks place every wall, joined |
 | Draw half an ellipse | Wall tool, **Shape: Partial ellipse**: click both ends of an axis, then a point the ellipse passes through |
-| Make or edit a wall type | Architecture → Wall Types..., or **Edit Type...** in Properties with a wall selected |
+| Make or edit a wall type | Architecture tab → **Wall Types**, or **Edit Type...** in Properties with a wall selected |
 | Change the type of several walls | Select them, then pick a type at the top of Properties |
 | Wrap finishes into openings and round ends | Wall type → **Wrapping at Inserts** / **Wrapping at Ends** |
 | Draw a wall going down (foundation, retaining) | Wall tool, set **Depth** instead of Height on the option bar |
 | Place walls on existing lines | Wall tool, **Shape: Pick lines**, click grid lines |
-| Make a wall follow the floor or roof above | Select walls, Architecture → **Attach Wall Tops** (or **Bases**), then click the slab; **Detach** undoes it |
+| Make a wall follow the floor or roof above | Select walls, Architecture tab → **Attach Top** (or **Attach Base**), then click the slab; **Detach** undoes it |
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
-| Give a wall a gable, steps or a notch | Select one straight wall, Architecture → **Edit Wall Profile...**: drag corners, double-click an edge to add one, Delete removes one |
+| Give a wall a gable, steps or a notch | Select one straight wall, Architecture tab → **Edit Profile**: drag corners, double-click an edge to add one, Delete removes one |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
-| Change a curtain wall's grid or panels | Select it, Architecture → **Edit Curtain Grid...**: click a panel to make it glass, solid, empty or a door; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
-| Make or edit a curtain wall type | Architecture → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
+| Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass, solid, empty or a door; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
+| Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
 | Set a shopfront into a wall | Draw a curtain wall whose type has **Automatically embed** along inside the wall; it cuts its own opening |
 | Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |
 | Place a door | `Door` tool (`D`), click a wall |
@@ -336,7 +338,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Cut a section | `Section` tool (`C`), click start, click end — the view opens below the plan |
 | Flip a section | Select the marker, or use **Flip** in the section panel |
 | Open the sheet view | `Ctrl+H`, or pick a sheet in the project browser |
-| New sheet | Sheets → New Sheet |
+| New sheet | View tab → **New Sheet** |
 | Place a view on a sheet | Pick it in **Place**, press **Add to Sheet** |
 | Move a view on a sheet | Drag it |
 | Change a view's scale | Select it, then use the **Scale** box |
@@ -357,7 +359,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Zoom | Scroll wheel |
 | Zoom to fit | `F` |
 | Switch tool | `S` = select, `W` = wall |
-| Detail level | View → Detail Level — see below |
+| Detail level | View tab → Coarse, Medium or Fine — see below |
 | New / Open / Save | `Ctrl+N` / `Ctrl+O` / `Ctrl+S`, Save As `Ctrl+Shift+S` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
 

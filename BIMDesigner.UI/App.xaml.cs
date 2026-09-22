@@ -48,6 +48,9 @@ public partial class App : Application
             return;
         }
 
+        // Light or dark, as last chosen: the palette has to be in place before any window is built.
+        AppTheme.Apply(this);
+
         new MainWindow().Show();
     }
 

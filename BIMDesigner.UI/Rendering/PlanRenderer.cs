@@ -86,7 +86,7 @@ public sealed class PlanRenderer
 
     public PlanRenderer(DrawingPalette? palette = null)
     {
-        var ink = palette ?? DrawingPalette.Screen;
+        var ink = palette ?? AppTheme.Drawing;
 
         _wallOutlinePen = RenderPens.Solid(ink.WallOutline, 1.3);
         _layerPen = RenderPens.Solid(ink.LayerSeparator, 0.7);

@@ -229,8 +229,8 @@ public sealed class BimDocument
         {
             Density = 1.2,
             ThermalConductivity = 0.025,
-            SurfaceColour = ColourRgb.FromHex("2A2F37"),
-            CutColour = ColourRgb.FromHex("22262C")
+            SurfaceColour = ColourRgb.FromHex("B4BBC3"),
+            CutColour = ColourRgb.FromHex("A3ABB5")
         };
         var plaster = new Material("Cement Plaster")
         {

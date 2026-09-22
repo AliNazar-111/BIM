@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        DarkThemeToggle.IsChecked = !AppTheme.IsLight;
 
         Plan.CursorMoved += OnCursorMoved;
         Plan.SelectionChanged += (_, _) =>
@@ -237,7 +238,8 @@ public partial class MainWindow : Window
         var windowTypes = _document.TypesOf<WindowType>().OrderBy(t => t.Name).ToList();
 
         WallTypePicker.ItemsSource = wallTypes;
-        WallTypePicker.SelectedItem = wallTypes.FirstOrDefault();
+        // An ordinary layered wall to start with, not whichever type sorts first.
+        WallTypePicker.SelectedItem = wallTypes.OfType<WallType>().FirstOrDefault(t => t.Function == WallFunction.Exterior) ?? wallTypes.FirstOrDefault();
 
         DoorTypePicker.ItemsSource = doorTypes;
         DoorTypePicker.SelectedItem = doorTypes.FirstOrDefault();
@@ -578,7 +580,7 @@ public partial class MainWindow : Window
 
     private void OnDetailLevelChanged(object sender, RoutedEventArgs e)
     {
-        var chosen = sender as MenuItem;
+        var chosen = sender;
 
         var level = ReferenceEquals(chosen, DetailCoarse) ? DetailLevel.Coarse
             : ReferenceEquals(chosen, DetailMedium) ? DetailLevel.Medium
@@ -606,7 +608,7 @@ public partial class MainWindow : Window
 
         if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None) return;
         if (Keyboard.FocusedElement is TextBox or ComboBox or ComboBoxItem) return;
-        if (ModelPanel.Visibility == Visibility.Visible || SheetPanel.Visibility == Visibility.Visible) return;
+        if (ModelCoversPlan || SheetPanel.Visibility == Visibility.Visible) return;
 
         if (Plan.Flip())
         {
@@ -652,7 +654,8 @@ public partial class MainWindow : Window
 
         // In 3D the drawing tools have nowhere to draw, so their single-letter shortcuts would
         // switch tools invisibly. Esc closes the view instead; the view handles its own keys.
-        if (ModelPanel.Visibility == Visibility.Visible)
+        // Tiled, the plan is there beside it and keeps its keys.
+        if (ModelCoversPlan)
         {
             if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
             {
@@ -1138,6 +1141,8 @@ public partial class MainWindow : Window
 
     private void RefreshProjectBrowser()
     {
+        PlanTitle.Text = _document.FindLevel(Plan.ActiveLevelId) is { } shown ? $"Floor Plan: {shown.Name}" : "Floor Plan";
+
         var project = new TreeViewItem
         {
             Header = _document.ProjectInformation.Name,
@@ -1534,7 +1539,73 @@ public partial class MainWindow : Window
     {
         ModelPanel.Visibility = Visibility.Collapsed;
         ModelMenuItem.IsChecked = false;
+        if (_tiled) SetTiled(false);
         Plan.Focus();
+    }
+
+    // ---- the ribbon and the window layout ------------------------------------------------
+
+    /// <summary>Whether the plan and the 3D view are side by side rather than one over the other.</summary>
+    private bool _tiled;
+
+    /// <summary>Whether the 3D view is open over the plan, hiding it.</summary>
+    private bool ModelCoversPlan => ModelPanel.Visibility == Visibility.Visible && !_tiled;
+
+    /// <summary>The File button opens its menu under itself, the way the File tab of a ribbon does.</summary>
+    private void OnFileButton(object sender, RoutedEventArgs e)
+    {
+        if (FileButton.ContextMenu is not { } menu) return;
+
+        menu.PlacementTarget = FileButton;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private void OnSelectModify(object sender, RoutedEventArgs e) => SelectTool.IsChecked = true;
+
+    private void OnQuickDimension(object sender, RoutedEventArgs e) => DimensionTool.IsChecked = true;
+
+    private void OnQuickText(object sender, RoutedEventArgs e) => TextTool.IsChecked = true;
+
+    private void OnQuickSection(object sender, RoutedEventArgs e) => SectionTool.IsChecked = true;
+
+    private void OnQuickTile(object sender, RoutedEventArgs e) => SetTiled(!_tiled);
+
+    private void OnToggleTile(object sender, RoutedEventArgs e) => SetTiled(TileToggle.IsChecked == true);
+
+    /// <summary>
+    /// Tiled, the 3D view takes a column of its own beside the plan, so a change drawn in plan
+    /// can be seen in 3D as it is made; untiled, it covers the plan when open, as before.
+    /// </summary>
+    private void SetTiled(bool tiled)
+    {
+        _tiled = tiled;
+        TileToggle.IsChecked = tiled;
+
+        Grid.SetColumn(ModelPanel, tiled ? 2 : 0);
+        TileColumn.Width = tiled ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        TileSplitterColumn.Width = tiled ? new GridLength(4) : new GridLength(0);
+        TileSplitter.Visibility = tiled ? Visibility.Visible : Visibility.Collapsed;
+
+        if (tiled)
+        {
+            if (ModelPanel.Visibility != Visibility.Visible) Show3D();
+            StatusHint.Text = "Plan and 3D side by side. Draw in the plan and watch the model follow.";
+        }
+        else if (ModelPanel.Visibility == Visibility.Visible)
+        {
+            OnClose3D(this, new RoutedEventArgs());
+        }
+    }
+
+    /// <summary>Light or dark is remembered for next time: every colour is chosen as the window is built.</summary>
+    private void OnToggleDarkTheme(object sender, RoutedEventArgs e)
+    {
+        var dark = DarkThemeToggle.IsChecked == true;
+        AppTheme.Choose(light: !dark);
+        MessageBox.Show(this,
+            $"BIMDesigner will start with the {(dark ? "dark" : "light")} theme next time.",
+            "Theme", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     /// <summary>Rebuilds the 3D meshes, but only while anyone can see them.</summary>
@@ -1708,6 +1779,13 @@ public partial class MainWindow : Window
     /// Lists every view open right now - this level's plan, the section on screen, the 3D
     /// view - each with its own set of wall functions to tick, since each keeps its own.
     /// </summary>
+    private void OnWallFunctionsButton(object sender, RoutedEventArgs e)
+    {
+        WallFunctionsMenu.PlacementTarget = WallFunctionsButton;
+        WallFunctionsMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        WallFunctionsMenu.IsOpen = true;
+    }
+
     private void OnWallFunctionsMenuOpened(object sender, RoutedEventArgs e)
     {
         if (!ReferenceEquals(e.OriginalSource, WallFunctionsMenu)) return;
@@ -1803,7 +1881,7 @@ public partial class MainWindow : Window
 
     private void OnToggleUnderlay(object sender, RoutedEventArgs e)
     {
-        Plan.ShowUnderlay = UnderlayMenuItem.IsChecked;
+        Plan.ShowUnderlay = UnderlayMenuItem.IsChecked == true;
         StatusHint.Text = Plan.ShowUnderlay
             ? "Showing the storey below as an underlay."
             : "Underlay hidden.";

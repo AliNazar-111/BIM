@@ -152,6 +152,51 @@ public sealed class DrawingPalette
         LevelText = Color.FromRgb(0x33, 0x3B, 0x46)
     };
 
+    /// <summary>The storey below on a white drawing area: pale grey-blue, receding into the white.</summary>
+    public static readonly DrawingPalette UnderlayLight = new()
+    {
+        WallOutline = Color.FromRgb(0xB4, 0xBE, 0xCB),
+        LayerSeparator = Color.FromRgb(0xD4, 0xDA, 0xE2),
+        Selected = Color.FromRgb(0xB4, 0xBE, 0xCB),
+        Preview = Color.FromRgb(0xB4, 0xBE, 0xCB),
+        LocationLine = Color.FromRgb(0xB4, 0xBE, 0xCB),
+
+        Opening = Color.FromRgb(0xBC, 0xC5, 0xD0),
+        Swing = Color.FromRgb(0xCC, 0xD3, 0xDC),
+        Glass = Color.FromRgb(0xBC, 0xD2, 0xE0),
+
+        RoomOutline = Color.FromRgb(0xCC, 0xD4, 0xDE),
+        RoomFill = Color.FromArgb(0x00, 0, 0, 0),
+        RoomFillSelected = Color.FromArgb(0x00, 0, 0, 0),
+        RoomTagText = Color.FromRgb(0xBC, 0xC5, 0xD0),
+        SlabOutline = Color.FromRgb(0xCC, 0xD4, 0xDE),
+
+        GridLine = Color.FromRgb(0xD0, 0xCA, 0xDE),
+        BubbleFill = Colors.White,
+        GridText = Color.FromRgb(0xC0, 0xB8, 0xD2),
+
+        SectionLine = Color.FromRgb(0xE0, 0xC8, 0xBA),
+        SectionText = Color.FromRgb(0xE0, 0xC8, 0xBA),
+
+        Dimension = Color.FromRgb(0xBC, 0xD4, 0xC8),
+        DimensionText = Color.FromRgb(0xBC, 0xD4, 0xC8),
+        LooseDimension = Color.FromRgb(0xDC, 0xCC, 0xB0),
+        LooseDimensionText = Color.FromRgb(0xDC, 0xCC, 0xB0),
+
+        Leader = Color.FromRgb(0xC8, 0xCE, 0xD6),
+        TagFill = Colors.White,
+        TagText = Color.FromRgb(0xBC, 0xC5, 0xD0),
+        LabelBackdrop = Color.FromArgb(0x00, 0, 0, 0),
+        WallLabel = Color.FromRgb(0xC0, 0xC8, 0xD2),
+        Unenclosed = Color.FromRgb(0xE4, 0xC4, 0xB8),
+
+        SectionCut = Color.FromRgb(0xB4, 0xBE, 0xCB),
+        SectionSeen = Color.FromRgb(0xD4, 0xDA, 0xE2),
+        LevelLine = Color.FromRgb(0xCC, 0xD4, 0xDE),
+        GroundLine = Color.FromRgb(0xCC, 0xD4, 0xDE),
+        LevelText = Color.FromRgb(0xC4, 0xCC, 0xD6)
+    };
+
     /// <summary>
     /// Paper: dark lines on white, as a drawing prints.
     ///

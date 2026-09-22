@@ -73,7 +73,7 @@ public class PlanView : FrameworkElement
     /// The storey below, drawn faintly underneath. It is a second renderer rather than a flag
     /// on the first because the whole difference is which ink it uses.
     /// </summary>
-    private readonly PlanRenderer _underlayRenderer = new(DrawingPalette.Underlay);
+    private readonly PlanRenderer _underlayRenderer = new(AppTheme.Underlay);
 
     // The background grid and the editing affordances. Everything that is part of the drawing
     // itself lives on the renderer; what is left here is the graph paper and the handles.
@@ -150,16 +150,16 @@ public class PlanView : FrameworkElement
         Focusable = true;
         ClipToBounds = true;
 
-        _minorGridPen = MakePen(Color.FromRgb(0x2A, 0x2F, 0x37), 1);
-        _majorGridPen = MakePen(Color.FromRgb(0x3C, 0x44, 0x4F), 1);
-        _axisPen = MakePen(Color.FromRgb(0x5A, 0x66, 0x76), 1.4);
+        _minorGridPen = MakePen(AppTheme.Pick(Color.FromRgb(0xEE, 0xF0, 0xF3), Color.FromRgb(0x2A, 0x2F, 0x37)), 1);
+        _majorGridPen = MakePen(AppTheme.Pick(Color.FromRgb(0xDD, 0xE1, 0xE6), Color.FromRgb(0x3C, 0x44, 0x4F)), 1);
+        _axisPen = MakePen(AppTheme.Pick(Color.FromRgb(0xB8, 0xC0, 0xCA), Color.FromRgb(0x5A, 0x66, 0x76)), 1.4);
 
-        _selectedPen = MakePen(Color.FromRgb(0x5A, 0xAB, 0xFF), 2.2);
-        _previewPen = MakeDashedPen(Color.FromRgb(0x5A, 0xAB, 0xFF), 1.4, 4, 3);
-        _gripPen = MakePen(Color.FromRgb(0x5A, 0xAB, 0xFF), 1.6);
-        _snapPen = MakePen(Color.FromRgb(0x4A, 0xE0, 0x9A), 1.8);
-        _targetPen = MakeDashedPen(Color.FromRgb(0xFF, 0xC4, 0x4D), 2.0, 5, 3);
-        _gripBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x17, 0x1A, 0x21)));
+        _selectedPen = MakePen(AppTheme.Pick(Color.FromRgb(0x0B, 0x6F, 0xC2), Color.FromRgb(0x5A, 0xAB, 0xFF)), 2.2);
+        _previewPen = MakeDashedPen(AppTheme.Pick(Color.FromRgb(0x0B, 0x6F, 0xC2), Color.FromRgb(0x5A, 0xAB, 0xFF)), 1.4, 4, 3);
+        _gripPen = MakePen(AppTheme.Pick(Color.FromRgb(0x0B, 0x6F, 0xC2), Color.FromRgb(0x5A, 0xAB, 0xFF)), 1.6);
+        _snapPen = MakePen(AppTheme.Pick(Color.FromRgb(0x14, 0x9A, 0x5A), Color.FromRgb(0x4A, 0xE0, 0x9A)), 1.8);
+        _targetPen = MakeDashedPen(AppTheme.Pick(Color.FromRgb(0xD0, 0x8A, 0x00), Color.FromRgb(0xFF, 0xC4, 0x4D)), 2.0, 5, 3);
+        _gripBrush = Freeze(new SolidColorBrush(AppTheme.Pick(Colors.White, Color.FromRgb(0x17, 0x1A, 0x21))));
         _bandFill = Freeze(new SolidColorBrush(Color.FromArgb(0x1C, 0x5A, 0xAB, 0xFF)));
     }
 

@@ -56,8 +56,8 @@ public class SectionView : FrameworkElement
         Focusable = true;
         ClipToBounds = true;
 
-        _background = RenderPens.Fill(Color.FromRgb(0x14, 0x17, 0x1D));
-        _titleBrush = RenderPens.Fill(Color.FromRgb(0xF2, 0xC0, 0x9E));
+        _background = RenderPens.Fill(AppTheme.Pick(Colors.White, Color.FromRgb(0x14, 0x17, 0x1D)));
+        _titleBrush = RenderPens.Fill(AppTheme.Pick(Color.FromRgb(0x8A, 0x42, 0x16), Color.FromRgb(0xF2, 0xC0, 0x9E)));
         _emptyBrush = RenderPens.Fill(Color.FromRgb(0x7A, 0x84, 0x92));
     }
 

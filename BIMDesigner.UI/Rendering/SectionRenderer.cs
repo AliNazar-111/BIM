@@ -32,7 +32,7 @@ public sealed class SectionRenderer
 
     public SectionRenderer(DrawingPalette? palette = null)
     {
-        var ink = palette ?? DrawingPalette.Screen;
+        var ink = palette ?? AppTheme.Drawing;
 
         // Cut heavy, seen light. That weight difference is the whole grammar of a section: it
         // is how a reader tells what the knife went through from what is behind it.

@@ -58,7 +58,7 @@ public class SheetView : FrameworkElement
         Focusable = true;
         ClipToBounds = true;
 
-        _background = RenderPens.Fill(Color.FromRgb(0x10, 0x13, 0x18));
+        _background = RenderPens.Fill(AppTheme.Pick(Color.FromRgb(0xC9, 0xCD, 0xD3), Color.FromRgb(0x10, 0x13, 0x18)));
         _emptyBrush = RenderPens.Fill(Color.FromRgb(0x7A, 0x84, 0x92));
     }
 
