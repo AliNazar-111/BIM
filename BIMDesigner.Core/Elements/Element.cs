@@ -53,6 +53,13 @@ public abstract class Element
             () => EnumText.Humanise(PhaseCreated),
             v => { if (EnumText.TryParse<DesignPhase>(v, out var p)) PhaseCreated = p; },
             EnumText.Choices<DesignPhase>());
+        // "None" until it is demolished, as Revit shows it.
+        yield return ParameterValue.BindChoice(
+            CommonParameters.PhaseDemolished,
+            () => PhaseDemolished is { } phase ? EnumText.Humanise(phase) : "None",
+            v => PhaseDemolished = EnumText.TryParse<DesignPhase>(v, out var p) ? p : null,
+            new[] { "None" }.Concat(EnumText.Choices<DesignPhase>()).ToArray());
+
         yield return ParameterValue.ReadOnly(CommonParameters.Workset, () => Workset);
     }
 }
@@ -68,6 +75,9 @@ public static class CommonParameters
 
     public static readonly ParameterDefinition PhaseCreated =
         new("Phase Created", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Phasing);
+
+    public static readonly ParameterDefinition PhaseDemolished =
+        new("Phase Demolished", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Phasing);
 
     public static readonly ParameterDefinition Workset =
         new("Workset", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);

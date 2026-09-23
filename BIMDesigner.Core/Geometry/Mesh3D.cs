@@ -49,6 +49,19 @@ public sealed class Mesh3D
 
     public Guid ElementId { get; }
 
+    private Guid? _ownerId;
+
+    /// <summary>
+    /// The element this one is part of, when it is part of something larger: a curtain wall's
+    /// panel belongs to the wall. Clicking picks the panel, but selecting the wall lights up
+    /// everything that belongs to it. The element itself when nothing owns it.
+    /// </summary>
+    public Guid OwnerId
+    {
+        get => _ownerId ?? ElementId;
+        init => _ownerId = value;
+    }
+
     /// <summary>The storey it belongs to, so a viewer can hide a whole floor to see inside.</summary>
     public Guid LevelId { get; }
 
@@ -58,8 +71,17 @@ public sealed class Mesh3D
 
     public string Description { get; }
 
-    /// <summary>Glass is seen through; everything else is solid.</summary>
-    public double Opacity => Kind == MeshKind.Glazing ? 0.35 : 1.0;
+    private readonly double? _opacity;
+
+    /// <summary>
+    /// Glass is seen through; everything else is solid. A mesh can say otherwise for itself:
+    /// frosted glass is cloudy and a spandrel panel is not seen through at all.
+    /// </summary>
+    public double Opacity
+    {
+        get => _opacity ?? (Kind == MeshKind.Glazing ? 0.35 : 1.0);
+        init => _opacity = Math.Clamp(value, 0.05, 1);
+    }
 
     public IReadOnlyList<Point3D> Positions => _positions;
 

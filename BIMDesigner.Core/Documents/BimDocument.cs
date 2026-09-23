@@ -495,6 +495,124 @@ public sealed class BimDocument
             Cost = 890m
         };
 
+        // The rest of the window library: one of each way a window opens, and the divided
+        // lights that tell a Georgian sash from a sheet of glass.
+        var casementDouble = new WindowType("Casement Double - 1800 x 1350", 1800, 1350)
+        {
+            TypeMark = "W3",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Casement,
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "Timber, Painted",
+            HeatTransferCoefficient = 1.5,
+            Cost = 620m
+        };
+
+        var georgian = new WindowType("Casement Georgian - 900 x 1500", 900, 1500)
+        {
+            TypeMark = "W4",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Casement,
+            GlazingRows = 3,
+            GlazingColumns = 2,
+            GlazingType = "Double glazed",
+            FrameMaterial = "Timber, Painted",
+            HeatTransferCoefficient = 1.8,
+            Cost = 540m
+        };
+
+        var awning = new WindowType("Awning - 1200 x 600", 1200, 600)
+        {
+            TypeMark = "W5",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Awning,
+            GlazingType = "Double glazed",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.5,
+            Cost = 280m
+        };
+
+        var hopper = new WindowType("Hopper - 900 x 600", 900, 600)
+        {
+            TypeMark = "W6",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Hopper,
+            GlazingType = "Double glazed, obscured",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.6,
+            Cost = 240m
+        };
+
+        var slidingWindow = new WindowType("Sliding - 1800 x 1200", 1800, 1200)
+        {
+            TypeMark = "W7",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Sliding,
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "Aluminium, thermally broken",
+            HeatTransferCoefficient = 1.7,
+            Cost = 700m
+        };
+
+        var tiltAndTurn = new WindowType("Tilt and Turn - 1000 x 1400", 1000, 1400)
+        {
+            TypeMark = "W8",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.TiltAndTurn,
+            GlazingType = "Triple glazed",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.1,
+            Cost = 660m
+        };
+
+        var doubleHung = new WindowType("Double Hung - 900 x 1500", 900, 1500)
+        {
+            TypeMark = "W9",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.DoubleHung,
+            GlazingRows = 2,
+            GlazingColumns = 2,
+            GlazingType = "Double glazed",
+            FrameMaterial = "Timber, Painted",
+            HeatTransferCoefficient = 1.9,
+            Cost = 720m
+        };
+
+        var louvred = new WindowType("Louvred - 600 x 1200", 600, 1200)
+        {
+            TypeMark = "W10",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Louvred,
+            GlazingType = "Single glazed, obscured",
+            FrameMaterial = "Aluminium, Anodised",
+            HeatTransferCoefficient = 4.2,
+            SolarHeatGainCoefficient = 0.7,
+            Cost = 310m
+        };
+
+        var bay = new WindowType("Bay - 2400 x 1500", 2400, 1500)
+        {
+            TypeMark = "W11",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Bay,
+            GlazingRows = 2,
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "Timber, Painted",
+            HeatTransferCoefficient = 1.8,
+            Cost = 2100m
+        };
+
+        var rooflight = new WindowType("Fixed Light - 600 x 600", 600, 600)
+        {
+            TypeMark = "W12",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Fixed,
+            GlazingType = "Double glazed",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.6,
+            Cost = 180m
+        };
+
         // Horizontal build-ups, layered from the upper surface downward.
         var screedFloor = new FloorType("Floor - Screed on Slab 250mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, plaster.Id, 60),
@@ -627,7 +745,9 @@ public sealed class BimDocument
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
                      storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
-                     curtainSingle, curtainDouble, curtainSlider, casement, picture,
+                     curtainSingle, curtainDouble, curtainSlider,
+                     casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
+                     tiltAndTurn, doubleHung, louvred, bay, rooflight,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof
                  })
         {

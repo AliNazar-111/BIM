@@ -49,8 +49,10 @@ public class CurtainWallDoorTests
         Assert.True(leaf.TriangleCount > 0);
         Assert.Contains(meshes, m => m.Description == "Glazing" && m.TriangleCount > 0);
 
-        // It belongs to the wall: a curtain panel is part of the wall, not an element of its own.
-        Assert.Equal(wall.Id, leaf.ElementId);
+        // It is the panel it fills - clicking it selects that panel - and it belongs to the
+        // wall, so selecting the wall lights it up with everything else.
+        Assert.Equal(CurtainPanel.IdOf(wall.Id, 1, 0), leaf.ElementId);
+        Assert.Equal(wall.Id, leaf.OwnerId);
 
         // And it fills the panel: mullion to mullion in the second bay, standing on the floor.
         var bounds = leaf.Bounds()!.Value;
@@ -89,7 +91,7 @@ public class CurtainWallDoorTests
 
         var layout = CurtainLayout.Of(document, wall)!;
         var cell = layout.Cells.Single(c => c.Column == 1 && c.Row == 0);
-        Assert.Equal(type.Id, cell.DoorTypeId);
+        Assert.Equal(type.Id, cell.OpeningTypeId);
         Assert.Equal(0, cell.ClearBottom);
         Assert.DoesNotContain(layout.Mullions, m => !m.IsVertical && m.Bottom == 0 && m.From > cell.From && m.To < cell.To);
     }
@@ -220,7 +222,7 @@ public class CurtainWallDoorTests
             var panel = loaded.Walls.Single(w => w.Id == wall.Id).CurtainPanels!.Single();
 
             Assert.Equal(CurtainPanelKind.Door, panel.Kind);
-            Assert.Equal(type.Id, panel.DoorTypeId);
+            Assert.Equal(type.Id, panel.OpeningTypeId);
         }
         finally
         {

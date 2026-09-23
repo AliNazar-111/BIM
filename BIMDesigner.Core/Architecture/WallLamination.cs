@@ -145,11 +145,11 @@ public static class WallHoles
 
                 // Where the partner's opening is, measured along this wall.
                 var centre = wall.Locate(type.Structure, opening.GetCentre(partner)).Along;
-                var from = Math.Max(0, centre - openingType.Width / 2);
-                var to = Math.Min(wall.Length, centre + openingType.Width / 2);
+                var from = Math.Max(0, centre - opening.WidthOf(openingType) / 2);
+                var to = Math.Min(wall.Length, centre + opening.WidthOf(openingType) / 2);
                 if (to - from <= WallJoins.JoinTolerance) continue;
 
-                holes.Add(new WallHole(from, to, shift + opening.SillHeight, shift + opening.SillHeight + openingType.Height));
+                holes.Add(new WallHole(from, to, shift + opening.SillHeight, shift + opening.SillHeight + opening.HeightOf(openingType)));
             }
         }
 

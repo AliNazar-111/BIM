@@ -127,8 +127,8 @@ public class ModelView : Border
         }
     }
 
-    /// <summary>Raised with the element clicked on, or null for empty space.</summary>
-    public event EventHandler<Guid?>? ElementClicked;
+    /// <summary>Raised with the element clicked on and the point on it, or null for empty space.</summary>
+    public event EventHandler<(Guid Id, CorePoint3D At)?>? ElementClicked;
 
     // ---- content ----------------------------------------------------------------
 
@@ -296,7 +296,7 @@ public class ModelView : Border
             // solid panel, which is the opposite of what it is.
             if (mesh.Kind == MeshKind.Glazing) continue;
 
-            var target = _selected.Contains(mesh.ElementId) ? selected : plain;
+            var target = _selected.Contains(mesh.ElementId) || _selected.Contains(mesh.OwnerId) ? selected : plain;
             var width = ReferenceEquals(target, selected) ? half * 2.2 : half;
 
             foreach (var (from, to) in mesh.Edges) target.Add(ToUnits(from), ToUnits(to), width);
@@ -395,7 +395,7 @@ public class ModelView : Border
     private Material MaterialFor(Mesh3D mesh)
     {
         var colour = Color.FromRgb(mesh.Colour.R, mesh.Colour.G, mesh.Colour.B);
-        var isSelected = _selected.Contains(mesh.ElementId);
+        var isSelected = _selected.Contains(mesh.ElementId) || _selected.Contains(mesh.OwnerId);
 
         var opacity = _style == VisualStyle.XRay ? Math.Min(mesh.Opacity, 0.28) : mesh.Opacity;
         colour.A = (byte)Math.Round(opacity * 255);
@@ -754,20 +754,22 @@ public class ModelView : Border
     }
 
     /// <summary>
-    /// The nearest element under a point. The ground is not an element, so a click on it
-    /// passes through to nothing and clears the selection.
+    /// The nearest element under a point, and where on it the click landed - which is what
+    /// lets a window be put into the wall at the place it was clicked. The ground is not an
+    /// element, so a click on it passes through to nothing and clears the selection.
     /// </summary>
-    private Guid? HitTest(Point point)
+    private (Guid Id, CorePoint3D At)? HitTest(Point point)
     {
-        Guid? hit = null;
+        (Guid Id, CorePoint3D At)? hit = null;
 
         // Results arrive nearest first, so the first one that belongs to an element is it.
         VisualTreeHelper.HitTest(_viewport, null, result =>
         {
-            if (result is RayMeshGeometry3DHitTestResult { ModelHit: GeometryModel3D model } &&
+            if (result is RayMeshGeometry3DHitTestResult { ModelHit: GeometryModel3D model } ray &&
                 _meshOf.TryGetValue(model, out var mesh))
             {
-                hit = mesh.ElementId;
+                var on = ray.PointHit;
+                hit = (mesh.ElementId, new CorePoint3D(on.X * MillimetresPerUnit, on.Y * MillimetresPerUnit, on.Z * MillimetresPerUnit));
                 return HitTestResultBehavior.Stop;
             }
 

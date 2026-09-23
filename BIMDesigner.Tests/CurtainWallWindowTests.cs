@@ -118,7 +118,39 @@ public class CurtainWallWindowTests
 
             // Splitting the bay leaves a door of the same type in each half.
             Assert.True(editor.AddLine(vertical: true, at: 2000));
-            Assert.Equal(new Guid?[] { doorType, doorType }, editor.Panels.Where(p => p.Kind == CurtainPanelKind.Door).Select(p => p.DoorTypeId).ToArray());
+            Assert.Equal(new Guid?[] { doorType, doorType }, editor.Panels.Where(p => p.Kind == CurtainPanelKind.Door).Select(p => p.OpeningTypeId).ToArray());
+        });
+    }
+
+    [Fact]
+    public void ChangingAPanelsGlassRaisesTheEditThatRefreshesTheViews()
+    {
+        OnUiThread(() =>
+        {
+            var document = BimDocument.CreateDefault();
+            var wall = new Wall
+            {
+                Start = new Point2D(0, 0), End = new Point2D(6000, 0),
+                TypeId = document.TypesOf<CurtainWallType>().First().Id,
+                LevelId = document.Levels[0].Id, UnconnectedHeight = 3000
+            };
+            document.Add(wall);
+
+            var panel = CurtainPanel.At(document, wall, 1, 0)!;
+            var row = new BIMDesigner.UI.ViewModels.ParameterRow(
+                new[] { panel.GetInstanceParameters(document).Single(p => p.Name == "Glass") });
+
+            // The palette raises this only when the value it reads back differs from the one
+            // it read before. It is what rebuilds the 3D view and records the undo step, so a
+            // parameter that reported its old value would leave the model changed and the
+            // views stale.
+            var raised = 0;
+            row.ValueCommitted += (_, _) => raised++;
+
+            row.SelectedChoice = "Tinted";
+
+            Assert.Equal(1, raised);
+            Assert.Equal(CurtainGlass.Tinted, panel.Cell(document)!.Glass);
         });
     }
 

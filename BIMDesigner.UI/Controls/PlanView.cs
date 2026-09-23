@@ -424,6 +424,11 @@ public class PlanView : FrameworkElement
             wall.UnconnectedHeight = NewWallHeight;
         }
 
+        // Drawn into the end of a wall of a different thickness, it runs flush with that wall's
+        // inner face rather than standing in the middle of it. Offset Across undoes it.
+        if (Document is { } document && WallAlignment.OffsetFor(document, wall) is { } offset)
+            wall.AcrossOffset = offset;
+
         return wall;
     }
 
@@ -551,6 +556,10 @@ public class PlanView : FrameworkElement
             InvalidateVisual();
             return true;
         }
+
+        // A curtain wall's door panel selected: Space mirrors it, as it does an ordinary door.
+        if (_selection.Count == 1 && _selection[0] is CurtainPanel selectedPanel && Document is not null)
+            return FlipCurtainPanel(selectedPanel, hand: false);
 
         // A door or window selected: Space flips which way it faces.
         if (_selection.Count == 1 && _selection[0] is Opening selectedOpening && Document is not null)
@@ -3170,12 +3179,13 @@ public class PlanView : FrameworkElement
     /// snapped along it and kept inside it, swinging toward the side of the wall the cursor is
     /// on and hinged as Space last set - as Revit places them.
     /// </summary>
-    private Opening? OpeningAt(Point2D raw, bool isDoor, out string? problem)
+    private Opening? OpeningAt(Point2D raw, bool isDoor, out string? problem, Wall? on = null)
     {
         problem = null;
         if (Document is null) return null;
 
-        var wall = HitTestWall(raw);
+        // The wall under the cursor, or the one a click in the 3D view landed on.
+        var wall = on ?? HitTestWall(raw);
         if (wall is null)
         {
             problem = isDoor ? "A door needs a wall. Click on one." : "A window needs a wall. Click on one.";
@@ -3187,7 +3197,7 @@ public class PlanView : FrameworkElement
         {
             problem = isDoor
                 ? "That is a curtain wall: click a bottom panel to make it a door of the type selected."
-                : "That is a curtain wall: its panels are already glazed.";
+                : "That is a curtain wall: click a panel to make it a window of the type selected.";
             return null;
         }
 
@@ -3223,21 +3233,31 @@ public class PlanView : FrameworkElement
         opening.LevelId = wall.LevelId;
         opening.FlipFacing = isDoor && interiorSide;
         opening.FlipHand = _placeFlipHand;
+
+        // Placed into a slanted wall, it leans with it. One that was already in the wall when
+        // the wall was slanted keeps standing upright, which is Revit's rule.
+        if (Document.GetWallType(wall) is { } lean && WallLean.Leans(wall, lean))
+            opening.Orientation = OpeningOrientation.Slanted;
+
         return opening;
     }
 
-    private void PlaceOpening(Point2D raw, bool isDoor)
+    private void PlaceOpening(Point2D raw, bool isDoor, Wall? on = null, double? sillHeight = null)
     {
         if (Document is null) return;
 
-        // A curtain wall has no hole cut in it: the panel clicked becomes the door instead.
-        if (isDoor && HitTestWall(raw) is { } curtain && Document.IsCurtainWall(curtain) && PlaceCurtainDoor(raw, curtain)) return;
+        // A curtain wall has no hole cut in it: the panel clicked becomes the door or window.
+        if ((on ?? HitTestWall(raw)) is { } curtain && Document.IsCurtainWall(curtain) &&
+            (isDoor ? PlaceCurtainDoor(raw, curtain) : PlaceCurtainWindow(raw, curtain))) return;
 
-        if (OpeningAt(raw, isDoor, out var problem) is not { } opening)
+        if (OpeningAt(raw, isDoor, out var problem, on) is not { } opening)
         {
             HintChanged?.Invoke(this, problem ?? string.Empty);
             return;
         }
+
+        // Placed from a view that shows heights, it goes at the height it was put.
+        if (sillHeight is { } sill) opening.SillHeight = Math.Max(0, sill);
 
         // Numbered as they are placed, from 1, as door and window tags read them.
         opening.Mark = isDoor ? OpeningMarks.Next<Door>(Document) : OpeningMarks.Next<BimWindow>(Document);
@@ -3286,6 +3306,111 @@ public class PlanView : FrameworkElement
             : placement.AddedLines
                 ? $"A bay was cut for the {type.Name}, with glass around it. Drag a grid line in Edit Curtain Grid to resize it."
                 : $"That panel is now a {type.Name}. Click another panel to place another.");
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>
+    /// The Window tool on a curtain wall: the panel clicked becomes a window of the type the
+    /// tool has selected, filling that panel. Unlike a door it need not stand on the floor, so
+    /// any panel will take one and the panel keeps the mullions round it.
+    /// </summary>
+    private bool PlaceCurtainWindow(Point2D raw, Wall wall)
+    {
+        if (Document is null || !Document.IsCurtainWall(wall)) return false;
+
+        if (Document.FindType<WindowType>(ActiveWindowTypeId) is not { } type)
+        {
+            HintChanged?.Invoke(this, "No window type is selected for the tool.");
+            return true;
+        }
+
+        if (CurtainLayout.Of(Document, wall) is not { } layout)
+        {
+            HintChanged?.Invoke(this, "That curtain wall has no panels to fill.");
+            return true;
+        }
+
+        // The panel the click landed in: the one the cursor is over at cut height, or the
+        // bottom one of that bay when the click is outside them all.
+        var along = wall.LocationCurve.Locate(raw).Along;
+        if (layout.Cells.FirstOrDefault(c => along >= c.From && along <= c.To) is not { } cell)
+        {
+            HintChanged?.Invoke(this, "Click a panel of the curtain wall to make it a window.");
+            return true;
+        }
+
+        var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
+            .Where(p => p.Column != cell.Column || p.Row != cell.Row)
+            .Append(new CurtainPanelOverride(cell.Column, cell.Row, CurtainPanelKind.Window, type.Id))
+            .OrderBy(p => p.Column).ThenBy(p => p.Row)
+            .ToList();
+
+        Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, "Place Window"));
+        Select(wall);
+        HintChanged?.Invoke(this, $"That panel is now a {type.Name}. Click another panel, or select one to change it.");
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>
+    /// A door or window put in from the 3D view: the wall clicked takes it, at the point along
+    /// it that was clicked, and a window at the height it was clicked at. Revit places doors
+    /// and windows in plan, section, elevation and 3D alike, and a wall seen in 3D is often the
+    /// one you want to put a window in.
+    /// </summary>
+    public bool PlaceOpeningIn3D(Guid elementId, Point3D at)
+    {
+        if (Document is null || ActiveTool is not (PlanTool.Door or PlanTool.Window)) return false;
+
+        // The wall itself, or the curtain wall a clicked panel belongs to.
+        var wall = Document.Walls.FirstOrDefault(w => w.Id == elementId)
+                   ?? (CurtainPanel.Find(Document, elementId) is { } panel
+                       ? Document.Walls.FirstOrDefault(w => w.Id == panel.HostWallId)
+                       : null);
+        if (wall is null) return false;
+
+        var isDoor = ActiveTool == PlanTool.Door;
+        var point = new Point2D(at.X, at.Y);
+
+        // A window is centred on the height clicked; a door stands on the floor.
+        double? sill = null;
+        if (!isDoor && Document.FindType<OpeningType>(ActiveWindowTypeId) is { } type)
+        {
+            var room = Math.Max(0, wall.GetHeight(Document) - type.Height);
+            sill = Units.SnapToGrid(Math.Clamp(at.Z - wall.GetBaseElevation(Document) - type.Height / 2, 0, room), SnapStepMm);
+        }
+
+        PlaceOpening(point, isDoor, wall, sill);
+        return true;
+    }
+
+    /// <summary>
+    /// Mirrors a curtain wall's door panel: hinged the other side, or opening the other way.
+    /// It is what Mirror means for a panel, which is fixed in its bay and has no line to be
+    /// mirrored about. A panel that is not a door has nothing to mirror.
+    /// </summary>
+    public bool FlipCurtainPanel(CurtainPanel panel, bool hand)
+    {
+        if (Document is null || Document.Walls.FirstOrDefault(w => w.Id == panel.HostWallId) is not { } wall) return false;
+
+        if (panel.Cell(Document) is not { Kind: CurtainPanelKind.Door })
+        {
+            HintChanged?.Invoke(this, "Only a door panel can be mirrored. Give the panel a door type first.");
+            return true;
+        }
+
+        var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
+            .Select(p => p.Column != panel.Column || p.Row != panel.Row
+                ? p
+                : hand
+                    ? p with { FlipHand = !p.FlipHand }
+                    : p with { FlipFacing = !p.FlipFacing })
+            .ToList();
+
+        Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, "Mirror Panel"));
+        Select(panel);
+        HintChanged?.Invoke(this, hand ? "Hinged on the other side." : "Opening the other way.");
         InvalidateVisual();
         return true;
     }
@@ -3351,7 +3476,7 @@ public class PlanView : FrameworkElement
         return new[]
         {
             (wall.PointAt(type.Structure, opening.DistanceAlongWall, side * away), normal, true),
-            (wall.PointAt(type.Structure, opening.DistanceAlongWall + openingType.Width / 2 + 16 / PixelsPerMm, -side * away), tangent, false)
+            (wall.PointAt(type.Structure, opening.DistanceAlongWall + opening.WidthOf(openingType) / 2 + 16 / PixelsPerMm, -side * away), tangent, false)
         };
     }
 

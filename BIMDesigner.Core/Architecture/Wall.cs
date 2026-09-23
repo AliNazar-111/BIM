@@ -184,6 +184,14 @@ public sealed class Wall : Element
     public WallJoinKind EndJoin { get; set; } = WallJoinKind.Auto;
 
     /// <summary>
+    /// How far the wall body is shifted across its location line, on top of whatever the
+    /// location line rule already says, positive toward the exterior. It is what lets a thin
+    /// wall run flush with the face of a thicker one it meets instead of sitting in the middle
+    /// of it. See <see cref="WallAlignment"/>.
+    /// </summary>
+    public double AcrossOffset { get; set; }
+
+    /// <summary>
     /// The wall's edited elevation outline, or null for the rectangle its length and height give.
     /// Points are distance along the location line and height above the base. See <see cref="WallProfile"/>.
     /// </summary>
@@ -200,6 +208,9 @@ public sealed class Wall : Element
 
     /// <summary>The cells of a curtain wall filled with something other than glass.</summary>
     public IReadOnlyList<CurtainPanelOverride>? CurtainPanels { get; set; }
+
+    /// <summary>What this curtain wall is glazed with, for every panel that does not say otherwise.</summary>
+    public CurtainGlass CurtainGlass { get; set; } = CurtainGlass.Clear;
 
     /// <summary>Length of the location line, in millimetres.</summary>
     public double Length => IsCurved ? LocationCurve.Length : Start.DistanceTo(End);
@@ -392,7 +403,9 @@ public sealed class Wall : Element
     {
         var half = structure.TotalWidth / 2;
 
-        return LocationLine switch
+        return Rule() - AcrossOffset;
+
+        double Rule() => LocationLine switch
         {
             WallLocationLine.WallCentreline => 0,
             WallLocationLine.FinishFaceExterior => half,
@@ -595,6 +608,10 @@ public sealed class Wall : Element
                 ? new ChangeLocationLineCommand(document, this, line)
                 : null,
             EnumText.Choices<WallLocationLine>());
+        // How far the wall stands off the line it was drawn on, which is what lets a thin wall
+        // run flush with the face of a thicker one it meets.
+        yield return ParameterValue.Bind(WallParameters.AcrossOffset, () => AcrossOffset, v => AcrossOffset = v);
+
         yield return ParameterValue.Bind(WallParameters.RoomBounding, () => RoomBounding, v => RoomBounding = v);
 
         // Dimensions - all computed, never stored
@@ -604,6 +621,14 @@ public sealed class Wall : Element
         yield return ParameterValue.ReadOnly(WallParameters.Volume, () => GetVolume(document));
         if (CurtainLayout.Of(document, this) is not null)
         {
+            // What the whole wall is glazed with. A panel given glass of its own keeps it; the
+            // rest follow this, so one choice reglazes the wall.
+            yield return ParameterValue.BindChoice(
+                WallParameters.CurtainGlass,
+                () => EnumText.Humanise(CurtainGlass),
+                v => { if (EnumText.TryParse<CurtainGlass>(v, out var glass)) CurtainGlass = glass; },
+                EnumText.Choices<CurtainGlass>());
+
             yield return ParameterValue.ReadOnly(WallParameters.CurtainPanels, () => CurtainLayout.Of(document, this)?.PanelCount ?? 0);
             yield return ParameterValue.ReadOnly(WallParameters.MullionLength, () => CurtainLayout.Of(document, this)?.MullionLength ?? 0);
         }
@@ -673,6 +698,12 @@ public static class WallParameters
 
     public static readonly ParameterDefinition Profile =
         new("Profile", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition AcrossOffset =
+        new("Offset Across", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition CurtainGlass =
+        new("Glass", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
 
     public static readonly ParameterDefinition CurtainPanels =
         new("Panels", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);

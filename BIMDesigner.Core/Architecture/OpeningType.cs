@@ -49,7 +49,16 @@ public enum WindowOperation
     Awning,
     Sliding,
     TiltAndTurn,
-    Bay
+    Bay,
+
+    /// <summary>Two sashes one above the other, both sliding up and down.</summary>
+    DoubleHung,
+
+    /// <summary>Hinged at the bottom and opening inward, as a basement or bathroom light is.</summary>
+    Hopper,
+
+    /// <summary>Glass slats turning together in the frame, for air without a view.</summary>
+    Louvred
 }
 
 /// <summary>
@@ -192,12 +201,20 @@ public sealed class WindowType : OpeningType
 
     public string GlazingType { get; set; } = "Double glazed";
 
+    /// <summary>Panes up and across each light: 1 by 1 is a single sheet, 3 by 2 a Georgian sash.</summary>
+    public int GlazingRows { get; set; } = 1;
+
+    public int GlazingColumns { get; set; } = 1;
+
     /// <summary>Solar heat gain coefficient, 0 to 1.</summary>
     public double SolarHeatGainCoefficient { get; set; } = 0.6;
 
     public override IEnumerable<ParameterValue> GetTypeParameters()
     {
         foreach (var parameter in GetOpeningTypeParameters()) yield return parameter;
+
+        yield return ParameterValue.Bind(WindowTypeParameters.GlazingRows, () => GlazingRows, v => { if (v is > 0 and <= 12) GlazingRows = v; });
+        yield return ParameterValue.Bind(WindowTypeParameters.GlazingColumns, () => GlazingColumns, v => { if (v is > 0 and <= 12) GlazingColumns = v; });
 
         yield return ParameterValue.BindChoice(
             WindowTypeParameters.Operation,
@@ -285,6 +302,12 @@ public static class DoorTypeParameters
 
 public static class WindowTypeParameters
 {
+    public static readonly ParameterDefinition GlazingRows =
+        new("Glazing Rows", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition GlazingColumns =
+        new("Glazing Columns", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition Operation =
         new("Operation", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 

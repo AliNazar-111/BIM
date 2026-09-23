@@ -34,7 +34,62 @@ public enum CurtainPanelKind
     Glazed,
     Solid,
     Empty,
-    Door
+    Door,
+
+    /// <summary>A window filling the panel: one of the project's window types, opening as it does.</summary>
+    Window
+}
+
+/// <summary>
+/// What a glazed panel of a curtain wall is made of. A shopfront is mostly clear glass; tinted
+/// and frosted are chosen against glare and for privacy; laminated is two panes bonded together,
+/// so it is thicker; a spandrel panel is opaque glass hiding the floor structure behind it.
+/// </summary>
+public enum CurtainGlass
+{
+    Clear,
+    Tinted,
+    Frosted,
+    Laminated,
+    Spandrel
+}
+
+/// <summary>How each kind of glass reads: its colour, how far it is seen through, and how thick.</summary>
+public static class CurtainGlassLook
+{
+    /// <summary>The colour it is drawn in; clear glass keeps whatever its material says.</summary>
+    public static ColourRgb ColourOf(CurtainGlass glass, ColourRgb clear) => glass switch
+    {
+        CurtainGlass.Tinted => new ColourRgb(0x46, 0x66, 0x70),
+        CurtainGlass.Frosted => new ColourRgb(0xCA, 0xDA, 0xE0),
+        CurtainGlass.Laminated => new ColourRgb(0x84, 0xBC, 0xC2),
+        CurtainGlass.Spandrel => new ColourRgb(0x2C, 0x36, 0x3E),
+        _ => clear
+    };
+
+    /// <summary>How solid it looks in 3D: clear glass is barely there, a spandrel panel not at all.</summary>
+    public static double OpacityOf(CurtainGlass glass) => glass switch
+    {
+        CurtainGlass.Tinted => 0.55,
+        CurtainGlass.Frosted => 0.75,
+        CurtainGlass.Laminated => 0.42,
+        CurtainGlass.Spandrel => 1,
+        _ => 0.35
+    };
+
+    /// <summary>How thick it is against a single pane: laminated glass is two panes and an interlayer.</summary>
+    public static double ThicknessOf(CurtainGlass glass, double pane) =>
+        glass == CurtainGlass.Laminated ? pane * 1.6 : pane;
+
+    /// <summary>What it is called, which is what the 3D view and schedules show.</summary>
+    public static string NameOf(CurtainGlass glass) => glass switch
+    {
+        CurtainGlass.Tinted => "Glass, Tinted",
+        CurtainGlass.Frosted => "Glass, Frosted",
+        CurtainGlass.Laminated => "Glass, Laminated",
+        CurtainGlass.Spandrel => "Glass, Spandrel",
+        _ => "Glass, Clear"
+    };
 }
 
 public enum MullionProfile

@@ -57,6 +57,8 @@
             <StackPanel Grid.Column="2">
                 <TextBlock Text="CLICK A PANEL TO MAKE IT" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
                 <RadioButton x:Name="GlazedChoice" Content="Glass" IsChecked="True" Margin="0,0,0,6" Checked="OnFillChanged"/>
+                <ComboBox x:Name="GlassKindBox" Margin="18,0,0,10" SelectionChanged="OnGlassKindChanged"
+                          ToolTip="What the pane is: clear, tinted, frosted, laminated, or an opaque spandrel panel"/>
                 <RadioButton x:Name="SolidChoice" Content="Solid panel" Margin="0,0,0,6" Checked="OnFillChanged"/>
                 <RadioButton x:Name="EmptyChoice" Content="Empty" Margin="0,0,0,6" Checked="OnFillChanged"/>
                 <RadioButton x:Name="DoorChoice" Content="Door (bottom panels)" Margin="0,0,0,6" Checked="OnFillChanged"/>

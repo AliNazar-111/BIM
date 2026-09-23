@@ -464,9 +464,14 @@ public sealed class PlanRenderer
             switch (cell.Kind)
             {
                 case CurtainPanelKind.Glazed:
-                    dc.DrawGeometry(null, _glassPen,
-                        BuildOutline(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half)));
+                {
+                    // Clear glass is two lines and nothing between; anything that cannot be
+                    // seen through is filled, so a spandrel or frosted panel reads on the plan.
+                    var pane = CurtainGlassLook.ThicknessOf(cell.Glass, half);
+                    var outline = BuildOutline(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, pane, -pane));
+                    dc.DrawGeometry(cell.Glass == CurtainGlass.Clear ? null : GlassBrush(cell.Glass), _glassPen, outline);
                     break;
+                }
 
                 case CurtainPanelKind.Solid:
                     dc.DrawGeometry(MaterialBrush(type.SolidMaterialId), _wallOutlinePen,
@@ -474,6 +479,7 @@ public sealed class PlanRenderer
                     break;
 
                 case CurtainPanelKind.Door:
+                case CurtainPanelKind.Window:
                 {
                     var jambFrom = wall.PointAt(structure, cell.ClearFrom, 0);
                     var jambTo = wall.PointAt(structure, cell.ClearTo, 0);
@@ -482,7 +488,25 @@ public sealed class PlanRenderer
 
                     var along = (jambTo - jambFrom) / width;
                     var across = wall.ExteriorNormalAt(cell.ClearFrom);
-                    var doorType = cell.DoorTypeId is { } id ? Document?.FindType<DoorType>(id) : null;
+                    var openingType = cell.OpeningTypeId is { } id ? Document?.FindType<OpeningType>(id) : null;
+
+                    // A window panel reads as a window: the pane across the bay, and the sash's
+                    // swing where it has one.
+                    if (openingType is WindowType windowType)
+                    {
+                        var light = new BIMDesigner.Core.Architecture.Window
+                        {
+                            TypeId = windowType.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
+                            DistanceAlongWall = (cell.ClearFrom + cell.ClearTo) / 2,
+                            FlipHand = cell.FlipHand,
+                            FlipFacing = !cell.FlipFacing
+                        };
+
+                        DrawWindowSymbol(dc, light, windowType, jambFrom, jambTo, along, across, body.Width / 2, _openingPen);
+                        break;
+                    }
+
+                    var doorType = openingType as DoorType;
 
                     // Hinged at the start of the bay, opening to the inside.
                     if (doorType is null)
@@ -497,7 +521,9 @@ public sealed class PlanRenderer
                     var panel = new Door
                     {
                         TypeId = doorType.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
-                        DistanceAlongWall = (cell.ClearFrom + cell.ClearTo) / 2, FlipFacing = true
+                        DistanceAlongWall = (cell.ClearFrom + cell.ClearTo) / 2,
+                        FlipHand = cell.FlipHand,
+                        FlipFacing = !cell.FlipFacing
                     };
 
                     DrawDoorSymbol(dc, panel, doorType, d => jambFrom + along * (d - cell.ClearFrom),
@@ -1368,6 +1394,10 @@ public sealed class PlanRenderer
         Math.Max(1, size),
         brush,
         PixelsPerDip);
+
+    /// <summary>The fill for a pane of glass that is not clear, in the colour that glass reads as.</summary>
+    private static Brush GlassBrush(CurtainGlass glass) =>
+        RenderPens.Fill(RenderPens.ToMediaColor(CurtainGlassLook.ColourOf(glass, new BIMDesigner.Core.Materials.ColourRgb(0x8C, 0xC4, 0xE0))));
 
     private Brush MaterialBrush(Guid materialId)
     {

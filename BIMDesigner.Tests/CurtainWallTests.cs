@@ -127,7 +127,8 @@ public class CurtainWallTests
         var (document, _, wall) = Storefront();
         var meshes = ModelMeshBuilder.BuildWall(document, wall);
 
-        var glass = meshes.Single(m => m.Kind == MeshKind.Glazing).Bounds()!.Value;
+        // Each panel is its own mesh now, so the glazing is all of them together.
+        var glass = ModelMeshBuilder.Bounds(meshes.Where(m => m.Kind == MeshKind.Glazing))!.Value;
         Assert.Equal(50, glass.Min.X, precision: 6);
         Assert.Equal(5950, glass.Max.X, precision: 6);
         Assert.Equal(2950, glass.Max.Z, precision: 6);
@@ -153,7 +154,7 @@ public class CurtainWallTests
 
         // Every pane lies on the curve, within half its thickness of the wall's line.
         var curve = wall.LocationCurve;
-        Assert.All(meshes.Single(m => m.Kind == MeshKind.Glazing).Positions,
+        Assert.All(meshes.Where(m => m.Kind == MeshKind.Glazing).SelectMany(m => m.Positions),
             p => Assert.True(curve.DistanceTo(new Point2D(p.X, p.Y)) <= 12.5 + 0.6, $"{p} is off the curve."));
     }
 

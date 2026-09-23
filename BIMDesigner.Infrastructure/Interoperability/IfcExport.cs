@@ -470,7 +470,7 @@ public static class IfcExport
                 o.Name = $"{type.Name} opening";
                 o.PredefinedType = IfcOpeningElementTypeEnum.OPENING;
                 o.ObjectPlacement = voidPlacement;
-                o.Representation = Extrude(profile, type.Height);
+                o.Representation = Extrude(profile, opening.HeightOf(type));
             });
 
             New<IfcRelVoidsElement>(relation =>
@@ -490,11 +490,14 @@ public static class IfcExport
                 });
             });
 
+            var width = opening.WidthOf(type);
+            var height = opening.HeightOf(type);
+
             var panel = new List<Point2D>
             {
                 new(0, 0),
-                new(type.Width, 0),
-                new(type.Width, type.Thickness),
+                new(width, 0),
+                new(width, type.Thickness),
                 new(0, type.Thickness)
             };
 
@@ -504,20 +507,20 @@ public static class IfcExport
                     w.GlobalId = opening.Id.ToIfc();
                     w.Name = type.Name;
                     w.Tag = opening.Mark;
-                    w.OverallWidth = type.Width;
-                    w.OverallHeight = type.Height;
+                    w.OverallWidth = width;
+                    w.OverallHeight = height;
                     w.ObjectPlacement = placement;
-                    w.Representation = Extrude(panel, type.Height);
+                    w.Representation = Extrude(panel, height);
                 })
                 : New<IfcDoor>(d =>
                 {
                     d.GlobalId = opening.Id.ToIfc();
                     d.Name = type.Name;
                     d.Tag = opening.Mark;
-                    d.OverallWidth = type.Width;
-                    d.OverallHeight = type.Height;
+                    d.OverallWidth = width;
+                    d.OverallHeight = height;
                     d.ObjectPlacement = placement;
-                    d.Representation = Extrude(panel, type.Height);
+                    d.Representation = Extrude(panel, height);
                 });
 
             New<IfcRelFillsElement>(relation =>

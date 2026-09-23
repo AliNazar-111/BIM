@@ -456,7 +456,7 @@ public static class SectionProjection
         foreach (var (opening, openingType) in openings)
         {
             var sill = Math.Max(baseElevation, baseElevation + opening.SillHeight);
-            var head = Math.Min(topElevation, baseElevation + opening.SillHeight + openingType.Height);
+            var head = Math.Min(topElevation, baseElevation + opening.SillHeight + opening.HeightOf(openingType));
             if (head <= sill) continue;
 
             AddOpeningPieces(
@@ -701,9 +701,14 @@ public static class SectionProjection
 
                     var piece = cell.Kind switch
                     {
-                        CurtainPanelKind.Glazed => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.Glazing, SectionDepth.Cut, glass, GlazingColour),
+                        // Whatever the glass is: clear glass keeps its material, the rest read as themselves,
+                        // and laminated glass is drawn thicker because it is two panes bonded together.
+                        CurtainPanelKind.Glazed => Piece(
+                            X(CurtainGlassLook.ThicknessOf(cell.Glass, panelHalf)), X(-CurtainGlassLook.ThicknessOf(cell.Glass, panelHalf)),
+                            cell.ClearBottom, cell.ClearTop, SectionPart.Glazing, SectionDepth.Cut,
+                            cell.Glass == CurtainGlass.Clear ? glass : null, CurtainGlassLook.ColourOf(cell.Glass, GlazingColour)),
                         CurtainPanelKind.Solid => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.WallLayer, SectionDepth.Cut, solid, DefaultCut),
-                        CurtainPanelKind.Door => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, SectionDepth.Cut, null, LeafColour),
+                        CurtainPanelKind.Door or CurtainPanelKind.Window => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, SectionDepth.Cut, null, LeafColour),
                         _ => null
                     };
                     if (piece is not null) pieces.Add(piece);
@@ -737,8 +742,9 @@ public static class SectionProjection
             pieces.Add(cell.Kind switch
             {
                 CurtainPanelKind.Solid => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.WallFace, solid, DefaultCut),
-                CurtainPanelKind.Door => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, null, LeafColour),
-                _ => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.Glazing, glass, GlazingColour)
+                CurtainPanelKind.Door or CurtainPanelKind.Window => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, null, LeafColour),
+                _ => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.Glazing,
+                    cell.Glass == CurtainGlass.Clear ? glass : null, CurtainGlassLook.ColourOf(cell.Glass, GlazingColour))
             });
         }
 

@@ -33,6 +33,7 @@ public enum BuiltInCategory
     WallSweeps,
     WallReveals,
     WallOpenings,
+    CurtainPanels,
     Profiles
 }
 

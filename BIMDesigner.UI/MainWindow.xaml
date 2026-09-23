@@ -718,6 +718,9 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Detach}"
                                             Content="Detach Top/Base" Click="OnDetachWalls"
                                             ToolTip="Detach the tops and bases of the selected walls"/>
+                                    <Button x:Name="ContextAlignFaces" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Wall}"
+                                            Content="Align Faces" Click="OnAlignWallFaces"
+                                            ToolTip="Run the selected wall flush with the face of the wall it meets end to end, instead of standing in the middle of a thicker one. Click again for the other face"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>

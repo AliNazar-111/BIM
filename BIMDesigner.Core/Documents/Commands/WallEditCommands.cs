@@ -1127,3 +1127,30 @@ public sealed class RehostOpeningCommand : IUndoableCommand
 
     public void Undo() => (_opening.HostWallId, _opening.LevelId, _opening.DistanceAlongWall) = _before;
 }
+
+/// <summary>
+/// Moves walls across the lines they were drawn on, which is what lines a thin wall up with
+/// the face of a thicker one it runs into. See <see cref="WallAlignment"/>.
+/// </summary>
+public sealed class OffsetWallsCommand : IUndoableCommand
+{
+    private readonly IReadOnlyList<(Wall Wall, double Before, double After)> _changes;
+
+    public OffsetWallsCommand(IEnumerable<(Wall Wall, double Offset)> changes, string name = "Align Faces")
+    {
+        _changes = changes.Select(change => (change.Wall, change.Wall.AcrossOffset, change.Offset)).ToList();
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public void Redo()
+    {
+        foreach (var (wall, _, after) in _changes) wall.AcrossOffset = after;
+    }
+
+    public void Undo()
+    {
+        foreach (var (wall, before, _) in _changes) wall.AcrossOffset = before;
+    }
+}

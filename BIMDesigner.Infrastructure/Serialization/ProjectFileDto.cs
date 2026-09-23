@@ -419,7 +419,17 @@ internal sealed class CurtainPanelDto
     public int Row { get; set; }
     public string Kind { get; set; } = "Glazed";
 
-    /// <summary>For a door panel, the door type it is; null in files from before door panels had a type.</summary>
+    /// <summary>For a door panel, which way it is hung and which way it opens.</summary>
+    public bool FlipHand { get; set; }
+    public bool FlipFacing { get; set; }
+
+    /// <summary>For a glazed panel, what the pane is; absent means clear glass.</summary>
+    public string? Glass { get; set; }
+
+    /// <summary>The door or window type this panel is; null for plain glass or a panel with no type named.</summary>
+    public Guid? OpeningTypeId { get; set; }
+
+    /// <summary>What the type was called before windows could be panels too. Read, never written.</summary>
     public Guid? DoorTypeId { get; set; }
 }
 
@@ -511,6 +521,10 @@ internal sealed class WindowTypeDto : OpeningTypeDto
 {
     public string Operation { get; set; } = "Casement";
     public string GlazingType { get; set; } = string.Empty;
+
+    /// <summary>Panes up and across each light; absent in files from before divided lights.</summary>
+    public int GlazingRows { get; set; }
+    public int GlazingColumns { get; set; }
     public double SolarHeatGainCoefficient { get; set; }
 }
 
@@ -530,6 +544,13 @@ internal abstract class OpeningDto
     public bool FlipFacing { get; set; }
     public bool FlipHand { get; set; }
 
+    /// <summary>"Vertical" or "Slanted" in a slanted wall. Absent in files from before it was a choice.</summary>
+    public string? Orientation { get; set; }
+
+    /// <summary>This opening's own size, when it is not the size its type says.</summary>
+    public double? WidthOverride { get; set; }
+    public double? HeightOverride { get; set; }
+
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
@@ -541,6 +562,7 @@ internal sealed class DoorDto : OpeningDto
 {
     public double SwingAngle { get; set; } = 90;
     public string? FrameType { get; set; }
+    public string? FrameMaterial { get; set; }
     public string? Finish { get; set; }
 }
 
@@ -603,6 +625,9 @@ internal sealed class WallDto
     public List<double>? CurtainHorizontals { get; set; }
     public List<CurtainPanelDto>? CurtainPanels { get; set; }
 
+    /// <summary>What the whole curtain wall is glazed with, for panels that do not say otherwise.</summary>
+    public string? CurtainGlass { get; set; }
+
     /// <summary>The slabs the top and base are attached to, if any.</summary>
     public Guid? TopAttachedTo { get; set; }
     public Guid? BaseAttachedTo { get; set; }
@@ -610,6 +635,9 @@ internal sealed class WallDto
     /// <summary>"Vertical", "Slanted", "DoubleSlanted" or "Tapered", and the angles for them, in degrees.</summary>
     public string CrossSection { get; set; } = "Vertical";
     public double SlantAngle { get; set; }
+
+    /// <summary>How far the wall body is shifted across its location line, exterior positive.</summary>
+    public double AcrossOffset { get; set; }
 
     /// <summary>A double-slanted wall's lean above its break, in degrees, and the break's height above the base in millimetres.</summary>
     public double UpperSlantAngle { get; set; }

@@ -105,7 +105,8 @@ public class EmbeddedWallTests
     {
         var (document, _, _, shopfront) = Shopfront();
 
-        var glass = ModelMeshBuilder.BuildWall(document, shopfront).Single(m => m.Kind == MeshKind.Glazing).Bounds()!.Value;
+        var glass = ModelMeshBuilder.Bounds(
+            ModelMeshBuilder.BuildWall(document, shopfront).Where(m => m.Kind == MeshKind.Glazing))!.Value;
         Assert.Equal(3050, glass.Min.X, precision: 6);
         Assert.Equal(6950, glass.Max.X, precision: 6);
     }

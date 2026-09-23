@@ -13,7 +13,9 @@ public sealed record CurtainGrid(IReadOnlyList<double> Verticals, IReadOnlyList<
 /// door type it is, so a curtain wall door is a door of the project's own types - a glazed pair,
 /// a flush single - rather than one fixed design.
 /// </summary>
-public readonly record struct CurtainPanelOverride(int Column, int Row, CurtainPanelKind Kind, Guid? DoorTypeId = null);
+public readonly record struct CurtainPanelOverride(
+    int Column, int Row, CurtainPanelKind Kind, Guid? OpeningTypeId = null, CurtainGlass Glass = CurtainGlass.Clear,
+    bool FlipHand = false, bool FlipFacing = false);
 
 /// <summary>
 /// One cell of the grid: the lines round it, and the clear opening inside the mullions that
@@ -21,7 +23,9 @@ public readonly record struct CurtainPanelOverride(int Column, int Row, CurtainP
 /// </summary>
 public sealed record CurtainCell(
     int Column, int Row, double From, double To, double Bottom, double Top,
-    double ClearFrom, double ClearTo, double ClearBottom, double ClearTop, CurtainPanelKind Kind, Guid? DoorTypeId = null);
+    double ClearFrom, double ClearTo, double ClearBottom, double ClearTop, CurtainPanelKind Kind,
+    Guid? OpeningTypeId = null, CurtainGlass Glass = CurtainGlass.Clear,
+    bool FlipHand = false, bool FlipFacing = false);
 
 /// <summary>
 /// One straight piece of mullion, as the box it fills in the wall's elevation: along the wall
@@ -81,7 +85,7 @@ public sealed class CurtainLayout
         get
         {
             var panels = Cells
-                .Where(c => c.Kind is CurtainPanelKind.Glazed or CurtainPanelKind.Solid or CurtainPanelKind.Door)
+                .Where(c => c.Kind is CurtainPanelKind.Glazed or CurtainPanelKind.Solid or CurtainPanelKind.Door or CurtainPanelKind.Window)
                 .Sum(c => Math.Max(0, c.ClearTo - c.ClearFrom) * Math.Max(0, c.ClearTop - c.ClearBottom)) * Type.PanelThickness;
 
             var section = Type.MullionProfile == MullionProfile.Circular
@@ -99,7 +103,7 @@ public sealed class CurtainLayout
     /// <summary>The layout of a curtain wall, or null for any other wall.</summary>
     public static CurtainLayout? Of(BimDocument document, Wall wall) =>
         document.FindType<CurtainWallType>(wall.TypeId) is { } type
-            ? Build(type, wall.Length, wall.GetHeight(document), wall.CurtainGrid, wall.CurtainPanels)
+            ? Build(type, wall.Length, wall.GetHeight(document), wall.CurtainGrid, wall.CurtainPanels, wall.CurtainGlass)
             : null;
 
     /// <summary>The grid lines a type sets out along a wall of this length, or up one of this height.</summary>
@@ -109,7 +113,7 @@ public sealed class CurtainLayout
 
     public static CurtainLayout Build(
         CurtainWallType type, double length, double height, CurtainGrid? grid,
-        IReadOnlyList<CurtainPanelOverride>? panels)
+        IReadOnlyList<CurtainPanelOverride>? panels, CurtainGlass glazing = CurtainGlass.Clear)
     {
         var verticals = Tidy(grid?.Verticals ?? TypeLines(type, true, length), length);
         var horizontals = Tidy(grid?.Horizontals ?? TypeLines(type, false, height), height);
@@ -138,12 +142,17 @@ public sealed class CurtainLayout
         {
             var kind = kinds.GetValueOrDefault((c, r), CurtainPanelKind.Glazed);
 
-            // A door stands on the floor: nothing across the bottom of it.
+            // A door stands on the floor: nothing across the bottom of it. A window does not - it
+            // sits in its panel like any other pane.
+
             var clearBottom = kind == CurtainPanelKind.Door && r == 0 ? horizontals[0] : Faces(horizontals, r).High;
 
             cells.Add(new CurtainCell(c, r, verticals[c], verticals[c + 1], horizontals[r], horizontals[r + 1],
                 Faces(verticals, c).High, Faces(verticals, c + 1).Low, clearBottom, Faces(horizontals, r + 1).Low, kind,
-                overrides.TryGetValue((c, r), out var panel) ? panel.DoorTypeId : null));
+                overrides.TryGetValue((c, r), out var panel) ? panel.OpeningTypeId : null,
+                overrides.TryGetValue((c, r), out var pane) ? pane.Glass : glazing,
+                overrides.TryGetValue((c, r), out var hung) && hung.FlipHand,
+                overrides.TryGetValue((c, r), out var faced) && faced.FlipFacing));
         }
 
         var mullions = new List<CurtainMullion>();

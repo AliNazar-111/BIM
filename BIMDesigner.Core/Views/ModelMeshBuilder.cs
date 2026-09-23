@@ -89,7 +89,7 @@ public static class ModelMeshBuilder
             if (to - from <= WallJoins.JoinTolerance) continue;
 
             var sill = Math.Clamp(bottom + opening.SillHeight, lowest, top);
-            var head = Math.Clamp(bottom + opening.SillHeight + openingType.Height, lowest, top);
+            var head = Math.Clamp(bottom + opening.SillHeight + opening.HeightOf(openingType), lowest, top);
             openings.Add((opening, openingType, from, to, sill, head));
         }
 
@@ -120,15 +120,17 @@ public static class ModelMeshBuilder
         foreach (var (sweep, id) in WallSweeps.Placed(document, wall).Where(p => p.Sweep.Kind == SweepKind.Sweep))
             AddSweep(document, wall, planType, sweep, id, bottom, top, meshes);
 
-        var infill = meshes.Count;
         foreach (var (opening, openingType, from, to, sill, head) in openings)
         {
-            if (opening is not null && openingType is not null)
-                OpeningModel.Add(wall, planType, opening, openingType, from, to, sill, head, meshes);
-        }
+            if (opening is null || openingType is null) continue;
 
-        // Doors and windows lean with the wall they are in.
-        Lean(wall, planType, bottom, meshes, infill);
+            var infill = meshes.Count;
+            OpeningModel.Add(wall, planType, opening, openingType, from, to, sill, head, meshes);
+
+            // A door or window leans with the wall it is in, unless it is set to stand upright:
+            // then it stays as it was drawn and the gap against the slanted wall is the user's.
+            if (opening.Orientation == OpeningOrientation.Slanted) Lean(wall, planType, bottom, meshes, infill);
+        }
     }
 
     /// <summary>
@@ -256,8 +258,40 @@ public static class ModelMeshBuilder
             return new Mesh3D(wall.Id, wall.LevelId, kind, material?.SurfaceColour ?? fallback, material?.Name ?? kind.ToString());
         }
 
-        var glass = NewMesh(MeshKind.Glazing, type.GlassMaterialId, GlazingColour);
-        var solid = NewMesh(MeshKind.Wall, type.SolidMaterialId, DefaultSurface);
+        // Each panel is its own mesh, carrying its own id, so clicking a pane in the 3D view
+        // selects that panel and shows its properties rather than the whole wall. Clear glass
+        // takes its material's colour; tinted, frosted, laminated or spandrel glass its own
+        // colour and how far it is seen through.
+        var panes = new List<Mesh3D>();
+
+        Mesh3D Glass(CurtainCell cell)
+        {
+            var material = document.FindMaterial(type.GlassMaterialId);
+            var clear = material?.SurfaceColour ?? GlazingColour;
+            var mesh = new Mesh3D(CurtainPanel.IdOf(wall.Id, cell.Column, cell.Row), wall.LevelId, MeshKind.Glazing,
+                CurtainGlassLook.ColourOf(cell.Glass, clear),
+                cell.Glass == CurtainGlass.Clear ? material?.Name ?? "Glazing" : CurtainGlassLook.NameOf(cell.Glass))
+            {
+                Opacity = CurtainGlassLook.OpacityOf(cell.Glass),
+                OwnerId = wall.Id
+            };
+
+            panes.Add(mesh);
+            return mesh;
+        }
+
+        Mesh3D Panel(CurtainCell cell, MeshKind kind, Guid materialId, ColourRgb fallback)
+        {
+            var material = document.FindMaterial(materialId);
+            var mesh = new Mesh3D(CurtainPanel.IdOf(wall.Id, cell.Column, cell.Row), wall.LevelId, kind,
+                material?.SurfaceColour ?? fallback, material?.Name ?? kind.ToString())
+            {
+                OwnerId = wall.Id
+            };
+
+            panes.Add(mesh);
+            return mesh;
+        }
         var doors = NewMesh(MeshKind.DoorLeaf, type.MullionMaterialId, LeafColour);
         var frame = NewMesh(MeshKind.Mullion, type.MullionMaterialId, DefaultSurface);
 
@@ -265,22 +299,24 @@ public static class ModelMeshBuilder
         {
             if (cell.ClearTo - cell.ClearFrom <= 1e-6 || cell.ClearTop - cell.ClearBottom <= 1e-6) continue;
 
+            if (cell.Kind is CurtainPanelKind.Door or CurtainPanelKind.Window)
+            {
+                AddCurtainDoor(document, wall, body, cell, bottom, panes,
+                    Panel(cell, MeshKind.DoorLeaf, type.MullionMaterialId, LeafColour), Glass(cell));
+                continue;
+            }
+
             var mesh = cell.Kind switch
             {
-                CurtainPanelKind.Glazed => glass,
-                CurtainPanelKind.Solid => solid,
-                CurtainPanelKind.Door => doors,
+                CurtainPanelKind.Glazed => Glass(cell),
+                CurtainPanelKind.Solid => Panel(cell, MeshKind.Wall, type.SolidMaterialId, DefaultSurface),
                 _ => null
             };
             if (mesh is null) continue;
 
-            if (cell.Kind == CurtainPanelKind.Door)
-            {
-                AddCurtainDoor(document, wall, body, cell, bottom, meshes, doors, glass);
-                continue;
-            }
-
-            mesh.AddExtrusion(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half),
+            // Laminated glass is two panes and an interlayer, so it is thicker than the rest.
+            var pane = cell.Kind == CurtainPanelKind.Glazed ? CurtainGlassLook.ThicknessOf(cell.Glass, half) : half;
+            mesh.AddExtrusion(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, pane, -pane),
                 bottom + cell.ClearBottom, bottom + cell.ClearTop);
         }
 
@@ -306,7 +342,8 @@ public static class ModelMeshBuilder
             }
         }
 
-        meshes.AddRange(new[] { glass, solid, doors, frame });
+        meshes.AddRange(panes);
+        meshes.Add(frame);
     }
 
     /// <summary>
@@ -320,10 +357,11 @@ public static class ModelMeshBuilder
         BimDocument document, Wall wall, WallType body, CurtainCell cell, double bottom,
         List<Mesh3D> meshes, Mesh3D leaf, Mesh3D glass)
     {
-        if (cell.DoorTypeId is { } typeId && document.FindType<DoorType>(typeId) is { } doorType)
+        if (cell.OpeningTypeId is { } typeId && document.FindType<OpeningType>(typeId) is { } openingType)
         {
-            OpeningModel.AddPanelDoor(wall, body, doorType, wall.Id, wall.LevelId,
-                cell.ClearFrom, cell.ClearTo, bottom + cell.ClearBottom, bottom + cell.ClearTop, meshes);
+            OpeningModel.AddPanelDoor(wall, body, openingType, CurtainPanel.IdOf(wall.Id, cell.Column, cell.Row), wall.LevelId,
+                cell.ClearFrom, cell.ClearTo, bottom + cell.ClearBottom, bottom + cell.ClearTop, meshes,
+                cell.FlipHand, cell.FlipFacing, cell.Glass);
             return;
         }
 

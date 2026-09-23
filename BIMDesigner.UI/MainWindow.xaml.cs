@@ -91,9 +91,23 @@ public partial class MainWindow : Window
 
         // Clicking something in 3D selects it everywhere, so its properties can be edited
         // without leaving the view it was found in.
-        Model3D.ElementClicked += (_, id) =>
+        Model3D.ElementClicked += (_, hit) =>
         {
-            var element = id is { } found ? _document.Elements.FirstOrDefault(e => e.Id == found) : null;
+            // A door or window tool active: a click on a wall in 3D puts one in it, at the
+            // place it was clicked. Revit places them in plan, section, elevation and 3D alike.
+            if (hit is { } picked && Plan.ActiveTool is PlanTool.Door or PlanTool.Window &&
+                Plan.PlaceOpeningIn3D(picked.Id, picked.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            var id = hit?.Id;
+            // A curtain wall's panel is not stored as an element of its own, so a click that
+            // matches nothing in the document may still be one of them.
+            var element = id is { } found
+                ? _document.Elements.FirstOrDefault(e => e.Id == found) ?? CurtainPanel.Find(_document, found)
+                : null;
 
             // Something on another storey is selected by switching the plan to that storey;
             // otherwise the plan would drop it again as not being on its drawing.
@@ -1038,6 +1052,32 @@ public partial class MainWindow : Window
         StatusHint.Text = "Detached. The walls keep their own constraints again.";
     }
 
+    /// <summary>
+    /// Runs the selected walls flush with the face of whatever they meet end to end, rather
+    /// than standing in the middle of a thicker wall. Clicking again goes to the other face,
+    /// because once a wall is flush with one there is only the other left to line up with.
+    /// </summary>
+    private void OnAlignWallFaces(object sender, RoutedEventArgs e)
+    {
+        var changes = Plan.SelectedElements.OfType<Wall>()
+            .Select(wall => (Wall: wall, Offset:
+                WallAlignment.OffsetFor(_document, wall, WallAlignment.Face.Interior)
+                ?? WallAlignment.OffsetFor(_document, wall, WallAlignment.Face.Exterior)))
+            .Where(change => change.Offset is not null)
+            .Select(change => (change.Wall, change.Offset!.Value))
+            .ToList();
+
+        if (changes.Count == 0)
+        {
+            StatusHint.Text = "Nothing to line up: the selected walls meet nothing end to end, or are flush already.";
+            return;
+        }
+
+        _history.Execute(new OffsetWallsCommand(changes));
+        AfterHistoryChange();
+        StatusHint.Text = "Flush with the wall it meets. Click again to line up with its other face.";
+    }
+
     private void OnEditCurtainGrid(object sender, RoutedEventArgs e)
     {
         if (Plan.SelectedElements.OfType<Wall>().ToList() is not [var wall] || !_document.IsCurtainWall(wall))
@@ -1178,7 +1218,17 @@ public partial class MainWindow : Window
     /// <summary>A Modify tool picked from the contextual tab: the same tool as on the Modify tab.</summary>
     private void OnContextTool(object sender, RoutedEventArgs e)
     {
-        RadioButton? tool = (sender as Button)?.CommandParameter as string switch
+        var command = (sender as Button)?.CommandParameter as string;
+
+        // A curtain wall's panel is fixed in its bay, so there is no line to mirror it about:
+        // mirroring a door panel means hanging it on the other side, as it does in place.
+        if (command == "Mirror" && Plan.SelectedElements is [CurtainPanel panel])
+        {
+            Plan.FlipCurtainPanel(panel, hand: true);
+            return;
+        }
+
+        RadioButton? tool = command switch
         {
             "Split" => SplitTool,
             "Trim" => TrimTool,
@@ -1534,6 +1584,7 @@ public partial class MainWindow : Window
     private string IconFor(Element element, ElementType? type) => element switch
     {
         Wall wall when _document.IsCurtainWall(wall) => "Icon.CurtainWall",
+        CurtainPanel => "Icon.CurtainWall",
         Wall => "Icon.Wall",
         Door => "Icon.Door",
         BIMDesigner.Core.Architecture.Window => "Icon.Window",
@@ -1559,7 +1610,7 @@ public partial class MainWindow : Window
         WallType => "Basic Wall",
         WallSweepType { Kind: SweepKind.Reveal } => "Reveal",
         WallSweepType => "Wall Sweep",
-        _ => CategoryTitle(category).TrimEnd('s')
+        _ => category == BuiltInCategory.CurtainPanels ? "Curtain Panel" : CategoryTitle(category).TrimEnd('s')
     };
 
     /// <summary>

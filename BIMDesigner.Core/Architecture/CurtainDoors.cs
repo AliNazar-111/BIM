@@ -107,7 +107,7 @@ public static class CurtainDoors
             var row = CellAt(horizontals, (cell.Bottom + cell.Top) / 2);
             if (column < 0 || row < 0 || (cell.Kind == CurtainPanelKind.Door && row != 0)) continue;
 
-            panels[(column, row)] = new CurtainPanelOverride(column, row, cell.Kind, cell.DoorTypeId);
+            panels[(column, row)] = new CurtainPanelOverride(column, row, cell.Kind, cell.OpeningTypeId);
         }
 
         var doorColumn = CellAt(verticals, centre);

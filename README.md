@@ -342,7 +342,10 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Give a wall a gable, steps or a notch | Select one straight wall, Architecture tab → **Edit Profile**: drag corners, double-click an edge to add one, Delete removes one; pick a corner and **Make Arc** curves the edge after it by the rise typed beside it (negative bows in) |
 | Cut a hole through a wall | Architecture tab → **Wall Opening**, set width, height and sill on the option bar, click the wall - curved walls too. Change it afterwards in Properties |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
-| Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass, solid, empty or a door of a chosen door type; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
+| Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass - clear, tinted, frosted, laminated or an opaque spandrel panel - or solid, empty, or a door of a chosen door type; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
+| Select one panel of a curtain wall | Click the pane in the 3D view: Properties shows that panel alone - which bay it is, what fills it, its glass, its door type, its size and area. Clicking a mullion selects the whole wall |
+| Mirror a curtain wall door | Select the panel and press `Space` to flip which way it opens, or **Modify | Curtain Panels → Mirror** to hang it on the other side; or Properties → **Flip Hand** / **Flip Facing** |
+| Reglaze a whole curtain wall | Select the wall, Properties → **Glass**: every panel follows it except the ones given glass of their own |
 | Put a door in a curtain wall | **Door** tool, click low on the wall: a bay is cut for the door, with glass beside it and a transom light over it, and the mullion under it goes. A panel that is already a doorway is taken as it is. Only a **Curtain Wall Door** type can be a panel, so a glass one of the nearest size is used; set **Curtain Wall Door** on any door type to offer it. Making the panel glass again takes it away |
 | Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
 | Set a shopfront into a wall | Draw a curtain wall whose type has **Automatically embed** along inside the wall; it cuts its own opening |
@@ -357,9 +360,15 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Turn the 3D view to a face, edge or corner | Click the ViewCube in the corner; drag it to orbit; the house resets. Zoom buttons are under it |
 | Place a door | `Door` tool (`D`): a preview follows the cursor along the wall; point at the side it should swing toward, `Space` swaps the hinge side, click to place. New doors are marked 1, 2, 3…; tick **Tag on Placement** to tag each one |
 | Pick a door's design | Door types: **Leaf Design** - Flush, Panelled, Glazed, French Glazed (set **Glazing Rows** / **Columns**), Half Glazed, Louvred, Arched Top Light, Full Glass; with **Trim Width** and projections for the architrave. The template has French double, single glazed, louvred bi-fold, arched entrance and curtain wall glass doors |
+| Set one door's own size | Select it, Properties → **Width** / **Height**: that door alone changes, and the hole in the wall with it. Set it back to the type's size and it follows the type again. **Area** follows |
+| Line a wall up with a thicker one | Drawing a wall into the end of a thicker one lines it up with that wall's inner face automatically. For walls already drawn: select one → **Modify \| Walls → Align Faces**, again for the other face; Properties → **Offset Across** undoes it |
 | Flip a door | Select it: click the ↕ arrows to flip which way it swings, the ↔ arrows to flip its hinge side; or press `Space` |
 | Move a door to another wall | Select it → **Modify \| Doors → Pick New Host**, click the wall where it should go |
-| Place a window | `Window` tool (`N`), click a wall |
+| Set a door's own properties | Properties: **Sill Height**, **Head Height** (moves it, not its size), **Orientation** in a slanted wall (Vertical or Slanted), **Frame Type**, **Frame Material** (blank follows the type), **Finish**, **Mark**, **Comments**, **Phase Created** and **Phase Demolished** |
+| Stand a door upright in a slanted wall | A door placed in a slanted wall leans with it; one already in the wall when it was slanted stays upright. Properties → **Orientation** changes it |
+| Pick a window's kind | Window types: **Operation** - Fixed, Casement, Awning, Hopper, Sliding, Tilt and Turn, Double Hung, Louvred, Bay - and **Glazing Rows** / **Columns** for divided lights. The template has twelve, one of each |
+| Put a window in a curtain wall | **Window** tool, click any panel: it becomes that window, filling the panel and keeping its mullions. Or select the panel → Properties → **Door or Window** |
+| Place a window | `Window` tool (`N`), click a wall. In the 3D view, click the wall where the window should go: it lands there, centred on the height clicked |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |
 | Draw a gridline | `Grid` tool (`G`), click start, click end |
 | Cut a section | `Section` tool (`C`), click start, click end — the view opens below the plan |

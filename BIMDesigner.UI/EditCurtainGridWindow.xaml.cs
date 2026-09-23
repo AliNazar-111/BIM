@@ -43,8 +43,11 @@ public partial class EditCurtainGridWindow : Window
         DoorTypeBox.ItemsSource = doorTypes;
         DoorTypeBox.SelectedItem =
             doorTypes.FirstOrDefault(t => t.Id == (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
-                .FirstOrDefault(p => p.Kind == CurtainPanelKind.Door && p.DoorTypeId is not null).DoorTypeId)
+                .FirstOrDefault(p => p.Kind == CurtainPanelKind.Door && p.OpeningTypeId is not null).OpeningTypeId)
             ?? doorTypes.FirstOrDefault();
+
+        GlassKindBox.ItemsSource = EnumText.Choices<CurtainGlass>();
+        GlassKindBox.SelectedIndex = 0;
 
         Editor.Refused += (_, message) => MessageText.Text = message;
         Editor.Edited += (_, _) => MessageText.Text = string.Empty;
@@ -68,9 +71,15 @@ public partial class EditCurtainGridWindow : Window
             : CurtainPanelKind.Glazed;
     }
 
+    private void OnGlassKindChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (Editor is not null && EnumText.TryParse<CurtainGlass>(GlassKindBox.SelectedItem as string, out var glass))
+            Editor.FillGlass = glass;
+    }
+
     private void OnDoorTypeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (Editor is not null) Editor.DoorTypeId = (DoorTypeBox.SelectedItem as DoorType)?.Id;
+        if (Editor is not null) Editor.OpeningTypeId = (DoorTypeBox.SelectedItem as DoorType)?.Id;
     }
 
     private void OnAddVertical(object sender, RoutedEventArgs e) => AddLine(true, VerticalAtBox.Text);

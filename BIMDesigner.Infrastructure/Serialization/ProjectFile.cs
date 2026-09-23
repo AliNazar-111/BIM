@@ -270,6 +270,8 @@ public static class ProjectFile
             {
                 Operation = type.Operation.ToString(),
                 GlazingType = type.GlazingType,
+                GlazingRows = type.GlazingRows,
+                GlazingColumns = type.GlazingColumns,
                 SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
             };
 
@@ -279,7 +281,7 @@ public static class ProjectFile
 
         foreach (var door in document.Elements.OfType<Door>())
         {
-            var doorDto = new DoorDto { SwingAngle = door.SwingAngle, FrameType = door.FrameType, Finish = door.Finish };
+            var doorDto = new DoorDto { SwingAngle = door.SwingAngle, FrameType = door.FrameType, FrameMaterial = door.FrameMaterial, Finish = door.Finish };
             WriteOpening(doorDto, door);
             dto.Doors.Add(doorDto);
         }
@@ -512,11 +514,13 @@ public static class ProjectFile
                 ProfileLength = wall.ProfileLength,
                 CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
                 CurtainHorizontals = wall.CurtainGrid?.Horizontals.ToList(),
-                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), DoorTypeId = p.DoorTypeId }).ToList(),
+                CurtainGlass = wall.CurtainGlass.ToString(),
+                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), OpeningTypeId = p.OpeningTypeId, Glass = p.Glass.ToString(), FlipHand = p.FlipHand, FlipFacing = p.FlipFacing }).ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
                 SlantAngle = wall.SlantAngle,
+                AcrossOffset = wall.AcrossOffset,
                 UpperSlantAngle = wall.UpperSlantAngle,
                 SlantBreakHeight = wall.SlantBreakHeight,
                 OverrideTaper = wall.OverrideTaper,
@@ -586,6 +590,9 @@ public static class ProjectFile
         dto.SillHeight = opening.SillHeight;
         dto.FlipFacing = opening.FlipFacing;
         dto.FlipHand = opening.FlipHand;
+        dto.Orientation = opening.Orientation.ToString();
+        dto.WidthOverride = opening.WidthOverride;
+        dto.HeightOverride = opening.HeightOverride;
         dto.Mark = opening.Mark;
         dto.Comments = opening.Comments;
         dto.Workset = opening.Workset;
@@ -837,6 +844,10 @@ public static class ProjectFile
                 Id = type.Id,
                 Operation = ParseEnum(type.Operation, WindowOperation.Casement),
                 GlazingType = type.GlazingType,
+
+                // Saved before divided lights: one pane each way, which is what they all were.
+                GlazingRows = type.GlazingRows is > 0 and <= 12 ? type.GlazingRows : 1,
+                GlazingColumns = type.GlazingColumns is > 0 and <= 12 ? type.GlazingColumns : 1,
                 SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
             };
 
@@ -873,14 +884,19 @@ public static class ProjectFile
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
                     ? new CurtainGrid(verticals.Where(double.IsFinite).ToList(), horizontals.Where(double.IsFinite).ToList())
                     : null,
+                CurtainGlass = ParseEnum(wall.CurtainGlass, CurtainGlass.Clear),
                 CurtainPanels = wall.CurtainPanels?
                     .Where(p => p.Column >= 0 && p.Row >= 0)
-                    .Select(p => new CurtainPanelOverride(p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed), p.DoorTypeId))
+                    .Select(p => new CurtainPanelOverride(
+                        // Saved when only doors could be panels, the type was called the door type.
+                        p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed), p.OpeningTypeId ?? p.DoorTypeId, ParseEnum(p.Glass, CurtainGlass.Clear),
+                        p.FlipHand, p.FlipFacing))
                     .ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = ParseEnum(wall.CrossSection, WallCrossSection.Vertical),
                 SlantAngle = Math.Clamp(wall.SlantAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
+                AcrossOffset = double.IsFinite(wall.AcrossOffset) ? wall.AcrossOffset : 0,
                 UpperSlantAngle = Math.Clamp(wall.UpperSlantAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
                 SlantBreakHeight = double.IsFinite(wall.SlantBreakHeight) ? Math.Max(0, wall.SlantBreakHeight) : 0,
                 OverrideTaper = wall.OverrideTaper,
@@ -915,6 +931,7 @@ public static class ProjectFile
                 Id = door.Id,
                 SwingAngle = door.SwingAngle is > 0 and <= 180 ? door.SwingAngle : 90,
                 FrameType = door.FrameType ?? string.Empty,
+                FrameMaterial = door.FrameMaterial ?? string.Empty,
                 Finish = door.Finish ?? string.Empty
             };
 
@@ -1244,6 +1261,9 @@ public static class ProjectFile
         opening.SillHeight = dto.SillHeight;
         opening.FlipFacing = dto.FlipFacing;
         opening.FlipHand = dto.FlipHand;
+        opening.Orientation = ParseEnum(dto.Orientation, OpeningOrientation.Vertical);
+        opening.WidthOverride = dto.WidthOverride is > 0 and var width ? width : null;
+        opening.HeightOverride = dto.HeightOverride is > 0 and var height ? height : null;
         opening.Mark = dto.Mark;
         opening.Comments = dto.Comments;
         opening.Workset = dto.Workset;

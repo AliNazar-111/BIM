@@ -60,14 +60,25 @@ internal static class OpeningModel
     /// and it has no architrave - the mullions round it are its frame.
     /// </summary>
     public static void AddPanelDoor(
-        Wall wall, WallType body, DoorType type, Guid ownerId, Guid levelId,
-        double from, double to, double sill, double head, List<Mesh3D> meshes)
+        Wall wall, WallType body, OpeningType type, Guid panelId, Guid levelId,
+        double from, double to, double sill, double head, List<Mesh3D> meshes,
+        bool flipHand = false, bool flipFacing = false, CurtainGlass glazing = CurtainGlass.Clear)
     {
         if (head - sill <= 1 || to - from <= 1) return;
 
-        var panel = new Door { Id = ownerId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id };
-        var builder = new Builder(wall, body, panel, type, from, to, sill, head) { Trimmed = false };
-        builder.Door(type);
+        // The door or window is the panel, so clicking it picks the panel out; it still belongs
+        // to the wall, so selecting the wall lights it up with everything else.
+        Opening panel = type is WindowType
+            ? new Window { Id = panelId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id }
+            : new Door { Id = panelId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id };
+
+        panel.FlipHand = flipHand;
+        panel.FlipFacing = flipFacing;
+
+        var builder = new Builder(wall, body, panel, type, from, to, sill, head, wall.Id, glazing) { Trimmed = false };
+        if (type is WindowType window) builder.Window(window);
+        else if (type is DoorType door) builder.Door(door);
+
         meshes.AddRange(builder.Meshes);
     }
 
@@ -102,7 +113,9 @@ internal static class OpeningModel
         private readonly Mesh3D _glass;
         private readonly Mesh3D _metal;
 
-        public Builder(Wall wall, WallType wallType, Opening opening, OpeningType type, double from, double to, double sill, double head)
+        public Builder(
+            Wall wall, WallType wallType, Opening opening, OpeningType type,
+            double from, double to, double sill, double head, Guid? partOf = null, CurtainGlass? glazing = null)
         {
             _wall = wall;
             _wallType = wallType;
@@ -115,12 +128,26 @@ internal static class OpeningModel
 
             var isDoor = type is DoorType;
             var frameColour = ColourOf(type.FrameMaterial, isDoor ? new ColourRgb(0xA8, 0x7A, 0x4E) : new ColourRgb(0xEE, 0xEE, 0xEA));
+
             var leafColour = type is DoorType door ? ColourOf(door.PanelMaterial, new ColourRgb(0xA8, 0x7A, 0x4E)) : frameColour;
 
-            _frame = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, frameColour, isDoor ? "Door frame" : "Window frame");
-            _leaf = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, leafColour, isDoor ? "Door leaf" : "Sash");
-            _glass = new Mesh3D(opening.Id, opening.LevelId, MeshKind.Glazing, Glass, "Glazing");
-            _metal = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hardware");
+            // A door can be framed in something other than its type says.
+            if (opening is Door instance && instance.FrameMaterial.Length > 0)
+                frameColour = ColourOf(instance.FrameMaterial, frameColour);
+
+            // What the door is part of, when it is part of something larger: a curtain wall.
+            var owner = partOf ?? opening.Id;
+
+            _frame = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, frameColour, isDoor ? "Door frame" : "Window frame") { OwnerId = owner };
+            _leaf = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, leafColour, isDoor ? "Door leaf" : "Sash") { OwnerId = owner };
+            // A door in a curtain wall is glazed with whatever the panel is glazed with: tinted,
+            // frosted, laminated, or an opaque spandrel panel.
+            _glass = glazing is { } pane
+                ? new Mesh3D(opening.Id, opening.LevelId, MeshKind.Glazing, CurtainGlassLook.ColourOf(pane, Glass),
+                        pane == CurtainGlass.Clear ? "Glazing" : CurtainGlassLook.NameOf(pane))
+                    { OwnerId = owner, Opacity = CurtainGlassLook.OpacityOf(pane) }
+                : new Mesh3D(opening.Id, opening.LevelId, MeshKind.Glazing, Glass, "Glazing") { OwnerId = owner };
+            _metal = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hardware") { OwnerId = owner };
         }
 
         public double Width { get; }
@@ -724,6 +751,71 @@ internal static class OpeningModel
 
                     break;
                 }
+
+                case WindowOperation.DoubleHung:
+                {
+                    // Two sashes one above the other on their own planes, the lower one inside,
+                    // so they pass each other as they slide.
+                    var middle = (z0 + z1) / 2;
+                    Sash(u0, u1, middle - SashFace / 2, z1, 20);
+                    Sash(u0, u1, z0, middle + SashFace / 2, -20);
+                    WindowHandle((u0 + u1) / 2, middle + SashFace, vertical: false, across: -20);
+                    break;
+                }
+
+                case WindowOperation.Hopper:
+                {
+                    // Hinged along the bottom and opening in, so the catch is at the head.
+                    Sash(u0, u1, z0, z1, 0);
+                    WindowHandle((u0 + u1) / 2, z1 - 70, vertical: false);
+                    break;
+                }
+
+                case WindowOperation.Louvred:
+                {
+                    // Glass slats turning together in the frame, sloped to throw the rain out.
+                    var count = Math.Max(3, (int)((z1 - z0) / 160));
+                    var pitch = (z1 - z0) / count;
+                    for (var i = 0; i < count; i++)
+                    {
+                        var bottom = z0 + i * pitch;
+                        Box(_glass, u0, u1, -18, 18, bottom + pitch * 0.15, bottom + pitch * 0.85);
+                    }
+
+                    // The two stiles the slats are carried on.
+                    Box(_frame, u0, u0 + 30, -depth / 2, depth / 2, z0, z1);
+                    Box(_frame, u1 - 30, u1, -depth / 2, depth / 2, z0, z1);
+                    break;
+                }
+            }
+
+            GlazingBars(window, u0, u1, z0, z1);
+        }
+
+        /// <summary>
+        /// The bars dividing a window's glass into panes, which is most of what tells a Georgian
+        /// sash from a picture window. One row and one column means a single sheet of glass.
+        /// </summary>
+        private void GlazingBars(WindowType window, double u0, double u1, double z0, double z1)
+        {
+            if (window.Operation is WindowOperation.Bay or WindowOperation.Louvred) return;
+
+            var rows = Math.Max(1, window.GlazingRows);
+            var columns = Math.Max(1, window.GlazingColumns);
+            if (rows == 1 && columns == 1) return;
+
+            const double bar = 28;
+
+            for (var r = 1; r < rows; r++)
+            {
+                var z = z0 + (z1 - z0) * r / rows;
+                Box(_frame, u0, u1, -16, 16, z - bar / 2, z + bar / 2);
+            }
+
+            for (var c = 1; c < columns; c++)
+            {
+                var u = u0 + (u1 - u0) * c / columns;
+                Box(_frame, u - bar / 2, u + bar / 2, -16, 16, z0, z1);
             }
         }
 
