@@ -475,14 +475,34 @@ public sealed class PlanRenderer
 
                 case CurtainPanelKind.Door:
                 {
-                    // Hinged at the start of the bay, opening to the inside.
-                    var hinge = wall.PointAt(structure, cell.ClearFrom, 0);
-                    var other = wall.PointAt(structure, cell.ClearTo, 0);
-                    var width = hinge.DistanceTo(other);
+                    var jambFrom = wall.PointAt(structure, cell.ClearFrom, 0);
+                    var jambTo = wall.PointAt(structure, cell.ClearTo, 0);
+                    var width = jambFrom.DistanceTo(jambTo);
                     if (width <= 1e-6) break;
 
-                    DrawLeafAndArc(dc, _openingPen, hinge, (other - hinge) / width,
-                        -wall.ExteriorNormalAt(cell.ClearFrom), width, 90);
+                    var along = (jambTo - jambFrom) / width;
+                    var across = wall.ExteriorNormalAt(cell.ClearFrom);
+                    var doorType = cell.DoorTypeId is { } id ? Document?.FindType<DoorType>(id) : null;
+
+                    // Hinged at the start of the bay, opening to the inside.
+                    if (doorType is null)
+                    {
+                        DrawLeafAndArc(dc, _openingPen, jambFrom, along, -across, width, 90);
+                        break;
+                    }
+
+                    // A panel of a door type is drawn by that type's own symbol, so a sliding
+                    // or folding curtain door reads in plan as it does anywhere else. It slides
+                    // along the curtain wall rather than over a stretch of solid wall.
+                    var panel = new Door
+                    {
+                        TypeId = doorType.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
+                        DistanceAlongWall = (cell.ClearFrom + cell.ClearTo) / 2, FlipFacing = true
+                    };
+
+                    DrawDoorSymbol(dc, panel, doorType, d => jambFrom + along * (d - cell.ClearFrom),
+                        cell.ClearFrom, cell.ClearTo, cell.ClearFrom, Math.Max(0, layout.Length - cell.ClearTo),
+                        along, across, body.Width / 2, _openingPen);
                     break;
                 }
             }
@@ -678,6 +698,23 @@ public sealed class PlanRenderer
     /// <summary>A door or window not yet in the model, drawn where it would go: the preview as one is placed.</summary>
     public void DrawOpeningPreview(DrawingContext dc, Opening opening) => DrawOpening(dc, opening);
 
+    /// <summary>The curtain wall panel a click would turn into a door, outlined where it is, with its swing.</summary>
+    public void DrawCurtainDoorPreview(DrawingContext dc, Wall wall, CurtainWallType type, CurtainCell cell)
+    {
+        var body = type.Body;
+        var half = Math.Max(type.PanelThickness, type.MullionThickness) / 2;
+        dc.DrawGeometry(null, _previewPen,
+            BuildOutline(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, half, -half)));
+
+        var jambFrom = wall.PointAt(body.Structure, cell.ClearFrom, 0);
+        var jambTo = wall.PointAt(body.Structure, cell.ClearTo, 0);
+        var width = jambFrom.DistanceTo(jambTo);
+        if (width <= 1e-6) return;
+
+        var along = (jambTo - jambFrom) / width;
+        DrawLeafAndArc(dc, _previewPen, jambFrom, along, -wall.ExteriorNormalAt(cell.ClearFrom), width, 90);
+    }
+
     private void DrawOpening(DrawingContext dc, Opening opening)
     {
         if (Document is null) return;
@@ -734,7 +771,8 @@ public sealed class PlanRenderer
         double from, double to, double clearBefore, double clearAfter,
         Vector2D along, Vector2D across, double wallHalf, Pen pen)
     {
-        var width = type.Width;
+        // The hole it is drawn in, which for a curtain wall's door panel is the panel itself.
+        var width = to - from;
         var facing = door.FlipFacing ? -across : across;
         var hingeAtStart = !door.FlipHand;
 

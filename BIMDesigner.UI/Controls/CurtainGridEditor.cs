@@ -42,7 +42,7 @@ public sealed class CurtainGridEditor : FrameworkElement
     private double _height = 1;
     private List<double> _verticals = new();
     private List<double> _horizontals = new();
-    private Dictionary<(int Column, int Row), CurtainPanelKind> _panels = new();
+    private Dictionary<(int Column, int Row), (CurtainPanelKind Kind, Guid? DoorTypeId)> _panels = new();
 
     private (bool Vertical, int Index)? _dragging;
 
@@ -62,6 +62,9 @@ public sealed class CurtainGridEditor : FrameworkElement
     /// <summary>What clicking a panel fills it with.</summary>
     public CurtainPanelKind FillWith { get; set; } = CurtainPanelKind.Glazed;
 
+    /// <summary>Which door type a panel filled with a door becomes; null for the plain storefront leaf.</summary>
+    public Guid? DoorTypeId { get; set; }
+
     /// <summary>The line selected, if any: vertical or horizontal, by its place among the inner lines.</summary>
     public (bool Vertical, int Index)? Selected { get; private set; }
 
@@ -73,8 +76,8 @@ public sealed class CurtainGridEditor : FrameworkElement
     public IReadOnlyList<double> Horizontals => _horizontals;
 
     public IReadOnlyList<CurtainPanelOverride> Panels =>
-        _panels.Where(p => p.Value != CurtainPanelKind.Glazed)
-            .Select(p => new CurtainPanelOverride(p.Key.Column, p.Key.Row, p.Value))
+        _panels.Where(p => p.Value.Kind != CurtainPanelKind.Glazed)
+            .Select(p => new CurtainPanelOverride(p.Key.Column, p.Key.Row, p.Value.Kind, p.Value.DoorTypeId))
             .OrderBy(p => p.Column).ThenBy(p => p.Row)
             .ToList();
 
@@ -87,7 +90,7 @@ public sealed class CurtainGridEditor : FrameworkElement
         _height = Math.Max(height, 1);
         _verticals = verticals.OrderBy(x => x).ToList();
         _horizontals = horizontals.OrderBy(y => y).ToList();
-        _panels = panels.GroupBy(p => (p.Column, p.Row)).ToDictionary(g => g.Key, g => g.Last().Kind);
+        _panels = panels.GroupBy(p => (p.Column, p.Row)).ToDictionary(g => g.Key, g => (g.Last().Kind, g.Last().DoorTypeId));
         Selected = null;
         GridEdited = false;
         InvalidateVisual();
@@ -116,7 +119,7 @@ public sealed class CurtainGridEditor : FrameworkElement
                 var keys = index == split ? new[] { index, index + 1 } : new[] { moved };
                 return keys.Select(k => (Key: vertical ? (k, p.Key.Row) : (p.Key.Column, k), p.Value));
             })
-            .Where(p => p.Value != CurtainPanelKind.Door || p.Key.Item2 == 0)
+            .Where(p => p.Value.Kind != CurtainPanelKind.Door || p.Key.Item2 == 0)
             .ToDictionary(p => p.Key, p => p.Value);
 
         lines.Insert(split, at);
@@ -276,7 +279,7 @@ public sealed class CurtainGridEditor : FrameworkElement
         }
 
         if (FillWith == CurtainPanelKind.Glazed) _panels.Remove((cell.Column, cell.Row));
-        else _panels[(cell.Column, cell.Row)] = FillWith;
+        else _panels[(cell.Column, cell.Row)] = (FillWith, FillWith == CurtainPanelKind.Door ? DoorTypeId : null);
         Changed(grid: false);
     }
 

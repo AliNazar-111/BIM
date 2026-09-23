@@ -8,8 +8,12 @@ namespace BIMDesigner.Core.Architecture;
 /// </summary>
 public sealed record CurtainGrid(IReadOnlyList<double> Verticals, IReadOnlyList<double> Horizontals);
 
-/// <summary>One cell of a curtain wall filled with something other than glass.</summary>
-public readonly record struct CurtainPanelOverride(int Column, int Row, CurtainPanelKind Kind);
+/// <summary>
+/// One cell of a curtain wall filled with something other than glass. A door panel says which
+/// door type it is, so a curtain wall door is a door of the project's own types - a glazed pair,
+/// a flush single - rather than one fixed design.
+/// </summary>
+public readonly record struct CurtainPanelOverride(int Column, int Row, CurtainPanelKind Kind, Guid? DoorTypeId = null);
 
 /// <summary>
 /// One cell of the grid: the lines round it, and the clear opening inside the mullions that
@@ -17,7 +21,7 @@ public readonly record struct CurtainPanelOverride(int Column, int Row, CurtainP
 /// </summary>
 public sealed record CurtainCell(
     int Column, int Row, double From, double To, double Bottom, double Top,
-    double ClearFrom, double ClearTo, double ClearBottom, double ClearTop, CurtainPanelKind Kind);
+    double ClearFrom, double ClearTo, double ClearBottom, double ClearTop, CurtainPanelKind Kind, Guid? DoorTypeId = null);
 
 /// <summary>
 /// One straight piece of mullion, as the box it fills in the wall's elevation: along the wall
@@ -110,9 +114,10 @@ public sealed class CurtainLayout
         var verticals = Tidy(grid?.Verticals ?? TypeLines(type, true, length), length);
         var horizontals = Tidy(grid?.Horizontals ?? TypeLines(type, false, height), height);
 
-        var kinds = (panels ?? Array.Empty<CurtainPanelOverride>())
+        var overrides = (panels ?? Array.Empty<CurtainPanelOverride>())
             .GroupBy(p => (p.Column, p.Row))
-            .ToDictionary(g => g.Key, g => g.Last().Kind);
+            .ToDictionary(g => g.Key, g => g.Last());
+        var kinds = overrides.ToDictionary(e => e.Key, e => e.Value.Kind);
 
         var w = type.MullionWidth;
         var border = type.BorderMullions && w > 0;
@@ -137,7 +142,8 @@ public sealed class CurtainLayout
             var clearBottom = kind == CurtainPanelKind.Door && r == 0 ? horizontals[0] : Faces(horizontals, r).High;
 
             cells.Add(new CurtainCell(c, r, verticals[c], verticals[c + 1], horizontals[r], horizontals[r + 1],
-                Faces(verticals, c).High, Faces(verticals, c + 1).Low, clearBottom, Faces(horizontals, r + 1).Low, kind));
+                Faces(verticals, c).High, Faces(verticals, c + 1).Low, clearBottom, Faces(horizontals, r + 1).Low, kind,
+                overrides.TryGetValue((c, r), out var panel) ? panel.DoorTypeId : null));
         }
 
         var mullions = new List<CurtainMullion>();

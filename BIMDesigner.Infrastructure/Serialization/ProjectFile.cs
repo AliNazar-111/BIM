@@ -511,7 +511,7 @@ public static class ProjectFile
                 ProfileLength = wall.ProfileLength,
                 CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
                 CurtainHorizontals = wall.CurtainGrid?.Horizontals.ToList(),
-                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString() }).ToList(),
+                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), DoorTypeId = p.DoorTypeId }).ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
@@ -873,7 +873,7 @@ public static class ProjectFile
                     : null,
                 CurtainPanels = wall.CurtainPanels?
                     .Where(p => p.Column >= 0 && p.Row >= 0)
-                    .Select(p => new CurtainPanelOverride(p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed)))
+                    .Select(p => new CurtainPanelOverride(p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed), p.DoorTypeId))
                     .ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,

@@ -53,6 +53,24 @@ internal static class OpeningModel
         meshes.AddRange(builder.Meshes);
     }
 
+    /// <summary>
+    /// A curtain wall's door panel: a door of the chosen type, built to fill the panel from
+    /// mullion to mullion and from the floor to the head, with every leaf design and operation
+    /// an ordinary door has. It belongs to the wall rather than to a door element of its own,
+    /// and it has no architrave - the mullions round it are its frame.
+    /// </summary>
+    public static void AddPanelDoor(
+        Wall wall, WallType body, DoorType type, Guid ownerId, Guid levelId,
+        double from, double to, double sill, double head, List<Mesh3D> meshes)
+    {
+        if (head - sill <= 1 || to - from <= 1) return;
+
+        var panel = new Door { Id = ownerId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id };
+        var builder = new Builder(wall, body, panel, type, from, to, sill, head) { Trimmed = false };
+        builder.Door(type);
+        meshes.AddRange(builder.Meshes);
+    }
+
     /// <summary>What a frame or door panel made of this reads as.</summary>
     public static ColourRgb ColourOf(string material, ColourRgb fallback)
     {
@@ -107,6 +125,9 @@ internal static class OpeningModel
 
         public double Width { get; }
 
+        /// <summary>Whether the architrave is built: a door in a curtain panel has none.</summary>
+        public bool Trimmed { get; init; } = true;
+
         private double Height => _head - _sill;
 
         /// <summary>Half the wall's thickness: where its faces are, across from its centreline.</summary>
@@ -135,7 +156,7 @@ internal static class OpeningModel
             _glazingRows = door.GlazingRows;
             _glazingColumns = door.GlazingColumns;
 
-            Trim(door);
+            if (Trimmed) Trim(door);
 
             switch (door.Operation)
             {

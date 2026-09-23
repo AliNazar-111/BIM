@@ -1279,10 +1279,12 @@ public class PlanView : FrameworkElement
 
         UpdateHoverCursor(raw);
 
-        // The door or window a click here would place, shown where it would go.
+        // The door or window a click here would place, shown where it would go - or, on a
+        // curtain wall, the panel a click would turn into a door.
         if (ActiveTool is PlanTool.Door or PlanTool.Window)
         {
             _openingPreview = OpeningAt(raw, ActiveTool == PlanTool.Door, out _);
+            _curtainDoorPreview = ActiveTool == PlanTool.Door ? CurtainDoorAt(raw) : null;
             InvalidateVisual();
         }
 
@@ -3184,7 +3186,7 @@ public class PlanView : FrameworkElement
         if (Document.IsCurtainWall(wall))
         {
             problem = isDoor
-                ? "That is a curtain wall: select it and use Edit Curtain Grid to make a panel a door."
+                ? "That is a curtain wall: click a bottom panel to make it a door of the type selected."
                 : "That is a curtain wall: its panels are already glazed.";
             return null;
         }
@@ -3228,6 +3230,9 @@ public class PlanView : FrameworkElement
     {
         if (Document is null) return;
 
+        // A curtain wall has no hole cut in it: the panel clicked becomes the door instead.
+        if (isDoor && HitTestWall(raw) is { } curtain && Document.IsCurtainWall(curtain) && PlaceCurtainDoor(raw, curtain)) return;
+
         if (OpeningAt(raw, isDoor, out var problem) is not { } opening)
         {
             HintChanged?.Invoke(this, problem ?? string.Empty);
@@ -3247,6 +3252,42 @@ public class PlanView : FrameworkElement
         HintChanged?.Invoke(this, DefaultHintFor(ActiveTool));
     }
 
+    /// <summary>
+    /// The Door tool on a curtain wall: the bottom panel clicked becomes a door of the type the
+    /// tool has selected, mullion to mullion and standing on the floor, and the mullion under it
+    /// goes - as replacing a panel with a curtain wall door does in Revit. Making it a panel
+    /// again is what takes the door away.
+    /// </summary>
+    private bool PlaceCurtainDoor(Point2D raw, Wall wall)
+    {
+        if (Document is null || !Document.IsCurtainWall(wall)) return false;
+
+        if (Document.FindType<DoorType>(ActiveDoorTypeId) is not { } type)
+        {
+            HintChanged?.Invoke(this, "No door type is selected for the tool.");
+            return true;
+        }
+
+        if (CurtainDoorAt(raw) is not var (_, _, cell))
+        {
+            HintChanged?.Invoke(this, "Click a panel in the bottom row of the curtain wall: a door stands on the floor.");
+            return true;
+        }
+
+        var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
+            .Where(p => p.Column != cell.Column || p.Row != cell.Row)
+            .Append(new CurtainPanelOverride(cell.Column, 0, CurtainPanelKind.Door, type.Id))
+            .OrderBy(p => p.Column).ThenBy(p => p.Row)
+            .ToList();
+
+        Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, "Place Door"));
+        _curtainDoorPreview = null;
+        Select(wall);
+        HintChanged?.Invoke(this, $"That panel is now a {type.Name}. Click another panel, or use Edit Curtain Grid to size it.");
+        InvalidateVisual();
+        return true;
+    }
+
     /// <summary>A tag of an opening's mark, set off the wall on the side away from its swing, clear of the leaf and its controls.</summary>
     private Tag? TagBeside(Opening opening)
     {
@@ -3263,11 +3304,29 @@ public class PlanView : FrameworkElement
         };
     }
 
+    /// <summary>The curtain wall panel under the cursor that the Door tool would fill, if there is one.</summary>
+    private (Wall Wall, CurtainWallType Type, CurtainCell Cell)? _curtainDoorPreview;
+
+    /// <summary>The bottom panel of a curtain wall under this point, which a door would go in.</summary>
+    private (Wall Wall, CurtainWallType Type, CurtainCell Cell)? CurtainDoorAt(Point2D raw)
+    {
+        if (Document is null || HitTestWall(raw) is not { } wall || CurtainLayout.Of(Document, wall) is not { } layout) return null;
+
+        var along = wall.LocationCurve.Locate(raw).Along;
+        return layout.Cells.FirstOrDefault(c => c.Row == 0 && along >= c.From && along <= c.To) is { } cell
+            ? (wall, layout.Type, cell)
+            : null;
+    }
+
     /// <summary>The door or window that would be placed where the cursor is, drawn over the plan.</summary>
     private void DrawOpeningPreview(DrawingContext dc)
     {
-        if (_openingPreview is null || ActiveTool is not (PlanTool.Door or PlanTool.Window)) return;
-        _renderer.DrawOpeningPreview(dc, _openingPreview);
+        if (ActiveTool is not (PlanTool.Door or PlanTool.Window)) return;
+
+        if (_curtainDoorPreview is var (curtain, curtainType, cell))
+            _renderer.DrawCurtainDoorPreview(dc, curtain, curtainType, cell);
+
+        if (_openingPreview is not null) _renderer.DrawOpeningPreview(dc, _openingPreview);
     }
 
     // ---- flip controls and Pick New Host for a selected door or window ---------------------

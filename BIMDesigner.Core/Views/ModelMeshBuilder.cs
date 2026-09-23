@@ -276,7 +276,7 @@ public static class ModelMeshBuilder
 
             if (cell.Kind == CurtainPanelKind.Door)
             {
-                AddCurtainDoor(wall, body, cell, bottom, doors, glass);
+                AddCurtainDoor(document, wall, body, cell, bottom, meshes, doors, glass);
                 continue;
             }
 
@@ -310,11 +310,23 @@ public static class ModelMeshBuilder
     }
 
     /// <summary>
-    /// A door in a curtain wall's panel: a glazed leaf - a slim frame round a pane - with a
-    /// long pull handle on each face, the way storefront doors are made.
+    /// A door in a curtain wall's panel. If the panel says which door type it is, that door is
+    /// built here as any other door of that type would be - its leaves, its design, its
+    /// operation - filling the panel from mullion to mullion. A panel with no type named falls
+    /// back to a glazed storefront leaf: a slim frame round a pane, with a long pull handle on
+    /// each face.
     /// </summary>
-    private static void AddCurtainDoor(Wall wall, WallType body, CurtainCell cell, double bottom, Mesh3D leaf, Mesh3D glass)
+    private static void AddCurtainDoor(
+        BimDocument document, Wall wall, WallType body, CurtainCell cell, double bottom,
+        List<Mesh3D> meshes, Mesh3D leaf, Mesh3D glass)
     {
+        if (cell.DoorTypeId is { } typeId && document.FindType<DoorType>(typeId) is { } doorType)
+        {
+            OpeningModel.AddPanelDoor(wall, body, doorType, wall.Id, wall.LevelId,
+                cell.ClearFrom, cell.ClearTo, bottom + cell.ClearBottom, bottom + cell.ClearTop, meshes);
+            return;
+        }
+
         const double stile = 90;
         const double rail = 110;
         const double depth = 25;

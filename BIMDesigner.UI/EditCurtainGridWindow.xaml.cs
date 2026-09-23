@@ -37,6 +37,15 @@ public partial class EditCurtainGridWindow : Window
 
         Editor.Show(_type, _length, _height, Inner(layout.Verticals), Inner(layout.Horizontals),
             wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>());
+        // Which door a door panel becomes: any door type in the project, as Revit picks a
+        // curtain wall door in the Type Selector.
+        var doorTypes = document.TypesOf<DoorType>().OrderBy(t => t.Name).ToList();
+        DoorTypeBox.ItemsSource = doorTypes;
+        DoorTypeBox.SelectedItem =
+            doorTypes.FirstOrDefault(t => t.Id == (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
+                .FirstOrDefault(p => p.Kind == CurtainPanelKind.Door && p.DoorTypeId is not null).DoorTypeId)
+            ?? doorTypes.FirstOrDefault();
+
         Editor.Refused += (_, message) => MessageText.Text = message;
         Editor.Edited += (_, _) => MessageText.Text = string.Empty;
     }
@@ -57,6 +66,11 @@ public partial class EditCurtainGridWindow : Window
             : sender == EmptyChoice ? CurtainPanelKind.Empty
             : sender == DoorChoice ? CurtainPanelKind.Door
             : CurtainPanelKind.Glazed;
+    }
+
+    private void OnDoorTypeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (Editor is not null) Editor.DoorTypeId = (DoorTypeBox.SelectedItem as DoorType)?.Id;
     }
 
     private void OnAddVertical(object sender, RoutedEventArgs e) => AddLine(true, VerticalAtBox.Text);

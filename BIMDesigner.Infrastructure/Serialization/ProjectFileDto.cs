@@ -418,6 +418,9 @@ internal sealed class CurtainPanelDto
     public int Column { get; set; }
     public int Row { get; set; }
     public string Kind { get; set; } = "Glazed";
+
+    /// <summary>For a door panel, the door type it is; null in files from before door panels had a type.</summary>
+    public Guid? DoorTypeId { get; set; }
 }
 
 internal sealed class StackTierDto

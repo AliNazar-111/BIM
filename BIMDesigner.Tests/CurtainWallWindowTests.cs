@@ -107,6 +107,22 @@ public class CurtainWallWindowTests
     }
 
     [Fact]
+    public void ADoorPanelKeepsTheDoorTypeItWasGiven()
+    {
+        OnUiThread(() =>
+        {
+            var doorType = Guid.NewGuid();
+            var editor = new CurtainGridEditor();
+            editor.Show(new CurtainWallType("test"), 6000, 3000, new[] { 1500.0, 3000, 4500 }, new[] { 1500.0 },
+                new[] { new CurtainPanelOverride(1, 0, CurtainPanelKind.Door, doorType) });
+
+            // Splitting the bay leaves a door of the same type in each half.
+            Assert.True(editor.AddLine(vertical: true, at: 2000));
+            Assert.Equal(new Guid?[] { doorType, doorType }, editor.Panels.Where(p => p.Kind == CurtainPanelKind.Door).Select(p => p.DoorTypeId).ToArray());
+        });
+    }
+
+    [Fact]
     public void TheGridWindowOpensOnACurtainWall()
     {
         OnUiThread(() =>

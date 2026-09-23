@@ -59,7 +59,9 @@
                 <RadioButton x:Name="GlazedChoice" Content="Glass" IsChecked="True" Margin="0,0,0,6" Checked="OnFillChanged"/>
                 <RadioButton x:Name="SolidChoice" Content="Solid panel" Margin="0,0,0,6" Checked="OnFillChanged"/>
                 <RadioButton x:Name="EmptyChoice" Content="Empty" Margin="0,0,0,6" Checked="OnFillChanged"/>
-                <RadioButton x:Name="DoorChoice" Content="Door (bottom panels)" Margin="0,0,0,16" Checked="OnFillChanged"/>
+                <RadioButton x:Name="DoorChoice" Content="Door (bottom panels)" Margin="0,0,0,6" Checked="OnFillChanged"/>
+                <ComboBox x:Name="DoorTypeBox" Margin="18,0,0,16" DisplayMemberPath="Name" SelectionChanged="OnDoorTypeChanged"
+                          ToolTip="Which door the panel becomes. Its leaves, design and operation are the door type's own."/>
 
                 <TextBlock Text="ADD A GRID LINE" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
                 <Grid Margin="0,0,0,8">
