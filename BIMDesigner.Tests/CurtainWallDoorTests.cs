@@ -95,6 +95,68 @@ public class CurtainWallDoorTests
     }
 
     [Fact]
+    public void ADoorCutsItsOwnBayInACurtainWallWithNoGrid()
+    {
+        var document = BimDocument.CreateDefault();
+        var plain = new CurtainWallType("Plain") { VerticalLayout = CurtainGridLayout.None, HorizontalLayout = CurtainGridLayout.None };
+        document.AddType(plain);
+
+        var wall = new Wall
+        {
+            Start = new Point2D(0, 0), End = new Point2D(6000, 0),
+            TypeId = plain.Id, LevelId = document.Levels[0].Id, UnconnectedHeight = 3000
+        };
+        document.Add(wall);
+
+        var type = new DoorType("Curtain Entrance", 1000, 2100);
+        document.AddType(type);
+
+        // The whole wall is one panel; the door must not swallow it.
+        Assert.Single(CurtainLayout.Of(document, wall)!.Cells);
+
+        var placement = CurtainDoors.Place(document, wall, type, along: 3000)!;
+        Assert.True(placement.AddedLines);
+        Assert.Equal(1000, placement.Cell.ClearTo - placement.Cell.ClearFrom, precision: 6);
+        Assert.Equal(2100, placement.Cell.ClearTop - placement.Cell.ClearBottom, precision: 6);
+        Assert.Equal(0, placement.Cell.ClearBottom);
+
+        // Glass either side of it and a transom light over it.
+        new SetCurtainLayoutCommand(wall, placement.Grid, placement.Panels).Redo();
+        var layout = CurtainLayout.Of(document, wall)!;
+        Assert.Single(layout.Cells, c => c.Kind == CurtainPanelKind.Door);
+        Assert.Equal(5, layout.Cells.Count(c => c.Kind == CurtainPanelKind.Glazed));
+    }
+
+    [Fact]
+    public void ABayThatIsAlreadyADoorwayIsTakenAsItIs()
+    {
+        var (document, wall, type) = Storefront(new DoorType("Curtain Entrance", 1000, 2100));
+
+        // A 1.5 m by 1.5 m storefront bay is wide enough for a door but too short: the jambs
+        // stay where they are, and the transom rises to the door's head.
+        var placement = CurtainDoors.Place(document, wall, type, along: 2000)!;
+        Assert.Equal((1525.0, 2975.0), (placement.Cell.ClearFrom, placement.Cell.ClearTo));
+        Assert.Equal(2100, placement.Cell.ClearTop, precision: 6);
+        Assert.Equal(0, placement.Cell.ClearBottom);
+    }
+
+    [Fact]
+    public void ThePanelsAlreadyThereKeepTheirBays()
+    {
+        var (document, wall, type) = Storefront(new DoorType("Curtain Entrance", 1000, 2100));
+        new SetCurtainLayoutCommand(wall, null, new[] { new CurtainPanelOverride(3, 1, CurtainPanelKind.Solid) }).Redo();
+
+        var placement = CurtainDoors.Place(document, wall, type, along: 500)!;
+        new SetCurtainLayoutCommand(wall, placement.Grid, placement.Panels).Redo();
+
+        // The solid panel is still in the last bay at the top, wherever the new lines put it.
+        var layout = CurtainLayout.Of(document, wall)!;
+        var solid = layout.Cells.Single(c => c.Kind == CurtainPanelKind.Solid);
+        Assert.True(solid.From >= 4500 && solid.Bottom >= 2100, $"the solid panel moved to {solid.From:0}, {solid.Bottom:0}");
+        Assert.Single(layout.Cells, c => c.Kind == CurtainPanelKind.Door);
+    }
+
+    [Fact]
     public void TheDoorTypeOnAPanelIsSaved()
     {
         var (document, wall, type) = Storefront(new DoorType("Curtain Entrance", 1000, 2100) { LeafDesign = DoorLeafDesign.Glazed });

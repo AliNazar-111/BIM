@@ -343,7 +343,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Cut a hole through a wall | Architecture tab → **Wall Opening**, set width, height and sill on the option bar, click the wall - curved walls too. Change it afterwards in Properties |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
 | Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass, solid, empty or a door of a chosen door type; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
-| Put a door in a curtain wall | **Door** tool, pick the door type, click a bottom panel: the panel becomes that door, floor to head, and the mullion under it goes. Making the panel glass again takes it away |
+| Put a door in a curtain wall | **Door** tool, pick the door type, click low on the wall: a bay is cut for the door, with glass beside it and a transom light over it, and the mullion under it goes. A panel that is already a doorway is taken as it is. Making the panel glass again takes it away |
 | Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
 | Set a shopfront into a wall | Draw a curtain wall whose type has **Automatically embed** along inside the wall; it cuts its own opening |
 | Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |

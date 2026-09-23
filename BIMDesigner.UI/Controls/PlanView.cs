@@ -3268,22 +3268,18 @@ public class PlanView : FrameworkElement
             return true;
         }
 
-        if (CurtainDoorAt(raw) is not var (_, _, cell))
+        if (CurtainDoors.Place(Document, wall, type, wall.LocationCurve.Locate(raw).Along) is not { } placement)
         {
-            HintChanged?.Invoke(this, "Click a panel in the bottom row of the curtain wall: a door stands on the floor.");
+            HintChanged?.Invoke(this, $"There is no room for a {Units.FormatLength(type.Width)} door in that curtain wall.");
             return true;
         }
 
-        var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
-            .Where(p => p.Column != cell.Column || p.Row != cell.Row)
-            .Append(new CurtainPanelOverride(cell.Column, 0, CurtainPanelKind.Door, type.Id))
-            .OrderBy(p => p.Column).ThenBy(p => p.Row)
-            .ToList();
-
-        Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, "Place Door"));
+        Apply(new SetCurtainLayoutCommand(wall, placement.Grid, placement.Panels, "Place Door"));
         _curtainDoorPreview = null;
         Select(wall);
-        HintChanged?.Invoke(this, $"That panel is now a {type.Name}. Click another panel, or use Edit Curtain Grid to size it.");
+        HintChanged?.Invoke(this, placement.AddedLines
+            ? $"A bay was cut for the {type.Name}, with glass around it. Drag a grid line in Edit Curtain Grid to resize it."
+            : $"That panel is now a {type.Name}. Click another panel to place another.");
         InvalidateVisual();
         return true;
     }
@@ -3307,14 +3303,14 @@ public class PlanView : FrameworkElement
     /// <summary>The curtain wall panel under the cursor that the Door tool would fill, if there is one.</summary>
     private (Wall Wall, CurtainWallType Type, CurtainCell Cell)? _curtainDoorPreview;
 
-    /// <summary>The bottom panel of a curtain wall under this point, which a door would go in.</summary>
+    /// <summary>Where a door would land in the curtain wall under this point: the bay it would fill.</summary>
     private (Wall Wall, CurtainWallType Type, CurtainCell Cell)? CurtainDoorAt(Point2D raw)
     {
         if (Document is null || HitTestWall(raw) is not { } wall || CurtainLayout.Of(Document, wall) is not { } layout) return null;
+        if (Document.FindType<DoorType>(ActiveDoorTypeId) is not { } type) return null;
 
-        var along = wall.LocationCurve.Locate(raw).Along;
-        return layout.Cells.FirstOrDefault(c => c.Row == 0 && along >= c.From && along <= c.To) is { } cell
-            ? (wall, layout.Type, cell)
+        return CurtainDoors.Place(Document, wall, type, wall.LocationCurve.Locate(raw).Along) is { } placement
+            ? (wall, layout.Type, placement.Cell)
             : null;
     }
 

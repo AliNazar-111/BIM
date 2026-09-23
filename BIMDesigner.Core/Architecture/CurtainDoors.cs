@@ -1,0 +1,130 @@
+using BIMDesigner.Core.Documents;
+
+namespace BIMDesigner.Core.Architecture;
+
+/// <summary>
+/// Where a door goes when one is put into a curtain wall, and the grid that has to be there for
+/// it. A curtain wall door is a panel, so it is as big as the panel it replaces: click a bay
+/// that is already door-sized and the door simply takes it, as a double door takes a 1.5 m bay.
+/// A bay too wide or too tall to be a door - a whole wall with no grid in it is one panel -
+/// gets the grid lines a door needs first, so the door ends up its own size with glass around
+/// it and a transom light over it.
+/// </summary>
+public sealed record CurtainDoorPlacement(
+    CurtainGrid Grid, IReadOnlyList<CurtainPanelOverride> Panels, CurtainCell Cell, bool AddedLines);
+
+public static class CurtainDoors
+{
+    /// <summary>A grid line this close to where one is wanted is used as it is.</summary>
+    public const double Tolerance = 10;
+
+    /// <summary>The narrowest panel a new grid line may leave beside it; a sliver becomes the edge instead.</summary>
+    public const double MinimumPanel = 150;
+
+    /// <summary>Wider than this, a panel is a shopfront window rather than a doorway.</summary>
+    public const double MaximumWidth = 2400;
+
+    /// <summary>A panel between these two heights can hold a door as it stands.</summary>
+    public const double MinimumHeight = 1900;
+
+    public const double MaximumHeight = 2700;
+
+    /// <summary>
+    /// The grid and panels the wall takes when a door of this type is put in at this distance
+    /// along it, or null if it cannot go there.
+    /// </summary>
+    public static CurtainDoorPlacement? Place(BimDocument document, Wall wall, DoorType type, double along)
+    {
+        if (CurtainLayout.Of(document, wall) is not { } layout) return null;
+
+        var length = layout.Length;
+        var height = layout.Height;
+        var mullion = Math.Max(0, layout.Type.MullionWidth);
+
+        if (layout.Cells.FirstOrDefault(c => c.Row == 0 && along >= c.From && along <= c.To) is not { } clicked) return null;
+
+        var verticals = layout.Verticals.ToList();
+        var horizontals = layout.Horizontals.ToList();
+        var added = false;
+
+        // Jambs: the bay stays as it is when it is already a doorway, and otherwise a bay the
+        // width of the door type is cut where the click landed.
+        var clearWidth = clicked.ClearTo - clicked.ClearFrom;
+        var centre = Math.Clamp(along, clicked.From, clicked.To);
+
+        if (clearWidth > MaximumWidth || clearWidth < type.Width)
+        {
+            var wanted = Math.Min(type.Width, length - mullion - 2 * MinimumPanel);
+            if (wanted < 500) return null;
+
+            centre = Math.Clamp(centre, wanted / 2 + mullion / 2, length - wanted / 2 - mullion / 2);
+            added |= Insert(verticals, centre - wanted / 2 - mullion / 2, length);
+            added |= Insert(verticals, centre + wanted / 2 + mullion / 2, length);
+        }
+
+        // Head: a transom at the door's head height, unless the bay is already a doorway. Any
+        // line that would cut the door off below its head gives way to it.
+        var clearHeight = clicked.ClearTop - clicked.ClearBottom;
+        if (clearHeight < MinimumHeight || clearHeight > MaximumHeight)
+        {
+            var head = Math.Min(type.Height + mullion / 2, height);
+            var kept = horizontals.Where(h => h <= 0 || h >= head - Tolerance).ToList();
+            added |= kept.Count != horizontals.Count;
+            horizontals = kept;
+            if (head < height - MinimumPanel) added |= Insert(horizontals, head, height);
+        }
+
+        // The panels as they were, each kept with the cell its middle now falls in, so choices
+        // follow their bay through the lines coming and going.
+        var panels = new Dictionary<(int Column, int Row), CurtainPanelOverride>();
+        foreach (var cell in layout.Cells.Where(c => c.Kind != CurtainPanelKind.Glazed))
+        {
+            var column = CellAt(verticals, (cell.From + cell.To) / 2);
+            var row = CellAt(horizontals, (cell.Bottom + cell.Top) / 2);
+            if (column < 0 || row < 0 || (cell.Kind == CurtainPanelKind.Door && row != 0)) continue;
+
+            panels[(column, row)] = new CurtainPanelOverride(column, row, cell.Kind, cell.DoorTypeId);
+        }
+
+        var doorColumn = CellAt(verticals, centre);
+        if (doorColumn < 0) return null;
+
+        panels[(doorColumn, 0)] = new CurtainPanelOverride(doorColumn, 0, CurtainPanelKind.Door, type.Id);
+
+        var grid = new CurtainGrid(Inner(verticals, length), Inner(horizontals, height));
+        var result = panels.Values.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList();
+
+        return CurtainLayout.Build(layout.Type, length, height, grid, result)
+            .Cells.FirstOrDefault(c => c.Column == doorColumn && c.Row == 0) is { } doorCell
+            ? new CurtainDoorPlacement(grid, result, doorCell, added)
+            : null;
+    }
+
+    /// <summary>
+    /// Puts a line in among the others, unless one is already there or it would leave a sliver
+    /// against the wall's end - then the end itself is the side of the bay. Says whether the
+    /// lines changed.
+    /// </summary>
+    private static bool Insert(List<double> lines, double at, double extent)
+    {
+        if (at <= MinimumPanel || at >= extent - MinimumPanel) return false;
+        if (lines.Any(x => Math.Abs(x - at) <= Tolerance)) return false;
+
+        lines.Add(at);
+        lines.Sort();
+        return true;
+    }
+
+    /// <summary>Which bay a point falls in, counting from 0, or -1 if it is outside them all.</summary>
+    private static int CellAt(IReadOnlyList<double> lines, double at)
+    {
+        for (var i = 0; i + 1 < lines.Count; i++)
+            if (at >= lines[i] && at <= lines[i + 1]) return i;
+
+        return -1;
+    }
+
+    /// <summary>The lines a wall keeps as its own grid: the inner ones, without its two edges.</summary>
+    private static List<double> Inner(IEnumerable<double> lines, double extent) =>
+        lines.Where(x => x > Tolerance && x < extent - Tolerance).ToList();
+}
