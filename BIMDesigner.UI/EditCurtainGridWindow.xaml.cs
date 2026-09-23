@@ -39,7 +39,7 @@ public partial class EditCurtainGridWindow : Window
             wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>());
         // Which door a door panel becomes: any door type in the project, as Revit picks a
         // curtain wall door in the Type Selector.
-        var doorTypes = document.TypesOf<DoorType>().OrderBy(t => t.Name).ToList();
+        var doorTypes = CurtainDoors.TypesFor(document);
         DoorTypeBox.ItemsSource = doorTypes;
         DoorTypeBox.SelectedItem =
             doorTypes.FirstOrDefault(t => t.Id == (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())

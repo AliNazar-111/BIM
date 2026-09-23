@@ -158,8 +158,15 @@ public sealed class BimDocument
         // has walls but no curtain wall types to draw one with.
         var hasCurtain = _types.Values.OfType<CurtainWallType>().Any();
 
-        foreach (var type in template.ElementTypes.Where(type =>
-                     type is CurtainWallType ? !hasCurtain : !present.Contains(type.Category)))
+        // Curtain wall doors share their category with doors, in the same way.
+        var hasCurtainDoor = _types.Values.OfType<DoorType>().Any(door => door.CurtainPanel);
+
+        foreach (var type in template.ElementTypes.Where(type => type switch
+                 {
+                     CurtainWallType => !hasCurtain,
+                     DoorType { CurtainPanel: true } => !hasCurtainDoor,
+                     _ => !present.Contains(type.Category)
+                 }))
         {
             foreach (var materialId in MaterialsUsedBy(type))
             {
@@ -413,6 +420,57 @@ public sealed class BimDocument
             Cost = 1450m
         };
 
+        // Curtain wall doors: the glass doors that replace a panel of a curtain wall, as Revit's
+        // library has them. One clear pane in a slim anodised frame, no architrave - the
+        // mullions round the panel are the frame - and full storey height.
+        var curtainSingle = new DoorType("Curtain Wall Sgl Glass - 1000 x 2200", 1000, 2200)
+        {
+            TypeMark = "CD1",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.Swing,
+            LeafDesign = DoorLeafDesign.FullGlass,
+            CurtainPanel = true,
+            PanelMaterial = "Aluminium, Anodised",
+            FrameMaterial = "Aluminium, Anodised",
+            Function = DoorFunction.Exterior,
+            Thickness = 50,
+            TrimWidth = 0,
+            Cost = 1850m
+        };
+
+        var curtainDouble = new DoorType("Curtain Wall Dbl Glass - 1800 x 2200", 1800, 2200)
+        {
+            TypeMark = "CD2",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.DoubleSwing,
+            LeafCount = 2,
+            LeafDesign = DoorLeafDesign.FullGlass,
+            CurtainPanel = true,
+            PanelMaterial = "Aluminium, Anodised",
+            FrameMaterial = "Aluminium, Anodised",
+            Function = DoorFunction.Exterior,
+            Thickness = 50,
+            TrimWidth = 0,
+            Cost = 3200m
+        };
+
+        // The sliding entrance of a shop or a lobby: two leaves running apart on one track.
+        var curtainSlider = new DoorType("Curtain Wall Sliding Glass - 1800 x 2200", 1800, 2200)
+        {
+            TypeMark = "CD3",
+            AssemblyCode = "C1020",
+            Operation = DoorOperation.Sliding,
+            LeafCount = 2,
+            LeafDesign = DoorLeafDesign.FullGlass,
+            CurtainPanel = true,
+            PanelMaterial = "Aluminium, Anodised",
+            FrameMaterial = "Aluminium, Anodised",
+            Function = DoorFunction.Exterior,
+            Thickness = 50,
+            TrimWidth = 0,
+            Cost = 4100m
+        };
+
         var casement = new WindowType("Casement - 1200 x 1200", 1200, 1200)
         {
             TypeMark = "W1",
@@ -568,7 +626,8 @@ public sealed class BimDocument
                      generic, exterior, partition,
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
                      storefront, plainGlass,
-                     singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, casement, picture,
+                     singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
+                     curtainSingle, curtainDouble, curtainSlider, casement, picture,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof
                  })
         {

@@ -254,6 +254,7 @@ public static class ProjectFile
                 GlazingRows = type.GlazingRows,
                 GlazingColumns = type.GlazingColumns,
                 Function = type.Function.ToString(),
+                CurtainPanel = type.CurtainPanel,
                 TrimWidth = type.TrimWidth,
                 TrimProjectionExterior = type.TrimProjectionExterior,
                 TrimProjectionInterior = type.TrimProjectionInterior
@@ -819,6 +820,7 @@ public static class ProjectFile
                 GlazingRows = type.GlazingRows is > 0 and <= 12 ? type.GlazingRows : 4,
                 GlazingColumns = type.GlazingColumns is > 0 and <= 6 ? type.GlazingColumns : 1,
                 Function = ParseEnum(type.Function, DoorFunction.Interior),
+                CurtainPanel = type.CurtainPanel,
                 TrimWidth = type.TrimWidth is >= 0 and var trim ? trim : 70,
                 TrimProjectionExterior = type.TrimProjectionExterior is >= 0 and var outside ? outside : 20,
                 TrimProjectionInterior = type.TrimProjectionInterior is >= 0 and var inside ? inside : 20

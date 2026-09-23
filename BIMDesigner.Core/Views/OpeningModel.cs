@@ -297,6 +297,21 @@ internal static class OpeningModel
                 return;
             }
 
+            if (_design == DoorLeafDesign.FullGlass)
+            {
+                // A shopfront leaf: one clear pane in a slim frame - narrow stiles, a shallow
+                // top rail and a kicking rail at the foot - which is what a curtain wall door is.
+                var slim = Math.Min(90, w * 0.14);
+                var head = Math.Min(100, h * 0.06);
+                var kick = Math.Min(200, h * 0.09);
+                Block(_leaf, f, 0, slim, -t, t, bottom, top);
+                Block(_leaf, f, w - slim, w, -t, t, bottom, top);
+                Block(_leaf, f, slim, w - slim, -t, t, top - head, top);
+                Block(_leaf, f, slim, w - slim, -t, t, bottom, bottom + kick);
+                GlassIn(f, slim, w - slim, bottom + kick, top - head);
+                return;
+            }
+
             // The frame every other design is built in: two stiles, a top rail and a deep bottom rail.
             var stile = Math.Min(110, w * 0.16);
             var topRail = Math.Min(110, h * 0.06);

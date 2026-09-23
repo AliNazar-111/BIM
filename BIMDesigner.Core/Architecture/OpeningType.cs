@@ -28,7 +28,10 @@ public enum DoorLeafDesign
     FrenchGlazed,
     HalfGlazed,
     Louvred,
-    ArchedTopLight
+    ArchedTopLight,
+
+    /// <summary>One clear pane in a slim frame, as a shopfront or curtain wall door is made.</summary>
+    FullGlass
 }
 
 /// <summary>Whether a door is inside the building or on its envelope, which is what schedules and energy analysis ask.</summary>
@@ -127,6 +130,13 @@ public sealed class DoorType : OpeningType
 
     public DoorFunction Function { get; set; } = DoorFunction.Interior;
 
+    /// <summary>
+    /// Whether this is a curtain wall door: one that replaces a panel of a curtain wall rather
+    /// than filling a hole cut in a solid one. As in Revit, only these can be put into a
+    /// curtain wall, and they take the size of the panel they replace.
+    /// </summary>
+    public bool CurtainPanel { get; set; }
+
     /// <summary>The architrave round the opening on each face: how wide, and how far it stands off the wall.</summary>
     public double TrimWidth { get; set; } = 70;
 
@@ -160,6 +170,7 @@ public sealed class DoorType : OpeningType
             () => EnumText.Humanise(Function),
             v => { if (EnumText.TryParse<DoorFunction>(v, out var f)) Function = f; },
             EnumText.Choices<DoorFunction>());
+        yield return ParameterValue.Bind(DoorTypeParameters.CurtainPanel, () => CurtainPanel, v => CurtainPanel = v);
         yield return ParameterValue.Bind(DoorTypeParameters.TrimWidth, () => TrimWidth, v => { if (v >= 0) TrimWidth = v; });
         yield return ParameterValue.Bind(DoorTypeParameters.TrimProjectionExterior, () => TrimProjectionExterior, v => { if (v >= 0) TrimProjectionExterior = v; });
         yield return ParameterValue.Bind(DoorTypeParameters.TrimProjectionInterior, () => TrimProjectionInterior, v => { if (v >= 0) TrimProjectionInterior = v; });
@@ -252,6 +263,9 @@ public static class DoorTypeParameters
 
     public static readonly ParameterDefinition Function =
         new("Function", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition CurtainPanel =
+        new("Curtain Wall Door", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition TrimWidth =
         new("Trim Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);

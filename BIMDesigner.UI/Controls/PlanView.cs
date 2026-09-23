@@ -3262,11 +3262,15 @@ public class PlanView : FrameworkElement
     {
         if (Document is null || !Document.IsCurtainWall(wall)) return false;
 
-        if (Document.FindType<DoorType>(ActiveDoorTypeId) is not { } type)
+        // A curtain wall takes a curtain wall door - a glass one made to be a panel - whatever
+        // the tool holds, as Revit's Type Selector offers only those on a panel.
+        if (CurtainDoors.TypeFor(Document, ActiveDoorTypeId) is not { } type)
         {
             HintChanged?.Invoke(this, "No door type is selected for the tool.");
             return true;
         }
+
+        var swapped = type.Id != ActiveDoorTypeId;
 
         if (CurtainDoors.Place(Document, wall, type, wall.LocationCurve.Locate(raw).Along) is not { } placement)
         {
@@ -3277,9 +3281,11 @@ public class PlanView : FrameworkElement
         Apply(new SetCurtainLayoutCommand(wall, placement.Grid, placement.Panels, "Place Door"));
         _curtainDoorPreview = null;
         Select(wall);
-        HintChanged?.Invoke(this, placement.AddedLines
-            ? $"A bay was cut for the {type.Name}, with glass around it. Drag a grid line in Edit Curtain Grid to resize it."
-            : $"That panel is now a {type.Name}. Click another panel to place another.");
+        HintChanged?.Invoke(this, swapped
+            ? $"A curtain wall takes a glass door: {type.Name} went in. Edit Curtain Grid changes it."
+            : placement.AddedLines
+                ? $"A bay was cut for the {type.Name}, with glass around it. Drag a grid line in Edit Curtain Grid to resize it."
+                : $"That panel is now a {type.Name}. Click another panel to place another.");
         InvalidateVisual();
         return true;
     }
@@ -3307,7 +3313,7 @@ public class PlanView : FrameworkElement
     private (Wall Wall, CurtainWallType Type, CurtainCell Cell)? CurtainDoorAt(Point2D raw)
     {
         if (Document is null || HitTestWall(raw) is not { } wall || CurtainLayout.Of(Document, wall) is not { } layout) return null;
-        if (Document.FindType<DoorType>(ActiveDoorTypeId) is not { } type) return null;
+        if (CurtainDoors.TypeFor(Document, ActiveDoorTypeId) is not { } type) return null;
 
         return CurtainDoors.Place(Document, wall, type, wall.LocationCurve.Locate(raw).Along) is { } placement
             ? (wall, layout.Type, placement.Cell)

@@ -502,6 +502,9 @@ internal sealed class DoorTypeDto : OpeningTypeDto
     public double? TrimWidth { get; set; }
     public double? TrimProjectionExterior { get; set; }
     public double? TrimProjectionInterior { get; set; }
+
+    /// <summary>Whether it is a curtain wall door, one that replaces a panel of a curtain wall.</summary>
+    public bool CurtainPanel { get; set; }
 }
 
 internal sealed class WindowTypeDto : OpeningTypeDto

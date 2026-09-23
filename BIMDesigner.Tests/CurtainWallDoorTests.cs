@@ -157,6 +157,56 @@ public class CurtainWallDoorTests
     }
 
     [Fact]
+    public void ACurtainWallTakesAGlassDoorWhateverTheToolHolds()
+    {
+        var document = BimDocument.CreateDefault();
+
+        // The project comes with curtain wall doors, and they are glass in a slim frame.
+        var curtain = CurtainDoors.TypesFor(document);
+        Assert.NotEmpty(curtain);
+        Assert.All(curtain, type => Assert.True(type.CurtainPanel));
+        Assert.All(curtain, type => Assert.Equal(DoorLeafDesign.FullGlass, type.LeafDesign));
+
+        // A timber pair in the tool becomes the glass pair, not the timber one.
+        var timber = document.TypesOf<DoorType>().Single(t => t.Name.StartsWith("Double -"));
+        var chosen = CurtainDoors.TypeFor(document, timber.Id)!;
+        Assert.True(chosen.CurtainPanel);
+        Assert.Equal(timber.Width, chosen.Width);
+
+        // One it can use is left alone.
+        Assert.Equal(chosen.Id, CurtainDoors.TypeFor(document, chosen.Id)!.Id);
+    }
+
+    [Fact]
+    public void AFullGlassLeafIsOnePaneInASlimFrame()
+    {
+        var (document, wall, type) = Storefront(new DoorType("Curtain Entrance", 1000, 2100)
+        {
+            LeafDesign = DoorLeafDesign.FullGlass, CurtainPanel = true
+        });
+
+        var meshes = PanelMeshes(document, wall, type, "Door leaf", "Glazing");
+        var leaf = meshes.Single(m => m.Description == "Door leaf").Bounds()!.Value;
+        var glass = meshes.Single(m => m.Description == "Glazing").Bounds()!.Value;
+
+        // The pane fills most of the leaf: a slim stile either side and a kicking rail at the foot.
+        Assert.True(glass.Max.X - glass.Min.X > (leaf.Max.X - leaf.Min.X) * 0.75);
+        Assert.True(glass.Max.Z - glass.Min.Z > (leaf.Max.Z - leaf.Min.Z) * 0.75);
+        Assert.True(glass.Min.Z > leaf.Min.Z);
+    }
+
+    [Fact]
+    public void AProjectFromBeforeCurtainDoorsGetsThem()
+    {
+        var document = BimDocument.CreateDefault();
+        foreach (var type in CurtainDoors.TypesFor(document).ToList()) document.RemoveType(type);
+        Assert.DoesNotContain(document.TypesOf<DoorType>(), t => t.CurtainPanel);
+
+        document.EnsureDefaultTypes();
+        Assert.Contains(document.TypesOf<DoorType>(), t => t.CurtainPanel);
+    }
+
+    [Fact]
     public void TheDoorTypeOnAPanelIsSaved()
     {
         var (document, wall, type) = Storefront(new DoorType("Curtain Entrance", 1000, 2100) { LeafDesign = DoorLeafDesign.Glazed });

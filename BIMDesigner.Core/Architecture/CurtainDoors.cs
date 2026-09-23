@@ -30,6 +30,30 @@ public static class CurtainDoors
     public const double MaximumHeight = 2700;
 
     /// <summary>
+    /// The door types a curtain wall will take: the curtain wall doors, which are glass doors
+    /// made to be a panel. As in Revit, an ordinary door cannot replace a panel; if a project
+    /// has no curtain wall door at all, every door type is offered rather than none.
+    /// </summary>
+    public static IReadOnlyList<DoorType> TypesFor(BimDocument document)
+    {
+        var curtain = document.TypesOf<DoorType>().Where(type => type.CurtainPanel).OrderBy(type => type.Width).ToList();
+        return curtain.Count > 0 ? curtain : document.TypesOf<DoorType>().OrderBy(type => type.Width).ToList();
+    }
+
+    /// <summary>The curtain wall door to use when the tool holds this type: itself, or the nearest one that is.</summary>
+    public static DoorType? TypeFor(BimDocument document, Guid preferred)
+    {
+        if (document.FindType<DoorType>(preferred) is { CurtainPanel: true } held) return held;
+
+        var choices = TypesFor(document);
+        if (choices.Count == 0) return null;
+
+        // The one closest in width to the door asked for, so a pair stays a pair.
+        var wanted = document.FindType<DoorType>(preferred)?.Width ?? 1000;
+        return choices.OrderBy(type => Math.Abs(type.Width - wanted)).First();
+    }
+
+    /// <summary>
     /// The grid and panels the wall takes when a door of this type is put in at this distance
     /// along it, or null if it cannot go there.
     /// </summary>

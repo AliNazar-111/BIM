@@ -343,7 +343,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Cut a hole through a wall | Architecture tab → **Wall Opening**, set width, height and sill on the option bar, click the wall - curved walls too. Change it afterwards in Properties |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
 | Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass, solid, empty or a door of a chosen door type; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
-| Put a door in a curtain wall | **Door** tool, pick the door type, click low on the wall: a bay is cut for the door, with glass beside it and a transom light over it, and the mullion under it goes. A panel that is already a doorway is taken as it is. Making the panel glass again takes it away |
+| Put a door in a curtain wall | **Door** tool, click low on the wall: a bay is cut for the door, with glass beside it and a transom light over it, and the mullion under it goes. A panel that is already a doorway is taken as it is. Only a **Curtain Wall Door** type can be a panel, so a glass one of the nearest size is used; set **Curtain Wall Door** on any door type to offer it. Making the panel glass again takes it away |
 | Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
 | Set a shopfront into a wall | Draw a curtain wall whose type has **Automatically embed** along inside the wall; it cuts its own opening |
 | Add a skirting, cornice or groove | Wall Types → **Add Sweep** / **Add Reveal** under Sweeps and Reveals |
@@ -356,7 +356,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Set a plan's scale or detail | The bar under the plan: scale, detail level, storey below. With nothing selected, Properties shows the same |
 | Turn the 3D view to a face, edge or corner | Click the ViewCube in the corner; drag it to orbit; the house resets. Zoom buttons are under it |
 | Place a door | `Door` tool (`D`): a preview follows the cursor along the wall; point at the side it should swing toward, `Space` swaps the hinge side, click to place. New doors are marked 1, 2, 3…; tick **Tag on Placement** to tag each one |
-| Pick a door's design | Door types: **Leaf Design** - Flush, Panelled, Glazed, French Glazed (set **Glazing Rows** / **Columns**), Half Glazed, Louvred, Arched Top Light; with **Trim Width** and projections for the architrave. The template has French double, single glazed, louvred bi-fold and arched entrance doors |
+| Pick a door's design | Door types: **Leaf Design** - Flush, Panelled, Glazed, French Glazed (set **Glazing Rows** / **Columns**), Half Glazed, Louvred, Arched Top Light, Full Glass; with **Trim Width** and projections for the architrave. The template has French double, single glazed, louvred bi-fold, arched entrance and curtain wall glass doors |
 | Flip a door | Select it: click the ↕ arrows to flip which way it swings, the ↔ arrows to flip its hinge side; or press `Space` |
 | Move a door to another wall | Select it → **Modify \| Doors → Pick New Host**, click the wall where it should go |
 | Place a window | `Window` tool (`N`), click a wall |
