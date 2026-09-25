@@ -156,8 +156,9 @@ the scale it prints is the scale the viewports are actually at rather than one t
 forgotten.
 
 **IFC is the handover format, and the one place we use a library.** File → Export IFC writes
-IFC4: project, site, building and a storey per level; walls, floors, roofs and ceilings as
-extruded solids; doors and windows as real voids in their walls, with the door filling the
+IFC4: project, site, building and a storey per level; walls, floors and ceilings as
+extruded solids; roofs as `IfcRoof`, a pitched one aggregating one slab per face; doors and
+windows as real voids in their walls, with the door filling the
 hole; rooms as spaces; and compound structures as material layer sets, so a brick-on-block
 wall arrives as brick on block rather than an anonymous lump. Property sets carry both the
 standard IFC ones and every parameter our own elements report. (§8)
@@ -202,9 +203,66 @@ build*, so its outline is its own — it does not change shape or vanish because
 any more than a poured slab would. Picking an enclosed space is offered as a quick way to
 sketch that outline, not as a link to it. (§3.2)
 
-Floors, ceilings and flat roofs share one `SlabType` built on the same `CompoundStructure`
+Floors, ceilings and roofs share one `SlabType` built on the same `CompoundStructure`
 as walls, so material takeoff, cost and U-values work identically for horizontal and
 vertical construction with no second implementation to keep in step.
+
+**A roof is its edges.** A roof by footprint stores one thing per edge of its outline:
+whether the roof slopes up from it. That single setting is the whole shape — all four edges
+of a rectangle sloping is a hip roof, two opposite ones a gable, one a shed, none a flat
+roof — and everything else is worked out from it: the faces, the ridges, hips and valleys,
+the height over any point, and the area of the sloping surface a roofer would quote for.
+None of it is stored, so a roof cannot disagree with itself.
+
+**A roof is drawn, not guessed.** The Roof tool opens a sketch, as Revit's does: the outline
+is picked off walls or drawn, checked when it is finished, and kept with the roof so Edit
+Footprint can open it again. An edge picked from a wall is not a line but a position on that
+wall — its face, or its core, and the overhang — so when the wall moves the edge goes with
+it, whatever moved it, undo included. And a roof **stands on its base** rather than hanging
+from it: its underside is at its level plus its base offset where it bears on the wall face,
+its build-up rises from there, and an overhanging eave carries on down past the wall to its
+edge, lower than the plate by the overhang times the pitch, as a built eave is. A new roof's
+base is the top of the walls it was picked from, so it sits on them. (Roofs saved before this
+hung down from their offset; they are lowered by their thickness on opening, so they stay
+exactly where they were.)
+
+The surface is the *lowest* of the planes its eaves define, each restricted to its own
+inward side and to the wedge its two corners leave it. Four planes rising inward cut each
+other into a hip roof without hips ever being mentioned. The wedge is what makes an L or a
+T come out right: extended, a wing's eave plane passes under the main range lower than the
+range's own roof, and without it would take a slice out of a roof it has nothing to do
+with. At an outside corner each plane keeps the side where it is lower, which meets its
+neighbour in a hip; at an inside corner it keeps the side where it is higher, which meets it
+in a valley. It agrees with the straight skeleton that IfcOpenShell's roof tool builds, and
+keeps working when the pitches differ. The build-up is measured square to the slope, the
+way a roof is specified and built, so faces at different pitches still meet flush.
+
+The common shapes are each tested as someone would build them — the list from Balkan
+Architect's *10 Common Roof Shapes*: shed, gable, gable with catslide (one eave dropped
+lower), clerestory (two sheds at different heights), hip, half-hip (end eaves raised so
+they only clip the top), dutch gable (a hip cut off with **Cutoff Height** and a gablet
+built on the deck), cross-gabled (a T footprint, valleys and all) and butterfly (two sheds
+sloping from a central gutter). The gambrel is the one that cannot be built from a
+footprint — each side has two pitches — and needs a roof by extrusion.
+
+Roofs export as `IfcRoof` with the shape recorded on them — `HIP_ROOF`, `GABLE_ROOF`,
+`SHED_ROOF`, `FLAT_ROOF` — a pitched one as an assembly of one `IfcSlab` per face, each
+lying in its own plane, which is what IFC asks for. A roof is deliberately not exported as
+a slab: a pitched roof is not a slab, and every quantity downstream would inherit the lie.
+
+**A wall attached to a pitched roof rises to meet it.** Its top follows the roof's underside
+along its whole length, so a wall under a gable end fills the triangle up to the ridge and
+one under an eave stays at the plate. The outline is worked out from the roof whenever it is
+needed, never stored, so a new pitch or footprint reaches the walls at once — and since it is
+an outline, the wall's solid, plan cut, section, doors and windows and quantities all follow
+it, as they do an edited profile. The underside is taken over the wall's inner face, so no
+wedge of air shows along the inside of an eave wall; the extra is hidden in the roof's own
+build-up. A stretch of wall running out past the roof steps back down to its own height. An
+outline drawn by hand still wins, and curved, leaning and stacked walls keep a level top.
+Finishing a roof picked from walls asks whether to attach them, as Revit does.
+
+Not yet: roofs by extrusion (and with them the gambrel), sloped glazing, dormers, fascias
+and soffits. (§3.3)
 
 **A room stores where it is, not what shape it is.** Its outline, area, perimeter and volume
 are traced from the walls around it each time they are asked for, so moving a wall changes
@@ -294,6 +352,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Select several | `Ctrl`+click to add or remove, or drag a box on empty space |
 | Select everything on this level | `Ctrl+A` |
 | Move | Drag anything that is selected — the whole selection moves |
+| Nudge the selection | Arrow keys move it 100 mm a press — the snapping step, so it is the same distance at any zoom rather than a screen amount that changes as you zoom. `Shift`+arrow moves a metre. A held key is one move to undo |
 | Copy / paste | `Ctrl+C`, then `Ctrl+V` to paste at the cursor |
 | Paste onto another storey | `Ctrl+C`, switch level, `Ctrl+Shift+V` to paste in the same place |
 | Offset a wall | `Offset` tool (`O`), set the distance, click the wall on the side to copy to |
@@ -314,6 +373,7 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Hide walls by function | View tab → **Wall Functions** → pick the view, untick the function |
 | Change how a corner joins | Modify tab → **Wall Joins**, click the square at the join (Ctrl+click for more): **Butt**, **Miter** or **Square Off**; **Previous** / **Next** change which wall carries on; **Display** cleans the join or shows the walls butting; **Disallow Join** leaves a gap. Or per wall end: Properties → **Start Join** / **End Join** |
 | Clean joins only between walls of one type | With nothing selected, Properties → **Wall Join Display** → Clean same type wall joins |
+| What shows at the outside of a corner | The wall that carries on past the other leaves an end that is a piece of the elevation - the return of the corner - so its layers turn round it as its type's **Wrapping at Ends** says, rather than leaving the cavity and the blockwork on show. The template's brick wall returns in brick; set it to **None** on the type to have the layers cut straight through. A stretch too short to turn them in, or a corner that is not a right angle, is cut straight anyway. Projects saved before this said None on every wall type, because nothing turned round an end then, and they are brought up to it when they open |
 | Join two parallel walls near each other | Modify tab → **Join Geometry**, click one wall then the other (up to 150 mm apart): doors and windows in either cut through both. Click the pair again to unjoin |
 | Stand a wall on the wall below, or take it up to the wall above | Select it → **Attach Base** / **Attach Top**: it attaches to whichever is nearer, a slab or a wall in line with it |
 | Draw a curved wall | Wall tool, **Shape: Arc** on the option bar: click the start, the end, then a point the arc passes through |
@@ -335,16 +395,18 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Join a new wall to the wall it lies against | Turn on **Auto Join** on the Place Wall tab before placing: doors and windows in either then cut through both. Turn on **Lock** to make them move together (it turns Auto Join on with it) |
 | Keep walls joined at a corner when moving them | Select a wall: a padlock shows just inside each end that meets other walls. Click it to lock that corner (it goes gold): move any of the walls and the others stretch to stay joined there. **Modify \| Walls → Lock Ends** locks every corner of the selection at once; click again to unlock |
 | Lock two walls lying against each other | Select one: a padlock shows on the face they share. Click it to lock them so they move as one (it goes gold); click again to unlock. Works on walls already drawn |
-| Make a wall follow the floor or roof above | Select walls, Architecture tab → **Attach Top** (or **Attach Base**), then click the slab; **Detach** undoes it |
+| Make a wall follow the floor or roof above | Select walls, Architecture tab → **Attach Top** (or **Attach Base**), then click the slab; **Detach** undoes it. Attached to a pitched roof, the wall's top follows the slope — a gable end fills up to the ridge. Finishing a roof picked from walls offers to attach them for you |
 | Build a wall from tiers of other types | Wall Types → **New Stacked**, add tiers top first, make one tier variable |
 | Lean or taper a wall | Properties → **Cross-Section** → Slanted (set **Angle from Vertical**) or Tapered |
 | Bend a wall partway up | Properties → **Cross-Section** → Double Slanted: set the **Lower** and **Upper Angle from Vertical** and the **Slant Break Height** |
 | Give a wall a gable, steps or a notch | Select one straight wall, Architecture tab → **Edit Profile**: drag corners, double-click an edge to add one, Delete removes one; pick a corner and **Make Arc** curves the edge after it by the rise typed beside it (negative bows in) |
 | Cut a hole through a wall | Architecture tab → **Wall Opening**, set width, height and sill on the option bar, click the wall - curved walls too. Change it afterwards in Properties |
 | Draw a curtain wall | Wall tool, pick a **Curtain Wall** type, draw as any wall (straight, arc or a shape) |
+| Where a curtain wall meets another wall | It stops against the face of what it meets, like any other wall, and the frame comes with it: the mullion at that end stands at the shortened end and the glass stops short of it, rather than the glazing running on into the masonry and losing its edge |
 | Change a curtain wall's grid or panels | Select it, Architecture tab → **Curtain Grid**: click a panel to make it glass - clear, tinted, frosted, laminated or an opaque spandrel panel - or solid, empty, or a door of a chosen door type; drag a line; double-click to add one (Shift for horizontal); Delete removes one |
 | Select one panel of a curtain wall | Click the pane in the 3D view: Properties shows that panel alone - which bay it is, what fills it, its glass, its door type, its size and area. Clicking a mullion selects the whole wall |
 | Mirror a curtain wall door | Select the panel and press `Space` to flip which way it opens, or **Modify | Curtain Panels → Mirror** to hang it on the other side; or Properties → **Flip Hand** / **Flip Facing** |
+| Open a curtain wall door | Right-click the panel → **Open** (**Close** again), or Properties → **Open**. It swings out of its bay like any other door; a panel that is not a door has nothing to open |
 | Reglaze a whole curtain wall | Select the wall, Properties → **Glass**: every panel follows it except the ones given glass of their own |
 | Put a door in a curtain wall | **Door** tool, click low on the wall: a bay is cut for the door, with glass beside it and a transom light over it, and the mullion under it goes. A panel that is already a doorway is taken as it is. Only a **Curtain Wall Door** type can be a panel, so a glass one of the nearest size is used; set **Curtain Wall Door** on any door type to offer it. Making the panel glass again takes it away |
 | Make or edit a curtain wall type | Architecture tab → Wall Types → **New Curtain**, or pick a curtain type: grid spacing, panels, mullions |
@@ -362,14 +424,56 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Pick a door's design | Door types: **Leaf Design** - Flush, Panelled, Glazed, French Glazed (set **Glazing Rows** / **Columns**), Half Glazed, Louvred, Arched Top Light, Full Glass; with **Trim Width** and projections for the architrave. The template has French double, single glazed, louvred bi-fold, arched entrance and curtain wall glass doors |
 | Set one door's own size | Select it, Properties → **Width** / **Height**: that door alone changes, and the hole in the wall with it. Set it back to the type's size and it follows the type again. **Area** follows |
 | Line a wall up with a thicker one | Drawing a wall into the end of a thicker one lines it up with that wall's inner face automatically. For walls already drawn: select one → **Modify \| Walls → Align Faces**, again for the other face; Properties → **Offset Across** undoes it |
+| Open or shut a door or window | Right-click it → **Open** or **Close**. The leaf swings on its hinges in 3D, a pair swings apart, a slider runs along its track and a casement sash swings out. Properties → **Open** does the same |
+| What a right-click offers | In the plan **or the 3D view**. On a door or window: Open / Close, Flip Facing, Flip Hand, Pick New Host, Delete. On a curtain wall panel: which panel it is, and Open / Close, Mirror, Flip Facing for a door panel. On a wall: Flip, Delete. Right-dragging still pans or orbits |
 | Flip a door | Select it: click the ↕ arrows to flip which way it swings, the ↔ arrows to flip its hinge side; or press `Space` |
+| What flipping shows on a shut door | A door is hung in its rebate with the leaf flush on the side it opens to and its hinges proud of that face, so **Flip Facing** moves the leaf across the reveal and takes the hinges with it, and **Flip Hand** moves them to the other jamb - both visible in 3D without opening the door. Casement and tilt-and-turn sashes are hung the same way |
 | Move a door to another wall | Select it → **Modify \| Doors → Pick New Host**, click the wall where it should go |
 | Set a door's own properties | Properties: **Sill Height**, **Head Height** (moves it, not its size), **Orientation** in a slanted wall (Vertical or Slanted), **Frame Type**, **Frame Material** (blank follows the type), **Finish**, **Mark**, **Comments**, **Phase Created** and **Phase Demolished** |
 | Stand a door upright in a slanted wall | A door placed in a slanted wall leans with it; one already in the wall when it was slanted stays upright. Properties → **Orientation** changes it |
+| What **Open** does to a window | Each kind opens the way it works: a casement or tilt-and-turn sash swings out about its hinge, a slider runs its sash across the fixed one to leave half the window clear, and a double-hung pushes its lower sash up behind the upper. A pair of casements is hung one sash on each jamb, so they swing apart. Handles, catches and glazing bars all go with the sash they belong to. A fixed light has nothing to open |
 | Pick a window's kind | Window types: **Operation** - Fixed, Casement, Awning, Hopper, Sliding, Tilt and Turn, Double Hung, Louvred, Bay - and **Glazing Rows** / **Columns** for divided lights. The template has twelve, one of each |
-| Put a window in a curtain wall | **Window** tool, click any panel: it becomes that window, filling the panel and keeping its mullions. Or select the panel → Properties → **Door or Window** |
+| How many panes the bars make | **Glazing Rows** and **Columns** are what one sash is divided into, as joinery counts it: six over six is six panes in each sash of a double hung, not six in the opening. A pair of casements gets the same division in each leaf |
+| Put a window in a curtain wall from the grid editor | **Curtain Grid** → **Window (cut into the wall)**, pick the type, set how far along and up from the middle of the panel, then click a panel. It is added to the wall as a window of its own |
+| Put a window in a curtain wall | **Window** tool, click the wall where it should go: the window is cut into it like a window in any wall - its own element, selected on its own, with its own type, size, **Sill Height** and **Distance Along Wall**. The glass and the mullions give way to it, and it shows in the **Edit Curtain Grid** elevation where it sits |
+| Move a curtain wall panel | Select it, Properties → **Distance Along Wall**: the bay slides along the wall, lines and all, keeping its width. **Height Above Floor** says where its underside is |
+| Resize a curtain wall panel | Select it, Properties → **Width** / **Height**: the grid lines round it move and the bays beside it give up what it takes |
 | Place a window | `Window` tool (`N`), click a wall. In the 3D view, click the wall where the window should go: it lands there, centred on the height clicked |
 | Place a room | `Room` tool (`R`), click inside an enclosed space |
+| Stand an architectural column | Architecture tab → **Column**, pick a type, click where it should stand. `Space` turns it a quarter turn. Square, oblong, round, oval, triangular, hexagonal, octagonal and a corner one that tucks into a room |
+| Draw a column's own section | Select a column, **Modify → Column → Edit Section**. The editor opens on the section with the column itself in 3D beside it, rebuilt on every edit. Drag to draw a **rectangle**, **circle / ellipse**, **polygon** of any number of sides, or click corner by corner for a **freeform** shape - then **Cut** it out of the section, **Add** it to the section, or keep only where the two **Intersect**. Saving gives the type that section and its shaping, so every column of that type takes it at once |
+| Start from a ready-made section | **Start From** in the editor: twenty sections ready to use - **Plain** (square, round, hexagonal, octagonal, triangular), **Corners** (chamfered, rounded, stadium, quirked), **Reveals** (one or two grooves each face, grooved and fluted round), **Hollow** (box, tube, box round a core) and **Built up** (cruciform, T, L corner, square on a round, wall pier). Each is built from the width and depth the section already has, and can be cut and added to afterwards like anything else |
+| Draw to a dimension rather than by eye | Type **W**, **D**, **X** and **Y** on the toolbar and press **Apply**: the shape goes in at exactly that size in exactly that place. Dragging shows the size beside the cursor as it goes, and **Snap** sets what the cursor lands on - off, or 1 to 50 mm |
+| Get around the board | The wheel zooms about the cursor, middle or right dragging pans, and **Fit** puts the whole section back on screen. The view stays where you put it: editing the section never moves or rescales the board under you |
+| Change what the column does while drawing it | The right-hand side carries **Height**, **Top size**, **Twist**, **Slant**, **Flutes**, **Base** and **Capital**, with the column in 3D under them. Change any of them and the column is rebuilt there and then, so a tapered fluted shaft is drawn and checked in one place |
+| Take the corners off a section | In the editor: a corner **size**, then **Round corners** or **Chamfer corners**. A corner too shallow to be one is left alone, and one whose edges are too short takes back only as far as they allow, so the shape can never turn inside out |
+| Make a column taper, twist or lean | Column types: **Top Size** (below 100% tapers, above it flares), **Twist** in degrees over the height, and **Slant Across** / **Slant Along** for how far the top stands off the base. The solid is regenerated from those numbers, so a column changes shape when its height changes |
+| Give a column a base and a capital | Column types: **Base Height** and **Capital Height**, with their spread. The shaft is what is left between them and keeps its own size, so making the column taller grows the shaft and leaves the base and capital as they were |
+| Flute a shaft | Column types: **Flutes** and **Flute Depth**. The hollows are cut round the face by the same boolean a hand-drawn cut uses, so fluting is not a special kind of column - it is a section with grooves in it |
+| Classical columns | **Tuscan**, **Doric** and **Ionic** are in the template as parameters, not as fixed shapes: a tapered shaft, fluting on two of them, a plinth and a capital. Change any number and the column regenerates |
+| Say how a column sits against a wall | Properties → **Wall Placement**: **Freestanding**, **Against Wall** (wholly outside it, its back on the face), **Embedded In Wall** (inside it, flush with one face), **Intersecting Wall** (straddling the line), or **Wall Corner** (tucked into the corner two walls make). **Placement Face** picks which face it is measured from, and setting either moves the column there |
+| What a cut in the middle leaves | A hole - a real void through the column, in the plan, in section and in 3D alike, not a shape drawn on top. A cut that reaches the edge takes a notch out instead, and one that goes right across would cut the column in two, so the larger piece is kept |
+| Set how high a column is | It is what it stands between, not a number it carries: **Base Level** and **Base Offset**, **Top Level** and **Top Offset** - or **Height** while its top is unconnected. The same constraints a wall is held by |
+| Say how high it goes as you place it | The options bar: **Height** takes the column up from the storey being drawn on to the level chosen, **Depth** takes it down from it, and **Unconnected** leaves it standing its own height. Set once, every column placed after it is constrained the same way |
+| Stand columns at grid intersections | Select two or more gridlines that cross, then **At Grids** on the options bar: a column goes at every intersection between them. Intersections that already have one are left alone, so running it again adds only what is missing |
+| Change what a column type is | Column types: **Shape**, **Width** / **Depth**, **Material** chosen from the project's materials, **Coarse Scale Fill Colour**, and **Offset Base** / **Offset Top** - offsets that belong to the family, so a column that always stands on a plinth says so once and every one placed from it does it |
+| Hold a column clear of what it meets | Attached, Properties offers **Offset From Attachment At Top** / **At Base**: the column stops that far short of the face, which is how one is held clear of a slab it should not be carrying. **Top is Attached** and **Base is Attached** say what is holding it |
+| A column in a room | Properties → **Room Bounding**, on by default: the column's area comes out of the room it stands in and its sides go on the perimeter, so an area schedule does not count floor that is not there. One built into a wall is not counted - the wall has already shaped the room |
+| Columns move with the grid | A column standing on a gridline comes along when that grid is moved, as one step on the undo stack - the grid is the setting out and the columns are what it sets out. Properties → **Moves With Grids** lets one off, for a column moved off the grid on purpose |
+| Take a column up to what is over it | Select it, Architecture tab → **Attach Top** (or **Attach Base**), then **click the floor, ceiling or roof** to attach it to - the target is picked, not guessed, so a column under two slabs goes to the one you mean. It follows that slab when it moves. **Detach** gives it its own constraints back |
+| Say how the column meets what it is attached to | **Attachment Style** on the options bar while Attach waits: **Cut Column** stops it at the face it meets, **Do Not Cut** carries it on through to the far side. **Offset** holds it that far short of the face. Both are on the column afterwards in Properties |
+| Put a column on a wall face | Click on a wall and the column sits flush with the face you clicked on, stepping out of that one only, rather than straddling the wall's line and standing out of both. Select it and **Modify → Column → Align Faces** puts it against the other face; click again to send it back |
+| A column built into a wall | Stand it where a wall runs and it is drawn as part of that wall: at **Coarse** detail it takes the wall's fill pattern, and drawn finer it is the wall's structural material. In plan and in section alike, so the two read as one piece of construction rather than a column standing in front of a wall |
+| What happens where a column and a wall overlap | Whichever goes right through the other wins. A column reaching **through** the wall is a pier, and the wall gives way to it, its layers wrapping at the sides. A column standing only **part way** into the wall has that buried part cut off it, because a column and a wall in the same place is two solids in one place - wrong in 3D, wrong in section, and counted twice in every quantity. Properties → **Cut By Walls** turns it off for one column |
+| What the wall does at a column | A column that goes right through the wall interrupts it, and the wall's compound layers **wrap** at each side of the gap the way they wrap at a doorway - the brick returns into the reveal instead of leaving the cavity and the blockwork on show against the column. A pilaster shallower than the wall stands proud of a wall that carries on behind it, so there is nothing to interrupt |
+| Place a component | Architecture tab → **Component**, pick a family on the options bar, click where it goes. `Space` turns it a quarter turn before you click. The template has furniture, casework, sanitaryware, a wall light and a tree |
+| Place a component on a wall face | Pick a family whose **Placement** is Face Based or Work Plane Based - a wall light, a wall-hung basin, a wall unit - and click on a wall. It stands against the face clicked, at the fixing height its family says, and is carried by that wall from then on |
+| Move a component to a different host | Select it, **Modify → Work Plane → Pick New** (or right-click → Pick New Host), then move over the new host and click. The component is drawn where it would land and the host under it is outlined, so you see the move before you make it |
+| Choose what Pick New will take | **Placement** on the options bar while the move is being made: **Vertical Face** takes only a wall; **Face** takes a wall, floor, ceiling or roof; **Work Plane** takes the level instead of a face and stands the component on it. A face-based family cannot go on a work plane, and is refused there |
+| What a component on a slab does | It stands on a floor or a roof, and hangs from the soffit of a ceiling, which is where a light goes. Where a ceiling and a floor are both under the cursor the face overhead is taken - a floor is what things stand on, and placing one on the level already does that |
+| Move a component to a different level | Select it, Properties → **Level**. **Elevation** lifts it off that level without changing storey |
+| Turn a component already placed | Select it, right-click → **Turn 90°**, or Properties → **Rotation** for any angle |
+| Change a component family | Component types: **Category**, **Form**, **Width** / **Depth** / **Height**, **Placement** and **Default Elevation**. Every instance of it follows, in plan and in 3D |
 | Draw a gridline | `Grid` tool (`G`), click start, click end |
 | Cut a section | `Section` tool (`C`), click start, click end — the view opens below the plan |
 | Flip a section | Select the marker, or use **Flip** in the section panel |
@@ -387,7 +491,14 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Write a note | `Text` tool (`E`), click where it goes |
 | Lay a floor | `Floor` tool (`F2`), click inside an enclosed space |
 | Add a ceiling | `Ceiling` tool (`F3`), click inside an enclosed space |
-| Add a flat roof | `Roof` tool (`F4`), click inside an enclosed space |
+| Add a roof | `Roof` tool (`F4`) opens a **roof sketch** (the green **Modify \| Create Roof Footprint** tab). **Pick Walls**: hover just outside a wall and click — the edge goes along that face, out by the **Overhang** on the options bar, and follows the wall if it moves; **TAB** picks the whole chain of joined walls at once. Or draw with **Line**, **Rectangle**, **Polygon**. Corners between picked walls close by themselves. **Finish** ✓ makes the roof, sitting on the tops of the walls it was picked from; **Cancel** ✗ throws the sketch away |
+| Change a line in a roof sketch | Click its **△** to turn its slope on (filled, with its pitch) or off (a gable end). **Select Lines**, then **Defines slope**, **Slope**, **Overhang** and **Extend to wall core** on the options bar change the selected lines; Del deletes them. Ctrl+Z undoes the last sketch change; Esc stops the line being drawn |
+| Reopen a roof's sketch | Double-click the roof, or select it → **Edit Footprint** |
+| Why a roof won't finish | The lines at fault turn red and the status bar says why: the outline is open, lines cross, or there is more than one loop (openings in roofs come later) |
+| Change a roof edge | Select the roof and click one of its edges: it becomes an eave the roof slopes up from, or a gable it is cut off at. Arrows show which edges slope while the roof is selected |
+| Reshape a whole roof | Select it, Properties → **Roof Shape**: Hip, Gable, Shed or Flat. **Slope** sets the pitch of every sloping edge at once |
+| Change one eave's pitch or height | Select the roof: Properties lists **Slope at Edge N** and **Eave Offset at Edge N** for each sloping edge. Drop one eave for a catslide; raise the end eaves of a hip for a half-hip |
+| Cut a roof off flat | Properties → **Cutoff Height Above Base**: the roof stops there with a flat deck on top — the base of a dutch gable, with a small gable roof placed on the deck. 0 lets it run to its ridge |
 | Split a wall | `Split` tool (`X`), click where it should divide |
 | Trim / extend | `Trim` tool (`T`), click the wall, then the wall to meet |
 | Delete | `Del` |

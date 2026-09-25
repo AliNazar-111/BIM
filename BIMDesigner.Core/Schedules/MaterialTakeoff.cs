@@ -69,7 +69,11 @@ public static class MaterialTakeoff
             var type = document.FindType<SlabType>(slab.TypeId);
             if (type is null) continue;
 
-            AddLayers(document, lines, slab.Category.ToString(), type.Name, type.Structure, slab.Area);
+            // A pitched roof is bought by its sloping surface, not by its shadow on the ground:
+            // a 35° roof is a fifth more tiles than its footprint says.
+            var area = slab is Roof roof ? roof.SlopingArea(document) : slab.Area;
+
+            AddLayers(document, lines, slab.Category.ToString(), type.Name, type.Structure, area);
         }
 
         return lines;

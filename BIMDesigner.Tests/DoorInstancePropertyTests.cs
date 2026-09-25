@@ -163,6 +163,158 @@ public class DoorInstancePropertyTests
     }
 
     [Fact]
+    public void TheHandleRisesWithTheLeafRatherThanStayingLow()
+    {
+        double HandleHeight(double doorHeight)
+        {
+            var (document, wall, door) = WallWith(slantDegrees: 0);
+            door.HeightOverride = doorHeight;
+
+            var handle = ModelMeshBuilder.BuildWall(document, wall)
+                .Single(m => m.ElementId == door.Id && m.Description == "Hardware").Bounds()!.Value;
+
+            return (handle.Min.Z + handle.Max.Z) / 2;
+        }
+
+        // An ordinary door keeps its handle where a hand is, about a metre up.
+        Assert.Equal(1000, HandleHeight(2100), precision: 0);
+
+        // A taller leaf carries it higher, rather than leaving it down by the floor.
+        Assert.True(HandleHeight(2800) > 1200, "a 2.8 m door leaves its handle down by the floor");
+        Assert.True(HandleHeight(3600) > HandleHeight(2100));
+
+        // And on a low one it never climbs past halfway up.
+        Assert.True(HandleHeight(1400) <= 700 + 1e-6);
+    }
+
+    [Fact]
+    public void FlippingFacingTurnsAShutDoorRoundAsWellAsAnOpenOne()
+    {
+        var (document, wall, door) = WallWith(slantDegrees: 0);
+
+        (double Leaf, double Hinges) Sides()
+        {
+            var meshes = ModelMeshBuilder.BuildWall(document, wall).Where(m => m.ElementId == door.Id).ToList();
+            var leaf = meshes.Single(m => m.Description == "Door leaf").Bounds()!.Value;
+            var hinges = meshes.Single(m => m.Description == "Hinges").Bounds()!.Value;
+            return ((leaf.Min.Y + leaf.Max.Y) / 2, (hinges.Min.Y + hinges.Max.Y) / 2);
+        }
+
+        // Shut, the leaf is hung on one side of the reveal with its hinges proud of that face.
+        var facing = Sides();
+        Assert.True(facing.Leaf > 0, "the leaf is not set toward the face it opens to");
+        Assert.True(facing.Hinges > facing.Leaf, "the hinges are not on the side the door opens to");
+
+        // Flipped, the whole door has gone round: leaf and hinges both on the other side. This
+        // is the thing a shut door shows, and without it flipping facing looks like nothing.
+        door.FlipFacing = true;
+        var flipped = Sides();
+        Assert.Equal(-facing.Leaf, flipped.Leaf, precision: 6);
+        Assert.Equal(-facing.Hinges, flipped.Hinges, precision: 6);
+
+        // And the hinges are on the jamb it is hung on, which is what the hand says.
+        double HingeAlong()
+        {
+            var hinges = ModelMeshBuilder.BuildWall(document, wall)
+                .Single(m => m.ElementId == door.Id && m.Description == "Hinges").Bounds()!.Value;
+            return (hinges.Min.X + hinges.Max.X) / 2;
+        }
+
+        var hung = HingeAlong();
+        door.FlipHand = true;
+        Assert.True(Math.Abs(HingeAlong() - hung) > 500, "the hinges did not move to the other jamb");
+    }
+
+    [Fact]
+    public void TheHandleGoesRoundWithTheLeafItIsScrewedTo()
+    {
+        var (document, wall, door) = WallWith(slantDegrees: 0);
+
+        (double X, double Y) Handle()
+        {
+            var bounds = ModelMeshBuilder.BuildWall(document, wall)
+                .Single(m => m.ElementId == door.Id && m.Description == "Hardware").Bounds()!.Value;
+
+            return ((bounds.Min.X + bounds.Max.X) / 2, (bounds.Min.Y + bounds.Max.Y) / 2);
+        }
+
+        // Shut, the handle is in the doorway with the leaf.
+        var shut = Handle();
+        Assert.True(Math.Abs(shut.Y) < 100, "the handle is not in the leaf lying across the doorway");
+
+        // Open, it has turned about the hinge with the leaf rather than staying behind in the
+        // empty doorway - which is where a handle left in the wall's own frame would be.
+        door.IsOpen = true;
+        var open = Handle();
+        Assert.True(Math.Abs(open.Y) > 400, $"the handle stayed in the doorway at y={open.Y:F0}");
+
+        // It is on the leaf: within the leaf's own extent, not floating beside it.
+        var leaf = ModelMeshBuilder.BuildWall(document, wall)
+            .Single(m => m.ElementId == door.Id && m.Description == "Door leaf").Bounds()!.Value;
+
+        Assert.InRange(open.X, leaf.Min.X - 80, leaf.Max.X + 80);
+        Assert.InRange(open.Y, leaf.Min.Y - 80, leaf.Max.Y + 80);
+
+        door.IsOpen = false;
+        Assert.Equal(shut.X, Handle().X, precision: 6);
+    }
+
+    [Fact]
+    public void ADoorDrawnOpenSwingsOutOfItsDoorway()
+    {
+        var (document, wall, door) = WallWith(slantDegrees: 0);
+        var type = document.FindType<DoorType>(door.TypeId)!;
+
+        (double Across, double Along) LeafReach()
+        {
+            var leaf = ModelMeshBuilder.BuildWall(document, wall)
+                .Single(m => m.ElementId == door.Id && m.Description == "Door leaf").Bounds()!.Value;
+
+            return (leaf.Max.Y - leaf.Min.Y, leaf.Max.X - leaf.Min.X);
+        }
+
+        // Shut, the leaf lies across the doorway and is only as thick as a door.
+        var shut = LeafReach();
+        Assert.True(shut.Across < 100, "the leaf is not lying in its doorway");
+        Assert.True(shut.Along > type.Width - 150);
+
+        // Open, it has swung out of the way: it now reaches across the wall, not along it.
+        Assert.True(door.GetInstanceParameters(document).Single(p => p.Name == "Open").TrySet(true));
+        var open = LeafReach();
+        Assert.True(open.Across > type.Width - 200, "the leaf did not swing out of the doorway");
+        Assert.True(open.Along < shut.Along / 2);
+
+        // Shut again, it is back where it was.
+        Assert.True(door.GetInstanceParameters(document).Single(p => p.Name == "Open").TrySet(false));
+        Assert.Equal(shut.Across, LeafReach().Across, precision: 6);
+    }
+
+    [Fact]
+    public void APairOfDoorsSwingsApart()
+    {
+        var document = BimDocument.CreateDefault();
+        var wallType = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior"));
+        var wall = new Wall
+        {
+            Start = new Point2D(0, 0), End = new Point2D(6000, 0),
+            TypeId = wallType.Id, LevelId = document.Levels[0].Id, UnconnectedHeight = 3000
+        };
+        document.Add(wall);
+
+        var pair = document.TypesOf<DoorType>().First(t => t.Operation == DoorOperation.DoubleSwing);
+        var door = new Door { TypeId = pair.Id, LevelId = wall.LevelId, HostWallId = wall.Id, DistanceAlongWall = 3000, IsOpen = true };
+        document.Add(door);
+
+        // Hung one leaf on each jamb, so between them they reach the full width of the hole
+        // out from the wall rather than both folding to the same side.
+        var leaf = ModelMeshBuilder.BuildWall(document, wall)
+            .Single(m => m.ElementId == door.Id && m.Description == "Door leaf").Bounds()!.Value;
+
+        Assert.True(leaf.Max.Y - leaf.Min.Y > pair.Width / 2 - 150, "the leaves did not swing out");
+        Assert.True(leaf.Max.X - leaf.Min.X > pair.Width - 250, "the leaves are not hung on opposite jambs");
+    }
+
+    [Fact]
     public void TheNewPropertiesAreSaved()
     {
         var (document, _, door) = WallWith(slantDegrees: 15);

@@ -42,7 +42,7 @@ test before the next begins.
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |
 | **1.6** | **Floors, ceilings and flat roofs** — layered build-ups sharing the wall layer system, outline picked from an enclosed space, quantities and persistence | §3.2 §3.3 §3.4 | ✅ |
 | 1.6b | Free-sketched slab outlines, slab openings and shafts, slab edges, span direction | §3.2 | ⬜ |
-| 1.6c | Pitched roofs — slope per edge, hip/gable/mansard, ridge and valley generation, gutters and fascias | §3.3 | ⬜ |
+| **1.6c** | **Pitched roofs** — slope per edge, pitch and eave height per edge, cutoff, hip/gable/shed/dutch/cross-gable shapes, ridge/hip/valley generation, plan/section/3D, takeoff by sloping area, `IfcRoof`. Still to come, in steps R1–R10 of [ROOFS.md](ROOFS.md): sketch mode with Pick Walls and overhangs, walls attaching to the slope, eave cuts, slope arrows, roof by extrusion, joins/openings/dormers, fascia/gutter/soffit | §3.3 | 🔨 |
 | **1.7** | **Levels and grids** — plan shows one storey, level switching, gridlines with bubbles, snapping to grid crossings | §2.3 | ✅ |
 | **1.7b** | **Levels** — add, rename, move and delete storeys (with cascade and one-step undo), underlay of the storey below | §2.3 §6.1 | ✅ |
 | **1.8** | **Schedules and quantity takeoff** — tabular views, fields, filters, sorting, grouping with subtotals, bidirectional editing, material takeoff, CSV export | §6.4 | ✅ |

@@ -131,7 +131,7 @@ public class CurtainPanelTests
         Assert.True(kind.TrySet("Solid"));
         Assert.Equal("Solid", kind.DisplayValue);
 
-        var door = panel.GetInstanceParameters(document).Single(p => p.Name == "Door or Window");
+        var door = panel.GetInstanceParameters(document).Single(p => p.Name == "Door Type");
         var type = CurtainDoors.TypesFor(document)[0];
         Assert.True(door.TrySet(type.Name));
         Assert.Equal(type.Name, door.DisplayValue);
@@ -161,7 +161,7 @@ public class CurtainPanelTests
         var door = CurtainDoors.TypesFor(document)[0];
 
         var bottom = CurtainPanel.At(document, wall, column: 2, row: 0)!;
-        Assert.True(bottom.GetInstanceParameters(document).Single(p => p.Name == "Door or Window").TrySet(door.Name));
+        Assert.True(bottom.GetInstanceParameters(document).Single(p => p.Name == "Door Type").TrySet(door.Name));
 
         var cell = bottom.Cell(document)!;
         Assert.Equal(CurtainPanelKind.Door, cell.Kind);
@@ -170,7 +170,7 @@ public class CurtainPanelTests
 
         // A panel off the floor cannot be a door, as everywhere else.
         var upper = CurtainPanel.At(document, wall, column: 2, row: 1)!;
-        upper.GetInstanceParameters(document).Single(p => p.Name == "Door or Window").TrySet(door.Name);
+        upper.GetInstanceParameters(document).Single(p => p.Name == "Door Type").TrySet(door.Name);
         Assert.NotEqual(CurtainPanelKind.Door, upper.Cell(document)!.Kind);
 
         Assert.True(upper.GetInstanceParameters(document).Single(p => p.Name == "Panel").TrySet("Solid"));
@@ -184,7 +184,7 @@ public class CurtainPanelTests
         var type = CurtainDoors.TypesFor(document).First(t => t.Operation == DoorOperation.Swing);
 
         var panel = CurtainPanel.At(document, wall, column: 1, row: 0)!;
-        panel.GetInstanceParameters(document).Single(p => p.Name == "Door or Window").TrySet(type.Name);
+        panel.GetInstanceParameters(document).Single(p => p.Name == "Door Type").TrySet(type.Name);
 
         double HandleAlong()
         {
@@ -219,7 +219,7 @@ public class CurtainPanelTests
         var type = CurtainDoors.TypesFor(document)[0];
 
         var panel = CurtainPanel.At(document, wall, column: 1, row: 0)!;
-        panel.GetInstanceParameters(document).Single(p => p.Name == "Door or Window").TrySet(type.Name);
+        panel.GetInstanceParameters(document).Single(p => p.Name == "Door Type").TrySet(type.Name);
 
         Mesh3D Glazing() => ModelMeshBuilder.BuildWall(document, wall)
             .Single(m => m.ElementId == panel.Id && m.Kind == MeshKind.Glazing);
@@ -236,59 +236,197 @@ public class CurtainPanelTests
     }
 
     [Fact]
-    public void APanelCanBeAWindowAnywhereInTheWall()
+    public void APanelSaysWhereItIsAndSlidesAlongTheWall()
     {
         var (document, wall) = Storefront();
-        var type = document.TypesOf<WindowType>().First(t => t.Operation == WindowOperation.Casement);
+        var panel = CurtainPanel.At(document, wall, column: 1, row: 0)!;
+        var before = panel.Cell(document)!;
 
-        // A window does not stand on the floor, so it goes in a panel off the ground too.
-        var panel = CurtainPanel.At(document, wall, column: 2, row: 1)!;
-        Assert.True(panel.GetInstanceParameters(document).Single(p => p.Name == "Door or Window").TrySet(type.Name));
+        var along = panel.GetInstanceParameters(document).Single(p => p.Name == "Distance Along Wall");
+        Assert.Equal((before.ClearFrom + before.ClearTo) / 2, (double)along.Value!, precision: 6);
 
-        var cell = panel.Cell(document)!;
-        Assert.Equal(CurtainPanelKind.Window, cell.Kind);
-        Assert.Equal(type.Id, cell.OpeningTypeId);
+        var height = panel.GetInstanceParameters(document).Single(p => p.Name == "Height Above Floor");
+        Assert.Equal(before.ClearBottom, (double)height.Value!, precision: 6);
 
-        // It keeps the mullions all round it, unlike a door, which loses the one underneath.
-        var layout = CurtainLayout.Of(document, wall)!;
-        Assert.Contains(layout.Mullions, m => !m.IsVertical && m.From < cell.To && m.To > cell.From && m.Bottom < cell.Bottom + 1);
+        // Slid along, the bay goes with it and keeps its width.
+        Assert.True(along.TrySet(1800.0));
+        var after = panel.Cell(document)!;
+        Assert.Equal(1800, (after.ClearFrom + after.ClearTo) / 2, precision: 6);
+        Assert.Equal(before.ClearTo - before.ClearFrom, after.ClearTo - after.ClearFrom, precision: 6);
 
-        // And it is built as that window type: sashes, a sill, glass.
-        var meshes = ModelMeshBuilder.BuildWall(document, wall).Where(m => m.ElementId == panel.Id).ToList();
-        Assert.Contains(meshes, m => m.Description == "Sash" && m.TriangleCount > 0);
-        Assert.Contains(meshes, m => m.Kind == MeshKind.Glazing && m.TriangleCount > 0);
-        Assert.All(meshes, m => Assert.Equal(wall.Id, m.OwnerId));
+        // Not so far that it runs over its neighbour.
+        Assert.False(panel.GetInstanceParameters(document).Single(p => p.Name == "Distance Along Wall").TrySet(5800.0));
     }
 
     [Fact]
-    public void AWindowPanelFillsItsBayAndIsSaved()
+    public void APanelIsSizedByMovingTheLinesRoundIt()
     {
         var (document, wall) = Storefront();
-        var type = document.TypesOf<WindowType>().First();
-        var panel = CurtainPanel.At(document, wall, 1, 1)!;
-        panel.GetInstanceParameters(document).Single(p => p.Name == "Door or Window").TrySet(type.Name);
+        var panel = CurtainPanel.At(document, wall, column: 1, row: 0)!;
+        var before = panel.Cell(document)!;
 
-        // The window is the size of the panel, not of its type.
-        var cell = panel.Cell(document)!;
-        var bounds = ModelMeshBuilder.BuildWall(document, wall)
-            .Where(m => m.ElementId == panel.Id)
-            .Select(m => m.Bounds()!.Value)
-            .Aggregate((a, b) => (
-                new Point3D(Math.Min(a.Min.X, b.Min.X), Math.Min(a.Min.Y, b.Min.Y), Math.Min(a.Min.Z, b.Min.Z)),
-                new Point3D(Math.Max(a.Max.X, b.Max.X), Math.Max(a.Max.Y, b.Max.Y), Math.Max(a.Max.Z, b.Max.Z))));
+        var width = panel.GetInstanceParameters(document).Single(p => p.Name == "Width");
+        Assert.False(width.IsReadOnly);
+        Assert.True(width.TrySet(2000.0));
 
-        Assert.True(bounds.Item1.X >= cell.ClearFrom - 60, $"the window starts at {bounds.Item1.X:0}, the panel at {cell.ClearFrom:0}");
-        Assert.True(bounds.Item2.X <= cell.ClearTo + 60);
+        var after = panel.Cell(document)!;
+        Assert.Equal(2000, after.ClearTo - after.ClearFrom, precision: 6);
+
+        // The bay grew about its own middle, so the bays either side gave up half each.
+        Assert.Equal((before.From + before.To) / 2, (after.From + after.To) / 2, precision: 6);
+
+        // And taller, which moves the transom over it.
+        Assert.True(panel.GetInstanceParameters(document).Single(p => p.Name == "Height").TrySet(2100.0));
+        Assert.Equal(2100, panel.Cell(document)!.ClearTop - panel.Cell(document)!.ClearBottom, precision: 6);
+
+        // Not so wide that its neighbour is squeezed out of existence.
+        Assert.False(panel.GetInstanceParameters(document).Single(p => p.Name == "Width").TrySet(5900.0));
+        Assert.Equal(2000, panel.Cell(document)!.ClearTo - panel.Cell(document)!.ClearFrom, precision: 6);
+    }
+
+    [Fact]
+    public void AWindowCutIntoACurtainWallIsItsOwnElement()
+    {
+        var (document, wall) = Storefront();
+        var type = document.TypesOf<WindowType>().First(t => t.Name.StartsWith("Hopper"));
+
+        var window = new BIMDesigner.Core.Architecture.Window
+        {
+            TypeId = type.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
+            DistanceAlongWall = 2250, SillHeight = 400
+        };
+        document.Add(window);
+
+        // It is an element in its own right, so it is selected, sized and moved like any other.
+        var meshes = ModelMeshBuilder.BuildWall(document, wall).Where(m => m.ElementId == window.Id).ToList();
+        Assert.NotEmpty(meshes);
+        Assert.Contains(meshes, m => m.Description == "Sash");
+        Assert.Contains(document.Elements, e => e.Id == window.Id);
+
+        // Measured on the sash, since the sill board stands a little below the sill itself.
+        var sash = meshes.Single(m => m.Description == "Sash").Bounds()!.Value;
+        Assert.True(sash.Min.Z >= 400, "the sash starts below the sill it was given");
+        Assert.Equal(2250, (sash.Min.X + sash.Max.X) / 2, precision: 0);
+
+        // Moved by its own properties, within the panel it is in, it goes where it is put.
+        Assert.True(window.GetInstanceParameters(document).Single(p => p.Name == "Sill Height").TrySet(800.0));
+        Assert.True(window.GetInstanceParameters(document).Single(p => p.Name == "Distance Along Wall").TrySet(2500.0));
+
+        var moved = ModelMeshBuilder.BuildWall(document, wall)
+            .Single(m => m.ElementId == window.Id && m.Description == "Sash").Bounds()!.Value;
+        Assert.True(moved.Min.Z > 700, "the sash did not rise when its sill did");
+        Assert.True((moved.Min.X + moved.Max.X) / 2 > 2400);
+    }
+
+    [Fact]
+    public void AWindowStaysInThePanelItIsIn()
+    {
+        var (document, wall) = Storefront();
+        var type = document.TypesOf<WindowType>().First(t => t.Name.StartsWith("Hopper"));
+
+        var window = new BIMDesigner.Core.Architecture.Window
+        {
+            TypeId = type.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
+            DistanceAlongWall = 2250, SillHeight = 600
+        };
+        document.Add(window);
+
+        var cell = CurtainLayout.Of(document, wall)!.Cells.Single(c => c.Column == 1 && c.Row == 0);
+
+        // Pushed at the next bay, it stops at the edge of its own rather than crossing the
+        // mullion into it.
+        Assert.True(window.GetInstanceParameters(document).Single(p => p.Name == "Distance Along Wall").TrySet(5000.0));
+        Assert.Equal(cell.ClearTo - type.Width / 2, window.DistanceAlongWall, precision: 6);
+
+        // And the same up and down: it stays under the transom over it.
+        Assert.True(window.GetInstanceParameters(document).Single(p => p.Name == "Sill Height").TrySet(2800.0));
+        Assert.Equal(cell.ClearTop - type.Height, window.SillHeight, precision: 6);
+
+        // In an ordinary wall there is no panel to stay in, so it goes where it is put.
+        var plain = new Wall
+        {
+            Start = new Point2D(0, 5000), End = new Point2D(6000, 5000),
+            TypeId = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior")).Id,
+            LevelId = wall.LevelId, UnconnectedHeight = 3000
+        };
+        document.Add(plain);
+
+        var loose = new BIMDesigner.Core.Architecture.Window
+        {
+            TypeId = type.Id, LevelId = plain.LevelId, HostWallId = plain.Id,
+            DistanceAlongWall = 1000, SillHeight = 900
+        };
+        document.Add(loose);
+
+        Assert.True(loose.GetInstanceParameters(document).Single(p => p.Name == "Distance Along Wall").TrySet(4000.0));
+        Assert.Equal(4000, loose.DistanceAlongWall, precision: 6);
+    }
+
+    [Fact]
+    public void TheGlassAndMullionsGiveWayToAWindowCutIntoTheWall()
+    {
+        var (document, wall) = Storefront();
+        var type = document.TypesOf<WindowType>().First(t => t.Name.StartsWith("Casement Double"));
+
+        double Glass() => ModelMeshBuilder.BuildWall(document, wall)
+            .Where(m => m.Kind == MeshKind.Glazing && m.ElementId != Guid.Empty)
+            .Sum(m => m.TriangleCount);
+
+        var mullionsBefore = ModelMeshBuilder.BuildWall(document, wall)
+            .Where(m => m.Kind == MeshKind.Mullion).Sum(m => m.TriangleCount);
+
+        // Set across a mullion on purpose: the bar stops at the window instead of running
+        // through the middle of its glass.
+        document.Add(new BIMDesigner.Core.Architecture.Window
+        {
+            TypeId = type.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
+            DistanceAlongWall = 1500, SillHeight = 900
+        });
+
+        var mullionsAfter = ModelMeshBuilder.BuildWall(document, wall)
+            .Where(m => m.Kind == MeshKind.Mullion).Sum(m => m.TriangleCount);
+
+        Assert.NotEqual(mullionsBefore, mullionsAfter);
+
+        // And no pane of the wall's own glass is left inside the window's opening.
+        var layout = CurtainLayout.Of(document, wall)!;
+        var holes = new[] { (1500 - type.Width / 2, 1500 + type.Width / 2, 900.0, 900 + type.Height) };
+        foreach (var cell in layout.Cells)
+        foreach (var pane in CurtainOpening.Panes(cell, holes))
+        {
+            var acrossHole = pane.From < holes[0].Item2 - 1 && pane.To > holes[0].Item1 + 1;
+            var upHole = pane.Bottom < holes[0].Item4 - 1 && pane.Top > holes[0].Item3 + 1;
+            Assert.False(acrossHole && upHole, $"glass left at {pane.From:0}..{pane.To:0} by {pane.Bottom:0}..{pane.Top:0}");
+        }
+    }
+
+    [Fact]
+    public void AWindowSavedAsAPanelBecomesAWindowCutIntoTheWall()
+    {
+        var (document, wall) = Storefront();
+        var type = document.TypesOf<WindowType>().First(t => t.Name.StartsWith("Hopper"));
+        var cell = CurtainPanel.At(document, wall, 2, 1)!.Cell(document)!;
+
+        // A project saved when a window was something a panel could be filled with.
+        var json = BIMDesigner.Infrastructure.Serialization.ProjectFile.ToJson(document)
+            .Replace("\"curtainPanels\": null",
+                "\"curtainPanels\": [ { \"column\": 2, \"row\": 1, \"kind\": \"Window\", \"openingTypeId\": \"" + type.Id + "\" } ]");
 
         var path = Path.Combine(Path.GetTempPath(), "bimtest-" + Guid.NewGuid().ToString("N") + BIMDesigner.Infrastructure.Serialization.ProjectFile.Extension);
         try
         {
-            BIMDesigner.Infrastructure.Serialization.ProjectFile.Save(document, path);
-            var copy = BIMDesigner.Infrastructure.Serialization.ProjectFile.Load(path)
-                .Walls.Single(w => w.Id == wall.Id).CurtainPanels!.Single();
+            File.WriteAllText(path, json);
+            var loaded = BIMDesigner.Infrastructure.Serialization.ProjectFile.Load(path);
 
-            Assert.Equal(CurtainPanelKind.Window, copy.Kind);
-            Assert.Equal(type.Id, copy.OpeningTypeId);
+            // It comes back as a window in its own right, where the panel had it.
+            var window = loaded.Elements.OfType<BIMDesigner.Core.Architecture.Window>().Single();
+            Assert.Equal(type.Id, window.TypeId);
+            Assert.Equal(wall.Id, window.HostWallId);
+            Assert.Equal((cell.ClearFrom + cell.ClearTo) / 2, window.DistanceAlongWall, precision: 6);
+            Assert.Equal((cell.ClearBottom + cell.ClearTop) / 2 - type.Height / 2, window.SillHeight, precision: 6);
+
+            // And the panel it was filling is a pane of glass again.
+            Assert.Null(loaded.Walls.Single(w => w.Id == wall.Id).CurtainPanels);
         }
         finally
         {

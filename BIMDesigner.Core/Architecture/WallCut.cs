@@ -116,6 +116,9 @@ public sealed class WallCut
     public Line2D Line => Line2D.Through(Points[0], Points[1]);
 
     public WallCut With(WallEndCondition condition) => new(Points, condition, Wrapping);
+
+    /// <summary>The same cut with its layers cut straight through rather than turned round it.</summary>
+    public WallCut Unwrapped() => Wrapping == WallWrapping.None ? this : new WallCut(Points, Condition);
 }
 
 /// <summary>

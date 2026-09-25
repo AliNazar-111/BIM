@@ -4,7 +4,9 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Infrastructure.Interoperability;
 using Xbim.Ifc;
+using Xbim.Ifc4.GeometricConstraintResource;
 using Xbim.Ifc4.GeometricModelResource;
+using Xbim.Ifc4.GeometryResource;
 using Xbim.Ifc4.Interfaces;
 using Xbim.Ifc4.Kernel;
 using Xbim.Ifc4.MaterialResource;
@@ -403,10 +405,50 @@ public class IfcExportTests
         using var model = IfcExport.Build(document);
 
         Assert.Equal(IfcSlabTypeEnum.FLOOR, Find<IfcSlab>(model, floor.Id).PredefinedType);
-        Assert.Equal(IfcSlabTypeEnum.ROOF, Find<IfcSlab>(model, roof.Id).PredefinedType);
+
+        // A roof is an IfcRoof, not a slab that happens to be on top: IFC keeps the entity
+        // apart, and a flat roof is one of its predefined kinds rather than a different thing.
+        Assert.Equal(IfcRoofTypeEnum.FLAT_ROOF, Find<IfcRoof>(model, roof.Id).PredefinedType);
 
         // A ceiling is a finish, not a structural slab, and IFC has a separate entity for it.
         Assert.Equal(IfcCoveringTypeEnum.CEILING, Find<IfcCovering>(model, ceiling.Id).PredefinedType);
+    }
+
+    [Fact]
+    public void APitchedRoofExportsAsAnAssemblyOfItsFaces()
+    {
+        var (document, _, _, _, floor, _) = Project();
+
+        var roof = new Roof { TypeId = document.TypesOf<RoofType>().First().Id, LevelId = document.Levels[0].Id, HeightOffset = 3300 };
+        roof.SetBoundary(floor.Boundary.ToList());
+        roof.SetShape(RoofForm.Gable);
+        document.Add(roof);
+
+        using var model = IfcExport.Build(document);
+
+        var exported = Find<IfcRoof>(model, roof.Id);
+        Assert.Equal(IfcRoofTypeEnum.GABLE_ROOF, exported.PredefinedType);
+
+        // The two slopes come across as the parts the roof is made of. IFC says the roof's
+        // body is then the sum of theirs, so the roof itself carries no shape of its own.
+        var faces = model.Instances.OfType<IfcRelAggregates>()
+            .Where(relation => relation.RelatingObject == exported)
+            .SelectMany(relation => relation.RelatedObjects)
+            .OfType<IfcSlab>()
+            .ToList();
+
+        Assert.Equal(2, faces.Count);
+        Assert.All(faces, face => Assert.Equal(IfcSlabTypeEnum.ROOF, face.PredefinedType));
+        Assert.Null(exported.Representation);
+
+        // Each face lies in its own plane, tilted out of horizontal - that is what makes it a
+        // pitched roof rather than two flat slabs at different heights.
+        foreach (var face in faces)
+        {
+            var axis = ((IfcLocalPlacement)face.ObjectPlacement!).RelativePlacement as IfcAxis2Placement3D;
+            Assert.NotNull(axis!.Axis);
+            Assert.True(axis.Axis!.Z < 0.999, "The face was placed flat rather than on its slope.");
+        }
     }
 
     [Fact]

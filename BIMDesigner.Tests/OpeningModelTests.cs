@@ -147,6 +147,112 @@ public class OpeningModelTests
     }
 
     [Fact]
+    public void ASlidingWindowRunsOneSashAcrossTheOther()
+    {
+        var (document, wall, window, _) = WallWith(new WindowType("Slider", 1800, 1200) { Operation = WindowOperation.Sliding });
+
+        (double Min, double Max) Handle()
+        {
+            var bounds = MeshesOf(document, wall, window).Single(m => m.Description == "Hardware").Bounds()!.Value;
+            return (bounds.Min.X, bounds.Max.X);
+        }
+
+        // Shut, the two sashes meet in the middle and the catch is there with them.
+        var shut = Handle();
+        Assert.True(Math.Abs((shut.Min + shut.Max) / 2 - 3000) < 100, "the catch is not on the meeting stile");
+
+        // Open, the sash the handle is on has run along its track toward the far jamb, which
+        // is the whole of what a slider does. Half the window is left standing clear.
+        window.IsOpen = true;
+        var open = Handle();
+        Assert.True(open.Max < shut.Min, $"the sash did not slide: the catch went from {shut.Min:F0} to {open.Min:F0}");
+        Assert.True(shut.Min - open.Min > 300, "the sash barely moved");
+
+        // And it is still a window in its hole, not something hanging out of the wall.
+        var sash = MeshesOf(document, wall, window).Single(m => m.Description == "Sash").Bounds()!.Value;
+        Assert.True(sash.Min.X > 3000 - 1800 / 2.0 - 1, "the sash ran out through the jamb");
+
+        window.IsOpen = false;
+        Assert.Equal(shut.Min, Handle().Min, precision: 6);
+    }
+
+    [Fact]
+    public void ADoubleHungWindowPushesItsLowerSashUp()
+    {
+        var (document, wall, window, _) = WallWith(new WindowType("Sash", 1000, 1400) { Operation = WindowOperation.DoubleHung });
+
+        double Catch() => MeshesOf(document, wall, window).Single(m => m.Description == "Hardware").Bounds()!.Value.Min.Z;
+
+        var shut = Catch();
+        window.IsOpen = true;
+        Assert.True(Catch() - shut > 300, "the lower sash did not rise");
+    }
+
+    [Fact]
+    public void ACasementsCatchGoesRoundWithItsSash()
+    {
+        var (document, wall, window, _) = WallWith(new WindowType("Casement", 900, 1200) { Operation = WindowOperation.Casement });
+
+        double Catch()
+        {
+            var bounds = MeshesOf(document, wall, window).Single(m => m.Description == "Hardware").Bounds()!.Value;
+            return (bounds.Min.Y + bounds.Max.Y) / 2;
+        }
+
+        // Shut, the catch is on the sash lying in the opening.
+        Assert.True(Math.Abs(Catch()) < 120, "the catch is not on the shut sash");
+
+        // Open, it has swung out with the sash rather than staying in the empty hole.
+        window.IsOpen = true;
+        var open = Catch();
+        Assert.True(Math.Abs(open) > 400, $"the catch stayed in the opening at y={open:F0}");
+
+        var sash = MeshesOf(document, wall, window).Single(m => m.Description == "Sash").Bounds()!.Value;
+        Assert.InRange(open, sash.Min.Y - 60, sash.Max.Y + 60);
+    }
+
+    [Fact]
+    public void GlazingBarsGoOutWithTheSashTheyDivide()
+    {
+        double FrameReach(int rows, int columns, bool open)
+        {
+            var (document, wall, window, _) = WallWith(new WindowType("Georgian", 900, 1200)
+            {
+                Operation = WindowOperation.Casement, GlazingRows = rows, GlazingColumns = columns
+            });
+
+            window.IsOpen = open;
+            var frame = MeshesOf(document, wall, window).Single(m => m.Description == "Window frame").Bounds()!.Value;
+            return frame.Max.Y - frame.Min.Y;
+        }
+
+        // Shut, the bars lie in the sash, well inside the frame and the sill board.
+        var plain = FrameReach(1, 1, open: false);
+        Assert.Equal(plain, FrameReach(3, 2, open: false), precision: 6);
+
+        // Open, a window with no bars is no deeper than before - and one with bars has taken
+        // them out with the sash instead of leaving them hanging across the empty hole.
+        Assert.Equal(plain, FrameReach(1, 1, open: true), precision: 6);
+        Assert.True(FrameReach(3, 2, open: true) > plain + 300, "the bars stayed behind in the opening");
+    }
+
+    [Fact]
+    public void APairOfCasementsIsHungOnOppositeJambs()
+    {
+        var (document, wall, window, _) = WallWith(new WindowType("Pair", 1600, 1200) { Operation = WindowOperation.Casement });
+        window.IsOpen = true;
+
+        // Hung one on each jamb, the two sashes swing apart: between them they reach almost the
+        // whole width of the opening, rather than folding to the same side one behind the other.
+        var sash = MeshesOf(document, wall, window).Single(m => m.Description == "Sash").Bounds()!.Value;
+        Assert.True(sash.Max.X - sash.Min.X > 1600 - 400, "the sashes are hung the same way round");
+
+        // And a catch on each of them, both out of the wall with their sashes.
+        var hardware = MeshesOf(document, wall, window).Single(m => m.Description == "Hardware").Bounds()!.Value;
+        Assert.True(hardware.Max.X - hardware.Min.X > 600, "the two catches are not on opposite sashes");
+    }
+
+    [Fact]
     public void ABayWindowStandsOutFromTheWall()
     {
         var (document, wall, window, half) = WallWith(new WindowType("Bay", 2400, 1500) { Operation = WindowOperation.Bay });

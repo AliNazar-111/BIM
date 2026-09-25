@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
@@ -106,7 +107,7 @@ public sealed class WallType : ElementType
     /// <summary>Colour used to fill the wall when a plan is drawn at coarse detail.</summary>
     public ColourRgb CoarseScaleFillColour { get; set; } = new(0x8A, 0x93, 0xA1);
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 

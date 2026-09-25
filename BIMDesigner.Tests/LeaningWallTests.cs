@@ -53,6 +53,10 @@ public class LeaningWallTests
         type.InteriorTaperAngle = 0.5;
         wall.CrossSection = WallCrossSection.Tapered;
 
+        // Cut straight across at the ends: a brick return there is the full width of the wall
+        // by design, and this is about what the taper does to the layers along it.
+        type.WrapAtEnds = WallWrapping.None;
+
         var points = Points(document, wall).ToList();
         var half = type.Width / 2;
         var exterior = Math.Tan(1 * Math.PI / 180) * 3000;

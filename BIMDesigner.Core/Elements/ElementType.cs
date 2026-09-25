@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Parameters;
 
 namespace BIMDesigner.Core.Elements;
@@ -39,7 +40,11 @@ public abstract class ElementType
     /// <summary>Unit cost, the input to 5D quantity takeoff (section 9.3).</summary>
     public decimal Cost { get; set; }
 
-    public abstract IEnumerable<ParameterValue> GetTypeParameters();
+    /// <summary>
+    /// The parameters shared by every element of this type. The document is passed so a type
+    /// can offer the project.s materials by name; a type that needs none ignores it.
+    /// </summary>
+    public abstract IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null);
 
     /// <summary>Identity parameters every type carries.</summary>
     protected IEnumerable<ParameterValue> GetCommonTypeParameters()

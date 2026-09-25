@@ -59,7 +59,10 @@ public static class WallProfile
     /// </summary>
     public static IReadOnlyList<Point2D>? Of(BimDocument document, Wall wall)
     {
-        if (wall.Profile is not { Count: >= 3 } profile || !CanHave(document, wall)) return null;
+        if (!CanHave(document, wall)) return null;
+
+        // An outline drawn by hand is what the wall is, whatever it is attached to.
+        if (wall.Profile is not { Count: >= 3 } profile) return UnderRoof(document, wall);
 
         var length = wall.Length;
         if (Math.Abs(length - wall.ProfileLength) <= Tolerance) return profile;
@@ -67,6 +70,145 @@ public static class WallProfile
         return profile
             .Select(p => p.X >= wall.ProfileLength - Tolerance ? new Point2D(length, p.Y) : p)
             .ToList();
+    }
+
+    /// <summary>
+    /// The outline of a wall whose top is attached to a pitched roof: up to the roof's
+    /// underside all along it (specification section 3.1, "attach top to roofs"; Revit's
+    /// Attach Top).
+    ///
+    /// This is what closes a gable. A wall under the end of a gable roof rises to a point
+    /// under the ridge; one under a hip or an eave stays at the plate. The outline is worked
+    /// out from the roof every time it is asked for, never stored, so a steeper pitch, a
+    /// moved ridge or a new footprint reaches the walls at once - and because it is an
+    /// outline, everything that already draws a wall with an edited profile draws this one:
+    /// its solid, its cut in plan and section, its doors and windows, its quantities.
+    ///
+    /// The roof's underside is found on both faces of the wall and the higher taken. Under an
+    /// eave the roof rises across the wall's thickness, and a top level with the outer face
+    /// would leave a wedge of air along the inside of every eave wall; level with the inner
+    /// face instead, the extra sits inside the roof's own build-up where nothing sees it. It
+    /// is kept from going through the top of the roof all the same.
+    /// </summary>
+    private static IReadOnlyList<Point2D>? UnderRoof(BimDocument document, Wall wall)
+    {
+        if (wall.AttachedRoof(document) is not { } roof || roof.Form == RoofForm.Flat) return null;
+        if (document.GetWallType(wall) is not { } type) return null;
+
+        var length = wall.Length;
+        if (length <= Tolerance) return null;
+
+        var structure = type.Structure;
+        var half = structure.TotalWidth / 2;
+        var bottom = wall.GetBaseElevation(document);
+        var unattached = wall.GetUnattachedTopElevation(document);
+        var surface = roof.Surface(document);
+        var thickness = document.FindType<SlabType>(roof.TypeId)?.Thickness ?? 0;
+
+        var faces = new[] { half, -half };
+
+        // Every point along the wall where the roof's underside changes direction under either
+        // face: where a face crosses the edge of a roof face. Between two of them each face is
+        // under one plane, so the top is straight - and the outline is exact.
+        var stations = new List<double> { 0, length };
+        foreach (var across in faces)
+        {
+            var from = wall.PointAt(structure, 0, across);
+            var to = wall.PointAt(structure, length, across);
+
+            foreach (var facet in surface.Facets)
+            {
+                for (var i = 0; i < facet.Outline.Count; i++)
+                {
+                    if (Crossing(from, to, facet.Outline[i], facet.Outline[(i + 1) % facet.Outline.Count]) is { } t)
+                        stations.Add(t * length);
+                }
+            }
+        }
+
+        var along = stations
+            .Select(station => Math.Clamp(station, 0, length))
+            .OrderBy(station => station)
+            .Aggregate(new List<double>(), (kept, station) =>
+            {
+                if (kept.Count == 0 || station - kept[^1] > 1) kept.Add(station);
+                return kept;
+            });
+
+        if (along[^1] < length - 1) along.Add(length);
+        else along[^1] = length;
+
+        double TopAt(double station)
+        {
+            var heights = faces.Select(across =>
+            {
+                var point = wall.PointAt(structure, station, across);
+                return Covered(roof, point) ? surface.HeightAt(point) : unattached;
+            }).ToList();
+
+            // The inner face's height, but never through the top of the roof.
+            var top = Math.Min(heights.Max(), heights.Min() + thickness);
+            return Math.Max(top - bottom, 1);
+        }
+
+        // Where the wall runs out from under the roof its top steps down there, rather than
+        // sloping down all the way to the next corner: the height just before each station
+        // and just after it are both kept when they differ.
+        var tops = new List<Point2D>();
+        foreach (var station in along)
+        {
+            var before = station > 0 ? TopAt(Math.Max(0, station - 0.5)) : TopAt(station);
+            var after = station < length ? TopAt(Math.Min(length, station + 0.5)) : TopAt(station);
+
+            if (Math.Abs(before - after) > 1 && station > 0 && station < length)
+            {
+                tops.Add(new Point2D(station, before));
+                tops.Add(new Point2D(station, after));
+            }
+            else
+            {
+                tops.Add(new Point2D(station, TopAt(station)));
+            }
+        }
+
+        // A roof that turns out level over the whole wall leaves it a plain rectangle.
+        if (tops.All(point => Math.Abs(point.Y - tops[0].Y) <= Tolerance) &&
+            Math.Abs(bottom + tops[0].Y - wall.GetTopElevation(document)) <= 1)
+        {
+            return null;
+        }
+
+        var outline = new List<Point2D> { new(0, 0), new(length, 0) };
+        outline.AddRange(tops.AsEnumerable().Reverse());
+
+        return Problem(outline, length) is null ? outline : null;
+    }
+
+    /// <summary>Whether a roof is over a point - inside its footprint, or on its edge.</summary>
+    private static bool Covered(Roof roof, Point2D point)
+    {
+        if (roof.Contains(point)) return true;
+
+        var boundary = roof.Boundary;
+        for (var i = 0; i < boundary.Count; i++)
+            if (Line2D.DistanceFromSegment(point, boundary[i], boundary[(i + 1) % boundary.Count]) <= 1) return true;
+
+        return false;
+    }
+
+    /// <summary>How far along the first segment the second crosses it, 0 to 1; null when they do not cross.</summary>
+    private static double? Crossing(Point2D a0, Point2D a1, Point2D b0, Point2D b1)
+    {
+        var a = a1 - a0;
+        var b = b1 - b0;
+        var denominator = a.Cross(b);
+        if (Math.Abs(denominator) <= a.Length * b.Length * 1e-9) return null;
+
+        var offset = b0 - a0;
+        var t = offset.Cross(b) / denominator;
+        var u = offset.Cross(a) / denominator;
+
+        return t > 0 && t < 1 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
     }
 
     /// <summary>The rectangle a wall has before its profile is edited.</summary>

@@ -281,6 +281,38 @@ public class CurtainWallTests
     }
 
     [Fact]
+    public void ShortenedByAJoinItStillHasAFrameAtThatEnd()
+    {
+        var (document, type, wall) = Storefront();
+
+        // A brick wall turning the corner into the storefront: the brick runs past it, so the
+        // glazing stops against the face of the masonry rather than running on into it.
+        var brick = document.TypesOf<WallType>().Single(t => t.Name.Contains("Brick on Block"));
+        document.Add(new Wall
+        {
+            Start = new Point2D(0, 0), End = new Point2D(0, -4000),
+            TypeId = brick.Id, LevelId = wall.LevelId, UnconnectedHeight = 3000
+        });
+
+        var meshes = ModelMeshBuilder.BuildWall(document, wall);
+        var glass = meshes.Where(m => m.Kind == MeshKind.Glazing).SelectMany(m => m.Positions).ToList();
+        var mullions = meshes.Where(m => m.Kind == MeshKind.Mullion).SelectMany(m => m.Positions).ToList();
+
+        // The wall has been shortened to the masonry's face.
+        var face = brick.Width / 2;
+        Assert.True(mullions.Min(p => p.X) >= face - 1, "the frame runs on into the brickwork");
+
+        // And the frame is there at that end: a mullion stands at the shortened end, and the
+        // glass stops short of it rather than butting the brickwork with nothing holding it.
+        Assert.Equal(face, mullions.Min(p => p.X), precision: 3);
+        Assert.True(glass.Min(p => p.X) >= face + type.MullionWidth - 1,
+            $"the glass reaches {glass.Min(p => p.X):F0}, past the mullion that should edge it");
+
+        // The far end, where nothing joins, is unchanged: frame at the end of the wall.
+        Assert.Equal(wall.Length, mullions.Max(p => p.X), precision: 3);
+    }
+
+    [Fact]
     public void ItExportsAsACurtainWallOfPlatesAndMembers()
     {
         var (document, _, _) = Storefront();

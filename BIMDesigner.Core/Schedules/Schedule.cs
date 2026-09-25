@@ -129,7 +129,7 @@ public static class Schedule
         var type = document.ElementTypes.FirstOrDefault(candidate => candidate.Id == element.TypeId);
         if (type is not null)
         {
-            foreach (var parameter in type.GetTypeParameters())
+            foreach (var parameter in type.GetTypeParameters(document))
                 map.TryAdd(parameter.Name, parameter);
         }
 

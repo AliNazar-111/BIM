@@ -26,8 +26,11 @@ public static class ElementTransforms
     /// </summary>
     public static bool CanMove(Element element) => element switch
     {
+        // A component standing on its level has a position of its own; one fixed to a wall
+        // face is carried by it, like a door.
+        Component component => !component.IsHosted,
         IHostedElement => false,
-        Wall or Slab or Room or Grid or SectionMarker or Dimension or Tag or TextNote => true,
+        Wall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
     };
 
@@ -46,6 +49,14 @@ public static class ElementTransforms
 
             case Room room:
                 room.Location += delta;
+                break;
+
+            case Component component:
+                component.Location += delta;
+                break;
+
+            case Column column:
+                column.Location += delta;
                 break;
 
             case Grid grid:
@@ -111,6 +122,21 @@ public static class ElementTransforms
             case Room room:
                 room.Location = Reflect(room.Location);
                 break;
+
+            case Column column:
+                column.Location = Reflect(column.Location);
+                break;
+
+            case Component component:
+            {
+                // A mirrored component stands at the reflected point facing the reflected way:
+                // a desk mirrored about a wall has its back to the other side of the room.
+                var reflected = ReflectPoint(component.Location + component.Facing * 1000, axis);
+
+                component.Location = Reflect(component.Location);
+                component.FaceToward(reflected - component.Location);
+                break;
+            }
 
             case Grid grid:
                 grid.Start = Reflect(grid.Start);

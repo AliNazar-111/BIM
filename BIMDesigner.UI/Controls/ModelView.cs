@@ -130,6 +130,9 @@ public class ModelView : Border
     /// <summary>Raised with the element clicked on and the point on it, or null for empty space.</summary>
     public event EventHandler<(Guid Id, CorePoint3D At)?>? ElementClicked;
 
+    /// <summary>Raised with the element right-clicked on, to ask what should be done with it.</summary>
+    public event EventHandler<Guid>? ElementMenuRequested;
+
     // ---- content ----------------------------------------------------------------
 
     /// <summary>Rebuilds every mesh from the model. Cheap enough to do after every edit.</summary>
@@ -699,6 +702,17 @@ public class ModelView : Border
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
+
+        // A right drag pans; a right click asks what to do with what is under it.
+        if (e.ChangedButton == MouseButton.Right && !_movedBeyondClick &&
+            HitTest(e.GetPosition(_viewport)) is { } picked)
+        {
+            _gesture = Gesture.None;
+            ReleaseMouseCapture();
+            Cursor = Cursors.Arrow;
+            ElementMenuRequested?.Invoke(this, picked.Id);
+            return;
+        }
 
         var wasClick = _gesture == Gesture.Orbit && !_movedBeyondClick;
 

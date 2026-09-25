@@ -89,6 +89,7 @@ public static class CurtainDoors
         // Head: a transom at the door's head height, unless the bay is already a doorway. Any
         // line that would cut the door off below its head gives way to it.
         var clearHeight = clicked.ClearTop - clicked.ClearBottom;
+
         if (clearHeight < MinimumHeight || clearHeight > MaximumHeight)
         {
             var head = Math.Min(type.Height + mullion / 2, height);
@@ -101,26 +102,26 @@ public static class CurtainDoors
         // The panels as they were, each kept with the cell its middle now falls in, so choices
         // follow their bay through the lines coming and going.
         var panels = new Dictionary<(int Column, int Row), CurtainPanelOverride>();
-        foreach (var cell in layout.Cells.Where(c => c.Kind != CurtainPanelKind.Glazed))
+        foreach (var cell in layout.Cells.Where(c => c.Kind != CurtainPanelKind.Glazed || c.Glass != CurtainGlass.Clear))
         {
-            var column = CellAt(verticals, (cell.From + cell.To) / 2);
-            var row = CellAt(horizontals, (cell.Bottom + cell.Top) / 2);
-            if (column < 0 || row < 0 || (cell.Kind == CurtainPanelKind.Door && row != 0)) continue;
+            var was = CellAt(verticals, (cell.From + cell.To) / 2);
+            var storey = CellAt(horizontals, (cell.Bottom + cell.Top) / 2);
+            if (was < 0 || storey < 0 || (cell.Kind == CurtainPanelKind.Door && storey != 0)) continue;
 
-            panels[(column, row)] = new CurtainPanelOverride(column, row, cell.Kind, cell.OpeningTypeId);
+            panels[(was, storey)] = new CurtainPanelOverride(was, storey, cell.Kind, cell.OpeningTypeId, cell.Glass, cell.FlipHand, cell.FlipFacing);
         }
 
-        var doorColumn = CellAt(verticals, centre);
-        if (doorColumn < 0) return null;
+        var column = CellAt(verticals, centre);
+        if (column < 0) return null;
 
-        panels[(doorColumn, 0)] = new CurtainPanelOverride(doorColumn, 0, CurtainPanelKind.Door, type.Id);
+        panels[(column, 0)] = new CurtainPanelOverride(column, 0, CurtainPanelKind.Door, type.Id);
 
         var grid = new CurtainGrid(Inner(verticals, length), Inner(horizontals, height));
         var result = panels.Values.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList();
 
         return CurtainLayout.Build(layout.Type, length, height, grid, result)
-            .Cells.FirstOrDefault(c => c.Column == doorColumn && c.Row == 0) is { } doorCell
-            ? new CurtainDoorPlacement(grid, result, doorCell, added)
+            .Cells.FirstOrDefault(c => c.Column == column && c.Row == 0) is { } filled
+            ? new CurtainDoorPlacement(grid, result, filled, added)
             : null;
     }
 

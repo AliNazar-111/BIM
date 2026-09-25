@@ -103,7 +103,7 @@ public sealed class StackedWallType : ElementType
         return null;
     }
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 

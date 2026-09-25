@@ -145,9 +145,15 @@ public class ModelMeshTests
         var meshes = ModelMeshBuilder.Build(document).Where(m => m.ElementId == wall.Id).ToList();
 
         // A layer boundary is a visible line on the end of a wall, and each layer is its own
-        // solid, so each brings its own.
+        // solid, so each brings its own: twelve for a plain layer standing as a box, and more
+        // for the brick, which returns round the ends of the wall rather than showing its edge.
         Assert.Equal(type.Structure.Layers.Count, meshes.Count);
-        Assert.All(meshes, mesh => Assert.Equal(12, mesh.Edges.Count));
+        Assert.All(meshes, mesh => Assert.True(
+            mesh.Edges.Count >= 12 && mesh.Edges.Count % 3 == 0,
+            $"{mesh.Description} is not a closed solid: {mesh.Edges.Count} lines"));
+
+        Assert.True(meshes.Single(m => m.Description.Contains("Brick")).Edges.Count > 12,
+            "the brick does not return round the ends of the wall");
     }
 
     [Fact]

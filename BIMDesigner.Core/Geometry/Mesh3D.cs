@@ -258,7 +258,7 @@ public sealed class Mesh3D
             // would stripe what is one smooth surface.
             AddEdge(Low(i), Low(j));
             AddEdge(High(i), High(j));
-            if (IsCorner(ring, i)) AddEdge(Low(i), High(i));
+            if (ring.Count <= DetailedLoop && IsCorner(ring, i)) AddEdge(Low(i), High(i));
         }
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(ring))
@@ -270,8 +270,153 @@ public sealed class Mesh3D
         }
     }
 
+    /// <summary>
+    /// An outline with holes through it, run between two heights: the walls of the shape, the
+    /// walls of each hole, and caps that go round the holes rather than over them.
+    ///
+    /// A hole cut in a profile has to be a hole in the solid too. Capping over it would leave a
+    /// column that reads as hollow in plan and solid in the 3D view - the two views disagreeing
+    /// about the same object, which is the one thing a model must never do.
+    /// </summary>
+    public void AddExtrusion(
+        IReadOnlyList<Point2D> outline, IReadOnlyList<IReadOnlyList<Point2D>> holes, double bottom, double top)
+    {
+        if (outline.Count < 3 || top - bottom <= 1e-6) return;
+
+        var solid = holes.Where(hole => hole.Count >= 3).ToList();
+        if (solid.Count == 0)
+        {
+            AddExtrusion(outline, bottom, top);
+            return;
+        }
+
+        // The walls: the outside facing out, and each hole facing in, which is why its loop is
+        // wound the other way.
+        Walls(Anticlockwise(outline, true), bottom, top);
+        foreach (var hole in solid) Walls(Anticlockwise(hole, false), bottom, top);
+
+        // The caps: one simple outline that goes round every hole, so ear clipping can cut it.
+        var bridged = Polygon2D.BridgeHoles(Anticlockwise(outline, true), solid.Select(hole => Anticlockwise(hole, true)).ToList());
+
+        foreach (var (i, j, k) in Polygon2D.Triangulate(bridged))
+        {
+            AddTriangle(Point3D.On(bridged[i], top), Point3D.On(bridged[j], top), Point3D.On(bridged[k], top));
+            AddTriangle(Point3D.On(bridged[i], bottom), Point3D.On(bridged[k], bottom), Point3D.On(bridged[j], bottom));
+        }
+    }
+
+    /// <summary>
+    /// A solid lofted through a stack of outlines at rising heights: the walls run from each
+    /// ring to the next, and the ends are capped.
+    ///
+    /// This is what lets one description serve a straight column, a tapered one, a twisted one
+    /// and one built in parts. Each ring is the same outline transformed, so the points line up
+    /// one to one and the wall between two rings is a strip of quads; where a ring has a
+    /// different number of points - a base spread wider than the shaft - the strip is skipped
+    /// and the two are capped against each other instead, which is the step that belongs there.
+    /// </summary>
+    public void AddLoft(IReadOnlyList<(IReadOnlyList<Point2D> Outer, IReadOnlyList<IReadOnlyList<Point2D>> Holes, double Elevation)> rings)
+    {
+        var solid = rings.Where(ring => ring.Outer.Count >= 3).ToList();
+        if (solid.Count == 0) return;
+
+        if (solid.Count == 1)
+        {
+            AddExtrusion(solid[0].Outer, solid[0].Holes, solid[0].Elevation, solid[0].Elevation);
+            return;
+        }
+
+        for (var i = 0; i + 1 < solid.Count; i++)
+        {
+            var below = solid[i];
+            var above = solid[i + 1];
+            if (above.Elevation - below.Elevation <= 1e-9) continue;
+
+            // The outside, then each hole - which faces the other way, being a wall seen from
+            // inside the column.
+            Band(Anticlockwise(below.Outer, true), Anticlockwise(above.Outer, true), below.Elevation, above.Elevation);
+
+            for (var h = 0; h < Math.Min(below.Holes.Count, above.Holes.Count); h++)
+                Band(Anticlockwise(below.Holes[h], false), Anticlockwise(above.Holes[h], false),
+                    below.Elevation, above.Elevation);
+
+            // Where one ring has more points than the next, the change is a step: cap the
+            // difference so the solid closes rather than leaving a gap at the join.
+            if (below.Outer.Count != above.Outer.Count || below.Holes.Count != above.Holes.Count)
+            {
+                Cap(below.Outer, below.Holes, below.Elevation, up: true);
+                Cap(above.Outer, above.Holes, above.Elevation, up: false);
+            }
+        }
+
+        // The two ends of the whole thing.
+        Cap(solid[0].Outer, solid[0].Holes, solid[0].Elevation, up: false);
+        Cap(solid[^1].Outer, solid[^1].Holes, solid[^1].Elevation, up: true);
+    }
+
+    /// <summary>The wall between one loop and the loop above it, point for point.</summary>
+    private void Band(IReadOnlyList<Point2D> below, IReadOnlyList<Point2D> above, double low, double high)
+    {
+        if (below.Count != above.Count) return;
+
+        for (var i = 0; i < below.Count; i++)
+        {
+            var j = (i + 1) % below.Count;
+            if (below[i].DistanceTo(below[j]) <= 1e-9 && above[i].DistanceTo(above[j]) <= 1e-9) continue;
+
+            AddQuad(Point3D.On(below[i], low), Point3D.On(below[j], low),
+                Point3D.On(above[j], high), Point3D.On(above[i], high));
+
+            AddEdge(Point3D.On(below[i], low), Point3D.On(below[j], low));
+            AddEdge(Point3D.On(above[i], high), Point3D.On(above[j], high));
+
+            // A corner gets a line up it - but a section modelled in fine detail, a fluted
+            // shaft say, has hundreds of them, and drawing every one turns the column into a
+            // thicket of lines instead of a column. Past that, the shape carries itself.
+            if (below.Count <= DetailedLoop && IsCorner(below, i))
+                AddEdge(Point3D.On(below[i], low), Point3D.On(above[i], high));
+        }
+    }
+
+    /// <summary>One end of a loft, facing up or down, with its holes left out.</summary>
+    private void Cap(IReadOnlyList<Point2D> outer, IReadOnlyList<IReadOnlyList<Point2D>> holes, double z, bool up)
+    {
+        var ring = Anticlockwise(outer, true);
+        var solid = holes.Where(hole => hole.Count >= 3).Select(hole => Anticlockwise(hole, true)).ToList();
+        var outline = solid.Count == 0 ? ring : Polygon2D.BridgeHoles(ring, solid);
+
+        foreach (var (i, j, k) in Polygon2D.Triangulate(outline))
+        {
+            if (up) AddTriangle(Point3D.On(outline[i], z), Point3D.On(outline[j], z), Point3D.On(outline[k], z));
+            else AddTriangle(Point3D.On(outline[i], z), Point3D.On(outline[k], z), Point3D.On(outline[j], z));
+        }
+    }
+
+    private static IReadOnlyList<Point2D> Anticlockwise(IReadOnlyList<Point2D> loop, bool anticlockwise) =>
+        Polygon2D.SignedArea(loop) >= 0 == anticlockwise ? loop : loop.Reverse().ToList();
+
+    /// <summary>One loop's worth of wall, with the lines round its top and bottom and at its corners.</summary>
+    private void Walls(IReadOnlyList<Point2D> ring, double bottom, double top)
+    {
+        for (var i = 0; i < ring.Count; i++)
+        {
+            var j = (i + 1) % ring.Count;
+            if (ring[i].DistanceTo(ring[j]) <= 1e-9) continue;
+
+            AddQuad(Point3D.On(ring[i], bottom), Point3D.On(ring[j], bottom),
+                Point3D.On(ring[j], top), Point3D.On(ring[i], top));
+
+            AddEdge(Point3D.On(ring[i], bottom), Point3D.On(ring[j], bottom));
+            AddEdge(Point3D.On(ring[i], top), Point3D.On(ring[j], top));
+            if (ring.Count <= DetailedLoop && IsCorner(ring, i)) AddEdge(Point3D.On(ring[i], bottom), Point3D.On(ring[i], top));
+        }
+    }
+
     /// <summary>The most an outline may turn at a point and still be one smooth face, in degrees.</summary>
     private const double SmoothTurn = 15;
+
+    /// <summary>Past this many points a loop is modelled detail rather than a shape with corners.</summary>
+    private const int DetailedLoop = 48;
 
     /// <summary>Whether an outline turns at a point by more than a curve drawn in pieces does.</summary>
     private static bool IsCorner(IReadOnlyList<Point2D> ring, int i)

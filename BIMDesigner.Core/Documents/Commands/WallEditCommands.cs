@@ -1129,6 +1129,81 @@ public sealed class RehostOpeningCommand : IUndoableCommand
 }
 
 /// <summary>
+/// Gives a column type a section drawn in the editor, and takes it away again on undo.
+///
+/// The type is what changes, not the column that was selected: a section belongs to the family,
+/// so every column of that type takes it at once, which is the whole point of a type.
+/// </summary>
+public sealed class SetColumnProfileCommand : IUndoableCommand
+{
+    private readonly ColumnType _type;
+    private readonly (ColumnShape Shape, ColumnProfile? Profile, double Width, double Depth, ColumnShaping Shaping) _before, _after;
+
+    public SetColumnProfileCommand(ColumnType type, ColumnProfile profile, ColumnShaping? shaping = null)
+    {
+        _type = type;
+        _before = (type.Shape, type.CustomProfile, type.Width, type.Depth, type.Shaping.Copy());
+
+        var (width, depth) = profile.Extent;
+        _after = (ColumnShape.Custom, profile, Math.Max(1, width), Math.Max(1, depth), (shaping ?? type.Shaping).Copy());
+    }
+
+    public string Name => "Edit Column Section";
+
+    public void Redo() => Apply(_after);
+
+    public void Undo() => Apply(_before);
+
+    private void Apply((ColumnShape Shape, ColumnProfile? Profile, double Width, double Depth, ColumnShaping Shaping) state)
+    {
+        _type.Shape = state.Shape;
+        _type.CustomProfile = state.Profile;
+        _type.Width = state.Width;
+        _type.Depth = state.Depth;
+        _type.Shaping = state.Shaping.Copy();
+    }
+}
+
+/// <summary>
+/// Moves a component onto a different host: another wall's face, or off a wall altogether and
+/// onto its level. Where it stands and which way it faces change with the host, so the whole
+/// move is one step on the undo stack rather than a handful.
+/// </summary>
+public sealed class RehostComponentCommand : IUndoableCommand
+{
+    private readonly Component _component;
+    private readonly (Guid Host, Guid Level, Point2D Where, double Rotation, double Elevation, bool Flipped) _before, _after;
+
+    public RehostComponentCommand(Component component, Component moved, string name = "Pick New Host")
+    {
+        _component = component;
+        _before = State(component);
+        _after = State(moved);
+        Name = name;
+    }
+
+    private static (Guid, Guid, Point2D, double, double, bool) State(Component component) =>
+        (component.HostId, component.LevelId, component.Location,
+         component.Rotation, component.Elevation, component.FlipFacing);
+
+    public string Name { get; }
+
+    public void Redo() => Apply(_after);
+
+    public void Undo() => Apply(_before);
+
+    private void Apply((Guid Host, Guid Level, Point2D Where, double Rotation, double Elevation, bool Flipped) state)
+    {
+        _component.HostId = state.Host;
+        _component.LevelId = state.Level;
+        _component.Location = state.Where;
+        _component.Rotation = state.Rotation;
+        _component.Elevation = state.Elevation;
+        _component.FlipFacing = state.Flipped;
+    }
+}
+
+/// <summary>
 /// Moves walls across the lines they were drawn on, which is what lines a thin wall up with
 /// the face of a thicker one it runs into. See <see cref="WallAlignment"/>.
 /// </summary>
@@ -1153,4 +1228,23 @@ public sealed class OffsetWallsCommand : IUndoableCommand
     {
         foreach (var (wall, before, _) in _changes) wall.AcrossOffset = before;
     }
+}
+
+/// <summary>Opens or shuts a door or window, which is what a door is for.</summary>
+public sealed class OpenOpeningCommand : IUndoableCommand
+{
+    private readonly Opening _opening;
+    private readonly bool _open;
+
+    public OpenOpeningCommand(Opening opening, bool open)
+    {
+        _opening = opening;
+        _open = open;
+    }
+
+    public string Name => _open ? "Open" : "Close";
+
+    public void Redo() => _opening.IsOpen = _open;
+
+    public void Undo() => _opening.IsOpen = !_open;
 }

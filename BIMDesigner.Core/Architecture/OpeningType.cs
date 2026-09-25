@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Parameters;
 
@@ -153,7 +154,7 @@ public sealed class DoorType : OpeningType
 
     public double TrimProjectionInterior { get; set; } = 20;
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetOpeningTypeParameters()) yield return parameter;
 
@@ -209,7 +210,7 @@ public sealed class WindowType : OpeningType
     /// <summary>Solar heat gain coefficient, 0 to 1.</summary>
     public double SolarHeatGainCoefficient { get; set; } = 0.6;
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetOpeningTypeParameters()) yield return parameter;
 

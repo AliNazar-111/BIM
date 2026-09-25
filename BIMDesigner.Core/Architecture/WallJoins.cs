@@ -61,12 +61,57 @@ public static class WallJoins
     /// </summary>
     private const double MiterLengthFraction = 0.5;
 
+    /// <summary>How alike two walls' thicknesses must be to mitre rather than butt.</summary>
+    private const double MitreWidthRatio = 0.6;
+
     private const double Epsilon = 1e-6;
 
     /// <summary>How each end of the wall is cut, and what kind of end it is.</summary>
-    public static (WallCut Start, WallCut End) GetEndCuts(BimDocument document, Wall wall, WallType type) =>
-        (ComputeEnd(document, wall, type, atStart: true),
-         ComputeEnd(document, wall, type, atStart: false));
+    public static (WallCut Start, WallCut End) GetEndCuts(BimDocument document, Wall wall, WallType type)
+    {
+        var start = ComputeEnd(document, wall, type, atStart: true);
+        var end = ComputeEnd(document, wall, type, atStart: false);
+
+        // Layers only turn round an end where there is wall to turn them in. A long mitre into
+        // a shallow corner can leave a layer only millimetres long between the two ends, and a
+        // return in it would fold back through the wall - so that end is cut straight instead.
+        if (!RoomToWrap(wall, type, start, end, atStart: true)) start = start.Unwrapped();
+        if (!RoomToWrap(wall, type, end, start, atStart: false)) end = end.Unwrapped();
+
+        return (start, end);
+    }
+
+    /// <summary>
+    /// Whether every layer has room along it, between this end and the other, for the return
+    /// this end asks for. Measured on the layers as they are actually cut, because a mitre
+    /// takes a layer back further the shallower the corner is.
+    /// </summary>
+    private static bool RoomToWrap(Wall wall, WallType type, WallCut cut, WallCut other, bool atStart)
+    {
+        if (cut.Wrapping == WallWrapping.None) return true;
+
+        var structure = type.Structure;
+
+        // No deeper than the layers outside the core on the side that wraps.
+        var depth = cut.Wrapping == WallWrapping.Interior ? structure.InteriorWidth : structure.ExteriorWidth;
+        if (depth <= Epsilon) return true;
+
+        var half = structure.TotalWidth / 2;
+        var mine = cut.Unwrapped();
+        var theirs = other.Unwrapped();
+
+        foreach (var (_, start, end) in structure.GetLayerOffsets())
+        foreach (var offset in new[] { half - start, half - end })
+        {
+            var here = EndPoints(wall, type, offset, offset, mine, atStart)[0];
+            var there = EndPoints(wall, type, offset, offset, theirs, !atStart)[0];
+
+            var along = Math.Abs(wall.Locate(structure, here).Along - wall.Locate(structure, there).Along);
+            if (along < 2 * depth) return false;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// The outline of a band running along the wall between two signed offsets from its body
@@ -569,7 +614,11 @@ public static class WallJoins
             {
                 WallJoinKind.Butt => WallJoinKind.RunThrough,
                 WallJoinKind.RunThrough or WallJoinKind.SquareOff => WallJoinKind.Butt,
-                _ => WallJoinKind.Mitre
+
+                // Walls of much the same thickness mitre. Walls of very different thickness
+                // do not: the narrower butts into the wider, which runs through to the corner.
+                _ when CanMitre(type, partnerType) => WallJoinKind.Mitre,
+                _ => type.Width <= partnerType.Width ? WallJoinKind.Butt : WallJoinKind.RunThrough
             };
 
         return kind switch
@@ -580,6 +629,18 @@ public static class WallJoins
             _ => Mitre(wall, type, partner, partnerType, joint, atStart)
         };
     }
+
+    /// <summary>
+    /// Whether two walls are near enough the same thickness to mitre.
+    ///
+    /// A mitre runs from the outer corner to the inner one. Between walls of much the same
+    /// thickness that is the 45 degree cut everyone draws. Between a 150 mm shopfront and a
+    /// 330 mm masonry wall it is a long skew cut clean across the thick wall, which leaves the
+    /// corner ragged and its layers on show - and is not how either wall would be built. There
+    /// the narrower wall butts into the wider one instead.
+    /// </summary>
+    private static bool CanMitre(WallType a, WallType b) =>
+        Math.Min(a.Width, b.Width) >= MitreWidthRatio * Math.Max(a.Width, b.Width);
 
     private static WallCut? Mitre(Wall wall, WallType type, Wall partner, WallType partnerType, Point2D joint, bool atStart)
     {
@@ -637,6 +698,11 @@ public static class WallJoins
     /// Carries this wall on past a partner that stops against it, to the partner's far face so
     /// the outside of the corner is filled. Cut along that face, or square to this wall and just
     /// far enough to cover it.
+    ///
+    /// The end this leaves is the return of the corner, and it is in plain sight - it is the
+    /// piece of elevation between the partner's face and the outside of the corner. So its
+    /// layers turn round it the way the type says an exposed end is finished, rather than being
+    /// left showing their section: a brick wall returns in brick round its corner.
     /// </summary>
     private static WallCut? RunPast(
         Wall wall, WallType type, Wall partner, WallType partnerType, Point2D joint, bool atStart, bool squareEnd)
@@ -649,8 +715,12 @@ public static class WallJoins
 
         if (!squareEnd)
         {
+            // Layers can only turn round an end that is square to the wall. A corner that is
+            // not a right angle leaves a slanted return, and they are left cut through it.
+            var wrapping = IsSquareTo(farFace, wall) ? type.WrapAtEnds : WallWrapping.None;
+
             return CutStaysNearTheJoint(farFace, wall, type, square, budget)
-                ? WallCut.Along(farFace, wall, WallEndCondition.RunsThrough)
+                ? WallCut.Along(farFace, wall, WallEndCondition.RunsThrough, wrapping)
                 : null;
         }
 
@@ -671,7 +741,7 @@ public static class WallJoins
         var cut = new Line2D(position, wall.Direction.PerpendicularLeft());
 
         return CutStaysNearTheJoint(cut, wall, type, square, budget)
-            ? WallCut.Along(cut, wall, WallEndCondition.RunsThrough)
+            ? WallCut.Along(cut, wall, WallEndCondition.RunsThrough, type.WrapAtEnds)
             : null;
     }
 
@@ -850,6 +920,11 @@ public static class WallJoins
     }
 
     // ---- geometry helpers ---------------------------------------------------------
+
+    /// <summary>Whether a cut crosses the wall square, which is what a wrapped end needs.</summary>
+    private static bool IsSquareTo(Line2D cut, Wall wall) =>
+        Math.Abs(cut.Direction.NormalisedOrDefault(Vector2D.UnitX)
+            .Dot(wall.Direction.NormalisedOrDefault(Vector2D.UnitX))) < 1e-3;
 
     /// <summary>The direction along a wall pointing away from one of its ends.</summary>
     private static Vector2D AwayFrom(Wall wall, Point2D joint) =>

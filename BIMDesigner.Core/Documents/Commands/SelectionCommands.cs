@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 
@@ -120,12 +121,17 @@ public sealed class MoveElementsCommand : IUndoableCommand
     private readonly List<Element> _elements;
     private readonly Vector2D _delta;
 
-    public MoveElementsCommand(IEnumerable<Element> elements, Vector2D delta, string? name = null)
+    public MoveElementsCommand(IEnumerable<Element> elements, Vector2D delta, string? name = null, BimDocument? document = null)
     {
         _elements = elements.Where(ElementTransforms.CanMove).ToList();
         _delta = delta;
 
-        Name = name ?? (_elements.Count == 1 ? "Move" : $"Move {_elements.Count} Elements");
+        // Moving a grid moves the columns set out on it, unless one has been told to stay put.
+        // They are part of the same move, so one Undo puts the bay back as it was.
+        var named = _elements.Count;
+        if (document is not null) _elements.AddRange(ColumnGrids.Following(document, _elements));
+
+        Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
 
     public string Name { get; }
@@ -140,6 +146,72 @@ public sealed class MoveElementsCommand : IUndoableCommand
     public void Undo()
     {
         foreach (var element in _elements) ElementTransforms.Move(element, -_delta);
+    }
+}
+
+/// <summary>
+/// A move that grows as the arrow key is held - a nudge, and then the run of nudges after it.
+///
+/// One press is one move, but a held key sends thirty a second, and recording each of them
+/// would bury the last real edit under a stream of identical steps to be taken back one at a
+/// time. So a run is a single command that keeps adding to its own step: one Undo puts the
+/// element back where it stood when the key went down.
+///
+/// A wall left behind at a locked corner stretches rather than travels: only the end that
+/// meets what is moving follows it, which is what keeps the corner a corner.
+/// </summary>
+public sealed class NudgeElementsCommand : IUndoableCommand
+{
+    private readonly List<Element> _elements;
+    private readonly List<(Wall Wall, bool AtStart)> _stretched;
+    private Vector2D _delta;
+
+    public NudgeElementsCommand(
+        IEnumerable<Element> elements,
+        IEnumerable<(Wall Wall, bool AtStart)> stretched,
+        Vector2D delta,
+        BimDocument? document = null)
+    {
+        _elements = elements.Where(ElementTransforms.CanMove).ToList();
+        _stretched = stretched.ToList();
+        _delta = delta;
+
+        // Columns set out on a moved grid go with it. They are worked out before the first
+        // step is applied, so they are the columns on the grid where it stands now, not the
+        // ones it would land on once pushed.
+        var named = _elements.Count;
+        if (document is not null) _elements.AddRange(ColumnGrids.Following(document, _elements));
+
+        Name = named == 1 ? "Move" : "Move " + named + " Elements";
+    }
+
+    public string Name { get; }
+
+    public bool IsEmpty => _elements.Count == 0 && _stretched.Count == 0;
+
+    /// <summary>How far the run has travelled altogether.</summary>
+    public Vector2D Delta => _delta;
+
+    /// <summary>Takes one more step: moves the model, and adds it to what Undo will take back.</summary>
+    public void Grow(Vector2D step)
+    {
+        _delta += step;
+        Apply(step);
+    }
+
+    public void Redo() => Apply(_delta);
+
+    public void Undo() => Apply(-_delta);
+
+    private void Apply(Vector2D step)
+    {
+        foreach (var element in _elements) ElementTransforms.Move(element, step);
+
+        foreach (var (wall, atStart) in _stretched)
+        {
+            if (atStart) wall.Start += step;
+            else wall.End += step;
+        }
     }
 }
 

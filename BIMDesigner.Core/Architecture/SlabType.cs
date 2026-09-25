@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
@@ -49,7 +50,7 @@ public abstract class SlabType : ElementType
     /// <summary>Colour used when a view draws the slab as one body rather than its layers.</summary>
     public ColourRgb CoarseScaleFillColour { get; set; } = new(0x7A, 0x82, 0x8E);
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 

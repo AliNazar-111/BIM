@@ -17,6 +17,9 @@ public sealed class RoomBoundaryResult
     /// <summary>The walls that bound the room, in order around it.</summary>
     public required IReadOnlyList<Wall> BoundingWalls { get; init; }
 
+    /// <summary>The columns standing in the room that its area has been taken out for.</summary>
+    public IReadOnlyList<Column> BoundingColumns { get; init; } = Array.Empty<Column>();
+
     /// <summary>Millimetres squared.</summary>
     public required double Area { get; init; }
 
@@ -125,15 +128,44 @@ public static class RoomBoundary
         var polygon = InsetToWallFaces(document, loop);
         if (polygon.Count < 3) return RoomBoundaryResult.NotEnclosed;
 
+        // A room-bounding column standing in the room is floor the room has not got. Its area
+        // comes out and its sides go on the perimeter, which is what a schedule should report.
+        // The outline stays the outline of the walls: it is the boundary, and the column is a
+        // hole in what that boundary encloses rather than a bend in it.
+        var columns = ColumnsIn(document, levelId, polygon);
+
         return new RoomBoundaryResult
         {
             IsEnclosed = true,
             Polygon = polygon,
             BoundingWalls = loop.Select(edge => edge.Segment.Wall).Distinct().ToList(),
-            Area = Polygon2D.Area(polygon),
-            Perimeter = Polygon2D.Perimeter(polygon),
+            BoundingColumns = columns.Select(entry => entry.Column).ToList(),
+            Area = Math.Max(0, Polygon2D.Area(polygon) - columns.Sum(entry => Math.Abs(Polygon2D.Area(entry.Outline)))),
+            Perimeter = Polygon2D.Perimeter(polygon) + columns.Sum(entry => Polygon2D.Perimeter(entry.Outline)),
             Centroid = Polygon2D.Centroid(polygon, seed)
         };
+    }
+
+    /// <summary>
+    /// The room-bounding columns standing wholly inside a room's outline. One straddling the
+    /// outline is in a wall, and that wall has already shaped the room; counting it as well
+    /// would take the same floor away twice.
+    /// </summary>
+    private static List<(Column Column, IReadOnlyList<Point2D> Outline)> ColumnsIn(
+        BimDocument document, Guid levelId, IReadOnlyList<Point2D> polygon)
+    {
+        var inside = new List<(Column, IReadOnlyList<Point2D>)>();
+
+        foreach (var column in document.Elements.OfType<Column>())
+        {
+            if (!column.RoomBounding || column.LevelId != levelId) continue;
+            if (document.FindType<ColumnType>(column.TypeId) is not { } type) continue;
+
+            var outline = column.Outline(type);
+            if (outline.All(corner => Polygon2D.Contains(polygon, corner))) inside.Add((column, outline));
+        }
+
+        return inside;
     }
 
     // ---- building the graph ----------------------------------------------------

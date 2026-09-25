@@ -135,6 +135,9 @@ public static class SectionProjection
         {
             foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, marker, wall, pieces);
             foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, marker, slab, pieces);
+
+            foreach (var column in document.Elements.OfType<Column>().Where(column => shows(column)))
+                AddColumn(document, marker, column, pieces);
         }
 
         var levels = document.Levels
@@ -708,7 +711,7 @@ public static class SectionProjection
                             cell.ClearBottom, cell.ClearTop, SectionPart.Glazing, SectionDepth.Cut,
                             cell.Glass == CurtainGlass.Clear ? glass : null, CurtainGlassLook.ColourOf(cell.Glass, GlazingColour)),
                         CurtainPanelKind.Solid => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.WallLayer, SectionDepth.Cut, solid, DefaultCut),
-                        CurtainPanelKind.Door or CurtainPanelKind.Window => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, SectionDepth.Cut, null, LeafColour),
+                        CurtainPanelKind.Door => Piece(X(panelHalf), X(-panelHalf), cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, SectionDepth.Cut, null, LeafColour),
                         _ => null
                     };
                     if (piece is not null) pieces.Add(piece);
@@ -742,7 +745,7 @@ public static class SectionProjection
             pieces.Add(cell.Kind switch
             {
                 CurtainPanelKind.Solid => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.WallFace, solid, DefaultCut),
-                CurtainPanelKind.Door or CurtainPanelKind.Window => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, null, LeafColour),
+                CurtainPanelKind.Door => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, null, LeafColour),
                 _ => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.Glazing,
                     cell.Glass == CurtainGlass.Clear ? glass : null, CurtainGlassLook.ColourOf(cell.Glass, GlazingColour))
             });
@@ -824,6 +827,14 @@ public static class SectionProjection
         var structure = type.Structure;
         if (structure.TotalWidth <= 0) return;
 
+        // A pitched roof is cut as the sloping thing it is.
+        // A roof stands on its base and may slope, so it is cut by its own rule.
+        if (slab is Roof roof)
+        {
+            AddRoof(document, marker, roof, structure, pieces);
+            return;
+        }
+
         // The level is the slab's upper surface and its layers build downward from there,
         // which is the order a floor build-up is specified in.
         var top = (document.FindLevel(slab.LevelId)?.Elevation ?? 0) + slab.HeightOffset;
@@ -844,6 +855,103 @@ public static class SectionProjection
                     material?.Name ?? layer.Function.ToString(),
                     slab.Id));
             }
+        }
+    }
+
+    /// <summary>
+    /// A pitched roof where a section cuts it.
+    ///
+    /// Each face is cut on its own. Within one face the roof is a plane and the cut is a
+    /// straight line, so the piece is a parallelogram sloping at the pitch - exact, rather
+    /// than a staircase of little rectangles pretending to be a slope. Where the cut crosses
+    /// a ridge it crosses from one face to the next, and the two pieces meet there.
+    /// </summary>
+    private static void AddRoof(
+        BimDocument document, SectionMarker marker, Roof roof, CompoundStructure structure,
+        List<SectionPiece> pieces)
+    {
+        var origin = marker.Start;
+        var total = structure.TotalWidth;
+        var ray = marker.Direction;
+
+        foreach (var facet in roof.Surface(document).Facets)
+        {
+            var plane = facet.Plane;
+            var stretch = plane.VerticalStretch;
+
+            foreach (var (from, to) in CrossPolygon(marker, facet.Outline))
+            {
+                var left = plane.HeightAt(origin + ray * from);
+                var right = plane.HeightAt(origin + ray * to);
+
+                foreach (var (layer, start, end) in structure.GetLayerOffsets())
+                {
+                    if (layer.Thickness <= 0) continue;
+
+                    var material = document.FindMaterial(layer.MaterialId);
+                    var shape = new[]
+                    {
+                        (from, left + (total - end) * stretch),
+                        (to, right + (total - end) * stretch),
+                        (to, right + (total - start) * stretch),
+                        (from, left + (total - start) * stretch)
+                    };
+
+                    pieces.Add(new SectionPiece(
+                        new SectionRect(
+                            from,
+                            Math.Min(left, right) + (total - end) * stretch,
+                            to,
+                            Math.Max(left, right) + (total - start) * stretch),
+                        SectionPart.SlabLayer,
+                        SectionDepth.Cut,
+                        material?.CutColour ?? DefaultCut,
+                        material?.Name ?? layer.Function.ToString(),
+                        roof.Id)
+                    {
+                        Shape = shape
+                    });
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// An architectural column where a section cuts through it: its section run between what it
+    /// stands on and what it reaches, in the material it is built of.
+    ///
+    /// A column joined to a wall is cut as that wall is - it takes the wall's material and its
+    /// fill - so the section reads as one piece of construction, which is the same rule the
+    /// plan follows. It is what makes a pier in a wall look like a thicker piece of that wall
+    /// rather than a column that happens to be standing in it.
+    /// </summary>
+    private static void AddColumn(
+        BimDocument document, SectionMarker marker, Column column, List<SectionPiece> pieces)
+    {
+        if (document.FindType<ColumnType>(column.TypeId) is not { } type) return;
+        if (type.Width <= 0 || type.Depth <= 0) return;
+
+        var bottom = column.GetBaseElevation(document);
+        var top = column.GetTopElevation(document);
+        if (top - bottom <= Epsilon) return;
+
+        var material = document.FindMaterial(ColumnJoins.CutMaterial(document, column, type));
+
+        // Less whatever wall it is buried in: what is inside the masonry is not there to cut.
+        var section = ColumnJoins.CutByWalls(
+            document, column, type, column.SectionAt(type), (bottom + top) / 2);
+
+        if (section.IsEmpty) return;
+
+        foreach (var (from, to) in CrossPolygon(marker, section.Outer))
+        {
+            pieces.Add(new SectionPiece(
+                new SectionRect(from, bottom, to, top),
+                SectionPart.WallLayer,
+                SectionDepth.Cut,
+                material?.CutColour ?? DefaultCut,
+                material?.Name ?? type.Name,
+                column.Id));
         }
     }
 

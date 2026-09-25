@@ -105,6 +105,94 @@ public static class WallAttachments
         outline.Select((corner, i) => Line2D.DistanceFromSegment(point, corner, outline[(i + 1) % outline.Count])).Min();
 }
 
+/// <summary>
+/// Attaching columns, which is the same question a wall's attachment is: a column meets the
+/// slab over it rather than standing to a typed height, so it follows that slab when it moves.
+/// </summary>
+public static class ColumnAttachments
+{
+    /// <summary>The lowest floor, ceiling or roof over a column whose outline covers it.</summary>
+    public static Slab? SlabAbove(BimDocument document, Column column)
+    {
+        var bottom = column.GetBaseElevation(document);
+
+        return document.Elements.OfType<Slab>()
+            .Where(slab => slab.GetBottomElevation(document) > bottom + 1 && slab.Contains(column.Location))
+            .OrderBy(slab => slab.GetBottomElevation(document))
+            .FirstOrDefault();
+    }
+
+    /// <summary>The highest floor under a column that it can stand on.</summary>
+    public static Slab? FloorBelow(BimDocument document, Column column)
+    {
+        var top = column.GetTopElevation(document);
+
+        return document.Elements.OfType<Floor>()
+            .Where(floor => floor.GetTopElevation(document) < top - 1 && floor.Contains(column.Location))
+            .OrderByDescending(floor => floor.GetTopElevation(document))
+            .Cast<Slab>()
+            .FirstOrDefault();
+    }
+}
+
+/// <summary>
+/// Attaches or detaches the tops or bases of columns, as one step - carrying the style and
+/// offset the attachment was made with, so undoing puts back not only what held the column but
+/// how it met it.
+/// </summary>
+public sealed class AttachColumnsCommand : IUndoableCommand
+{
+    private readonly record struct State(Guid? Attached, ColumnAttachmentStyle Style, double Offset);
+
+    private readonly List<(Column Column, bool Top, State Old, State New)> _changes;
+
+    public AttachColumnsCommand(
+        IEnumerable<(Column Column, bool Top, Guid? SlabId)> changes, string name,
+        ColumnAttachmentStyle style = ColumnAttachmentStyle.CutColumn, double offset = 0)
+    {
+        _changes = changes
+            .Select(change => (change.Column, change.Top, Read(change.Column, change.Top),
+                new State(change.SlabId, style, offset)))
+            .ToList();
+
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public int Count => _changes.Count;
+
+    public void Redo()
+    {
+        foreach (var (column, top, _, state) in _changes) Write(column, top, state);
+    }
+
+    public void Undo()
+    {
+        foreach (var (column, top, old, _) in _changes) Write(column, top, old);
+    }
+
+    private static State Read(Column column, bool top) => top
+        ? new State(column.TopAttachedTo, column.TopAttachmentStyle, column.OffsetFromAttachmentAtTop)
+        : new State(column.BaseAttachedTo, column.BaseAttachmentStyle, column.OffsetFromAttachmentAtBase);
+
+    private static void Write(Column column, bool top, State state)
+    {
+        if (top)
+        {
+            column.TopAttachedTo = state.Attached;
+            column.TopAttachmentStyle = state.Style;
+            column.OffsetFromAttachmentAtTop = state.Offset;
+        }
+        else
+        {
+            column.BaseAttachedTo = state.Attached;
+            column.BaseAttachmentStyle = state.Style;
+            column.OffsetFromAttachmentAtBase = state.Offset;
+        }
+    }
+}
+
 /// <summary>Attaches or detaches the tops or bases of walls, as one step.</summary>
 public sealed class AttachWallsCommand : IUndoableCommand
 {

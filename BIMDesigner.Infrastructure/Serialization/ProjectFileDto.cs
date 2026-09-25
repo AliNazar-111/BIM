@@ -49,6 +49,14 @@ internal sealed class ProjectFileDto
 
     public List<RoomDto> Rooms { get; set; } = new();
 
+    /// <summary>Loadable component families and what has been placed from them. Missing from older files.</summary>
+    public List<ComponentTypeDto> ComponentTypes { get; set; } = new();
+    public List<ComponentDto> Components { get; set; } = new();
+
+    /// <summary>Architectural columns and their types. Missing from older files.</summary>
+    public List<ColumnTypeDto> ColumnTypes { get; set; } = new();
+    public List<ColumnDto> Columns { get; set; } = new();
+
     public List<SlabTypeDto> SlabTypes { get; set; } = new();
 
     public List<SlabDto> Slabs { get; set; } = new();
@@ -277,10 +285,177 @@ internal sealed class SlabDto
     /// <summary>Outline vertices, flattened as x, y, x, y - compact and obvious in the file.</summary>
     public List<double> Boundary { get; set; } = new();
 
+    /// <summary>
+    /// For a roof, what each boundary edge does: one entry per edge, in the boundary's order.
+    /// Empty on a floor or a ceiling, and on a roof saved before roofs could be pitched -
+    /// which reads back as the flat roof it was.
+    /// </summary>
+    public List<RoofEdgeDto> RoofEdges { get; set; } = new();
+
+    /// <summary>For a roof, how far above its base it is cut off flat. 0 lets it run to its ridge.</summary>
+    public double RoofCutoff { get; set; }
+
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
     public string PhaseCreated { get; set; } = "New";
+}
+
+/// <summary>What a roof does at one edge of its footprint: the whole shape of a roof is this, per edge.</summary>
+internal sealed class RoofEdgeDto
+{
+    public bool DefinesSlope { get; set; }
+    public double SlopeDegrees { get; set; } = 30;
+    public double PlateOffset { get; set; }
+
+    /// <summary>The wall the edge was picked from, which it follows; null for a drawn edge.</summary>
+    public Guid? WallId { get; set; }
+
+    public bool OnLeftOfWall { get; set; }
+    public double Overhang { get; set; }
+    public bool ExtendToCore { get; set; }
+}
+
+/// <summary>One type of architectural column: its shape, size and what it is made of.</summary>
+internal sealed class ColumnTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Shape { get; set; } = "Rectangular";
+
+    public double Width { get; set; }
+    public double Depth { get; set; }
+
+    public Guid MaterialId { get; set; }
+    public string CoarseScaleFillColour { get; set; } = string.Empty;
+
+    /// <summary>A section drawn in the column editor: the outline first, then any holes in it.</summary>
+    public List<List<double>>? ProfileLoops { get; set; }
+
+    /// <summary>Type-wide offsets of the base and top. Absent in older files, where they were nothing.</summary>
+    public double OffsetBase { get; set; }
+    public double OffsetTop { get; set; }
+
+    /// <summary>What the column does on the way up. Absent in older files, where it did nothing.</summary>
+    public double TopScale { get; set; } = 1;
+    public double Twist { get; set; }
+    public double SlantAcross { get; set; }
+    public double SlantAlong { get; set; }
+    public int Flutes { get; set; }
+    public double FluteDepth { get; set; } = 25;
+    public double BaseHeight { get; set; }
+    public double BaseSpread { get; set; } = 0.18;
+    public double CapitalHeight { get; set; }
+    public double CapitalSpread { get; set; } = 0.22;
+
+    public string TypeMark { get; set; } = string.Empty;
+    public string AssemblyCode { get; set; } = string.Empty;
+    public string Keynote { get; set; } = string.Empty;
+    public string Manufacturer { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public decimal Cost { get; set; }
+}
+
+/// <summary>
+/// An architectural column. Its height is not stored: the constraints and attachments that
+/// decide it are, so a column reopened against a roof is as high as that roof is now.
+/// </summary>
+internal sealed class ColumnDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+
+    public double LocationX { get; set; }
+    public double LocationY { get; set; }
+    public double Rotation { get; set; }
+
+    public double BaseOffset { get; set; }
+    public Guid? TopLevelId { get; set; }
+    public double TopOffset { get; set; }
+    public double UnconnectedHeight { get; set; } = 3000;
+
+    public Guid? TopAttachedTo { get; set; }
+    public Guid? BaseAttachedTo { get; set; }
+
+    /// <summary>Whether it comes along when the grid it stands on moves. Absent in older files, where it did.</summary>
+    public bool MovesWithGrids { get; set; } = true;
+
+    /// <summary>Whether it takes its area out of the room it stands in. Absent in older files, where it did.</summary>
+    public bool RoomBounding { get; set; } = true;
+
+    /// <summary>Whether walls are taken out of it. Absent in older files, where they were not.</summary>
+    public bool CutByWalls { get; set; } = true;
+
+    /// <summary>How it sits against the walls. Absent in older files, where it was freestanding.</summary>
+    public string Placement { get; set; } = "Freestanding";
+    public string PlacementFace { get; set; } = "Interior";
+
+    public string TopAttachmentStyle { get; set; } = "CutColumn";
+    public string BaseAttachmentStyle { get; set; } = "CutColumn";
+
+    public double OffsetFromAttachmentAtTop { get; set; }
+    public double OffsetFromAttachmentAtBase { get; set; }
+
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public string Workset { get; set; } = "Workset1";
+    public string PhaseCreated { get; set; } = "New";
+    public string? PhaseDemolished { get; set; }
+}
+
+/// <summary>One type of a loadable component family: its category, form, size and placement.</summary>
+internal sealed class ComponentTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Category { get; set; } = "Furniture";
+    public string Form { get; set; } = "Box";
+    public string Placement { get; set; } = "Freestanding";
+
+    public double Width { get; set; }
+    public double Depth { get; set; }
+    public double Height { get; set; }
+    public double DefaultElevation { get; set; }
+
+    public Guid MaterialId { get; set; }
+    public string Colour { get; set; } = string.Empty;
+
+    public string TypeMark { get; set; } = string.Empty;
+    public string AssemblyCode { get; set; } = string.Empty;
+    public string Keynote { get; set; } = string.Empty;
+    public string Manufacturer { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public decimal Cost { get; set; }
+}
+
+/// <summary>A component placed in the model: where it stands, which way it faces, what carries it.</summary>
+internal sealed class ComponentDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+
+    public double LocationX { get; set; }
+    public double LocationY { get; set; }
+    public double Rotation { get; set; }
+    public double Elevation { get; set; }
+
+    /// <summary>The face carrying it: a wall, or a floor, ceiling or roof.</summary>
+    public Guid HostId { get; set; }
+
+    /// <summary>What it was called when only a wall could carry one.</summary>
+    public Guid HostWallId { get; set; }
+
+    public bool FlipFacing { get; set; }
+
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public string Workset { get; set; } = "Workset1";
+    public string PhaseCreated { get; set; } = "New";
+    public string? PhaseDemolished { get; set; }
 }
 
 /// <summary>
@@ -423,6 +598,13 @@ internal sealed class CurtainPanelDto
     public bool FlipHand { get; set; }
     public bool FlipFacing { get; set; }
 
+    /// <summary>For a door panel, whether it is drawn standing open.</summary>
+    public bool IsOpen { get; set; }
+
+    /// <summary>Where a window in the panel sits, from the middle of it: along the wall and up it.</summary>
+    public double OffsetAlong { get; set; }
+    public double OffsetUp { get; set; }
+
     /// <summary>For a glazed panel, what the pane is; absent means clear glass.</summary>
     public string? Glass { get; set; }
 
@@ -543,6 +725,9 @@ internal abstract class OpeningDto
     public double SillHeight { get; set; }
     public bool FlipFacing { get; set; }
     public bool FlipHand { get; set; }
+
+    /// <summary>Whether it is drawn standing open.</summary>
+    public bool IsOpen { get; set; }
 
     /// <summary>"Vertical" or "Slanted" in a slanted wall. Absent in files from before it was a choice.</summary>
     public string? Orientation { get; set; }

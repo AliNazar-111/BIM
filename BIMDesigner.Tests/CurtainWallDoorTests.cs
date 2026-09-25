@@ -209,6 +209,25 @@ public class CurtainWallDoorTests
     }
 
     [Fact]
+    public void AProjectWithSomeDoorsAndWindowsGetsTheRestOfTheLibrary()
+    {
+        // A project made when there were only two kinds of window: it has windows already, so
+        // nothing used to be added to it, and the ones added since never turned up.
+        var document = BimDocument.CreateDefault();
+        var kept = document.TypesOf<WindowType>().Take(2).Select(type => type.Name).ToList();
+        foreach (var type in document.TypesOf<WindowType>().Where(t => !kept.Contains(t.Name)).ToList()) document.RemoveType(type);
+        Assert.Equal(2, document.TypesOf<WindowType>().Count());
+
+        document.EnsureDefaultTypes();
+
+        // The rest of the library arrives, and the two it already had are not duplicated.
+        Assert.True(document.TypesOf<WindowType>().Count() > 10);
+        Assert.All(kept, name => Assert.Single(document.TypesOf<WindowType>(), t => t.Name == name));
+        Assert.Contains(document.TypesOf<WindowType>(), t => t.Operation == WindowOperation.Sliding);
+        Assert.Contains(document.TypesOf<WindowType>(), t => t.Operation == WindowOperation.Louvred);
+    }
+
+    [Fact]
     public void TheDoorTypeOnAPanelIsSaved()
     {
         var (document, wall, type) = Storefront(new DoorType("Curtain Entrance", 1000, 2100) { LeafDesign = DoorLeafDesign.Glazed });

@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
@@ -34,10 +35,7 @@ public enum CurtainPanelKind
     Glazed,
     Solid,
     Empty,
-    Door,
-
-    /// <summary>A window filling the panel: one of the project's window types, opening as it does.</summary>
-    Window
+    Door
 }
 
 /// <summary>
@@ -266,7 +264,7 @@ public sealed class CurtainWallType : ElementType
         return null;
     }
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 

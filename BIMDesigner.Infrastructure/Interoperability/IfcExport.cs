@@ -369,6 +369,15 @@ public static class IfcExport
             var thickness = type.Structure.TotalWidth;
             if (thickness <= 0) return;
 
+            // A roof is an IfcRoof, whatever its shape. IFC keeps a separate entity for it
+            // because a roof is not a floor: it weathers the building, it is scheduled by its
+            // own covering, and a receiving application groups it with the parts it is made of.
+            if (slab is Roof roof)
+            {
+                ExportRoof(roof, type, thickness);
+                return;
+            }
+
             // Levels carry their own height, so a slab is placed relative to its storey.
             var bottom = slab.HeightOffset - thickness;
             var profile = slab.Boundary.Select(point => new Point2D(point.X, point.Y)).ToList();
@@ -394,14 +403,17 @@ public static class IfcExport
                 {
                     s.GlobalId = slab.Id.ToIfc();
                     s.Name = type.Name;
-                    s.PredefinedType = slab is Roof ? IfcSlabTypeEnum.ROOF : IfcSlabTypeEnum.FLOOR;
+                    s.PredefinedType = IfcSlabTypeEnum.FLOOR;
                     s.ObjectPlacement = placement;
                     s.Representation = Extrude(profile, thickness);
                 });
 
             Contain(slab, product);
             AssignLayers(product, type.Id, type.Structure, flipped: false);
+            AddSlabProperties(product, slab, type);
+        }
 
+        private void AddSlabProperties(IfcElement product, Slab slab, SlabType type) =>
             AddProperties(product, slab, StandardSetFor(slab), new Dictionary<string, IfcValue?>
             {
                 ["Reference"] = Reference(type.TypeMark),
@@ -413,7 +425,145 @@ public static class IfcExport
                     ? new IfcThermalTransmittanceMeasure(type.HeatTransferCoefficient)
                     : null
             });
+
+        /// <summary>
+        /// A roof as IfcRoof, with the shape it came out as recorded on it.
+        ///
+        /// IFC lets a roof be either one entity with a shape of its own or an assembly of the
+        /// parts it is built from, and this uses both: a flat roof is a single solid, while a
+        /// pitched one is an IfcRoof that aggregates one IfcSlab per face. That is what the
+        /// standard asks for and what it means - each face is a real piece of construction
+        /// with its own plane, and only the whole thing is placed on the storey, because a
+        /// part of an aggregate is not separately contained in the building.
+        /// </summary>
+        private void ExportRoof(Roof roof, SlabType type, double thickness)
+        {
+            var surface = roof.Surface(_document);
+            var storey = StoreyOf(roof);
+            var flat = surface.Form == RoofForm.Flat;
+
+            // A flat roof is one solid extruded up from its underside; a pitched one is placed
+            // at its storey and each of its faces carries its own frame.
+            var placement = New<IfcLocalPlacement>(p =>
+            {
+                p.PlacementRelTo = storey?.ObjectPlacement;
+                p.RelativePlacement = Placement(Point3D(0, 0, flat ? roof.HeightOffset : 0));
+            });
+
+            var product = New<IfcRoof>(r =>
+            {
+                r.GlobalId = roof.Id.ToIfc();
+                r.Name = type.Name;
+                r.PredefinedType = RoofTypeOf(roof.Form);
+                r.ObjectPlacement = placement;
+
+                // A flat roof has one plane and no parts worth naming, so it carries its own
+                // body rather than aggregating a single face.
+                if (flat) r.Representation = Extrude(roof.Boundary.ToList(), thickness);
+            });
+
+            if (flat)
+            {
+                AssignLayers(product, type.Id, type.Structure, flipped: false);
+            }
+            else
+            {
+                var storeyElevation = _document.FindLevel(roof.LevelId)?.Elevation ?? 0;
+
+                foreach (var facet in surface.Facets)
+                {
+                    var face = ExportRoofFacet(roof, type, facet, thickness, storeyElevation, storey);
+                    if (face is not null) Aggregate(product, face);
+                }
+            }
+
+            Contain(roof, product);
+            AddSlabProperties(product, roof, type);
         }
+
+        /// <summary>
+        /// One face of a pitched roof: a slab lying in the face's own plane.
+        ///
+        /// The face is placed in a frame of its own - up the slope, along the eave, and square
+        /// out of the surface - and its outline is measured in that frame. Extruding it square
+        /// to the plane is what makes the build-up the thickness a roof is actually specified
+        /// at, rather than the deeper slice a vertical extrusion would give.
+        /// </summary>
+        private IfcSlab? ExportRoofFacet(
+            Roof roof, SlabType type, RoofFacet facet, double thickness,
+            double storeyElevation, IfcBuildingStorey? storey)
+        {
+            if (facet.Outline.Count < 3) return null;
+
+            var plane = facet.Plane;
+            var scale = Math.Sqrt(plane.A * plane.A + plane.B * plane.B + 1);
+
+            // Square out of the surface, pointing up out of the roof.
+            var normal = (X: -plane.A / scale, Y: -plane.B / scale, Z: 1 / scale);
+
+            // Along the eave: the level direction in the plane. A flat face has no slope to
+            // run along, so it takes the X axis.
+            var fall = Math.Sqrt(plane.A * plane.A + plane.B * plane.B);
+            var along = fall > 1e-9
+                ? (X: -plane.B / fall, Y: plane.A / fall, Z: 0.0)
+                : (X: 1.0, Y: 0.0, Z: 0.0);
+
+            // Up the slope, completing the frame: normal × along.
+            var up = (
+                X: normal.Y * along.Z - normal.Z * along.Y,
+                Y: normal.Z * along.X - normal.X * along.Z,
+                Z: normal.X * along.Y - normal.Y * along.X);
+
+            // The face's plane is the roof's underside, so the frame starts on it and the
+            // extrusion runs up out of it by the build-up.
+            var first = facet.Outline[0];
+            var origin = (
+                X: first.X,
+                Y: first.Y,
+                Z: plane.HeightAt(first) - storeyElevation);
+
+            var outline = facet.Outline
+                .Select(point =>
+                {
+                    var dx = point.X - origin.X;
+                    var dy = point.Y - origin.Y;
+                    var dz = plane.HeightAt(point) - storeyElevation - origin.Z;
+
+                    return new Point2D(
+                        dx * along.X + dy * along.Y + dz * along.Z,
+                        dx * up.X + dy * up.Y + dz * up.Z);
+                })
+                .ToList();
+
+            var face = New<IfcSlab>(s =>
+            {
+                s.Name = type.Name;
+                s.PredefinedType = IfcSlabTypeEnum.ROOF;
+                s.ObjectPlacement = New<IfcLocalPlacement>(p =>
+                {
+                    p.PlacementRelTo = storey?.ObjectPlacement;
+                    p.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
+                    {
+                        axis.Location = Point3D(origin.X, origin.Y, origin.Z);
+                        axis.Axis = Direction(normal.X, normal.Y, normal.Z);
+                        axis.RefDirection = Direction(along.X, along.Y, along.Z);
+                    });
+                });
+                s.Representation = Extrude(outline, thickness);
+            });
+
+            AssignLayers(face, type.Id, type.Structure, flipped: false);
+            return face;
+        }
+
+        private static IfcRoofTypeEnum RoofTypeOf(RoofForm form) => form switch
+        {
+            RoofForm.Flat => IfcRoofTypeEnum.FLAT_ROOF,
+            RoofForm.Shed => IfcRoofTypeEnum.SHED_ROOF,
+            RoofForm.Gable => IfcRoofTypeEnum.GABLE_ROOF,
+            RoofForm.Hip => IfcRoofTypeEnum.HIP_ROOF,
+            _ => IfcRoofTypeEnum.FREEFORM
+        };
 
         // ---- doors and windows ---------------------------------------------------
 

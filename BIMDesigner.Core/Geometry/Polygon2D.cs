@@ -76,6 +76,44 @@ public static class Polygon2D
     /// extruded wall. It handles concave outlines, which a fan from the first corner would
     /// not: an L-shaped floor triangulated as a fan grows a triangle across the missing corner.
     /// </summary>
+    /// <summary>
+    /// One outline that goes round a shape and into each of its holes and back, so a shape with
+    /// holes can be cut into triangles by an ear clipper that only knows simple outlines.
+    ///
+    /// Each hole is joined to the outline by a pair of coincident edges - in along one, round
+    /// the hole, and back out along the other. The result has zero width at each join, so it
+    /// encloses exactly the material that is there and nothing more.
+    /// </summary>
+    public static IReadOnlyList<Point2D> BridgeHoles(
+        IReadOnlyList<Point2D> outer, IReadOnlyList<IReadOnlyList<Point2D>> holes)
+    {
+        var ring = outer.ToList();
+
+        // Rightmost first: a hole further right can only be bridged through material that is
+        // still there, and taking them in that order keeps the bridges from crossing.
+        foreach (var hole in holes.Where(hole => hole.Count >= 3)
+                     .OrderByDescending(hole => hole.Max(point => point.X)))
+        {
+            // The hole's rightmost point, and the nearest point of the outline to it.
+            var from = hole.Select((point, index) => (point, index)).OrderByDescending(entry => entry.point.X).First();
+            var onto = ring.Select((point, index) => (point, index))
+                .OrderBy(entry => entry.point.DistanceTo(from.point))
+                .First();
+
+            var bridged = new List<Point2D>(ring.Count + hole.Count + 2);
+            bridged.AddRange(ring.Take(onto.index + 1));
+
+            for (var i = 0; i <= hole.Count; i++) bridged.Add(hole[(from.index + i) % hole.Count]);
+
+            bridged.Add(onto.point);
+            bridged.AddRange(ring.Skip(onto.index + 1));
+
+            ring = bridged;
+        }
+
+        return ring;
+    }
+
     public static IReadOnlyList<(int A, int B, int C)> Triangulate(IReadOnlyList<Point2D> polygon)
     {
         var triangles = new List<(int, int, int)>();

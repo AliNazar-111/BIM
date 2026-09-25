@@ -15,7 +15,7 @@ public sealed record CurtainGrid(IReadOnlyList<double> Verticals, IReadOnlyList<
 /// </summary>
 public readonly record struct CurtainPanelOverride(
     int Column, int Row, CurtainPanelKind Kind, Guid? OpeningTypeId = null, CurtainGlass Glass = CurtainGlass.Clear,
-    bool FlipHand = false, bool FlipFacing = false);
+    bool FlipHand = false, bool FlipFacing = false, bool IsOpen = false);
 
 /// <summary>
 /// One cell of the grid: the lines round it, and the clear opening inside the mullions that
@@ -25,7 +25,7 @@ public sealed record CurtainCell(
     int Column, int Row, double From, double To, double Bottom, double Top,
     double ClearFrom, double ClearTo, double ClearBottom, double ClearTop, CurtainPanelKind Kind,
     Guid? OpeningTypeId = null, CurtainGlass Glass = CurtainGlass.Clear,
-    bool FlipHand = false, bool FlipFacing = false);
+    bool FlipHand = false, bool FlipFacing = false, bool IsOpen = false);
 
 /// <summary>
 /// One straight piece of mullion, as the box it fills in the wall's elevation: along the wall
@@ -85,7 +85,7 @@ public sealed class CurtainLayout
         get
         {
             var panels = Cells
-                .Where(c => c.Kind is CurtainPanelKind.Glazed or CurtainPanelKind.Solid or CurtainPanelKind.Door or CurtainPanelKind.Window)
+                .Where(c => c.Kind is CurtainPanelKind.Glazed or CurtainPanelKind.Solid or CurtainPanelKind.Door)
                 .Sum(c => Math.Max(0, c.ClearTo - c.ClearFrom) * Math.Max(0, c.ClearTop - c.ClearBottom)) * Type.PanelThickness;
 
             var section = Type.MullionProfile == MullionProfile.Circular
@@ -152,7 +152,8 @@ public sealed class CurtainLayout
                 overrides.TryGetValue((c, r), out var panel) ? panel.OpeningTypeId : null,
                 overrides.TryGetValue((c, r), out var pane) ? pane.Glass : glazing,
                 overrides.TryGetValue((c, r), out var hung) && hung.FlipHand,
-                overrides.TryGetValue((c, r), out var faced) && faced.FlipFacing));
+                overrides.TryGetValue((c, r), out var faced) && faced.FlipFacing,
+                overrides.TryGetValue((c, r), out var swung) && swung.IsOpen));
         }
 
         var mullions = new List<CurtainMullion>();

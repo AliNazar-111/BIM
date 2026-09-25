@@ -27,7 +27,7 @@ public abstract class Slab : Element
     /// </summary>
     public double HeightOffset { get; set; }
 
-    public void SetBoundary(IEnumerable<Point2D> points)
+    public virtual void SetBoundary(IEnumerable<Point2D> points)
     {
         _boundary.Clear();
         _boundary.AddRange(points);
@@ -37,11 +37,11 @@ public abstract class Slab : Element
     }
 
     /// <summary>The slab's upper surface, in project elevation: what a wall stands on.</summary>
-    public double GetTopElevation(BimDocument document) =>
+    public virtual double GetTopElevation(BimDocument document) =>
         (document.FindLevel(LevelId)?.Elevation ?? 0) + HeightOffset;
 
     /// <summary>The slab's underside, in project elevation: what a wall reaches up to.</summary>
-    public double GetBottomElevation(BimDocument document) =>
+    public virtual double GetBottomElevation(BimDocument document) =>
         GetTopElevation(document) - (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
     /// <summary>Plan area in mm². The quantity a finishes or takeoff schedule reports.</summary>
@@ -54,7 +54,7 @@ public abstract class Slab : Element
     public bool Contains(Point2D point) => Polygon2D.Contains(_boundary, point);
 
     /// <summary>Volume in mm³, from the plan area and the type's build-up thickness.</summary>
-    public double GetVolume(BimDocument document) =>
+    public virtual double GetVolume(BimDocument document) =>
         Area * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
@@ -81,8 +81,13 @@ public abstract class Slab : Element
         yield return ParameterValue.ReadOnly(SlabParameters.Volume, () => GetVolume(document));
         yield return ParameterValue.ReadOnly(SlabParameters.Vertices, () => Boundary.Count);
 
+        foreach (var parameter in ExtraParameters(document)) yield return parameter;
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
+
+    /// <summary>What a particular kind of slab adds to the panel - for a roof, its shape and pitch.</summary>
+    protected virtual IEnumerable<ParameterValue> ExtraParameters(BimDocument document) =>
+        Array.Empty<ParameterValue>();
 }
 
 /// <summary>A floor slab (specification section 3.2).</summary>
@@ -97,17 +102,6 @@ public sealed class Ceiling : Slab
     public override BuiltInCategory Category => BuiltInCategory.Ceilings;
 }
 
-/// <summary>
-/// A flat roof (specification section 3.3).
-///
-/// Pitched roofs - slopes per edge, hips, valleys, dormers - are a different problem and are
-/// not here. A flat roof is genuinely a slab; calling a pitched one a slab would be a lie
-/// that every quantity downstream would inherit.
-/// </summary>
-public sealed class Roof : Slab
-{
-    public override BuiltInCategory Category => BuiltInCategory.Roofs;
-}
 
 public static class SlabParameters
 {

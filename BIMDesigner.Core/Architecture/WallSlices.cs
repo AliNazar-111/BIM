@@ -61,8 +61,21 @@ public static class WallSlices
         var cutFrom = givenFrom ?? (from <= WallJoins.JoinTolerance ? startCut : JambAt(wall, type, from));
         var cutTo = givenTo ?? (to >= wall.Length - WallJoins.JoinTolerance ? endCut : JambAt(wall, type, to));
 
+        // A return needs wall to turn in. A stretch cut short by a doorway or by a heavier wall
+        // crossing it can be shorter than the layers that wrap, and the return would then fold
+        // back through it, so such a stretch is cut straight across instead.
+        cutFrom = Turns(type, cutFrom, to - from) ? cutFrom : cutFrom.Unwrapped();
+        cutTo = Turns(type, cutTo, to - from) ? cutTo : cutTo.Unwrapped();
+
         return IsInsideOut(wall, type, cutFrom, cutTo) ? null : new WallSlice(from, to, cutFrom, cutTo);
     }
+
+    /// <summary>Whether a stretch this long has room for the return this cut asks for.</summary>
+    private static bool Turns(WallType type, WallCut cut, double length) =>
+        cut.Wrapping == WallWrapping.None ||
+        length >= 2 * (cut.Wrapping == WallWrapping.Interior
+            ? type.Structure.InteriorWidth
+            : type.Structure.ExteriorWidth);
 
     /// <summary>
     /// Every solid stretch of the wall, with its doors and windows taken out and any heavier
@@ -71,7 +84,15 @@ public static class WallSlices
     public static IReadOnlyList<WallSlice> Solid(BimDocument document, Wall wall, WallType type)
     {
         var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
-        var crossings = WallJoins.Crossings(document, wall, type);
+
+        // A heavier wall crossing it cuts through, and so does an architectural column engaged
+        // in it: both are construction the wall stops against, and the wall's layers wrap at
+        // the sides of either.
+        var crossings = WallJoins.Crossings(document, wall, type)
+            .Concat(ColumnJoins.Crossings(document, wall, type))
+            .OrderBy(crossing => crossing.From)
+            .ToList();
+
         var slices = new List<WallSlice>();
 
         void Add(double from, double to, WallCut? cutFrom, WallCut? cutTo)

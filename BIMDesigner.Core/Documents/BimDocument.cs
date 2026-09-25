@@ -158,13 +158,23 @@ public sealed class BimDocument
         // has walls but no curtain wall types to draw one with.
         var hasCurtain = _types.Values.OfType<CurtainWallType>().Any();
 
-        // Curtain wall doors share their category with doors, in the same way.
-        var hasCurtainDoor = _types.Values.OfType<DoorType>().Any(door => door.CurtainPanel);
+        // Doors and windows are the library a project draws from, and that library grows: a
+        // project made before sliding windows or curtain wall doors existed should still be
+        // able to place one. They come in by name, so a project keeps its own types and gains
+        // only what it has never had.
+        var known = _types.Values.OfType<OpeningType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Component families are a library in the same way, and one that grows: a project made
+        // before a family existed should still be able to place it, while keeping its own.
+        var families = _types.Values.OfType<ComponentType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var columnTypes = _types.Values.OfType<ColumnType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var type in template.ElementTypes.Where(type => type switch
                  {
                      CurtainWallType => !hasCurtain,
-                     DoorType { CurtainPanel: true } => !hasCurtainDoor,
+                     OpeningType opening => !known.Contains(opening.Name),
+                     ComponentType component => !families.Contains(component.Name),
+                     ColumnType column => !columnTypes.Contains(column.Name),
                      _ => !present.Contains(type.Category)
                  }))
         {
@@ -184,6 +194,7 @@ public sealed class BimDocument
         WallType wall => wall.Structure.Layers.Select(layer => layer.MaterialId),
         CurtainWallType curtain => new[] { curtain.GlassMaterialId, curtain.SolidMaterialId, curtain.MullionMaterialId },
         WallSweepType sweep => new[] { sweep.MaterialId },
+        ColumnType column => new[] { column.MaterialId },
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
         _ => Array.Empty<Guid>()
     };
@@ -289,7 +300,11 @@ public sealed class BimDocument
             ThermalResistance = 2.85,
             HeatTransferCoefficient = 0.32,
             Cost = 165m,
-            CoarseScaleFillColour = ColourRgb.FromHex("A8846E")
+            CoarseScaleFillColour = ColourRgb.FromHex("A8846E"),
+
+            // The brick returns round an exposed end, as brickwork does, rather than leaving
+            // the cavity and the blockwork on show at a corner.
+            WrapAtEnds = WallWrapping.Exterior
         };
 
         // Lightweight partition: board, stud zone, board.
@@ -304,7 +319,10 @@ public sealed class BimDocument
             FireRating = "30 min",
             AcousticRating = 38,
             Cost = 48m,
-            CoarseScaleFillColour = ColourRgb.FromHex("BFBAAE")
+            CoarseScaleFillColour = ColourRgb.FromHex("BFBAAE"),
+
+            // The board returns round an end rather than showing the stud zone.
+            WrapAtEnds = WallWrapping.Exterior
         };
 
         // Doors and windows, sized to the metric ranges used on drawings.
@@ -738,6 +756,139 @@ public sealed class BimDocument
         };
         var reveal = new WallSweepType("Reveal - 20 x 20", SweepKind.Reveal) { Depth = 20, Height = 20, MaterialId = brick.Id };
         var shadowGap = new WallSweepType("Shadow Gap - 10 x 10", SweepKind.Reveal) { Depth = 10, Height = 10, MaterialId = plaster.Id };
+
+        // Architectural columns: the box-out round a structural column, and the pier or pilaster
+        // that is there to be seen. Square, round and the corner one that tucks into a room.
+        var columns = new[]
+        {
+            new ColumnType("Column - 300 x 300", ColumnShape.Rectangular, 300, 300)
+                { TypeMark = "AC1", MaterialId = block.Id, Cost = 140m },
+            new ColumnType("Column - 450 x 450", ColumnShape.Rectangular, 450, 450)
+                { TypeMark = "AC2", MaterialId = block.Id, Cost = 190m },
+            new ColumnType("Column - 300 x 600", ColumnShape.Rectangular, 300, 600)
+                { TypeMark = "AC3", MaterialId = block.Id, Cost = 210m },
+            new ColumnType("Column - Round 400", ColumnShape.Round, 400, 400)
+                { TypeMark = "AC4", MaterialId = concrete.Id, Cost = 230m },
+            new ColumnType("Column - Corner 400", ColumnShape.LShaped, 400, 400)
+                { TypeMark = "AC5", MaterialId = block.Id, Cost = 175m },
+            new ColumnType("Column - Oval 500 x 350", ColumnShape.Round, 500, 350)
+                { TypeMark = "AC6", MaterialId = concrete.Id, Cost = 250m },
+            new ColumnType("Column - Hexagonal 400", ColumnShape.Hexagonal, 400, 400)
+                { TypeMark = "AC7", MaterialId = concrete.Id, Cost = 215m },
+            new ColumnType("Column - Octagonal 400", ColumnShape.Octagonal, 400, 400)
+                { TypeMark = "AC8", MaterialId = concrete.Id, Cost = 225m },
+            new ColumnType("Column - Triangular 450", ColumnShape.Triangular, 450, 450)
+                { TypeMark = "AC9", MaterialId = block.Id, Cost = 185m },
+
+            // Shaped columns: the same section, told what to do on the way up. Each is a set of
+            // numbers rather than a shape of its own, so changing a height regenerates it.
+            new ColumnType("Column - Tapered 500 to 350", ColumnShape.Round, 500, 500)
+            {
+                TypeMark = "AC10", MaterialId = concrete.Id, Cost = 290m,
+                Shaping = { TopScale = 0.7 }
+            },
+            new ColumnType("Column - Twisted 400", ColumnShape.Rectangular, 400, 400)
+            {
+                TypeMark = "AC11", MaterialId = concrete.Id, Cost = 340m,
+                Shaping = { Twist = 90 }
+            },
+            new ColumnType("Column - Slanted 400", ColumnShape.Rectangular, 400, 400)
+            {
+                TypeMark = "AC12", MaterialId = concrete.Id, Cost = 320m,
+                Shaping = { SlantAcross = 600 }
+            },
+
+            // Classical orders, as parameters: a plinth, a fluted and tapered shaft, a capital.
+            new ColumnType("Column - Tuscan 450", ColumnShape.Round, 450, 450)
+            {
+                TypeMark = "CL1", MaterialId = plaster.Id, Cost = 480m,
+                Shaping = { TopScale = 0.84, BaseHeight = 220, BaseSpread = 0.2, CapitalHeight = 220, CapitalSpread = 0.24 }
+            },
+            new ColumnType("Column - Doric 500", ColumnShape.Round, 500, 500)
+            {
+                TypeMark = "CL2", MaterialId = plaster.Id, Cost = 620m,
+                Shaping =
+                {
+                    TopScale = 0.8, Flutes = 20, FluteDepth = 26,
+                    BaseHeight = 180, BaseSpread = 0.16, CapitalHeight = 260, CapitalSpread = 0.28
+                }
+            },
+            new ColumnType("Column - Ionic 500", ColumnShape.Round, 500, 500)
+            {
+                TypeMark = "CL3", MaterialId = plaster.Id, Cost = 760m,
+                Shaping =
+                {
+                    TopScale = 0.82, Flutes = 24, FluteDepth = 22,
+                    BaseHeight = 300, BaseSpread = 0.22, CapitalHeight = 320, CapitalSpread = 0.34
+                }
+            }
+        };
+
+        foreach (var column in columns) document.AddType(column);
+
+        // The component families a project starts with: the furniture, casework, sanitaryware
+        // and planting a plan is laid out with. Most stand on a level; a wall cabinet or a wall
+        // light is fixed to a face, and can be moved to another with Pick New Host.
+        var timber = new ColourRgb(0xB4, 0x9A, 0x74);
+        var fabric = new ColourRgb(0x7F, 0x86, 0x92);
+        var white = new ColourRgb(0xEC, 0xEE, 0xF0);
+        var foliage = new ColourRgb(0x5E, 0x8C, 0x4E);
+
+        var components = new[]
+        {
+            new ComponentType("Desk - 1500 x 750", BuiltInCategory.Furniture, ComponentForm.Desk, 1500, 750, 750)
+                { TypeMark = "F1", Colour = timber, Cost = 240m },
+            new ComponentType("Table - Dining 1800 x 900", BuiltInCategory.Furniture, ComponentForm.Table, 1800, 900, 750)
+                { TypeMark = "F2", Colour = timber, Cost = 380m },
+            new ComponentType("Chair - Dining", BuiltInCategory.Furniture, ComponentForm.Chair, 450, 500, 900)
+                { TypeMark = "F3", Colour = timber, Cost = 85m },
+            new ComponentType("Chair - Desk", BuiltInCategory.Furniture, ComponentForm.Chair, 600, 600, 950)
+                { TypeMark = "F4", Colour = fabric, Cost = 150m },
+            new ComponentType("Sofa - Two Seat", BuiltInCategory.Furniture, ComponentForm.Sofa, 1600, 850, 800)
+                { TypeMark = "F5", Colour = fabric, Cost = 620m },
+            new ComponentType("Bed - Double", BuiltInCategory.Furniture, ComponentForm.Bed, 1500, 2000, 900)
+                { TypeMark = "F6", Colour = fabric, Cost = 540m },
+            new ComponentType("Bed - Single", BuiltInCategory.Furniture, ComponentForm.Bed, 900, 1900, 900)
+                { TypeMark = "F7", Colour = fabric, Cost = 380m },
+            new ComponentType("Bookcase - 900 x 1800", BuiltInCategory.Furniture, ComponentForm.Shelving, 900, 300, 1800)
+                { TypeMark = "F8", Colour = timber, Cost = 210m },
+
+            new ComponentType("Counter - Kitchen 1800", BuiltInCategory.Casework, ComponentForm.Counter, 1800, 650, 900)
+                { TypeMark = "C1", Colour = timber, Cost = 460m },
+            new ComponentType("Base Unit - 600", BuiltInCategory.Casework, ComponentForm.Counter, 600, 600, 900)
+                { TypeMark = "C2", Colour = timber, Cost = 180m },
+            new ComponentType("Wall Unit - 600", BuiltInCategory.Casework, ComponentForm.Shelving, 600, 350, 700)
+            {
+                TypeMark = "C3", Colour = timber, Cost = 160m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1400
+            },
+
+            new ComponentType("Basin - Pedestal", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 450, 850)
+                { TypeMark = "P1", Colour = white, Cost = 190m },
+            new ComponentType("Basin - Wall Hung", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 420, 300)
+            {
+                TypeMark = "P2", Colour = white, Cost = 210m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 800
+            },
+            new ComponentType("WC - Close Coupled", BuiltInCategory.PlumbingFixtures, ComponentForm.Toilet, 380, 680, 780)
+                { TypeMark = "P3", Colour = white, Cost = 260m },
+            new ComponentType("Bath - 1700 x 700", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1700, 700, 550)
+                { TypeMark = "P4", Colour = white, Cost = 340m },
+
+            new ComponentType("Wall Light", BuiltInCategory.LightingFixtures, ComponentForm.WallLight, 300, 140, 320)
+            {
+                TypeMark = "L1", Colour = white, Cost = 75m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2000
+            },
+
+            new ComponentType("Tree - Small", BuiltInCategory.Planting, ComponentForm.Tree, 2400, 2400, 4000)
+                { TypeMark = "T1", Colour = foliage, Cost = 260m },
+
+            new ComponentType("Generic - 600 Cube", BuiltInCategory.GenericModels, ComponentForm.Box, 600, 600, 600)
+                { TypeMark = "G1", Cost = 0m }
+        };
+
+        foreach (var component in components) document.AddType(component);
 
         foreach (var type in new ElementType[]
                  {

@@ -91,6 +91,16 @@ public partial class MainWindow : Window
 
         // Clicking something in 3D selects it everywhere, so its properties can be edited
         // without leaving the view it was found in.
+        // Right-clicking something in 3D asks what to do with it, the same menu the plan gives.
+        Model3D.ElementMenuRequested += (_, id) =>
+        {
+            var picked = _document.Elements.FirstOrDefault(e => e.Id == id) ?? CurtainPanel.Find(_document, id);
+            if (picked is null) return;
+
+            Plan.Select(picked);
+            Plan.ShowMenuFor(picked, Model3D);
+        };
+
         Model3D.ElementClicked += (_, hit) =>
         {
             // A door or window tool active: a click on a wall in 3D puts one in it, at the
@@ -127,6 +137,33 @@ public partial class MainWindow : Window
             _history.Record(new MoveViewportCommand(moved.Viewport, moved.From, moved.To));
         Plan.ViewChanged += (_, _) => RefreshStatus();
         Plan.HintChanged += (_, hint) => StatusHint.Text = hint;
+
+        // Pick New offers its Placement choice only while it is waiting for a host, as Revit's
+        // Placement panel appears only for the length of the move.
+        Plan.PickNewHostChanged += (_, _) => ShowOptionsForActiveTool();
+        Plan.SketchChanged += (_, _) =>
+        {
+            RefreshRoofSketch();
+            CommandManager.InvalidateRequerySuggested();
+        };
+
+        // A roof made from picked walls: ask, as Revit does, whether those walls should rise to
+        // meet it. Yes is what closes the gable ends.
+        Plan.RoofMadeFromWalls += (_, roof) =>
+        {
+            var answer = MessageBox.Show(this,
+                "Attach the walls this roof was picked from to it?\n\nTheir tops then follow the roof's underside - which closes the gable ends - and keep following it when it changes.",
+                "Roof", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+
+            if (answer == MessageBoxResult.Yes && Plan.AttachPickedWalls(roof) > 0)
+            {
+                RefreshProperties();
+                Refresh3D();
+            }
+        };
+
+        // Attach Top/Base offers its style and offset only while it waits for a target.
+        Plan.AttachColumnsChanged += (_, _) => ShowOptionsForActiveTool();
         Plan.ModelChanged += (_, _) =>
         {
             RefreshProjectBrowser();
@@ -203,6 +240,11 @@ public partial class MainWindow : Window
         _history = new UndoStack();
         _history.Changed += (_, _) =>
         {
+            // Roof edges picked off walls go wherever their walls now are - after a move, a
+            // change of type, an undo. Worked out afresh rather than carried by each command,
+            // so no way of moving a wall can leave its roof behind.
+            if (RoofSketch.FollowWalls(_document)) Plan.RefreshModel();
+
             RefreshTitle();
             CommandManager.InvalidateRequerySuggested();
 
@@ -272,6 +314,32 @@ public partial class MainWindow : Window
         WindowTypePicker.ItemsSource = windowTypes;
         WindowTypePicker.SelectedItem = windowTypes.FirstOrDefault();
 
+        var families = _document.TypesOf<ComponentType>()
+            .OrderBy(t => t.Kind.ToString())
+            .ThenBy(t => t.Name)
+            .Select(t => new ComponentFamilyChoice(t))
+            .ToList();
+
+        ComponentTypePicker.ItemsSource = families;
+        ComponentTypePicker.SelectedItem = families.FirstOrDefault();
+
+        var columnTypes = _document.TypesOf<ColumnType>().OrderBy(t => t.Name).ToList();
+        ColumnTypePicker.ItemsSource = columnTypes;
+        ColumnTypePicker.SelectedItem = columnTypes.FirstOrDefault();
+
+        // Height first, as Revit's option bar has it - a column is usually going up.
+        ColumnDirectionPicker.ItemsSource = new[] { "Height", "Depth" };
+        ColumnDirectionPicker.SelectedIndex = 0;
+
+        ColumnLevelPicker.ItemsSource = new object[] { "Unconnected" }.Concat(_document.Levels).ToList();
+        ColumnLevelPicker.SelectedIndex = 0;
+
+        ColumnAttachmentStylePicker.ItemsSource = EnumText.Choices<ColumnAttachmentStyle>();
+        ColumnAttachmentStylePicker.SelectedIndex = 0;
+
+        PickNewHostModePicker.ItemsSource = EnumText.Choices<ComponentPlacementMode>();
+        PickNewHostModePicker.SelectedItem = EnumText.Humanise(ComponentPlacementMode.Face);
+
         LevelPicker.ItemsSource = _document.Levels;
         LevelPicker.SelectedItem = _document.Levels.FirstOrDefault();
 
@@ -292,6 +360,8 @@ public partial class MainWindow : Window
         Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as ElementType)?.Id ?? Guid.Empty;
         Plan.ActiveDoorTypeId = doorTypes.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveWindowTypeId = windowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
+        Plan.ActiveComponentTypeId = (ComponentTypePicker.SelectedItem as ComponentFamilyChoice)?.Type.Id ?? Guid.Empty;
+        Plan.ActiveColumnTypeId = (ColumnTypePicker.SelectedItem as ColumnType)?.Id ?? Guid.Empty;
         Plan.ActiveFloorTypeId = _document.TypesOf<FloorType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveCeilingTypeId = _document.TypesOf<CeilingType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveRoofTypeId = _document.TypesOf<RoofType>().FirstOrDefault()?.Id ?? Guid.Empty;
@@ -325,6 +395,8 @@ public partial class MainWindow : Window
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
 
+        PickNewHostOptions.Visibility = Plan.PickingNewHost ? Visibility.Visible : Visibility.Collapsed;
+        AttachColumnOptions.Visibility = Plan.AttachingColumns ? Visibility.Visible : Visibility.Collapsed;
         OffsetOptions.Visibility = tool == PlanTool.Offset ? Visibility.Visible : Visibility.Collapsed;
         WallDrawOptions.Visibility = tool == PlanTool.Wall ? Visibility.Visible : Visibility.Collapsed;
         MirrorOptions.Visibility = tool == PlanTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
@@ -338,13 +410,19 @@ public partial class MainWindow : Window
         var selecting = tool == PlanTool.Select;
         ModifyCaption.Visibility = selecting ? Visibility.Visible : Visibility.Collapsed;
 
-        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window || isSlab || isSweep || typeless || selecting
+        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.Component or PlanTool.Column || isSlab || isSweep || typeless || selecting
             ? Visibility.Collapsed : Visibility.Visible;
         TypeLabel.Visibility = typeless || selecting ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
         TagOnPlacementBox.Visibility = tool is PlanTool.Door or PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
         WindowTypePicker.Visibility = tool == PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
+        ComponentTypePicker.Visibility = tool == PlanTool.Component ? Visibility.Visible : Visibility.Collapsed;
+        ColumnTypePicker.Visibility = ColumnOptions.Visibility =
+            tool == PlanTool.Column ? Visibility.Visible : Visibility.Collapsed;
         SlabTypePicker.Visibility = isSlab ? Visibility.Visible : Visibility.Collapsed;
+        RoofOptions.Visibility = tool == PlanTool.Roof ? Visibility.Visible : Visibility.Collapsed;
+
+        if (tool == PlanTool.Roof) ShowRoofSketchOptions();
 
         if (isSlab)
         {
@@ -403,6 +481,233 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null || SweepTypePicker.SelectedItem is not WallSweepType type) return;
         if (type.Kind == SweepKind.Sweep) Plan.ActiveSweepTypeId = type.Id;
         else Plan.ActiveRevealTypeId = type.Id;
+    }
+
+    // ---- roof sketch ------------------------------------------------------------
+
+    /// <summary>
+    /// Shows the roof sketch's tab and options bar while a sketch is open, and puts the window
+    /// back when it closes. The options show the selected lines' settings when there are any -
+    /// the same controls set up new lines and change existing ones, as Revit's do.
+    /// </summary>
+    private void RefreshRoofSketch()
+    {
+        var sketching = Plan.IsSketching;
+
+        if (sketching)
+        {
+            if (RoofSketchTab.Visibility != Visibility.Visible)
+            {
+                _tabBeforeRoofSketch = Ribbon.SelectedItem as TabItem;
+                RoofSketchTab.Visibility = Visibility.Visible;
+            }
+
+            RoofSketchTab.Header = Plan.SketchedRoof is null ? "Modify | Create Roof Footprint" : "Modify | Roofs > Edit Footprint";
+            ContextTab.Visibility = Visibility.Collapsed;
+            Ribbon.SelectedItem = RoofSketchTab;
+
+            RoofSketchPickWalls.IsChecked = Plan.SketchTool == RoofSketchTool.PickWalls;
+            RoofSketchLine.IsChecked = Plan.SketchTool == RoofSketchTool.Line;
+            RoofSketchRectangle.IsChecked = Plan.SketchTool == RoofSketchTool.Rectangle;
+            RoofSketchPolygon.IsChecked = Plan.SketchTool == RoofSketchTool.Polygon;
+            RoofSketchModify.IsChecked = Plan.SketchTool == RoofSketchTool.Modify;
+
+            if (RoofTool.IsChecked != true)
+            {
+                _loadingOptions = true;
+                RoofTool.IsChecked = true;
+                _loadingOptions = false;
+            }
+
+            ShowRoofSketchOptions();
+            return;
+        }
+
+        if (RoofSketchTab.Visibility == Visibility.Visible)
+        {
+            var wasOpen = ReferenceEquals(Ribbon.SelectedItem, RoofSketchTab);
+            RoofSketchTab.Visibility = Visibility.Collapsed;
+            if (wasOpen)
+                Ribbon.SelectedItem = _tabBeforeRoofSketch is { Visibility: Visibility.Visible } before ? before : Ribbon.Items[0];
+        }
+
+        // The sketch finishing or being cancelled leaves the Select tool on in the plan; the
+        // ribbon follows it.
+        if (Plan.ActiveTool == PlanTool.Select && RoofTool.IsChecked == true)
+        {
+            _loadingOptions = true;
+            SelectTool.IsChecked = true;
+            _loadingOptions = false;
+            ShowOptionsForActiveTool();
+        }
+    }
+
+    private TabItem? _tabBeforeRoofSketch;
+
+    private void ShowRoofSketchOptions()
+    {
+        _loadingOptions = true;
+
+        // With lines selected, the bar shows theirs; otherwise what new lines will be.
+        var selected = Plan.SelectedSketchLines;
+        var first = selected.FirstOrDefault()?.Edge;
+
+        RoofDefinesSlopeBox.IsChecked = first?.DefinesSlope ?? Plan.SketchDefinesSlope;
+        RoofSlopeBox.Text = ParameterFormatter.Format(ParameterDataType.Angle, first?.SlopeDegrees ?? Plan.ActiveRoofSlopeDegrees);
+        RoofOverhangBox.Text = Units.FormatLength(first?.Overhang ?? Plan.SketchOverhang);
+        RoofExtendToCoreBox.IsChecked = first?.ExtendToCore ?? Plan.SketchExtendToCore;
+        RoofSidesBox.Text = Plan.PolygonSides.ToString();
+
+        // Overhang belongs to lines on walls; sides to polygons.
+        var picking = Plan.SketchTool == RoofSketchTool.PickWalls || selected.Any(line => line.Edge.WallId is not null);
+        RoofOverhangLabel.Visibility = RoofOverhangBox.Visibility = RoofExtendToCoreBox.Visibility =
+            picking ? Visibility.Visible : Visibility.Collapsed;
+        RoofSidesLabel.Visibility = RoofSidesBox.Visibility =
+            Plan.SketchTool == RoofSketchTool.Polygon ? Visibility.Visible : Visibility.Collapsed;
+
+        _loadingOptions = false;
+    }
+
+    private void OnRoofSketchTool(object sender, RoutedEventArgs e)
+    {
+        if (Plan is null || sender is not RadioButton { CommandParameter: string name }) return;
+        if (Enum.TryParse<RoofSketchTool>(name, out var tool)) Plan.SketchTool = tool;
+        Plan.Focus();
+    }
+
+    private void OnFinishRoofSketch(object sender, RoutedEventArgs e)
+    {
+        if (Plan.FinishSketch()) AfterRoofSketch();
+        Plan.Focus();
+    }
+
+    private void OnCancelRoofSketch(object sender, RoutedEventArgs e)
+    {
+        Plan.CancelSketch();
+        AfterRoofSketch();
+    }
+
+    private void AfterRoofSketch()
+    {
+        RefreshProperties();
+        RefreshProjectBrowser();
+        Refresh3D();
+    }
+
+    private void OnDeleteSketchLines(object sender, RoutedEventArgs e) => Plan.DeleteSelectedSketchLines();
+
+    private void OnEditRoofFootprint(object sender, RoutedEventArgs e)
+    {
+        Plan.EditFootprint();
+        Plan.Focus();
+    }
+
+    /// <summary>
+    /// Leaving a roof sketch for another tool: Revit will not let a sketch be abandoned by
+    /// accident, and neither does this. Finish, throw it away, or stay.
+    /// </summary>
+    private bool LeaveRoofSketch()
+    {
+        if (!Plan.IsSketching) return true;
+
+        var answer = MessageBox.Show(this,
+            "Finish the roof sketch before switching tools?\n\nYes makes the roof, No throws the sketch away, Cancel keeps sketching.",
+            "Roof sketch", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+        switch (answer)
+        {
+            case MessageBoxResult.Yes:
+                if (!Plan.FinishSketch()) return false;
+                AfterRoofSketch();
+                return true;
+
+            case MessageBoxResult.No:
+                Plan.CancelSketch();
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private void OnRoofDefinesSlopeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        var slopes = RoofDefinesSlopeBox.IsChecked == true;
+        if (!Plan.ChangeSelectedSketchLines(edge => edge.DefinesSlope = slopes)) Plan.SketchDefinesSlope = slopes;
+        Plan.Focus();
+    }
+
+    private void OnRoofSlopeChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Angle, RoofSlopeBox.Text, out var value) &&
+            value is double degrees && degrees > 0 && degrees < 90)
+        {
+            if (!Plan.ChangeSelectedSketchLines(edge => edge.SlopeDegrees = degrees)) Plan.ActiveRoofSlopeDegrees = degrees;
+        }
+
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofSlopeKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnRoofSlopeChanged(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnRoofOverhangChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofOverhangBox.Text, out var value) &&
+            value is double millimetres && millimetres >= 0)
+        {
+            if (!Plan.ChangeSelectedSketchLines(edge => { if (edge.WallId is not null) edge.Overhang = millimetres; }))
+                Plan.SketchOverhang = millimetres;
+        }
+
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofOverhangKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnRoofOverhangChanged(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnRoofExtendToCoreChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        var toCore = RoofExtendToCoreBox.IsChecked == true;
+        if (!Plan.ChangeSelectedSketchLines(edge => { if (edge.WallId is not null) edge.ExtendToCore = toCore; }))
+            Plan.SketchExtendToCore = toCore;
+        Plan.Focus();
+    }
+
+    private void OnRoofSidesChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (int.TryParse(RoofSidesBox.Text, out var sides))
+            Plan.PolygonSides = Math.Clamp(sides, WallShapes.MinSides, WallShapes.MaxSides);
+
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofSidesKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnRoofSidesChanged(sender, e);
+        e.Handled = true;
     }
 
     private void OnSweepPlacementChanged(object sender, SelectionChangedEventArgs e)
@@ -579,18 +884,38 @@ public partial class MainWindow : Window
 
     private void OnUndo(object sender, ExecutedRoutedEventArgs e)
     {
+        // In a sketch, undo takes back the last line: the model is not being changed yet.
+        if (Plan.IsSketching)
+        {
+            Plan.UndoSketch();
+            return;
+        }
+
         _history.Undo();
         AfterHistoryChange();
     }
 
     private void OnRedo(object sender, ExecutedRoutedEventArgs e)
     {
+        if (Plan.IsSketching)
+        {
+            Plan.RedoSketch();
+            return;
+        }
+
         _history.Redo();
         AfterHistoryChange();
     }
 
     private void OnCanUndo(object sender, CanExecuteRoutedEventArgs e)
     {
+        if (Plan?.IsSketching == true)
+        {
+            e.CanExecute = Plan.CanUndoSketch;
+            if (UndoItem is not null) UndoItem.Header = "_Undo Sketch Line";
+            return;
+        }
+
         e.CanExecute = _history.CanUndo;
         if (UndoItem is not null)
             UndoItem.Header = _history.CanUndo ? $"_Undo {_history.UndoName}" : "_Undo";
@@ -598,15 +923,26 @@ public partial class MainWindow : Window
 
     private void OnCanRedo(object sender, CanExecuteRoutedEventArgs e)
     {
+        if (Plan?.IsSketching == true)
+        {
+            e.CanExecute = Plan.CanRedoSketch;
+            if (RedoItem is not null) RedoItem.Header = "_Redo Sketch Line";
+            return;
+        }
+
         e.CanExecute = _history.CanRedo;
         if (RedoItem is not null)
             RedoItem.Header = _history.CanRedo ? $"_Redo {_history.RedoName}" : "_Redo";
     }
 
-    private void OnDeleteSelected(object sender, ExecutedRoutedEventArgs e) => Plan.DeleteSelected();
+    private void OnDeleteSelected(object sender, ExecutedRoutedEventArgs e)
+    {
+        if (Plan.IsSketching) Plan.DeleteSelectedSketchLines();
+        else Plan.DeleteSelected();
+    }
 
     private void OnCanDelete(object sender, CanExecuteRoutedEventArgs e) =>
-        e.CanExecute = Plan?.SelectedElement is not null;
+        e.CanExecute = Plan?.IsSketching == true ? Plan.SelectedSketchLines.Count > 0 : Plan?.SelectedElement is not null;
 
     /// <summary>
     /// An undo may have removed the selected element or changed values the panel is showing,
@@ -635,7 +971,7 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, FloorTool, CeilingTool, RoofTool, GridTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, WallOpeningTool
     ];
@@ -654,11 +990,26 @@ public partial class MainWindow : Window
                 other.IsChecked = false;
         }
 
+        // The ribbon being brought into line with the plan, not a tool being chosen.
+        if (_loadingOptions) return;
+
+        // Picking another tool with a roof sketch open asks what to do with the sketch first.
+        if (Plan.IsSketching && RoofTool.IsChecked != true && !LeaveRoofSketch())
+        {
+            _loadingOptions = true;
+            foreach (var other in ToolButtons().Where(button => button is not null)) other.IsChecked = false;
+            RoofTool.IsChecked = true;
+            _loadingOptions = false;
+            return;
+        }
+
         Plan.SetTool(
             WallTool.IsChecked == true ? PlanTool.Wall
             : DoorTool.IsChecked == true ? PlanTool.Door
             : WindowTool.IsChecked == true ? PlanTool.Window
             : RoomTool.IsChecked == true ? PlanTool.Room
+            : ComponentTool.IsChecked == true ? PlanTool.Component
+            : ColumnTool.IsChecked == true ? PlanTool.Column
             : FloorTool.IsChecked == true ? PlanTool.Floor
             : CeilingTool.IsChecked == true ? PlanTool.Ceiling
             : RoofTool.IsChecked == true ? PlanTool.Roof
@@ -714,6 +1065,14 @@ public partial class MainWindow : Window
     {
         base.OnPreviewKeyDown(e);
 
+        // In a roof sketch, TAB widens a wall pick to the whole chain of joined walls.
+        if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None && Plan.IsSketching &&
+            Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem) && Plan.SketchTab())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // TAB over the plan steps through what is under the cursor, as in Revit, rather than
         // moving the keyboard focus to the next control.
         if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None && Plan.IsMouseOver &&
@@ -723,16 +1082,41 @@ public partial class MainWindow : Window
             return;
         }
 
+        // The arrow keys nudge the selection, as Revit's do. They are taken on the way down
+        // because WPF would otherwise spend them moving the keyboard focus from one control to
+        // the next - the plan would sit still while the toolbar lit up.
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down &&
+            Keyboard.Modifiers is ModifierKeys.None or ModifierKeys.Shift &&
+            !ModelCoversPlan && SheetPanel.Visibility != Visibility.Visible &&
+            Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem or TreeView or TreeViewItem or DataGrid or DataGridCell) &&
+            Plan.Nudge(NudgeDirection(e.Key), Keyboard.Modifiers == ModifierKeys.Shift, e.IsRepeat))
+        {
+            RefreshProperties();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None) return;
         if (Keyboard.FocusedElement is TextBox or ComboBox or ComboBoxItem) return;
         if (ModelCoversPlan || SheetPanel.Visibility == Visibility.Visible) return;
 
-        if (Plan.Flip())
+        // With the component tool live, Space turns what is about to be placed, as it does in
+        // Revit; otherwise it flips whatever is selected.
+        if (Plan.TurnComponent() || Plan.TurnColumn() || Plan.Flip())
         {
             RefreshProperties();
             e.Handled = true;
         }
     }
+
+    /// <summary>Which way an arrow key points on the plan: up the screen is north, as drawn.</summary>
+    private static Vector2D NudgeDirection(Key key) => key switch
+    {
+        Key.Left => new Vector2D(-1, 0),
+        Key.Right => new Vector2D(1, 0),
+        Key.Up => new Vector2D(0, 1),
+        _ => new Vector2D(0, -1)
+    };
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
@@ -740,6 +1124,15 @@ public partial class MainWindow : Window
 
         // Let text boxes in the property panel and the schedule grid keep their keystrokes.
         if (Keyboard.FocusedElement is TextBox) return;
+
+        // Esc in a roof sketch stops the line being drawn, then goes back to selecting lines -
+        // it never throws the sketch away. That is what Cancel is for.
+        if (Plan.IsSketching && e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            Plan.SketchEscape();
+            e.Handled = true;
+            return;
+        }
 
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.T)
         {
@@ -919,6 +1312,79 @@ public partial class MainWindow : Window
         if (WindowTypePicker.SelectedItem is WindowType type) Plan.ActiveWindowTypeId = type.Id;
     }
 
+    private void OnPickNewHostModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (PickNewHostModePicker.SelectedItem is string choice &&
+            EnumText.TryParse<ComponentPlacementMode>(choice, out var mode))
+        {
+            Plan.PickNewHostMode = mode;
+        }
+    }
+
+    private void OnActiveColumnTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (ColumnTypePicker.SelectedItem is ColumnType type) Plan.ActiveColumnTypeId = type.Id;
+    }
+
+    /// <summary>
+    /// How high a new column goes: up from this storey to the level chosen, or down from it -
+    /// Revit's Height and Depth. Unconnected leaves it standing its own height.
+    /// </summary>
+    private void OnColumnPlacementChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        Plan.ColumnGoesDown = (string?)ColumnDirectionPicker.SelectedItem == "Depth";
+        Plan.ColumnTopLevelId = (ColumnLevelPicker.SelectedItem as Core.Datums.Level)?.Id;
+    }
+
+    private void OnColumnAttachmentChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (ColumnAttachmentStylePicker.SelectedItem is string choice &&
+            EnumText.TryParse<ColumnAttachmentStyle>(choice, out var style))
+        {
+            Plan.ColumnAttachmentStyle = style;
+        }
+    }
+
+    private void OnColumnAttachmentOffsetChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, ColumnAttachmentOffsetBox.Text, out var value) &&
+            value is double millimetres)
+        {
+            Plan.ColumnAttachmentOffset = millimetres;
+        }
+
+        // Rewritten in the app.s own format, so what the box says is what it will do.
+        ColumnAttachmentOffsetBox.Text = ParameterFormatter.Format(ParameterDataType.Length, Plan.ColumnAttachmentOffset);
+    }
+
+    private void OnColumnsAtGrids(object sender, RoutedEventArgs e)
+    {
+        Plan.PlaceColumnsAtGrids();
+        Plan.Focus();
+    }
+
+    private void OnActiveComponentTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (ComponentTypePicker.SelectedItem is ComponentFamilyChoice choice) Plan.ActiveComponentTypeId = choice.Type.Id;
+    }
+
+    /// <summary>
+    /// A component family as the options bar lists it: the category first, then the family, so
+    /// the list reads the way Revit's type selector groups them.
+    /// </summary>
+    private sealed record ComponentFamilyChoice(ComponentType Type)
+    {
+        public override string ToString() => $"{EnumText.Humanise(Type.Kind)} : {Type.Name}";
+    }
+
     /// <summary>
     /// Switching level changes which storey the plan shows, not just what new elements are
     /// put on. A floor plan is a cut through one storey.
@@ -962,9 +1428,22 @@ public partial class MainWindow : Window
 
     // ---- attaching walls ---------------------------------------------------------------
 
-    private void OnAttachTops(object sender, RoutedEventArgs e) => AttachSelectedWalls(top: true);
+    private void OnAttachTops(object sender, RoutedEventArgs e)
+    {
+        if (!AttachSelectedColumns(top: true)) AttachSelectedWalls(top: true);
+    }
 
-    private void OnAttachBases(object sender, RoutedEventArgs e) => AttachSelectedWalls(top: false);
+    private void OnAttachBases(object sender, RoutedEventArgs e)
+    {
+        if (!AttachSelectedColumns(top: false)) AttachSelectedWalls(top: false);
+    }
+
+    /// <summary>
+    /// Attaches the selected columns to the slab over them, or the floor under them, exactly as
+    /// a wall is attached: a column that meets a roof should follow the roof, not be retyped
+    /// every time the roof moves. Returns whether any column was selected to act on.
+    /// </summary>
+    private bool AttachSelectedColumns(bool top) => Plan.BeginAttachColumns(top);
 
     /// <summary>
     /// Attaches each selected wall to the slab over it, or the floor under it. The slab is found
@@ -1031,6 +1510,24 @@ public partial class MainWindow : Window
 
     private void OnDetachWalls(object sender, RoutedEventArgs e)
     {
+        var columns = Plan.SelectedElements.OfType<Column>()
+            .SelectMany(column => new[]
+            {
+                (Column: column, Top: true, Attached: column.TopAttachedTo),
+                (Column: column, Top: false, Attached: column.BaseAttachedTo)
+            })
+            .Where(change => change.Attached is not null)
+            .Select(change => (change.Column, change.Top, (Guid?)null))
+            .ToList();
+
+        if (columns.Count > 0)
+        {
+            _history.Execute(new AttachColumnsCommand(columns, "Detach Columns"));
+            AfterHistoryChange();
+            StatusHint.Text = "Detached. The columns keep their own constraints again.";
+            return;
+        }
+
         var changes = Plan.SelectedElements.OfType<Wall>()
             .SelectMany(wall => new[]
             {
@@ -1059,6 +1556,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnAlignWallFaces(object sender, RoutedEventArgs e)
     {
+        if (AlignSelectedColumns()) return;
+
         var changes = Plan.SelectedElements.OfType<Wall>()
             .Select(wall => (Wall: wall, Offset:
                 WallAlignment.OffsetFor(_document, wall, WallAlignment.Face.Interior)
@@ -1078,6 +1577,77 @@ public partial class MainWindow : Window
         StatusHint.Text = "Flush with the wall it meets. Click again to line up with its other face.";
     }
 
+    /// <summary>
+    /// Sets the selected columns flush with a face of the wall they are on, moving them to the
+    /// other face when they are already flush with one - so pressing it again puts a pier on
+    /// the other side, which is the same thing Align Faces does for a wall.
+    /// Returns whether any column was selected to act on.
+    /// </summary>
+    private bool AlignSelectedColumns()
+    {
+        var columns = Plan.SelectedElements.OfType<Column>().ToList();
+        if (columns.Count == 0) return false;
+
+        var moves = new List<(Column Column, Point2D To)>();
+
+        foreach (var column in columns)
+        {
+            if (_document.FindType<ColumnType>(column.TypeId) is not { } type) continue;
+
+            // The face it is not already on, so pressing it again moves it across.
+            var flush = ColumnJoins.FlushWith(_document, column, type, ColumnJoins.Face.Interior)
+                        ?? ColumnJoins.FlushWith(_document, column, type, ColumnJoins.Face.Exterior);
+
+            if (flush is { } to) moves.Add((column, to));
+        }
+
+        if (moves.Count == 0)
+        {
+            StatusHint.Text = "Nothing to line up: those columns are not on a wall, or are flush already.";
+            return true;
+        }
+
+        _history.Execute(new CompositeCommand(
+            "Align Columns",
+            moves.Select(move => (IUndoableCommand)new MoveElementsCommand(
+                new[] { move.Column }, move.To - move.Column.Location))));
+
+        AfterHistoryChange();
+        StatusHint.Text = "Flush with the wall face. Click again to put it against the other face.";
+        return true;
+    }
+
+    /// <summary>
+    /// Opens the column editor on the selected column's type: the section is drawn there, and
+    /// saving it gives the type that section, so every column of that type takes it at once.
+    /// </summary>
+    private void OnEditColumnProfile(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements.OfType<Column>().ToList() is not [var column])
+        {
+            StatusHint.Text = "Select one column to draw its section.";
+            return;
+        }
+
+        if (_document.FindType<ColumnType>(column.TypeId) is not { } type)
+        {
+            StatusHint.Text = "That column has no type to draw a section for.";
+            return;
+        }
+
+        var editor = new ColumnEditorWindow(_document, type) { Owner = this };
+        if (editor.ShowDialog() != true || editor.Result is not { } profile) return;
+
+        _history.Execute(new SetColumnProfileCommand(type, profile, editor.Shaping));
+        AfterHistoryChange();
+
+        var (width, depth) = profile.Extent;
+        StatusHint.Text =
+            $"{type.Name} is now {ParameterFormatter.Format(ParameterDataType.Length, width)} by " +
+            $"{ParameterFormatter.Format(ParameterDataType.Length, depth)}. " +
+            $"{Plural(_document.Elements.OfType<Column>().Count(c => c.TypeId == type.Id), "column")} changed with it.";
+    }
+
     private void OnEditCurtainGrid(object sender, RoutedEventArgs e)
     {
         if (Plan.SelectedElements.OfType<Wall>().ToList() is not [var wall] || !_document.IsCurtainWall(wall))
@@ -1089,11 +1659,28 @@ public partial class MainWindow : Window
         var dialog = new EditCurtainGridWindow(_document, wall) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
-        _history.Execute(new SetCurtainLayoutCommand(wall, dialog.ResultGrid, dialog.ResultPanels));
+        // The windows added there are cut into the wall as elements of their own, so they are
+        // part of the same one step as the grid.
+        var commands = new List<IUndoableCommand> { new SetCurtainLayoutCommand(wall, dialog.ResultGrid, dialog.ResultPanels) };
+
+        foreach (var (typeId, along, sill) in dialog.ResultWindows)
+            commands.Add(new AddElementCommand(_document, new BIMDesigner.Core.Architecture.Window
+            {
+                TypeId = typeId,
+                LevelId = wall.LevelId,
+                HostWallId = wall.Id,
+                DistanceAlongWall = along,
+                SillHeight = sill,
+                Mark = OpeningMarks.Next<BIMDesigner.Core.Architecture.Window>(_document)
+            }, "Place Window"));
+
+        _history.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Edit Curtain Grid", commands));
         AfterHistoryChange();
-        StatusHint.Text = dialog.ResultGrid is null
-            ? "Panels set. The grid still follows the wall type."
-            : "Grid and panels set on this wall.";
+        StatusHint.Text = dialog.ResultWindows.Count > 0
+            ? $"{dialog.ResultWindows.Count} window(s) cut into the wall. Select one to move or resize it."
+            : dialog.ResultGrid is null
+                ? "Panels set. The grid still follows the wall type."
+                : "Grid and panels set on this wall.";
     }
 
     private void OnEditProfile(object sender, RoutedEventArgs e)
@@ -1160,6 +1747,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void RefreshContextTab(bool bringForward = true)
     {
+        // A roof sketch has its own tab, and nothing else is being modified while it is open.
+        if (Plan.IsSketching)
+        {
+            ContextTab.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         // While walls are being placed, the Place Wall tab is the one to have: the walls just
         // placed are selected, but it is not them being edited.
         if (Plan.ActiveTool == PlanTool.Wall)
@@ -1196,7 +1790,16 @@ public partial class MainWindow : Window
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
-        ContextHostPanel.Visibility = selected is [Opening] ? Visibility.Visible : Visibility.Collapsed;
+        ContextRoofPanel.Visibility = selected is [Roof] ? Visibility.Visible : Visibility.Collapsed;
+        ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
+            ? Visibility.Visible : Visibility.Collapsed;
+        // Pick New belongs to anything that is carried by something else: a door or window in
+        // its wall, and a component on a face it could be moved off.
+        var rehostable = selected is [Opening]
+                         || (selected is [BIMDesigner.Core.Architecture.Component component]
+                             && _document.FindType<ComponentType>(component.TypeId) is { IsHosted: true });
+
+        ContextHostPanel.Visibility = rehostable ? Visibility.Visible : Visibility.Collapsed;
         ContextPropertiesPanel.Visibility = selected.Any(element => element.TypeId != Guid.Empty) ? Visibility.Visible : Visibility.Collapsed;
         SyncSweepEditControls();
 
@@ -1468,7 +2071,7 @@ public partial class MainWindow : Window
             elements.Select(e => (IReadOnlyList<ParameterValue>)e.GetInstanceParameters(_document).ToList()).ToList());
 
         // Type parameters when the selection shares one type; several types have no one set of them.
-        var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.GetTypeParameters().ToList() });
+        var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.GetTypeParameters(_document).ToList() });
         TypeParameterList.ItemsSource = typeRows;
         TypeSection.Visibility = type is null ? Visibility.Collapsed : Visibility.Visible;
         EditTypeButton.IsEnabled = type is not null;

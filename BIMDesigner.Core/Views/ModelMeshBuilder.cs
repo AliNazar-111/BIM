@@ -32,7 +32,89 @@ public static class ModelMeshBuilder
         foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, wall, meshes);
         foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, slab, meshes);
 
+        foreach (var column in document.Elements.OfType<Column>().Where(c => shows(c)))
+            AddColumn(document, column, meshes);
+
+        foreach (var component in document.Elements.OfType<Component>().Where(c => shows(c)))
+            AddComponent(document, component, meshes);
+
         return Finished(meshes);
+    }
+
+    /// <summary>One column's solid on its own: its section, run between what it stands on and what it meets.</summary>
+    public static IReadOnlyList<Mesh3D> BuildColumn(BimDocument document, Column column)
+    {
+        var meshes = new List<Mesh3D>();
+        AddColumn(document, column, meshes);
+        return Finished(meshes);
+    }
+
+    /// <summary>
+    /// An architectural column: its section extruded from its base to its top, which its
+    /// constraints and attachments decide rather than a height it carries. Built into a wall, it
+    /// is drawn as that wall's material, because that is what it is made of.
+    /// </summary>
+    private static void AddColumn(BimDocument document, Column column, List<Mesh3D> meshes)
+    {
+        if (document.FindType<ColumnType>(column.TypeId) is not { } type) return;
+        if (type.Width <= 0 || type.Depth <= 0) return;
+
+        var bottom = column.GetBaseElevation(document);
+        var top = column.GetTopElevation(document);
+        if (top - bottom <= 1e-6) return;
+
+        var material = document.FindMaterial(ColumnJoins.CutMaterial(document, column, type));
+        var mesh = new Mesh3D(column.Id, column.LevelId, MeshKind.Wall,
+            material?.SurfaceColour ?? DefaultSurface, material?.Name ?? type.Name);
+
+        // Built from the rings its type's shaping asks for - two for a straight prism, a stack
+        // for one that tapers, twists or leans, and more again where it has a base and capital.
+        // Holes in the section are holes in the solid, so what is cut in plan is cut in 3D.
+        var rings = ColumnGeometry.Rings(type, bottom, top)
+            .Select(ring =>
+            {
+                // Where it stands, less whatever wall it is buried in at that height.
+                var placed = ring.Profile.PlacedAt(column.Location, column.Across);
+                var clear = ColumnJoins.CutByWalls(document, column, type, placed, ring.Elevation);
+
+                return (clear.Outer, clear.Holes, ring.Elevation);
+            })
+            .Where(ring => ring.Outer.Count >= 3)
+            .ToList();
+
+        mesh.AddLoft(rings);
+        meshes.Add(mesh);
+    }
+
+    /// <summary>One component's solids on their own: what its family is shaped like, where it stands.</summary>
+    public static IReadOnlyList<Mesh3D> BuildComponent(BimDocument document, Component component)
+    {
+        var meshes = new List<Mesh3D>();
+        AddComponent(document, component, meshes);
+        return Finished(meshes);
+    }
+
+    /// <summary>
+    /// A component as the boxes its form is made of, turned to face the way it faces and stood
+    /// on its level - or at its fixing height on the wall carrying it.
+    /// </summary>
+    private static void AddComponent(BimDocument document, Component component, List<Mesh3D> meshes)
+    {
+        if (document.FindType<ComponentType>(component.TypeId) is not { } type) return;
+        if (type.Width <= 0 || type.Depth <= 0 || type.Height <= 0) return;
+
+        var frame = ComponentModel.FrameOf(component, ComponentHosting.BaseElevation(document, component, type));
+
+        var material = document.FindMaterial(type.MaterialId);
+        var mesh = new Mesh3D(component.Id, component.LevelId, MeshKind.Wall,
+            material?.SurfaceColour ?? type.Colour, material?.Name ?? type.Name);
+
+        foreach (var part in ComponentModel.Parts(type))
+            mesh.AddExtrusion(
+                frame.Outline(part.From, part.To, part.Back, part.Front),
+                frame.Base + part.Bottom, frame.Base + part.Top);
+
+        meshes.Add(mesh);
     }
 
     /// <summary>The meshes worth drawing, with the seams between their blocks taken out.</summary>
@@ -295,13 +377,50 @@ public static class ModelMeshBuilder
         var doors = NewMesh(MeshKind.DoorLeaf, type.MullionMaterialId, LeafColour);
         var frame = NewMesh(MeshKind.Mullion, type.MullionMaterialId, DefaultSurface);
 
+        // Windows cut into the curtain wall itself, as against the panels that are windows.
+        var cut = WallOpenings.Of(document, wall)
+            .Select(opening => (Opening: opening, Type: document.FindType<OpeningType>(opening.TypeId)))
+            .Where(entry => entry.Type is not null)
+            .Select(entry =>
+            {
+                var (from, to) = entry.Opening.GetSpan(entry.Type!);
+                return (entry.Opening, Type: entry.Type!, From: Math.Max(0, from), To: Math.Min(wall.Length, to),
+                    Sill: entry.Opening.SillHeight, Head: entry.Opening.SillHeight + entry.Opening.HeightOf(entry.Type!));
+            })
+            .Where(entry => entry.To - entry.From > 1)
+            .ToList();
+
+        var holes = cut.Select(entry => (entry.From, entry.To, entry.Sill, entry.Head)).ToList();
+
+        // Where the joins cut its ends. A curtain wall stops against what it meets like any
+        // other wall: run out to its full length and its frame would push into the masonry
+        // beside it, and the two would be drawn one over the other.
+        var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, body);
+        var trimFrom = Trim(wall, body, startCut, 0);
+        var trimTo = Trim(wall, body, endCut, layout.Length);
+
+        // The frame goes where the wall actually ends, not where the grid was set out. A wall
+        // shortened by a join would otherwise lose the mullion at that end - the grid puts it
+        // at the wall's own end, which is now inside the masonry - and leave its glass butting
+        // the brickwork with nothing holding it. So the border mullion comes in with the trim,
+        // and the glass stops short of it as it does at any other edge of the wall.
+        var edge = layout.Type.BorderMullions && layout.Type.MullionWidth > 0 ? layout.Type.MullionWidth : 0;
+        var paneFrom = trimFrom + (trimTo - trimFrom > 2 * edge ? edge : 0);
+        var paneTo = trimTo - (trimTo - trimFrom > 2 * edge ? edge : 0);
+
         foreach (var cell in layout.Cells)
         {
             if (cell.ClearTo - cell.ClearFrom <= 1e-6 || cell.ClearTop - cell.ClearBottom <= 1e-6) continue;
+            if (cell.ClearTo <= paneFrom + 1 || cell.ClearFrom >= paneTo - 1) continue;
 
-            if (cell.Kind is CurtainPanelKind.Door or CurtainPanelKind.Window)
+            if (cell.Kind == CurtainPanelKind.Door)
             {
-                AddCurtainDoor(document, wall, body, cell, bottom, panes,
+                var doorway = cell with
+                {
+                    ClearFrom = Math.Max(cell.ClearFrom, paneFrom), ClearTo = Math.Min(cell.ClearTo, paneTo)
+                };
+
+                AddCurtainDoor(document, wall, body, doorway, bottom, panes,
                     Panel(cell, MeshKind.DoorLeaf, type.MullionMaterialId, LeafColour), Glass(cell));
                 continue;
             }
@@ -316,29 +435,68 @@ public static class ModelMeshBuilder
 
             // Laminated glass is two panes and an interlayer, so it is thicker than the rest.
             var pane = cell.Kind == CurtainPanelKind.Glazed ? CurtainGlassLook.ThicknessOf(cell.Glass, half) : half;
-            mesh.AddExtrusion(CurtainGeometry.Band(wall, body, cell.ClearFrom, cell.ClearTo, pane, -pane),
-                bottom + cell.ClearBottom, bottom + cell.ClearTop);
+
+            // Whatever is cut into the wall - a window put in with the window tool - is left
+            // out of the panel, and the glass comes back round it.
+            foreach (var (from, to, low, high) in CurtainOpening.Panes(cell, holes))
+            {
+                var (a, b) = (Math.Max(from, paneFrom), Math.Min(to, paneTo));
+                if (b - a <= 1) continue;
+
+                if (cell.Kind == CurtainPanelKind.Glazed)
+                    AddPane(mesh, wall, body, a, b, pane, bottom + low, bottom + high);
+                else
+                    mesh.AddExtrusion(CurtainGeometry.Band(wall, body, a, b, pane, -pane), bottom + low, bottom + high);
+            }
         }
+
+        // The windows themselves, built where they were put and carrying their own ids, so one
+        // can be clicked, sized and moved like a window in any other wall.
+        foreach (var (opening, openingType, from, to, sill, head) in cut)
+            OpeningModel.Add(wall, body, opening, openingType, from, to, bottom + sill, bottom + head, meshes);
 
         var radius = type.MullionWidth / 2;
         var depth = type.MullionDepth / 2;
 
         foreach (var mullion in layout.Mullions)
         {
-            if (type.MullionProfile == MullionProfile.Rectangular)
+            // A window cut into the wall interrupts the mullions it crosses, rather than a bar
+            // running through the middle of its glass.
+            var crossing = holes
+                .Where(hole => mullion.IsVertical
+                    ? hole.From < mullion.To && hole.To > mullion.From
+                    : hole.Sill < mullion.Top && hole.Head > mullion.Bottom)
+                .Select(hole => mullion.IsVertical ? (hole.Sill, hole.Head) : (hole.From, hole.To))
+                .ToList();
+
+            // A vertical mullion at either end of the grid is the edge of the frame, so it moves
+            // with the trim to stand at the end of the wall as built; every other one stays
+            // where the grid put it and is simply cut off if the wall no longer reaches it.
+            var (span, spanTo) = mullion.IsVertical && mullion.IsBorder
+                ? mullion.From <= 1
+                    ? (trimFrom, trimFrom + (mullion.To - mullion.From))
+                    : (trimTo - (mullion.To - mullion.From), trimTo)
+                : (mullion.From, mullion.To);
+
+            if (spanTo <= trimFrom + 1 || span >= trimTo - 1) continue;
+
+            var run = mullion.IsVertical
+                ? (mullion.Bottom, mullion.Top)
+                : (Math.Max(span, trimFrom), Math.Min(spanTo, trimTo));
+
+            foreach (var (low, high) in CurtainOpening.Gaps(run.Item1, run.Item2, crossing))
             {
-                frame.AddExtrusion(CurtainGeometry.Band(wall, body, mullion.From, mullion.To, depth, -depth),
-                    bottom + mullion.Bottom, bottom + mullion.Top);
-            }
-            else if (mullion.IsVertical)
-            {
-                frame.AddExtrusion(CurtainGeometry.Circle(wall, body, (mullion.From + mullion.To) / 2, radius),
-                    bottom + mullion.Bottom, bottom + mullion.Top);
-            }
-            else
-            {
-                AddTube(frame, CurtainGeometry.Path(wall, body, mullion.From, mullion.To),
-                    bottom + (mullion.Bottom + mullion.Top) / 2, radius);
+                var (from, to) = mullion.IsVertical
+                    ? (Math.Max(span, trimFrom), Math.Min(spanTo, trimTo))
+                    : (low, high);
+                var (base_, top) = mullion.IsVertical ? (low, high) : (mullion.Bottom, mullion.Top);
+
+                if (type.MullionProfile == MullionProfile.Rectangular)
+                    frame.AddExtrusion(CurtainGeometry.Band(wall, body, from, to, depth, -depth), bottom + base_, bottom + top);
+                else if (mullion.IsVertical)
+                    frame.AddExtrusion(CurtainGeometry.Circle(wall, body, (from + to) / 2, radius), bottom + base_, bottom + top);
+                else
+                    AddTube(frame, CurtainGeometry.Path(wall, body, from, to), bottom + (base_ + top) / 2, radius);
             }
         }
 
@@ -357,11 +515,13 @@ public static class ModelMeshBuilder
         BimDocument document, Wall wall, WallType body, CurtainCell cell, double bottom,
         List<Mesh3D> meshes, Mesh3D leaf, Mesh3D glass)
     {
-        if (cell.OpeningTypeId is { } typeId && document.FindType<OpeningType>(typeId) is { } openingType)
+        // A door is the panel: it fills it, mullion to mullion and floor to head, which is what
+        // a doorway in a glazed wall is.
+        if (cell.OpeningTypeId is { } typeId && document.FindType<DoorType>(typeId) is { } doorType)
         {
-            OpeningModel.AddPanelDoor(wall, body, openingType, CurtainPanel.IdOf(wall.Id, cell.Column, cell.Row), wall.LevelId,
+            OpeningModel.AddPanelDoor(wall, body, doorType, CurtainPanel.IdOf(wall.Id, cell.Column, cell.Row), wall.LevelId,
                 cell.ClearFrom, cell.ClearTo, bottom + cell.ClearBottom, bottom + cell.ClearTop, meshes,
-                cell.FlipHand, cell.FlipFacing, cell.Glass);
+                cell.FlipHand, cell.FlipFacing, cell.Glass, cell.IsOpen);
             return;
         }
 
@@ -385,11 +545,59 @@ public static class ModelMeshBuilder
         Part(leaf, u0 + stile, u1 - stile, depth, -depth, z0, z0 + rail * 1.6);
         Part(glass, u0 + stile, u1 - stile, 6, -6, z0 + rail * 1.6, z1 - rail);
 
-        // A pull bar on each face, near the leaf's free edge.
+        // A pull bar on each face, near the leaf's free edge, set and sized to the leaf: a tall
+        // shopfront door carries its pull higher and longer than a domestic one.
         var at = u1 - stile / 2;
-        var middle = z0 + Math.Min(1000, (z1 - z0) / 2);
+        var tall = z1 - z0;
+        var middle = z0 + Math.Min(Math.Clamp(tall * 0.45, 1000, 1400), tall / 2);
+        var reach = Math.Clamp(tall * 0.28, 500, 1400) / 2;
         foreach (var side in new[] { 1.0, -1.0 })
-            Part(leaf, at - 12, at + 12, side * (depth + 55), side * (depth + 35), middle - 350, middle + 350);
+            Part(leaf, at - 12, at + 12, side * (depth + 55), side * (depth + 35), middle - reach, middle + reach);
+    }
+
+    /// <summary>
+    /// How far along a wall one of its end cuts reaches, so what is built stops there. The cut
+    /// runs across the wall, and it is the deepest point of it that everything must clear.
+    /// </summary>
+    private static double Trim(Wall wall, WallType body, WallCut? cut, double fallback)
+    {
+        if (cut is null) return fallback;
+
+        var alongs = cut.Points.Select(point => wall.Locate(body.Structure, point).Along).ToList();
+        return fallback <= 0 ? Math.Max(0, alongs.Max()) : Math.Min(fallback, alongs.Min());
+    }
+
+    /// <summary>
+    /// A pane of glass as a sheet: its two faces and nothing round the edges.
+    ///
+    /// Glass built as a block shows its cut edges through itself, so a pane divided round a
+    /// window comes out with a dark seam along every join - the last thing wanted in a wall
+    /// whose whole point is that you see through it. The edges of a pane are inside the
+    /// mullions holding it in any case, where nobody can see them.
+    /// </summary>
+    private static void AddPane(
+        Mesh3D mesh, Wall wall, WallType body, double from, double to, double half, double z0, double z1)
+    {
+        if (to - from <= 1e-6 || z1 - z0 <= 1e-6) return;
+
+        var path = CurtainGeometry.Path(wall, body, from, to);
+        if (path.Count < 2) return;
+
+        foreach (var side in new[] { half, -half })
+        for (var i = 0; i + 1 < path.Count; i++)
+        {
+            var a = path[i].Point + path[i].Across * side;
+            var b = path[i + 1].Point + path[i + 1].Across * side;
+
+            mesh.AddQuad(
+                new Point3D(a.X, a.Y, z0), new Point3D(b.X, b.Y, z0),
+                new Point3D(b.X, b.Y, z1), new Point3D(a.X, a.Y, z1));
+        }
+
+        // The outline, so the pane still reads as a pane where it meets its frame.
+        var (start, end) = (path[0].Point, path[^1].Point);
+        mesh.AddEdge(new Point3D(start.X, start.Y, z0), new Point3D(end.X, end.Y, z0));
+        mesh.AddEdge(new Point3D(start.X, start.Y, z1), new Point3D(end.X, end.Y, z1));
     }
 
     /// <summary>A round bar lying along a path at one height: a round transom.</summary>
@@ -627,6 +835,15 @@ public static class ModelMeshBuilder
         if (slab.Boundary.Count < 3) return;
         if (document.FindType<SlabType>(slab.TypeId) is not { } type) return;
 
+        // A pitched roof is not a slab, and is not built like one.
+        // A roof stands on its base rather than hanging from it, flat or pitched, so it is
+        // built by its own rule.
+        if (slab is Roof roof)
+        {
+            AddRoof(document, roof, type, meshes);
+            return;
+        }
+
         var surface = (document.FindLevel(slab.LevelId)?.Elevation ?? 0) + slab.HeightOffset;
 
         foreach (var (layer, start, end) in type.Structure.GetLayerOffsets())
@@ -650,6 +867,47 @@ public static class ModelMeshBuilder
 
             mesh.AddExtrusion(slab.Boundary, surface - end, surface - start);
             meshes.Add(mesh);
+        }
+    }
+
+    /// <summary>
+    /// A roof, flat or pitched: one face per plane, each carrying the whole build-up on top of
+    /// the underside the plane describes - a roof sits on what carries it.
+    ///
+    /// The layers are measured square to the slope, the way a roof is actually built and the
+    /// way its tiles and insulation are specified, so each face's vertical depth is its
+    /// thickness stretched by its own pitch. Building every face to the same vertical
+    /// thickness instead would leave a step in the covering at every ridge and hip.
+    /// </summary>
+    private static void AddRoof(BimDocument document, Roof roof, SlabType type, List<Mesh3D> meshes)
+    {
+        var surface = roof.Surface(document);
+        var total = type.Structure.TotalWidth;
+
+        foreach (var (layer, start, end) in type.Structure.GetLayerOffsets())
+        {
+            if (layer.Thickness <= 0) continue;
+
+            var material = document.FindMaterial(layer.MaterialId);
+            var mesh = new Mesh3D(
+                roof.Id, roof.LevelId, MeshKind.Roof,
+                material?.SurfaceColour ?? DefaultSurface,
+                material?.Name ?? layer.Function.ToString());
+
+            foreach (var facet in surface.Facets)
+            {
+                var plane = facet.Plane;
+                var stretch = plane.VerticalStretch;
+
+                // The planes are the underside; the layers are counted from the top down, so
+                // each one sits the rest of the build-up above the underside.
+                mesh.AddExtrusion(
+                    facet.Outline,
+                    point => plane.HeightAt(point) + (total - end) * stretch,
+                    point => plane.HeightAt(point) + (total - start) * stretch);
+            }
+
+            if (!mesh.IsEmpty) meshes.Add(mesh);
         }
     }
 

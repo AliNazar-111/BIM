@@ -1,0 +1,210 @@
+<Window x:Class="BIMDesigner.UI.ColumnEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:BIMDesigner.UI.Controls"
+        Title="Column Editor" Height="820" Width="1400" MinHeight="640" MinWidth="1080"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg.Window}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource UiFont}"
+        FontSize="{StaticResource UiFontSize}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="FontSize" Value="{StaticResource UiFontSizeSmall}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,14,0,5"/>
+        </Style>
+        <Style x:Key="Field" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+        <Style x:Key="Num" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Width" Value="86"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="Side" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
+        <Style x:Key="Toggle" TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Status and the buttons that finish -->
+        <Border DockPanel.Dock="Bottom" Padding="16,9,16,12"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Foreground="{StaticResource Text.Muted}"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="OkButton" Content="Save" Padding="22,5" Margin="0,0,8,0" IsDefault="True"
+                            Click="OnOk" ToolTip="Give the column type this section"/>
+                    <Button Content="Close" Padding="18,5" IsCancel="True"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- The toolbar: what to draw, what it does, and the exact numbers to draw it to -->
+        <Border DockPanel.Dock="Top" Padding="14,9"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+            <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="Draw" Style="{StaticResource Field}"/>
+                <ComboBox x:Name="ToolPicker" Width="132" Margin="0,0,8,0" VerticalAlignment="Center"
+                          SelectionChanged="OnToolChanged"/>
+
+                <TextBlock Text="Sides" Style="{StaticResource Field}"/>
+                <TextBox x:Name="SidesBox" Style="{StaticResource Num}" Width="54" Text="6" LostFocus="OnSidesChanged"/>
+
+                <TextBlock Text="Mode" Style="{StaticResource Field}"/>
+                <ComboBox x:Name="OperationPicker" Width="132" Margin="0,0,16,0" VerticalAlignment="Center"
+                          SelectionChanged="OnOperationChanged"/>
+
+                <Border Width="1" Margin="0,2,16,2" Background="{StaticResource Line}"/>
+
+                <TextBlock Text="W" Style="{StaticResource Field}"/>
+                <TextBox x:Name="ShapeWidthBox" Style="{StaticResource Num}" Text="200 mm"/>
+                <TextBlock Text="D" Style="{StaticResource Field}"/>
+                <TextBox x:Name="ShapeDepthBox" Style="{StaticResource Num}" Text="200 mm"/>
+                <TextBlock Text="X" Style="{StaticResource Field}"/>
+                <TextBox x:Name="ShapeXBox" Style="{StaticResource Num}" Text="0 mm"/>
+                <TextBlock Text="Y" Style="{StaticResource Field}"/>
+                <TextBox x:Name="ShapeYBox" Style="{StaticResource Num}" Text="0 mm"/>
+                <Button Content="Apply" Padding="14,4" Margin="0,0,16,0" VerticalAlignment="Center"
+                        Click="OnApplyShape"
+                        ToolTip="Puts a shape of exactly this size at exactly this place, without drawing it by hand"/>
+
+                <Border Width="1" Margin="0,2,16,2" Background="{StaticResource Line}"/>
+
+                <Button Content="Fit" Padding="12,4" Margin="0,0,6,0" VerticalAlignment="Center" Click="OnFit"/>
+                <Button Content="−" Padding="12,4" Margin="0,0,4,0" VerticalAlignment="Center" Click="OnZoomOut"/>
+                <Button Content="+" Padding="12,4" Margin="0,0,16,0" VerticalAlignment="Center" Click="OnZoomIn"/>
+
+                <Button x:Name="UndoButton" Content="Undo" Padding="12,4" Margin="0,0,6,0"
+                        VerticalAlignment="Center" Click="OnUndo"/>
+                <Button x:Name="RedoButton" Content="Redo" Padding="12,4" VerticalAlignment="Center" Click="OnRedo"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- The section's own settings down the left -->
+        <Border DockPanel.Dock="Left" Width="196" Padding="12,4,12,12"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="SECTION" Style="{StaticResource Caption}" Margin="0,4,0,5"/>
+
+                    <Grid Margin="0,0,0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="54"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Width" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="WidthBox" Grid.Column="1" LostFocus="OnSizeChanged"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="54"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Depth" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="DepthBox" Grid.Column="1" LostFocus="OnSizeChanged"/>
+                    </Grid>
+
+                    <Button Style="{StaticResource Side}" Content="Centre on origin" Click="OnCentre"
+                            ToolTip="Moves the section so the column stands in the middle of it"/>
+
+                    <TextBlock Text="START FROM" Style="{StaticResource Caption}"/>
+                    <ComboBox x:Name="StartShapePicker" Margin="0,0,0,6"
+                              ToolTip="Ready-made sections: plain shapes, worked corners, reveals, hollow ones and ones built out of more than one shape"/>
+                    <Button Style="{StaticResource Side}" Content="Use this section" Click="OnReset"
+                            ToolTip="Replaces the section with this one, at the size in the boxes above"/>
+
+                    <TextBlock Text="CORNERS" Style="{StaticResource Caption}"/>
+                    <Grid Margin="0,0,0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="54"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Size" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="CornerBox" Grid.Column="1" Text="40 mm"/>
+                    </Grid>
+                    <Button Style="{StaticResource Side}" Content="Round" Click="OnRound"/>
+                    <Button Style="{StaticResource Side}" Content="Chamfer" Click="OnChamfer"/>
+
+                    <TextBlock Text="WHOLE SECTION" Style="{StaticResource Caption}"/>
+                    <Button Style="{StaticResource Side}" Content="Rotate 90°" Click="OnRotate"/>
+                    <Button Style="{StaticResource Side}" Content="Mirror left / right" Click="OnMirrorAcross"/>
+                    <Button Style="{StaticResource Side}" Content="Mirror up / down" Click="OnMirrorUp"/>
+
+                    <TextBlock Text="SNAP" Style="{StaticResource Caption}"/>
+                    <ComboBox x:Name="SnapPicker" SelectionChanged="OnSnapChanged"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- The column itself, in 3D, taking the whole right-hand side -->
+        <Border DockPanel.Dock="Right" Width="440" Padding="12,4,12,12"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="1,0,0,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock Text="THE COLUMN" Style="{StaticResource Caption}" Margin="0,4,0,5"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Height" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="HeightBox" Style="{StaticResource Num}" Width="86"
+                                 LostFocus="OnShapingChanged"/>
+                        <TextBlock Text="Top size" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="TopScaleBox" Style="{StaticResource Num}" Width="76"
+                                 LostFocus="OnShapingChanged"
+                                 ToolTip="Below 100% tapers, above it flares"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Twist" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="TwistBox" Style="{StaticResource Num}" Width="76" LostFocus="OnShapingChanged"/>
+                        <TextBlock Text="Slant" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="SlantBox" Style="{StaticResource Num}" Width="72" LostFocus="OnShapingChanged"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBlock Text="Flutes" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="FlutesBox" Style="{StaticResource Num}" Width="60" LostFocus="OnShapingChanged"/>
+                        <TextBlock Text="Base" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="BaseBox" Style="{StaticResource Num}" Width="76" LostFocus="OnShapingChanged"/>
+                        <TextBlock Text="Capital" Style="{StaticResource Field}"/>
+                        <TextBox x:Name="CapitalBox" Style="{StaticResource Num}" Width="76" LostFocus="OnShapingChanged"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="AreaText" Margin="0,2,0,8" Foreground="{StaticResource Text.Muted}"/>
+                </StackPanel>
+
+                <Border BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="3">
+                    <controls:ModelView x:Name="Preview" MinHeight="360"/>
+                </Border>
+            </DockPanel>
+        </Border>
+
+        <!-- The drawing board -->
+        <controls:ProfileSketch x:Name="Sketch" Background="{StaticResource Bg.Window}"/>
+    </DockPanel>
+</Window>

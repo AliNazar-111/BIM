@@ -167,6 +167,30 @@ public class ProjectFileTests
     }
 
     [Fact]
+    public void Load_BringsOlderWallsUpToFinishingTheirEnds()
+    {
+        // Before format 2 nothing turned round an exposed end, so every wall was saved saying
+        // None whatever it was made of, and every corner showed a section through the wall.
+        var saved = ProjectFile.ToJson(BuildProject());
+        var older = saved
+            .Replace($"\"formatVersion\": {ProjectFile.CurrentFormatVersion}", "\"formatVersion\": 1")
+            .Replace("\"wrappingAtEnds\": \"Exterior\"", "\"wrappingAtEnds\": \"None\"");
+
+        Assert.All(ProjectFile.FromJson(older).TypesOf<WallType>().Where(t => t.Structure.ExteriorWidth > 0),
+            type => Assert.Equal(WallWrapping.Exterior, type.WrapAtEnds));
+
+        // A wall with nothing outside its core has nothing to turn, and is left alone.
+        Assert.All(ProjectFile.FromJson(older).TypesOf<WallType>()
+                .Where(t => t.Structure.ExteriorWidth == 0 && t.Structure.InteriorWidth == 0),
+            type => Assert.Equal(WallWrapping.None, type.WrapAtEnds));
+
+        // From format 2 on, what the file says is what the wall was asked for.
+        var current = saved.Replace("\"wrappingAtEnds\": \"Exterior\"", "\"wrappingAtEnds\": \"None\"");
+        Assert.All(ProjectFile.FromJson(current).TypesOf<WallType>(),
+            type => Assert.Equal(WallWrapping.None, type.WrapAtEnds));
+    }
+
+    [Fact]
     public void Load_SurvivesUnknownEnumTextByFallingBack()
     {
         var json = ProjectFile.ToJson(BuildProject())

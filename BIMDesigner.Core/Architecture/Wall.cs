@@ -271,6 +271,28 @@ public sealed class Wall : Element
     /// </summary>
     public double GetTopElevation(BimDocument document) => GetTopElevation(document, 0);
 
+    /// <summary>
+    /// Where the wall would stop if nothing were attached over it: its top level plus offset,
+    /// or its unconnected height. What a wall attached to a roof stands to along any stretch
+    /// the roof does not cover.
+    /// </summary>
+    public double GetUnattachedTopElevation(BimDocument document)
+    {
+        var bottom = GetBaseElevation(document);
+
+        if (TopLevelId is { } topId && document.FindLevel(topId) is { } topLevel)
+        {
+            var top = topLevel.Elevation + TopOffset;
+            if (top > bottom) return top;
+        }
+
+        return bottom + UnconnectedHeight;
+    }
+
+    /// <summary>The roof the wall's top is attached to, if it is attached to one.</summary>
+    public Roof? AttachedRoof(BimDocument document) =>
+        TopAttachedTo is { } id ? FindSlab(document, id) as Roof : null;
+
     private double GetTopElevation(BimDocument document, int depth)
     {
         var bottom = GetBaseElevation(document, depth + 1);
@@ -635,7 +657,7 @@ public sealed class Wall : Element
 
         yield return ParameterValue.ReadOnly(WallParameters.Profile, () => WallProfile.Of(document, this) is null
             ? Profile is null ? "Rectangular" : "Edited (not in use: the wall must be straight, upright and not stacked)"
-            : "Edited");
+            : Profile is null ? "Follows the roof it is attached to" : "Edited");
 
         // Joins - one setting per end, kept in step with the wall at the other side of it
         foreach (var atStart in new[] { true, false })

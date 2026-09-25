@@ -138,6 +138,37 @@ public static class ElementCopy
         Ceiling ceiling => CloneSlab(new Ceiling(), ceiling),
         Roof roof => CloneSlab(new Roof(), roof),
 
+        Column column => CarryCommon(new Column
+        {
+            Location = column.Location,
+            Rotation = column.Rotation,
+            BaseOffset = column.BaseOffset,
+            TopLevelId = column.TopLevelId,
+            TopOffset = column.TopOffset,
+            UnconnectedHeight = column.UnconnectedHeight,
+            TopAttachedTo = column.TopAttachedTo,
+            BaseAttachedTo = column.BaseAttachedTo,
+            TopAttachmentStyle = column.TopAttachmentStyle,
+            BaseAttachmentStyle = column.BaseAttachmentStyle,
+            Placement = column.Placement,
+            PlacementFace = column.PlacementFace,
+            OffsetFromAttachmentAtTop = column.OffsetFromAttachmentAtTop,
+            OffsetFromAttachmentAtBase = column.OffsetFromAttachmentAtBase,
+            RoomBounding = column.RoomBounding,
+            CutByWalls = column.CutByWalls,
+            MovesWithGrids = column.MovesWithGrids
+        }, column),
+
+        Component component => CarryCommon(new Component
+        {
+            TypeKind = component.TypeKind,
+            Location = component.Location,
+            Rotation = component.Rotation,
+            Elevation = component.Elevation,
+            HostId = component.HostId,
+            FlipFacing = component.FlipFacing
+        }, component),
+
         Room room => CarryCommon(new Room
         {
             Location = room.Location,
@@ -221,6 +252,14 @@ public static class ElementCopy
         copy.HeightOffset = original.HeightOffset;
         copy.SetBoundary(original.Boundary);
 
+        // A copied roof is the same roof: the edges that slope carry over, or the copy would
+        // come out flat.
+        if (copy is Roof copied && original is Roof roof)
+        {
+            copied.CutoffOffset = roof.CutoffOffset;
+            copied.SetEdges(roof.Edges.Select(edge => edge.Copy()));
+        }
+
         return (Slab)CarryCommon(copy, original);
     }
 
@@ -281,6 +320,10 @@ public static class ElementCopy
 
             case WallOpening cut when replacements.TryGetValue(cut.HostWallId, out var cutHost):
                 cut.HostWallId = cutHost;
+                break;
+
+            case Component component when replacements.TryGetValue(component.HostId, out var componentHost):
+                component.HostId = componentHost;
                 break;
 
             case Wall joined when joined.JoinedTo.Count > 0:

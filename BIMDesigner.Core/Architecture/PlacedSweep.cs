@@ -61,7 +61,7 @@ public sealed class SweepProfileType : ElementType
         return copy;
     }
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
         yield return ParameterValue.ReadOnly(SweepParameters.Depth, () => Depth);
@@ -109,7 +109,7 @@ public sealed class WallSweepType : ElementType
         CutsWall = CutsWall, Cuttable = Cuttable, Setback = Setback, Description = Description, Cost = Cost
     };
 
-    public override IEnumerable<ParameterValue> GetTypeParameters()
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 

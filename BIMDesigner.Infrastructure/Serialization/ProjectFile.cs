@@ -28,7 +28,7 @@ public sealed class ProjectFileException : Exception
 public static class ProjectFile
 {
     /// <summary>Raised by one when the format changes in a way older builds cannot read.</summary>
-    public const int CurrentFormatVersion = 1;
+    public const int CurrentFormatVersion = 3;
 
     public const string Extension = ".bimx";
 
@@ -450,10 +450,132 @@ public static class ProjectFile
                 Kind = SlabKindOf(slab.Category),
                 HeightOffset = slab.HeightOffset,
                 Boundary = slab.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                RoofEdges = slab is Roof roof
+                    ? roof.Edges.Select(edge => new RoofEdgeDto
+                    {
+                        DefinesSlope = edge.DefinesSlope,
+                        SlopeDegrees = edge.SlopeDegrees,
+                        PlateOffset = edge.PlateOffset,
+                        WallId = edge.WallId,
+                        OnLeftOfWall = edge.OnLeftOfWall,
+                        Overhang = edge.Overhang,
+                        ExtendToCore = edge.ExtendToCore
+                    }).ToList()
+                    : new List<RoofEdgeDto>(),
+                RoofCutoff = slab is Roof cut ? cut.CutoffOffset : 0,
                 Mark = slab.Mark,
                 Comments = slab.Comments,
                 Workset = slab.Workset,
                 PhaseCreated = slab.PhaseCreated.ToString()
+            });
+
+        foreach (var type in document.TypesOf<ColumnType>())
+            dto.ColumnTypes.Add(new ColumnTypeDto
+            {
+                Id = type.Id,
+                Name = type.Name,
+                Shape = type.Shape.ToString(),
+                Width = type.Width,
+                Depth = type.Depth,
+                MaterialId = type.MaterialId,
+                CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
+                OffsetBase = type.OffsetBase,
+                OffsetTop = type.OffsetTop,
+                TopScale = type.Shaping.TopScale,
+                Twist = type.Shaping.Twist,
+                SlantAcross = type.Shaping.SlantAcross,
+                SlantAlong = type.Shaping.SlantAlong,
+                Flutes = type.Shaping.Flutes,
+                FluteDepth = type.Shaping.FluteDepth,
+                BaseHeight = type.Shaping.BaseHeight,
+                BaseSpread = type.Shaping.BaseSpread,
+                CapitalHeight = type.Shaping.CapitalHeight,
+                CapitalSpread = type.Shaping.CapitalSpread,
+
+                // A drawn section is stored as its loops, each a flat run of x, y pairs.
+                ProfileLoops = type.CustomProfile is { IsEmpty: false } profile
+                    ? profile.Loops.Select(loop => loop.SelectMany(p => new[] { p.X, p.Y }).ToList()).ToList()
+                    : null,
+                TypeMark = type.TypeMark,
+                AssemblyCode = type.AssemblyCode,
+                Keynote = type.Keynote,
+                Manufacturer = type.Manufacturer,
+                Url = type.Url,
+                Description = type.Description,
+                Cost = type.Cost
+            });
+
+        foreach (var column in document.Elements.OfType<Column>())
+            dto.Columns.Add(new ColumnDto
+            {
+                Id = column.Id,
+                TypeId = column.TypeId,
+                LevelId = column.LevelId,
+                LocationX = column.Location.X,
+                LocationY = column.Location.Y,
+                Rotation = column.Rotation,
+                BaseOffset = column.BaseOffset,
+                TopLevelId = column.TopLevelId,
+                TopOffset = column.TopOffset,
+                UnconnectedHeight = column.UnconnectedHeight,
+                TopAttachedTo = column.TopAttachedTo,
+                BaseAttachedTo = column.BaseAttachedTo,
+                MovesWithGrids = column.MovesWithGrids,
+                RoomBounding = column.RoomBounding,
+                CutByWalls = column.CutByWalls,
+                Placement = column.Placement.ToString(),
+                PlacementFace = column.PlacementFace.ToString(),
+                TopAttachmentStyle = column.TopAttachmentStyle.ToString(),
+                BaseAttachmentStyle = column.BaseAttachmentStyle.ToString(),
+                OffsetFromAttachmentAtTop = column.OffsetFromAttachmentAtTop,
+                OffsetFromAttachmentAtBase = column.OffsetFromAttachmentAtBase,
+                Mark = column.Mark,
+                Comments = column.Comments,
+                Workset = column.Workset,
+                PhaseCreated = column.PhaseCreated.ToString(),
+                PhaseDemolished = column.PhaseDemolished?.ToString()
+            });
+
+        foreach (var type in document.TypesOf<ComponentType>())
+            dto.ComponentTypes.Add(new ComponentTypeDto
+            {
+                Id = type.Id,
+                Name = type.Name,
+                Category = type.Kind.ToString(),
+                Form = type.Form.ToString(),
+                Placement = type.Placement.ToString(),
+                Width = type.Width,
+                Depth = type.Depth,
+                Height = type.Height,
+                DefaultElevation = type.DefaultElevation,
+                MaterialId = type.MaterialId,
+                Colour = type.Colour.ToString(),
+                TypeMark = type.TypeMark,
+                AssemblyCode = type.AssemblyCode,
+                Keynote = type.Keynote,
+                Manufacturer = type.Manufacturer,
+                Url = type.Url,
+                Description = type.Description,
+                Cost = type.Cost
+            });
+
+        foreach (var component in document.Elements.OfType<Component>())
+            dto.Components.Add(new ComponentDto
+            {
+                Id = component.Id,
+                TypeId = component.TypeId,
+                LevelId = component.LevelId,
+                LocationX = component.Location.X,
+                LocationY = component.Location.Y,
+                Rotation = component.Rotation,
+                Elevation = component.Elevation,
+                HostId = component.HostId,
+                FlipFacing = component.FlipFacing,
+                Mark = component.Mark,
+                Comments = component.Comments,
+                Workset = component.Workset,
+                PhaseCreated = component.PhaseCreated.ToString(),
+                PhaseDemolished = component.PhaseDemolished?.ToString()
             });
 
         foreach (var room in document.Elements.OfType<Room>())
@@ -515,7 +637,7 @@ public static class ProjectFile
                 CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
                 CurtainHorizontals = wall.CurtainGrid?.Horizontals.ToList(),
                 CurtainGlass = wall.CurtainGlass.ToString(),
-                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), OpeningTypeId = p.OpeningTypeId, Glass = p.Glass.ToString(), FlipHand = p.FlipHand, FlipFacing = p.FlipFacing }).ToList(),
+                CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), OpeningTypeId = p.OpeningTypeId, Glass = p.Glass.ToString(), FlipHand = p.FlipHand, FlipFacing = p.FlipFacing, IsOpen = p.IsOpen }).ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
@@ -591,6 +713,7 @@ public static class ProjectFile
         dto.FlipFacing = opening.FlipFacing;
         dto.FlipHand = opening.FlipHand;
         dto.Orientation = opening.Orientation.ToString();
+        dto.IsOpen = opening.IsOpen;
         dto.WidthOverride = opening.WidthOverride;
         dto.HeightOverride = opening.HeightOverride;
         dto.Mark = opening.Mark;
@@ -637,6 +760,28 @@ public static class ProjectFile
                 $"This build reads up to format {CurrentFormatVersion}.");
 
         return FromDto(dto);
+    }
+
+    /// <summary>
+    /// Which layers turn round an exposed end, as a saved wall type meant it.
+    ///
+    /// Before format 2 nothing turned round an end: the setting existed but every wall was
+    /// saved with it off, so a corner showed a section through the wall - the cavity and the
+    /// blockwork on show beside whatever the wall turned into. A wall with a finish outside its
+    /// core returns that finish instead, so those older types are brought up to it. From format
+    /// 2 on, what the file says is what the wall was asked for.
+    /// </summary>
+    private static WallWrapping EndWrapping(int version, WallTypeDto type, CompoundStructure structure)
+    {
+        // Older files still said only yes or no: yes meant the exterior finish at the ends.
+        var saved = string.IsNullOrEmpty(type.WrappingAtEnds)
+            ? type.WrapAtEnds ? WallWrapping.Exterior : WallWrapping.None
+            : ParseEnum(type.WrappingAtEnds, WallWrapping.None);
+
+        if (version >= 2 || saved != WallWrapping.None) return saved;
+
+        if (structure.ExteriorWidth > 0) return WallWrapping.Exterior;
+        return structure.InteriorWidth > 0 ? WallWrapping.Interior : WallWrapping.None;
     }
 
     private static BimDocument FromDto(ProjectFileDto dto)
@@ -693,9 +838,7 @@ public static class ProjectFile
                 WrapAtInserts = string.IsNullOrEmpty(type.WrappingAtInserts)
                     ? type.WrapAtInserts ? WallWrapping.Both : WallWrapping.None
                     : ParseEnum(type.WrappingAtInserts, WallWrapping.Both),
-                WrapAtEnds = string.IsNullOrEmpty(type.WrappingAtEnds)
-                    ? type.WrapAtEnds ? WallWrapping.Exterior : WallWrapping.None
-                    : ParseEnum(type.WrappingAtEnds, WallWrapping.None),
+                WrapAtEnds = EndWrapping(dto.FormatVersion, type, structure),
                 ExteriorTaperAngle = Math.Clamp(type.ExteriorTaperAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
                 InteriorTaperAngle = Math.Clamp(type.InteriorTaperAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
                 CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x8A, 0x93, 0xA1))
@@ -890,7 +1033,7 @@ public static class ProjectFile
                     .Select(p => new CurtainPanelOverride(
                         // Saved when only doors could be panels, the type was called the door type.
                         p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed), p.OpeningTypeId ?? p.DoorTypeId, ParseEnum(p.Glass, CurtainGlass.Clear),
-                        p.FlipHand, p.FlipFacing))
+                        p.FlipHand, p.FlipFacing, p.IsOpen))
                     .ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
@@ -912,6 +1055,46 @@ public static class ProjectFile
                     ? null
                     : ParseEnum(wall.PhaseDemolished, DesignPhase.New)
             });
+
+        // A window used to be something a curtain wall panel could be filled with, which meant
+        // it could not be selected, sized or moved on its own. It is a window cut into the wall
+        // now, like a window in any other wall, so the ones saved the old way become that -
+        // in the middle of the panel they were filling, which is where they were drawn.
+        foreach (var saved in dto.Walls.Where(w => w.CurtainPanels is { Count: > 0 }))
+        {
+            var wall = document.Walls.FirstOrDefault(w => w.Id == saved.Id);
+            if (wall is null || CurtainLayout.Of(document, wall) is not { } layout) continue;
+
+            foreach (var panel in saved.CurtainPanels!.Where(p => string.Equals(p.Kind, "Window", StringComparison.OrdinalIgnoreCase)))
+            {
+                if ((panel.OpeningTypeId ?? panel.DoorTypeId) is not { } typeId) continue;
+                if (document.FindType<WindowType>(typeId) is not { } type) continue;
+                if (layout.Cells.FirstOrDefault(c => c.Column == panel.Column && c.Row == panel.Row) is not { } cell) continue;
+
+                document.Add(new Window
+                {
+                    TypeId = type.Id,
+                    LevelId = wall.LevelId,
+                    HostWallId = wall.Id,
+                    DistanceAlongWall = Math.Max(0, (cell.ClearFrom + cell.ClearTo) / 2 + panel.OffsetAlong),
+                    SillHeight = Math.Max(0, (cell.ClearBottom + cell.ClearTop) / 2 + panel.OffsetUp - type.Height / 2)
+                });
+            }
+
+            // The panel goes back to being a pane of glass; the window is its own thing now. It
+            // read as plain glass when the file was loaded, since there is no window panel
+            // any more, so there is nothing to take out of the wall.
+            var made = saved.CurtainPanels!
+                .Where(p => string.Equals(p.Kind, "Window", StringComparison.OrdinalIgnoreCase))
+                .Select(p => (p.Column, p.Row))
+                .ToHashSet();
+
+            wall.CurtainPanels = wall.CurtainPanels?
+                .Where(p => !made.Contains((p.Column, p.Row)))
+                .ToList() is { Count: > 0 } left
+                ? left
+                : null;
+        }
 
         // Walls joined face to face, once they are all there to be joined to.
         foreach (var saved in dto.Walls.Where(w => w.JoinedTo is { Count: > 0 }))
@@ -989,9 +1172,39 @@ public static class ProjectFile
                 points.Add(new Point2D(slab.Boundary[i], slab.Boundary[i + 1]));
 
             element.SetBoundary(points);
+
+            // The edges come after the outline, since it is the outline that says how many
+            // there are. A roof from a file that predates pitched roofs has none, and reads
+            // back as the flat roof it was drawn as.
+            if (element is Roof pitched)
+            {
+                pitched.CutoffOffset = slab.RoofCutoff;
+
+                if (slab.RoofEdges.Count > 0)
+                {
+                    pitched.SetEdges(slab.RoofEdges.Select(edge => new RoofEdge
+                    {
+                        DefinesSlope = edge.DefinesSlope,
+                        SlopeDegrees = edge.SlopeDegrees,
+                        PlateOffset = edge.PlateOffset,
+                        WallId = edge.WallId,
+                        OnLeftOfWall = edge.OnLeftOfWall,
+                        Overhang = edge.Overhang,
+                        ExtendToCore = edge.ExtendToCore
+                    }));
+                }
+            }
+
             element.TypeId = slab.TypeId;
             element.LevelId = slab.LevelId;
             element.HeightOffset = slab.HeightOffset;
+
+            // Before format 3 a roof hung down from its offset, as a floor does; since then it
+            // stands on it, as Revit's do, so that a roof based at the top of its walls sits on
+            // them. An older roof is lowered by its own thickness so it stays exactly where it
+            // was drawn.
+            if (element is Roof && dto.FormatVersion < 3 && document.FindType<SlabType>(slab.TypeId) is { } roofType)
+                element.HeightOffset -= roofType.Thickness;
             element.Mark = slab.Mark;
             element.Comments = slab.Comments;
             element.Workset = slab.Workset;
@@ -1037,6 +1250,136 @@ public static class ProjectFile
             };
             placed.HostWallIds.AddRange(dtoPlaced.HostWallIds.Where(wallIds.Contains).Distinct());
             if (placed.HostWallIds.Count > 0) document.Add(placed);
+        }
+
+        foreach (var type in dto.ColumnTypes)
+            document.AddType(new ColumnType(
+                type.Name,
+                ParseEnum(type.Shape, ColumnShape.Rectangular),
+                Size(type.Width, 300), Size(type.Depth, 300))
+            {
+                Id = type.Id,
+                MaterialId = type.MaterialId,
+                CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x8A, 0x8F, 0x96)),
+                OffsetBase = double.IsFinite(type.OffsetBase) ? type.OffsetBase : 0,
+                OffsetTop = double.IsFinite(type.OffsetTop) ? type.OffsetTop : 0,
+                CustomProfile = ReadProfile(type.ProfileLoops),
+                Shaping = new ColumnShaping
+                {
+                    TopScale = type.TopScale is > 0 and <= 4 ? type.TopScale : 1,
+                    Twist = double.IsFinite(type.Twist) ? type.Twist : 0,
+                    SlantAcross = double.IsFinite(type.SlantAcross) ? type.SlantAcross : 0,
+                    SlantAlong = double.IsFinite(type.SlantAlong) ? type.SlantAlong : 0,
+                    Flutes = Math.Clamp(type.Flutes, 0, 96),
+                    FluteDepth = type.FluteDepth >= 0 ? type.FluteDepth : 25,
+                    BaseHeight = Math.Max(0, type.BaseHeight),
+                    BaseSpread = type.BaseSpread >= 0 ? type.BaseSpread : 0.18,
+                    CapitalHeight = Math.Max(0, type.CapitalHeight),
+                    CapitalSpread = type.CapitalSpread >= 0 ? type.CapitalSpread : 0.22
+                },
+                TypeMark = type.TypeMark,
+                AssemblyCode = type.AssemblyCode,
+                Keynote = type.Keynote,
+                Manufacturer = type.Manufacturer,
+                Url = type.Url,
+                Description = type.Description,
+                Cost = type.Cost
+            });
+
+        foreach (var column in dto.Columns)
+        {
+            if (document.FindType<ColumnType>(column.TypeId) is null) continue;
+
+            // An attachment to something that is no longer there is dropped, and the column
+            // falls back on its levels - the same rule a wall's attachment follows.
+            var slabs = document.Elements.OfType<Slab>().Select(slab => slab.Id).ToHashSet();
+
+            document.Add(new Column
+            {
+                Id = column.Id,
+                TypeId = column.TypeId,
+                LevelId = column.LevelId,
+                Location = new Point2D(column.LocationX, column.LocationY),
+                Rotation = double.IsFinite(column.Rotation) ? column.Rotation : 0,
+                BaseOffset = double.IsFinite(column.BaseOffset) ? column.BaseOffset : 0,
+                TopLevelId = column.TopLevelId is { } topId && document.FindLevel(topId) is not null ? topId : null,
+                TopOffset = double.IsFinite(column.TopOffset) ? column.TopOffset : 0,
+                UnconnectedHeight = Size(column.UnconnectedHeight, 3000),
+                TopAttachedTo = column.TopAttachedTo is { } top && slabs.Contains(top) ? top : null,
+                BaseAttachedTo = column.BaseAttachedTo is { } bottom && slabs.Contains(bottom) ? bottom : null,
+                MovesWithGrids = column.MovesWithGrids,
+                RoomBounding = column.RoomBounding,
+                CutByWalls = column.CutByWalls,
+                Placement = ParseEnum(column.Placement, ColumnPlacement.Freestanding),
+                PlacementFace = ParseEnum(column.PlacementFace, ColumnJoins.Face.Interior),
+                TopAttachmentStyle = ParseEnum(column.TopAttachmentStyle, ColumnAttachmentStyle.CutColumn),
+                BaseAttachmentStyle = ParseEnum(column.BaseAttachmentStyle, ColumnAttachmentStyle.CutColumn),
+                OffsetFromAttachmentAtTop = double.IsFinite(column.OffsetFromAttachmentAtTop) ? column.OffsetFromAttachmentAtTop : 0,
+                OffsetFromAttachmentAtBase = double.IsFinite(column.OffsetFromAttachmentAtBase) ? column.OffsetFromAttachmentAtBase : 0,
+                Mark = column.Mark,
+                Comments = column.Comments,
+                Workset = column.Workset,
+                PhaseCreated = ParseEnum(column.PhaseCreated, DesignPhase.New),
+                PhaseDemolished = string.IsNullOrEmpty(column.PhaseDemolished)
+                    ? null
+                    : ParseEnum(column.PhaseDemolished, DesignPhase.Existing)
+            });
+        }
+
+        foreach (var type in dto.ComponentTypes)
+            document.AddType(new ComponentType(
+                type.Name,
+                ParseEnum(type.Category, BuiltInCategory.Furniture),
+                ParseEnum(type.Form, ComponentForm.Box),
+                Size(type.Width, 600), Size(type.Depth, 600), Size(type.Height, 600))
+            {
+                Id = type.Id,
+                Placement = ParseEnum(type.Placement, ComponentPlacement.Freestanding),
+                DefaultElevation = Math.Max(0, type.DefaultElevation),
+                MaterialId = type.MaterialId,
+                Colour = ParseColour(type.Colour, new ColourRgb(0xB4, 0x9A, 0x74)),
+                TypeMark = type.TypeMark,
+                AssemblyCode = type.AssemblyCode,
+                Keynote = type.Keynote,
+                Manufacturer = type.Manufacturer,
+                Url = type.Url,
+                Description = type.Description,
+                Cost = type.Cost
+            });
+
+        foreach (var component in dto.Components)
+        {
+            // A component whose family went with the project it came from has nothing to be.
+            if (document.FindType<ComponentType>(component.TypeId) is not { } family) continue;
+
+            // Saved when only a wall could carry one, the host was called the host wall.
+            var saved = component.HostId != Guid.Empty ? component.HostId : component.HostWallId;
+
+            // One fixed to a face that is no longer there stands on its level instead, rather
+            // than being dropped: what was placed in the model stays in the model.
+            var host = document.Elements.Any(element => element.Id == saved && element is Wall or Slab)
+                ? saved
+                : Guid.Empty;
+
+            document.Add(new Component
+            {
+                Id = component.Id,
+                TypeId = component.TypeId,
+                TypeKind = family.Kind,
+                LevelId = component.LevelId,
+                Location = new Point2D(component.LocationX, component.LocationY),
+                Rotation = double.IsFinite(component.Rotation) ? component.Rotation : 0,
+                Elevation = double.IsFinite(component.Elevation) ? component.Elevation : 0,
+                HostId = host,
+                FlipFacing = component.FlipFacing,
+                Mark = component.Mark,
+                Comments = component.Comments,
+                Workset = component.Workset,
+                PhaseCreated = ParseEnum(component.PhaseCreated, DesignPhase.New),
+                PhaseDemolished = string.IsNullOrEmpty(component.PhaseDemolished)
+                    ? null
+                    : ParseEnum(component.PhaseDemolished, DesignPhase.Existing)
+            });
         }
 
         foreach (var room in dto.Rooms)
@@ -1262,6 +1605,7 @@ public static class ProjectFile
         opening.FlipFacing = dto.FlipFacing;
         opening.FlipHand = dto.FlipHand;
         opening.Orientation = ParseEnum(dto.Orientation, OpeningOrientation.Vertical);
+        opening.IsOpen = dto.IsOpen;
         opening.WidthOverride = dto.WidthOverride is > 0 and var width ? width : null;
         opening.HeightOverride = dto.HeightOverride is > 0 and var height ? height : null;
         opening.Mark = dto.Mark;
@@ -1279,6 +1623,32 @@ public static class ProjectFile
     /// <summary>Unknown enum text falls back rather than failing the whole load.</summary>
     private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(text, ignoreCase: true, out var value) ? value : fallback;
+
+    /// <summary>
+    /// A drawn column section read back from its loops: the outline first, then its holes. A
+    /// loop with too few points to be a shape is dropped rather than left to break the geometry.
+    /// </summary>
+    private static ColumnProfile? ReadProfile(List<List<double>>? loops)
+    {
+        if (loops is null || loops.Count == 0) return null;
+
+        var rings = loops
+            .Select(loop => loop
+                .Where(double.IsFinite)
+                .Chunk(2)
+                .Where(pair => pair.Length == 2)
+                .Select(pair => new Point2D(pair[0], pair[1]))
+                .ToList())
+            .Where(ring => ring.Count >= 3)
+            .ToList();
+
+        if (rings.Count == 0) return null;
+        return new ColumnProfile(rings[0], rings.Skip(1).Cast<IReadOnlyList<Point2D>>().ToList());
+    }
+
+    /// <summary>A saved dimension, or a workable one where the file had none or nonsense.</summary>
+    private static double Size(double saved, double fallback) =>
+        double.IsFinite(saved) && saved > 0 ? saved : fallback;
 
     private static ColourRgb ParseColour(string? text, ColourRgb fallback)
     {

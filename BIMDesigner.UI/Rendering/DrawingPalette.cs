@@ -25,6 +25,10 @@ public sealed class DrawingPalette
     public required Color Swing { get; init; }
     public required Color Glass { get; init; }
 
+    /// <summary>The line a component is drawn with in plan, and the fill inside its footprint.</summary>
+    public required Color Component { get; init; }
+    public required Color ComponentFill { get; init; }
+
     public required Color RoomOutline { get; init; }
     public required Color RoomFill { get; init; }
     public required Color RoomFillSelected { get; init; }
@@ -68,6 +72,8 @@ public sealed class DrawingPalette
         Opening = Color.FromRgb(0xE6, 0xE9, 0xEE),
         Swing = Color.FromRgb(0xB6, 0xBE, 0xC9),
         Glass = Color.FromRgb(0x7A, 0xC8, 0xE8),
+        Component = Color.FromRgb(0x8A, 0x93, 0xA1),
+        ComponentFill = Color.FromArgb(0x26, 0x8A, 0x93, 0xA1),
 
         RoomOutline = Color.FromRgb(0x5A, 0xAB, 0xFF),
         RoomFill = Color.FromArgb(0x16, 0x5A, 0xAB, 0xFF),
@@ -119,6 +125,8 @@ public sealed class DrawingPalette
         Opening = Color.FromRgb(0x38, 0x43, 0x53),
         Swing = Color.FromRgb(0x2E, 0x38, 0x46),
         Glass = Color.FromRgb(0x30, 0x44, 0x52),
+        Component = Color.FromRgb(0x4A, 0x56, 0x66),
+        ComponentFill = Color.FromArgb(0x2A, 0x4A, 0x56, 0x66),
 
         RoomOutline = Color.FromRgb(0x2C, 0x36, 0x44),
         RoomFill = Color.FromArgb(0x00, 0, 0, 0),
@@ -164,6 +172,8 @@ public sealed class DrawingPalette
         Opening = Color.FromRgb(0xBC, 0xC5, 0xD0),
         Swing = Color.FromRgb(0xCC, 0xD3, 0xDC),
         Glass = Color.FromRgb(0xBC, 0xD2, 0xE0),
+        Component = Color.FromRgb(0x9A, 0xA4, 0xB0),
+        ComponentFill = Color.FromArgb(0x1E, 0x9A, 0xA4, 0xB0),
 
         RoomOutline = Color.FromRgb(0xCC, 0xD4, 0xDE),
         RoomFill = Color.FromArgb(0x00, 0, 0, 0),
@@ -215,6 +225,9 @@ public sealed class DrawingPalette
         Opening = Color.FromRgb(0x1A, 0x1A, 0x1A),
         Swing = Color.FromRgb(0x5A, 0x5A, 0x5A),
         Glass = Color.FromRgb(0x24, 0x6E, 0x94),
+
+        Component = Color.FromRgb(0x33, 0x33, 0x33),
+        ComponentFill = Color.FromArgb(0x12, 0x33, 0x33, 0x33),
 
         RoomOutline = Color.FromRgb(0x1D, 0x74, 0xC8),
         RoomFill = Color.FromArgb(0x14, 0x1D, 0x74, 0xC8),

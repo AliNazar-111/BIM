@@ -46,13 +46,17 @@ public sealed class CurtainGridEditor : FrameworkElement
     private static readonly Pen EdgePen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x60, 0x68, 0x74))), 1));
     private static readonly Pen EmptyPen = Frozen(new Pen(MutedBrush, 1) { DashStyle = DashStyles.Dash });
     private static readonly Pen SelectedPen = Frozen(new Pen(SelectedBrush, 2.5));
+    private static readonly Pen FramePen = Frozen(new Pen(FrameBrush, 2.5));
 
     private CurtainWallType _type = new("preview");
+
+    /// <summary>The windows cut into the wall, drawn over the panels they cross.</summary>
+    private List<(double From, double To, double Sill, double Head)> _windows = new();
     private double _length = 1;
     private double _height = 1;
     private List<double> _verticals = new();
     private List<double> _horizontals = new();
-    private Dictionary<(int Column, int Row), (CurtainPanelKind Kind, Guid? OpeningTypeId, CurtainGlass Glass)> _panels = new();
+    private Dictionary<(int Column, int Row), CurtainPanelOverride> _panels = new();
 
     private (bool Vertical, int Index)? _dragging;
 
@@ -72,11 +76,28 @@ public sealed class CurtainGridEditor : FrameworkElement
     /// <summary>What clicking a panel fills it with.</summary>
     public CurtainPanelKind FillWith { get; set; } = CurtainPanelKind.Glazed;
 
-    /// <summary>Which door type a panel filled with a door becomes; null for the plain storefront leaf.</summary>
+    /// <summary>Which door or window type a panel filled with one becomes.</summary>
     public Guid? OpeningTypeId { get; set; }
 
     /// <summary>What a panel filled with glass is glazed with.</summary>
     public CurtainGlass FillGlass { get; set; } = CurtainGlass.Clear;
+
+    /// <summary>
+    /// The window type a click puts into the wall, or null to fill panels instead. A window is
+    /// cut into the wall rather than filling a panel, so it is added as an element of its own
+    /// rather than as a panel choice.
+    /// </summary>
+    public OpeningType? AddWindow { get; set; }
+
+    /// <summary>Where in the panel clicked the window goes, from the middle of it.</summary>
+    public double WindowAlong { get; set; }
+
+    public double WindowUp { get; set; }
+
+    /// <summary>The windows added here, for the caller to put into the wall.</summary>
+    public IReadOnlyList<(Guid TypeId, double DistanceAlongWall, double SillHeight)> AddedWindows => _added;
+
+    private readonly List<(Guid TypeId, double DistanceAlongWall, double SillHeight)> _added = new();
 
     /// <summary>The line selected, if any: vertical or horizontal, by its place among the inner lines.</summary>
     public (bool Vertical, int Index)? Selected { get; private set; }
@@ -90,20 +111,22 @@ public sealed class CurtainGridEditor : FrameworkElement
 
     public IReadOnlyList<CurtainPanelOverride> Panels =>
         _panels.Where(p => p.Value.Kind != CurtainPanelKind.Glazed || p.Value.Glass != CurtainGlass.Clear)
-            .Select(p => new CurtainPanelOverride(p.Key.Column, p.Key.Row, p.Value.Kind, p.Value.OpeningTypeId, p.Value.Glass))
+            .Select(p => p.Value with { Column = p.Key.Column, Row = p.Key.Row })
             .OrderBy(p => p.Column).ThenBy(p => p.Row)
             .ToList();
 
     /// <summary>The wall to edit: its type, size, inner grid lines and panel choices.</summary>
     public void Show(CurtainWallType type, double length, double height,
-        IEnumerable<double> verticals, IEnumerable<double> horizontals, IEnumerable<CurtainPanelOverride> panels)
+        IEnumerable<double> verticals, IEnumerable<double> horizontals, IEnumerable<CurtainPanelOverride> panels,
+        IEnumerable<(double From, double To, double Sill, double Head)>? windows = null)
     {
         _type = type;
+        _windows = windows?.ToList() ?? new List<(double, double, double, double)>();
         _length = Math.Max(length, 1);
         _height = Math.Max(height, 1);
         _verticals = verticals.OrderBy(x => x).ToList();
         _horizontals = horizontals.OrderBy(y => y).ToList();
-        _panels = panels.GroupBy(p => (p.Column, p.Row)).ToDictionary(g => g.Key, g => (g.Last().Kind, g.Last().OpeningTypeId, g.Last().Glass));
+        _panels = panels.GroupBy(p => (p.Column, p.Row)).ToDictionary(g => g.Key, g => g.Last());
         Selected = null;
         GridEdited = false;
         InvalidateVisual();
@@ -187,6 +210,7 @@ public sealed class CurtainGridEditor : FrameworkElement
                     dc.DrawLine(EdgePen, new Point(box.Left + box.Width * 0.85, box.Top + box.Height * 0.5),
                         new Point(box.Left + box.Width * 0.85, box.Top + box.Height * 0.56));
                     break;
+
                 default:
                     dc.DrawRectangle(
                         cell.Kind == CurtainPanelKind.Solid ? SolidBrush : GlazingBrush(cell.Glass), null, box);
@@ -196,6 +220,18 @@ public sealed class CurtainGridEditor : FrameworkElement
 
         foreach (var mullion in layout.Mullions)
             dc.DrawRectangle(FrameBrush, EdgePen, Box(mullion.From, mullion.To, mullion.Bottom, mullion.Top));
+
+        // The windows cut into the wall, which belong to no one panel: drawn over the glass
+        // where they are, so the elevation shows what the wall actually is.
+        foreach (var (from, to, sill, head) in _windows)
+        {
+            var opening = Box(from, to, sill, head);
+            if (opening.Width <= 2 || opening.Height <= 2) continue;
+
+            dc.DrawRectangle(GlassBrush, FramePen, opening);
+            dc.DrawLine(FramePen, new Point(opening.Left + opening.Width / 2, opening.Top),
+                new Point(opening.Left + opening.Width / 2, opening.Bottom));
+        }
 
         dc.DrawRectangle(null, EdgePen, Box(0, _length, 0, _height));
 
@@ -283,22 +319,47 @@ public sealed class CurtainGridEditor : FrameworkElement
         }
     }
 
-    private void Fill(CurtainCell cell)
+    private void Fill(CurtainCell cell) => Fill(cell.Column, cell.Row);
+
+    /// <summary>Fills one panel with whatever is chosen, or puts a window in it. Says whether it took.</summary>
+    public bool Fill(int column, int row)
     {
-        // A door stands on the floor.
-        if (FillWith == CurtainPanelKind.Door && cell.Row != 0)
+        // A window is cut into the wall, so it is added where the panel is rather than
+        // becoming the panel.
+        if (AddWindow is { } window)
         {
-            Refused?.Invoke(this, "A door goes in a bottom panel, standing on the floor.");
-            return;
+            if (Layout().Cells.FirstOrDefault(c => c.Column == column && c.Row == row) is not { } at) return false;
+
+            // Held inside the panel clicked: a window that wandered across a mullion into the
+            // next bay is not something the wall could be built to.
+            var halfWide = Math.Min(window.Width, at.ClearTo - at.ClearFrom) / 2;
+            var halfTall = Math.Min(window.Height, at.ClearTop - at.ClearBottom) / 2;
+
+            var along = Math.Clamp((at.ClearFrom + at.ClearTo) / 2 + WindowAlong, at.ClearFrom + halfWide, at.ClearTo - halfWide);
+            var middle = Math.Clamp((at.ClearBottom + at.ClearTop) / 2 + WindowUp, at.ClearBottom + halfTall, at.ClearTop - halfTall);
+
+            _added.Add((window.Id, Math.Max(0, along), Math.Max(0, middle - window.Height / 2)));
+            _windows.Add((along - window.Width / 2, along + window.Width / 2, middle - window.Height / 2, middle + window.Height / 2));
+            Changed(grid: false);
+            return true;
         }
 
-        if (FillWith == CurtainPanelKind.Glazed && FillGlass == CurtainGlass.Clear) _panels.Remove((cell.Column, cell.Row));
+        // A door stands on the floor; a window sits in its panel, so it can go anywhere.
+        if (FillWith == CurtainPanelKind.Door && row != 0)
+        {
+            Refused?.Invoke(this, "A door goes in a bottom panel, standing on the floor.");
+            return false;
+        }
+
+        if (FillWith == CurtainPanelKind.Glazed && FillGlass == CurtainGlass.Clear) _panels.Remove((column, row));
         else
-            _panels[(cell.Column, cell.Row)] = (
-                FillWith,
+            _panels[(column, row)] = new CurtainPanelOverride(
+                column, row, FillWith,
                 FillWith == CurtainPanelKind.Door ? OpeningTypeId : null,
                 FillWith == CurtainPanelKind.Glazed ? FillGlass : CurtainGlass.Clear);
+
         Changed(grid: false);
+        return true;
     }
 
     private void Changed(bool grid)

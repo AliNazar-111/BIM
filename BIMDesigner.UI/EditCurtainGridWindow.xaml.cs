@@ -19,6 +19,7 @@ public partial class EditCurtainGridWindow : Window
     private readonly double _height;
     private readonly bool _hadOwnGrid;
     private bool _followType;
+    private readonly List<(double From, double To, double Sill, double Head)> _windows;
 
     public EditCurtainGridWindow(BimDocument document, Wall wall)
     {
@@ -32,11 +33,21 @@ public partial class EditCurtainGridWindow : Window
         _length = layout.Length;
         _height = layout.Height;
         _hadOwnGrid = wall.CurtainGrid is not null;
+        // The windows cut into this wall, so the elevation shows them where they are.
+        _windows = WallOpenings.Of(document, wall)
+            .Select(opening => (Opening: opening, Type: document.FindType<OpeningType>(opening.TypeId)))
+            .Where(entry => entry.Type is not null)
+            .Select(entry =>
+            {
+                var (from, to) = entry.Opening.GetSpan(entry.Type!);
+                return (from, to, entry.Opening.SillHeight, entry.Opening.SillHeight + entry.Opening.HeightOf(entry.Type!));
+            })
+            .ToList();
 
         WallCaption.Text = $"ELEVATION  -  {_type.Name.ToUpperInvariant()}, {Units.FormatLength(_length)} BY {Units.FormatLength(_height)}, ITS START ON THE LEFT";
 
         Editor.Show(_type, _length, _height, Inner(layout.Verticals), Inner(layout.Horizontals),
-            wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>());
+            wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>(), _windows);
         // Which door a door panel becomes: any door type in the project, as Revit picks a
         // curtain wall door in the Type Selector.
         var doorTypes = CurtainDoors.TypesFor(document);
@@ -45,6 +56,11 @@ public partial class EditCurtainGridWindow : Window
             doorTypes.FirstOrDefault(t => t.Id == (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
                 .FirstOrDefault(p => p.Kind == CurtainPanelKind.Door && p.OpeningTypeId is not null).OpeningTypeId)
             ?? doorTypes.FirstOrDefault();
+
+        // Which window a click cuts into the wall.
+        var windowTypes = document.TypesOf<WindowType>().OrderBy(type => type.Name).ToList();
+        WindowTypeBox.ItemsSource = windowTypes;
+        WindowTypeBox.SelectedItem = windowTypes.FirstOrDefault();
 
         GlassKindBox.ItemsSource = EnumText.Choices<CurtainGlass>();
         GlassKindBox.SelectedIndex = 0;
@@ -59,16 +75,30 @@ public partial class EditCurtainGridWindow : Window
     /// <summary>The panels that are not glass.</summary>
     public IReadOnlyList<CurtainPanelOverride>? ResultPanels { get; private set; }
 
+    /// <summary>The windows to cut into the wall, added here.</summary>
+    public IReadOnlyList<(Guid TypeId, double DistanceAlongWall, double SillHeight)> ResultWindows { get; private set; } =
+        Array.Empty<(Guid, double, double)>();
+
     private static IEnumerable<double> Inner(IReadOnlyList<double> lines) => lines.Skip(1).SkipLast(1);
 
     private void OnFillChanged(object sender, RoutedEventArgs e)
     {
         if (Editor is null) return;
 
+        // A window is not a panel choice: it is cut into the wall where the panel is.
+        Editor.AddWindow = sender == WindowChoice ? WindowTypeBox?.SelectedItem as WindowType : null;
+
         Editor.FillWith = sender == SolidChoice ? CurtainPanelKind.Solid
             : sender == EmptyChoice ? CurtainPanelKind.Empty
             : sender == DoorChoice ? CurtainPanelKind.Door
             : CurtainPanelKind.Glazed;
+
+        // The panel takes whichever type goes with the choice just made.
+        Editor.OpeningTypeId = Editor.FillWith switch
+        {
+            CurtainPanelKind.Door => (DoorTypeBox.SelectedItem as DoorType)?.Id,
+            _ => null
+        };
     }
 
     private void OnGlassKindChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -79,7 +109,27 @@ public partial class EditCurtainGridWindow : Window
 
     private void OnDoorTypeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (Editor is not null) Editor.OpeningTypeId = (DoorTypeBox.SelectedItem as DoorType)?.Id;
+        if (Editor is not null && DoorChoice?.IsChecked == true)
+            Editor.OpeningTypeId = (DoorTypeBox.SelectedItem as DoorType)?.Id;
+    }
+
+    private void OnWindowTypeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (Editor is not null && WindowChoice?.IsChecked == true)
+            Editor.AddWindow = WindowTypeBox.SelectedItem as WindowType;
+    }
+
+    /// <summary>Where in the panel clicked a window goes: along it and up it, from its middle.</summary>
+    private void OnWindowOffsetChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        // The boxes raise this as they are built, before the rest of the window exists.
+        if (Editor is null || WindowAlongBox is null || WindowUpBox is null) return;
+
+        Editor.WindowAlong = Length(WindowAlongBox.Text);
+        Editor.WindowUp = Length(WindowUpBox.Text);
+
+        static double Length(string text) =>
+            ParameterFormatter.TryParse(ParameterDataType.Length, text, out var parsed) && parsed is double value ? value : 0;
     }
 
     private void OnAddVertical(object sender, RoutedEventArgs e) => AddLine(true, VerticalAtBox.Text);
@@ -115,7 +165,7 @@ public partial class EditCurtainGridWindow : Window
         Editor.Show(_type, _length, _height,
             Inner(CurtainLayout.Build(_type, _length, _height, null, null).Verticals),
             Inner(CurtainLayout.Build(_type, _length, _height, null, null).Horizontals),
-            Array.Empty<CurtainPanelOverride>());
+            Array.Empty<CurtainPanelOverride>(), _windows);
         _followType = true;
     }
 
@@ -126,6 +176,7 @@ public partial class EditCurtainGridWindow : Window
         var ownGrid = Editor.GridEdited || (_hadOwnGrid && !_followType);
         ResultGrid = ownGrid ? new CurtainGrid(Editor.Verticals.ToList(), Editor.Horizontals.ToList()) : null;
         ResultPanels = Editor.Panels.Count == 0 ? null : Editor.Panels;
+        ResultWindows = Editor.AddedWindows;
         DialogResult = true;
     }
 }

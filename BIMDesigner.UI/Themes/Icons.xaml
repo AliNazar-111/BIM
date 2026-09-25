@@ -412,6 +412,31 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M8,8 L24,24 M24,8 L8,24"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- Sketch mode: a green tick to finish, a red cross to throw the sketch away. -->
+    <DrawingImage x:Key="Icon.Finish"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Green}" Geometry="M5,17 L9,13 L14,18 L24,7 L28,11 L14,26 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Cancel"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M9,9 L23,23 M23,9 L9,23"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- A roof edge picked off a wall: the wall, and the sketch line standing out from its face. -->
+    <DrawingImage x:Key="Icon.PickWalls"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M9,9 L23,9 L23,13 L13,13 L13,26 L9,26 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Purple}" Geometry="M5,5 L27,5 M5,5 L5,29"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- A roof's outline opened as a sketch again. -->
+    <DrawingImage x:Key="Icon.EditFootprint"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Room}" Pen="{StaticResource Stroke.Purple}" Geometry="M5,7 L27,7 L27,25 L5,25 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M5,7 L11,16 L5,25 M27,7 L21,16 L27,25 M11,16 L21,16"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <!-- =============================== Files =============================== -->
 
     <DrawingImage x:Key="Icon.New"><DrawingImage.Drawing><DrawingGroup>

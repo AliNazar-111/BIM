@@ -10,8 +10,13 @@ using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
+using ContextMenu = System.Windows.Controls.ContextMenu;
+using MenuItem = System.Windows.Controls.MenuItem;
+using Separator = System.Windows.Controls.Separator;
+using PlacementMode = System.Windows.Controls.Primitives.PlacementMode;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Parameters;
 using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
 using BIMDesigner.UI.Rendering;
@@ -28,6 +33,13 @@ public enum PlanTool
     Door,
     Window,
     Room,
+
+    /// <summary>Places a component of a loadable family: furniture, casework, a fixture.</summary>
+    Component,
+
+    /// <summary>Places an architectural column.</summary>
+    Column,
+
     Floor,
     Ceiling,
     Roof,
@@ -77,7 +89,7 @@ public enum SweepEditMode
 /// It renders the document, never its own copy of it. A wall drawn here is the same object
 /// the property panel edits and the 3D view will later extrude.
 /// </summary>
-public class PlanView : FrameworkElement
+public partial class PlanView : FrameworkElement
 {
     private const double MinPixelsPerMm = 0.002;   // ~500 m across a 1000 px viewport
     private const double MaxPixelsPerMm = 2.0;     // ~50 cm across a 1000 px viewport
@@ -253,6 +265,9 @@ public class PlanView : FrameworkElement
 
     /// <summary>The roof type new roofs are created with.</summary>
     public Guid ActiveRoofTypeId { get; set; }
+
+    /// <summary>The pitch new roofs are laid at.</summary>
+    public double ActiveRoofSlopeDegrees { get; set; } = RoofEdge.DefaultSlopeDegrees;
 
     /// <summary>The window type new windows are created with.</summary>
     public Guid ActiveWindowTypeId { get; set; }
@@ -997,8 +1012,18 @@ public class PlanView : FrameworkElement
 
     public void SetTool(PlanTool tool)
     {
+        // Another tool leaves a roof sketch without making anything - the window asks first.
+        // The Roof tool itself opens one, as Revit's does, rather than placing a roof.
+        if (IsSketching && tool != PlanTool.Roof) EndSketch();
+
         ActiveTool = tool;
         CancelPendingOperation();
+
+        if (tool == PlanTool.Roof && !IsSketching)
+        {
+            BeginRoofSketch();
+            return;
+        }
         _joinFirst = null;
         if (_selectedJunctions.Count > 0)
         {
@@ -1023,9 +1048,11 @@ public class PlanView : FrameworkElement
         PlanTool.Tag => "Click an element to tag it.",
         PlanTool.Text => "Click where the note should go.",
         PlanTool.Room => "Click inside a space enclosed by walls.",
+        PlanTool.Component => "Click where the component should go; on a wall for one fixed to a face. Space turns it.",
+        PlanTool.Column => "Click where the column should stand. Space turns it a quarter turn.",
         PlanTool.Floor => "Click inside a space enclosed by walls to lay a floor in it.",
         PlanTool.Ceiling => "Click inside a space enclosed by walls to put a ceiling over it.",
-        PlanTool.Roof => "Click inside a space enclosed by walls to roof it.",
+        PlanTool.Roof => "Pick Walls: hover just outside a wall and click - the roof edge goes on that face. Finish ✓ when the outline closes.",
         PlanTool.Split => "Click a wall where it should be split.",
         PlanTool.Trim => "Click the wall to trim or extend.",
         PlanTool.Offset => "Click a wall on the side the copy should go. Set the distance above.",
@@ -1040,6 +1067,10 @@ public class PlanView : FrameworkElement
     /// <summary>Tells the window the selection changed. Add Point is for one wall, so it ends with any other selection.</summary>
     private void RaiseSelectionChanged()
     {
+        // A run of arrow-key nudges belongs to the selection it started on: once that changes,
+        // the next press starts a move of its own rather than growing the last one.
+        _nudgeRun = null;
+
         if (_selection.Count == 0 || !_selection.All(element => element is Wall)) AddingWallPoints = false;
         if (ActiveTool == PlanTool.Select && LockGrips().Count > 0)
             HintChanged?.Invoke(this, "Another wall lies against this one: click the padlock on their shared face to lock them together, so they move as one.");
@@ -1104,6 +1135,8 @@ public class PlanView : FrameworkElement
     {
         var changed = _pendingWallStart is not null
                       || _rehosting is not null
+                      || _rehostingComponent is not null
+                      || _attachingColumns is not null
                       || AddingWallPoints
                       || _stroke is not null
                       || _trimSubject is not null
@@ -1114,6 +1147,18 @@ public class PlanView : FrameworkElement
         EndSweepEdit();
         AddingWallPoints = false;
         _rehosting = null;
+        if (_rehostingComponent is not null)
+        {
+            _rehostingComponent = null;
+            PickNewHostChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        if (_attachingColumns is not null)
+        {
+            _attachingColumns = null;
+            AttachColumnsChanged?.Invoke(this, EventArgs.Empty);
+        }
+
         _pendingWallStart = null;
         _trimSubject = null;
         _pendingDimension = null;
@@ -1173,6 +1218,9 @@ public class PlanView : FrameworkElement
     }
 
     // ---- coordinate conversion -------------------------------------------------
+
+    /// <summary>Where a point of the model lands on the screen.</summary>
+    public Point ScreenFor(Point2D model) => ModelToScreen(model);
 
     private Point ModelToScreen(Point2D model) => new(
         ActualWidth / 2 + (model.X - ViewCentre.X) * PixelsPerMm,
@@ -1243,6 +1291,13 @@ public class PlanView : FrameworkElement
         }
 
         var raw = ScreenToModel(screen);
+
+        if (IsSketching)
+        {
+            SketchHover(raw);
+            CursorMoved?.Invoke(this, raw);
+            return;
+        }
 
         // A freehand stroke follows the mouse for as long as the button is down.
         if (_stroke is not null)
@@ -1332,8 +1387,25 @@ public class PlanView : FrameworkElement
         if (Document is null) return;
         var raw = ScreenToModel(e.GetPosition(this));
 
+        // While a roof is being sketched, every click belongs to the sketch.
+        if (IsSketching)
+        {
+            SketchClick(raw);
+            return;
+        }
+
+        // Double-clicking a roof opens its sketch, as it does in Revit.
+        if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && HitTest(raw) is Roof doubleClicked)
+        {
+            Select(doubleClicked);
+            EditFootprint();
+            return;
+        }
+
         if (ActiveTool == PlanTool.Select && SweepEdit != SweepEditMode.None && SweepEditClick(raw)) return;
         if (ActiveTool == PlanTool.Select && _rehosting is not null && RehostAt(raw)) return;
+        if (ActiveTool == PlanTool.Select && _rehostingComponent is not null && RehostComponentAt(raw)) return;
+        if (ActiveTool == PlanTool.Select && _attachingColumns is not null && AttachColumnsAt(raw)) return;
 
         switch (ActiveTool)
         {
@@ -1385,9 +1457,16 @@ public class PlanView : FrameworkElement
                 PlaceRoom(raw);
                 return;
 
+            case PlanTool.Component:
+                PlaceComponent(raw);
+                return;
+
+            case PlanTool.Column:
+                PlaceColumn(raw);
+                return;
+
             case PlanTool.Floor:
             case PlanTool.Ceiling:
-            case PlanTool.Roof:
                 PlaceSlab(raw, ActiveTool);
                 return;
 
@@ -1477,6 +1556,9 @@ public class PlanView : FrameworkElement
             return;
         }
 
+        // An edge of a selected roof: clicking it turns its slope on or off.
+        if (ToggleRoofEdgeAt(raw)) return;
+
         // A grip on a single selected wall wins over picking something new.
         if (SelectedWall is { } selected)
         {
@@ -1531,6 +1613,55 @@ public class PlanView : FrameworkElement
         _bandStart = null;
         _stroke = null;
         EndDrag();
+    }
+
+    /// <summary>
+    /// Turns the slope on or off at the edge of a selected roof that was clicked.
+    ///
+    /// This is the roof equivalent of Revit's "Defines slope" tick on a sketch line, put where
+    /// the thing it changes is: the edge itself. An edge that slopes is an eave the roof rises
+    /// from, one that does not is a gable the roof is cut off at, and turning one off is how a
+    /// hip roof becomes a gable roof.
+    /// </summary>
+    public bool ToggleRoofEdgeAt(Point2D raw)
+    {
+        if (Document is null || ActiveTool != PlanTool.Select) return false;
+        if (_selection.Count != 1 || _selection[0] is not Roof roof) return false;
+        if (roof.Boundary.Count < 3) return false;
+
+        var reach = 6 / PixelsPerMm;
+        var picked = -1;
+
+        for (var i = 0; i < roof.Boundary.Count; i++)
+        {
+            var distance = Line2D.DistanceFromSegment(
+                raw, roof.Boundary[i], roof.Boundary[(i + 1) % roof.Boundary.Count]);
+
+            if (distance >= reach) continue;
+
+            reach = distance;
+            picked = i;
+        }
+
+        if (picked < 0 || picked >= roof.Edges.Count) return false;
+
+        var edges = roof.Edges.Select(edge => edge.Copy()).ToList();
+        var now = !edges[picked].DefinesSlope;
+        edges[picked].DefinesSlope = now;
+
+        // A newly sloping edge takes the roof's own pitch, so one roof does not end up with
+        // two pitches by accident; a roof with nothing sloping yet takes the tool's.
+        if (now) edges[picked].SlopeDegrees = roof.SlopeDegrees > 0 ? roof.SlopeDegrees : ActiveRoofSlopeDegrees;
+
+        Apply(new SetRoofEdgesCommand(roof, edges, now ? "Slope Roof Edge" : "Flatten Roof Edge"));
+
+        HintChanged?.Invoke(this, now
+            ? $"That edge is an eave now: {EnumText.Humanise(roof.Form).ToLowerInvariant()} roof, {Units.FormatArea(roof.SlopingArea(Document))} of covering."
+            : $"That edge is a gable now: {EnumText.Humanise(roof.Form).ToLowerInvariant()} roof.");
+
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
     }
 
     /// <summary>Tells the status bar how much is selected, which is not otherwise obvious.</summary>
@@ -1766,12 +1897,11 @@ public class PlanView : FrameworkElement
     /// <summary>What a move drag carries: the selection, and whatever is locked to it.</summary>
     private readonly List<Element> _moveSet = new();
 
-    private void BeginMoveDrag(Point2D raw)
+    /// <summary>
+    /// Works out what a move carries, whether it is dragged or nudged with the arrow keys.
+    /// </summary>
+    private void CollectMoveSet()
     {
-        if (!_selection.Any(ElementTransforms.CanMove)) return;
-
-        _dragging = GripKind.Move;
-
         // Walls locked to the ones selected move with them, as Revit's locked joins do.
         _moveSet.Clear();
         _moveSet.AddRange(_selection);
@@ -1785,6 +1915,14 @@ public class PlanView : FrameworkElement
         if (Document is not null)
             foreach (var (follower, atStart) in WallJointLock.Followers(Document, _moveSet.OfType<Wall>().ToList()))
                 _followers.Add((follower, atStart, follower.Start, follower.End));
+    }
+
+    private void BeginMoveDrag(Point2D raw)
+    {
+        if (!_selection.Any(ElementTransforms.CanMove)) return;
+
+        _dragging = GripKind.Move;
+        CollectMoveSet();
 
         _dragAnchor = raw;
         _dragLastPoint = SnapToGrid(raw);
@@ -1792,6 +1930,53 @@ public class PlanView : FrameworkElement
 
         CaptureMouse();
         Cursor = Cursors.SizeAll;
+    }
+
+    /// <summary>The run of arrow-key nudges in progress, so a held key is one thing to undo.</summary>
+    private NudgeElementsCommand? _nudgeRun;
+
+    /// <summary>
+    /// Moves the selection one step with an arrow key.
+    ///
+    /// Revit nudges by a distance that depends on the zoom, so the same key press means a
+    /// different move at every zoom level and nothing lands on a round number - zoom in and a
+    /// wall creeps, zoom out and it jumps across the room. Here a nudge is the snapping step,
+    /// the distance the drawing is already set out on, so it is the same wherever the view
+    /// is: 100 mm a press, and a metre with Shift held for crossing the plan.
+    ///
+    /// Held down, the key repeats, and the whole run is one move to undo.
+    /// </summary>
+    public bool Nudge(Vector2D direction, bool far, bool continuing)
+    {
+        if (Document is null || _dragging != GripKind.None) return false;
+        if (!_selection.Any(ElementTransforms.CanMove)) return false;
+
+        var distance = far ? SnapStepMm * 10 : SnapStepMm;
+        var step = direction * distance;
+
+        if (continuing && _nudgeRun is not null)
+        {
+            _nudgeRun.Grow(step);
+        }
+        else
+        {
+            CollectMoveSet();
+            _nudgeRun = new NudgeElementsCommand(
+                _moveSet, _followers.Select(f => (f.Wall, f.AtStart)), step, Document);
+
+            if (_nudgeRun.IsEmpty) return false;
+
+            History?.Execute(_nudgeRun);
+        }
+
+        var way = direction.Y > 0 ? "up" : direction.Y < 0 ? "down" : direction.X > 0 ? "right" : "left";
+        HintChanged?.Invoke(this, _nudgeRun.Delta.Length > distance
+            ? $"Moved {Units.FormatLength(_nudgeRun.Delta.Length)} altogether. Undo takes back the whole run."
+            : $"Moved {Units.FormatLength(distance)} {way}. Hold Shift for {Units.FormatLength(SnapStepMm * 10)} a press.");
+
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
     }
 
     private void DragTo(Point2D raw)
@@ -1906,7 +2091,7 @@ public class PlanView : FrameworkElement
         {
             if (_dragTotal.X == 0 && _dragTotal.Y == 0) return;
 
-            var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal);
+            var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal, document: Document);
             if (_followers.Count > 0) History?.Record(new CompositeCommand("Move", FollowerMoves().Prepend(command).ToList()));
             else if (!command.IsEmpty) History?.Record(command);
 
@@ -3165,6 +3350,9 @@ public class PlanView : FrameworkElement
     /// Places a door or window in the wall under the cursor. The opening is positioned by
     /// its distance along that wall, so it stays put when the wall is later moved.
     /// </summary>
+    /// <summary>How high a window is placed above the floor when nothing else says.</summary>
+    public const double NewWindowSillHeight = 900;
+
     /// <summary>Space while placing doors and windows: which side the next one hinges from.</summary>
     private bool _placeFlipHand;
 
@@ -3192,12 +3380,11 @@ public class PlanView : FrameworkElement
             return null;
         }
 
-        // A curtain wall takes doors as panels of its own, not as holes cut in it.
-        if (Document.IsCurtainWall(wall))
+        // A curtain wall takes a door as a panel of its own rather than as a hole cut in it. A
+        // window is cut in, so that it can be selected, sized and moved like any other.
+        if (isDoor && Document.IsCurtainWall(wall))
         {
-            problem = isDoor
-                ? "That is a curtain wall: click a bottom panel to make it a door of the type selected."
-                : "That is a curtain wall: click a panel to make it a window of the type selected.";
+            problem = "That is a curtain wall: click a bottom panel to make it a door of the type selected.";
             return null;
         }
 
@@ -3226,7 +3413,7 @@ public class PlanView : FrameworkElement
         // It opens toward the side of the wall the cursor is on.
         var interiorSide = Document.GetWallType(wall) is { } wallType && wall.Locate(wallType.Structure, raw).Across < 0;
 
-        Opening opening = isDoor ? new Door { SillHeight = 0 } : new BimWindow { SillHeight = 900 };
+        Opening opening = isDoor ? new Door { SillHeight = 0 } : new BimWindow { SillHeight = NewWindowSillHeight };
         opening.HostWallId = wall.Id;
         opening.DistanceAlongWall = placed;
         opening.TypeId = type.Id;
@@ -3246,9 +3433,8 @@ public class PlanView : FrameworkElement
     {
         if (Document is null) return;
 
-        // A curtain wall has no hole cut in it: the panel clicked becomes the door or window.
-        if ((on ?? HitTestWall(raw)) is { } curtain && Document.IsCurtainWall(curtain) &&
-            (isDoor ? PlaceCurtainDoor(raw, curtain) : PlaceCurtainWindow(raw, curtain))) return;
+        // A curtain wall has no hole cut in it for a door: the panel clicked becomes the door.
+        if (isDoor && (on ?? HitTestWall(raw)) is { } curtain && Document.IsCurtainWall(curtain) && PlaceCurtainDoor(raw, curtain)) return;
 
         if (OpeningAt(raw, isDoor, out var problem, on) is not { } opening)
         {
@@ -3258,6 +3444,11 @@ public class PlanView : FrameworkElement
 
         // Placed from a view that shows heights, it goes at the height it was put.
         if (sillHeight is { } sill) opening.SillHeight = Math.Max(0, sill);
+
+        // In a curtain wall it stays inside the panel it was put in.
+        if (Document.FindType<OpeningType>(opening.TypeId) is { } placedType)
+            (opening.DistanceAlongWall, opening.SillHeight) =
+                opening.KeptInPanel(Document, placedType, opening.DistanceAlongWall, opening.SillHeight);
 
         // Numbered as they are placed, from 1, as door and window tags read them.
         opening.Mark = isDoor ? OpeningMarks.Next<Door>(Document) : OpeningMarks.Next<BimWindow>(Document);
@@ -3306,49 +3497,6 @@ public class PlanView : FrameworkElement
             : placement.AddedLines
                 ? $"A bay was cut for the {type.Name}, with glass around it. Drag a grid line in Edit Curtain Grid to resize it."
                 : $"That panel is now a {type.Name}. Click another panel to place another.");
-        InvalidateVisual();
-        return true;
-    }
-
-    /// <summary>
-    /// The Window tool on a curtain wall: the panel clicked becomes a window of the type the
-    /// tool has selected, filling that panel. Unlike a door it need not stand on the floor, so
-    /// any panel will take one and the panel keeps the mullions round it.
-    /// </summary>
-    private bool PlaceCurtainWindow(Point2D raw, Wall wall)
-    {
-        if (Document is null || !Document.IsCurtainWall(wall)) return false;
-
-        if (Document.FindType<WindowType>(ActiveWindowTypeId) is not { } type)
-        {
-            HintChanged?.Invoke(this, "No window type is selected for the tool.");
-            return true;
-        }
-
-        if (CurtainLayout.Of(Document, wall) is not { } layout)
-        {
-            HintChanged?.Invoke(this, "That curtain wall has no panels to fill.");
-            return true;
-        }
-
-        // The panel the click landed in: the one the cursor is over at cut height, or the
-        // bottom one of that bay when the click is outside them all.
-        var along = wall.LocationCurve.Locate(raw).Along;
-        if (layout.Cells.FirstOrDefault(c => along >= c.From && along <= c.To) is not { } cell)
-        {
-            HintChanged?.Invoke(this, "Click a panel of the curtain wall to make it a window.");
-            return true;
-        }
-
-        var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
-            .Where(p => p.Column != cell.Column || p.Row != cell.Row)
-            .Append(new CurtainPanelOverride(cell.Column, cell.Row, CurtainPanelKind.Window, type.Id))
-            .OrderBy(p => p.Column).ThenBy(p => p.Row)
-            .ToList();
-
-        Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, "Place Window"));
-        Select(wall);
-        HintChanged?.Invoke(this, $"That panel is now a {type.Name}. Click another panel, or select one to change it.");
         InvalidateVisual();
         return true;
     }
@@ -3411,6 +3559,31 @@ public class PlanView : FrameworkElement
         Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, "Mirror Panel"));
         Select(panel);
         HintChanged?.Invoke(this, hand ? "Hinged on the other side." : "Opening the other way.");
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>
+    /// Opens or shuts a curtain wall's door panel. A panel is not an element of its own on the
+    /// wall, so this goes through the wall's list of panels the same way mirroring one does.
+    /// </summary>
+    public bool OpenCurtainPanel(CurtainPanel panel, bool open)
+    {
+        if (Document is null || Document.Walls.FirstOrDefault(w => w.Id == panel.HostWallId) is not { } wall) return false;
+
+        if (panel.Cell(Document) is not { Kind: CurtainPanelKind.Door })
+        {
+            HintChanged?.Invoke(this, "Only a door panel opens. Give the panel a door type first.");
+            return true;
+        }
+
+        var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
+            .Select(p => p.Column != panel.Column || p.Row != panel.Row ? p : p with { IsOpen = open })
+            .ToList();
+
+        Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, open ? "Open Panel" : "Close Panel"));
+        Select(panel);
+        HintChanged?.Invoke(this, open ? "The door stands open." : "The door is shut.");
         InvalidateVisual();
         return true;
     }
@@ -3521,8 +3694,108 @@ public class PlanView : FrameworkElement
     private Opening? _rehosting;
 
     /// <summary>Pick New Host: the next wall clicked takes the selected door or window.</summary>
+    /// <summary>The columns waiting for a target to attach to, and which end is being attached.</summary>
+    private (IReadOnlyList<Column> Columns, bool Top)? _attachingColumns;
+
+    /// <summary>Whether Attach Top/Base is waiting for a target to be clicked.</summary>
+    public bool AttachingColumns => _attachingColumns is not null;
+
+    /// <summary>What happens where the columns being attached meet the target they are given.</summary>
+    public ColumnAttachmentStyle ColumnAttachmentStyle { get; set; } = ColumnAttachmentStyle.CutColumn;
+
+    /// <summary>How far the attached end stops short of the target's face.</summary>
+    public double ColumnAttachmentOffset { get; set; }
+
+    /// <summary>Raised when Attach Top/Base starts waiting for a target, and when it stops.</summary>
+    public event EventHandler? AttachColumnsChanged;
+
+    /// <summary>
+    /// Starts the attachment: the next click picks what the selected columns are attached to.
+    ///
+    /// The target is picked rather than found, because which one is meant is the person's
+    /// decision - a column under two slabs should go to the one they mean, not the lower.
+    /// </summary>
+    public bool BeginAttachColumns(bool top)
+    {
+        if (Document is null) return false;
+
+        var columns = _selection.OfType<Column>().ToList();
+        if (columns.Count == 0) return false;
+
+        _attachingColumns = (columns, top);
+        AttachColumnsChanged?.Invoke(this, EventArgs.Empty);
+
+        HintChanged?.Invoke(this,
+            $"Click the floor, ceiling or roof to attach the {(top ? "top" : "base")} to. Esc cancels.");
+
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>A click while Attach waits: the columns take that slab as what holds them.</summary>
+    private bool AttachColumnsAt(Point2D raw)
+    {
+        if (Document is null || _attachingColumns is not { } pending) return false;
+
+        var target = Document.Elements.OfType<Slab>()
+            .Where(slab => slab.LevelId == ActiveLevelId && slab.Contains(raw))
+            .OrderByDescending(slab => slab.GetTopElevation(Document))
+            .FirstOrDefault();
+
+        if (target is null)
+        {
+            HintChanged?.Invoke(this, "Click a floor, ceiling or roof to attach to.");
+            return true;
+        }
+
+        _attachingColumns = null;
+        AttachColumnsChanged?.Invoke(this, EventArgs.Empty);
+
+        Apply(new AttachColumnsCommand(
+            pending.Columns.Select(column => (column, pending.Top, (Guid?)target.Id)),
+            pending.Top ? "Attach Column Tops" : "Attach Column Bases",
+            ColumnAttachmentStyle,
+            ColumnAttachmentOffset));
+
+        HintChanged?.Invoke(this,
+            $"{Plural(pending.Columns.Count, "column")} attached to the {target.Category.ToString().TrimEnd('s').ToLowerInvariant()}.");
+
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>The component waiting to be moved onto another host, if one is.</summary>
+    private Component? _rehostingComponent;
+
+    /// <summary>Whether Pick New is waiting for a new host to be clicked.</summary>
+    public bool PickingNewHost => _rehostingComponent is not null;
+
+    /// <summary>
+    /// What Pick New will take as the new host: only a vertical face, any face, or the view's
+    /// work plane. Revit's Placement panel, which appears while the move is being made.
+    /// </summary>
+    public ComponentPlacementMode PickNewHostMode { get; set; } = ComponentPlacementMode.Face;
+
+    /// <summary>Raised when Pick New starts waiting for a host, and when it stops.</summary>
+    public event EventHandler? PickNewHostChanged;
+
     public void BeginPickNewHost()
     {
+        if (_selection.Count == 1 && _selection[0] is Component component)
+        {
+            if (Document?.FindType<ComponentType>(component.TypeId) is not { IsHosted: true })
+            {
+                HintChanged?.Invoke(this, "That family stands on a level rather than on a face. Change its Level instead.");
+                return;
+            }
+
+            _rehostingComponent = component;
+            PickNewHostChanged?.Invoke(this, EventArgs.Empty);
+            HintChanged?.Invoke(this, "Move over the new host and click. Placement above says what will be taken. Esc cancels.");
+            InvalidateVisual();
+            return;
+        }
+
         if (_selection.Count != 1 || _selection[0] is not Opening opening)
         {
             HintChanged?.Invoke(this, "Select one door or window first.");
@@ -3531,6 +3804,71 @@ public class PlanView : FrameworkElement
 
         _rehosting = opening;
         HintChanged?.Invoke(this, "Click the wall to move it into, where it should go along it. Esc cancels.");
+    }
+
+    /// <summary>
+    /// A click while Pick New Host waits on a component: it goes onto that wall's face, or off
+    /// the wall and onto the level where empty space was clicked. A work-plane-based family can
+    /// live on either; a face-based one must land on a wall.
+    /// </summary>
+    private bool RehostComponentAt(Point2D raw)
+    {
+        if (Document is null || _rehostingComponent is not { } component) return false;
+        if (Document.FindType<ComponentType>(component.TypeId) is not { } type) return false;
+
+        if (CandidateHost(component, type, raw) is not { } moved)
+        {
+            HintChanged?.Invoke(this, PickNewHostMode switch
+            {
+                ComponentPlacementMode.VerticalFace => "Nothing there stands up. Move over a wall.",
+                ComponentPlacementMode.WorkPlane => "This family is fixed to a face; it cannot go on a work plane.",
+                _ => "Nothing there can carry it. Move over a wall, a floor, a ceiling or a roof."
+            });
+
+            return true;
+        }
+
+        _rehostingComponent = null;
+        PickNewHostChanged?.Invoke(this, EventArgs.Empty);
+
+        Apply(new RehostComponentCommand(component, moved));
+        Select(component);
+
+        HintChanged?.Invoke(this,
+            $"Moved onto {ComponentHosting.Describe(Document, component, type)}.");
+
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>
+    /// Where the component would land if the new host were picked here: the same answer the
+    /// click will give, so the preview cannot promise something the click will not do.
+    /// </summary>
+    private Component? CandidateHost(Component component, ComponentType type, Point2D raw)
+    {
+        if (Document is null) return null;
+
+        var at = PickNewHostMode == ComponentPlacementMode.WorkPlane ? SnapPoint(raw, null, out _) : raw;
+        return ComponentHosting.MovedTo(Document, component, type, PickNewHostMode, at, ActiveLevelId);
+    }
+
+    /// <summary>
+    /// The component drawn where Pick New would put it, and the host it would land on outlined,
+    /// so it can be seen before it is done rather than after.
+    /// </summary>
+    private void DrawPickNewHostPreview(DrawingContext dc)
+    {
+        if (Document is null || _rehostingComponent is not { } component) return;
+        if (Document.FindType<ComponentType>(component.TypeId) is not { } type) return;
+        if (CandidateHost(component, type, _cursorModel) is not { } moved) return;
+
+        // What would carry it, outlined the way pre-highlighting outlines what a click picks.
+        if (ComponentHosting.HostOf(Document, moved) is { } host) DrawHoverOutline(dc, host);
+
+        var frame = ComponentModel.FrameOf(moved, 0);
+        foreach (var outline in ComponentModel.PlanOutlines(type, frame))
+            dc.DrawGeometry(null, _previewPen, _renderer.BuildOutline(outline));
     }
 
     /// <summary>A click while Pick New Host waits: the opening goes into that wall, there.</summary>
@@ -3600,6 +3938,245 @@ public class PlanView : FrameworkElement
             $"Room {room.Number}: {Units.FormatArea(boundary.Area)}. Click another space.");
     }
 
+    /// <summary>The type new components are placed from.</summary>
+    public Guid ActiveComponentTypeId { get; set; }
+
+    /// <summary>
+    /// How far the component about to be placed has been turned, in degrees. Pressing Space
+    /// while the tool is live turns it a quarter turn, which is how a chair is put at a table.
+    /// </summary>
+    public double ComponentRotation { get; set; }
+
+    /// <summary>
+    /// Puts a component where it was clicked (specification section 2.1, "Components").
+    ///
+    /// A freestanding one stands on the active level wherever it is put. One whose family is
+    /// fixed to a face looks for a wall under the cursor and stands against it, at the fixing
+    /// height its family says - a wall light at two metres, a wall-hung basin at eight hundred
+    /// - and is carried by that wall from then on.
+    /// </summary>
+    private void PlaceComponent(Point2D raw)
+    {
+        if (Document is null) return;
+
+        if (Document.FindType<ComponentType>(ActiveComponentTypeId) is not { } type)
+        {
+            HintChanged?.Invoke(this, "Pick a component family on the options bar first.");
+            return;
+        }
+
+        var component = new Component
+        {
+            TypeId = type.Id,
+            TypeKind = type.Kind,
+            LevelId = ActiveLevelId,
+            Location = SnapPoint(raw, null, out _),
+            Rotation = ComponentRotation
+        };
+
+        var host = type.IsHosted ? HitTestWall(raw) : null;
+        if (host is not null && component.HostOn(Document, host, raw))
+        {
+            component.Elevation = type.DefaultElevation;
+        }
+        else if (type.Placement == ComponentPlacement.FaceBased)
+        {
+            HintChanged?.Invoke(this, $"{type.Name} is fixed to a wall face. Click on a wall to place it.");
+            return;
+        }
+
+        Apply(new AddElementCommand(Document, component, "Place Component"));
+        Select(component);
+
+        HintChanged?.Invoke(this, component.IsHosted
+            ? $"{type.Name} placed on the wall. Space turns the next one; Pick New Host moves this one."
+            : $"{type.Name} placed. Space turns the next one a quarter turn.");
+
+        InvalidateVisual();
+    }
+
+    /// <summary>Turns a component already in the model a quarter turn about where it stands.</summary>
+    public bool TurnPlacedComponent(Component component)
+    {
+        if (Document is null) return false;
+
+        var turned = ComponentHosting.Copy(component);
+        turned.Rotation = (component.Rotation + 90) % 360;
+
+        Apply(new RehostComponentCommand(component, turned, "Turn Component"));
+        Select(component);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>Turns the component about to be placed a quarter turn, as Space does in Revit.</summary>
+    public bool TurnComponent()
+    {
+        if (ActiveTool != PlanTool.Component) return false;
+
+        ComponentRotation = (ComponentRotation + 90) % 360;
+        HintChanged?.Invoke(this, $"Next component turned to {ComponentRotation:0}°.");
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>The type new columns are placed from.</summary>
+    public Guid ActiveColumnTypeId { get; set; }
+
+    /// <summary>How far the column about to be placed has been turned, in degrees.</summary>
+    public double ColumnRotation { get; set; }
+
+    /// <summary>
+    /// The level a new column is taken to. Null leaves it unconnected, standing its type's
+    /// height, which is what it is until someone says what it reaches.
+    /// </summary>
+    public Guid? ColumnTopLevelId { get; set; }
+
+    /// <summary>
+    /// Whether a new column goes down from the level being drawn on rather than up from it -
+    /// Revit's Depth against Height. Down, the level chosen is the one it stands on and the
+    /// level being drawn on is the one it reaches.
+    /// </summary>
+    public bool ColumnGoesDown { get; set; }
+
+    /// <summary>
+    /// Stands an architectural column where it was clicked (specification section 3.2).
+    ///
+    /// It is put on the active level and left unconstrained above, which is what a column is
+    /// until someone says what it meets: Top Level, or Attach Top to the slab over it.
+    /// </summary>
+    private void PlaceColumn(Point2D raw)
+    {
+        if (Document is null) return;
+
+        if (Document.FindType<ColumnType>(ActiveColumnTypeId) is not { } type)
+        {
+            HintChanged?.Invoke(this, "Pick a column type on the options bar first.");
+            return;
+        }
+
+        var column = NewColumn(type, SnapPoint(raw, null, out _));
+
+        // Put on a wall, it sits against the face it was put on rather than straddling the
+        // wall's line: a pier is flush with one face and steps out of the other.
+        if (ColumnJoins.FlushWith(Document, column, type, ColumnJoins.NearestFace(Document, column, raw)) is { } flush)
+            column.Location = flush;
+
+        Apply(new AddElementCommand(Document, column, "Place Column"));
+        Select(column);
+
+        HintChanged?.Invoke(this, ColumnJoins.JoinedWall(Document, column) is not null
+            ? $"{type.Name} placed in the wall; it is drawn as part of it. Attach Top takes it up to what is over it."
+            : $"{type.Name} placed. Attach Top takes it up to the floor, ceiling or roof over it.");
+
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// A column of this type at a point, constrained the way the options bar says: up from the
+    /// level being drawn on to the level chosen, or down from it to that level.
+    /// </summary>
+    private Column NewColumn(ColumnType type, Point2D at)
+    {
+        var column = new Column
+        {
+            TypeId = type.Id,
+            LevelId = ActiveLevelId,
+            Location = at,
+            Rotation = ColumnRotation
+        };
+
+        if (ColumnTopLevelId is not { } chosen) return column;
+
+        // Going down, the level chosen is what it stands on and this plan's level is its top.
+        if (ColumnGoesDown)
+        {
+            column.LevelId = chosen;
+            column.TopLevelId = ActiveLevelId;
+        }
+        else
+        {
+            column.TopLevelId = chosen;
+        }
+
+        return column;
+    }
+
+    /// <summary>
+    /// Stands a column at every intersection of the selected grids, which is how a frame is set
+    /// out: the grid says where the columns go, so they are put there together rather than
+    /// pointed at one at a time. Intersections already holding a column are left alone.
+    /// </summary>
+    public bool PlaceColumnsAtGrids()
+    {
+        if (Document is null) return false;
+
+        if (Document.FindType<ColumnType>(ActiveColumnTypeId) is not { } type)
+        {
+            HintChanged?.Invoke(this, "Pick a column type on the options bar first.");
+            return true;
+        }
+
+        var grids = _selection.OfType<Grid>().ToList();
+        if (grids.Count < 2)
+        {
+            HintChanged?.Invoke(this, "Select two or more gridlines that cross, then use At Grids.");
+            return true;
+        }
+
+        var columns = ColumnGrids.AtIntersections(Document, grids, type, ActiveLevelId,
+            ColumnGoesDown ? ActiveLevelId : ColumnTopLevelId);
+
+        // Going down, each column stands on the level chosen and reaches this one.
+        if (ColumnGoesDown && ColumnTopLevelId is { } below)
+            foreach (var column in columns) column.LevelId = below;
+
+        if (columns.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Those gridlines cross nowhere new - every intersection already has a column.");
+            return true;
+        }
+
+        Apply(new AddElementsCommand(Document, columns, "Place Columns at Grids"));
+        SelectMany(columns);
+
+        HintChanged?.Invoke(this, $"{columns.Count} columns placed at the grid intersections.");
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>Turns the column about to be placed a quarter turn, as Space does for a component.</summary>
+    public bool TurnColumn()
+    {
+        if (ActiveTool != PlanTool.Column) return false;
+
+        ColumnRotation = (ColumnRotation + 90) % 360;
+        HintChanged?.Invoke(this, $"Next column turned to {ColumnRotation:0}°.");
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>The column standing at a point, if there is one on the active level.</summary>
+    private Column? ColumnAt(Point2D raw) =>
+        Document is null
+            ? null
+            : Document.Elements.OfType<Column>()
+                .Where(column => column.LevelId == ActiveLevelId)
+                .LastOrDefault(column =>
+                    Document.FindType<ColumnType>(column.TypeId) is { } type &&
+                    Polygon2D.Contains(column.Outline(type), raw));
+
+    /// <summary>The component drawn at a point, if there is one on the active level.</summary>
+    private Component? ComponentAt(Point2D raw) =>
+        Document is null
+            ? null
+            : Document.Elements.OfType<Component>()
+                .Where(component => component.LevelId == ActiveLevelId)
+                .LastOrDefault(component =>
+                    Document.FindType<ComponentType>(component.TypeId) is { } type &&
+                    Polygon2D.Contains(
+                        ComponentModel.Footprint(type, ComponentModel.FrameOf(component, 0)), raw));
+
     private static bool ContainsPoint(RoomBoundaryResult boundary, Point2D point) =>
         boundary.IsEnclosed && Polygon2D.Contains(boundary.Polygon, point);
 
@@ -3656,12 +4233,8 @@ public class PlanView : FrameworkElement
             return;
         }
 
-        Slab slab = tool switch
-        {
-            PlanTool.Floor => new Floor(),
-            PlanTool.Ceiling => new Ceiling { HeightOffset = 2400 },
-            _ => new Roof { HeightOffset = 3000 }
-        };
+        // Roofs are sketched, not picked from a room: see the roof sketch.
+        Slab slab = tool == PlanTool.Ceiling ? new Ceiling { HeightOffset = 2400 } : new Floor();
 
         slab.SetBoundary(boundary.Polygon);
         slab.TypeId = type.Id;
@@ -3669,6 +4242,7 @@ public class PlanView : FrameworkElement
 
         Apply(new AddElementCommand(Document, slab, $"Place {type.Category.ToString().TrimEnd('s')}"));
         Select(slab);
+
         HintChanged?.Invoke(this, $"{type.Name}: {Units.FormatArea(slab.Area)}.");
     }
 
@@ -3764,7 +4338,141 @@ public class PlanView : FrameworkElement
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseRightButtonDown(e);
-        CancelPendingOperation();
+        _rightPressedAt = e.GetPosition(this);
+
+        // In a sketch, a right click stops the line being drawn, as Esc does.
+        if (IsSketching) SketchEscape();
+        else CancelPendingOperation();
+    }
+
+    /// <summary>Where the right button went down, so a click can be told from a pan.</summary>
+    private Point? _rightPressedAt;
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+
+        // A right drag pans the view; a right click on something asks what to do with it.
+        var at = e.GetPosition(this);
+        var wasClick = _rightPressedAt is { } down && (at - down).Length <= 4;
+        _rightPressedAt = null;
+        if (!wasClick || Document is null) return;
+
+        // The sketch has no menu of its own: a right click there has already stopped the line.
+        if (IsSketching)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (PickAt(at) is not { } picked) return;
+
+        if (!_selection.Contains(picked)) Select(picked);
+        ShowMenuFor(picked, this);
+        e.Handled = true;
+    }
+
+    /// <summary>The door or window drawn at this point, if there is one.</summary>
+    private Opening? OpeningAt(Point2D raw) =>
+        Document is null
+            ? null
+            : Document.Openings.FirstOrDefault(opening =>
+                Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is { } wall &&
+                Document.GetWallType(wall) is { } type &&
+                opening.LevelId == ActiveLevelId &&
+                wall.Locate(type.Structure, raw) is var (along, across) &&
+                Math.Abs(across) <= type.Width / 2 + 60 &&
+                along >= opening.GetSpan(Document.FindType<OpeningType>(opening.TypeId)!).From &&
+                along <= opening.GetSpan(Document.FindType<OpeningType>(opening.TypeId)!).To);
+
+    /// <summary>The thing drawn at a point on the screen: a door or window first, else a wall.</summary>
+    public Element? PickAt(Point screen)
+    {
+        var raw = ScreenToModel(screen);
+        return OpeningAt(raw) ?? (Element?)HitTestWall(raw);
+    }
+
+    /// <summary>
+    /// What can be done with something, as a menu would list it: a header and what it does, or
+    /// a null action for a line between groups. A door is opened and shut here because that is
+    /// what one does with a door, and a right click is where anyone looks for it.
+    /// </summary>
+    public IReadOnlyList<(string Header, Action? Do)> MenuFor(Element picked)
+    {
+        var items = new List<(string, Action?)>();
+        if (Document is null) return items;
+
+        switch (picked)
+        {
+            case Opening opening:
+                items.Add((opening.IsOpen ? "Close" : "Open", () => Apply(new OpenOpeningCommand(opening, !opening.IsOpen))));
+                items.Add((string.Empty, null));
+                items.Add(("Flip Facing", () => Apply(new FlipOpeningCommand(opening, facing: true))));
+                items.Add(("Flip Hand", () => Apply(new FlipOpeningCommand(opening, facing: false))));
+                items.Add(("Pick New Host", BeginPickNewHost));
+                items.Add((string.Empty, null));
+                items.Add(("Delete", () => Apply(new DeleteElementCommand(Document, opening))));
+                break;
+
+            case Component component:
+            {
+                var family = Document.FindType<ComponentType>(component.TypeId);
+                items.Add((family is null ? "Component" : $"{EnumText.Humanise(family.Kind)}: {family.Name}", null));
+                items.Add((string.Empty, null));
+                items.Add(("Turn 90°", () => TurnPlacedComponent(component)));
+
+                if (family?.IsHosted == true) items.Add(("Pick New Host", BeginPickNewHost));
+
+                items.Add((string.Empty, null));
+                items.Add(("Delete", () => Apply(new DeleteElementCommand(Document, component))));
+                break;
+            }
+
+            case CurtainPanel panel:
+                var cell = panel.Cell(Document);
+                items.Add(($"Panel: column {panel.Column + 1}, row {panel.Row + 1}", null));
+                if (cell?.Kind == CurtainPanelKind.Door)
+                {
+                    items.Add((cell.IsOpen ? "Close" : "Open", () => OpenCurtainPanel(panel, !cell.IsOpen)));
+                    items.Add((string.Empty, null));
+                    items.Add(("Mirror", () => FlipCurtainPanel(panel, hand: true)));
+                    items.Add(("Flip Facing", () => FlipCurtainPanel(panel, hand: false)));
+                }
+
+                break;
+
+            case Wall wall:
+                items.Add(("Flip", () => Apply(new FlipWallsCommand(new[] { wall }))));
+                items.Add((string.Empty, null));
+                items.Add(("Delete", () => Apply(new DeleteElementCommand(Document, wall))));
+                break;
+        }
+
+        return items;
+    }
+
+    /// <summary>Shows that menu over a view, where the cursor is.</summary>
+    public void ShowMenuFor(Element picked, UIElement over)
+    {
+        var entries = MenuFor(picked).Where(entry => entry.Do is not null || entry.Header.Length > 0).ToList();
+        if (entries.Count == 0) return;
+
+        var menu = new ContextMenu { PlacementTarget = over, Placement = PlacementMode.MousePoint };
+
+        foreach (var (header, act) in entries)
+        {
+            if (act is null && header.Length == 0)
+            {
+                menu.Items.Add(new Separator());
+                continue;
+            }
+
+            var item = new MenuItem { Header = header, IsEnabled = act is not null };
+            if (act is { } run) item.Click += (_, _) => run();
+            menu.Items.Add(item);
+        }
+
+        menu.IsOpen = true;
     }
 
     protected override void OnMouseDown(MouseButtonEventArgs e)
@@ -3894,6 +4602,13 @@ public class PlanView : FrameworkElement
     private void DrawHover(DrawingContext dc)
     {
         if (Document is null || _isPanning || Hovered is not { } element || IsSelected(element)) return;
+        DrawHoverOutline(dc, element);
+    }
+
+    /// <summary>One element ringed the way pre-highlighting rings what a click would pick.</summary>
+    private void DrawHoverOutline(DrawingContext dc, Element element)
+    {
+        if (Document is null) return;
 
         IReadOnlyList<Point2D>? ring = null;
         switch (element)
@@ -3998,6 +4713,13 @@ public class PlanView : FrameworkElement
                 yield return opening;
         }
 
+        // A component stands on the floor or against a wall face, so it is picked before them:
+        // it is what the cursor is actually over.
+        if (ComponentAt(model) is { } component) yield return component;
+
+        // A column stands in or beside a wall, and is drawn over it, so it is picked over it too.
+        if (ColumnAt(model) is { } column) yield return column;
+
         // Openings are holes in walls, so they are picked before the walls they are in.
         foreach (var cut in WallOpeningsAt(model)) yield return cut;
 
@@ -4083,11 +4805,13 @@ public class PlanView : FrameworkElement
         // Editing affordances go on top, and only here. Grips, snap rings and half-finished
         // walls belong to the editor rather than to the drawing, so none of them may ever
         // reach a sheet - which is exactly why the renderer does not know about them.
+        DrawRoofSketch(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);
         DrawSelectedOpenings(dc);
         DrawOpeningPreview(dc);
+        DrawPickNewHostPreview(dc);
         DrawOpeningFlipControls(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);
@@ -4111,7 +4835,10 @@ public class PlanView : FrameworkElement
     private void PrepareRenderer()
     {
         RefreshViewFilter();
-        _renderer.Filter = _shows;
+
+        // A roof whose footprint is open for editing is not drawn: its sketch stands in for it.
+        var editing = _sketchRoof;
+        _renderer.Filter = editing is null ? _shows : element => !ReferenceEquals(element, editing) && _shows(element);
         _renderer.Document = Document;
         _renderer.DetailLevel = DetailLevel;
         _renderer.View = CurrentView;

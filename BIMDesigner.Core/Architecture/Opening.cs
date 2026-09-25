@@ -58,6 +58,13 @@ public abstract class Opening : Element, IHostedElement
     /// <summary>Whether it stands upright or leans with a slanted wall. See <see cref="OpeningOrientation"/>.</summary>
     public OpeningOrientation Orientation { get; set; } = OpeningOrientation.Vertical;
 
+    /// <summary>
+    /// Whether it is drawn standing open. A door drawn shut says nothing about the room it
+    /// serves; one drawn open shows the space its leaf takes and where it lands, which is what
+    /// a plan gets checked for.
+    /// </summary>
+    public bool IsOpen { get; set; }
+
     /// <summary>The centre of the opening on the wall's location line.</summary>
     public Point2D GetCentre(Wall wall) => wall.LocationCurve.PointAt(DistanceAlongWall);
 
@@ -75,6 +82,34 @@ public abstract class Opening : Element, IHostedElement
 
     /// <summary>How tall this opening actually is.</summary>
     public double HeightOf(OpeningType? type) => HeightOverride ?? type?.Height ?? 0;
+
+    /// <summary>
+    /// A position held to what the host will take. An ordinary wall takes an opening anywhere
+    /// along it. A curtain wall does not: its glass is held in a grid, so an opening stays in
+    /// the panel it is in rather than drifting across a mullion into the next bay - or over the
+    /// door - which is not something that could be built.
+    /// </summary>
+    public (double Along, double Sill) KeptInPanel(BimDocument document, OpeningType? type, double along, double sill)
+    {
+        if (type is null) return (along, sill);
+        if (document.Walls.FirstOrDefault(w => w.Id == HostWallId) is not { } host) return (along, sill);
+        if (CurtainLayout.Of(document, host) is not { } layout) return (along, sill);
+
+        var width = WidthOf(type);
+        var height = HeightOf(type);
+
+        // The panel it is in now, which is the one it stays in.
+        var middle = SillHeight + height / 2;
+        if (layout.Cells.FirstOrDefault(c =>
+                DistanceAlongWall >= c.From && DistanceAlongWall <= c.To && middle >= c.Bottom && middle <= c.Top) is not { } cell)
+            return (along, sill);
+
+        var (low, high) = (cell.ClearFrom + width / 2, cell.ClearTo - width / 2);
+        var (bottom, top) = (cell.ClearBottom, cell.ClearTop - height);
+
+        return (high < low ? (cell.ClearFrom + cell.ClearTo) / 2 : Math.Clamp(along, low, high),
+            top < bottom ? bottom : Math.Clamp(sill, bottom, top));
+    }
 
     /// <summary>Where the opening starts and ends, as distances along the wall.</summary>
     public (double From, double To) GetSpan(OpeningType type) =>
@@ -106,31 +141,46 @@ public abstract class Opening : Element, IHostedElement
                 ? $"{host.Category} : {document.GetWallType(host)?.Name ?? "?"}"
                 : "<none>");
 
-        yield return ParameterValue.Bind(OpeningParameters.SillHeight, () => SillHeight, v => SillHeight = v);
+        yield return ParameterValue.Bind(OpeningParameters.SillHeight, () => SillHeight, v => SillHeight = KeptInPanel(document, type, DistanceAlongWall, v).Sill);
         // The head is the sill plus the type's height: set, it moves the opening, not its size.
         yield return type is null
             ? ParameterValue.ReadOnly(OpeningParameters.HeadHeight, () => SillHeight)
-            : ParameterValue.Bind(OpeningParameters.HeadHeight, () => SillHeight + HeightOf(type), v => SillHeight = v - HeightOf(type));
+            : ParameterValue.Bind(OpeningParameters.HeadHeight, () => SillHeight + HeightOf(type),
+                v => SillHeight = KeptInPanel(document, type, DistanceAlongWall, v - HeightOf(type)).Sill);
 
         // This opening's own size. Set back to the type's, it follows the type again rather
         // than freezing at whatever the type happened to be.
         yield return ParameterValue.Bind(
             OpeningParameters.Width,
             () => WidthOf(type),
-            v => { if (v > 0) WidthOverride = type is not null && Math.Abs(v - type.Width) < 1e-9 ? null : v; });
+            v =>
+            {
+                if (v <= 0) return;
+                WidthOverride = type is not null && Math.Abs(v - type.Width) < 1e-9 ? null : v;
+
+                // Wider, it may no longer fit where it sits: it moves along rather than
+                // growing out of its panel.
+                (DistanceAlongWall, SillHeight) = KeptInPanel(document, type, DistanceAlongWall, SillHeight);
+            });
 
         yield return ParameterValue.Bind(
             OpeningParameters.Height,
             () => HeightOf(type),
-            v => { if (v > 0) HeightOverride = type is not null && Math.Abs(v - type.Height) < 1e-9 ? null : v; });
+            v =>
+            {
+                if (v <= 0) return;
+                HeightOverride = type is not null && Math.Abs(v - type.Height) < 1e-9 ? null : v;
+                (DistanceAlongWall, SillHeight) = KeptInPanel(document, type, DistanceAlongWall, SillHeight);
+            });
 
         yield return ParameterValue.ReadOnly(OpeningParameters.Area, () => WidthOf(type) * HeightOf(type));
 
         yield return ParameterValue.Bind(
             OpeningParameters.DistanceAlongWall,
             () => DistanceAlongWall,
-            v => { if (v >= 0) DistanceAlongWall = v; });
+            v => { if (v >= 0) DistanceAlongWall = Math.Max(0, KeptInPanel(document, type, v, SillHeight).Along); });
 
+        yield return ParameterValue.Bind(OpeningParameters.IsOpen, () => IsOpen, v => IsOpen = v);
         yield return ParameterValue.Bind(OpeningParameters.FlipFacing, () => FlipFacing, v => FlipFacing = v);
         yield return ParameterValue.Bind(OpeningParameters.FlipHand, () => FlipHand, v => FlipHand = v);
 
@@ -214,6 +264,9 @@ public static class OpeningParameters
 
     public static readonly ParameterDefinition DistanceAlongWall =
         new("Distance Along Wall", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition IsOpen =
+        new("Open", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition FlipFacing =
         new("Flip Facing", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);

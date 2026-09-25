@@ -194,6 +194,12 @@
             <EventSetter Event="Click" Handler="OnPlaceWallShape"/>
         </Style>
 
+        <!-- The draw tools of a roof sketch: one at a time. -->
+        <Style x:Key="RoofSketchRadio" TargetType="RadioButton" BasedOn="{StaticResource RibbonSmallRadio}">
+            <Setter Property="GroupName" Value="RoofSketch"/>
+            <EventSetter Event="Click" Handler="OnRoofSketchTool"/>
+        </Style>
+
         <Style x:Key="WallShapeLargeRadio" TargetType="RadioButton">
             <Setter Property="AutomationProperties.Name" Value="{Binding Content, RelativeSource={RelativeSource Self}}"/>
             <Setter Property="GroupName" Value="WallShape"/>
@@ -410,8 +416,12 @@
                                              Content="Door" Checked="OnToolChanged" ToolTip="Place a door in a wall (D)"/>
                                 <RadioButton x:Name="WindowTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Window}"
                                              Content="Window" Checked="OnToolChanged" ToolTip="Place a window in a wall (N)"/>
-                                <RadioButton Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Column}"
-                                             Content="Column" IsEnabled="False" ToolTip="Columns are not built yet"/>
+                                <RadioButton x:Name="ComponentTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Room}"
+                                             Content="Component" Checked="OnToolChanged"
+                                             ToolTip="Place a component: furniture, casework, a fixture. Space turns it before you click"/>
+                                <RadioButton x:Name="ColumnTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Column}"
+                                             Content="Column" Checked="OnToolChanged"
+                                             ToolTip="Stand an architectural column: the box-out round a structural column, a pier or a pilaster. Space turns it"/>
                                 <RadioButton x:Name="RoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
                                              Content="Roof" Checked="OnToolChanged" ToolTip="Roof an enclosed space, flat roofs only (F4)"/>
                                 <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Ceiling}"
@@ -725,10 +735,27 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl x:Name="ContextHostPanel" Header="Host" Style="{StaticResource ContextRibbonPanel}">
+                        <HeaderedContentControl x:Name="ContextRoofPanel" Header="Mode" Style="{StaticResource ContextRibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.EditFootprint}"
+                                    Content="Edit Footprint" Click="OnEditRoofFootprint"
+                                    ToolTip="Open the roof's sketch again: pick more walls, move or delete lines, change which ones slope. Double-clicking the roof does the same"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextColumnPanel" Header="Column" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Wall}"
+                                        Content="Align Faces" Click="OnAlignWallFaces"
+                                        ToolTip="Set the selected column flush with the face of the wall it stands in, instead of straddling the wall's line. Click again for the other face"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
+                                        Content="Edit Section" Click="OnEditColumnProfile"
+                                        ToolTip="Draw the column's cross-section: cut shapes out of it, add shapes to it, and watch it in 3D as you go"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextHostPanel" Header="Work Plane" Style="{StaticResource ContextRibbonPanel}">
                             <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Door}"
-                                    Content="Pick New Host" Click="OnPickNewHost"
-                                    ToolTip="Move the selected door or window into another wall: click the wall where it should go"/>
+                                    Content="Pick New" Click="OnPickNewHost"
+                                    ToolTip="Move the selection onto another host: a door or window into another wall, or a component onto another face or onto the level. Placement above says what will be taken"/>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl x:Name="ContextSweepPanel" Header="Profile" Style="{StaticResource ContextRibbonPanel}">
@@ -806,6 +833,54 @@
                         </HeaderedContentControl>
                     </StackPanel>
                 </TabItem>
+
+                <!-- Roof sketch mode: Revit's Modify | Create Roof Footprint. Only the sketch's own
+                     tools work while it is open; Finish makes the roof, Cancel throws it away. -->
+                <TabItem x:Name="RoofSketchTab" Header="Modify | Create Roof Footprint" Style="{StaticResource ContextRibbonTab}" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Mode" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Finish}"
+                                        Content="Finish" Click="OnFinishRoofSketch"
+                                        ToolTip="Make the roof from the sketch. The outline must close; if it does not, the lines at fault turn red and the status bar says why"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Cancel}"
+                                        Content="Cancel" Click="OnCancelRoofSketch"
+                                        ToolTip="Throw the sketch away and leave the model as it was"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Draw" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchPickWalls" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.PickWalls}"
+                                                 Content="Pick Walls" CommandParameter="PickWalls"
+                                                 ToolTip="Hover just outside a wall and click: the roof edge goes along that face, out by the overhang, and follows the wall if it moves. TAB picks the whole chain of joined walls"/>
+                                    <RadioButton x:Name="RoofSketchLine" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawLine}"
+                                                 Content="Line" CommandParameter="Line"
+                                                 ToolTip="Click points round the roof's edge, chained. Shift keeps a line level or plumb"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchRectangle" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawRectangle}"
+                                                 Content="Rectangle" CommandParameter="Rectangle" ToolTip="Two opposite corners"/>
+                                    <RadioButton x:Name="RoofSketchPolygon" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawPolygon}"
+                                                 Content="Polygon" CommandParameter="Polygon" ToolTip="The centre, then a corner; sides on the options bar"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Modify" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchModify" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Select}"
+                                                 Content="Select Lines" CommandParameter="Modify"
+                                                 ToolTip="Click sketch lines to select them (Ctrl adds), then delete them or change them on the options bar"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
+                                            Content="Delete Lines" Click="OnDeleteSketchLines" ToolTip="Delete the selected sketch lines (Del)"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
             </TabControl>
         </DockPanel>
 
@@ -829,6 +904,26 @@
                 <ComboBox x:Name="WindowTypePicker" Style="{StaticResource OptionCombo}" MinWidth="250"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveWindowTypeChanged"
                           Visibility="Collapsed" ToolTip="The type new windows are placed as"/>
+
+                <ComboBox x:Name="ColumnTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"
+                          DisplayMemberPath="Name" SelectionChanged="OnActiveColumnTypeChanged"
+                          Visibility="Collapsed" ToolTip="The type new columns are placed as"/>
+
+                <StackPanel x:Name="ColumnOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <ComboBox x:Name="ColumnDirectionPicker" Style="{StaticResource OptionCombo}" MinWidth="90"
+                              SelectionChanged="OnColumnPlacementChanged"
+                              ToolTip="Height takes the column up from this storey; Depth takes it down from it"/>
+                    <ComboBox x:Name="ColumnLevelPicker" Style="{StaticResource OptionCombo}" MinWidth="140"
+                              SelectionChanged="OnColumnPlacementChanged"
+                              ToolTip="The level the column reaches. Unconnected leaves it standing its own height"/>
+                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Grid}"
+                            Content="At Grids" Click="OnColumnsAtGrids"
+                            ToolTip="Stand a column at every intersection of the selected gridlines"/>
+                </StackPanel>
+
+                <ComboBox x:Name="ComponentTypePicker" Style="{StaticResource OptionCombo}" MinWidth="280"
+                          SelectionChanged="OnActiveComponentTypeChanged"
+                          Visibility="Collapsed" ToolTip="The family new components are placed from"/>
                 <CheckBox x:Name="TagOnPlacementBox" Content="Tag on Placement" VerticalAlignment="Center" Margin="0,0,18,0"
                           Visibility="Collapsed" Click="OnTagOnPlacementChanged"
                           ToolTip="Tag each door or window with its mark as it is placed. Space flips which side it hinges; point at the side of the wall it should open toward"/>
@@ -836,6 +931,28 @@
                 <ComboBox x:Name="SlabTypePicker" Style="{StaticResource OptionCombo}" MinWidth="250"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveSlabTypeChanged"
                           Visibility="Collapsed" ToolTip="The build-up new slabs are placed as"/>
+
+                <!-- The roof sketch's options bar: what new lines do, and - with lines selected - what those do. -->
+                <StackPanel x:Name="RoofOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <CheckBox x:Name="RoofDefinesSlopeBox" Content="Defines slope" VerticalAlignment="Center" Margin="12,0,12,0"
+                              Click="OnRoofDefinesSlopeChanged"
+                              ToolTip="The roof rises from this line. Off, the roof is cut off here - a gable end. All four lines of a box sloping make a hip roof; two opposite ones a gable"/>
+                    <TextBlock Text="Slope" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="RoofSlopeBox" Width="70" VerticalAlignment="Center"
+                             LostFocus="OnRoofSlopeChanged" KeyDown="OnRoofSlopeKey"
+                             ToolTip="The pitch the roof rises at from a sloping line"/>
+                    <TextBlock x:Name="RoofOverhangLabel" Text="Overhang" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="RoofOverhangBox" Width="70" VerticalAlignment="Center"
+                             LostFocus="OnRoofOverhangChanged" KeyDown="OnRoofOverhangKey"
+                             ToolTip="How far a picked roof edge stands out from its wall - the eaves. The roof still bears on the wall, so the overhang drops below the plate"/>
+                    <CheckBox x:Name="RoofExtendToCoreBox" Content="Extend to wall core" VerticalAlignment="Center" Margin="12,0,0,0"
+                              Click="OnRoofExtendToCoreChanged"
+                              ToolTip="Measure the overhang from the wall's core instead of its finish face"/>
+                    <TextBlock x:Name="RoofSidesLabel" Text="Sides" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="RoofSidesBox" Width="44" VerticalAlignment="Center"
+                             LostFocus="OnRoofSidesChanged" KeyDown="OnRoofSidesKey"
+                             ToolTip="How many sides a polygon outline has"/>
+                </StackPanel>
 
                 <ComboBox x:Name="SweepTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveSweepTypeChanged"
@@ -966,6 +1083,24 @@
                     <RadioButton x:Name="ReturnChoice" Content="Return" GroupName="SweepReturn" VerticalAlignment="Center" IsChecked="True"
                                  Click="OnSweepReturnChoiceChanged"
                                  ToolTip="The clicked end turns 90 degrees round the wall end back to the wall face"/>
+                </StackPanel>
+
+                <StackPanel x:Name="AttachColumnOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Attachment Style" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="ColumnAttachmentStylePicker" Style="{StaticResource OptionCombo}" MinWidth="130"
+                              SelectionChanged="OnColumnAttachmentChanged"
+                              ToolTip="Cut Column stops the column at the face it meets; Do Not Cut carries it on through the target"/>
+                    <TextBlock Text="Offset" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="ColumnAttachmentOffsetBox" Width="80" VerticalAlignment="Center"
+                             Text="0 mm" LostFocus="OnColumnAttachmentOffsetChanged"
+                             ToolTip="How far the attached end stops short of the target's face"/>
+                </StackPanel>
+
+                <StackPanel x:Name="PickNewHostOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Placement" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="PickNewHostModePicker" Style="{StaticResource OptionCombo}" MinWidth="150"
+                              SelectionChanged="OnPickNewHostModeChanged"
+                              ToolTip="What Pick New will take as the new host: only a face that stands up, any face, or the level the plan is on"/>
                 </StackPanel>
 
                 <StackPanel x:Name="OffsetOptions" Orientation="Horizontal" Visibility="Collapsed">

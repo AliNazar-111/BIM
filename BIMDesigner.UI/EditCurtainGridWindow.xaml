@@ -62,8 +62,25 @@
                 <RadioButton x:Name="SolidChoice" Content="Solid panel" Margin="0,0,0,6" Checked="OnFillChanged"/>
                 <RadioButton x:Name="EmptyChoice" Content="Empty" Margin="0,0,0,6" Checked="OnFillChanged"/>
                 <RadioButton x:Name="DoorChoice" Content="Door (bottom panels)" Margin="0,0,0,6" Checked="OnFillChanged"/>
-                <ComboBox x:Name="DoorTypeBox" Margin="18,0,0,16" DisplayMemberPath="Name" SelectionChanged="OnDoorTypeChanged"
+                <ComboBox x:Name="DoorTypeBox" Margin="18,0,0,10" DisplayMemberPath="Name" SelectionChanged="OnDoorTypeChanged"
                           ToolTip="Which door the panel becomes. Its leaves, design and operation are the door type's own."/>
+                <RadioButton x:Name="WindowChoice" Content="Window (cut into the wall)" Margin="0,0,0,6" Checked="OnFillChanged"/>
+                <ComboBox x:Name="WindowTypeBox" Margin="18,0,0,6" DisplayMemberPath="Name" SelectionChanged="OnWindowTypeChanged"
+                          ToolTip="Which window a click puts into the wall. A window is cut into the glass rather than filling a panel, so it is a window of its own with its own properties"/>
+                <Grid Margin="18,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="WindowAlongBox" Padding="6,3" MinHeight="26" VerticalContentAlignment="Center" Text="0"
+                             TextChanged="OnWindowOffsetChanged"
+                             ToolTip="How far along the panel the window goes, from the middle of it. Negative moves it toward the start of the wall"/>
+                    <TextBox x:Name="WindowUpBox" Grid.Column="2" Padding="6,3" MinHeight="26" VerticalContentAlignment="Center" Text="0"
+                             TextChanged="OnWindowOffsetChanged"
+                             ToolTip="How far up the panel the window goes, from the middle of it. Negative drops it toward the sill"/>
+                </Grid>
+                <TextBlock Text="ALONG, UP  -  FROM THE MIDDLE OF THE PANEL" Style="{StaticResource Caption}" Margin="18,0,0,16"/>
 
                 <TextBlock Text="ADD A GRID LINE" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
                 <Grid Margin="0,0,0,8">

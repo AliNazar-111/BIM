@@ -24,7 +24,12 @@ internal static class OpeningModel
     private const double SashDepth = 60;
     private const double SashFace = 50;
     private const double PaneThickness = 12;
+
+    /// <summary>Where a hand is: the height a door handle sits at on an ordinary door.</summary>
     private const double HandleHeight = 1000;
+
+    /// <summary>As high as a handle is ever set, however tall the leaf carrying it.</summary>
+    private const double TallestHandle = 1400;
 
     private static readonly ColourRgb Glass = new(0x8C, 0xC4, 0xE0);
     private static readonly ColourRgb Metal = new(0x3A, 0x3D, 0x42);
@@ -60,24 +65,23 @@ internal static class OpeningModel
     /// and it has no architrave - the mullions round it are its frame.
     /// </summary>
     public static void AddPanelDoor(
-        Wall wall, WallType body, OpeningType type, Guid panelId, Guid levelId,
+        Wall wall, WallType body, DoorType type, Guid panelId, Guid levelId,
         double from, double to, double sill, double head, List<Mesh3D> meshes,
-        bool flipHand = false, bool flipFacing = false, CurtainGlass glazing = CurtainGlass.Clear)
+        bool flipHand = false, bool flipFacing = false, CurtainGlass glazing = CurtainGlass.Clear,
+        bool isOpen = false)
     {
         if (head - sill <= 1 || to - from <= 1) return;
 
         // The door or window is the panel, so clicking it picks the panel out; it still belongs
         // to the wall, so selecting the wall lights it up with everything else.
-        Opening panel = type is WindowType
-            ? new Window { Id = panelId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id }
-            : new Door { Id = panelId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id };
-
-        panel.FlipHand = flipHand;
-        panel.FlipFacing = flipFacing;
+        var panel = new Door
+        {
+            Id = panelId, LevelId = levelId, TypeId = type.Id, HostWallId = wall.Id,
+            FlipHand = flipHand, FlipFacing = flipFacing, IsOpen = isOpen
+        };
 
         var builder = new Builder(wall, body, panel, type, from, to, sill, head, wall.Id, glazing) { Trimmed = false };
-        if (type is WindowType window) builder.Window(window);
-        else if (type is DoorType door) builder.Door(door);
+        builder.Door(type);
 
         meshes.AddRange(builder.Meshes);
     }
@@ -112,6 +116,7 @@ internal static class OpeningModel
         private readonly Mesh3D _leaf;
         private readonly Mesh3D _glass;
         private readonly Mesh3D _metal;
+        private readonly Mesh3D _hinges;
 
         public Builder(
             Wall wall, WallType wallType, Opening opening, OpeningType type,
@@ -148,6 +153,7 @@ internal static class OpeningModel
                     { OwnerId = owner, Opacity = CurtainGlassLook.OpacityOf(pane) }
                 : new Mesh3D(opening.Id, opening.LevelId, MeshKind.Glazing, Glass, "Glazing") { OwnerId = owner };
             _metal = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hardware") { OwnerId = owner };
+            _hinges = new Mesh3D(opening.Id, opening.LevelId, MeshKind.DoorLeaf, Metal, "Hinges") { OwnerId = owner };
         }
 
         public double Width { get; }
@@ -163,7 +169,28 @@ internal static class OpeningModel
         /// <summary>How deep the frame is through the wall: the type's frame, no deeper than the wall.</summary>
         private double FrameDepth => Math.Clamp(_type.Thickness > 0 ? _type.Thickness : 100, 20, Math.Max(_wallType.Width, 20));
 
-        public IEnumerable<Mesh3D> Meshes => new[] { _frame, _leaf, _glass, _metal }.Where(m => !m.IsEmpty);
+        /// <summary>
+        /// Which side of the wall the opening faces - the side it swings out to. This is what
+        /// facing means, and it is what flipping it changes, shut as well as open.
+        /// </summary>
+        private double Facing => _opening.FlipFacing ? -1 : 1;
+
+        /// <summary>
+        /// How far across the wall a shut leaf or sash sits from the centreline. A door is hung
+        /// in a rebate with its face flush on the side it opens to and the stop behind it, so
+        /// which face the leaf lies in is the visible half of what facing means: flip it and the
+        /// leaf moves across the reveal to the other side, hinges and all.
+        /// </summary>
+        private double SetIn(double leafThickness) =>
+            Facing * Math.Clamp(FrameDepth / 2 - leafThickness / 2, 0, Math.Max(0, WallHalf - leafThickness / 2));
+
+        /// <summary>
+        /// Which side of a leaf, measured in its own frame, it opens toward. A leaf's frame runs
+        /// from its hinge, so one hung on its far edge is turned back to front and its swing with it.
+        /// </summary>
+        private double SwingSide(bool hingeAtStart) => Facing * (hingeAtStart ? 1 : -1);
+
+        public IEnumerable<Mesh3D> Meshes => new[] { _frame, _leaf, _glass, _metal, _hinges }.Where(m => !m.IsEmpty);
 
         // ---- doors -------------------------------------------------------------------
 
@@ -197,21 +224,28 @@ internal static class OpeningModel
 
                 case DoorOperation.Swing:
                 {
-                    Leaf(clearFrom, clearTo, top, 0);
+                    // The leaf where it stands, and the handle on the leaf itself, on the edge
+                    // away from the hinges - so it goes with the leaf when the door is open.
+                    var hingeAtStart = !_opening.FlipHand;
+                    var frame = Hung(clearFrom, clearTo, SetIn(LeafThickness), hingeAtStart);
 
-                    // The handle on the side away from the hinges.
-                    var latch = _opening.FlipHand ? clearFrom + 70 : clearTo - 70;
-                    Handles(latch, 0);
+                    DrawLeaf(frame, _sill, top);
+                    Handles(frame, frame.Width - 70);
+                    Hinges(frame, _sill, top, SwingSide(hingeAtStart), LeafThickness);
                     break;
                 }
 
                 case DoorOperation.Sliding when door.LeafCount >= 2:
                 {
-                    // Two leaves on two tracks, overlapping in the middle.
+                    // Two leaves on two tracks, overlapping in the middle - and when it stands
+                    // open, one run across the other.
                     var middle = (clearFrom + clearTo) / 2;
-                    Leaf(clearFrom, middle + 30, top, 25);
+                    var slide = _opening.IsOpen ? middle - clearFrom : 0;
+                    Leaf(clearFrom + slide, middle + 30 + slide, top, 25);
                     Leaf(middle - 30, clearTo, top, -25);
-                    PullBar(clearFrom + 60, 25 + LeafThickness / 2 + 10);
+
+                    // The pull on the leaf that runs goes with it.
+                    PullBar(clearFrom + 60 + slide, 25 + LeafThickness / 2 + 10);
                     PullBar(clearTo - 60, -25 - LeafThickness / 2 - 10);
                     Box(_metal, clearFrom, clearTo, -45, 45, top - 25, top);
                     break;
@@ -223,11 +257,14 @@ internal static class OpeningModel
                     // park over the wall beside the opening.
                     var side = _opening.FlipFacing ? 1.0 : -1.0;
                     var across = side * (WallHalf + LeafThickness / 2 + 10);
-                    Leaf(clearFrom - 40, clearTo + 40, top + 20, across);
+
+                    // Open, it has run along its track to park over the wall beside the hole.
+                    var parked = _opening.IsOpen ? (_opening.FlipHand ? -1 : 1) * (clearTo - clearFrom) : 0;
+                    Leaf(clearFrom - 40 + parked, clearTo + 40 + parked, top + 20, across);
                     var trackAcross = side * (WallHalf + 25);
                     Box(_metal, clearFrom - 40, clearTo + (clearTo - clearFrom) + 40,
                         Math.Min(trackAcross - 15, trackAcross + 15), Math.Max(trackAcross - 15, trackAcross + 15), top + 20, top + 60);
-                    PullBar(_opening.FlipHand ? clearTo - 60 : clearFrom + 60, across + side * (LeafThickness / 2 + 10));
+                    PullBar((_opening.FlipHand ? clearTo - 60 : clearFrom + 60) + parked, across + side * (LeafThickness / 2 + 10));
                     break;
                 }
 
@@ -266,11 +303,21 @@ internal static class OpeningModel
 
         private void TwoLeaves(double clearFrom, double clearTo, double top)
         {
+            // A pair is hung one leaf on each jamb, so they swing apart rather than together.
             var middle = (clearFrom + clearTo) / 2;
-            Leaf(clearFrom, middle - 2, top, 0);
-            Leaf(middle + 2, clearTo, top, 0);
-            Handles(middle - 70, 0);
-            Handles(middle + 70, 0);
+            var set = SetIn(LeafThickness);
+            var left = Hung(clearFrom, middle - 2, set, hingeAtStart: true);
+            var right = Hung(middle + 2, clearTo, set, hingeAtStart: false);
+
+            DrawLeaf(left, _sill, top);
+            DrawLeaf(right, _sill, top);
+
+            // A handle on each leaf, on the meeting stile it is latched at, and hinges on the
+            // jamb each is hung on.
+            Handles(left, left.Width - 70);
+            Handles(right, right.Width - 70);
+            Hinges(left, _sill, top, SwingSide(hingeAtStart: true), LeafThickness);
+            Hinges(right, _sill, top, SwingSide(hingeAtStart: false), LeafThickness);
         }
 
         // ---- door leaves, as their design says ------------------------------------------
@@ -304,7 +351,37 @@ internal static class OpeningModel
 
         /// <summary>A door leaf in the plane across from the centreline, floor to top, built as the type's design.</summary>
         private void Leaf(double u0, double u1, double top, double across) =>
-            DrawLeaf(LeafFrame.Between(P(u0, across), P(u1, across)), _sill, top);
+            DrawLeaf(Hung(u0, u1, across, hingeAtStart: !_opening.FlipHand), _sill, top);
+
+        /// <summary>
+        /// Where a leaf actually is: across its opening when the door is shut, and turned about
+        /// its hinge when it is open. A door drawn open shows the space its leaf takes and where
+        /// it lands, which is the thing a plan gets checked for.
+        /// </summary>
+        private LeafFrame Hung(double u0, double u1, double across, bool hingeAtStart, double? swing = null)
+        {
+            // Measured from the hinge outward whichever way the leaf is hung, so anything set
+            // on the leaf - a handle, a pull - is in the same place on it open or shut.
+            var shut = hingeAtStart
+                ? LeafFrame.Between(P(u0, across), P(u1, across))
+                : LeafFrame.Between(P(u1, across), P(u0, across));
+
+            if (!_opening.IsOpen) return shut;
+            if (swing is null && _type is not DoorType { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing }) return shut;
+
+            var turned = swing ?? (_opening as Door)?.SwingAngle ?? 90;
+            var hinge = P(hingeAtStart ? u0 : u1, across);
+
+            // Turned toward the side it opens to, from the jamb it is hung on.
+            var closed = (P(hingeAtStart ? u1 : u0, across) - hinge).NormalisedOrDefault(Vector2D.UnitX);
+            var turn = (_opening.FlipFacing ? -1 : 1) * (hingeAtStart ? 1 : -1) * turned * Math.PI / 180;
+
+            var open = new Vector2D(
+                closed.X * Math.Cos(turn) - closed.Y * Math.Sin(turn),
+                closed.X * Math.Sin(turn) + closed.Y * Math.Cos(turn));
+
+            return new LeafFrame(hinge, open, open.PerpendicularLeft(), u1 - u0);
+        }
 
         /// <summary>
         /// A leaf of the type's design: a flush slab; stiles and rails round raised panels; round
@@ -598,9 +675,16 @@ internal static class OpeningModel
         }
 
         /// <summary>A lever handle on each face of a leaf at the usual height.</summary>
+        /// <summary>
+        /// How high the handle sits. A door handle is at about a metre whatever the door,
+        /// because that is where a hand is - but a tall leaf carries it higher, the way the pull
+        /// on a shopfront door is set, and on a low one it never goes past halfway up.
+        /// </summary>
+        private double HandleAt => _sill + Math.Min(Math.Clamp(Height * 0.45, HandleHeight, TallestHandle), Height * 0.5);
+
         private void Handles(double at, double across)
         {
-            var z = _sill + Math.Min(HandleHeight, (_head - _sill) * 0.5);
+            var z = HandleAt;
             var face = LeafThickness / 2;
             foreach (var side in new[] { 1.0, -1.0 })
             {
@@ -612,11 +696,52 @@ internal static class OpeningModel
             }
         }
 
+        /// <summary>
+        /// The same pair of handles, but screwed to a leaf rather than set in the doorway: this
+        /// far along the leaf from its hinge, so they travel with it as it swings open.
+        /// </summary>
+        private void Handles(LeafFrame f, double s)
+        {
+            var z = HandleAt;
+            var face = LeafThickness / 2;
+            foreach (var side in new[] { 1.0, -1.0 })
+            {
+                var near = side * face;
+                var far = side * (face + 55);
+
+                // The lever lies back toward the hinge, as a lever does.
+                var tail = s - 130;
+                Block(_metal, f, s - 12, s + 12, Math.Min(near, far), Math.Max(near, far), z - 12, z + 12);
+                Block(_metal, f, Math.Min(s, tail), Math.Max(s, tail),
+                    Math.Min(far - side * 18, far), Math.Max(far - side * 18, far), z - 9, z + 9);
+            }
+        }
+
+        /// <summary>
+        /// The hinges a leaf is hung on: knuckles up its hanging edge, standing proud on the side
+        /// it opens to. They are what shows at a glance which way a shut door faces, and being on
+        /// the leaf they go round with it when it opens.
+        /// </summary>
+        private void Hinges(LeafFrame f, double bottom, double top, double side, double thickness)
+        {
+            var height = top - bottom;
+            if (height <= 400 || f.Width <= 200) return;
+
+            var face = thickness / 2;
+            var (t0, t1) = (Math.Min(side * face, side * (face + 14)), Math.Max(side * face, side * (face + 14)));
+
+            foreach (var at in new[] { bottom + height * 0.13, bottom + height * 0.5, bottom + height * 0.87 })
+                Block(_hinges, f, 0, 32, t0, t1, at - Math.Min(55, height * 0.05), at + Math.Min(55, height * 0.05));
+        }
+
         /// <summary>A long vertical pull on one face, as sliding doors have.</summary>
         private void PullBar(double at, double across)
         {
-            var z = _sill + Math.Min(HandleHeight, (_head - _sill) * 0.5);
-            Box(_metal, at - 10, at + 10, across - 10, across + 10, z - 300, z + 300);
+            // The bar grows with the leaf: a long pull on a tall shopfront door, a short one on
+            // a domestic slider.
+            var z = HandleAt;
+            var half = Math.Clamp(Height * 0.28, 500, 1400) / 2;
+            Box(_metal, at - 10, at + 10, across - 10, across + 10, z - half, z + half);
         }
 
         /// <summary>Panels folded concertina-fashion, alternately either side of the centreline.</summary>
@@ -699,21 +824,42 @@ internal static class OpeningModel
 
             var (u0, u1, z0, z1) = (f, Width - f, _sill + f, _head - f);
 
+            // A sash's panes are its own: six over six is six panes in each sash, not six in
+            // the hole. So the bars are drawn with the sash that carries them.
+            var rows = Math.Max(1, window.GlazingRows);
+            var columns = Math.Max(1, window.GlazingColumns);
+
+            void Glazed(SashPlace place, double bottom, double top)
+            {
+                var inset = place.Width <= 2 * SashFace || top - bottom <= 2 * SashFace ? 0 : SashFace;
+                GlazingBars(place, inset, place.Width - inset, bottom + inset, top - inset, rows, columns);
+            }
+
             switch (window.Operation)
             {
                 case WindowOperation.Fixed:
-                    Pane(u0, u1, z0, z1, 0);
+                {
+                    var light = Placed(u0, u1, 0);
+                    Pane(light, 0, light.Width, z0, z1);
+                    GlazingBars(light, 0, light.Width, z0, z1, rows, columns);
                     break;
+                }
 
                 case WindowOperation.Casement:
                 {
+                    // A pair is hung one sash on each jamb, so they swing apart and their
+                    // catches meet in the middle, as a French casement's do.
                     var sashes = Width > 1000 ? 2 : 1;
                     var width = (u1 - u0) / sashes;
                     for (var i = 0; i < sashes; i++)
                     {
-                        Sash(u0 + i * width, u0 + (i + 1) * width, z0, z1, 0);
-                        var latch = sashes == 1 ? u1 - 60 : i == 0 ? u0 + width - 60 : u0 + width + 60;
-                        WindowHandle(latch, (z0 + z1) / 2, vertical: true);
+                        var atStart = sashes == 1 ? !_opening.FlipHand : i == 0 != _opening.FlipHand;
+                        var sash = Placed(u0 + i * width, u0 + (i + 1) * width, SetIn(SashDepth), atStart);
+
+                        Sash(sash, z0, z1);
+                        Glazed(sash, z0, z1);
+                        WindowHandle(sash, atStart ? sash.Width - 60 : 60, (z0 + z1) / 2, vertical: true);
+                        SashHinges(sash, z0, z1, atStart);
                     }
 
                     break;
@@ -724,18 +870,34 @@ internal static class OpeningModel
                     // A fixed light above a top-hung sash: the sash opens out from its head.
                     var split = z0 + (z1 - z0) * 0.55;
                     Box(_frame, u0, u1, -depth, depth, split - SashFace / 2, split + SashFace / 2);
-                    Pane(u0, u1, split + SashFace / 2, z1, 0);
-                    Sash(u0, u1, z0, split - SashFace / 2, 0);
-                    WindowHandle((u0 + u1) / 2, z0 + 70, vertical: false);
+
+                    var light = Placed(u0, u1, 0);
+                    Pane(light, 0, light.Width, split + SashFace / 2, z1);
+                    GlazingBars(light, 0, light.Width, split + SashFace / 2, z1, rows, columns);
+
+                    var sash = Placed(u0, u1, 0);
+                    Sash(sash, z0, split - SashFace / 2);
+                    Glazed(sash, z0, split - SashFace / 2);
+                    WindowHandle(sash, sash.Width / 2, z0 + 70, vertical: false);
                     break;
                 }
 
                 case WindowOperation.Sliding:
                 {
+                    // Two sashes on their own tracks, overlapping in the middle. Open, the one
+                    // with the handle has run along its track across the fixed one, leaving
+                    // half the window clear - which is the whole of what a slider does.
                     var middle = (u0 + u1) / 2;
-                    Sash(u0, middle + SashFace / 2, z0, z1, 22);
-                    Sash(middle - SashFace / 2, u1, z0, z1, -22);
-                    WindowHandle(middle + SashFace, (z0 + z1) / 2, vertical: true, across: -22);
+                    var run = _opening.IsOpen ? middle - u0 : 0;
+
+                    var fixedSash = Placed(u0, middle + SashFace / 2, 22);
+                    Sash(fixedSash, z0, z1);
+                    Glazed(fixedSash, z0, z1);
+
+                    var runner = Placed(middle - SashFace / 2 - run, u1 - run, -22);
+                    Sash(runner, z0, z1);
+                    Glazed(runner, z0, z1);
+                    WindowHandle(runner, SashFace * 1.5, (z0 + z1) / 2, vertical: true);
                     break;
                 }
 
@@ -745,8 +907,12 @@ internal static class OpeningModel
                     var width = (u1 - u0) / sashes;
                     for (var i = 0; i < sashes; i++)
                     {
-                        Sash(u0 + i * width, u0 + (i + 1) * width, z0, z1, 0);
-                        WindowHandle(i == sashes - 1 ? u1 - 60 : u0 + width - 60, (z0 + z1) / 2, vertical: true);
+                        var sash = Placed(u0 + i * width, u0 + (i + 1) * width, SetIn(SashDepth));
+
+                        Sash(sash, z0, z1);
+                        Glazed(sash, z0, z1);
+                        WindowHandle(sash, _opening.FlipHand ? 60 : sash.Width - 60, (z0 + z1) / 2, vertical: true);
+                        SashHinges(sash, z0, z1, !_opening.FlipHand);
                     }
 
                     break;
@@ -756,18 +922,28 @@ internal static class OpeningModel
                 {
                     // Two sashes one above the other on their own planes, the lower one inside,
                     // so they pass each other as they slide.
+                    // Open, the lower one has been pushed up behind the upper, as a sash is.
                     var middle = (z0 + z1) / 2;
-                    Sash(u0, u1, middle - SashFace / 2, z1, 20);
-                    Sash(u0, u1, z0, middle + SashFace / 2, -20);
-                    WindowHandle((u0 + u1) / 2, middle + SashFace, vertical: false, across: -20);
+                    var lift = _opening.IsOpen ? middle - z0 : 0;
+
+                    var upper = Placed(u0, u1, 20);
+                    Sash(upper, middle - SashFace / 2, z1);
+                    Glazed(upper, middle - SashFace / 2, z1);
+
+                    var lower = Placed(u0, u1, -20);
+                    Sash(lower, z0 + lift, middle + SashFace / 2 + lift);
+                    Glazed(lower, z0 + lift, middle + SashFace / 2 + lift);
+                    WindowHandle(lower, lower.Width / 2, middle + SashFace + lift, vertical: false);
                     break;
                 }
 
                 case WindowOperation.Hopper:
                 {
                     // Hinged along the bottom and opening in, so the catch is at the head.
-                    Sash(u0, u1, z0, z1, 0);
-                    WindowHandle((u0 + u1) / 2, z1 - 70, vertical: false);
+                    var sash = Placed(u0, u1, 0);
+                    Sash(sash, z0, z1);
+                    Glazed(sash, z0, z1);
+                    WindowHandle(sash, sash.Width / 2, z1 - 70, vertical: false);
                     break;
                 }
 
@@ -787,35 +963,6 @@ internal static class OpeningModel
                     Box(_frame, u1 - 30, u1, -depth / 2, depth / 2, z0, z1);
                     break;
                 }
-            }
-
-            GlazingBars(window, u0, u1, z0, z1);
-        }
-
-        /// <summary>
-        /// The bars dividing a window's glass into panes, which is most of what tells a Georgian
-        /// sash from a picture window. One row and one column means a single sheet of glass.
-        /// </summary>
-        private void GlazingBars(WindowType window, double u0, double u1, double z0, double z1)
-        {
-            if (window.Operation is WindowOperation.Bay or WindowOperation.Louvred) return;
-
-            var rows = Math.Max(1, window.GlazingRows);
-            var columns = Math.Max(1, window.GlazingColumns);
-            if (rows == 1 && columns == 1) return;
-
-            const double bar = 28;
-
-            for (var r = 1; r < rows; r++)
-            {
-                var z = z0 + (z1 - z0) * r / rows;
-                Box(_frame, u0, u1, -16, 16, z - bar / 2, z + bar / 2);
-            }
-
-            for (var c = 1; c < columns; c++)
-            {
-                var u = u0 + (u1 - u0) * c / columns;
-                Box(_frame, u - bar / 2, u + bar / 2, -16, 16, z0, z1);
             }
         }
 
@@ -854,31 +1001,129 @@ internal static class OpeningModel
             }
         }
 
+        /// <summary>
+        /// Where one sash or fixed light of a window is: the stretch of the opening it fills, how
+        /// far it is set across the wall, and - when it has swung open - the line it has swung to.
+        /// Everything on the sash is set out along it from its first edge, so a glazing bar or a
+        /// catch keeps its place on the sash whether the window is shut, swung open, or run along
+        /// its track.
+        /// </summary>
+        private readonly record struct SashPlace(double From, double Width, double Across, LeafFrame? Swung);
+
+        /// <summary>Whether this window's sashes swing out of their opening when it stands open.</summary>
+        private bool SashSwingsOpen =>
+            _opening.IsOpen && _type is WindowType { Operation: WindowOperation.Casement or WindowOperation.TiltAndTurn };
+
+        /// <summary>
+        /// A sash filling this stretch of the opening, hinged on the edge given - which is the low
+        /// edge unless it is hung the other way. A sash that swings is put on the line it has swung
+        /// to, still measured from its low edge, so nothing set out on it has to know how it is hung.
+        /// </summary>
+        private SashPlace Placed(double u0, double u1, double across, bool? hingeAtStart = null)
+        {
+            if (!SashSwingsOpen) return new SashPlace(u0, u1 - u0, across, null);
+
+            var atStart = hingeAtStart ?? !_opening.FlipHand;
+            var hung = Hung(u0, u1, across, atStart, swing: 55);
+
+            // Hung gives the leaf from its hinge outward; turned back to front when the hinge is
+            // on the high edge, so that along the sash always means from the low edge up.
+            var frame = atStart ? hung : LeafFrame.Between(hung.Plan(hung.Width, 0), hung.Origin);
+            return new SashPlace(u0, u1 - u0, across, frame);
+        }
+
+        /// <summary>
+        /// A piece of a sash: along it from its first edge, across its face, and heights. On the
+        /// line it has swung to when it stands open, and following the wall when it has not, so a
+        /// window in a curved wall still curves with it.
+        /// </summary>
+        private void OnSash(Mesh3D mesh, SashPlace p, double s0, double s1, double t0, double t1, double z0, double z1)
+        {
+            if (p.Swung is { } f)
+                Block(mesh, f, Math.Min(s0, s1), Math.Max(s0, s1), Math.Min(t0, t1), Math.Max(t0, t1), z0, z1);
+            else
+                Box(mesh, p.From + Math.Min(s0, s1), p.From + Math.Max(s0, s1), p.Across + t0, p.Across + t1, z0, z1);
+        }
+
         /// <summary>An opening sash: a frame of its own round a pane, set a little proud of the fixed frame.</summary>
-        private void Sash(double u0, double u1, double z0, double z1, double across)
+        private void Sash(double u0, double u1, double z0, double z1, double across) =>
+            Sash(Placed(u0, u1, across), z0, z1);
+
+        private void Sash(SashPlace p, double z0, double z1)
         {
             var s = SashFace;
             var d = SashDepth / 2;
-            if (u1 - u0 <= 2 * s || z1 - z0 <= 2 * s)
+            var w = p.Width;
+
+            if (w <= 2 * s || z1 - z0 <= 2 * s)
             {
-                Pane(u0, u1, z0, z1, across);
+                Pane(p, 0, w, z0, z1);
                 return;
             }
 
-            Box(_leaf, u0, u0 + s, across - d, across + d, z0, z1);
-            Box(_leaf, u1 - s, u1, across - d, across + d, z0, z1);
-            Box(_leaf, u0 + s, u1 - s, across - d, across + d, z0, z0 + s);
-            Box(_leaf, u0 + s, u1 - s, across - d, across + d, z1 - s, z1);
-            Pane(u0 + s, u1 - s, z0 + s, z1 - s, across);
+            OnSash(_leaf, p, 0, s, -d, d, z0, z1);
+            OnSash(_leaf, p, w - s, w, -d, d, z0, z1);
+            OnSash(_leaf, p, s, w - s, -d, d, z0, z0 + s);
+            OnSash(_leaf, p, s, w - s, -d, d, z1 - s, z1);
+            Pane(p, s, w - s, z0 + s, z1 - s);
         }
 
-        /// <summary>A window handle on the room side of the sash.</summary>
-        private void WindowHandle(double at, double z, bool vertical, double across = 0)
+        /// <summary>The glass in a stretch of a sash, on the sash rather than in the hole.</summary>
+        private void Pane(SashPlace p, double s0, double s1, double z0, double z1)
         {
-            var face = across - SashDepth / 2;
-            Box(_metal, at - 10, at + 10, face - 30, face, z - 10, z + 10);
-            if (vertical) Box(_metal, at - 8, at + 8, face - 38, face - 24, z - 90, z + 10);
-            else Box(_metal, at - 70, at + 10, face - 38, face - 24, z - 8, z + 8);
+            var t = PaneThickness / 2;
+            OnSash(_glass, p, s0, s1, -t, t, z0, z1);
+        }
+
+        /// <summary>
+        /// The bars dividing one sash's glass into panes, which is most of what tells a Georgian
+        /// sash from a picture window. A sash's rows and columns are its own - six over six means
+        /// six panes in each sash - and they are set on the sash, so they go with it when it opens.
+        /// </summary>
+        private void GlazingBars(SashPlace p, double s0, double s1, double z0, double z1, int rows, int columns)
+        {
+            if (rows <= 1 && columns <= 1) return;
+
+            const double bar = 28;
+
+            for (var r = 1; r < rows; r++)
+            {
+                var z = z0 + (z1 - z0) * r / rows;
+                OnSash(_frame, p, s0, s1, -16, 16, z - bar / 2, z + bar / 2);
+            }
+
+            for (var c = 1; c < columns; c++)
+            {
+                var s = s0 + (s1 - s0) * c / columns;
+                OnSash(_frame, p, s - bar / 2, s + bar / 2, -16, 16, z0, z1);
+            }
+        }
+
+        /// <summary>
+        /// The hinges a sash is hung on, up the jamb it swings from and standing proud on the side
+        /// it opens to. A sash is set out from its low edge whichever edge is hinged, so the side
+        /// it opens to is simply the side the window faces.
+        /// </summary>
+        private void SashHinges(SashPlace p, double z0, double z1, bool hingeAtStart)
+        {
+            var height = z1 - z0;
+            if (height <= 400 || p.Width <= 200) return;
+
+            var face = SashDepth / 2;
+            var (t0, t1) = (Math.Min(Facing * face, Facing * (face + 12)), Math.Max(Facing * face, Facing * (face + 12)));
+            var s = hingeAtStart ? 0 : p.Width - 28;
+
+            foreach (var at in new[] { z0 + height * 0.16, z0 + height * 0.84 })
+                OnSash(_hinges, p, s, s + 28, t0, t1, at - Math.Min(45, height * 0.05), at + Math.Min(45, height * 0.05));
+        }
+
+        /// <summary>A window handle on the room side of the sash, this far along the sash.</summary>
+        private void WindowHandle(SashPlace p, double at, double z, bool vertical)
+        {
+            var face = -SashDepth / 2;
+            OnSash(_metal, p, at - 10, at + 10, face - 30, face, z - 10, z + 10);
+            if (vertical) OnSash(_metal, p, at - 8, at + 8, face - 38, face - 24, z - 90, z + 10);
+            else OnSash(_metal, p, at - 70, at + 10, face - 38, face - 24, z - 8, z + 8);
         }
 
         /// <summary>A pane of glass filling a rectangle of the opening, centred at an offset across the wall.</summary>

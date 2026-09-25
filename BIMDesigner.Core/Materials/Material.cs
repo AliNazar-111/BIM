@@ -14,6 +14,19 @@ public readonly record struct ColourRgb(byte R, byte G, byte B)
             Convert.ToByte(hex.Substring(4, 2), 16));
     }
 
+    /// <summary>Reads a six-digit hex colour, with or without its hash, without throwing on rubbish.</summary>
+    public static bool TryParse(string? text, out ColourRgb colour)
+    {
+        colour = default;
+        if (text is null) return false;
+
+        var hex = text.Trim().TrimStart('#');
+        if (hex.Length != 6 || !hex.All(Uri.IsHexDigit)) return false;
+
+        colour = FromHex(hex);
+        return true;
+    }
+
     public override string ToString() => $"#{R:X2}{G:X2}{B:X2}";
 }
 

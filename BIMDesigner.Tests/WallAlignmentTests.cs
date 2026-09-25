@@ -1,6 +1,7 @@
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Views;
 using BIMDesigner.Infrastructure.Serialization;
 
 namespace BIMDesigner.Tests;
@@ -98,6 +99,58 @@ public class WallAlignmentTests
         document.Add(wall);
 
         Assert.Null(WallAlignment.OffsetFor(document, wall));
+    }
+
+    [Fact]
+    public void ACornerOfWallsOfVeryDifferentThicknessButtsRatherThanMitres()
+    {
+        var document = BimDocument.CreateDefault();
+        var thick = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior"));
+        var curtain = document.TypesOf<CurtainWallType>().Single(t => t.Name.Contains("Storefront"));
+        var level = document.Levels[0].Id;
+
+        var side = new Wall { Start = new Point2D(0, 0), End = new Point2D(0, 4000), TypeId = thick.Id, LevelId = level, UnconnectedHeight = 3000 };
+        var front = new Wall { Start = new Point2D(5000, 0), End = new Point2D(0, 0), TypeId = curtain.Id, LevelId = level, UnconnectedHeight = 3000 };
+        document.Add(side);
+        document.Add(front);
+
+        // A mitre between a 150 mm shopfront and a 330 mm wall is a long skew cut across the
+        // thick wall. The thick one runs through square to the corner instead.
+        var (start, _) = WallJoins.GetEndCuts(document, side, thick);
+        Assert.NotEqual(WallEndCondition.Mitre, start?.Condition);
+
+        // Two walls of much the same thickness still mitre, which is what a corner should be.
+        var other = new Wall { Start = new Point2D(9000, 0), End = new Point2D(9000, 4000), TypeId = thick.Id, LevelId = level, UnconnectedHeight = 3000 };
+        var along = new Wall { Start = new Point2D(14000, 0), End = new Point2D(9000, 0), TypeId = thick.Id, LevelId = level, UnconnectedHeight = 3000 };
+        document.Add(other);
+        document.Add(along);
+
+        var (mitred, _) = WallJoins.GetEndCuts(document, other, thick);
+        Assert.Equal(WallEndCondition.Mitre, mitred?.Condition);
+    }
+
+    [Fact]
+    public void ACurtainWallStopsAgainstWhatItMeets()
+    {
+        var document = BimDocument.CreateDefault();
+        var thick = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior"));
+        var curtain = document.TypesOf<CurtainWallType>().Single(t => t.Name.Contains("Storefront"));
+        var level = document.Levels[0].Id;
+
+        var front = new Wall { Start = new Point2D(0, 0), End = new Point2D(5000, 0), TypeId = curtain.Id, LevelId = level, UnconnectedHeight = 3000 };
+        document.Add(front);
+
+        double Start() => ModelMeshBuilder.Bounds(
+            ModelMeshBuilder.BuildWall(document, front).Where(m => m.Kind == BIMDesigner.Core.Geometry.MeshKind.Mullion))!.Value.Min.X;
+
+        // On its own it runs the whole way.
+        Assert.True(Start() < 1, "the wall does not start at its own beginning");
+
+        // Meeting a 330 mm wall at a corner, it stops against its face rather than running
+        // into it and being drawn one over the other.
+        document.Add(new Wall { Start = new Point2D(0, 0), End = new Point2D(0, 4000), TypeId = thick.Id, LevelId = level, UnconnectedHeight = 3000 });
+
+        Assert.True(Start() > 100, "the wall still runs into the wall it meets");
     }
 
     [Fact]

@@ -209,13 +209,16 @@ public class WallJoinTests
         var half = type.Width / 2;
         var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
 
-        // Every layer band must span the full wall width when summed, and each must have
-        // four finite corners - a degenerate mitre would produce NaN and vanish on screen.
+        // Every layer band must span the full wall width when summed, and its corners must be
+        // finite - a degenerate mitre would produce NaN and vanish on screen. The mitred end is
+        // a straight cut across the layer, so it is two corners of the band; the free end at the
+        // other end brings its own, where the brick returns round it.
         foreach (var (_, start, end) in type.Structure.GetLayerOffsets())
         {
             var band = WallJoins.GetBandOutline(wall, type, half - start, half - end, startCut, endCut);
 
-            Assert.Equal(4, band.Length);
+            Assert.Equal(2, WallJoins.EndPoints(wall, type, half - start, half - end, endCut, atStart: false).Count);
+            Assert.True(band.Length >= 4);
             Assert.All(band, corner =>
             {
                 Assert.False(double.IsNaN(corner.X) || double.IsInfinity(corner.X));
@@ -239,6 +242,46 @@ public class WallJoinTests
             Assert.False(double.IsNaN(corner.X) || double.IsInfinity(corner.X));
             Assert.False(double.IsNaN(corner.Y) || double.IsInfinity(corner.Y));
         });
+    }
+
+    [Fact]
+    public void TheReturnAtACornerIsFinishedRatherThanShowingItsLayers()
+    {
+        var document = BimDocument.CreateDefault();
+        var type = document.TypesOf<WallType>().Single(t => t.Name.Contains("Brick on Block"));
+        var curtain = document.TypesOf<CurtainWallType>().First(t => t.Name.Contains("Storefront"));
+        var levelId = document.Levels.First().Id;
+
+        // A shopfront turning a corner into a brick wall: the brick runs past it to close the
+        // outside of the corner, and the end it leaves is a whole elevation of the building.
+        var brick = AddWall(document, type, levelId, new Point2D(0, 0), new Point2D(4000, 0));
+        document.Add(new Wall
+        {
+            Start = new Point2D(0, 0), End = new Point2D(0, 4000),
+            TypeId = curtain.Id, LevelId = levelId, UnconnectedHeight = 3000
+        });
+
+        var half = type.Width / 2;
+        var (startCut, _) = WallJoins.GetEndCuts(document, brick, type);
+        Assert.Equal(WallEndCondition.RunsThrough, startCut.Condition);
+
+        // The brick turns round that end and covers the whole of it, so what shows at the
+        // corner is brickwork - not a slice through the cavity and the blockwork behind it.
+        var layers = type.Structure.GetLayerOffsets().ToList();
+        var outer = layers[0];
+        var face = WallJoins.EndPoints(brick, type, half - outer.Start, half - outer.End, startCut, atStart: true);
+
+        Assert.True(face.Count > 2, "the brick is cut straight through rather than returning");
+        Assert.Equal(-half, face.Min(p => p.Y), precision: 6);
+        Assert.Equal(half, face.Max(p => p.Y), precision: 6);
+
+        // Everything behind it stands back by the thickness of the brick that wrapped.
+        foreach (var (_, start, end) in layers.Skip(1))
+        {
+            var behind = WallJoins.EndPoints(brick, type, half - start, half - end, startCut, atStart: true);
+            Assert.All(behind, point => Assert.True(point.X >= face.Min(p => p.X) + outer.Layer.Thickness - 1e-6,
+                $"a layer at {point} is still on show at the corner"));
+        }
     }
 
     private static bool Near(Point2D a, Point2D b) => a.DistanceTo(b) < 1e-6;

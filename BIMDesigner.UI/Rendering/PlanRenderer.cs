@@ -46,6 +46,7 @@ public sealed class PlanRenderer
     private readonly Pen _wallOutlinePen;
     private readonly Pen _layerPen;
     private readonly Pen _membranePen;
+    private readonly Pen _componentPen;
     private readonly Pen _selectedPen;
     private readonly Pen _previewPen;
     private readonly Pen _locationLinePen;
@@ -55,6 +56,8 @@ public sealed class PlanRenderer
     private readonly Pen _glassPen;
     private readonly Pen _roomPen;
     private readonly Pen _slabPen;
+    private readonly Pen _roofLinePen;
+    private readonly Pen _roofSlopePen;
     private readonly Pen _gridLinePen;
     private readonly Pen _sectionPen;
     private readonly Pen _sectionHeadPen;
@@ -72,6 +75,7 @@ public sealed class PlanRenderer
     private readonly Brush _tagBrush;
     private readonly Brush _tagTextBrush;
     private readonly Brush _labelBackdrop;
+    private readonly Brush _componentBrush;
     private readonly Brush _roomBrush;
     private readonly Brush _roomSelectedBrush;
     private readonly Brush _roomTagBrush;
@@ -91,6 +95,7 @@ public sealed class PlanRenderer
         _wallOutlinePen = RenderPens.Solid(ink.WallOutline, 1.3);
         _layerPen = RenderPens.Solid(ink.LayerSeparator, 0.7);
         _membranePen = RenderPens.Dashed(ink.WallOutline, 1.0, 5, 3);
+        _componentPen = RenderPens.Solid(ink.Component, 1.1);
         _selectedPen = RenderPens.Solid(ink.Selected, 2.2);
         _previewPen = RenderPens.Dashed(ink.Preview, 1.4, 4, 3);
         _locationLinePen = RenderPens.Dashed(ink.LocationLine, 1.2, 6, 4);
@@ -101,6 +106,11 @@ public sealed class PlanRenderer
 
         _roomPen = RenderPens.Dashed(ink.RoomOutline, 1.0, 3, 3);
         _slabPen = RenderPens.Dashed(ink.SlabOutline, 1.0, 8, 4);
+
+        // Ridges, hips and valleys are built lines, not the edge of a sketch, so they are
+        // drawn solid and a little heavier than the roof outline they sit inside.
+        _roofLinePen = RenderPens.Solid(ink.WallOutline, 1.2);
+        _roofSlopePen = RenderPens.Solid(ink.Selected, 1.2);
 
         // Long dash, short dash: the chain line drawings use for setting-out.
         _gridLinePen = RenderPens.Chain(ink.GridLine, 1.0, 14, 4, 2, 4);
@@ -131,6 +141,7 @@ public sealed class PlanRenderer
 
         // Faint enough to read the plan through, which is the point of a colour fill: it says
         // which space is which, it does not replace the drawing.
+        _componentBrush = RenderPens.Fill(ink.ComponentFill);
         _roomBrush = RenderPens.Fill(ink.RoomFill);
         _roomSelectedBrush = RenderPens.Fill(ink.RoomFillSelected);
         _roomTagBrush = RenderPens.Fill(ink.RoomTagText);
@@ -236,6 +247,12 @@ public sealed class PlanRenderer
 
         foreach (var wall in OnActiveLevel<Wall>()) DrawWall(dc, wall);
         foreach (var opening in OnActiveLevel<Opening>()) DrawOpening(dc, opening);
+
+        // A column is construction like a wall, and is drawn over it where it is built into one.
+        foreach (var column in OnActiveLevel<Column>()) DrawColumn(dc, column);
+
+        // Components sit in the rooms and against the walls, so they are drawn over both.
+        foreach (var component in OnActiveLevel<Component>()) DrawComponent(dc, component);
 
         if (underlay) return;
 
@@ -479,7 +496,6 @@ public sealed class PlanRenderer
                     break;
 
                 case CurtainPanelKind.Door:
-                case CurtainPanelKind.Window:
                 {
                     var jambFrom = wall.PointAt(structure, cell.ClearFrom, 0);
                     var jambTo = wall.PointAt(structure, cell.ClearTo, 0);
@@ -489,22 +505,6 @@ public sealed class PlanRenderer
                     var along = (jambTo - jambFrom) / width;
                     var across = wall.ExteriorNormalAt(cell.ClearFrom);
                     var openingType = cell.OpeningTypeId is { } id ? Document?.FindType<OpeningType>(id) : null;
-
-                    // A window panel reads as a window: the pane across the bay, and the sash's
-                    // swing where it has one.
-                    if (openingType is WindowType windowType)
-                    {
-                        var light = new BIMDesigner.Core.Architecture.Window
-                        {
-                            TypeId = windowType.Id, LevelId = wall.LevelId, HostWallId = wall.Id,
-                            DistanceAlongWall = (cell.ClearFrom + cell.ClearTo) / 2,
-                            FlipHand = cell.FlipHand,
-                            FlipFacing = !cell.FlipFacing
-                        };
-
-                        DrawWindowSymbol(dc, light, windowType, jambFrom, jambTo, along, across, body.Width / 2, _openingPen);
-                        break;
-                    }
 
                     var doorType = openingType as DoorType;
 
@@ -1049,6 +1049,66 @@ public sealed class PlanRenderer
         var isSelected = IsSelected(slab);
 
         dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildOutline(slab.Boundary));
+
+        if (slab is Roof roof) DrawRoofLines(dc, roof, isSelected);
+    }
+
+    /// <summary>
+    /// What a pitched roof looks like in plan: the ridges, hips and valleys where its faces
+    /// meet, and - while it is selected - an arrow up each sloping edge.
+    ///
+    /// The break lines are the drawing. Without them a hip roof and a flat roof are the same
+    /// rectangle, and the plan says nothing about the shape of the building. The arrows are
+    /// only shown on selection because they are an editing aid, not part of the drawing: they
+    /// say which edges were given a slope, which is otherwise invisible once the roof is made.
+    /// </summary>
+    private void DrawRoofLines(DrawingContext dc, Roof roof, bool isSelected)
+    {
+        if (Document is null || roof.Form == RoofForm.Flat) return;
+
+        var surface = roof.Surface(Document);
+
+        foreach (var (from, to) in surface.BreakLines)
+            dc.DrawLine(_roofLinePen, ModelToScreen(from), ModelToScreen(to));
+
+        if (!isSelected) return;
+
+        for (var i = 0; i < roof.Edges.Count && i < roof.Boundary.Count; i++)
+        {
+            if (!roof.Edges[i].DefinesSlope) continue;
+
+            var from = roof.Boundary[i];
+            var to = roof.Boundary[(i + 1) % roof.Boundary.Count];
+            var along = (to - from).NormalisedOrDefault(default);
+            if (along.Length <= 0) continue;
+
+            // Uphill is square to the eave, into the building - the direction water runs down.
+            var uphill = Polygon2D.SignedArea(roof.Boundary) >= 0
+                ? along.PerpendicularLeft()
+                : -along.PerpendicularLeft();
+
+            DrawSlopeArrow(dc, from.MidpointTo(to), uphill);
+        }
+    }
+
+    /// <summary>An arrow pointing up the slope, drawn at a fixed size on the paper.</summary>
+    private void DrawSlopeArrow(DrawingContext dc, Point2D at, Vector2D uphill)
+    {
+        var start = ModelToScreen(at);
+        var direction = new Vector(
+            ModelToScreen(at + uphill).X - start.X,
+            ModelToScreen(at + uphill).Y - start.Y);
+
+        var length = direction.Length;
+        if (length <= 0) return;
+
+        direction /= length;
+        var side = new Vector(-direction.Y, direction.X);
+        var tip = start + direction * 26;
+
+        dc.DrawLine(_roofSlopePen, start, tip);
+        dc.DrawLine(_roofSlopePen, tip, tip - direction * 7 + side * 4);
+        dc.DrawLine(_roofSlopePen, tip, tip - direction * 7 - side * 4);
     }
 
     /// <summary>
@@ -1068,6 +1128,56 @@ public sealed class PlanRenderer
             isSelected ? _roomSelectedBrush : _roomBrush,
             isSelected ? _selectedPen : null,
             BuildOutline(boundary.Polygon));
+    }
+
+    /// <summary>
+    /// An architectural column in plan: its section, filled the way it is built.
+    ///
+    /// At coarse detail a column joined to a wall takes that wall's fill pattern, so the two
+    /// read as one piece of construction rather than an object standing in front of a wall -
+    /// which is what a column built into a wall actually is. Drawn finer, it is the material it
+    /// is made of, the same way the wall beside it is drawn as its layers rather than its fill.
+    /// </summary>
+    private void DrawColumn(DrawingContext dc, Column column)
+    {
+        if (Document?.FindType<ColumnType>(column.TypeId) is not { } type) return;
+        if (type.Width <= 0 || type.Depth <= 0) return;
+
+        var fill = DetailLevel == DetailLevel.Coarse
+            ? RenderPens.Fill(RenderPens.ToMediaColor(ColumnJoins.CoarseFill(Document, column, type)))
+            : MaterialBrush(ColumnJoins.CutMaterial(Document, column, type));
+
+        // Less whatever wall it is buried in, at the height the plan cuts it.
+        var section = ColumnJoins.CutByWalls(
+            Document, column, type, column.SectionAt(type), column.GetBaseElevation(Document) + 1000);
+
+        if (section.IsEmpty) return;
+
+        var pen = IsSelected(column) ? _selectedPen : _wallOutlinePen;
+
+        dc.DrawGeometry(fill, pen, BuildOutline(section.Outer));
+        foreach (var hole in section.Holes) dc.DrawGeometry(null, pen, BuildOutline(hole));
+    }
+
+    /// <summary>
+    /// A component in plan: its footprint, and enough of what is inside it to tell one from
+    /// another at a glance - the back of a chair, the bowl of a basin, the spread of a tree.
+    ///
+    /// It is drawn as the family says it is shaped, so a plan cannot show a table the schedule
+    /// does not, and a family widened in its type is wider here without anyone redrawing it.
+    /// </summary>
+    private void DrawComponent(DrawingContext dc, Component component)
+    {
+        if (Document?.FindType<ComponentType>(component.TypeId) is not { } type) return;
+        if (type.Width <= 0 || type.Depth <= 0) return;
+
+        var frame = ComponentModel.FrameOf(component, 0);
+        var outlines = ComponentModel.PlanOutlines(type, frame);
+        var pen = IsSelected(component) ? _selectedPen : _componentPen;
+
+        // The footprint is filled; what is inside it is drawn in line only, over the top.
+        dc.DrawGeometry(_componentBrush, pen, BuildOutline(outlines[0]));
+        foreach (var outline in outlines.Skip(1)) dc.DrawGeometry(null, pen, BuildOutline(outline));
     }
 
     /// <summary>
