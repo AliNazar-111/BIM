@@ -463,6 +463,26 @@ public static class ProjectFile
                     }).ToList()
                     : new List<RoofEdgeDto>(),
                 RoofCutoff = slab is Roof cut ? cut.CutoffOffset : 0,
+                RoofCutoffLevelId = slab is Roof withLevel ? withLevel.CutoffLevelId : null,
+                RoofRafterCut = slab is Roof eaves ? eaves.RafterCut.ToString() : "PlumbCut",
+                RoofFasciaDepth = slab is Roof fascia ? fascia.FasciaDepth : 150,
+                RoofExtrusion = slab is Roof { Extrusion: { } extrusion }
+                    ? new RoofExtrusionDto
+                    {
+                        OriginX = extrusion.Origin.X, OriginY = extrusion.Origin.Y,
+                        DirectionX = extrusion.Direction.X, DirectionY = extrusion.Direction.Y,
+                        Profile = extrusion.Profile.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                        Start = extrusion.Start, End = extrusion.End
+                    }
+                    : null,
+                RoofArrows = slab is Roof arrowed
+                    ? arrowed.SlopeArrows.Select(arrow => new RoofArrowDto
+                    {
+                        TailX = arrow.Tail.X, TailY = arrow.Tail.Y, HeadX = arrow.Head.X, HeadY = arrow.Head.Y,
+                        ByHeights = arrow.ByHeights, SlopeDegrees = arrow.SlopeDegrees,
+                        TailOffset = arrow.TailOffset, HeadOffset = arrow.HeadOffset
+                    }).ToList()
+                    : new List<RoofArrowDto>(),
                 Mark = slab.Mark,
                 Comments = slab.Comments,
                 Workset = slab.Workset,
@@ -1179,6 +1199,27 @@ public static class ProjectFile
             if (element is Roof pitched)
             {
                 pitched.CutoffOffset = slab.RoofCutoff;
+                pitched.CutoffLevelId = slab.RoofCutoffLevelId;
+                pitched.RafterCut = ParseEnum(slab.RoofRafterCut, RafterCut.PlumbCut);
+                pitched.FasciaDepth = slab.RoofFasciaDepth;
+                if (slab.RoofExtrusion is { } extruded)
+                {
+                    var profile = new List<Point2D>();
+                    for (var i = 0; i + 1 < extruded.Profile.Count; i += 2)
+                        profile.Add(new Point2D(extruded.Profile[i], extruded.Profile[i + 1]));
+
+                    pitched.SetExtrusion(new RoofExtrusion(
+                        new Point2D(extruded.OriginX, extruded.OriginY),
+                        new Vector2D(extruded.DirectionX, extruded.DirectionY),
+                        profile, extruded.Start, extruded.End));
+                }
+
+                pitched.SetSlopeArrows(slab.RoofArrows.Select(arrow => new RoofSlopeArrow
+                {
+                    Tail = new Point2D(arrow.TailX, arrow.TailY), Head = new Point2D(arrow.HeadX, arrow.HeadY),
+                    ByHeights = arrow.ByHeights, SlopeDegrees = arrow.SlopeDegrees,
+                    TailOffset = arrow.TailOffset, HeadOffset = arrow.HeadOffset
+                }));
 
                 if (slab.RoofEdges.Count > 0)
                 {

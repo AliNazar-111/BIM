@@ -273,7 +273,7 @@ sketch's slope symbols only show while editing the sketch.
 | 5 | 3D mesh per face and per layer | ✅ |
 | 6 | Plan: ridge, hip and valley lines; slope arrows on sloping edges while selected | ✅ |
 | 7 | Section: each face cut as a true sloping parallelogram | ✅ |
-| 8 | Properties: Roof Shape (Hip/Gable/Shed/Flat), Slope (all edges), per-edge **Slope at Edge N** and **Eave Offset at Edge N**, **Cutoff Height Above Base**, ridge height, sloping area | ✅ |
+| 8 | Properties: Roof Shape (Hip/Gable/Shed/Flat), Slope (all edges), per-edge **Slope at Edge N** and **Eave Offset at Edge N**, **Cutoff Level** and **Cutoff Offset**, **Rafter Cut** and **Fascia Depth**, ridge height, sloping area | ✅ |
 | 9 | Click an edge of a selected roof to turn its slope on or off | ✅ |
 | 10 | Options bar for the Roof tool: Shape and Pitch | ✅ |
 | 11 | Material takeoff by the sloping surface, not the footprint | ✅ |
@@ -298,8 +298,8 @@ sketch's slope symbols only show while editing the sketch.
 | Plate Offset From Base (at the wall) | ✅ | The roof bears on the wall face at its plate height; the overhang drops below it by overhang × tan(pitch). Rafter or Truss not yet |
 | Extend into wall (to core) | ✅ | |
 | Base Level + Base Offset From Level | ✅ | A roof stands on its base, as in Revit; a new roof is based at the top of the walls it was picked from, or on the storey above when drawn. Older files are migrated so nothing moves |
-| Cutoff Level + Offset | 🟡 | Cutoff as a height above base; not tied to a level |
-| Rafter Cut, Fascia Depth | ⬜ | Eaves are always plumb-cut |
+| Cutoff Level + Offset | ✅ | None, Roof Base, or any level, plus an offset |
+| Rafter Cut, Fascia Depth | ✅ | Plumb Cut, Two Cut Plumb, Two Cut Square; fascia depth up to the roof's thickness. 3D and section; IFC still exports each face as a plain slab |
 | Rafter or Truss | ⬜ | Needs plate-at-wall first |
 | Maximum Ridge Height | ✅ | Shown as ridge height above base |
 | Slope (roof-wide) | ✅ | |
@@ -308,15 +308,15 @@ sketch's slope symbols only show while editing the sketch.
 | Type: Structure / Edit Assembly | ✅ | Shared with floors and walls |
 | Type: coarse fill, identity, analytical | 🟡 | Most slab type fields exist; roof-specific analytical fields not checked |
 | Conical roof from a sloping arc | ⬜ | No arcs in roof outlines |
-| **Slope arrows** | ⬜ | |
+| **Slope arrows** | ✅ | Slope or Height at Tail; tail snaps onto a line, head onto a line or the grid; drawn and selected in the sketch; saved with the roof. Heights are measured from the roof's base (or from the eave an arrow starts beside), not from a chosen level |
 | **Align Eaves** | ⬜ | |
-| **Roof by Extrusion** | ⬜ | Gambrel and barrel vault need it |
+| **Roof by Extrusion** | ✅ | Placed in plan with three clicks, the profile drawn square-on in its own window from a gable, gambrel, barrel vault, shed, butterfly or flat start; Edit Profile or a double-click reopens it. Arcs are made of short straight pieces; the ends are cut plumb. See R7 |
 | Roof by Face | ⬜ | No masses |
 | Sloped Glazing | ⬜ | Curtain system exists for walls only |
 | **Attach wall tops to a pitched roof** (gable ends) | ✅ | The wall's top follows the roof's underside along its length: gables fill to the ridge, eave walls stay at the plate; solid, plan, section, openings and quantities follow. Finishing a roof from picked walls asks to attach them. Curved, leaning and stacked walls keep a level top |
 | Join/Unjoin Roof | ⬜ | |
 | Openings: Vertical, By Face | ⬜ | |
-| Dormer (slope-arrow and dormer-opening methods) | ⬜ | |
+| Dormer (slope-arrow and dormer-opening methods) | 🟡 | The slope-arrow dormer works: Split the eave, clear the middle's slope, two arrows to its middle. The dormer-opening method (walls plus a joined roof) needs Join Roof, still to come |
 | Fascia, Gutter | ⬜ | Wall sweeps exist; could be reused along roof edges |
 | Soffit | ⬜ | |
 | Shape editing (flat roofs: points, split lines, supports) | ⬜ | |
@@ -399,13 +399,13 @@ eave is 289 mm lower, as built.
 *Done when:* the four walls of a gabled house, attached to the roof, close the gable ends
 with no gap, in 3D and in section.
 
-### R5 — Eave construction ⬜
+### R5 — Eave construction ✅
 
 - **Rafter Cut**: Plumb Cut, Two Cut – Plumb, Two Cut – Square; **Fascia Depth**. The roof
   edge solid is cut accordingly in 3D and section.
 - **Cutoff Level** as a level plus offset (we have the offset form).
 
-### R6 — Slope arrows ⬜
+### R6 — Slope arrows ✅ (plus Split for sketch lines)
 
 - Slope Arrow in the sketch Draw panel; tail on a non-sloping line; **Specify** = Slope or
   Height at Tail (with levels and offsets at tail and head).
@@ -413,7 +413,7 @@ with no gap, in 3D and in section.
   eave planes the same way they compete with each other.
 - Gives the four-sided gable, the wall-less dormer, falls on flat roofs.
 
-### R7 — Roof by extrusion ⬜
+### R7 — Roof by extrusion ✅
 
 - Drawn in a section or elevation on a work plane (a wall face or reference plane): open
   profile of lines and arcs, reference level and offset, extrusion start and end.
@@ -421,6 +421,34 @@ with no gap, in 3D and in section.
 - Geometry: each profile segment swept along the extrusion direction, build-up square to each
   segment; plan, section, 3D, IFC.
 - Gives the **gambrel**, the **barrel vault**, the saltbox, any constant-section roof.
+
+What was built, and where it differs from Revit:
+
+- **Placed from the plan, drawn square-on.** Revit sets a work plane and draws the profile in
+  an elevation. Here the **Roof by Extrusion** tool takes three clicks in plan — the two ends
+  of the line the profile is drawn on (the width it spans), then how far the roof runs back —
+  and opens a profile window over that width. The work plane is the vertical plane through
+  the first line; there is no separate reference plane to name or rehost.
+- **Profile window.** Start from Gable, Gambrel, Barrel Vault, Shed, Butterfly or Flat, set
+  out by **Rise** and **Overhang**; then drag points (10 mm snap), double-click a line to add
+  one, right-click a point to take it out. Each line shows its pitch; the building's width is
+  shaded along the base and the project's levels are dashed across it. A line that stands
+  upright or runs back under the one before turns red, and Finish is refused with the reason.
+- **Base.** The window's **Base** is the roof's Base Offset From Level. It starts at the tops
+  of the walls the rectangle covers (as a roof picked from walls does), else the next level up.
+- **The profile is the underside.** As a footprint roof stands on its base, the profile is
+  where the roof's underside is, and its build-up stands on it, each layer offset square to
+  its line and mitred at every break, so the top does not step where the pitch changes.
+- **Arcs are faceted.** The barrel vault is an arch of short straight lines, and a profile has
+  only straight lines — enough for a vault to read and to quantify, but not a true curve.
+- **Ends are plumb.** The extrusion's two ends are cut straight down; **Extrusion Start** and
+  **Extrusion End** are instance properties, validated so the end stays past the start.
+- **Edit Profile** on the context tab, or a double-click on the roof, reopens the window over
+  the walls the roof covers; the profile and base change as one undo step. Moving, mirroring,
+  copying, saving, section, 3D, attached walls and quantities all carry the extrusion; IFC
+  exports it as `IfcRoof` with `GAMBREL_ROOF`, `BARREL_ROOF` and so on, one slab per face.
+- Not done: openings by the Vertical tool (with R8), joining an extruded roof to another roof
+  (R8), true arcs.
 
 ### R8 — Joins, openings, dormers ⬜
 

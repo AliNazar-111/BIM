@@ -295,10 +295,52 @@ internal sealed class SlabDto
     /// <summary>For a roof, how far above its base it is cut off flat. 0 lets it run to its ridge.</summary>
     public double RoofCutoff { get; set; }
 
+    /// <summary>For a roof, the level its cutoff is measured from; null measures it from the roof's base.</summary>
+    public Guid? RoofCutoffLevelId { get; set; }
+
+    /// <summary>For a roof, how its eaves are cut. Absent in older files, which were all plumb cut.</summary>
+    public string RoofRafterCut { get; set; } = "PlumbCut";
+
+    public double RoofFasciaDepth { get; set; } = 150;
+
+    /// <summary>For a roof, the slope arrows drawn in its sketch.</summary>
+    public List<RoofArrowDto> RoofArrows { get; set; } = new();
+
+    /// <summary>For a roof by extrusion, its profile and how far it runs; null for a roof by footprint.</summary>
+    public RoofExtrusionDto? RoofExtrusion { get; set; }
+
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
     public string PhaseCreated { get; set; } = "New";
+}
+
+/// <summary>A roof by extrusion: the line its profile is drawn on, the profile, and where it runs across that line.</summary>
+internal sealed class RoofExtrusionDto
+{
+    public double OriginX { get; set; }
+    public double OriginY { get; set; }
+    public double DirectionX { get; set; } = 1;
+    public double DirectionY { get; set; }
+
+    /// <summary>Profile points as distance along, height above base: along, height, along, height.</summary>
+    public List<double> Profile { get; set; } = new();
+
+    public double Start { get; set; }
+    public double End { get; set; }
+}
+
+/// <summary>A slope arrow drawn in a roof's sketch: where it runs, and how its slope is given.</summary>
+internal sealed class RoofArrowDto
+{
+    public double TailX { get; set; }
+    public double TailY { get; set; }
+    public double HeadX { get; set; }
+    public double HeadY { get; set; }
+    public bool ByHeights { get; set; }
+    public double SlopeDegrees { get; set; } = 30;
+    public double TailOffset { get; set; }
+    public double HeadOffset { get; set; }
 }
 
 /// <summary>What a roof does at one edge of its footprint: the whole shape of a roof is this, per edge.</summary>

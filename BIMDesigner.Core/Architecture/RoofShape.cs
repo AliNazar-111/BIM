@@ -70,6 +70,71 @@ public sealed class RoofEdge
 }
 
 /// <summary>
+/// A slope arrow (Revit's Slope Arrow): a slope drawn in plan, from a tail on a line of the
+/// outline to a head, for a roof whose slope is not "square up from an edge".
+///
+/// It is a plane of its own: level along the tail's line of equal height, rising toward the
+/// head. That covers what edges cannot say - a flat roof falling diagonally to a drain, a
+/// hip that starts partway up a gable end, a dormer made by lifting the middle of an eave
+/// into a small gable.
+///
+/// The slope is given either as a pitch from the tail, or as a height at the tail and a height
+/// at the head, with the pitch worked out between them - Revit's two ways of saying it.
+/// Heights are above the roof's base.
+/// </summary>
+public sealed class RoofSlopeArrow
+{
+    public Point2D Tail { get; set; }
+
+    public Point2D Head { get; set; }
+
+    /// <summary>Revit's Specify: false for Slope, true for Height at Tail (and head).</summary>
+    public bool ByHeights { get; set; }
+
+    /// <summary>The pitch, when <see cref="ByHeights"/> is off.</summary>
+    public double SlopeDegrees { get; set; } = RoofEdge.DefaultSlopeDegrees;
+
+    /// <summary>Height of the surface at the tail, above the roof's base - Revit's Height Offset at Tail.</summary>
+    public double TailOffset { get; set; }
+
+    /// <summary>Height at the head, above the roof's base, when <see cref="ByHeights"/> is on.</summary>
+    public double HeadOffset { get; set; }
+
+    public double Length => Tail.DistanceTo(Head);
+
+    /// <summary>Rise per unit run toward the head - negative for an arrow drawn falling.</summary>
+    public double Rise => ByHeights
+        ? (Length > 1e-9 ? (HeadOffset - TailOffset) / Length : 0)
+        : Math.Tan(Math.Clamp(SlopeDegrees, -89.95, 89.95) * Math.PI / 180);
+
+    /// <summary>The plane it defines, on a roof based at this height.</summary>
+    public RoofPlane PlaneOn(double baseElevation) => PlaneFrom(baseElevation + TailOffset);
+
+    /// <summary>The plane it defines, starting at this height at its tail.</summary>
+    public RoofPlane PlaneFrom(double atTail)
+    {
+        var direction = (Head - Tail).NormalisedOrDefault(Vector2D.UnitX);
+        var rise = Rise;
+
+        return new RoofPlane(
+            rise * direction.X,
+            rise * direction.Y,
+            atTail - rise * (direction.X * Tail.X + direction.Y * Tail.Y),
+            atTail);
+    }
+
+    public RoofSlopeArrow Copy() => new()
+    {
+        Tail = Tail,
+        Head = Head,
+        ByHeights = ByHeights,
+        SlopeDegrees = SlopeDegrees,
+        TailOffset = TailOffset,
+        HeadOffset = HeadOffset
+    };
+}
+
+/// <summary>
 /// A plane of a roof, written as the height over any point in plan: z = A·x + B·y + C.
 ///
 /// Written this way because the roof is then the lowest of its planes at every point, and
@@ -105,7 +170,7 @@ public readonly record struct RoofPlane(double A, double B, double C, double Eav
 }
 
 /// <summary>One face of a roof: where it is in plan, and the plane it lies in.</summary>
-public sealed record RoofFacet(IReadOnlyList<Point2D> Outline, RoofPlane Plane)
+public sealed record RoofFacet(IReadOnlyList<Point2D> Outline, RoofPlane Plane, bool HasEave = true)
 {
     /// <summary>The face's shadow on the ground, which is what a plan measures.</summary>
     public double Area => Polygon2D.Area(Outline);
@@ -124,7 +189,13 @@ public enum RoofForm
     Shed,
     Gable,
     Hip,
-    Freeform
+    Freeform,
+
+    /// <summary>Two pitches a side, steep below and shallow above - a roof by extrusion.</summary>
+    Gambrel,
+
+    /// <summary>A curved vault - a roof by extrusion of an arc.</summary>
+    Barrel
 }
 
 /// <summary>
@@ -246,11 +317,50 @@ public static class RoofShape
     /// <summary>Planes this close in every term are the same plane.</summary>
     private const double SamePlane = 1e-9;
 
+    /// <summary>
+    /// The surface of a roof by extrusion: one face under each segment of the profile, the
+    /// width of the roof across, with a ridge or valley line wherever the profile turns.
+    /// </summary>
+    public static RoofSurface BuildExtrusion(RoofExtrusion extrusion, double baseElevation)
+    {
+        if (!extrusion.IsValid)
+        {
+            return new RoofSurface(baseElevation, new List<RoofPlane>(), Array.Empty<RoofFacet>(),
+                Array.Empty<(Point2D, Point2D)>(), RoofForm.Flat);
+        }
+
+        var planes = new List<RoofPlane>();
+        var facets = new List<RoofFacet>();
+        var profile = extrusion.Profile;
+
+        for (var i = 0; i + 1 < profile.Count; i++)
+        {
+            var plane = extrusion.PlaneUnder(i, baseElevation);
+            var outline = new List<Point2D>
+            {
+                extrusion.At(profile[i].X, extrusion.Start), extrusion.At(profile[i + 1].X, extrusion.Start),
+                extrusion.At(profile[i + 1].X, extrusion.End), extrusion.At(profile[i].X, extrusion.End)
+            };
+
+            planes.Add(plane);
+            facets.Add(new RoofFacet(Anticlockwise(outline), plane, HasEave: false));
+        }
+
+        // The profile's own corners, carried across the roof: its ridges and valleys.
+        var breakLines = Enumerable.Range(1, Math.Max(0, profile.Count - 2))
+            .Select(i => (extrusion.At(profile[i].X, extrusion.Start), extrusion.At(profile[i].X, extrusion.End)))
+            .ToList();
+
+        var form = extrusion.Form();
+        return new RoofSurface(baseElevation, form == RoofForm.Flat ? new List<RoofPlane>() : planes, facets, breakLines, form);
+    }
+
     public static RoofSurface Build(
         IReadOnlyList<Point2D> boundary, IReadOnlyList<RoofEdge> edges, double baseElevation,
-        double? cutoff = null)
+        double? cutoff = null, IReadOnlyList<RoofSlopeArrow>? arrows = null)
     {
         var footprint = Anticlockwise(boundary);
+        arrows ??= Array.Empty<RoofSlopeArrow>();
 
         if (footprint.Count < 3)
         {
@@ -258,7 +368,7 @@ public static class RoofShape
                 Array.Empty<(Point2D, Point2D)>(), RoofForm.Flat);
         }
 
-        var eaves = EavesOf(footprint, boundary, edges, baseElevation);
+        var eaves = EavesOf(footprint, boundary, edges, baseElevation, arrows);
         var planes = eaves.Select(eave => eave.Plane).ToList();
 
         // Nothing slopes: the roof is its footprint, flat - which is what a roof is until
@@ -281,7 +391,12 @@ public static class RoofShape
         var covers = eaves
             .Select(eave =>
             {
-                var ground = Clip(whole, new RoofPlane(0, 0, eave.Plane.Eave, eave.Plane.Eave), eave.Plane, footprint);
+                // A slope arrow has no eave to be on the inside of: its plane runs on below its
+                // tail wherever nothing else is the roof - a flat roof sloped diagonally is one
+                // plane from corner to corner, lower behind the tail and higher ahead.
+                var ground = eave.IsArrow
+                    ? whole
+                    : Clip(whole, new RoofPlane(0, 0, eave.Plane.Eave, eave.Plane.Eave), eave.Plane, footprint);
 
                 foreach (var (other, keepWhereLower) in eave.Wedges)
                 {
@@ -323,8 +438,10 @@ public static class RoofShape
 
             foreach (var piece in region)
                 if (Polygon2D.Area(piece.Outer) > MinimumFacetArea)
-                    facets.Add(new RoofFacet(piece.Outer, planes[i]));
+                    facets.Add(new RoofFacet(piece.Outer, planes[i], HasEave: !eaves[i].IsArrow));
         }
+
+        facets = MergeSamePlanes(facets);
 
         // Whatever the slopes no longer reach is the flat deck the cutoff leaves.
         if (deck is { } flat)
@@ -340,7 +457,7 @@ public static class RoofShape
         }
 
         return new RoofSurface(
-            baseElevation, planes, facets, BreakLinesOf(facets, footprint), FormOf(boundary, edges), cutoff);
+            baseElevation, planes, facets, BreakLinesOf(facets, footprint), FormOf(boundary, edges, arrows.Count), cutoff);
     }
 
     /// <summary>
@@ -359,18 +476,22 @@ public static class RoofShape
     /// straight line through the corner they share. Outside those two lines the eave is not
     /// building anything.
     ///
-    /// Which side of the line belongs to it depends on the corner. At an ordinary corner the
-    /// two planes rise away from each other and meet in a hip, so each keeps the side where it
-    /// is the lower. At an inside corner they close on each other and meet in a valley, so each
-    /// keeps the side where it is the higher - the valley is a gutter, not a ridge.
+    /// Which side of the line belongs to it is the side its own edge is on. At an ordinary
+    /// corner that is where it is the lower, and the two meet in a hip; at an inside corner it
+    /// is where it is the higher, and they meet in a valley - a gutter, not a ridge. Asked that
+    /// way rather than by the corner's shape, the rule also holds for a slope arrow, whose plane
+    /// does not rise square to any edge: the two arrows of a dormer keep the stretch of eave
+    /// between them, and the eave either side keeps its own.
     /// </summary>
-    private readonly record struct Eave(RoofPlane Plane, IReadOnlyList<(RoofPlane Other, bool KeepWhereLower)> Wedges);
+    private readonly record struct Eave(
+        RoofPlane Plane, IReadOnlyList<(RoofPlane Other, bool KeepWhereLower)> Wedges, bool IsArrow = false);
 
     private static List<Eave> EavesOf(
         IReadOnlyList<Point2D> footprint,
         IReadOnlyList<Point2D> boundary,
         IReadOnlyList<RoofEdge> edges,
-        double baseElevation)
+        double baseElevation,
+        IReadOnlyList<RoofSlopeArrow> arrows)
     {
         // The footprint is worked anticlockwise so that "inward" is one rule rather than two.
         // Where the points had to be turned round to get there, the edge settings turn with
@@ -409,36 +530,173 @@ public static class RoofShape
                 atEdge);
         }
 
+        // The slope arrows, each on the edge its tail sits on. An arrow whose tail is on no
+        // edge has nothing to belong to, and is ignored rather than guessed about.
+        var arrowPlanes = new List<(RoofPlane Plane, int Edge, Point2D Tail)>();
+        foreach (var arrow in arrows)
+        {
+            if (arrow.Length <= 1) continue;
+            if (EdgeUnder(footprint, arrow, index => planes[index] is not null) is not { } edge) continue;
+
+            // An arrow starting at a corner where a sloping eave ends starts at that eave's
+            // height there, not at the roof's base: a dormer continues the eave it is cut into.
+            // An eave picked with an overhang is lower at its edge than the base, by the
+            // overhang times the pitch, and an arrow starting at the base would stand above it
+            // by that much - a step in the eave, and a dormer that never meets the roof.
+            var start = footprint[edge];
+            var end = footprint[(edge + 1) % count];
+            var beside = arrow.Tail.DistanceTo(start) <= 1 ? planes[(edge - 1 + count) % count]
+                : arrow.Tail.DistanceTo(end) <= 1 ? planes[(edge + 1) % count]
+                : null;
+
+            var atTail = (beside?.HeightAt(arrow.Tail) ?? baseElevation) + arrow.TailOffset;
+            arrowPlanes.Add((arrow.PlaneFrom(atTail), edge, arrow.Tail));
+        }
+
+        // The plane that meets this edge at one of its corners: the edge's own, where it slopes,
+        // or else the arrow on it whose tail is nearest that corner - which is how the two
+        // arrows of a dormer each meet the eave on their own side of it.
+        RoofPlane? PlaneAt(int edge, Point2D corner)
+        {
+            if (planes[edge] is { } own) return own;
+
+            return arrowPlanes
+                .Where(arrow => arrow.Edge == edge)
+                .OrderBy(arrow => arrow.Tail.DistanceTo(corner))
+                .Select(arrow => (RoofPlane?)arrow.Plane)
+                .FirstOrDefault();
+        }
+
+        List<(RoofPlane, bool)> WedgesFor(RoofPlane plane, int i, bool isArrow = false)
+        {
+            var wedges = new List<(RoofPlane, bool)>();
+            var from = footprint[i];
+            var to = footprint[(i + 1) % count];
+            var along = (to - from).NormalisedOrDefault(default);
+            var inward = along.PerpendicularLeft();
+            var step = Math.Min(from.DistanceTo(to) / 4, 10);
+
+            // The corner at each end of this edge, with the edge beside it. An edge the roof
+            // is merely cut off at has nothing to meet, and so sets no wedge: the roof runs past
+            // a gable to the wall and stops there.
+            foreach (var (neighbour, cornerIndex, corner, awayAlong) in new[]
+                     {
+                         ((i - 1 + count) % count, i, from, along),
+                         ((i + 1) % count, (i + 1) % count, to, along * -1)
+                     })
+            {
+                if (PlaneAt(neighbour, corner) is not { } beside || Same(plane, beside)) continue;
+
+                // An arrow meets the eave only at the corner its tail is nearest. The two arrows
+                // of a dormer each own one end of the stretch between them; the far end belongs
+                // to the other.
+                if (isArrow && PlaneAt(i, corner) is { } nearest && !Same(nearest, plane)) continue;
+
+                // Where the two planes meet at the corner itself, the line between them runs
+                // out of it, and this edge's roof is on the side of that line this edge is on. A
+                // point just in from the corner, along this edge, says which side that is - so
+                // the rule holds for any two planes, not only two eaves rising square to their
+                // edges: it is what gives a dormer's arrows their stretch of eave.
+                if (Math.Abs(plane.HeightAt(corner) - beside.HeightAt(corner)) < 1)
+                {
+                    var probe = corner + awayAlong * (2 * step) + inward * step;
+                    var difference = plane.HeightAt(probe) - beside.HeightAt(probe);
+                    if (Math.Abs(difference) < 1e-9) continue;
+
+                    wedges.Add((beside, difference < 0));
+                    continue;
+                }
+
+                // Where one starts higher than the other - a raised end eave, a hip begun
+                // partway up a gable - the line misses the corner, and near it this edge's roof
+                // is not there at all. Then the corner's shape decides: out, each keeps where it
+                // is the lower; in, where it is the higher.
+                wedges.Add((beside, IsConvex(footprint, cornerIndex)));
+            }
+
+            return wedges;
+        }
+
         var eaves = new List<Eave>();
 
         for (var i = 0; i < count; i++)
-        {
-            if (planes[i] is not { } plane) continue;
+            if (planes[i] is { } plane)
+                eaves.Add(new Eave(plane, WedgesFor(plane, i)));
 
-            var wedges = new List<(RoofPlane, bool)>();
-
-            // The corner at each end of this edge, with the edge beside it. An edge the roof
-            // is merely cut off at has no plane, and so sets no wedge: the roof runs past a
-            // gable to the wall and stops there.
-            foreach (var (neighbour, corner) in new[]
-                     {
-                         ((i - 1 + count) % count, i),
-                         ((i + 1) % count, (i + 1) % count)
-                     })
-            {
-                if (planes[neighbour] is not { } beside) continue;
-                if (Same(plane, beside)) continue;
-
-                wedges.Add((beside, IsConvex(footprint, corner)));
-            }
-
-            eaves.Add(new Eave(plane, wedges));
-        }
+        foreach (var (plane, edge, _) in arrowPlanes)
+            eaves.Add(new Eave(plane, WedgesFor(plane, edge, isArrow: true), IsArrow: true));
 
         return eaves;
     }
 
-    /// <summary>Whether the footprint turns left at this corner - anticlockwise, that is a corner sticking out.</summary>
+    /// <summary>
+    /// Joins faces that lie in one plane into one face.
+    ///
+    /// Two edges in line at the same pitch - an eave split to make room for a dormer - give
+    /// the same plane twice, and each keeps the roof it would have on its own. Left apart, the
+    /// stretch they share would be built twice, one copy on top of the other, and counted
+    /// twice in the roof's area. It is one surface, so it becomes one face.
+    /// </summary>
+    private static List<RoofFacet> MergeSamePlanes(List<RoofFacet> facets)
+    {
+        var merged = new List<RoofFacet>();
+
+        foreach (var group in GroupByPlane(facets))
+        {
+            if (group.Count == 1)
+            {
+                merged.Add(group[0]);
+                continue;
+            }
+
+            var regions = new List<IReadOnlyList<Point2D>> { group[0].Outline };
+
+            foreach (var facet in group.Skip(1))
+            {
+                var joined = new List<IReadOnlyList<Point2D>>();
+                var pending = facet.Outline;
+
+                foreach (var region in regions)
+                {
+                    var union = PolygonBoolean.Combine(region, pending, BooleanOperation.Union);
+
+                    // Touching or overlapping: one region now, carried on to the next.
+                    if (union.Count == 1 && pending is not null)
+                    {
+                        pending = union[0].Outer;
+                        continue;
+                    }
+
+                    joined.Add(region);
+                }
+
+                joined.Add(pending!);
+                regions = joined;
+            }
+
+            merged.AddRange(regions
+                .Where(region => Polygon2D.Area(region) > MinimumFacetArea)
+                .Select(region => new RoofFacet(region, group[0].Plane, group[0].HasEave)));
+        }
+
+        return merged;
+    }
+
+    private static List<List<RoofFacet>> GroupByPlane(List<RoofFacet> facets)
+    {
+        var groups = new List<List<RoofFacet>>();
+
+        foreach (var facet in facets)
+        {
+            var group = groups.FirstOrDefault(existing => Same(existing[0].Plane, facet.Plane));
+            if (group is null) groups.Add(new List<RoofFacet> { facet });
+            else group.Add(facet);
+        }
+
+        return groups;
+    }
+
+    /// <summary>Whether the footprint turns left at this corner - anticlockwise, a corner sticking out.</summary>
     private static bool IsConvex(IReadOnlyList<Point2D> footprint, int corner)
     {
         var count = footprint.Count;
@@ -446,6 +704,27 @@ public static class RoofShape
         var away = footprint[(corner + 1) % count] - footprint[corner];
 
         return into.Cross(away) >= 0;
+    }
+
+    /// <summary>
+    /// The edge of the footprint an arrow's tail is on, within a millimetre; null when on none.
+    ///
+    /// A tail on a corner is on two edges. The one it belongs to is the one that does not
+    /// slope - an arrow gives a slope to a line that has none, which is Revit's rule too - and
+    /// between two alike, the one the arrow runs along. That is what puts both arrows of a
+    /// dormer on the stretch of eave between them, rather than one of them on the eave beside.
+    /// </summary>
+    private static int? EdgeUnder(IReadOnlyList<Point2D> footprint, RoofSlopeArrow arrow, Func<int, bool> slopes)
+    {
+        var direction = (arrow.Head - arrow.Tail).NormalisedOrDefault(default);
+
+        return Enumerable.Range(0, footprint.Count)
+            .Where(i => Line2D.DistanceFromSegment(arrow.Tail, footprint[i], footprint[(i + 1) % footprint.Count]) <= 1)
+            .OrderBy(i => slopes(i) ? 1 : 0)
+            .ThenByDescending(i => Math.Abs((footprint[(i + 1) % footprint.Count] - footprint[i])
+                .NormalisedOrDefault(default).Dot(direction)))
+            .Select(i => (int?)i)
+            .FirstOrDefault();
     }
 
     private static bool Same(RoofPlane a, RoofPlane b) =>
@@ -577,10 +856,15 @@ public static class RoofShape
     /// What the roof would be called. The name follows from how many edges slope and where,
     /// which is also what IFC asks to be told.
     /// </summary>
-    public static RoofForm FormOf(IReadOnlyList<Point2D> boundary, IReadOnlyList<RoofEdge> edges)
+    public static RoofForm FormOf(IReadOnlyList<Point2D> boundary, IReadOnlyList<RoofEdge> edges, int arrows = 0)
     {
         var counted = Math.Min(boundary.Count, edges.Count);
         var sloping = edges.Take(counted).Count(edge => edge.DefinesSlope);
+
+        // A slope arrow on a roof with nothing else sloping makes the whole roof one plane - a
+        // shed, however the arrow is drawn. Arrows among sloping edges make something with no
+        // single name.
+        if (arrows > 0) return sloping == 0 && arrows == 1 ? RoofForm.Shed : RoofForm.Freeform;
 
         if (sloping == 0) return RoofForm.Flat;
         if (sloping == 1) return RoofForm.Shed;

@@ -36,6 +36,22 @@ public sealed class Roof : Slab
         MatchEdgesToBoundary();
     }
 
+    /// <summary>
+    /// For a roof by extrusion, its profile and how far it runs; null for a roof by footprint.
+    /// An extruded roof's outline in plan is not drawn but follows from this - the profile's
+    /// width by the extrusion's depth - so the two can never disagree.
+    /// </summary>
+    public RoofExtrusion? Extrusion { get; private set; }
+
+    public bool IsExtrusion => Extrusion is not null;
+
+    /// <summary>Makes this a roof by extrusion with this profile, or a roof by footprint again with null.</summary>
+    public void SetExtrusion(RoofExtrusion? extrusion)
+    {
+        Extrusion = extrusion;
+        if (extrusion is not null && extrusion.Footprint() is { Count: >= 3 } footprint) SetBoundary(footprint);
+    }
+
     /// <summary>Replaces every edge's settings, as reading a file or copying a roof does.</summary>
     public void SetEdges(IEnumerable<RoofEdge> edges)
     {
@@ -54,8 +70,23 @@ public sealed class Roof : Slab
         while (_edges.Count > Boundary.Count) _edges.RemoveAt(_edges.Count - 1);
     }
 
+    private readonly List<RoofSlopeArrow> _arrows = new();
+
+    /// <summary>
+    /// The slope arrows drawn in the roof's sketch - slopes that are not square up from an
+    /// edge: a fall across a flat roof, a hip partway up a gable, a dormer lifted out of an eave.
+    /// </summary>
+    public IReadOnlyList<RoofSlopeArrow> SlopeArrows => _arrows;
+
+    /// <summary>Replaces the slope arrows, as finishing a sketch, reading a file or copying a roof does.</summary>
+    public void SetSlopeArrows(IEnumerable<RoofSlopeArrow> arrows)
+    {
+        _arrows.Clear();
+        _arrows.AddRange(arrows);
+    }
+
     /// <summary>What this roof is: a hip, a gable, a shed, flat, or something of its own.</summary>
-    public RoofForm Form => RoofShape.FormOf(Boundary, _edges);
+    public RoofForm Form => Extrusion?.Form() ?? RoofShape.FormOf(Boundary, _edges, _arrows.Count);
 
     /// <summary>
     /// The pitch the sloping edges are laid at, or 0 where none of them slope. Setting it
@@ -176,6 +207,42 @@ public sealed class Roof : Slab
     public double CutoffOffset { get; set; }
 
     /// <summary>
+    /// The level the cutoff is measured from - Revit's Cutoff Level. Null measures it from the
+    /// roof's own base instead, which is how a roof with a cutoff and no level to hang it on
+    /// was always kept.
+    /// </summary>
+    public Guid? CutoffLevelId { get; set; }
+
+    /// <summary>
+    /// Where the roof stops, flat on top: the cutoff level plus the offset, or the base plus
+    /// the offset when no level is set. Null when the roof runs to its ridge.
+    /// </summary>
+    public double? CutoffElevation(BimDocument document)
+    {
+        if (CutoffLevelId is { } id && document.FindLevel(id) is { } level) return level.Elevation + CutoffOffset;
+        return CutoffOffset > 0 ? BaseElevation(document) + CutoffOffset : null;
+    }
+
+    /// <summary>
+    /// How the eaves are cut - Revit's Rafter Cut. Plumb by default: straight down at the
+    /// roof's edge, the way most eaves end.
+    /// </summary>
+    public RafterCut RafterCut { get; set; } = RafterCut.PlumbCut;
+
+    /// <summary>
+    /// How deep the upright part of a two-cut eave is - Revit's Fascia Depth. Between nothing
+    /// and the roof's thickness; the rest of the eave is cut away level underneath, which is
+    /// where a soffit board goes.
+    /// </summary>
+    public double FasciaDepth { get; set; } = DefaultFasciaDepth;
+
+    public const double DefaultFasciaDepth = 150;
+
+    /// <summary>The Cutoff Level choices that are not levels.</summary>
+    public const string NoCutoff = "None";
+    public const string RoofBase = "Roof Base";
+
+    /// <summary>
     /// Where the roof bears: its level plus its base offset. The roof's <em>underside</em> is
     /// here where it sits on its walls, and its build-up rises from it.
     ///
@@ -203,7 +270,7 @@ public sealed class Roof : Slab
     public RoofSurface Surface(BimDocument document)
     {
         var bottom = BaseElevation(document);
-        double? cutoff = CutoffOffset > 0 ? bottom + CutoffOffset : null;
+        var cutoff = CutoffElevation(document);
 
         // Working the faces out takes a few dozen polygon operations, and every wall attached
         // under the roof asks for them each time it is drawn. So the last answer is kept, with
@@ -211,7 +278,9 @@ public sealed class Roof : Slab
         var signature = Signature(bottom, cutoff);
         if (_surface is { } kept && _surfaceSignature is { } was && was.SequenceEqual(signature)) return kept;
 
-        _surface = RoofShape.Build(Boundary, _edges, bottom, cutoff);
+        _surface = Extrusion is { } extrusion
+            ? RoofShape.BuildExtrusion(extrusion, bottom)
+            : RoofShape.Build(Boundary, _edges, bottom, cutoff, _arrows);
         _surfaceSignature = signature;
         return _surface;
     }
@@ -229,6 +298,22 @@ public sealed class Roof : Slab
             values.Add(point.Y);
         }
 
+        if (Extrusion is { } extrusion)
+        {
+            values.Add(extrusion.Origin.X);
+            values.Add(extrusion.Origin.Y);
+            values.Add(extrusion.Direction.X);
+            values.Add(extrusion.Direction.Y);
+            values.Add(extrusion.Start);
+            values.Add(extrusion.End);
+
+            foreach (var point in extrusion.Profile)
+            {
+                values.Add(point.X);
+                values.Add(point.Y);
+            }
+        }
+
         foreach (var edge in _edges)
         {
             values.Add(edge.DefinesSlope ? 1 : 0);
@@ -236,6 +321,16 @@ public sealed class Roof : Slab
             values.Add(edge.PlateOffset);
             values.Add(edge.BearingInset);
             values.Add(edge.WallId is null ? 0 : 1);
+        }
+
+        foreach (var arrow in _arrows)
+        {
+            values.Add(arrow.Tail.X);
+            values.Add(arrow.Tail.Y);
+            values.Add(arrow.Head.X);
+            values.Add(arrow.Head.Y);
+            values.Add(arrow.Rise);
+            values.Add(arrow.TailOffset);
         }
 
         return values.ToArray();
@@ -276,7 +371,42 @@ public sealed class Roof : Slab
     public override double GetVolume(BimDocument document) =>
         SlopingArea(document) * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
-    protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document)
+    protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document) =>
+        Extrusion is null ? FootprintParameters(document) : ExtrusionParameters(document);
+
+    /// <summary>
+    /// A roof by extrusion's own settings - Revit's Extrusion Start and End - and what it
+    /// comes to. The rest belongs to its profile, changed with Edit Profile.
+    /// </summary>
+    private IEnumerable<ParameterValue> ExtrusionParameters(BimDocument document)
+    {
+        yield return ParameterValue.ReadOnly(RoofParameters.Shape, () => EnumText.Humanise(Form));
+
+        yield return ParameterValue.BindValidated(
+            RoofParameters.ExtrusionStart, () => Extrusion!.Start, (double start) =>
+            {
+                if (Extrusion is not { } extrusion || start >= extrusion.End - 1) return false;
+
+                SetExtrusion(new RoofExtrusion(extrusion.Origin, extrusion.Direction, extrusion.Profile, start, extrusion.End));
+                return true;
+            });
+
+        yield return ParameterValue.BindValidated(
+            RoofParameters.ExtrusionEnd, () => Extrusion!.End, (double end) =>
+            {
+                if (Extrusion is not { } extrusion || end <= extrusion.Start + 1) return false;
+
+                SetExtrusion(new RoofExtrusion(extrusion.Origin, extrusion.Direction, extrusion.Profile, extrusion.Start, end));
+                return true;
+            });
+
+        yield return ParameterValue.ReadOnly(
+            RoofParameters.RidgeHeight, () => RidgeElevation(document) - BaseElevation(document));
+
+        yield return ParameterValue.ReadOnly(RoofParameters.SlopingArea, () => SlopingArea(document));
+    }
+
+    private IEnumerable<ParameterValue> FootprintParameters(BimDocument document)
     {
         yield return ParameterValue.BindChoice(
             RoofParameters.Shape,
@@ -285,10 +415,13 @@ public sealed class Roof : Slab
             {
                 // Freeform is what a roof is called once its edges have been set one at a
                 // time; choosing it would have nothing to do, so it is left alone.
-                if (EnumText.TryParse<RoofForm>(value, out var form) && form != RoofForm.Freeform)
+                if (EnumText.TryParse<RoofForm>(value, out var form) && form is not (RoofForm.Freeform or RoofForm.Gambrel or RoofForm.Barrel))
                     SetShape(form);
             },
-            EnumText.Choices<RoofForm>());
+            // A gambrel or a vault is a profile, drawn as a roof by extrusion: a footprint
+            // cannot be one, so neither is offered here.
+            new[] { RoofForm.Flat, RoofForm.Shed, RoofForm.Gable, RoofForm.Hip, RoofForm.Freeform }
+                .Select(form => EnumText.Humanise(form)).ToArray());
 
         yield return ParameterValue.BindValidated(
             RoofParameters.Slope, () => SlopeDegrees, (double pitch) =>
@@ -301,12 +434,47 @@ public sealed class Roof : Slab
                 return true;
             });
 
-        yield return ParameterValue.BindValidated(
-            RoofParameters.Cutoff, () => CutoffOffset, (double height) =>
+        // Cutoff: none, measured from the roof's own base, or from a level - Revit's Cutoff
+        // Level and Cutoff Offset.
+        yield return ParameterValue.BindChoice(
+            RoofParameters.CutoffLevel,
+            () => CutoffLevelId is { } id && document.FindLevel(id) is { } level
+                ? level.Name
+                : CutoffOffset > 0 ? RoofBase : NoCutoff,
+            value =>
             {
-                if (height < 0) return false;
+                if (value == NoCutoff)
+                {
+                    CutoffLevelId = null;
+                    CutoffOffset = 0;
+                }
+                else if (value == RoofBase)
+                {
+                    CutoffLevelId = null;
+                }
+                else if (document.Levels.FirstOrDefault(level => level.Name == value) is { } level)
+                {
+                    CutoffLevelId = level.Id;
+                }
+            },
+            new[] { NoCutoff, RoofBase }.Concat(document.Levels.Select(level => level.Name)).ToArray());
 
-                CutoffOffset = height;
+        yield return ParameterValue.Bind(RoofParameters.CutoffOffset, () => CutoffOffset, value => CutoffOffset = value);
+
+        yield return ParameterValue.BindChoice(
+            RoofParameters.RafterCut,
+            () => EnumText.Humanise(RafterCut),
+            value => { if (EnumText.TryParse<RafterCut>(value, out var cut)) RafterCut = cut; },
+            EnumText.Choices<RafterCut>());
+
+        yield return ParameterValue.BindValidated(
+            RoofParameters.FasciaDepth, () => FasciaDepth, (double depth) =>
+            {
+                // No deeper than the roof itself: the upright part of the eave is cut out of
+                // the roof's own thickness.
+                if (depth < 0 || depth > Thickness(document) + 1e-6) return false;
+
+                FasciaDepth = depth;
                 return true;
             });
 
@@ -397,8 +565,23 @@ public static class RoofParameters
     public static readonly ParameterDefinition Slope =
         new("Slope", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
-    public static readonly ParameterDefinition Cutoff =
-        new("Cutoff Height Above Base", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition ExtrusionStart =
+        new("Extrusion Start", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition ExtrusionEnd =
+        new("Extrusion End", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition CutoffLevel =
+        new("Cutoff Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition CutoffOffset =
+        new("Cutoff Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition RafterCut =
+        new("Rafter Cut", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FasciaDepth =
+        new("Fascia Depth", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition RidgeHeight =
         new("Ridge Height Above Base", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);

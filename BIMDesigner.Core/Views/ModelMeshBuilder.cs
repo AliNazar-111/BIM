@@ -881,31 +881,18 @@ public static class ModelMeshBuilder
     /// </summary>
     private static void AddRoof(BimDocument document, Roof roof, SlabType type, List<Mesh3D> meshes)
     {
-        var surface = roof.Surface(document);
-        var total = type.Structure.TotalWidth;
-
-        foreach (var (layer, start, end) in type.Structure.GetLayerOffsets())
+        // The pieces are the same ones a section cuts, eaves and all, so the two agree.
+        foreach (var group in RoofSolid.Pieces(document, roof).GroupBy(piece => piece.Layer))
         {
-            if (layer.Thickness <= 0) continue;
-
+            var layer = group.Key;
             var material = document.FindMaterial(layer.MaterialId);
             var mesh = new Mesh3D(
                 roof.Id, roof.LevelId, MeshKind.Roof,
                 material?.SurfaceColour ?? DefaultSurface,
                 material?.Name ?? layer.Function.ToString());
 
-            foreach (var facet in surface.Facets)
-            {
-                var plane = facet.Plane;
-                var stretch = plane.VerticalStretch;
-
-                // The planes are the underside; the layers are counted from the top down, so
-                // each one sits the rest of the build-up above the underside.
-                mesh.AddExtrusion(
-                    facet.Outline,
-                    point => plane.HeightAt(point) + (total - end) * stretch,
-                    point => plane.HeightAt(point) + (total - start) * stretch);
-            }
+            foreach (var piece in group)
+                mesh.AddExtrusion(piece.Outline, piece.Bottom.HeightAt, piece.Top.HeightAt);
 
             if (!mesh.IsEmpty) meshes.Add(mesh);
         }

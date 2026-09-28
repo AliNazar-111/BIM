@@ -257,6 +257,11 @@ public static class ElementCopy
         if (copy is Roof copied && original is Roof roof)
         {
             copied.CutoffOffset = roof.CutoffOffset;
+            copied.CutoffLevelId = roof.CutoffLevelId;
+            copied.RafterCut = roof.RafterCut;
+            copied.FasciaDepth = roof.FasciaDepth;
+            copied.SetSlopeArrows(roof.SlopeArrows.Select(arrow => arrow.Copy()));
+            copied.SetExtrusion(roof.Extrusion);
             copied.SetEdges(roof.Edges.Select(edge => edge.Copy()));
         }
 

@@ -871,48 +871,71 @@ public static class SectionProjection
         List<SectionPiece> pieces)
     {
         var origin = marker.Start;
-        var total = structure.TotalWidth;
         var ray = marker.Direction;
 
-        foreach (var facet in roof.Surface(document).Facets)
+        // The same pieces the 3D model is built from, eave cuts included, so the cut through
+        // the roof and the roof itself agree.
+        foreach (var layer in RoofSolid.Pieces(document, roof).GroupBy(piece => piece.Layer))
         {
-            var plane = facet.Plane;
-            var stretch = plane.VerticalStretch;
+            var material = document.FindMaterial(layer.Key.MaterialId);
 
-            foreach (var (from, to) in CrossPolygon(marker, facet.Outline))
-            {
-                var left = plane.HeightAt(origin + ray * from);
-                var right = plane.HeightAt(origin + ray * to);
-
-                foreach (var (layer, start, end) in structure.GetLayerOffsets())
+            // Each stretch of this layer the cut crosses: where it starts and ends along the
+            // cut, and its underside and top at each end.
+            var spans = layer
+                .SelectMany(piece => CrossPolygon(marker, piece.Outline).Select(span =>
                 {
-                    if (layer.Thickness <= 0) continue;
+                    var start = origin + ray * span.From;
+                    var end = origin + ray * span.To;
+                    return (span.From, span.To,
+                        Bottom: (From: piece.Bottom.HeightAt(start), To: piece.Bottom.HeightAt(end)),
+                        Top: (From: piece.Top.HeightAt(start), To: piece.Top.HeightAt(end)));
+                }))
+                .OrderBy(span => span.From)
+                .ToList();
 
-                    var material = document.FindMaterial(layer.MaterialId);
-                    var shape = new[]
-                    {
-                        (from, left + (total - end) * stretch),
-                        (to, right + (total - end) * stretch),
-                        (to, right + (total - start) * stretch),
-                        (from, left + (total - start) * stretch)
-                    };
+            // Stretches that follow on from each other are one piece of the layer, drawn as
+            // one outline: the joins between them are where the eave cut changes, not edges
+            // of anything, and a section that drew them would show seams that are not there.
+            var run = new List<(double From, double To, (double From, double To) Bottom, (double From, double To) Top)>();
 
-                    pieces.Add(new SectionPiece(
-                        new SectionRect(
-                            from,
-                            Math.Min(left, right) + (total - end) * stretch,
-                            to,
-                            Math.Max(left, right) + (total - start) * stretch),
-                        SectionPart.SlabLayer,
-                        SectionDepth.Cut,
-                        material?.CutColour ?? DefaultCut,
-                        material?.Name ?? layer.Function.ToString(),
-                        roof.Id)
-                    {
-                        Shape = shape
-                    });
-                }
+            void Flush()
+            {
+                if (run.Count == 0) return;
+
+                var shape = run.Select(span => (span.From, span.Bottom.From))
+                    .Append((run[^1].To, run[^1].Bottom.To))
+                    .Concat(run.AsEnumerable().Reverse().Select(span => (span.To, span.Top.To)))
+                    .Append((run[0].From, run[0].Top.From))
+                    .ToList();
+
+                pieces.Add(new SectionPiece(
+                    new SectionRect(run[0].From, shape.Min(corner => corner.Item2), run[^1].To, shape.Max(corner => corner.Item2)),
+                    SectionPart.SlabLayer,
+                    SectionDepth.Cut,
+                    material?.CutColour ?? DefaultCut,
+                    material?.Name ?? layer.Key.Function.ToString(),
+                    roof.Id)
+                {
+                    Shape = shape
+                });
+
+                run.Clear();
             }
+
+            foreach (var span in spans)
+            {
+                if (run.Count > 0 &&
+                    (Math.Abs(span.From - run[^1].To) > 1e-3 ||
+                     Math.Abs(span.Top.From - run[^1].Top.To) > 1e-3 ||
+                     Math.Abs(span.Bottom.From - run[^1].Bottom.To) > 1e-3))
+                {
+                    Flush();
+                }
+
+                run.Add(span);
+            }
+
+            Flush();
         }
     }
 

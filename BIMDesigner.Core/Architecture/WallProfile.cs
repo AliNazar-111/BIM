@@ -92,7 +92,7 @@ public static class WallProfile
     /// </summary>
     private static IReadOnlyList<Point2D>? UnderRoof(BimDocument document, Wall wall)
     {
-        if (wall.AttachedRoof(document) is not { } roof || roof.Form == RoofForm.Flat) return null;
+        if (wall.AttachedRoof(document) is not { } roof || roof.Surface(document).IsFlat) return null;
         if (document.GetWallType(wall) is not { } type) return null;
 
         var length = wall.Length;

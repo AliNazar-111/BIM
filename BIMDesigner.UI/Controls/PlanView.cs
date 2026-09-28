@@ -43,6 +43,9 @@ public enum PlanTool
     Floor,
     Ceiling,
     Roof,
+
+    /// <summary>A roof by extrusion: the profile's line, then how far it runs back.</summary>
+    RoofExtrusion,
     Grid,
     Section,
     Dimension,
@@ -1053,6 +1056,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Floor => "Click inside a space enclosed by walls to lay a floor in it.",
         PlanTool.Ceiling => "Click inside a space enclosed by walls to put a ceiling over it.",
         PlanTool.Roof => "Pick Walls: hover just outside a wall and click - the roof edge goes on that face. Finish ✓ when the outline closes.",
+        PlanTool.RoofExtrusion => "Roof by Extrusion: click where the profile's line starts, then where it ends, then how far the roof runs back from it.",
         PlanTool.Split => "Click a wall where it should be split.",
         PlanTool.Trim => "Click the wall to trim or extend.",
         PlanTool.Offset => "Click a wall on the side the copy should go. Set the distance above.",
@@ -1133,7 +1137,8 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     public bool CancelPendingOperation()
     {
-        var changed = _pendingWallStart is not null
+        var changed = CancelExtrusion()
+                      || _pendingWallStart is not null
                       || _rehosting is not null
                       || _rehostingComponent is not null
                       || _attachingColumns is not null
@@ -1299,6 +1304,8 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
+        if (ActiveTool == PlanTool.RoofExtrusion) ExtrusionHover(raw);
+
         // A freehand stroke follows the mouse for as long as the button is down.
         if (_stroke is not null)
         {
@@ -1394,11 +1401,13 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        // Double-clicking a roof opens its sketch, as it does in Revit.
+        // Double-clicking a roof opens its sketch, as it does in Revit - or, for a roof by
+        // extrusion, its profile.
         if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && HitTest(raw) is Roof doubleClicked)
         {
             Select(doubleClicked);
-            EditFootprint();
+            if (doubleClicked.IsExtrusion) EditProfileRequested?.Invoke(this, doubleClicked);
+            else EditFootprint();
             return;
         }
 
@@ -1468,6 +1477,10 @@ public partial class PlanView : FrameworkElement
             case PlanTool.Floor:
             case PlanTool.Ceiling:
                 PlaceSlab(raw, ActiveTool);
+                return;
+
+            case PlanTool.RoofExtrusion:
+                ExtrusionClick(raw);
                 return;
 
             case PlanTool.Split:
@@ -1627,7 +1640,7 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null || ActiveTool != PlanTool.Select) return false;
         if (_selection.Count != 1 || _selection[0] is not Roof roof) return false;
-        if (roof.Boundary.Count < 3) return false;
+        if (roof.Boundary.Count < 3 || roof.IsExtrusion) return false;
 
         var reach = 6 / PixelsPerMm;
         var picked = -1;
@@ -4806,6 +4819,7 @@ public partial class PlanView : FrameworkElement
         // walls belong to the editor rather than to the drawing, so none of them may ever
         // reach a sheet - which is exactly why the renderer does not know about them.
         DrawRoofSketch(dc);
+        DrawExtrusionPreview(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);

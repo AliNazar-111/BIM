@@ -430,6 +430,21 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Purple}" Geometry="M5,5 L27,5 M5,5 L5,29"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- A slope arrow: a line with a head, rising across a roof's outline. -->
+    <DrawingImage x:Key="Icon.SlopeArrow"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,6 L28,6 L28,26 L4,26 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Purple}" Geometry="M8,22 L22,10 M22,10 L16,11 M22,10 L21,16"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- A roof by extrusion: a profile pushed back through the building. -->
+    <DrawingImage x:Key="Icon.RoofExtrusion"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M12,9 L20,5 L26,10 L18,14 Z M18,14 L26,10 L29,18 L21,22 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M3,22 L6,14 L12,9 L18,14 L21,22 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Purple}" Geometry="M3,22 L6,14 L12,9 L18,14 L21,22"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <!-- A roof's outline opened as a sketch again. -->
     <DrawingImage x:Key="Icon.EditFootprint"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>

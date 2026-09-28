@@ -20,7 +20,13 @@ public enum RoofSketchTool
 
     Line,
     Rectangle,
-    Polygon
+    Polygon,
+
+    /// <summary>Tail on a line of the outline, head where the slope rises toward.</summary>
+    SlopeArrow,
+
+    /// <summary>Click a line to split it in two there - how an eave is divided for a dormer.</summary>
+    Split
 }
 
 /// <summary>
@@ -34,10 +40,12 @@ public enum RoofSketchTool
 public partial class PlanView
 {
     private List<RoofSketchLine>? _sketch;
+    private List<RoofSlopeArrow> _sketchArrows = new();
     private Roof? _sketchRoof;
-    private readonly List<List<RoofSketchLine>> _sketchUndo = new();
-    private readonly List<List<RoofSketchLine>> _sketchRedo = new();
+    private readonly List<(List<RoofSketchLine> Lines, List<RoofSlopeArrow> Arrows)> _sketchUndo = new();
+    private readonly List<(List<RoofSketchLine> Lines, List<RoofSlopeArrow> Arrows)> _sketchRedo = new();
     private readonly List<RoofSketchLine> _sketchSelection = new();
+    private readonly List<RoofSlopeArrow> _sketchArrowSelection = new();
     private IReadOnlyList<RoofSketchLine> _sketchCulprits = Array.Empty<RoofSketchLine>();
 
     /// <summary>The first click of a line, rectangle or polygon still being drawn.</summary>
@@ -82,6 +90,11 @@ public partial class PlanView
     public IReadOnlyList<RoofSketchLine> SketchLines => _sketch ?? (IReadOnlyList<RoofSketchLine>)Array.Empty<RoofSketchLine>();
 
     public IReadOnlyList<RoofSketchLine> SelectedSketchLines => _sketchSelection;
+
+    /// <summary>The slope arrows in the open sketch.</summary>
+    public IReadOnlyList<RoofSlopeArrow> SketchArrows => _sketchArrows;
+
+    public IReadOnlyList<RoofSlopeArrow> SelectedSketchArrows => _sketchArrowSelection;
 
     public bool CanUndoSketch => _sketchUndo.Count > 0;
 
@@ -133,6 +146,15 @@ public partial class PlanView
     /// <summary>Measure the overhang from the wall's core rather than its finish face.</summary>
     public bool SketchExtendToCore { get; set; }
 
+    /// <summary>How new slope arrows give their slope - Revit's Specify: a pitch, or heights at both ends.</summary>
+    public bool SketchArrowByHeights { get; set; }
+
+    /// <summary>The height new slope arrows start at, above the roof's base - Height Offset at Tail.</summary>
+    public double SketchArrowTailOffset { get; set; }
+
+    /// <summary>The height new slope arrows reach at their head, when given by heights.</summary>
+    public double SketchArrowHeadOffset { get; set; } = 300;
+
     public RoofSketchTool SketchTool
     {
         get => _sketchTool;
@@ -142,7 +164,11 @@ public partial class PlanView
             _sketchStart = null;
             _sketchPreview.Clear();
             _sketchPickChain = false;
-            if (value != RoofSketchTool.Modify) _sketchSelection.Clear();
+            if (value != RoofSketchTool.Modify)
+            {
+                _sketchSelection.Clear();
+                _sketchArrowSelection.Clear();
+            }
 
             HintChanged?.Invoke(this, SketchHint());
             SketchChanged?.Invoke(this, EventArgs.Empty);
@@ -162,10 +188,12 @@ public partial class PlanView
         if (Document is null) return;
 
         _sketch = existing is null ? new List<RoofSketchLine>() : RoofSketch.LinesOf(existing);
+        _sketchArrows = existing is null ? new List<RoofSlopeArrow>() : existing.SlopeArrows.Select(arrow => arrow.Copy()).ToList();
         _sketchRoof = existing;
         _sketchUndo.Clear();
         _sketchRedo.Clear();
         _sketchSelection.Clear();
+        _sketchArrowSelection.Clear();
         _sketchCulprits = Array.Empty<RoofSketchLine>();
         _sketchStart = null;
         _sketchPreview.Clear();
@@ -191,7 +219,7 @@ public partial class PlanView
     /// </summary>
     public bool EditFootprint()
     {
-        if (_selection is not [Roof roof]) return false;
+        if (_selection is not [Roof roof] || roof.IsExtrusion) return false;
 
         BeginRoofSketch(roof);
         return true;
@@ -209,7 +237,7 @@ public partial class PlanView
     {
         if (Document is null || _sketch is null) return false;
 
-        var check = RoofSketch.Check(_sketch);
+        var check = RoofSketch.Check(_sketch, _sketchArrows);
         if (!check.IsValid)
         {
             _sketchCulprits = check.Culprits;
@@ -223,7 +251,7 @@ public partial class PlanView
         if (_sketchRoof is { } existing)
         {
             roof = existing;
-            Apply(new SetRoofSketchCommand(roof, check.Boundary, check.Edges));
+            Apply(new SetRoofSketchCommand(roof, check.Boundary, check.Edges, check.Arrows));
         }
         else
         {
@@ -245,6 +273,7 @@ public partial class PlanView
 
             roof.SetBoundary(check.Boundary);
             roof.SetEdges(check.Edges);
+            roof.SetSlopeArrows(check.Arrows);
             Apply(new AddElementCommand(Document, roof, "Create Roof"));
         }
 
@@ -283,10 +312,12 @@ public partial class PlanView
     private void EndSketch()
     {
         _sketch = null;
+        _sketchArrows = new List<RoofSlopeArrow>();
         _sketchRoof = null;
         _sketchUndo.Clear();
         _sketchRedo.Clear();
         _sketchSelection.Clear();
+        _sketchArrowSelection.Clear();
         _sketchCulprits = Array.Empty<RoofSketchLine>();
         _sketchStart = null;
         _sketchPreview.Clear();
@@ -333,17 +364,20 @@ public partial class PlanView
     {
         if (_sketch is null) return;
 
-        _sketchUndo.Add(_sketch.Select(line => line.Copy()).ToList());
+        _sketchUndo.Add(Snapshot());
         _sketchRedo.Clear();
         _sketchCulprits = Array.Empty<RoofSketchLine>();
     }
+
+    private (List<RoofSketchLine> Lines, List<RoofSlopeArrow> Arrows) Snapshot() =>
+        (_sketch!.Select(line => line.Copy()).ToList(), _sketchArrows.Select(arrow => arrow.Copy()).ToList());
 
     public bool UndoSketch()
     {
         if (_sketch is null || _sketchUndo.Count == 0) return false;
 
-        _sketchRedo.Add(_sketch);
-        _sketch = _sketchUndo[^1];
+        _sketchRedo.Add((_sketch, _sketchArrows));
+        (_sketch, _sketchArrows) = _sketchUndo[^1];
         _sketchUndo.RemoveAt(_sketchUndo.Count - 1);
         AfterSketchEdit("Undone.");
         return true;
@@ -353,8 +387,8 @@ public partial class PlanView
     {
         if (_sketch is null || _sketchRedo.Count == 0) return false;
 
-        _sketchUndo.Add(_sketch);
-        _sketch = _sketchRedo[^1];
+        _sketchUndo.Add((_sketch, _sketchArrows));
+        (_sketch, _sketchArrows) = _sketchRedo[^1];
         _sketchRedo.RemoveAt(_sketchRedo.Count - 1);
         AfterSketchEdit("Redone.");
         return true;
@@ -363,6 +397,7 @@ public partial class PlanView
     private void AfterSketchEdit(string? hint = null)
     {
         _sketchSelection.RemoveAll(line => _sketch is null || !_sketch.Contains(line));
+        _sketchArrowSelection.RemoveAll(arrow => !_sketchArrows.Contains(arrow));
         _sketchCulprits = Array.Empty<RoofSketchLine>();
 
         if (hint is not null) HintChanged?.Invoke(this, hint);
@@ -374,14 +409,30 @@ public partial class PlanView
 
     public bool DeleteSelectedSketchLines()
     {
-        if (_sketch is null || _sketchSelection.Count == 0) return false;
+        if (_sketch is null || _sketchSelection.Count + _sketchArrowSelection.Count == 0) return false;
 
         Remember();
-        var count = _sketchSelection.Count;
+        var count = _sketchSelection.Count + _sketchArrowSelection.Count;
         _sketch.RemoveAll(line => _sketchSelection.Contains(line));
+        _sketchArrows.RemoveAll(arrow => _sketchArrowSelection.Contains(arrow));
         _sketchSelection.Clear();
+        _sketchArrowSelection.Clear();
 
-        AfterSketchEdit(count == 1 ? "Line deleted." : $"{count} lines deleted.");
+        AfterSketchEdit(count == 1 ? "Deleted." : $"{count} deleted.");
+        return true;
+    }
+
+    /// <summary>
+    /// Changes the selected slope arrows - what the options bar does with arrows selected.
+    /// </summary>
+    public bool ChangeSelectedSketchArrows(Action<RoofSlopeArrow> change)
+    {
+        if (_sketch is null || _sketchArrowSelection.Count == 0) return false;
+
+        Remember();
+        foreach (var arrow in _sketchArrowSelection) change(arrow);
+
+        AfterSketchEdit();
         return true;
     }
 
@@ -395,23 +446,43 @@ public partial class PlanView
 
         Remember();
 
+        var moved = new List<RoofSketchLine>();
+
         foreach (var line in _sketchSelection)
         {
+            var (overhang, toCore) = (line.Edge.Overhang, line.Edge.ExtendToCore);
             change(line.Edge);
 
-            // A picked line stands where its wall and overhang put it, so a new overhang moves it.
+            // A picked line stands where its wall and overhang put it, so a new overhang or core
+            // setting moves it - sideways only. Where it starts and stops along the wall stays as
+            // it was: it may be one part of a split eave, and must not grow back to the wall's
+            // whole length. Anything else about a line leaves it where it is.
+            if (Math.Abs(line.Edge.Overhang - overhang) < 1e-9 && line.Edge.ExtendToCore == toCore) continue;
+
             if (line.Edge.WallId is { } id && Document.Walls.FirstOrDefault(wall => wall.Id == id) is { } wall &&
-                RoofSketch.LineOnWall(Document, wall, line.Edge.OnLeftOfWall, line.Edge.Overhang, line.Edge.ExtendToCore) is var (start, end))
+                RoofSketch.LineOnWall(Document, wall, line.Edge.OnLeftOfWall, line.Edge.Overhang, line.Edge.ExtendToCore) is var (a, b))
             {
-                (line.Start, line.End) = (start, end);
+                line.Start = OntoLine(line.Start, a, b);
+                line.End = OntoLine(line.End, a, b);
+                moved.Add(line);
             }
         }
 
-        foreach (var line in _sketchSelection.Where(line => line.Edge.WallId is not null).ToList())
+        foreach (var line in moved)
             RoofSketch.CloseCorners(_sketch, line, CornerReach());
 
         AfterSketchEdit();
         return true;
+    }
+
+    /// <summary>The point on the line through two points nearest a point - square across onto it.</summary>
+    private static Point2D OntoLine(Point2D point, Point2D a, Point2D b)
+    {
+        var along = b - a;
+        var length = along.Length;
+        if (length <= 0) return a;
+
+        return a + along * ((point - a).Dot(along) / (length * length));
     }
 
     /// <summary>Turns a line's slope on or off, from its △ marker.</summary>
@@ -457,9 +528,134 @@ public partial class PlanView
             case RoofSketchTool.Rectangle:
             case RoofSketchTool.Polygon:
                 return DrawShapeTo(SketchSnap(raw));
+
+            case RoofSketchTool.SlopeArrow:
+                return DrawArrowTo(raw);
+
+            case RoofSketchTool.Split:
+                return SplitSketchLineAt(raw);
         }
 
         return false;
+    }
+
+    // ---- slope arrows -------------------------------------------------------------------
+
+    /// <summary>
+    /// Draws a slope arrow: the first click is its tail, which goes onto the line of the
+    /// outline nearest it; the second its head. Revit puts a tail only on a line, since the
+    /// line is what says which part of the roof the arrow slopes.
+    /// </summary>
+    private bool DrawArrowTo(Point2D raw)
+    {
+        if (_sketch is null) return false;
+
+        if (_sketchStart is not { } tail)
+        {
+            if (TailOnLine(raw) is not { } onLine)
+            {
+                HintChanged?.Invoke(this, "Start a slope arrow on a line of the outline - near the line, then click.");
+                return false;
+            }
+
+            _sketchStart = onLine;
+            HintChanged?.Invoke(this, "Click where the slope rises toward - the arrow's head.");
+            InvalidateVisual();
+            return true;
+        }
+
+        // A head clicked on a line goes onto it - the middle of a dormer's stretch of eave, most
+        // often - rather than onto the drawing grid beside it.
+        var head = TailOnLine(raw) is { } headOnLine && headOnLine.DistanceTo(raw) <= SnapPixelRadius / PixelsPerMm
+            ? headOnLine
+            : SketchSnap(raw);
+        if (head.DistanceTo(tail) <= RoofSketch.JoinTolerance) return false;
+
+        Remember();
+        _sketchArrows.Add(new RoofSlopeArrow
+        {
+            Tail = tail,
+            Head = head,
+            ByHeights = SketchArrowByHeights,
+            SlopeDegrees = ActiveRoofSlopeDegrees,
+            TailOffset = SketchArrowTailOffset,
+            HeadOffset = SketchArrowHeadOffset
+        });
+
+        _sketchStart = null;
+        AfterSketchEdit(SketchArrowByHeights
+            ? $"Slope arrow added, from {Units.FormatLength(SketchArrowTailOffset)} at its tail to {Units.FormatLength(SketchArrowHeadOffset)} at its head."
+            : $"Slope arrow added, rising at {ActiveRoofSlopeDegrees:0.##}° from {Units.FormatLength(SketchArrowTailOffset)} above the base.");
+        return true;
+    }
+
+    /// <summary>
+    /// Where on the outline an arrow's tail goes: the nearest point of the nearest line, snapped
+    /// to its ends and middle - the places a tail is usually meant to be.
+    /// </summary>
+    private Point2D? TailOnLine(Point2D raw)
+    {
+        if (_sketch is null) return null;
+
+        var reach = SnapPixelRadius / PixelsPerMm;
+        Point2D? best = null;
+        var nearest = double.MaxValue;
+
+        foreach (var line in _sketch)
+        {
+            var along = line.End - line.Start;
+            var length = along.Length;
+            if (length <= 0) continue;
+
+            var t = Math.Clamp((raw - line.Start).Dot(along) / (length * length), 0, 1);
+            var foot = line.Start + along * t;
+            var distance = foot.DistanceTo(raw);
+            if (distance >= nearest || distance > 3 * reach) continue;
+
+            nearest = distance;
+
+            // The ends and the middle are where a tail is meant to be more often than not.
+            best = new[] { line.Start, line.Start.MidpointTo(line.End), line.End }
+                .Where(point => point.DistanceTo(raw) <= reach)
+                .OrderBy(point => point.DistanceTo(raw))
+                .Cast<Point2D?>()
+                .FirstOrDefault() ?? foot;
+        }
+
+        return best;
+    }
+
+    // ---- splitting ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Splits a sketch line in two where it is clicked, both halves doing what it did. It is how
+    /// an eave is divided so that the middle stretch can be given to a dormer's arrows.
+    /// </summary>
+    public bool SplitSketchLineAt(Point2D raw)
+    {
+        if (_sketch is null || SketchLineAt(raw) is not { } line) return false;
+
+        var along = line.End - line.Start;
+        var length = along.Length;
+        var t = Math.Clamp((raw - line.Start).Dot(along) / (length * length), 0, 1);
+
+        // Split at a round distance along the line, the way points are placed everywhere else.
+        var distance = Units.SnapToGrid(t * length, Math.Min(SnapStepMm, length / 4));
+        if (distance <= RoofSketch.JoinTolerance || distance >= length - RoofSketch.JoinTolerance)
+        {
+            HintChanged?.Invoke(this, "Too near the end of the line to split it there.");
+            return false;
+        }
+
+        Remember();
+
+        var point = line.Start + along * (distance / length);
+        var second = new RoofSketchLine(point, line.End, line.Edge.Copy());
+        line.End = point;
+        _sketch.Insert(_sketch.IndexOf(line) + 1, second);
+
+        AfterSketchEdit($"Split {Units.FormatLength(distance)} along. Each half can now slope, or not, on its own.");
+        return true;
     }
 
     /// <summary>What the cursor moving does in the sketch: the preview of the next click.</summary>
@@ -531,20 +727,25 @@ public partial class PlanView
 
     private void SelectSketchLineAt(Point2D raw)
     {
-        var line = SketchLineAt(raw);
+        // An arrow is drawn over the roof, and usually over nothing else: it is looked for first.
+        var arrow = SketchArrowAt(raw);
+        var line = arrow is null ? SketchLineAt(raw) : null;
 
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) _sketchSelection.Clear();
-
-        if (line is not null)
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
-            if (!_sketchSelection.Remove(line)) _sketchSelection.Add(line);
+            _sketchSelection.Clear();
+            _sketchArrowSelection.Clear();
         }
 
-        HintChanged?.Invoke(this, _sketchSelection.Count switch
+        if (arrow is not null && !_sketchArrowSelection.Remove(arrow)) _sketchArrowSelection.Add(arrow);
+        if (line is not null && !_sketchSelection.Remove(line)) _sketchSelection.Add(line);
+
+        HintChanged?.Invoke(this, (_sketchSelection.Count, _sketchArrowSelection.Count) switch
         {
-            0 => SketchHint(),
-            1 => DescribeLine(_sketchSelection[0]),
-            var n => $"{n} lines selected. Del deletes them; the options bar changes them."
+            (0, 0) => SketchHint(),
+            (1, 0) => DescribeLine(_sketchSelection[0]),
+            (0, 1) => DescribeArrow(_sketchArrowSelection[0]),
+            var (lines, arrows) => $"{lines + arrows} selected. Del deletes them; the options bar changes them."
         });
 
         SketchChanged?.Invoke(this, EventArgs.Empty);
@@ -556,6 +757,27 @@ public partial class PlanView
         var what = line.Edge.DefinesSlope ? $"slopes at {line.Edge.SlopeDegrees:0.##}°" : "is a gable end";
         var from = line.Edge.WallId is null ? "drawn" : $"on a wall, {Units.FormatLength(line.Edge.Overhang)} overhang";
         return $"{Units.FormatLength(line.Length)}, {from}; the roof {what}. Del deletes it; the options bar changes it.";
+    }
+
+    private string DescribeArrow(RoofSlopeArrow arrow) => arrow.ByHeights
+        ? $"Slope arrow, {Units.FormatLength(arrow.Length)}: from {Units.FormatLength(arrow.TailOffset)} at its tail to {Units.FormatLength(arrow.HeadOffset)} at its head. Del deletes it; the options bar changes it."
+        : $"Slope arrow, {Units.FormatLength(arrow.Length)}: rising at {arrow.SlopeDegrees:0.##}° from {Units.FormatLength(arrow.TailOffset)} above the base. Del deletes it; the options bar changes it.";
+
+    private RoofSlopeArrow? SketchArrowAt(Point2D raw)
+    {
+        var reach = 6 / PixelsPerMm;
+        RoofSlopeArrow? best = null;
+
+        foreach (var arrow in _sketchArrows)
+        {
+            var distance = Line2D.DistanceFromSegment(raw, arrow.Tail, arrow.Head);
+            if (distance >= reach) continue;
+
+            reach = distance;
+            best = arrow;
+        }
+
+        return best;
     }
 
     private RoofSketchLine? SketchLineAt(Point2D raw)
@@ -903,6 +1125,10 @@ public partial class PlanView
         RoofSketchTool.Line => "Line: click points round the roof's edge. Shift keeps it straight; Esc stops.",
         RoofSketchTool.Rectangle => "Rectangle: click two opposite corners.",
         RoofSketchTool.Polygon => $"Polygon: click the centre, then a corner ({PolygonSides} sides).",
+        RoofSketchTool.SlopeArrow =>
+            "Slope Arrow: click on a line of the outline for its tail, then where the slope rises toward. " +
+            "On a flat roof one arrow makes it fall one way; two from the ends of a split eave to its middle make a dormer.",
+        RoofSketchTool.Split => "Split: click a line where it should divide - an eave split in three leaves its middle for a dormer.",
         _ => "Click a line to select it; Del deletes it. Click a △ to turn that line's slope on or off. Finish ✓ or Cancel ✗."
     };
 
@@ -938,11 +1164,14 @@ public partial class PlanView
         foreach (var line in _sketchPreview)
             dc.DrawLine(SketchPreviewPen, ModelToScreen(line.Start), ModelToScreen(line.End));
 
+        foreach (var arrow in _sketchArrows)
+            DrawSlopeArrow(dc, arrow, _sketchArrowSelection.Contains(arrow) ? SketchSelectedPen : SketchPen);
+
         if (_sketchStart is { } from)
         {
             var to = SketchSnap(_sketchCursor);
 
-            if (_sketchTool == RoofSketchTool.Line)
+            if (_sketchTool is RoofSketchTool.Line or RoofSketchTool.SlopeArrow)
             {
                 dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
             }
@@ -952,6 +1181,48 @@ public partial class PlanView
                     dc.DrawLine(SketchPreviewPen, ModelToScreen(piece.Start), ModelToScreen(piece.End));
             }
         }
+        else if (_sketchTool == RoofSketchTool.SlopeArrow && TailOnLine(_sketchCursor) is { } tail)
+        {
+            // Where a click would put the tail.
+            var at = ModelToScreen(tail);
+            dc.DrawEllipse(null, SketchPen, at, 4, 4);
+        }
+    }
+
+    /// <summary>
+    /// A slope arrow as the sketch shows it: a line from tail to head with a head on it, and
+    /// what it says - the pitch, or the heights at the two ends.
+    /// </summary>
+    private void DrawSlopeArrow(DrawingContext dc, RoofSlopeArrow arrow, Pen pen)
+    {
+        var tail = ModelToScreen(arrow.Tail);
+        var head = ModelToScreen(arrow.Head);
+        var direction = head - tail;
+        if (direction.Length < 1) return;
+
+        direction.Normalize();
+        var side = new Vector(-direction.Y, direction.X);
+
+        dc.DrawLine(pen, tail, head);
+        dc.DrawLine(pen, head, head - direction * 10 + side * 5);
+        dc.DrawLine(pen, head, head - direction * 10 - side * 5);
+        dc.DrawEllipse(null, pen, tail, 3, 3);
+
+        var label = arrow.ByHeights
+            ? $"{Units.FormatLength(arrow.TailOffset)} → {Units.FormatLength(arrow.HeadOffset)}"
+            : $"{arrow.SlopeDegrees:0.##}°";
+
+        var text = new FormattedText(
+            label,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"),
+            11,
+            SketchSlopeBrush,
+            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+        var middle = new Point((tail.X + head.X) / 2, (tail.Y + head.Y) / 2);
+        dc.DrawText(text, middle + side * 8 - new Vector(text.Width / 2, text.Height / 2));
     }
 
     /// <summary>

@@ -562,6 +562,8 @@ public static class IfcExport
             RoofForm.Shed => IfcRoofTypeEnum.SHED_ROOF,
             RoofForm.Gable => IfcRoofTypeEnum.GABLE_ROOF,
             RoofForm.Hip => IfcRoofTypeEnum.HIP_ROOF,
+            RoofForm.Gambrel => IfcRoofTypeEnum.GAMBREL_ROOF,
+            RoofForm.Barrel => IfcRoofTypeEnum.BARREL_ROOF,
             _ => IfcRoofTypeEnum.FREEFORM
         };
 

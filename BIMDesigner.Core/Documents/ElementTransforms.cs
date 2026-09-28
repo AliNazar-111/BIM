@@ -43,6 +43,11 @@ public static class ElementTransforms
                 wall.End += delta;
                 break;
 
+            // An extruded roof's outline follows from its extrusion, so it is the extrusion that moves.
+            case Roof { Extrusion: { } extrusion } extruded:
+                extruded.SetExtrusion(extrusion.With(origin: extrusion.Origin + delta));
+                break;
+
             case Slab slab:
                 slab.SetBoundary(slab.Boundary.Select(point => point + delta).ToList());
                 break;
@@ -112,6 +117,16 @@ public static class ElementTransforms
                 wall.Ellipse = wall.Ellipse?.Mirrored();
                 wall.Spline = wall.Spline?.Mirrored();
                 break;
+
+            // An extruded roof reflected: its line reflects, and since a reflection turns left into
+            // right, the side it runs out to is the other one - its start and end change sign.
+            case Roof { Extrusion: { } extrusion } extruded:
+            {
+                var origin = Reflect(extrusion.Origin);
+                var direction = Reflect(extrusion.Origin + extrusion.Direction) - origin;
+                extruded.SetExtrusion(new RoofExtrusion(origin, direction, extrusion.Profile, -extrusion.End, -extrusion.Start));
+                break;
+            }
 
             case Slab slab:
                 // SetBoundary re-winds the outline, so a reflected one comes back the right

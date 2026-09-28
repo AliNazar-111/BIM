@@ -423,7 +423,11 @@
                                              Content="Column" Checked="OnToolChanged"
                                              ToolTip="Stand an architectural column: the box-out round a structural column, a pier or a pilaster. Space turns it"/>
                                 <RadioButton x:Name="RoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
-                                             Content="Roof" Checked="OnToolChanged" ToolTip="Roof an enclosed space, flat roofs only (F4)"/>
+                                             Content="Roof" Checked="OnToolChanged"
+                                             ToolTip="Roof by Footprint: sketch the roof's outline or pick the walls it sits on, and say which edges slope (F4)"/>
+                                <RadioButton x:Name="RoofExtrusionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofExtrusion}"
+                                             Content="Roof by Extrusion" Checked="OnToolChanged"
+                                             ToolTip="Roof by Extrusion: click the line the profile is drawn on and how far the roof runs back, then draw its section - a gambrel, a barrel vault, any roof the same all along"/>
                                 <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Ceiling}"
                                              Content="Ceiling" Checked="OnToolChanged" ToolTip="Put a ceiling over an enclosed space (F3)"/>
                                 <RadioButton x:Name="FloorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Floor}"
@@ -736,9 +740,14 @@
                         </HeaderedContentControl>
 
                         <HeaderedContentControl x:Name="ContextRoofPanel" Header="Mode" Style="{StaticResource ContextRibbonPanel}">
-                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.EditFootprint}"
-                                    Content="Edit Footprint" Click="OnEditRoofFootprint"
-                                    ToolTip="Open the roof's sketch again: pick more walls, move or delete lines, change which ones slope. Double-clicking the roof does the same"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="ContextEditFootprint" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.EditFootprint}"
+                                        Content="Edit Footprint" Click="OnEditRoofFootprint"
+                                        ToolTip="Open the roof's sketch again: pick more walls, move or delete lines, change which ones slope. Double-clicking the roof does the same"/>
+                                <Button x:Name="ContextEditProfile" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
+                                        Content="Edit Profile" Click="OnEditRoofProfile"
+                                        ToolTip="Open the extruded roof's section again: move its points, start again from a gambrel or a vault, raise or lower its base. Double-clicking the roof does the same"/>
+                            </StackPanel>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl x:Name="ContextColumnPanel" Header="Column" Style="{StaticResource ContextRibbonPanel}">
@@ -865,6 +874,11 @@
                                     <RadioButton x:Name="RoofSketchPolygon" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawPolygon}"
                                                  Content="Polygon" CommandParameter="Polygon" ToolTip="The centre, then a corner; sides on the options bar"/>
                                 </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchArrow" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.SlopeArrow}"
+                                                 Content="Slope Arrow" CommandParameter="SlopeArrow"
+                                                 ToolTip="A slope drawn in plan: click a line of the outline for the tail, then where it rises toward. One arrow on a flat roof makes it fall one way; two from the ends of a split eave to its middle make a dormer"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -874,8 +888,11 @@
                                     <RadioButton x:Name="RoofSketchModify" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Select}"
                                                  Content="Select Lines" CommandParameter="Modify"
                                                  ToolTip="Click sketch lines to select them (Ctrl adds), then delete them or change them on the options bar"/>
+                                    <RadioButton x:Name="RoofSketchSplit" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Split}"
+                                                 Content="Split" CommandParameter="Split"
+                                                 ToolTip="Click a line where it should divide. Split an eave in three and give the middle to two slope arrows for a dormer"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
-                                            Content="Delete Lines" Click="OnDeleteSketchLines" ToolTip="Delete the selected sketch lines (Del)"/>
+                                            Content="Delete" Click="OnDeleteSketchLines" ToolTip="Delete the selected sketch lines and arrows (Del)"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -952,6 +969,22 @@
                     <TextBox x:Name="RoofSidesBox" Width="44" VerticalAlignment="Center"
                              LostFocus="OnRoofSidesChanged" KeyDown="OnRoofSidesKey"
                              ToolTip="How many sides a polygon outline has"/>
+
+                    <!-- A slope arrow's settings: Revit's Specify, and the heights at its two ends. -->
+                    <StackPanel x:Name="RoofArrowOptions" Orientation="Horizontal" Visibility="Collapsed">
+                        <TextBlock Text="Specify" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <ComboBox x:Name="RoofArrowSpecifyPicker" Style="{StaticResource OptionCombo}" MinWidth="110"
+                                  SelectionChanged="OnRoofArrowSpecifyChanged"
+                                  ToolTip="Slope: a pitch rising from the tail. Height at Tail: a height at each end, the pitch worked out between them"/>
+                        <TextBlock Text="Tail" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <TextBox x:Name="RoofArrowTailBox" Width="70" VerticalAlignment="Center"
+                                 LostFocus="OnRoofArrowTailChanged" KeyDown="OnRoofArrowTailKey"
+                                 ToolTip="Height of the surface at the arrow's tail, above the roof's base (Height Offset at Tail)"/>
+                        <TextBlock x:Name="RoofArrowHeadLabel" Text="Head" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                        <TextBox x:Name="RoofArrowHeadBox" Width="70" VerticalAlignment="Center"
+                                 LostFocus="OnRoofArrowHeadChanged" KeyDown="OnRoofArrowHeadKey"
+                                 ToolTip="Height of the surface at the arrow's head, above the roof's base (Height Offset at Head)"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <ComboBox x:Name="SweepTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"

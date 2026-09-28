@@ -162,6 +162,11 @@ public partial class MainWindow : Window
             }
         };
 
+        // A roof by extrusion placed in plan: its section is drawn next, square-on, over the
+        // width just clicked - where Revit would go to an elevation to draw it.
+        Plan.ExtrusionPlaced += (_, request) => DrawExtrusionProfile(request);
+        Plan.EditProfileRequested += (_, roof) => EditRoofProfile(roof);
+
         // Attach Top/Base offers its style and offset only while it waits for a target.
         Plan.AttachColumnsChanged += (_, _) => ShowOptionsForActiveTool();
         Plan.ModelChanged += (_, _) =>
@@ -381,7 +386,7 @@ public partial class MainWindow : Window
         var tool = Plan.ActiveTool;
         RefreshPlaceWallTab();
         if (tool == PlanTool.Select && Plan.SelectedElements.Count > 0) RefreshContextTab();
-        var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof;
+        var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof or PlanTool.RoofExtrusion;
         var isSweep = tool is PlanTool.Sweep or PlanTool.Reveal;
 
         // Grids, sections, annotation and the editing tools are not built from a type, so
@@ -449,7 +454,7 @@ public partial class MainWindow : Window
             PlanTool.Window => "Window type",
             PlanTool.Floor => "Floor type",
             PlanTool.Ceiling => "Ceiling type",
-            PlanTool.Roof => "Roof type",
+            PlanTool.Roof or PlanTool.RoofExtrusion => "Roof type",
             PlanTool.Sweep => "Sweep type",
             PlanTool.Reveal => "Reveal type",
             _ => "Wall type"
@@ -511,6 +516,8 @@ public partial class MainWindow : Window
             RoofSketchRectangle.IsChecked = Plan.SketchTool == RoofSketchTool.Rectangle;
             RoofSketchPolygon.IsChecked = Plan.SketchTool == RoofSketchTool.Polygon;
             RoofSketchModify.IsChecked = Plan.SketchTool == RoofSketchTool.Modify;
+            RoofSketchArrow.IsChecked = Plan.SketchTool == RoofSketchTool.SlopeArrow;
+            RoofSketchSplit.IsChecked = Plan.SketchTool == RoofSketchTool.Split;
 
             if (RoofTool.IsChecked != true)
             {
@@ -565,7 +572,82 @@ public partial class MainWindow : Window
         RoofSidesLabel.Visibility = RoofSidesBox.Visibility =
             Plan.SketchTool == RoofSketchTool.Polygon ? Visibility.Visible : Visibility.Collapsed;
 
+        // A slope arrow's own settings, for new arrows or the ones selected.
+        var arrow = Plan.SelectedSketchArrows.FirstOrDefault();
+        var arrows = Plan.SketchTool == RoofSketchTool.SlopeArrow || arrow is not null;
+        RoofArrowOptions.Visibility = arrows ? Visibility.Visible : Visibility.Collapsed;
+
+        if (arrows)
+        {
+            RoofArrowSpecifyPicker.ItemsSource ??= new[] { "Slope", "Height at Tail" };
+
+            var byHeights = arrow?.ByHeights ?? Plan.SketchArrowByHeights;
+            RoofArrowSpecifyPicker.SelectedIndex = byHeights ? 1 : 0;
+            RoofArrowTailBox.Text = Units.FormatLength(arrow?.TailOffset ?? Plan.SketchArrowTailOffset);
+            RoofArrowHeadBox.Text = Units.FormatLength(arrow?.HeadOffset ?? Plan.SketchArrowHeadOffset);
+            RoofArrowHeadLabel.Visibility = RoofArrowHeadBox.Visibility = byHeights ? Visibility.Visible : Visibility.Collapsed;
+
+            if (arrow is not null)
+                RoofSlopeBox.Text = ParameterFormatter.Format(ParameterDataType.Angle, arrow.SlopeDegrees);
+
+            // Given by heights, an arrow's pitch follows from them, so there is no pitch to type.
+            RoofSlopeBox.IsEnabled = !byHeights || Plan.SelectedSketchLines.Count > 0;
+        }
+        else
+        {
+            RoofSlopeBox.IsEnabled = true;
+        }
+
         _loadingOptions = false;
+    }
+
+    private void OnRoofArrowSpecifyChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        var byHeights = RoofArrowSpecifyPicker.SelectedIndex == 1;
+        if (!Plan.ChangeSelectedSketchArrows(arrow => arrow.ByHeights = byHeights)) Plan.SketchArrowByHeights = byHeights;
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofArrowTailChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofArrowTailBox.Text, out var value) && value is double height)
+        {
+            if (!Plan.ChangeSelectedSketchArrows(arrow => arrow.TailOffset = height)) Plan.SketchArrowTailOffset = height;
+        }
+
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofArrowTailKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnRoofArrowTailChanged(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnRoofArrowHeadChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofArrowHeadBox.Text, out var value) && value is double height)
+        {
+            if (!Plan.ChangeSelectedSketchArrows(arrow => arrow.HeadOffset = height)) Plan.SketchArrowHeadOffset = height;
+        }
+
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofArrowHeadKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnRoofArrowHeadChanged(sender, e);
+        e.Handled = true;
     }
 
     private void OnRoofSketchTool(object sender, RoutedEventArgs e)
@@ -599,6 +681,54 @@ public partial class MainWindow : Window
     private void OnEditRoofFootprint(object sender, RoutedEventArgs e)
     {
         Plan.EditFootprint();
+        Plan.Focus();
+    }
+
+    /// <summary>The project's levels, by name and elevation, to set a roof's profile out against.</summary>
+    private IReadOnlyList<(string Name, double Elevation)> LevelLines() =>
+        _document.Levels.Select(level => (level.Name, level.Elevation)).ToList();
+
+    /// <summary>The third click of Roof by Extrusion: the profile is drawn, then the roof made from it.</summary>
+    private void DrawExtrusionProfile(RoofExtrusionRequest request)
+    {
+        var level = _document.FindLevel(Plan.ActiveLevelId)?.Elevation ?? 0;
+        var window = new ExtrusionProfileWindow(0, request.Width, null, request.BaseOffset, level, LevelLines()) { Owner = this };
+
+        if (window.ShowDialog() == true)
+        {
+            Plan.PlaceExtrusionRoof(
+                new RoofExtrusion(request.Origin, request.Direction, window.Profile, request.Start, request.End),
+                window.BaseOffset);
+        }
+        else
+        {
+            StatusHint.Text = "No roof made. Click the start of the profile's line to place another.";
+        }
+
+        Plan.Focus();
+    }
+
+    private void OnEditRoofProfile(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements is [Roof { IsExtrusion: true } roof]) EditRoofProfile(roof);
+        else StatusHint.Text = "Select one roof by extrusion to edit its profile.";
+    }
+
+    /// <summary>Opens an extruded roof's section again, over the building it spans.</summary>
+    private void EditRoofProfile(Roof roof)
+    {
+        if (roof.Extrusion is not { } extrusion) return;
+
+        var (start, width) = Plan.SpanUnder(roof);
+        var level = _document.FindLevel(roof.LevelId)?.Elevation ?? 0;
+        var window = new ExtrusionProfileWindow(start, width, extrusion.Profile, roof.HeightOffset, level, LevelLines()) { Owner = this };
+
+        if (window.ShowDialog() == true && Plan.ChangeExtrusion(roof, extrusion.With(profile: window.Profile), window.BaseOffset))
+        {
+            StatusHint.Text =
+                $"{EnumText.Humanise(roof.Form)} roof by extrusion: {Units.FormatArea(roof.SlopingArea(_document))} of covering.";
+        }
+
         Plan.Focus();
     }
 
@@ -646,7 +776,13 @@ public partial class MainWindow : Window
         if (ParameterFormatter.TryParse(ParameterDataType.Angle, RoofSlopeBox.Text, out var value) &&
             value is double degrees && degrees > 0 && degrees < 90)
         {
-            if (!Plan.ChangeSelectedSketchLines(edge => edge.SlopeDegrees = degrees)) Plan.ActiveRoofSlopeDegrees = degrees;
+            // Selected lines first, then selected arrows; with nothing selected, it is the
+            // pitch new lines and arrows get.
+            if (!Plan.ChangeSelectedSketchLines(edge => edge.SlopeDegrees = degrees) &&
+                !Plan.ChangeSelectedSketchArrows(arrow => arrow.SlopeDegrees = degrees))
+            {
+                Plan.ActiveRoofSlopeDegrees = degrees;
+            }
         }
 
         ShowRoofSketchOptions();
@@ -740,7 +876,7 @@ public partial class MainWindow : Window
         {
             case PlanTool.Floor: Plan.ActiveFloorTypeId = type.Id; break;
             case PlanTool.Ceiling: Plan.ActiveCeilingTypeId = type.Id; break;
-            case PlanTool.Roof: Plan.ActiveRoofTypeId = type.Id; break;
+            case PlanTool.Roof or PlanTool.RoofExtrusion: Plan.ActiveRoofTypeId = type.Id; break;
         }
     }
 
@@ -942,7 +1078,9 @@ public partial class MainWindow : Window
     }
 
     private void OnCanDelete(object sender, CanExecuteRoutedEventArgs e) =>
-        e.CanExecute = Plan?.IsSketching == true ? Plan.SelectedSketchLines.Count > 0 : Plan?.SelectedElement is not null;
+        e.CanExecute = Plan?.IsSketching == true
+            ? Plan.SelectedSketchLines.Count + Plan.SelectedSketchArrows.Count > 0
+            : Plan?.SelectedElement is not null;
 
     /// <summary>
     /// An undo may have removed the selected element or changed values the panel is showing,
@@ -971,7 +1109,7 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, GridTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, WallOpeningTool
     ];
@@ -1013,6 +1151,7 @@ public partial class MainWindow : Window
             : FloorTool.IsChecked == true ? PlanTool.Floor
             : CeilingTool.IsChecked == true ? PlanTool.Ceiling
             : RoofTool.IsChecked == true ? PlanTool.Roof
+            : RoofExtrusionTool.IsChecked == true ? PlanTool.RoofExtrusion
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -1791,6 +1930,8 @@ public partial class MainWindow : Window
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
         ContextRoofPanel.Visibility = selected is [Roof] ? Visibility.Visible : Visibility.Collapsed;
+        ContextEditFootprint.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
+        ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
         ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
             ? Visibility.Visible : Visibility.Collapsed;
         // Pick New belongs to anything that is carried by something else: a door or window in

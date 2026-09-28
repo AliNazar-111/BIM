@@ -345,6 +345,152 @@ public class RoofSketchPlanTests
         });
     }
 
+    /// <summary>A rectangle drawn in the sketch away from the house: 10 m x 6 m, every line sloping.</summary>
+    private static void DrawRectangle(PlanView plan)
+    {
+        plan.SetTool(PlanTool.Roof);
+        plan.SketchTool = RoofSketchTool.Rectangle;
+        plan.SketchClick(new Point2D(20000, 0));
+        plan.SketchClick(new Point2D(30000, 6000));
+    }
+
+    [Fact]
+    public void SplitDividesALineInTwoAndBothHalvesKeepItsSettings()
+    {
+        OnUiThread(() =>
+        {
+            var (_, _, plan) = Box();
+            DrawRectangle(plan);
+
+            plan.SketchTool = RoofSketchTool.Split;
+            Assert.True(plan.SketchClick(new Point2D(24000, 0)));
+
+            Assert.Equal(5, plan.SketchLines.Count);
+            var halves = plan.SketchLines.Where(line => Math.Abs(line.Start.Y) < 1 && Math.Abs(line.End.Y) < 1).ToList();
+            Assert.Equal(2, halves.Count);
+            Assert.All(halves, half => Assert.True(half.Edge.DefinesSlope));
+            Assert.Contains(halves, half => half.Start.DistanceTo(new Point2D(24000, 0)) < 1 || half.End.DistanceTo(new Point2D(24000, 0)) < 1);
+
+            // Still one closed outline.
+            Assert.True(plan.FinishSketch());
+        });
+    }
+
+    [Fact]
+    public void AnArrowOnAFlatSketchMakesARoofThatFalls()
+    {
+        OnUiThread(() =>
+        {
+            var (document, _, plan) = Box();
+            DrawRectangle(plan);
+
+            // Flat first: no line slopes.
+            plan.SketchTool = RoofSketchTool.Modify;
+            foreach (var point in new[] { new Point2D(25000, 0), new Point2D(30000, 3000), new Point2D(25000, 6000), new Point2D(20000, 3000) })
+            {
+                plan.SketchClick(point);
+                plan.ChangeSelectedSketchLines(edge => edge.DefinesSlope = false);
+            }
+
+            // An arrow from the west side's middle toward the east, 250 mm up over the 10 m.
+            plan.SketchTool = RoofSketchTool.SlopeArrow;
+            plan.SketchArrowByHeights = true;
+            plan.SketchArrowTailOffset = 0;
+            plan.SketchArrowHeadOffset = 250;
+            Assert.True(plan.SketchClick(new Point2D(20050, 3000)));
+            Assert.True(plan.SketchClick(new Point2D(30000, 3000)));
+
+            var arrow = Assert.Single(plan.SketchArrows);
+            Assert.Equal(new Point2D(20000, 3000), arrow.Tail);
+
+            Assert.True(plan.FinishSketch());
+
+            var roof = document.Elements.OfType<Roof>().Single();
+            Assert.Single(roof.SlopeArrows);
+            Assert.Equal(RoofForm.Shed, roof.Form);
+
+            var bottom = roof.GetBottomElevation(document);
+            Assert.Equal(bottom, roof.UndersideAt(document, new Point2D(20000, 1000)), precision: 3);
+            Assert.Equal(bottom + 250, roof.UndersideAt(document, new Point2D(30000, 5000)), precision: 3);
+        });
+    }
+
+    [Fact]
+    public void ADormerIsMadeBySplittingAnEaveAndDrawingTwoArrows()
+    {
+        OnUiThread(() =>
+        {
+            var (document, _, plan) = Box();
+            DrawRectangle(plan);
+
+            // The south eave in three: 4 m, 2 m, 4 m.
+            plan.SketchTool = RoofSketchTool.Split;
+            plan.SketchClick(new Point2D(24000, 0));
+            plan.SketchClick(new Point2D(26000, 0));
+
+            // The middle stops sloping itself...
+            plan.SketchTool = RoofSketchTool.Modify;
+            plan.SketchClick(new Point2D(25000, 0));
+            Assert.Single(plan.SelectedSketchLines);
+            plan.ChangeSelectedSketchLines(edge => edge.DefinesSlope = false);
+
+            // ...and two arrows run from its ends to its middle.
+            plan.SketchTool = RoofSketchTool.SlopeArrow;
+            plan.SketchArrowByHeights = false;
+            plan.SketchClick(new Point2D(24000, 40));
+            plan.SketchClick(new Point2D(25000, 0));
+            plan.SketchClick(new Point2D(26000, 40));
+            plan.SketchClick(new Point2D(25000, 0));
+
+            Assert.Equal(2, plan.SketchArrows.Count);
+            Assert.True(plan.FinishSketch());
+
+            var roof = document.Elements.OfType<Roof>().Single();
+            var bottom = roof.GetBottomElevation(document);
+            var rise = Math.Tan(30 * Math.PI / 180);
+
+            // The eave either side is where it was; the middle is lifted into a little gable.
+            Assert.Equal(bottom, roof.UndersideAt(document, new Point2D(22000, 0)), precision: 3);
+            Assert.Equal(bottom + 1000 * rise, roof.UndersideAt(document, new Point2D(25000, 0)), precision: 3);
+
+            // Edit Footprint brings the arrows back into the sketch, and a finish without
+            // changes keeps them.
+            plan.Select(roof);
+            plan.EditFootprint();
+            Assert.Equal(2, plan.SketchArrows.Count);
+            Assert.True(plan.FinishSketch());
+            Assert.Equal(2, roof.SlopeArrows.Count);
+        });
+    }
+
+    [Fact]
+    public void AnArrowLeftWithoutItsLineStopsTheSketchFinishing()
+    {
+        OnUiThread(() =>
+        {
+            var (_, _, plan) = Box();
+            DrawRectangle(plan);
+
+            plan.SketchTool = RoofSketchTool.SlopeArrow;
+            plan.SketchClick(new Point2D(25000, 40));
+            plan.SketchClick(new Point2D(25000, 3000));
+
+            // Delete the line the arrow starts on, then draw it back one metre further out.
+            plan.SketchTool = RoofSketchTool.Modify;
+            plan.SketchClick(new Point2D(22000, 0));
+            plan.DeleteSelectedSketchLines();
+
+            plan.SketchTool = RoofSketchTool.Line;
+            plan.SketchClick(new Point2D(20000, 0));
+            plan.SketchClick(new Point2D(20000, -1000));
+            plan.SketchClick(new Point2D(30000, -1000));
+            plan.SketchClick(new Point2D(30000, 0));
+
+            Assert.False(plan.FinishSketch());
+            Assert.True(plan.IsSketching);
+        });
+    }
+
     [Fact]
     public void AnotherToolClosesTheSketchWithoutMakingAnything()
     {

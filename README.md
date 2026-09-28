@@ -245,8 +245,17 @@ built on the deck), cross-gabled (a T footprint, valleys and all) and butterfly 
 sloping from a central gutter). The gambrel is the one that cannot be built from a
 footprint — each side has two pitches — and needs a roof by extrusion.
 
+**A roof by extrusion is a section pushed back through the building.** Three clicks in plan
+say where the section is drawn and how far the roof runs back from it; the section itself is
+drawn square-on in a window of its own, starting from a gable, gambrel, barrel vault, shed or
+butterfly and moved point by point from there. The line drawn is the roof's underside, and
+its build-up stands on it, mitred at each change of pitch so the top runs through unbroken.
+A section that stands a line upright, or folds back under itself, cannot roof anything and is
+refused with the reason. The vault is an arch of short straight pieces rather than a true
+curve.
+
 Roofs export as `IfcRoof` with the shape recorded on them — `HIP_ROOF`, `GABLE_ROOF`,
-`SHED_ROOF`, `FLAT_ROOF` — a pitched one as an assembly of one `IfcSlab` per face, each
+`SHED_ROOF`, `GAMBREL_ROOF`, `BARREL_ROOF`, `FLAT_ROOF` — a pitched one as an assembly of one `IfcSlab` per face, each
 lying in its own plane, which is what IFC asks for. A roof is deliberately not exported as
 a slab: a pitched roof is not a slab, and every quantity downstream would inherit the lie.
 
@@ -261,8 +270,17 @@ build-up. A stretch of wall running out past the roof steps back down to its own
 outline drawn by hand still wins, and curved, leaning and stacked walls keep a level top.
 Finishing a roof picked from walls asks whether to attach them, as Revit does.
 
-Not yet: roofs by extrusion (and with them the gambrel), sloped glazing, dormers, fascias
-and soffits. (§3.3)
+**Slope arrows are planes too.** An arrow in the sketch is a plane of its own — level across
+the arrow, rising along it — and it takes its place among the eave planes by the same rule.
+At each corner a face keeps the side of the line between it and its neighbour that its own
+edge is on, which is what lets the two arrows of a dormer each take their half of the stretch
+of eave between them, and the eave either side keep the rest. An arrow starting at a corner
+beside a sloping eave starts at that eave's height, so a dormer continues the eave it is cut
+into even where the eave overhangs; elsewhere its height is measured from the roof's base.
+Faces that come out in the same plane — the two halves of a split eave — are joined into one.
+
+Not yet: sloped glazing, dormers with walls and a dormer opening, joining one roof to
+another, openings in roofs, fascias and soffits. (§3.3)
 
 **A room stores where it is, not what shape it is.** Its outline, area, perimeter and volume
 are traced from the walls around it each time they are asked for, so moving a wall changes
@@ -494,11 +512,16 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Add a roof | `Roof` tool (`F4`) opens a **roof sketch** (the green **Modify \| Create Roof Footprint** tab). **Pick Walls**: hover just outside a wall and click — the edge goes along that face, out by the **Overhang** on the options bar, and follows the wall if it moves; **TAB** picks the whole chain of joined walls at once. Or draw with **Line**, **Rectangle**, **Polygon**. Corners between picked walls close by themselves. **Finish** ✓ makes the roof, sitting on the tops of the walls it was picked from; **Cancel** ✗ throws the sketch away |
 | Change a line in a roof sketch | Click its **△** to turn its slope on (filled, with its pitch) or off (a gable end). **Select Lines**, then **Defines slope**, **Slope**, **Overhang** and **Extend to wall core** on the options bar change the selected lines; Del deletes them. Ctrl+Z undoes the last sketch change; Esc stops the line being drawn |
 | Reopen a roof's sketch | Double-click the roof, or select it → **Edit Footprint** |
-| Why a roof won't finish | The lines at fault turn red and the status bar says why: the outline is open, lines cross, or there is more than one loop (openings in roofs come later) |
+| Why a roof won't finish | The lines at fault turn red and the status bar says why: the outline is open, lines cross, there is more than one loop (openings in roofs come later), or a slope arrow no longer starts on a line |
+| Slope a roof a way no edge says | In the roof sketch, **Slope Arrow**: click a line of the outline for the tail, then where the slope rises toward. On the options bar, **Specify** is **Slope** (a pitch from the tail) or **Height at Tail** (heights at both ends, the pitch worked out between them). One arrow on a flat roof makes it fall one way — diagonally from corner to corner if drawn that way; an arrow up from a raised gable end makes a half-hip |
+| Add a gambrel, a barrel vault or any roof the same all along | **Roof by Extrusion** (next to Roof): click one end of the line the roof's section is drawn on, then the other end (the width it spans), then how far back the roof runs. Draw the section in the window that opens: pick **Gable**, **Gambrel**, **Barrel Vault**, **Shed**, **Butterfly** or **Flat** with a **Rise** and **Overhang**, then drag points, double-click a line to add one, right-click a point to take it out. **Base** is how high above the level it sits — it starts at the tops of the walls under it. **Finish** makes the roof |
+| Change an extruded roof's section | Double-click it, or select it → **Edit Profile**. Its depth is **Extrusion Start** and **Extrusion End** in Properties |
+| Put a dormer in an eave | In the roof sketch, **Split** the eave twice, select the middle stretch and clear **Defines slope**, then draw two **Slope Arrows** from its ends to its middle. The middle of the eave lifts into a little gable with its own ridge and valleys |
 | Change a roof edge | Select the roof and click one of its edges: it becomes an eave the roof slopes up from, or a gable it is cut off at. Arrows show which edges slope while the roof is selected |
 | Reshape a whole roof | Select it, Properties → **Roof Shape**: Hip, Gable, Shed or Flat. **Slope** sets the pitch of every sloping edge at once |
 | Change one eave's pitch or height | Select the roof: Properties lists **Slope at Edge N** and **Eave Offset at Edge N** for each sloping edge. Drop one eave for a catslide; raise the end eaves of a hip for a half-hip |
-| Cut a roof off flat | Properties → **Cutoff Height Above Base**: the roof stops there with a flat deck on top — the base of a dutch gable, with a small gable roof placed on the deck. 0 lets it run to its ridge |
+| Cut a roof off flat | Properties → **Cutoff Level** (None, Roof Base, or a level) and **Cutoff Offset**: the roof stops there with a flat deck on top — the base of a dutch gable, with a small gable roof placed on the deck |
+| Change how the eaves are cut | Properties → **Rafter Cut**: **Plumb Cut** (straight down through the roof), **Two Cut Plumb** (straight down for the **Fascia Depth**, then level back to the underside, where a soffit goes) or **Two Cut Square** (square to the slope for the fascia depth, then level). Fascia Depth can be anything up to the roof's thickness |
 | Split a wall | `Split` tool (`X`), click where it should divide |
 | Trim / extend | `Trim` tool (`T`), click the wall, then the wall to meet |
 | Delete | `Del` |

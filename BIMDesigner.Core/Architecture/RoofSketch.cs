@@ -52,6 +52,9 @@ public sealed class RoofSketchCheck
     /// <summary>One per outline segment, in the outline's order.</summary>
     public IReadOnlyList<RoofEdge> Edges { get; }
 
+    /// <summary>The slope arrows the sketch holds, to go on the roof with its outline.</summary>
+    public IReadOnlyList<RoofSlopeArrow> Arrows { get; private init; } = Array.Empty<RoofSlopeArrow>();
+
     /// <summary>What is wrong, in words that say what to do about it; null when the sketch is good.</summary>
     public string? Problem { get; }
 
@@ -60,8 +63,9 @@ public sealed class RoofSketchCheck
 
     public bool IsValid => Problem is null;
 
-    internal static RoofSketchCheck Loop(IReadOnlyList<Point2D> boundary, IReadOnlyList<RoofEdge> edges) =>
-        new(boundary, edges, null, Array.Empty<RoofSketchLine>());
+    internal static RoofSketchCheck Loop(
+        IReadOnlyList<Point2D> boundary, IReadOnlyList<RoofEdge> edges, IReadOnlyList<RoofSlopeArrow>? arrows = null) =>
+        new(boundary, edges, null, Array.Empty<RoofSketchLine>()) { Arrows = arrows ?? Array.Empty<RoofSlopeArrow>() };
 
     internal static RoofSketchCheck Refused(string problem, params RoofSketchLine[] culprits) =>
         new(Array.Empty<Point2D>(), Array.Empty<RoofEdge>(), problem, culprits);
@@ -223,8 +227,19 @@ public static class RoofSketch
     /// crossing another. Revit also takes loops inside the outline as openings; those are
     /// refused for now, with a message saying so rather than a roof that quietly ignores them.
     /// </summary>
-    public static RoofSketchCheck Check(IReadOnlyList<RoofSketchLine> sketch)
+    public static RoofSketchCheck Check(IReadOnlyList<RoofSketchLine> sketch, IReadOnlyList<RoofSlopeArrow>? arrows = null)
     {
+        arrows ??= Array.Empty<RoofSlopeArrow>();
+
+        // A slope arrow starts on a line of the outline; one that starts anywhere else says
+        // nothing about which part of the roof it slopes.
+        var stray = arrows.FirstOrDefault(arrow => arrow.Length <= JoinTolerance ||
+            !sketch.Any(line => Line2D.DistanceFromSegment(arrow.Tail, line.Start, line.End) <= JoinTolerance));
+
+        if (stray is not null)
+            return RoofSketchCheck.Refused(
+                "A slope arrow must start on a line of the outline and run into the roof. Move its tail onto a line, or delete it.");
+
         var lines = sketch.Where(line => line.Length > JoinTolerance).ToList();
 
         if (lines.Count < 3)
@@ -323,7 +338,7 @@ public static class RoofSketch
             edges = Enumerable.Range(0, count).Select(i => edges[((count - 2 - i) % count + count) % count]).ToList();
         }
 
-        return RoofSketchCheck.Loop(points, edges);
+        return RoofSketchCheck.Loop(points, edges, arrows.Select(arrow => arrow.Copy()).ToList());
     }
 
     private static bool Crosses(RoofSketchLine a, RoofSketchLine b)
@@ -435,26 +450,33 @@ public sealed class SetRoofSketchCommand : IUndoableCommand
     private readonly List<RoofEdge> _oldEdges;
     private readonly List<Point2D> _newBoundary;
     private readonly List<RoofEdge> _newEdges;
+    private readonly List<RoofSlopeArrow> _oldArrows;
+    private readonly List<RoofSlopeArrow> _newArrows;
 
-    public SetRoofSketchCommand(Roof roof, IEnumerable<Point2D> boundary, IEnumerable<RoofEdge> edges, string name = "Edit Footprint")
+    public SetRoofSketchCommand(
+        Roof roof, IEnumerable<Point2D> boundary, IEnumerable<RoofEdge> edges,
+        IEnumerable<RoofSlopeArrow>? arrows = null, string name = "Edit Footprint")
     {
         _roof = roof;
         _oldBoundary = roof.Boundary.ToList();
         _oldEdges = roof.Edges.Select(edge => edge.Copy()).ToList();
+        _oldArrows = roof.SlopeArrows.Select(arrow => arrow.Copy()).ToList();
         _newBoundary = boundary.ToList();
         _newEdges = edges.Select(edge => edge.Copy()).ToList();
+        _newArrows = (arrows ?? roof.SlopeArrows).Select(arrow => arrow.Copy()).ToList();
         Name = name;
     }
 
     public string Name { get; }
 
-    public void Redo() => Apply(_newBoundary, _newEdges);
+    public void Redo() => Apply(_newBoundary, _newEdges, _newArrows);
 
-    public void Undo() => Apply(_oldBoundary, _oldEdges);
+    public void Undo() => Apply(_oldBoundary, _oldEdges, _oldArrows);
 
-    private void Apply(List<Point2D> boundary, List<RoofEdge> edges)
+    private void Apply(List<Point2D> boundary, List<RoofEdge> edges, List<RoofSlopeArrow> arrows)
     {
         _roof.SetBoundary(boundary);
         _roof.SetEdges(edges.Select(edge => edge.Copy()));
+        _roof.SetSlopeArrows(arrows.Select(arrow => arrow.Copy()));
     }
 }
