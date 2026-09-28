@@ -250,10 +250,15 @@ public class ScheduleTests
         AddWall(document, type, levelId, 5000);
 
         var result = Core.Schedules.Schedule.Run(document,
-            new ScheduleDefinition("Walls", BuiltInCategory.Walls, "Length", "Area", "Volume"));
+            new ScheduleDefinition("Walls", BuiltInCategory.Walls, "Area", "Volume"));
 
         Assert.All(result.Columns, column =>
             Assert.True(column.IsReadOnly, $"{column.Field} is derived and must not be typed into"));
+
+        // A length can be typed, as it can in the properties: the wall's end moves to make it so.
+        var lengths = Core.Schedules.Schedule.Run(document, new ScheduleDefinition("Walls", BuiltInCategory.Walls, "Length"));
+        Assert.True(lengths.Rows.Single()["Length"]!.TrySetFromText("4000"));
+        Assert.Equal(4000, document.Walls.Single().Length, precision: 6);
     }
 
     // ---- material takeoff --------------------------------------------------------

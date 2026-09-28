@@ -55,6 +55,14 @@ public sealed class RoofEdge
     /// </summary>
     public double BearingInset => WallId is null ? 0 : Math.Max(0, Overhang);
 
+    /// <summary>
+    /// The arc this edge is one straight piece of, when the outline was drawn with an arc; null
+    /// for a straight edge. Every piece of one arc carries the same one, which is how the roof
+    /// knows a cone is one smooth surface rather than a ring of flat faces, and how Edit
+    /// Footprint gives the arc back as one line.
+    /// </summary>
+    public Guid? ArcId { get; set; }
+
     public const double DefaultSlopeDegrees = 30;
 
     public RoofEdge Copy() => new()
@@ -65,8 +73,22 @@ public sealed class RoofEdge
         WallId = WallId,
         OnLeftOfWall = OnLeftOfWall,
         Overhang = Overhang,
-        ExtendToCore = ExtendToCore
+        ExtendToCore = ExtendToCore,
+        ArcId = ArcId
     };
+}
+
+/// <summary>
+/// Where a roof picked from walls bears on them - Revit's Rafter or Truss. The slope starts
+/// at the plate height on the wall's outside face for a truss, which is Revit's default, and
+/// on its inside face for rafters, which sit on the plate across the wall; with Extend to wall
+/// core, on the core's faces instead. The roof's edges stay where they were drawn: it is the
+/// roof that rises or falls to start its slope there.
+/// </summary>
+public enum RoofBearing
+{
+    Truss,
+    Rafter
 }
 
 /// <summary>
@@ -172,6 +194,12 @@ public readonly record struct RoofPlane(double A, double B, double C, double Eav
 /// <summary>One face of a roof: where it is in plan, and the plane it lies in.</summary>
 public sealed record RoofFacet(IReadOnlyList<Point2D> Outline, RoofPlane Plane, bool HasEave = true)
 {
+    /// <summary>
+    /// The arc of the outline this face rises from, when it does: faces of one arc are one
+    /// curved surface - a cone - built from flat pieces, drawn and shaded as one.
+    /// </summary>
+    public Guid? ArcId { get; init; }
+
     /// <summary>The face's shadow on the ground, which is what a plan measures.</summary>
     public double Area => Polygon2D.Area(Outline);
 
@@ -195,7 +223,10 @@ public enum RoofForm
     Gambrel,
 
     /// <summary>A curved vault - a roof by extrusion of an arc.</summary>
-    Barrel
+    Barrel,
+
+    /// <summary>A cone - a roof rising all round from a circle, or from arcs.</summary>
+    Conical
 }
 
 /// <summary>
@@ -331,7 +362,7 @@ public static class RoofShape
 
         var planes = new List<RoofPlane>();
         var facets = new List<RoofFacet>();
-        var profile = extrusion.Profile;
+        var profile = extrusion.Points;
 
         for (var i = 0; i + 1 < profile.Count; i++)
         {
@@ -346,8 +377,10 @@ public static class RoofShape
             facets.Add(new RoofFacet(Anticlockwise(outline), plane, HasEave: false));
         }
 
-        // The profile's own corners, carried across the roof: its ridges and valleys.
+        // The profile's own corners, carried across the roof: its ridges and valleys. Not the
+        // joins part way round an arc - a vault is one curved surface, not a row of strips.
         var breakLines = Enumerable.Range(1, Math.Max(0, profile.Count - 2))
+            .Where(i => !extrusion.IsSmooth(i))
             .Select(i => (extrusion.At(profile[i].X, extrusion.Start), extrusion.At(profile[i].X, extrusion.End)))
             .ToList();
 
@@ -357,7 +390,7 @@ public static class RoofShape
 
     public static RoofSurface Build(
         IReadOnlyList<Point2D> boundary, IReadOnlyList<RoofEdge> edges, double baseElevation,
-        double? cutoff = null, IReadOnlyList<RoofSlopeArrow>? arrows = null)
+        double? cutoff = null, IReadOnlyList<RoofSlopeArrow>? arrows = null, Func<RoofEdge, double>? bearing = null)
     {
         var footprint = Anticlockwise(boundary);
         arrows ??= Array.Empty<RoofSlopeArrow>();
@@ -368,7 +401,7 @@ public static class RoofShape
                 Array.Empty<(Point2D, Point2D)>(), RoofForm.Flat);
         }
 
-        var eaves = EavesOf(footprint, boundary, edges, baseElevation, arrows);
+        var eaves = EavesOf(footprint, boundary, edges, baseElevation, arrows, bearing);
         var planes = eaves.Select(eave => eave.Plane).ToList();
 
         // Nothing slopes: the roof is its footprint, flat - which is what a roof is until
@@ -438,7 +471,7 @@ public static class RoofShape
 
             foreach (var piece in region)
                 if (Polygon2D.Area(piece.Outer) > MinimumFacetArea)
-                    facets.Add(new RoofFacet(piece.Outer, planes[i], HasEave: !eaves[i].IsArrow));
+                    facets.Add(new RoofFacet(piece.Outer, planes[i], HasEave: !eaves[i].IsArrow) { ArcId = eaves[i].ArcId });
         }
 
         facets = MergeSamePlanes(facets);
@@ -484,14 +517,14 @@ public static class RoofShape
     /// between them, and the eave either side keeps its own.
     /// </summary>
     private readonly record struct Eave(
-        RoofPlane Plane, IReadOnlyList<(RoofPlane Other, bool KeepWhereLower)> Wedges, bool IsArrow = false);
+        RoofPlane Plane, IReadOnlyList<(RoofPlane Other, bool KeepWhereLower)> Wedges, bool IsArrow = false, Guid? ArcId = null);
 
     private static List<Eave> EavesOf(
         IReadOnlyList<Point2D> footprint,
         IReadOnlyList<Point2D> boundary,
         IReadOnlyList<RoofEdge> edges,
         double baseElevation,
-        IReadOnlyList<RoofSlopeArrow> arrows)
+        IReadOnlyList<RoofSlopeArrow> arrows, Func<RoofEdge, double>? bearing)
     {
         // The footprint is worked anticlockwise so that "inward" is one rule rather than two.
         // Where the points had to be turned round to get there, the edge settings turn with
@@ -520,7 +553,7 @@ public static class RoofShape
             // The plate height is where the roof bears - on the wall face, for an edge picked
             // from a wall - and the overhang runs on down past it to the edge itself.
             var plate = baseElevation + edge.PlateOffset;
-            var inset = edge.BearingInset;
+            var inset = bearing?.Invoke(edge) ?? edge.BearingInset;
             var atEdge = plate - rise * inset;
 
             planes[i] = new RoofPlane(
@@ -621,7 +654,7 @@ public static class RoofShape
 
         for (var i = 0; i < count; i++)
             if (planes[i] is { } plane)
-                eaves.Add(new Eave(plane, WedgesFor(plane, i)));
+                eaves.Add(new Eave(plane, WedgesFor(plane, i), ArcId: EdgeFor(edges, count, reversed, i)?.ArcId));
 
         foreach (var (plane, edge, _) in arrowPlanes)
             eaves.Add(new Eave(plane, WedgesFor(plane, edge, isArrow: true), IsArrow: true));
@@ -676,7 +709,7 @@ public static class RoofShape
 
             merged.AddRange(regions
                 .Where(region => Polygon2D.Area(region) > MinimumFacetArea)
-                .Select(region => new RoofFacet(region, group[0].Plane, group[0].HasEave)));
+                .Select(region => new RoofFacet(region, group[0].Plane, group[0].HasEave) { ArcId = group[0].ArcId }));
         }
 
         return merged;
@@ -739,7 +772,7 @@ public static class RoofShape
     }
 
     /// <summary>Takes one region away from a set of them.</summary>
-    private static List<PolygonBoolean.Region> Subtract(
+    internal static List<PolygonBoolean.Region> Subtract(
         List<PolygonBoolean.Region> regions, PolygonBoolean.Region cutter)
     {
         var left = new List<PolygonBoolean.Region>();
@@ -762,7 +795,7 @@ public static class RoofShape
     /// plan, so the cut is by a half-plane - taken here as a rectangle far larger than the
     /// roof, so that the general polygon cutter can do it and any holes survive.
     /// </summary>
-    private static List<PolygonBoolean.Region> Clip(
+    internal static List<PolygonBoolean.Region> Clip(
         List<PolygonBoolean.Region> regions, RoofPlane plane, RoofPlane other, IReadOnlyList<Point2D> footprint)
     {
         var a = plane.A - other.A;
@@ -817,6 +850,7 @@ public static class RoofShape
         IReadOnlyList<RoofFacet> facets, IReadOnlyList<Point2D> footprint)
     {
         var lines = new List<(Point2D From, Point2D To)>();
+        var seen = new List<((Point2D From, Point2D To) Line, RoofFacet Facet)>();
 
         foreach (var facet in facets)
         {
@@ -827,13 +861,39 @@ public static class RoofShape
 
                 if (from.DistanceTo(to) < 1) continue;
                 if (OnBoundary(footprint, from.MidpointTo(to))) continue;
-                if (lines.Any(line => Same(line, (from, to)))) continue;
 
+                // The line between two faces of a cone is not a hip: the roof is one curved
+                // surface there, and is drawn without a line down every join - including where
+                // one arc runs smoothly on into the next, as a circle's two halves do.
+                var twin = seen.FindIndex(entry => Same(entry.Line, (from, to)));
+                if (twin >= 0)
+                {
+                    if (Smooth(facet, seen[twin].Facet)) lines.RemoveAll(line => Same(line, (from, to)));
+                    continue;
+                }
+
+                seen.Add(((from, to), facet));
                 lines.Add((from, to));
             }
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Whether two faces meet as one curved surface: both rise from arcs, at the same pitch,
+    /// facing nearly the same way - a turn no bigger than the steps an arc is built in.
+    /// </summary>
+    private static bool Smooth(RoofFacet a, RoofFacet b)
+    {
+        if (a.ArcId is null || b.ArcId is null) return false;
+        if (a.ArcId == b.ArcId) return true;
+
+        var (riseA, riseB) = (a.Plane.Rise, b.Plane.Rise);
+        if (riseA < 1e-9 || riseB < 1e-9 || Math.Abs(riseA - riseB) > 0.02 * Math.Max(riseA, riseB)) return false;
+
+        var turn = Math.Acos(Math.Clamp((a.Plane.A * b.Plane.A + a.Plane.B * b.Plane.B) / (riseA * riseB), -1, 1));
+        return turn <= 1.5 * RoofSketch.MaxFacetTurn;
     }
 
     private static bool OnBoundary(IReadOnlyList<Point2D> footprint, Point2D point)
@@ -868,6 +928,10 @@ public static class RoofShape
 
         if (sloping == 0) return RoofForm.Flat;
         if (sloping == 1) return RoofForm.Shed;
+
+        // Rising all round from arcs alone - a circle, or a round end and nothing else: a cone.
+        if (sloping == counted && edges.Take(counted).All(edge => edge.ArcId is not null)) return RoofForm.Conical;
+
         if (sloping == counted) return RoofForm.Hip;
 
         // Two opposite sides of a four-sided footprint sloping and the ends left open: a gable.

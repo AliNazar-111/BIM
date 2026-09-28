@@ -91,6 +91,9 @@ public sealed class Mesh3D
     /// </summary>
     public void Transform(Func<Point3D, Point3D> map)
     {
+        // Moved points face new ways; the view works them out again from the faces.
+        _normals = null;
+
         for (var i = 0; i < _positions.Count; i++) _positions[i] = map(_positions[i]);
         for (var i = 0; i < _edges.Count; i++) _edges[i] = (map(_edges[i].From), map(_edges[i].To));
     }
@@ -103,6 +106,7 @@ public sealed class Mesh3D
     /// </summary>
     public void SplitAt(double z)
     {
+        _normals = null;
         const double onPlane = 1e-6;
         var positions = _positions.ToList();
         var indices = _indices.ToList();
@@ -218,6 +222,63 @@ public sealed class Mesh3D
         AddTriangle(a, c, d);
     }
 
+    private int AddPosition(Point3D point)
+    {
+        _positions.Add(point);
+        return _positions.Count - 1;
+    }
+
+    /// <summary>A triangle by the indices of points already added, wound to face <paramref name="outward"/>.</summary>
+    private void AddFacing(int a, int b, int c, Point3D outward)
+    {
+        var (pa, pb, pc) = (_positions[a], _positions[b], _positions[c]);
+        var (ux, uy, uz) = (pb.X - pa.X, pb.Y - pa.Y, pb.Z - pa.Z);
+        var (vx, vy, vz) = (pc.X - pa.X, pc.Y - pa.Y, pc.Z - pa.Z);
+        var facing = (uy * vz - uz * vy) * outward.X + (uz * vx - ux * vz) * outward.Y + (ux * vy - uy * vx) * outward.Z;
+
+        _indices.Add(a);
+        _indices.Add(facing >= 0 ? b : c);
+        _indices.Add(facing >= 0 ? c : b);
+    }
+
+    /// <summary>
+    /// A surface swept straight across between two matching rows of points - one end of a
+    /// curved roof and the other. Where a join is marked smooth the strips either side share
+    /// their corners, so the surface shades as one curve rather than a row of flat bands; where
+    /// it is not, they meet at a crease. Every strip faces the way <paramref name="outward"/> says.
+    /// </summary>
+    public void AddSweep(IReadOnlyList<Point3D> near, IReadOnlyList<Point3D> far, IReadOnlyList<bool> smooth, Point3D outward)
+    {
+        int? sharedNear = null;
+        int? sharedFar = null;
+
+        for (var i = 0; i + 1 < near.Count && i + 1 < far.Count; i++)
+        {
+            var joined = i > 0 && i < smooth.Count && smooth[i] && sharedNear is not null;
+            var n0 = joined ? sharedNear!.Value : AddPosition(near[i]);
+            var f0 = joined ? sharedFar!.Value : AddPosition(far[i]);
+            var n1 = AddPosition(near[i + 1]);
+            var f1 = AddPosition(far[i + 1]);
+
+            AddFacing(n0, n1, f1, outward);
+            AddFacing(n0, f1, f0, outward);
+
+            sharedNear = n1;
+            sharedFar = f1;
+        }
+    }
+
+    /// <summary>A flat face given as a polygon and its triangles, wound to face <paramref name="outward"/>.</summary>
+    public void AddFace(IReadOnlyList<Point3D> polygon, IReadOnlyList<(int A, int B, int C)> triangles, Point3D outward)
+    {
+        foreach (var (a, b, c) in triangles)
+            AddFacing(AddPosition(polygon[a]), AddPosition(polygon[b]), AddPosition(polygon[c]), outward);
+    }
+
+    /// <summary>A flat four-sided face, wound to face <paramref name="outward"/>.</summary>
+    public void AddFace(Point3D a, Point3D b, Point3D c, Point3D d, Point3D outward) =>
+        AddFace(new[] { a, b, c, d }, new[] { (0, 1, 2), (0, 2, 3) }, outward);
+
     /// <summary>
     /// Adds a prism: a plan outline swept straight up from one elevation to another. Walls,
     /// wall layers, slabs and the pieces of wall above and below an opening are all this.
@@ -233,7 +294,14 @@ public sealed class Mesh3D
     /// from its own bottom height to its own top height. For the sloping top of a wall with an
     /// edited profile, where the heights are planes across the outline.
     /// </summary>
-    public void AddExtrusion(IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top)
+    public void AddExtrusion(IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top) =>
+        AddExtrusion(outline, bottom, top, null);
+
+    /// <summary>
+    /// As above, with the top and bottom marked as part of a curved surface - a cone built
+    /// from flat faces - so <see cref="SmoothGroups"/> can shade them as one.
+    /// </summary>
+    public void AddExtrusion(IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top, int? smoothGroup)
     {
         if (outline.Count < 3) return;
 
@@ -263,11 +331,103 @@ public sealed class Mesh3D
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(ring))
         {
+            if (smoothGroup is { } group) _smoothTriangles[TriangleCount] = group;
             AddTriangle(High(i), High(j), High(k));
 
             // The underside faces down, so it winds the other way.
+            if (smoothGroup is { } under) _smoothTriangles[TriangleCount] = under;
             AddTriangle(Low(i), Low(k), Low(j));
         }
+    }
+
+    /// <summary>Triangles that may share corners with their neighbours in the same group, by triangle.</summary>
+    private readonly Dictionary<int, int> _smoothTriangles = new();
+
+    private Point3D[]? _normals;
+
+    /// <summary>
+    /// Which way the surface faces at each point, for shading - given where a curved surface
+    /// was built from flat faces, so it is shaded as the curve it is. Null when every face is
+    /// simply shaded flat, or by the corners it shares.
+    /// </summary>
+    public IReadOnlyList<Point3D>? Normals => _normals;
+
+    /// <summary>
+    /// Shades each curved surface as one. Each corner of a face in a group is shaded facing the
+    /// average of that face and the faces of the group around the same point that face nearly
+    /// the same way - so the shading runs on across every join instead of showing a band per
+    /// flat face, and at a point where many faces meet, as at the top of a cone, each face is
+    /// averaged only with those beside it. A real crease - more than the angle given - stays
+    /// sharp, and every face not in a group is shaded flat.
+    /// </summary>
+    public void SmoothGroups(double maxDegrees = 25)
+    {
+        if (_smoothTriangles.Count == 0) return;
+
+        var limit = Math.Cos(maxDegrees * Math.PI / 180);
+        const double tolerance = 1e-3;
+
+        (long, long, long) Key(Point3D p) =>
+            ((long)Math.Round(p.X / tolerance), (long)Math.Round(p.Y / tolerance), (long)Math.Round(p.Z / tolerance));
+
+        var faces = new Point3D[TriangleCount];
+        for (var t = 0; t < TriangleCount; t++)
+            faces[t] = FaceNormal(t);
+
+        // Every point of every grouped face, with the faces of that group touching it.
+        var around = new Dictionary<(int Group, (long, long, long) At), List<Point3D>>();
+        foreach (var (triangle, group) in _smoothTriangles)
+        {
+            if (faces[triangle] is { X: 0, Y: 0, Z: 0 }) continue;
+
+            for (var k = 0; k < 3; k++)
+            {
+                var key = (group, Key(_positions[_indices[triangle * 3 + k]]));
+                if (!around.TryGetValue(key, out var list)) around[key] = list = new List<Point3D>();
+                list.Add(faces[triangle]);
+            }
+        }
+
+        _normals = new Point3D[_positions.Count];
+
+        for (var t = 0; t < TriangleCount; t++)
+        {
+            var face = faces[t];
+            var grouped = _smoothTriangles.TryGetValue(t, out var group);
+
+            for (var k = 0; k < 3; k++)
+            {
+                var index = _indices[t * 3 + k];
+
+                if (!grouped || !around.TryGetValue((group, Key(_positions[index])), out var neighbours))
+                {
+                    _normals[index] = face;
+                    continue;
+                }
+
+                var (x, y, z) = (0.0, 0.0, 0.0);
+                foreach (var other in neighbours)
+                {
+                    if (other.X * face.X + other.Y * face.Y + other.Z * face.Z < limit) continue;
+                    (x, y, z) = (x + other.X, y + other.Y, z + other.Z);
+                }
+
+                var length = Math.Sqrt(x * x + y * y + z * z);
+                _normals[index] = length < 1e-12 ? face : new Point3D(x / length, y / length, z / length);
+            }
+        }
+    }
+
+    /// <summary>The way a triangle faces, as a unit vector; nothing for one with no area.</summary>
+    private Point3D FaceNormal(int triangle)
+    {
+        var first = triangle * 3;
+        var (a, b, c) = (_positions[_indices[first]], _positions[_indices[first + 1]], _positions[_indices[first + 2]]);
+        var (ux, uy, uz) = (b.X - a.X, b.Y - a.Y, b.Z - a.Z);
+        var (vx, vy, vz) = (c.X - a.X, c.Y - a.Y, c.Z - a.Z);
+        var (nx, ny, nz) = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+        var length = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+        return length < 1e-12 ? default : new Point3D(nx / length, ny / length, nz / length);
     }
 
     /// <summary>

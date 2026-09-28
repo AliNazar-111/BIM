@@ -301,6 +301,21 @@ internal sealed class SlabDto
     /// <summary>For a roof, how its eaves are cut. Absent in older files, which were all plumb cut.</summary>
     public string RoofRafterCut { get; set; } = "PlumbCut";
 
+    /// <summary>Where a roof picked from walls bears on them: Truss or Rafter.</summary>
+    public string RoofBearing { get; set; } = "Truss";
+
+    /// <summary>The roof this one is joined to - Join Roof - or null.</summary>
+    public Guid? RoofJoinedTo { get; set; }
+
+    /// <summary>The dormers this roof is opened for.</summary>
+    public List<Guid>? RoofDormerOpenings { get; set; }
+
+    /// <summary>When the roof is a dormer's, made by the Dormer tool: what it was made as, and its walls.</summary>
+    public RoofDormerDto? RoofDormer { get; set; }
+
+    /// <summary>Holes drawn in the roof's sketch.</summary>
+    public List<RoofOpeningDto>? RoofOpenings { get; set; }
+
     public double RoofFasciaDepth { get; set; } = 150;
 
     /// <summary>For a roof, the slope arrows drawn in its sketch.</summary>
@@ -325,6 +340,9 @@ internal sealed class RoofExtrusionDto
 
     /// <summary>Profile points as distance along, height above base: along, height, along, height.</summary>
     public List<double> Profile { get; set; } = new();
+
+    /// <summary>How far each line of the profile bows into an arc; zero, or missing, for a straight one.</summary>
+    public List<double>? Sagittas { get; set; }
 
     public double Start { get; set; }
     public double End { get; set; }
@@ -356,6 +374,9 @@ internal sealed class RoofEdgeDto
     public bool OnLeftOfWall { get; set; }
     public double Overhang { get; set; }
     public bool ExtendToCore { get; set; }
+
+    /// <summary>The arc of the outline this edge is one straight piece of; null for a straight edge.</summary>
+    public Guid? ArcId { get; set; }
 }
 
 /// <summary>One type of architectural column: its shape, size and what it is made of.</summary>
@@ -941,4 +962,22 @@ internal sealed class PlacedSweepDto
     public bool ReturnAtEnd { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A dormer made by the Dormer tool: its shape and size, and the walls that are part of it.</summary>
+internal sealed class RoofDormerDto
+{
+    public string Shape { get; set; } = "Gable";
+    public double Width { get; set; }
+    public double Height { get; set; }
+    public double Slope { get; set; }
+    public double Overhang { get; set; }
+    public List<Guid> Walls { get; set; } = new();
+}
+
+/// <summary>A hole drawn in a roof's sketch: its outline as x, y pairs, and the arc each edge is part of.</summary>
+internal sealed class RoofOpeningDto
+{
+    public List<double> Points { get; set; } = new();
+    public List<Guid?>? ArcIds { get; set; }
 }

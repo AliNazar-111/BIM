@@ -288,35 +288,36 @@ sketch's slope symbols only show while editing the sketch.
 | --- | --- | --- |
 | **Sketch mode** (enter, draw, Finish ✓ / Cancel ✗, validation) | ✅ | Roof tool opens a sketch with its own tab; Finish checks it (open ends, crossings, extra loops) and marks the lines at fault in red; Cancel leaves nothing; sketch undo; Esc stops a line; switching tools asks first |
 | **Pick Walls** (outer face / core, overhang, follows the wall) | ✅ | Side of the wall from the cursor; overhang; Extend to wall core; TAB picks the whole chain; corners close themselves; edges follow their walls after any change, undo included. Straight walls only for now |
-| **Draw boundary lines** (line, rectangle, polygon, circle, arcs, fillet, pick lines, offset, chain) | 🟡 | Line (chained, Shift for level/plumb, snaps to sketch ends), Rectangle, Polygon. Not yet: circle, arcs, fillet, Pick Lines, offset |
-| Edit sketch lines (trim/extend, split, move, align, mirror) | 🟡 | Select and delete; change settings from the options bar. Not yet: dragging ends, trim/extend, split |
-| Inner loops = openings | ⬜ | |
+| **Draw boundary lines** (line, rectangle, polygon, circle, arcs, fillet, pick lines, offset, chain) | ✅ | Line (chained, Shift for level/plumb, snaps to sketch ends), Rectangle, Polygon, Circle, Arc (start, end, through a point), Pick Lines (floor, ceiling and roof edges, wall faces, grid lines) with Offset. Not yet: fillet and tangent arcs, Lock on picked lines |
+| Edit sketch lines (trim/extend, split, move, align, mirror) | 🟡 | Select, delete, Split (arcs split into arcs), Offset (move or copy; neighbours follow; arcs offset round their centre), Trim/Extend to Corner. Not yet: dragging ends, move, mirror, align |
+| Inner loops = openings | ✅ | A rectangle, polygon, circle or any closed loop drawn inside the outline is a hole cut straight down through the roof - skylight, chimney, light well; its lines stop sloping, it reopens with Edit Footprint (circles as circles), and 3D, section, plan, sloping area and IFC all take it out. A loop outside the outline is refused |
 | **Edit Footprint** to reopen a roof | ✅ | Ribbon button or double-click; the roof is hidden while its sketch is open; Finish is one undoable step |
 | Defines Roof Slope per line | ✅ | Edge click + properties |
-| Slope per line, editable beside the line | 🟡 | △ marker and pitch shown beside each line; click △ to toggle slope; pitch changed from the options bar, not by typing on the canvas yet |
+| Slope per line, editable beside the line | ✅ | △ marker and pitch beside each line; click △ to toggle slope; with Select Lines, click the pitch to type a new one |
 | Overhang per line | ✅ | Options bar, for new picks and for selected lines |
-| Plate Offset From Base (at the wall) | ✅ | The roof bears on the wall face at its plate height; the overhang drops below it by overhang × tan(pitch). Rafter or Truss not yet |
+| Plate Offset From Base (at the wall) | ✅ | The roof bears on the wall face at its plate height; the overhang drops below it by overhang × tan(pitch); Rafter or Truss chooses the face |
 | Extend into wall (to core) | ✅ | |
 | Base Level + Base Offset From Level | ✅ | A roof stands on its base, as in Revit; a new roof is based at the top of the walls it was picked from, or on the storey above when drawn. Older files are migrated so nothing moves |
 | Cutoff Level + Offset | ✅ | None, Roof Base, or any level, plus an offset |
 | Rafter Cut, Fascia Depth | ✅ | Plumb Cut, Two Cut Plumb, Two Cut Square; fascia depth up to the roof's thickness. 3D and section; IFC still exports each face as a plain slab |
-| Rafter or Truss | ⬜ | Needs plate-at-wall first |
+| Rafter or Truss | ✅ | Truss (default) bears on the wall's outside face, Rafter on its inside face - on the core's faces with Extend to wall core. Shown only for roofs picked from walls |
 | Maximum Ridge Height | ✅ | Shown as ridge height above base |
 | Slope (roof-wide) | ✅ | |
 | Thickness, Volume, Area | ✅ | Volume and area use the sloping surface |
 | Room Bounding | ⬜ | Roofs don't bound rooms' upper limits |
 | Type: Structure / Edit Assembly | ✅ | Shared with floors and walls |
 | Type: coarse fill, identity, analytical | 🟡 | Most slab type fields exist; roof-specific analytical fields not checked |
-| Conical roof from a sloping arc | ⬜ | No arcs in roof outlines |
+| Conical roof from a sloping arc | ✅ | A sloping circle is a cone, a sloping arc part of one: built from pieces of at most 10°, drawn without a line down every join and shaded smooth in 3D. Not yet: Number of Full Segments |
 | **Slope arrows** | ✅ | Slope or Height at Tail; tail snaps onto a line, head onto a line or the grid; drawn and selected in the sketch; saved with the roof. Heights are measured from the roof's base (or from the eave an arrow starts beside), not from a chosen level |
-| **Align Eaves** | ⬜ | |
-| **Roof by Extrusion** | ✅ | Placed in plan with three clicks, the profile drawn square-on in its own window from a gable, gambrel, barrel vault, shed, butterfly or flat start; Edit Profile or a double-click reopens it. Arcs are made of short straight pieces; the ends are cut plumb. See R7 |
+| **Align Eaves** | ✅ | Eave heights shown beside each line; click the reference, then the eaves to match, by Adjust Height (plate) or Adjust Overhang (picked lines) |
+| **Roof by Extrusion** | ✅ | Placed in plan with three clicks, the profile drawn square-on in its own window from a gable, gambrel, barrel vault, shed, butterfly or flat start; Edit Profile or a double-click reopens it. Clicks lock onto wall corners; arcs are true arcs, smooth in 3D; walls under it are offered attachment; the ends are cut plumb. See R7 |
 | Roof by Face | ⬜ | No masses |
 | Sloped Glazing | ⬜ | Curtain system exists for walls only |
 | **Attach wall tops to a pitched roof** (gable ends) | ✅ | The wall's top follows the roof's underside along its length: gables fill to the ridge, eave walls stay at the plate; solid, plan, section, openings and quantities follow. Finishing a roof from picked walls asks to attach them. Curved, leaning and stacked walls keep a level top |
-| Join/Unjoin Roof | ⬜ | |
-| Openings: Vertical, By Face | ⬜ | |
-| Dormer (slope-arrow and dormer-opening methods) | 🟡 | The slope-arrow dormer works: Split the eave, clear the middle's slope, two arrows to its middle. The dormer-opening method (walls plus a joined roof) needs Join Roof, still to come |
+| Join/Unjoin Roof | ✅ | Click the edge to carry back, then the roof it runs into: carried back until buried in it and trimmed there - whole where clear above, standing on its top where partly in it, gone beneath. Plan shows it only where it is above; click a joined roof's edge to unjoin |
+| Openings: Vertical, By Face | 🟡 | Vertical openings are drawn in the roof's own sketch as inner loops; no separate Vertical or By Face (square to the slope) tool yet |
+| Dormer (slope-arrow and dormer-opening methods) | ✅ | Slope-arrow dormer: split the eave, clear the middle's slope, two arrows. With walls: walls standing on the roof (Attach Base finds it; their base follows its slope and they end where they are buried), a gable roof on them joined to the main roof, then Dormer Opening cuts the main roof between the walls' inside faces, back to where the dormer's underside meets it |
+| **Dormer tool** (one click; not in Revit) | ✅ | Click on a roof's slope: front and side walls standing on the roof, a Gable, Shed or Hip roof picked off them, joined into the main roof, and the main roof opened under it - one undo step. Width, Height, Slope and Overhang on the options bar; the height is lowered to what fits under the ridge, and a roof too low for any dormer says so. Doors and windows in its walls - or in any wall whose outline is lower than they are - are kept inside it, live: brought down or made shorter where they would come out of the top, back to their own size when there is room. A new window is sized to the wall it goes in, keeping its proportions and clear of the corners. The dormer selects as one, like a group: TAB or a second click in 3D reaches a part |
 | Fascia, Gutter | ⬜ | Wall sweeps exist; could be reused along roof edges |
 | Soffit | ⬜ | |
 | Shape editing (flat roofs: points, split lines, supports) | ⬜ | |
@@ -355,7 +356,7 @@ and openings later.
 *Done when:* a roof can be drawn with lines in a sketch, finished, reopened, changed and
 finished again, and Cancel leaves nothing behind.
 
-### R2 — Pick Walls and the draw tools ✅ (arcs, circles, Pick Lines, offset and trim/split of sketch lines still to come)
+### R2 — Pick Walls and the draw tools ✅ (fillet and tangent arcs, and dragging line ends, still to come)
 
 - **Pick Walls**: hover a wall to preview the line on its outer face (or inner face, from the
   cursor's side), click to add. **Tab** takes the whole chain of joined walls. Options bar:
@@ -374,7 +375,7 @@ finished again, and Cancel leaves nothing behind.
 *Done when:* picking the four walls of a box with a 500 mm overhang gives a hip roof sitting
 on the walls and projecting 500 mm past them, and moving a wall moves the roof edge.
 
-### R3 — Line properties and canvas controls 🟡 (plate at the wall, overhang and slope per line done; Rafter or Truss, Align Eaves and typed pitch on the canvas to come)
+### R3 — Line properties and canvas controls ✅
 
 - Selecting a sketch line shows its properties: Defines Roof Slope, Slope, Overhang, Plate
   Offset From Base, Offset From Roof Base, Extend into wall (to core), Length.
@@ -429,18 +430,33 @@ What was built, and where it differs from Revit:
   of the line the profile is drawn on (the width it spans), then how far the roof runs back —
   and opens a profile window over that width. The work plane is the vertical plane through
   the first line; there is no separate reference plane to name or rehost.
+- **Clicks lock onto the walls.** Each click snaps to a wall's corner as drawn - the
+  **Outside corner** of the building where two walls meet, which is where a roof's edge
+  usually goes, or the **Inside corner** - to the end of a wall's line, or to a grid crossing,
+  with a ring and the name of what it found. Locked onto a corner, the roof runs exactly to it;
+  otherwise its depth rounds to the snap step.
 - **Profile window.** Start from Gable, Gambrel, Barrel Vault, Shed, Butterfly or Flat, set
   out by **Rise** and **Overhang**; then drag points (10 mm snap), double-click a line to add
   one, right-click a point to take it out. Each line shows its pitch; the building's width is
   shaded along the base and the project's levels are dashed across it. A line that stands
   upright or runs back under the one before turns red, and Finish is refused with the reason.
+- **Arcs.** Dragging the diamond in the middle of any line bends it into an arc (Revit's
+  Start-End-Radius arc); dragged back to the line it is straight again. An arc is stored as an
+  arc - its two ends and how far it bows (its sagitta) - and the vault preset is a single one.
+  The roof is built from it in pieces of at most 3°, but it is one surface: no line is drawn
+  along the joins in plan or 3D, and the 3D shades it smooth, creasing only at the profile's
+  real corners. Splitting an arc with a new point keeps its curve; taking the point out again
+  gives the arc back. An arc reaching a half circle is refused - it would stand upright where
+  it springs.
 - **Base.** The window's **Base** is the roof's Base Offset From Level. It starts at the tops
   of the walls the rectangle covers (as a roof picked from walls does), else the next level up.
 - **The profile is the underside.** As a footprint roof stands on its base, the profile is
   where the roof's underside is, and its build-up stands on it, each layer offset square to
   its line and mitred at every break, so the top does not step where the pitch changes.
-- **Arcs are faceted.** The barrel vault is an arch of short straight lines, and a profile has
-  only straight lines — enough for a vault to read and to quantify, but not a true curve.
+- **Walls under it.** Finishing the roof asks whether to attach the walls it covers, as a
+  roof picked from walls does; yes closes the gable ends up to the arch or the ridge. A wall
+  only partly under the roof - one whose centre line the roof's edge stops on - takes its
+  height from the faces the roof is over, so its outer half does not hold it down.
 - **Ends are plumb.** The extrusion's two ends are cut straight down; **Extrusion Start** and
   **Extrusion End** are instance properties, validated so the end stays past the start.
 - **Edit Profile** on the context tab, or a double-click on the roof, reopens the window over
@@ -448,9 +464,9 @@ What was built, and where it differs from Revit:
   copying, saving, section, 3D, attached walls and quantities all carry the extrusion; IFC
   exports it as `IfcRoof` with `GAMBREL_ROOF`, `BARREL_ROOF` and so on, one slab per face.
 - Not done: openings by the Vertical tool (with R8), joining an extruded roof to another roof
-  (R8), true arcs.
+  (R8), arcs drawn by three points or a centre (only bent from a line).
 
-### R8 — Joins, openings, dormers ⬜
+### R8 — Joins, openings, dormers 🟡 (Join/Unjoin Roof, Dormer Opening, openings drawn in the outline and a one-click Dormer tool done; By Face openings to come)
 
 - **Join/Unjoin Roof**: extend a roof's edge to meet another roof's face or a wall.
 - **Openings**: Vertical and By Face, as sketches.

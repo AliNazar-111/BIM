@@ -122,6 +122,36 @@ public abstract class Opening : Element, IHostedElement
         return from >= -WallJoins.JoinTolerance && to <= wall.Length + WallJoins.JoinTolerance;
     }
 
+    /// <summary>
+    /// Where it actually is in its wall: where it was put - brought down, and made shorter if
+    /// need be, wherever the wall is not as tall there as it needs, as a dormer's gable or a
+    /// wall under a slope is not. What it was given is kept, so it goes back up if the wall
+    /// grows again, and follows a dormer as the dormer is changed. See <see cref="WallOpenings.Fit"/>.
+    ///
+    /// Everything that draws, cuts or reports it goes by this, not by its sill and height as set.
+    /// </summary>
+    public (double Sill, double Height) Placed(BimDocument document, OpeningType? type, Wall? wall = null, IReadOnlyList<Point2D>? outline = null)
+    {
+        var asSet = (SillHeight, HeightOf(type));
+        if (type is null) return asSet;
+
+        wall ??= document.Walls.FirstOrDefault(w => w.Id == HostWallId);
+        return wall is null ? asSet : PlacedIn(document, wall, type, DistanceAlongWall, outline) ?? asSet;
+    }
+
+    /// <summary>
+    /// Its sill and height as they would be at a place along a wall, or null when there is no
+    /// room for it there. A curtain wall holds its openings in panels instead, so there it is
+    /// as it is.
+    /// </summary>
+    public (double Sill, double Height)? PlacedIn(BimDocument document, Wall wall, OpeningType type, double along, IReadOnlyList<Point2D>? outline = null)
+    {
+        var (width, height) = (WidthOf(type), HeightOf(type));
+        if (document.FindType<CurtainWallType>(wall.TypeId) is not null) return (SillHeight, height);
+
+        return WallOpenings.Fit(document, wall, along - width / 2, along + width / 2, SillHeight, height, this is Door, outline);
+    }
+
     protected IEnumerable<ParameterValue> GetOpeningParameters(BimDocument document, OpeningType? type)
     {
         // Constraints - specification sections 13.2 and 13.3
@@ -141,11 +171,13 @@ public abstract class Opening : Element, IHostedElement
                 ? $"{host.Category} : {document.GetWallType(host)?.Name ?? "?"}"
                 : "<none>");
 
-        yield return ParameterValue.Bind(OpeningParameters.SillHeight, () => SillHeight, v => SillHeight = KeptInPanel(document, type, DistanceAlongWall, v).Sill);
+        // Where it actually is, which a wall lower than it brings down - see Placed. Set, it
+        // is where it is wanted, and goes there as far as the wall has room.
+        yield return ParameterValue.Bind(OpeningParameters.SillHeight, () => Placed(document, type).Sill, v => SillHeight = KeptInPanel(document, type, DistanceAlongWall, v).Sill);
         // The head is the sill plus the type's height: set, it moves the opening, not its size.
         yield return type is null
             ? ParameterValue.ReadOnly(OpeningParameters.HeadHeight, () => SillHeight)
-            : ParameterValue.Bind(OpeningParameters.HeadHeight, () => SillHeight + HeightOf(type),
+            : ParameterValue.Bind(OpeningParameters.HeadHeight, () => Placed(document, type) is var (sill, height) ? sill + height : 0,
                 v => SillHeight = KeptInPanel(document, type, DistanceAlongWall, v - HeightOf(type)).Sill);
 
         // This opening's own size. Set back to the type's, it follows the type again rather
@@ -165,7 +197,7 @@ public abstract class Opening : Element, IHostedElement
 
         yield return ParameterValue.Bind(
             OpeningParameters.Height,
-            () => HeightOf(type),
+            () => Placed(document, type).Height,
             v =>
             {
                 if (v <= 0) return;
@@ -173,7 +205,7 @@ public abstract class Opening : Element, IHostedElement
                 (DistanceAlongWall, SillHeight) = KeptInPanel(document, type, DistanceAlongWall, SillHeight);
             });
 
-        yield return ParameterValue.ReadOnly(OpeningParameters.Area, () => WidthOf(type) * HeightOf(type));
+        yield return ParameterValue.ReadOnly(OpeningParameters.Area, () => WidthOf(type) * Placed(document, type).Height);
 
         yield return ParameterValue.Bind(
             OpeningParameters.DistanceAlongWall,

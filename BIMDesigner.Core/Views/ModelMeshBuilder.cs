@@ -170,8 +170,10 @@ public static class ModelMeshBuilder
             to = Math.Min(wall.Length, to);
             if (to - from <= WallJoins.JoinTolerance) continue;
 
-            var sill = Math.Clamp(bottom + opening.SillHeight, lowest, top);
-            var head = Math.Clamp(bottom + opening.SillHeight + opening.HeightOf(openingType), lowest, top);
+            var (placedSill, placedHeight) = opening.Placed(document, openingType, wall, profile);
+
+            var sill = Math.Clamp(bottom + placedSill, lowest, top);
+            var head = Math.Clamp(bottom + placedSill + placedHeight, lowest, top);
             openings.Add((opening, openingType, from, to, sill, head));
         }
 
@@ -652,10 +654,18 @@ public static class ModelMeshBuilder
         var half = structure.TotalWidth / 2;
 
         var holes = openings.Select(o => (o.From, o.To, o.Sill - baseElevation, o.Head - baseElevation));
-        var strips = WallProfile.Strips(profile, wall.Length, holes)
+        var length = wall.Length;
+        var tolerance = WallJoins.JoinTolerance;
+
+        // A stretch at an end of the wall can be shorter than the join there reaches into it -
+        // the first few centimetres of a gable, where its top crosses a window's head. Cut on
+        // its own it would be inside out; it is the end of the whole wall, cut back to where the
+        // stretch ends, so the corner is built all the same.
+        var strips = WallProfile.Strips(profile, length, holes)
             .Select(strip => (Strip: strip, Slice: WallSlices.Between(document, wall, type, strip.From, strip.To, startCut, endCut)))
-            .Where(entry => entry.Slice is not null)
+            .Where(entry => entry.Slice is not null || entry.Strip.From <= tolerance || entry.Strip.To >= length - tolerance)
             .ToList();
+        var whole = WallSlices.Between(document, wall, type, 0, length, startCut, endCut);
 
         double Along(Point2D point) => wall.Locate(structure, point).Along;
 
@@ -671,8 +681,15 @@ public static class ModelMeshBuilder
 
             foreach (var (strip, slice) in strips)
             {
-                var outline = WallJoins.GetBandOutline(
-                    wall, type, half - start, half - end, Unwrapped(slice!.Value.CutFrom), Unwrapped(slice.Value.CutTo));
+                if ((slice ?? whole) is not { } piece) continue;
+
+                IReadOnlyList<Point2D> outline = WallJoins.GetBandOutline(
+                    wall, type, half - start, half - end, Unwrapped(piece.CutFrom), Unwrapped(piece.CutTo));
+                if (slice is null)
+                    outline = ClipAlong(outline, Along,
+                        strip.From <= tolerance ? double.NegativeInfinity : strip.From,
+                        strip.To >= length - tolerance ? double.PositiveInfinity : strip.To);
+                if (outline.Count < 3) continue;
 
                 // Straight top and bottom edges in elevation are planes across the plan outline,
                 // so each corner takes its height from how far along the wall it is.
@@ -824,6 +841,31 @@ public static class ModelMeshBuilder
     private static WallCut Unwrapped(WallCut cut) =>
         cut.Condition == WallEndCondition.Jamb ? new WallCut(cut.Points, cut.Condition) : cut;
 
+    /// <summary>The part of a plan outline between two distances along a wall, either of which may be open.</summary>
+    private static IReadOnlyList<Point2D> ClipAlong(IReadOnlyList<Point2D> outline, Func<Point2D, double> along, double from, double to)
+    {
+        var kept = outline.ToList();
+        foreach (var (limit, keepBelow) in new[] { (from, false), (to, true) })
+        {
+            if (double.IsInfinity(limit) || kept.Count == 0) continue;
+
+            // Sutherland-Hodgman against one line across the wall.
+            double Inside(Point2D point) => keepBelow ? limit - along(point) : along(point) - limit;
+            var next = new List<Point2D>();
+            for (var i = 0; i < kept.Count; i++)
+            {
+                var (a, b) = (kept[i], kept[(i + 1) % kept.Count]);
+                var (da, db) = (Inside(a), Inside(b));
+                if (da >= 0) next.Add(a);
+                if ((da >= 0) != (db >= 0)) next.Add(a + (b - a) * (da / (da - db)));
+            }
+
+            kept = next;
+        }
+
+        return kept;
+    }
+
     // ---- slabs -----------------------------------------------------------------
 
     /// <summary>
@@ -881,6 +923,13 @@ public static class ModelMeshBuilder
     /// </summary>
     private static void AddRoof(BimDocument document, Roof roof, SlabType type, List<Mesh3D> meshes)
     {
+        // A roof by extrusion is swept from its section, so a vault shades as the curve it is.
+        if (roof.Extrusion is { IsValid: true } extrusion && roof.DormerOpenings.Count == 0 && roof.JoinedTo is null)
+        {
+            AddExtrudedRoof(document, roof, extrusion, type, meshes);
+            return;
+        }
+
         // The pieces are the same ones a section cuts, eaves and all, so the two agree.
         foreach (var group in RoofSolid.Pieces(document, roof).GroupBy(piece => piece.Layer))
         {
@@ -891,8 +940,76 @@ public static class ModelMeshBuilder
                 material?.SurfaceColour ?? DefaultSurface,
                 material?.Name ?? layer.Function.ToString());
 
+            // The faces of a cone are one curved surface built flat, so they are shaded as one
+            // - across the join where one arc runs on into the next too. A real crease between
+            // them is steeper than smoothing crosses, and stays sharp.
             foreach (var piece in group)
-                mesh.AddExtrusion(piece.Outline, piece.Bottom.HeightAt, piece.Top.HeightAt);
+                mesh.AddExtrusion(piece.Outline, piece.Bottom.HeightAt, piece.Top.HeightAt, piece.SmoothGroup is null ? null : 0);
+
+            mesh.SmoothGroups();
+            if (!mesh.IsEmpty) meshes.Add(mesh);
+        }
+    }
+
+    /// <summary>
+    /// A roof by extrusion, a layer at a time: each layer's section swept back from the
+    /// extrusion's start to its end. Its top and underside are surfaces that stay smooth round
+    /// an arc and crease only at the profile's real corners; its eaves are cut plumb and its
+    /// ends capped square, the section showing on them as it would on a gable.
+    /// </summary>
+    private static void AddExtrudedRoof(BimDocument document, Roof roof, RoofExtrusion extrusion, SlabType type, List<Mesh3D> meshes)
+    {
+        var baseElevation = roof.BaseElevation(document);
+        var (start, end) = (extrusion.Start, extrusion.End);
+
+        var up = new Point3D(0, 0, 1);
+        var down = new Point3D(0, 0, -1);
+        var forward = new Point3D(extrusion.Direction.X, extrusion.Direction.Y, 0);
+        var back = new Point3D(-forward.X, -forward.Y, 0);
+        var across = new Point3D(extrusion.Across.X, extrusion.Across.Y, 0);
+        var before = new Point3D(-across.X, -across.Y, 0);
+
+        Point3D At(Point2D section, double run) => Point3D.On(extrusion.At(section.X, run), baseElevation + section.Y);
+        List<Point3D> Row(IEnumerable<Point2D> line, double run) => line.Select(point => At(point, run)).ToList();
+
+        foreach (var section in extrusion.Sections(type.Structure))
+        {
+            var material = document.FindMaterial(section.Layer.MaterialId);
+            var mesh = new Mesh3D(
+                roof.Id, roof.LevelId, MeshKind.Roof,
+                material?.SurfaceColour ?? DefaultSurface,
+                material?.Name ?? section.Layer.Function.ToString());
+
+            var (lower, upper) = (section.Lower, section.Upper);
+
+            mesh.AddSweep(Row(upper, start), Row(upper, end), section.UpperSmooth, up);
+            mesh.AddSweep(Row(lower, start), Row(lower, end), section.LowerSmooth, down);
+
+            // The eaves, cut plumb.
+            mesh.AddFace(At(lower[0], start), At(upper[0], start), At(upper[0], end), At(lower[0], end), back);
+            mesh.AddFace(At(lower[^1], start), At(upper[^1], start), At(upper[^1], end), At(lower[^1], end), forward);
+
+            // The two ends, the layer's section on each.
+            var ring = upper.Concat(lower.Reverse()).ToList();
+            var triangles = Polygon2D.Triangulate(ring);
+            var first = Row(ring, start);
+            var last = Row(ring, end);
+            mesh.AddFace(first, triangles, before);
+            mesh.AddFace(last, triangles, across);
+
+            // The section's outline at each end, and a line along the roof at each real corner
+            // of it - never part way round an arc, which would stripe the curve.
+            for (var i = 0; i < ring.Count; i++)
+            {
+                mesh.AddEdge(first[i], first[(i + 1) % ring.Count]);
+                mesh.AddEdge(last[i], last[(i + 1) % ring.Count]);
+            }
+
+            for (var i = 0; i < upper.Count; i++)
+                if (!section.UpperSmooth[i]) mesh.AddEdge(At(upper[i], start), At(upper[i], end));
+
+            for (var i = 0; i < lower.Count; i++)
+                if (!section.LowerSmooth[i]) mesh.AddEdge(At(lower[i], start), At(lower[i], end));
 
             if (!mesh.IsEmpty) meshes.Add(mesh);
         }

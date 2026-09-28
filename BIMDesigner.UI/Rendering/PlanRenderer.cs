@@ -1048,9 +1048,23 @@ public sealed class PlanRenderer
 
         var isSelected = IsSelected(slab);
 
-        dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildOutline(slab.Boundary));
+        // A roof joined to another shows only where it is above it: its edge there is the
+        // valley where the two meet, not the footprint carried back under the other roof.
+        var outlines = slab is Roof { JoinedTo: not null } joined
+            ? RoofJoin.Visible(Document, joined)
+            : new[] { slab.Boundary };
 
-        if (slab is Roof roof) DrawRoofLines(dc, roof, isSelected);
+        foreach (var outline in outlines)
+            dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildOutline(outline));
+
+        if (slab is Roof roof)
+        {
+            DrawRoofLines(dc, roof, isSelected, outlines);
+
+            // Where the roof is cut away for a dormer, the hole's outline.
+            foreach (var opening in RoofJoin.Openings(Document, roof))
+                dc.DrawGeometry(null, isSelected ? _selectedPen : _slabPen, BuildOutline(opening));
+        }
     }
 
     /// <summary>
@@ -1062,20 +1076,36 @@ public sealed class PlanRenderer
     /// only shown on selection because they are an editing aid, not part of the drawing: they
     /// say which edges were given a slope, which is otherwise invisible once the roof is made.
     /// </summary>
-    private void DrawRoofLines(DrawingContext dc, Roof roof, bool isSelected)
+    private void DrawRoofLines(DrawingContext dc, Roof roof, bool isSelected, IReadOnlyList<IReadOnlyList<Point2D>> shown)
     {
         if (Document is null || roof.Form == RoofForm.Flat) return;
 
         var surface = roof.Surface(Document);
+        var trimmed = roof.JoinedTo is not null;
 
         foreach (var (from, to) in surface.BreakLines)
+        {
+            // A joined roof's ridges stop where it runs under the other roof.
+            if (trimmed && !shown.Any(outline => Polygon2D.Contains(outline, from.MidpointTo(to)))) continue;
             dc.DrawLine(_roofLinePen, ModelToScreen(from), ModelToScreen(to));
+        }
 
         if (!isSelected) return;
+
+        // An arc is built from many short edges but is one line: its arrow goes once, at its
+        // middle piece, not on every one.
+        var middles = roof.Edges
+            .Select((edge, index) => (edge.ArcId, Index: index))
+            .Where(entry => entry.ArcId is not null)
+            .GroupBy(entry => entry.ArcId)
+            .Select(run => run.Select(entry => entry.Index).OrderBy(index => index).ToList())
+            .Select(indices => indices[indices.Count / 2])
+            .ToHashSet();
 
         for (var i = 0; i < roof.Edges.Count && i < roof.Boundary.Count; i++)
         {
             if (!roof.Edges[i].DefinesSlope) continue;
+            if (roof.Edges[i].ArcId is not null && !middles.Contains(i)) continue;
 
             var from = roof.Boundary[i];
             var to = roof.Boundary[(i + 1) % roof.Boundary.Count];

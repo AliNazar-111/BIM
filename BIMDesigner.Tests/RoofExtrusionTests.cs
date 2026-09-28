@@ -142,9 +142,9 @@ public class RoofExtrusionTests
     {
         var profile = RoofExtrusion.Preset(RoofForm.Gable, 6000, 3000 * Rise30, overhang: 500);
 
-        Assert.Equal(-500, profile[0].X, precision: 6);
-        Assert.Equal(-500 * Rise30, profile[0].Y, precision: 6);
-        Assert.Equal(6500, profile[^1].X, precision: 6);
+        Assert.Equal(-500, profile.Points[0].X, precision: 6);
+        Assert.Equal(-500 * Rise30, profile.Points[0].Y, precision: 6);
+        Assert.Equal(6500, profile.Points[^1].X, precision: 6);
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public class RoofExtrusionTests
         var (_, roof) = Extruded(RoofForm.Gable);
         var gable = roof.Extrusion!;
 
-        var command = new SetRoofExtrusionCommand(roof, gable.With(profile: RoofExtrusion.Preset(RoofForm.Gambrel, 6000, 3000)));
+        var command = new SetRoofExtrusionCommand(roof, gable.With(shape: RoofExtrusion.Preset(RoofForm.Gambrel, 6000, 3000)));
         command.Redo();
         Assert.Equal(RoofForm.Gambrel, roof.Form);
 

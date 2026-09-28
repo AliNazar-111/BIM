@@ -1,0 +1,67 @@
+<Window x:Class="BIMDesigner.UI.WallShapeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rectangle" Width="420" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg.Window}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource UiFont}"
+        FontSize="{StaticResource UiFontSize}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="Field" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="18,14,18,14">
+        <Grid Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Image x:Name="ShapeImage" Width="32" Height="32" VerticalAlignment="Top" Margin="0,0,12,0"/>
+            <TextBlock Grid.Column="1" x:Name="NowText" TextWrapping="Wrap" Foreground="{StaticResource Text.Muted}"/>
+        </Grid>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="Measured to" Style="{StaticResource Field}"/>
+            <ComboBox Grid.Column="1" x:Name="MeasurePicker" Margin="0,0,0,8" SelectionChanged="OnMeasureChanged"
+                      ToolTip="Where the sizes are measured: between the walls' centres, or the faces inside the room, or outside it">
+                <ComboBoxItem Content="Wall centres"/>
+                <ComboBoxItem Content="Inside faces - the room"/>
+                <ComboBoxItem Content="Outside faces"/>
+            </ComboBox>
+
+            <TextBlock Grid.Row="1" x:Name="WidthLabel" Text="Width" Style="{StaticResource Field}"/>
+            <TextBox Grid.Row="1" Grid.Column="1" x:Name="WidthBox" Margin="0,0,0,8"/>
+
+            <TextBlock Grid.Row="2" x:Name="DepthLabel" Text="Depth" Style="{StaticResource Field}"/>
+            <TextBox Grid.Row="2" Grid.Column="1" x:Name="DepthBox" Margin="0,0,0,8"
+                     ToolTip="The size top to bottom on the page"/>
+        </Grid>
+
+        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{StaticResource Text.Muted}"
+                   FontSize="{StaticResource UiFontSizeSmall}"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="OkButton" Content="Make Rectangle" Padding="18,5" Margin="0,0,8,0" IsDefault="True" Click="OnOk"/>
+            <Button Content="Cancel" Padding="18,5" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

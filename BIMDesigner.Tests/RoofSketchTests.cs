@@ -161,7 +161,7 @@ public class RoofSketchTests
     }
 
     [Fact]
-    public void TwoLoopsAreRefusedForNow()
+    public void ALoopInsideIsAnOpeningAndALoopBesideIsRefused()
     {
         var edge = new RoofEdge();
         List<RoofSketchLine> Square(double x0, double y0, double size) => new()
@@ -172,11 +172,15 @@ public class RoofSketchTests
             new(new Point2D(x0, y0 + size), new Point2D(x0, y0), edge.Copy())
         };
 
-        var lines = Square(0, 0, 10000).Concat(Square(4000, 4000, 1000)).ToList();
-        var check = RoofSketch.Check(lines);
+        // A square inside the outline is a hole through the roof, as in Revit.
+        var inside = RoofSketch.Check(Square(0, 0, 10000).Concat(Square(4000, 4000, 1000)).ToList());
+        Assert.True(inside.IsValid, inside.Problem);
+        Assert.Single(inside.Openings);
 
-        Assert.False(check.IsValid);
-        Assert.Contains("more than one loop", check.Problem);
+        // One beside it would be a second roof, which one sketch cannot make.
+        var beside = RoofSketch.Check(Square(0, 0, 10000).Concat(Square(12000, 0, 1000)).ToList());
+        Assert.False(beside.IsValid);
+        Assert.Contains("separate loops", beside.Problem);
     }
 
     [Fact]

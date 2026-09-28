@@ -259,6 +259,11 @@ public static class ElementCopy
             copied.CutoffOffset = roof.CutoffOffset;
             copied.CutoffLevelId = roof.CutoffLevelId;
             copied.RafterCut = roof.RafterCut;
+            copied.Bearing = roof.Bearing;
+            copied.JoinedTo = roof.JoinedTo;
+            copied.Dormer = roof.Dormer;
+            copied.DormerWalls.AddRange(roof.DormerWalls);
+            copied.SetOpenings(roof.Openings);
             copied.FasciaDepth = roof.FasciaDepth;
             copied.SetSlopeArrows(roof.SlopeArrows.Select(arrow => arrow.Copy()));
             copied.SetExtrusion(roof.Extrusion);
@@ -317,6 +322,25 @@ public static class ElementCopy
     /// </summary>
     private static void Redirect(Element copy, IReadOnlyDictionary<Guid, Guid> replacements)
     {
+        // Walls copied with the roof they stand on or carry go with the copy of it.
+        if (copy is Wall attached)
+        {
+            if (attached.TopAttachedTo is { } top && replacements.TryGetValue(top, out var newTop)) attached.TopAttachedTo = newTop;
+            if (attached.BaseAttachedTo is { } foot && replacements.TryGetValue(foot, out var newFoot)) attached.BaseAttachedTo = newFoot;
+        }
+
+        // A dormer copied with its walls is a dormer of the copies; copied without them, a roof.
+        if (copy is Roof { Dormer: not null } dormer)
+        {
+            for (var i = dormer.DormerWalls.Count - 1; i >= 0; i--)
+            {
+                if (replacements.TryGetValue(dormer.DormerWalls[i], out var wall)) dormer.DormerWalls[i] = wall;
+                else dormer.DormerWalls.RemoveAt(i);
+            }
+
+            if (dormer.DormerWalls.Count == 0) dormer.Dormer = null;
+        }
+
         switch (copy)
         {
             case Opening opening when replacements.TryGetValue(opening.HostWallId, out var host):

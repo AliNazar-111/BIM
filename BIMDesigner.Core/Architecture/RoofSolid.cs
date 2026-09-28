@@ -22,7 +22,11 @@ public enum RafterCut
 /// it runs between there. Everything that builds or cuts a roof - the 3D model, a section -
 /// builds these, so the two cannot disagree about where the roof is.
 /// </summary>
-public sealed record RoofPiece(IReadOnlyList<Point2D> Outline, MaterialLayer Layer, RoofPlane Bottom, RoofPlane Top);
+public sealed record RoofPiece(IReadOnlyList<Point2D> Outline, MaterialLayer Layer, RoofPlane Bottom, RoofPlane Top)
+{
+    /// <summary>The curved surface this piece is part of - a cone, built from flat faces - to be shaded as one; null for a flat face of its own.</summary>
+    public Guid? SmoothGroup { get; init; }
+}
 
 /// <summary>
 /// A roof as solid pieces: each face, each layer of the build-up standing on the underside
@@ -39,7 +43,12 @@ public static class RoofSolid
 {
     private const double Tolerance = 1e-6;
 
-    public static IReadOnlyList<RoofPiece> Pieces(BimDocument document, Roof roof)
+    public static IReadOnlyList<RoofPiece> Pieces(BimDocument document, Roof roof) =>
+        // Trimmed where it runs into a roof it is joined to, and opened for the dormers on it.
+        RoofJoin.Open(document, roof, RoofJoin.Trim(document, roof, Uncut(document, roof)));
+
+    /// <summary>The roof's pieces before any other roof has a say in them.</summary>
+    private static IReadOnlyList<RoofPiece> Uncut(BimDocument document, Roof roof)
     {
         if (document.FindType<SlabType>(roof.TypeId) is not { } type) return Array.Empty<RoofPiece>();
 
@@ -64,11 +73,12 @@ public static class RoofSolid
 
                 if (roof.RafterCut == RafterCut.PlumbCut || under.Rise < 1e-9 || !facet.HasEave)
                 {
-                    pieces.Add(new RoofPiece(facet.Outline, layer, bottom, top));
+                    pieces.Add(new RoofPiece(facet.Outline, layer, bottom, top) { SmoothGroup = facet.ArcId });
                     continue;
                 }
 
-                pieces.AddRange(CutAtEave(facet.Outline, layer, under, bottom, top, roof.RafterCut, roof.FasciaDepth, total));
+                pieces.AddRange(CutAtEave(facet.Outline, layer, under, bottom, top, roof.RafterCut, roof.FasciaDepth, total)
+                    .Select(piece => piece with { SmoothGroup = facet.ArcId }));
             }
         }
 

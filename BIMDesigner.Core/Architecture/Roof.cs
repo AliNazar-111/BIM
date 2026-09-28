@@ -21,6 +21,12 @@ namespace BIMDesigner.Core.Architecture;
 /// FLAT_ROOF); it is deliberately not an IfcSlab, because a pitched roof is not a slab and
 /// every quantity downstream would inherit the lie.
 /// </summary>
+/// <summary>
+/// A hole drawn in a roof's sketch: its outline, and for each edge of it the arc it is a straight
+/// piece of, if any - so a round skylight opens again as a circle.
+/// </summary>
+public sealed record RoofOpening(IReadOnlyList<Point2D> Points, IReadOnlyList<Guid?> ArcIds);
+
 public sealed class Roof : Slab
 {
     private readonly List<RoofEdge> _edges = new();
@@ -238,6 +244,43 @@ public sealed class Roof : Slab
 
     public const double DefaultFasciaDepth = 150;
 
+    /// <summary>
+    /// Where the roof bears on the walls it was picked from - Revit's Rafter or Truss. Truss
+    /// by default, as in Revit: the slope starts on the walls' outside faces.
+    /// </summary>
+    public RoofBearing Bearing { get; set; } = RoofBearing.Truss;
+
+    /// <summary>
+    /// How far in from an edge the roof bears, which is where its plate height applies: nothing
+    /// for a drawn edge; for one picked from a wall, the overhang - and for rafters the wall's
+    /// depth on top, since they bear on its inside face (its core's, with Extend to wall core).
+    /// </summary>
+    public double BearingInset(BimDocument document, RoofEdge edge)
+    {
+        var inset = edge.BearingInset;
+        if (edge.WallId is not { } id || Bearing == RoofBearing.Truss) return inset;
+
+        if (document.Walls.FirstOrDefault(wall => wall.Id == id) is not { } wall || document.GetWallType(wall) is not { } type)
+            return inset;
+
+        var structure = type.Structure;
+        var depth = edge.ExtendToCore ? structure.TotalWidth - structure.ExteriorWidth - structure.InteriorWidth : structure.TotalWidth;
+        return inset + Math.Max(0, depth);
+    }
+
+    /// <summary>
+    /// How high an edge of the roof is above its base where it ends - its eave. An edge picked
+    /// with an overhang is lower than the plate it bears at, by how far it runs out past that
+    /// times the pitch; a gable end is at its plate height.
+    /// </summary>
+    public double EaveHeight(BimDocument document, RoofEdge edge) =>
+        EaveHeight(edge, BearingInset(document, edge));
+
+    public static double EaveHeight(RoofEdge edge, double bearingInset) =>
+        edge.DefinesSlope
+            ? edge.PlateOffset - Math.Tan(Math.Clamp(edge.SlopeDegrees, 0.05, 89.95) * Math.PI / 180) * bearingInset
+            : edge.PlateOffset;
+
     /// <summary>The Cutoff Level choices that are not levels.</summary>
     public const string NoCutoff = "None";
     public const string RoofBase = "Roof Base";
@@ -275,12 +318,13 @@ public sealed class Roof : Slab
         // Working the faces out takes a few dozen polygon operations, and every wall attached
         // under the roof asks for them each time it is drawn. So the last answer is kept, with
         // everything it was worked out from, and handed back while none of that has changed.
-        var signature = Signature(bottom, cutoff);
+        var insets = _edges.Select(edge => BearingInset(document, edge)).ToList();
+        var signature = Signature(bottom, cutoff, insets);
         if (_surface is { } kept && _surfaceSignature is { } was && was.SequenceEqual(signature)) return kept;
 
         _surface = Extrusion is { } extrusion
             ? RoofShape.BuildExtrusion(extrusion, bottom)
-            : RoofShape.Build(Boundary, _edges, bottom, cutoff, _arrows);
+            : RoofShape.Build(Boundary, _edges, bottom, cutoff, _arrows, edge => BearingInset(document, edge));
         _surfaceSignature = signature;
         return _surface;
     }
@@ -288,7 +332,7 @@ public sealed class Roof : Slab
     private RoofSurface? _surface;
     private double[]? _surfaceSignature;
 
-    private double[] Signature(double bottom, double? cutoff)
+    private double[] Signature(double bottom, double? cutoff, IReadOnlyList<double> insets)
     {
         var values = new List<double>(4 + Boundary.Count * 2 + _edges.Count * 5) { bottom, cutoff ?? double.NaN };
 
@@ -312,15 +356,18 @@ public sealed class Roof : Slab
                 values.Add(point.X);
                 values.Add(point.Y);
             }
+
+            values.AddRange(extrusion.Sagittas);
         }
 
-        foreach (var edge in _edges)
+        foreach (var (edge, inset) in _edges.Zip(insets))
         {
             values.Add(edge.DefinesSlope ? 1 : 0);
             values.Add(edge.SlopeDegrees);
             values.Add(edge.PlateOffset);
-            values.Add(edge.BearingInset);
+            values.Add(inset);
             values.Add(edge.WallId is null ? 0 : 1);
+            values.Add(edge.ArcId?.GetHashCode() ?? 0);
         }
 
         foreach (var arrow in _arrows)
@@ -366,7 +413,54 @@ public sealed class Roof : Slab
     /// The area of the roof surface, which on a pitched roof is more than its footprint - and
     /// it is the surface, not the footprint, that tiles are bought by.
     /// </summary>
-    public double SlopingArea(BimDocument document) => Surface(document).SlopingArea;
+    public double SlopingArea(BimDocument document) =>
+        JoinedTo is null && DormerOpenings.Count == 0 && Openings.Count == 0 ? Surface(document).SlopingArea : RoofJoin.SlopingArea(document, this);
+
+    /// <summary>
+    /// The roof this one is joined to - Revit's Join Roof. A dormer's roof is joined to the roof
+    /// it comes out of: carried back until it meets it, and trimmed where it runs into it, so the
+    /// two meet in valleys instead of one passing through the other.
+    /// </summary>
+    public Guid? JoinedTo { get; set; }
+
+    /// <summary>
+    /// The dormers this roof is opened for - Revit's Dormer Opening: under each dormer's roof,
+    /// between the walls carrying it, this roof is cut away so the room runs on up into the
+    /// dormer. The hole is worked out from the dormer each time, so it follows it when it moves.
+    /// </summary>
+    public List<Guid> DormerOpenings { get; } = new();
+
+    /// <summary>
+    /// When this is a dormer's roof, made by the Dormer tool: what the dormer was made as. Its
+    /// walls are listed with it, so a click on the roof or any of them picks the whole dormer,
+    /// as a group is picked - TAB, or a second click in 3D, reaches one part of it.
+    /// </summary>
+    public DormerSettings? Dormer { get; set; }
+
+    /// <summary>The walls carrying this roof when it is a dormer's.</summary>
+    public List<Guid> DormerWalls { get; } = new();
+
+    private readonly List<RoofOpening> _openings = new();
+
+    /// <summary>
+    /// Holes drawn in the roof's sketch - a loop inside its outline, as Revit takes one: a
+    /// skylight, a chimney, a light well. Cut straight down through the roof.
+    /// </summary>
+    public IReadOnlyList<RoofOpening> Openings => _openings;
+
+    public void SetOpenings(IEnumerable<RoofOpening> openings)
+    {
+        _openings.Clear();
+        _openings.AddRange(openings);
+    }
+
+    /// <summary>Moves the openings with the roof, when it is moved, mirrored or turned.</summary>
+    public void TransformOpenings(Func<Point2D, Point2D> map)
+    {
+        var moved = _openings.Select(opening => opening with { Points = opening.Points.Select(map).ToList() }).ToList();
+        _openings.Clear();
+        _openings.AddRange(moved);
+    }
 
     public override double GetVolume(BimDocument document) =>
         SlopingArea(document) * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
@@ -387,7 +481,7 @@ public sealed class Roof : Slab
             {
                 if (Extrusion is not { } extrusion || start >= extrusion.End - 1) return false;
 
-                SetExtrusion(new RoofExtrusion(extrusion.Origin, extrusion.Direction, extrusion.Profile, start, extrusion.End));
+                SetExtrusion(extrusion.With(start: start));
                 return true;
             });
 
@@ -396,7 +490,7 @@ public sealed class Roof : Slab
             {
                 if (Extrusion is not { } extrusion || end <= extrusion.Start + 1) return false;
 
-                SetExtrusion(new RoofExtrusion(extrusion.Origin, extrusion.Direction, extrusion.Profile, extrusion.Start, end));
+                SetExtrusion(extrusion.With(end: end));
                 return true;
             });
 
@@ -415,12 +509,12 @@ public sealed class Roof : Slab
             {
                 // Freeform is what a roof is called once its edges have been set one at a
                 // time; choosing it would have nothing to do, so it is left alone.
-                if (EnumText.TryParse<RoofForm>(value, out var form) && form is not (RoofForm.Freeform or RoofForm.Gambrel or RoofForm.Barrel))
+                if (EnumText.TryParse<RoofForm>(value, out var form) && form is not (RoofForm.Freeform or RoofForm.Gambrel or RoofForm.Barrel or RoofForm.Conical))
                     SetShape(form);
             },
             // A gambrel or a vault is a profile, drawn as a roof by extrusion: a footprint
             // cannot be one, so neither is offered here.
-            new[] { RoofForm.Flat, RoofForm.Shed, RoofForm.Gable, RoofForm.Hip, RoofForm.Freeform }
+            new[] { RoofForm.Flat, RoofForm.Shed, RoofForm.Gable, RoofForm.Hip, RoofForm.Freeform, RoofForm.Conical }
                 .Select(form => EnumText.Humanise(form)).ToArray());
 
         yield return ParameterValue.BindValidated(
@@ -460,6 +554,16 @@ public sealed class Roof : Slab
             new[] { NoCutoff, RoofBase }.Concat(document.Levels.Select(level => level.Name)).ToArray());
 
         yield return ParameterValue.Bind(RoofParameters.CutoffOffset, () => CutoffOffset, value => CutoffOffset = value);
+
+        // Only a roof picked from walls bears on them, so only it has the choice - as in Revit.
+        if (_edges.Any(edge => edge.WallId is not null))
+        {
+            yield return ParameterValue.BindChoice(
+                RoofParameters.RafterOrTruss,
+                () => EnumText.Humanise(Bearing),
+                value => { if (EnumText.TryParse<RoofBearing>(value, out var bearing)) Bearing = bearing; },
+                EnumText.Choices<RoofBearing>());
+        }
 
         yield return ParameterValue.BindChoice(
             RoofParameters.RafterCut,
@@ -576,6 +680,9 @@ public static class RoofParameters
 
     public static readonly ParameterDefinition CutoffOffset =
         new("Cutoff Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition RafterOrTruss =
+        new("Rafter or Truss", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition RafterCut =
         new("Rafter Cut", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);

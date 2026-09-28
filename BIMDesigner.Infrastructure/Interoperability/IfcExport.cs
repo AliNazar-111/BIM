@@ -440,7 +440,11 @@ public static class IfcExport
         {
             var surface = roof.Surface(_document);
             var storey = StoreyOf(roof);
-            var flat = surface.Form == RoofForm.Flat;
+
+            // A roof with holes in it, or trimmed by another, is exported face by face as built,
+            // even when flat: one solid from its outline would fill the holes back in.
+            var cut = roof.Openings.Count > 0 || roof.DormerOpenings.Count > 0 || roof.JoinedTo is not null;
+            var flat = surface.Form == RoofForm.Flat && !cut;
 
             // A flat roof is one solid extruded up from its underside; a pitched one is placed
             // at its storey and each of its faces carries its own frame.
@@ -470,7 +474,7 @@ public static class IfcExport
             {
                 var storeyElevation = _document.FindLevel(roof.LevelId)?.Elevation ?? 0;
 
-                foreach (var facet in surface.Facets)
+                foreach (var facet in RoofJoin.CutFacets(_document, roof))
                 {
                     var face = ExportRoofFacet(roof, type, facet, thickness, storeyElevation, storey);
                     if (face is not null) Aggregate(product, face);
@@ -564,6 +568,7 @@ public static class IfcExport
             RoofForm.Hip => IfcRoofTypeEnum.HIP_ROOF,
             RoofForm.Gambrel => IfcRoofTypeEnum.GAMBREL_ROOF,
             RoofForm.Barrel => IfcRoofTypeEnum.BARREL_ROOF,
+            RoofForm.Conical => IfcRoofTypeEnum.FREEFORM,
             _ => IfcRoofTypeEnum.FREEFORM
         };
 
@@ -609,12 +614,14 @@ public static class IfcExport
             var panelOrigin = ToLocal(new[] { jambFrom - inward * (type.Thickness / 2) }, bodyStart, wall.Direction)[0];
             var panelDirection = ToLocal(new[] { bodyStart + chord }, bodyStart, wall.Direction)[0];
 
-            var sill = wall.BaseOffset + opening.SillHeight;
+            // Where it actually is: brought inside a wall lower than it, as a dormer's gable is.
+            var (placedSill, placedHeight) = opening.Placed(_document, type, wall);
+            var sill = wall.BaseOffset + placedSill;
 
             var voidPlacement = New<IfcLocalPlacement>(p =>
             {
                 p.PlacementRelTo = ifcWall.ObjectPlacement;
-                p.RelativePlacement = Placement(Point3D(0, 0, opening.SillHeight));
+                p.RelativePlacement = Placement(Point3D(0, 0, placedSill));
             });
 
             var hole = New<IfcOpeningElement>(o =>
@@ -622,7 +629,7 @@ public static class IfcExport
                 o.Name = $"{type.Name} opening";
                 o.PredefinedType = IfcOpeningElementTypeEnum.OPENING;
                 o.ObjectPlacement = voidPlacement;
-                o.Representation = Extrude(profile, opening.HeightOf(type));
+                o.Representation = Extrude(profile, placedHeight);
             });
 
             New<IfcRelVoidsElement>(relation =>
@@ -636,14 +643,14 @@ public static class IfcExport
                 p.PlacementRelTo = ifcWall.ObjectPlacement;
                 p.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
                 {
-                    axis.Location = Point3D(panelOrigin.X, panelOrigin.Y, opening.SillHeight);
+                    axis.Location = Point3D(panelOrigin.X, panelOrigin.Y, placedSill);
                     axis.Axis = Direction(0, 0, 1);
                     axis.RefDirection = Direction(panelDirection.X, panelDirection.Y, 0);
                 });
             });
 
             var width = opening.WidthOf(type);
-            var height = opening.HeightOf(type);
+            var height = placedHeight;
 
             var panel = new List<Point2D>
             {

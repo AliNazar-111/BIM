@@ -81,8 +81,10 @@ public static class WallSweeps
             {
                 if (document.FindType<OpeningType>(opening.TypeId) is not { } openingType) continue;
 
-                var sill = wallBottom + opening.SillHeight;
-                var head = sill + openingType.Height;
+                var (placedSill, placedHeight) = opening.Placed(document, openingType, wall);
+
+                var sill = wallBottom + placedSill;
+                var head = sill + placedHeight;
                 if (head <= bottom || sill >= top) continue;
 
                 var (gapFrom, gapTo) = opening.GetSpan(openingType);

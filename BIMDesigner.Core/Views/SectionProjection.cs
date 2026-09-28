@@ -458,8 +458,9 @@ public static class SectionProjection
 
         foreach (var (opening, openingType) in openings)
         {
-            var sill = Math.Max(baseElevation, baseElevation + opening.SillHeight);
-            var head = Math.Min(topElevation, baseElevation + opening.SillHeight + opening.HeightOf(openingType));
+            var (placedSill, placedHeight) = opening.Placed(document, openingType, wall);
+            var sill = Math.Max(baseElevation, baseElevation + placedSill);
+            var head = Math.Min(topElevation, baseElevation + placedSill + placedHeight);
             if (head <= sill) continue;
 
             AddOpeningPieces(
@@ -527,8 +528,9 @@ public static class SectionProjection
 
             foreach (var (opening, openingType) in openings)
             {
-                var sill = Math.Max(baseElevation, baseElevation + opening.SillHeight);
-                var head = Math.Min(topElevation, baseElevation + opening.SillHeight + openingType.Height);
+                var (placedSill, placedHeight) = opening.Placed(document, openingType, wall);
+                var sill = Math.Max(baseElevation, baseElevation + placedSill);
+                var head = Math.Min(topElevation, baseElevation + placedSill + placedHeight);
                 if (head <= sill) continue;
 
                 AddOpeningPieces(new SectionRect(from, sill, to, head), opening, openingType, SectionDepth.Cut, pieces);
@@ -602,8 +604,10 @@ public static class SectionProjection
             var openingRight = Math.Min(right, Math.Max(a, b));
             if (openingRight - openingLeft <= Epsilon) continue;
 
-            var sill = Math.Max(baseElevation, baseElevation + opening.SillHeight);
-            var head = Math.Min(topElevation, baseElevation + opening.SillHeight + openingType.Height);
+            var (placedSill, placedHeight) = opening.Placed(document, openingType, wall);
+
+            var sill = Math.Max(baseElevation, baseElevation + placedSill);
+            var head = Math.Min(topElevation, baseElevation + placedSill + placedHeight);
             if (head <= sill) continue;
 
             AddOpeningPieces(
@@ -770,8 +774,9 @@ public static class SectionProjection
 
         foreach (var (opening, openingType) in openings)
         {
-            var sill = baseElevation + opening.SillHeight;
-            var head = sill + openingType.Height;
+            var (placedSill, placedHeight) = opening.Placed(document, openingType, outline: profile);
+            var sill = baseElevation + placedSill;
+            var head = sill + placedHeight;
 
             spans = spans
                 .SelectMany(s => s.Top <= sill || s.Bottom >= head
@@ -796,8 +801,9 @@ public static class SectionProjection
         var holes = openings
             .Select(entry =>
             {
-                var sill = Math.Max(baseElevation, baseElevation + entry.Opening.SillHeight);
-                var head = Math.Min(topElevation, baseElevation + entry.Opening.SillHeight + entry.Type.Height);
+                var (placedSill, placedHeight) = entry.Opening.Placed(document, entry.Type);
+                var sill = Math.Max(baseElevation, baseElevation + placedSill);
+                var head = Math.Min(topElevation, baseElevation + placedSill + placedHeight);
                 return (Sill: sill, Head: head);
             })
             .Where(hole => hole.Head > hole.Sill)

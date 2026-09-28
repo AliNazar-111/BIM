@@ -459,12 +459,30 @@ public static class ProjectFile
                         WallId = edge.WallId,
                         OnLeftOfWall = edge.OnLeftOfWall,
                         Overhang = edge.Overhang,
-                        ExtendToCore = edge.ExtendToCore
+                        ExtendToCore = edge.ExtendToCore,
+                        ArcId = edge.ArcId
                     }).ToList()
                     : new List<RoofEdgeDto>(),
                 RoofCutoff = slab is Roof cut ? cut.CutoffOffset : 0,
                 RoofCutoffLevelId = slab is Roof withLevel ? withLevel.CutoffLevelId : null,
                 RoofRafterCut = slab is Roof eaves ? eaves.RafterCut.ToString() : "PlumbCut",
+                RoofBearing = slab is Roof bearing ? bearing.Bearing.ToString() : "Truss",
+                RoofJoinedTo = (slab as Roof)?.JoinedTo,
+                RoofDormerOpenings = slab is Roof { DormerOpenings.Count: > 0 } opened ? opened.DormerOpenings.ToList() : null,
+                RoofDormer = slab is Roof { Dormer: { } made } dormer
+                    ? new RoofDormerDto
+                    {
+                        Shape = made.Shape.ToString(), Width = made.Width, Height = made.Height,
+                        Slope = made.Slope, Overhang = made.Overhang, Walls = dormer.DormerWalls.ToList()
+                    }
+                    : null,
+                RoofOpenings = slab is Roof { Openings.Count: > 0 } holed
+                    ? holed.Openings.Select(opening => new RoofOpeningDto
+                    {
+                        Points = opening.Points.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                        ArcIds = opening.ArcIds.Any(id => id is not null) ? opening.ArcIds.ToList() : null
+                    }).ToList()
+                    : null,
                 RoofFasciaDepth = slab is Roof fascia ? fascia.FasciaDepth : 150,
                 RoofExtrusion = slab is Roof { Extrusion: { } extrusion }
                     ? new RoofExtrusionDto
@@ -472,6 +490,7 @@ public static class ProjectFile
                         OriginX = extrusion.Origin.X, OriginY = extrusion.Origin.Y,
                         DirectionX = extrusion.Direction.X, DirectionY = extrusion.Direction.Y,
                         Profile = extrusion.Profile.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                        Sagittas = extrusion.HasArcs ? extrusion.Sagittas.ToList() : null,
                         Start = extrusion.Start, End = extrusion.End
                     }
                     : null,
@@ -1201,6 +1220,29 @@ public static class ProjectFile
                 pitched.CutoffOffset = slab.RoofCutoff;
                 pitched.CutoffLevelId = slab.RoofCutoffLevelId;
                 pitched.RafterCut = ParseEnum(slab.RoofRafterCut, RafterCut.PlumbCut);
+                pitched.Bearing = ParseEnum(slab.RoofBearing, RoofBearing.Truss);
+                pitched.JoinedTo = slab.RoofJoinedTo;
+                if (slab.RoofDormerOpenings is { } dormers) pitched.DormerOpenings.AddRange(dormers);
+                if (slab.RoofDormer is { } made)
+                {
+                    pitched.Dormer = new DormerSettings(
+                        Enum.TryParse<DormerShape>(made.Shape, out var shape) ? shape : DormerShape.Gable,
+                        made.Width, made.Height, made.Slope, made.Overhang);
+                    pitched.DormerWalls.AddRange(made.Walls);
+                }
+                if (slab.RoofOpenings is { } holes)
+                {
+                    pitched.SetOpenings(holes.Select(hole =>
+                    {
+                        var points = Enumerable.Range(0, hole.Points.Count / 2)
+                            .Select(i => new Point2D(hole.Points[2 * i], hole.Points[2 * i + 1]))
+                            .ToList();
+                        var arcs = Enumerable.Range(0, points.Count)
+                            .Select(i => hole.ArcIds is { } ids && i < ids.Count ? ids[i] : null)
+                            .ToList();
+                        return new RoofOpening(points, arcs);
+                    }));
+                }
                 pitched.FasciaDepth = slab.RoofFasciaDepth;
                 if (slab.RoofExtrusion is { } extruded)
                 {
@@ -1211,7 +1253,7 @@ public static class ProjectFile
                     pitched.SetExtrusion(new RoofExtrusion(
                         new Point2D(extruded.OriginX, extruded.OriginY),
                         new Vector2D(extruded.DirectionX, extruded.DirectionY),
-                        profile, extruded.Start, extruded.End));
+                        profile, extruded.Start, extruded.End, extruded.Sagittas));
                 }
 
                 pitched.SetSlopeArrows(slab.RoofArrows.Select(arrow => new RoofSlopeArrow
@@ -1231,7 +1273,8 @@ public static class ProjectFile
                         WallId = edge.WallId,
                         OnLeftOfWall = edge.OnLeftOfWall,
                         Overhang = edge.Overhang,
-                        ExtendToCore = edge.ExtendToCore
+                        ExtendToCore = edge.ExtendToCore,
+                        ArcId = edge.ArcId
                     }));
                 }
             }

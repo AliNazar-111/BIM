@@ -425,6 +425,9 @@
                                 <RadioButton x:Name="RoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
                                              Content="Roof" Checked="OnToolChanged"
                                              ToolTip="Roof by Footprint: sketch the roof's outline or pick the walls it sits on, and say which edges slope (F4)"/>
+                                <RadioButton x:Name="DormerTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
+                                             Content="Dormer" Checked="OnToolChanged"
+                                             ToolTip="Click on a roof's slope: a whole dormer is built there - walls standing on the roof, a gable, shed or hip roof on them joined into the main roof, and the main roof opened under it. Shape and size on the options bar"/>
                                 <RadioButton x:Name="RoofExtrusionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofExtrusion}"
                                              Content="Roof by Extrusion" Checked="OnToolChanged"
                                              ToolTip="Roof by Extrusion: click the line the profile is drawn on and how far the roof runs back, then draw its section - a gambrel, a barrel vault, any roof the same all along"/>
@@ -516,6 +519,9 @@
                                 <RadioButton x:Name="JoinGeometryTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.JoinGeometry}"
                                              Content="Join Geometry" Checked="OnToolChanged"
                                              ToolTip="Join two parallel walls up to 150 mm apart, so doors and windows in either cut through both"/>
+                                <RadioButton x:Name="JoinRoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
+                                             Content="Join/Unjoin Roof" Checked="OnToolChanged"
+                                             ToolTip="Click the edge of a roof - a dormer's back edge - then the roof it should run into: it is carried back until it meets it and trimmed there, in valleys. Click a joined roof's edge to unjoin it"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -700,6 +706,26 @@
                                 <Button x:Name="ContextStraighten" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Straighten}"
                                         Content="Straighten" Click="OnStraightenWalls"
                                         ToolTip="Take every point and bend off the selected walls, back to a straight line between their ends"/>
+                                <Button x:Name="ContextAddShapes" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.AddShapes}"
+                                        Content="Add Shapes" Click="OnAddShapesButton"
+                                        ToolTip="Put the selected walls of a room into an exact shape - a rectangle, a square or a regular polygon - of the size you type">
+                                    <Button.ContextMenu>
+                                        <ContextMenu x:Name="ShapesMenu" Opened="OnShapesMenuOpened">
+                                            <MenuItem x:Name="ShapeRectangleItem" Header="_Rectangle" Click="OnShapeRectangle"
+                                                      ToolTip="Four walls: square the corners, to a width and a depth">
+                                                <MenuItem.Icon><Image Source="{StaticResource Icon.ShapeRectangle}" Width="16"/></MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem x:Name="ShapeSquareItem" Header="_Square" Click="OnShapeSquare"
+                                                      ToolTip="Four walls: square the corners, all four sides the same length">
+                                                <MenuItem.Icon><Image Source="{StaticResource Icon.ShapeSquare}" Width="16"/></MenuItem.Icon>
+                                            </MenuItem>
+                                            <MenuItem x:Name="ShapePolygonItem" Header="Regular _Polygon" Click="OnShapePolygon"
+                                                      ToolTip="Three or more walls round a room: every side the same length and every corner the same angle - a triangle, pentagon, hexagon, octagon">
+                                                <MenuItem.Icon><Image Source="{StaticResource Icon.ShapePolygon}" Width="16"/></MenuItem.Icon>
+                                            </MenuItem>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
+                                </Button>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -747,6 +773,12 @@
                                 <Button x:Name="ContextEditProfile" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
                                         Content="Edit Profile" Click="OnEditRoofProfile"
                                         ToolTip="Open the extruded roof's section again: move its points, start again from a gambrel or a vault, raise or lower its base. Double-clicking the roof does the same"/>
+                                <Button x:Name="ContextAddDormer" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Roof}"
+                                        Content="Add Dormer" Click="OnAddDormer"
+                                        ToolTip="Then click on this roof's slope: walls, a dormer roof joined into this one, and the opening under it, all in one go"/>
+                                <Button x:Name="ContextDormerOpening" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallOpening}"
+                                        Content="Dormer Opening" Click="OnDormerOpening"
+                                        ToolTip="Then click a dormer's roof - joined to this one, on walls attached to it: this roof is cut away under the dormer, between its walls. Click the same dormer again to close the opening"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -864,6 +896,9 @@
                                     <RadioButton x:Name="RoofSketchPickWalls" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.PickWalls}"
                                                  Content="Pick Walls" CommandParameter="PickWalls"
                                                  ToolTip="Hover just outside a wall and click: the roof edge goes along that face, out by the overhang, and follows the wall if it moves. TAB picks the whole chain of joined walls"/>
+                                    <RadioButton x:Name="RoofSketchPickLines" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawPick}"
+                                                 Content="Pick Lines" CommandParameter="PickLines"
+                                                 ToolTip="Click the edge of a floor, ceiling or another roof, a wall's face or a grid line to take it as a roof line. Offset on the options bar sets it off toward the cursor"/>
                                     <RadioButton x:Name="RoofSketchLine" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawLine}"
                                                  Content="Line" CommandParameter="Line"
                                                  ToolTip="Click points round the roof's edge, chained. Shift keeps a line level or plumb"/>
@@ -873,8 +908,14 @@
                                                  Content="Rectangle" CommandParameter="Rectangle" ToolTip="Two opposite corners"/>
                                     <RadioButton x:Name="RoofSketchPolygon" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawPolygon}"
                                                  Content="Polygon" CommandParameter="Polygon" ToolTip="The centre, then a corner; sides on the options bar"/>
+                                    <RadioButton x:Name="RoofSketchCircle" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawCircle}"
+                                                 Content="Circle" CommandParameter="Circle"
+                                                 ToolTip="The centre, then a point on it. A sloping circle makes a cone - a turret roof"/>
                                 </StackPanel>
                                 <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchArc" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawArc}"
+                                                 Content="Arc" CommandParameter="Arc"
+                                                 ToolTip="Start, end, then a point the arc passes through. A sloping arc rises as part of a cone - a round end, a bay"/>
                                     <RadioButton x:Name="RoofSketchArrow" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.SlopeArrow}"
                                                  Content="Slope Arrow" CommandParameter="SlopeArrow"
                                                  ToolTip="A slope drawn in plan: click a line of the outline for the tail, then where it rises toward. One arrow on a flat roof makes it fall one way; two from the ends of a split eave to its middle make a dormer"/>
@@ -894,6 +935,22 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
                                             Content="Delete" Click="OnDeleteSketchLines" ToolTip="Delete the selected sketch lines and arrows (Del)"/>
                                 </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchOffset" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Offset}"
+                                                 Content="Offset" CommandParameter="Offset"
+                                                 ToolTip="Type a distance on the options bar, then click a line on the side it should move toward - the lines either side follow it. Tick Copy to add a copy instead"/>
+                                    <RadioButton x:Name="RoofSketchTrim" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Trim}"
+                                                 Content="Trim/Extend" CommandParameter="TrimExtend"
+                                                 ToolTip="Click two lines, each on the part to keep: both are cut back or run on to meet at a corner"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Tools" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Margin="2,0">
+                                <RadioButton x:Name="RoofSketchAlignEaves" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.AttachTop}"
+                                             Content="Align Eaves" CommandParameter="AlignEaves"
+                                             ToolTip="Each eave's height is shown beside it. Click the eave to match, then the eaves to bring to the same height - by their plate height, or by their overhang (options bar)"/>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>
@@ -965,6 +1022,16 @@
                     <CheckBox x:Name="RoofExtendToCoreBox" Content="Extend to wall core" VerticalAlignment="Center" Margin="12,0,0,0"
                               Click="OnRoofExtendToCoreChanged"
                               ToolTip="Measure the overhang from the wall's core instead of its finish face"/>
+                    <TextBlock x:Name="RoofOffsetLabel" Text="Offset" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="RoofOffsetBox" Width="70" VerticalAlignment="Center"
+                             LostFocus="OnRoofOffsetChanged" KeyDown="OnRoofOffsetKey"
+                             ToolTip="How far Pick Lines sets a picked line off, and how far Offset moves a line - toward the side the cursor is on"/>
+                    <CheckBox x:Name="RoofOffsetCopyBox" Content="Copy" VerticalAlignment="Center" Margin="12,0,0,0"
+                              Click="OnRoofOffsetCopyChanged"
+                              ToolTip="Offset adds a copy of the line instead of moving it"/>
+                    <ComboBox x:Name="RoofAlignPicker" Style="{StaticResource OptionCombo}" MinWidth="130" Margin="12,0,0,0"
+                              SelectionChanged="OnRoofAlignModeChanged"
+                              ToolTip="Adjust Height brings an eave to the height by raising or lowering its plate. Adjust Overhang keeps the plate and runs the eave out or in until it lands there - for lines picked from walls"/>
                     <TextBlock x:Name="RoofSidesLabel" Text="Sides" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <TextBox x:Name="RoofSidesBox" Width="44" VerticalAlignment="Center"
                              LostFocus="OnRoofSidesChanged" KeyDown="OnRoofSidesKey"
@@ -985,6 +1052,26 @@
                                  LostFocus="OnRoofArrowHeadChanged" KeyDown="OnRoofArrowHeadKey"
                                  ToolTip="Height of the surface at the arrow's head, above the roof's base (Height Offset at Head)"/>
                     </StackPanel>
+                </StackPanel>
+
+                <!-- The Dormer tool: what the next dormer clicked onto a roof is. -->
+                <StackPanel x:Name="DormerOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Dormer" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="DormerShapePicker" Style="{StaticResource OptionCombo}" MinWidth="90"
+                              SelectionChanged="OnDormerOptionChanged"
+                              ToolTip="Gable: two slopes to a ridge running up the roof. Shed: one shallow slope falling to the front. Hip: slopes on the front and both sides"/>
+                    <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="DormerWidthBox" Width="70" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                             ToolTip="Across the dormer, between its side walls' centres"/>
+                    <TextBlock Text="Height" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="DormerHeightBox" Width="70" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                             ToolTip="How high the front wall stands above the roof, up to its eaves. Lowered to what fits under the ridge where it would not"/>
+                    <TextBlock Text="Slope" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="DormerSlopeBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                             ToolTip="The pitch of the dormer's own roof"/>
+                    <TextBlock Text="Overhang" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="DormerOverhangBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                             ToolTip="How far the dormer's roof stands out past its walls"/>
                 </StackPanel>
 
                 <ComboBox x:Name="SweepTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"

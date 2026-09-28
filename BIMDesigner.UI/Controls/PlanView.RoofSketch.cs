@@ -22,11 +22,29 @@ public enum RoofSketchTool
     Rectangle,
     Polygon,
 
+    /// <summary>Start, end, then a point it passes through: an arc - a cone where it slopes.</summary>
+    Arc,
+
+    /// <summary>The centre, then a point on it: a circle, as two half circles.</summary>
+    Circle,
+
+    /// <summary>Click an edge already drawn - a floor's, a wall face, a grid line - to take it as a line.</summary>
+    PickLines,
+
     /// <summary>Tail on a line of the outline, head where the slope rises toward.</summary>
     SlopeArrow,
 
     /// <summary>Click a line to split it in two there - how an eave is divided for a dormer.</summary>
-    Split
+    Split,
+
+    /// <summary>Click a line to move it - or a copy of it - sideways by the offset.</summary>
+    Offset,
+
+    /// <summary>Click two lines to cut back or run on each to where they meet.</summary>
+    TrimExtend,
+
+    /// <summary>Click a reference eave, then others to bring to its height - by their plate, or their overhang.</summary>
+    AlignEaves
 }
 
 /// <summary>
@@ -117,16 +135,7 @@ public partial class PlanView
     {
         if (Document is null) return 0;
 
-        var bearing = roof.GetBottomElevation(Document);
-        var walls = roof.Edges
-            .Select(edge => edge.WallId)
-            .OfType<Guid>()
-            .Distinct()
-            .Select(id => Document.Walls.FirstOrDefault(wall => wall.Id == id))
-            .OfType<Wall>()
-            .Where(wall => wall.TopAttachedTo != roof.Id && wall.GetBaseElevation(Document) < bearing - 1)
-            .ToList();
-
+        var walls = WallsToAttach(roof);
         if (walls.Count == 0) return 0;
 
         Apply(new AttachWallsCommand(walls.Select(wall => (wall, true, (Guid?)roof.Id)), "Attach Walls to Roof"));
@@ -135,6 +144,30 @@ public partial class PlanView
 
         HintChanged?.Invoke(this, $"{walls.Count} wall{(walls.Count == 1 ? "" : "s")} attached: their tops follow the roof, and the gable ends are closed.");
         return walls.Count;
+    }
+
+    /// <summary>
+    /// The walls a new roof offers to attach: those it was picked from - or, for a roof by
+    /// extrusion, which is not picked from anything, those standing under it - that start
+    /// below it and are not attached to it already.
+    /// </summary>
+    private List<Wall> WallsToAttach(Roof roof)
+    {
+        if (Document is null) return new List<Wall>();
+
+        var bearing = roof.GetBottomElevation(Document);
+        var candidates = roof.Extrusion is { } extrusion
+            ? WallsUnder(extrusion.Footprint(), Document.Walls.Where(wall => wall.LevelId == roof.LevelId))
+            : roof.Edges
+                .Select(edge => edge.WallId)
+                .OfType<Guid>()
+                .Distinct()
+                .Select(id => Document.Walls.FirstOrDefault(wall => wall.Id == id))
+                .OfType<Wall>();
+
+        return candidates
+            .Where(wall => wall.TopAttachedTo != roof.Id && wall.GetBaseElevation(Document) < bearing - 1)
+            .ToList();
     }
 
     /// <summary>Whether new lines slope - Revit's "Defines slope" on the options bar.</summary>
@@ -162,6 +195,9 @@ public partial class PlanView
         {
             _sketchTool = value;
             _sketchStart = null;
+            _sketchArcEnd = null;
+            _trimFirst = null;
+            _alignReference = null;
             _sketchPreview.Clear();
             _sketchPickChain = false;
             if (value != RoofSketchTool.Modify)
@@ -196,6 +232,9 @@ public partial class PlanView
         _sketchArrowSelection.Clear();
         _sketchCulprits = Array.Empty<RoofSketchLine>();
         _sketchStart = null;
+        _sketchArcEnd = null;
+        _trimFirst = null;
+        _alignReference = null;
         _sketchPreview.Clear();
         _sketchPickChain = false;
         _sketchTool = existing is null ? RoofSketchTool.PickWalls : RoofSketchTool.Modify;
@@ -251,7 +290,7 @@ public partial class PlanView
         if (_sketchRoof is { } existing)
         {
             roof = existing;
-            Apply(new SetRoofSketchCommand(roof, check.Boundary, check.Edges, check.Arrows));
+            Apply(new SetRoofSketchCommand(roof, check.Boundary, check.Edges, check.Arrows, openings: check.Openings));
         }
         else
         {
@@ -274,6 +313,7 @@ public partial class PlanView
             roof.SetBoundary(check.Boundary);
             roof.SetEdges(check.Edges);
             roof.SetSlopeArrows(check.Arrows);
+            roof.SetOpenings(check.Openings);
             Apply(new AddElementCommand(Document, roof, "Create Roof"));
         }
 
@@ -320,6 +360,9 @@ public partial class PlanView
         _sketchArrowSelection.Clear();
         _sketchCulprits = Array.Empty<RoofSketchLine>();
         _sketchStart = null;
+        _sketchArcEnd = null;
+        _trimFirst = null;
+        _alignReference = null;
         _sketchPreview.Clear();
         _sketchPickChain = false;
 
@@ -506,6 +549,14 @@ public partial class PlanView
 
         _sketchCursor = raw;
 
+        // A pitch clicked while selecting is a pitch to type. Only then: a drawing tool's click
+        // near a line is meant for the line.
+        if (_sketchTool == RoofSketchTool.Modify && PitchLabelAt(raw) is { } pitched)
+        {
+            BeginPitchEdit(pitched);
+            return true;
+        }
+
         // A slope marker wins over everything: it is the smallest target, and the one aimed at.
         if (MarkerAt(raw) is { } marked)
         {
@@ -527,7 +578,23 @@ public partial class PlanView
 
             case RoofSketchTool.Rectangle:
             case RoofSketchTool.Polygon:
+            case RoofSketchTool.Circle:
                 return DrawShapeTo(SketchSnap(raw));
+
+            case RoofSketchTool.Arc:
+                return DrawArcTo(SketchSnap(raw));
+
+            case RoofSketchTool.PickLines:
+                return PickLinesAt(raw);
+
+            case RoofSketchTool.Offset:
+                return OffsetLineAt(raw);
+
+            case RoofSketchTool.TrimExtend:
+                return SketchTrimAt(raw);
+
+            case RoofSketchTool.AlignEaves:
+                return AlignEaveAt(raw);
 
             case RoofSketchTool.SlopeArrow:
                 return DrawArrowTo(raw);
@@ -601,7 +668,9 @@ public partial class PlanView
         Point2D? best = null;
         var nearest = double.MaxValue;
 
-        foreach (var line in _sketch)
+        // Arrows start on straight lines: an arc slopes all round already, and has no one
+        // direction to be square to.
+        foreach (var line in _sketch.Where(line => !line.IsArc))
         {
             var along = line.End - line.Start;
             var length = along.Length;
@@ -635,9 +704,9 @@ public partial class PlanView
     {
         if (_sketch is null || SketchLineAt(raw) is not { } line) return false;
 
-        var along = line.End - line.Start;
-        var length = along.Length;
-        var t = Math.Clamp((raw - line.Start).Dot(along) / (length * length), 0, 1);
+        var curve = line.Curve;
+        var length = curve.Length;
+        var t = Math.Clamp(curve.Locate(raw).Along / length, 0, 1);
 
         // Split at a round distance along the line, the way points are placed everywhere else.
         var distance = Units.SnapToGrid(t * length, Math.Min(SnapStepMm, length / 4));
@@ -649,9 +718,12 @@ public partial class PlanView
 
         Remember();
 
-        var point = line.Start + along * (distance / length);
-        var second = new RoofSketchLine(point, line.End, line.Edge.Copy());
-        line.End = point;
+        // An arc splits into two arcs of the same circle.
+        var first = curve.Part(0, distance);
+        var rest = curve.Part(distance, length);
+        var second = new RoofSketchLine(rest.Start, rest.End, line.Edge.Copy(), line.IsArc ? rest.Bulge : 0);
+        line.End = first.End;
+        if (line.IsArc) line.Bulge = first.Bulge;
         _sketch.Insert(_sketch.IndexOf(line) + 1, second);
 
         AfterSketchEdit($"Split {Units.FormatLength(distance)} along. Each half can now slope, or not, on its own.");
@@ -679,9 +751,12 @@ public partial class PlanView
     {
         if (_sketch is null) return false;
 
-        if (_sketchStart is not null || _sketchPickChain)
+        if (_sketchStart is not null || _sketchPickChain || _trimFirst is not null || _alignReference is not null)
         {
             _sketchStart = null;
+            _sketchArcEnd = null;
+            _trimFirst = null;
+            _alignReference = null;
             _sketchPickChain = false;
             _sketchPreview = _sketchTool == RoofSketchTool.PickWalls ? PickPreview(_sketchCursor) : new List<RoofSketchLine>();
             HintChanged?.Invoke(this, SketchHint());
@@ -780,16 +855,16 @@ public partial class PlanView
         return best;
     }
 
-    private RoofSketchLine? SketchLineAt(Point2D raw)
+    private RoofSketchLine? SketchLineAt(Point2D raw, double pixels = 6)
     {
         if (_sketch is null) return null;
 
-        var reach = 6 / PixelsPerMm;
+        var reach = pixels / PixelsPerMm;
         RoofSketchLine? best = null;
 
         foreach (var line in _sketch)
         {
-            var distance = Line2D.DistanceFromSegment(raw, line.Start, line.End);
+            var distance = line.DistanceTo(raw);
             if (distance >= reach) continue;
 
             reach = distance;
@@ -1046,9 +1121,12 @@ public partial class PlanView
         if (_sketchStart is not { } from)
         {
             _sketchStart = point;
-            HintChanged?.Invoke(this, _sketchTool == RoofSketchTool.Rectangle
-                ? "Click the opposite corner."
-                : $"Click a corner of the {PolygonSides}-sided polygon.");
+            HintChanged?.Invoke(this, _sketchTool switch
+            {
+                RoofSketchTool.Rectangle => "Click the opposite corner.",
+                RoofSketchTool.Circle => "Click a point on the circle - its radius.",
+                _ => $"Click a corner of the {PolygonSides}-sided polygon."
+            });
             InvalidateVisual();
             return true;
         }
@@ -1057,12 +1135,25 @@ public partial class PlanView
         if (pieces.Count == 0) return false;
 
         Remember();
-        foreach (var piece in pieces) _sketch.Add(new RoofSketchLine(piece.Start, piece.End, NewDrawnEdge()));
+        // A shape drawn inside an outline that already closes is an opening - a skylight, a
+        // chimney - and an opening's edges do not slope.
+        var outline = RoofSketch.Check(_sketch);
+        var opening = outline.IsValid &&
+                      pieces.All(piece => Polygon2D.Contains(outline.Boundary, piece.Start) && Polygon2D.Contains(outline.Boundary, piece.End));
+
+        foreach (var piece in pieces)
+        {
+            var edge = NewDrawnEdge();
+            if (opening) edge.DefinesSlope = false;
+            _sketch.Add(new RoofSketchLine(piece.Start, piece.End, edge, piece.Bulge));
+        }
 
         _sketchStart = null;
-        AfterSketchEdit(RoofSketch.Check(_sketch).IsValid
-            ? "The outline closes. Finish ✓ to make the roof."
-            : "Shape added.");
+        AfterSketchEdit(opening
+            ? "Opening added inside the outline - a hole through the roof. Finish ✓ to make it."
+            : RoofSketch.Check(_sketch).IsValid
+                ? "The outline closes. Finish ✓ to make the roof."
+                : "Shape added.");
         return true;
     }
 
@@ -1070,6 +1161,7 @@ public partial class PlanView
     {
         RoofSketchTool.Rectangle => WallShapes.Rectangle(from, to),
         RoofSketchTool.Polygon => WallShapes.Polygon(from, to, PolygonSides, PolygonInscribed),
+        RoofSketchTool.Circle => WallShapes.Circle(from, to),
         _ => Array.Empty<WallPiece>()
     };
 
@@ -1079,21 +1171,29 @@ public partial class PlanView
     /// Where a line's slope marker sits: beside its middle, on the inside of the sketch - the
     /// side the roof rises toward.
     /// </summary>
-    private Point MarkerPoint(RoofSketchLine line)
+    private Point MarkerPoint(RoofSketchLine line) => MarkerPlace(line).At;
+
+    /// <summary>Where a line's slope marker sits, and the way into the sketch from it, on screen.</summary>
+    private (Point At, Vector Inward) MarkerPlace(RoofSketchLine line)
     {
-        var a = ModelToScreen(line.Start);
-        var b = ModelToScreen(line.End);
-        var middle = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+        // For an arc, beside the middle of the arc, square to it there.
+        var facets = line.Facets;
+        var half = facets.Count / 2;
+        var (from, to) = line.IsArc ? (facets[half - 1], facets[half + 1]) : (line.Start, line.End);
+
+        var a = ModelToScreen(from);
+        var b = ModelToScreen(to);
+        var middle = line.IsArc ? ModelToScreen(line.Middle) : new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
 
         var along = b - a;
-        if (along.Length < 1e-9) return middle;
+        if (along.Length < 1e-9) return (middle, new Vector(0, -1));
         along.Normalize();
 
         var side = new Vector(-along.Y, along.X);
         var inside = ModelToScreen(SketchCentre());
         if (Vector.Multiply(side, inside - middle) < 0) side = -side;
 
-        return middle + side * MarkerInset;
+        return (middle + side * MarkerInset, side);
     }
 
     private Point2D SketchCentre()
@@ -1129,6 +1229,19 @@ public partial class PlanView
             "Slope Arrow: click on a line of the outline for its tail, then where the slope rises toward. " +
             "On a flat roof one arrow makes it fall one way; two from the ends of a split eave to its middle make a dormer.",
         RoofSketchTool.Split => "Split: click a line where it should divide - an eave split in three leaves its middle for a dormer.",
+        RoofSketchTool.Arc => "Arc: click its start, its end, then a point it passes through. A sloping arc rises as part of a cone.",
+        RoofSketchTool.Circle => "Circle: click the centre, then a point on it. A sloping circle makes a cone - a turret roof.",
+        RoofSketchTool.PickLines =>
+            "Pick Lines: click the edge of a floor, ceiling or roof, a wall's face or a grid line to take it as a roof line. " +
+            "Offset on the options bar sets it off toward the cursor.",
+        RoofSketchTool.Offset =>
+            "Offset: type the distance on the options bar, then click a line on the side it should move toward. " +
+            "Tick Copy to leave the line and add a copy.",
+        RoofSketchTool.TrimExtend =>
+            "Trim/Extend: click two lines, each on the part to keep - both are cut back or run on to meet at a corner.",
+        RoofSketchTool.AlignEaves =>
+            "Align Eaves: each eave's height is shown beside it. Click the eave to match, then the eaves to bring to it - " +
+            "by their plate height, or on the options bar by their overhang.",
         _ => "Click a line to select it; Del deletes it. Click a △ to turn that line's slope on or off. Finish ✓ or Cancel ✗."
     };
 
@@ -1146,10 +1259,10 @@ public partial class PlanView
         foreach (var line in _sketch)
         {
             var pen = _sketchCulprits.Contains(line) ? SketchProblemPen
-                : _sketchSelection.Contains(line) ? SketchSelectedPen
+                : _sketchSelection.Contains(line) || _trimFirst is var (first, _) && ReferenceEquals(first, line) ? SketchSelectedPen
                 : SketchPen;
 
-            dc.DrawLine(pen, ModelToScreen(line.Start), ModelToScreen(line.End));
+            DrawSketchCurve(dc, pen, line.Facets);
             DrawSlopeMarker(dc, line);
         }
 
@@ -1167,19 +1280,37 @@ public partial class PlanView
         foreach (var arrow in _sketchArrows)
             DrawSlopeArrow(dc, arrow, _sketchArrowSelection.Contains(arrow) ? SketchSelectedPen : SketchPen);
 
+        DrawEaveHeights(dc);
+
         if (_sketchStart is { } from)
         {
             var to = SketchSnap(_sketchCursor);
 
-            if (_sketchTool is RoofSketchTool.Line or RoofSketchTool.SlopeArrow)
+            if (_sketchTool == RoofSketchTool.Arc)
+            {
+                // The chord while the second end is chosen; then the arc through the cursor.
+                if (_sketchArcEnd is { } end)
+                    DrawSketchCurve(dc, SketchPreviewPen, RoofSketch.Facets(from, end, ArcBulge(from, end, to)));
+                else
+                    dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
+            }
+            else if (_sketchTool is RoofSketchTool.Line or RoofSketchTool.SlopeArrow)
             {
                 dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
             }
             else
             {
                 foreach (var piece in ShapePieces(from, to))
-                    dc.DrawLine(SketchPreviewPen, ModelToScreen(piece.Start), ModelToScreen(piece.End));
+                    DrawSketchCurve(dc, SketchPreviewPen, RoofSketch.Facets(piece.Start, piece.End, piece.Bulge));
             }
+        }
+        else if (_sketchTool == RoofSketchTool.PickLines && PickLineAt(_sketchCursor) is var (pickFrom, pickTo))
+        {
+            dc.DrawLine(SketchPreviewPen, ModelToScreen(pickFrom), ModelToScreen(pickTo));
+        }
+        else if (_sketchTool == RoofSketchTool.Offset && SketchOffsetAt(_sketchCursor) is var (_, moved))
+        {
+            DrawSketchCurve(dc, SketchPreviewPen, moved.Facets);
         }
         else if (_sketchTool == RoofSketchTool.SlopeArrow && TailOnLine(_sketchCursor) is { } tail)
         {
@@ -1187,6 +1318,13 @@ public partial class PlanView
             var at = ModelToScreen(tail);
             dc.DrawEllipse(null, SketchPen, at, 4, 4);
         }
+    }
+
+    /// <summary>A sketch line on screen, straight or curved: through every point it is built through.</summary>
+    private void DrawSketchCurve(DrawingContext dc, Pen pen, IReadOnlyList<Point2D> points)
+    {
+        for (var i = 0; i + 1 < points.Count; i++)
+            dc.DrawLine(pen, ModelToScreen(points[i]), ModelToScreen(points[i + 1]));
     }
 
     /// <summary>
@@ -1257,6 +1395,7 @@ public partial class PlanView
             SketchSlopeBrush,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
 
-        dc.DrawText(text, new Point(at.X + 9, at.Y - text.Height / 2));
+        var label = PitchLabelBounds(line);
+        dc.DrawText(text, label.TopLeft);
     }
 }

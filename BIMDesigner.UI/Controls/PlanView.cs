@@ -67,7 +67,16 @@ public enum PlanTool
 ,
 
     /// <summary>Cuts a rectangular opening through a wall where it is clicked.</summary>
-    WallOpening
+    WallOpening,
+
+    /// <summary>Carries a roof back into another and trims it there - a dormer's roof into the main roof.</summary>
+    JoinRoof,
+
+    /// <summary>Cuts the selected roof away under a dormer, between its walls.</summary>
+    DormerOpening,
+
+    /// <summary>Clicks a whole dormer onto a roof's slope: walls, roof, join and opening.</summary>
+    Dormer
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -1064,6 +1073,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
         PlanTool.WallJoins => "Click the square at a wall join to change it; Ctrl+click adds more. Then choose on the option bar.",
         PlanTool.JoinGeometry => "Click a wall, then a parallel wall beside it (up to 150 mm away) to join them, or two joined walls to unjoin them.",
+        PlanTool.JoinRoof => "Click the edge of the roof to join - a dormer's back edge - then the roof it runs into. Click a joined roof's edge to unjoin it.",
+        PlanTool.DormerOpening => "Click the dormer's roof: the selected roof is cut away under it, between its walls.",
+        PlanTool.Dormer => "Click on a roof's slope where the dormer's front wall should be. Shape and size are on the options bar.",
         PlanTool.WallOpening => "Click a wall where the opening goes. Set its size on the option bar; change it afterwards in Properties.",
         _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
@@ -1084,6 +1096,23 @@ public partial class PlanView : FrameworkElement
     /// <summary>Replaces the selection with one element, or clears it.</summary>
     public void Select(Element? element) =>
         SelectMany(element is null ? Array.Empty<Element>() : new[] { element });
+
+    /// <summary>
+    /// Picks what was clicked in another view, the 3D view. A dormer's roof or wall picks the
+    /// whole dormer, as a group is picked; clicked again once the dormer is picked, the part.
+    /// </summary>
+    public void SelectPicked(Element? element)
+    {
+        if (Document is not null && Dormers.Of(Document, element) is { } dormer &&
+            Dormers.Parts(Document, dormer) is var parts && !(parts.Count == _selection.Count && parts.All(IsSelected)))
+        {
+            SelectMany(parts);
+            ReportSelection();
+            return;
+        }
+
+        Select(element);
+    }
 
     public void SelectMany(IEnumerable<Element> elements)
     {
@@ -1138,6 +1167,7 @@ public partial class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = CancelExtrusion()
+                      | CancelRoofJoin()
                       || _pendingWallStart is not null
                       || _rehosting is not null
                       || _rehostingComponent is not null
@@ -1304,8 +1334,6 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        if (ActiveTool == PlanTool.RoofExtrusion) ExtrusionHover(raw);
-
         // A freehand stroke follows the mouse for as long as the button is down.
         if (_stroke is not null)
         {
@@ -1335,7 +1363,18 @@ public partial class PlanView : FrameworkElement
         // wall end so walls mitre, and a dimension end so the dimension follows the model.
         // Showing the marker while placing a room or a door would suggest a precision those
         // tools do not have and do not need.
-        if (ActiveTool is PlanTool.Wall or PlanTool.Dimension or PlanTool.Section
+        if (ActiveTool == PlanTool.RoofExtrusion)
+        {
+            // Roof by Extrusion locks onto wall corners as well, and names what it found.
+            ExtrusionHover(raw);
+        }
+        else if (ActiveTool == PlanTool.Dormer)
+        {
+            DormerHover(raw);
+            _cursorModel = SnapToGrid(raw);
+            _cursorIsSnapped = false;
+        }
+        else if (ActiveTool is PlanTool.Wall or PlanTool.Dimension or PlanTool.Section
             or PlanTool.Mirror or PlanTool.Array)
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
@@ -1514,6 +1553,18 @@ public partial class PlanView : FrameworkElement
             case PlanTool.WallOpening:
                 PlaceWallOpening(raw);
                 return;
+
+            case PlanTool.JoinRoof:
+                JoinRoofAt(raw);
+                return;
+
+            case PlanTool.DormerOpening:
+                DormerOpeningAt(raw);
+                return;
+
+            case PlanTool.Dormer:
+                DormerAt(raw);
+                return;
         }
 
         // Shaping a wall by hand: a double click on it adds a point, on a point takes it away;
@@ -1557,14 +1608,23 @@ public partial class PlanView : FrameworkElement
         }
 
         // What the cursor has outlined - TAB may have stepped past the first thing under it.
-        var hit = Hovered is { } outlined && _hoverAnchor.DistanceTo(raw) * PixelsPerMm < HoverSlop ? outlined : HitTest(raw);
+        var hovered = Hovered is not null && _hoverAnchor.DistanceTo(raw) * PixelsPerMm < HoverSlop;
+        var hit = hovered ? Hovered : HitTest(raw);
+
+        // A dormer's roof or wall picks the whole dormer - unless TAB stepped on to the part.
+        var whole = Document is null || hit is null ? null
+            : hovered ? (HoveredWhole ? _hoverDormer : null)
+            : Dormers.Of(Document, hit);
+        var group = whole is null ? null : Dormers.Parts(Document!, whole);
 
         // Ctrl adds to or removes from the selection rather than replacing it. It never starts
         // a drag: extending a selection and moving it are different intentions, and doing both
         // on one gesture makes the second one an accident.
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
-            if (hit is not null) ToggleSelected(hit);
+            if (group is not null)
+                SelectMany(group.All(IsSelected) ? _selection.Except(group).ToList() : _selection.Concat(group).ToList());
+            else if (hit is not null) ToggleSelected(hit);
             ReportSelection();
             return;
         }
@@ -1591,7 +1651,12 @@ public partial class PlanView : FrameworkElement
 
         // Clicking something already selected drags the whole selection, so several elements
         // can be moved together without having to pick them again.
-        if (hit is not null && !IsSelected(hit)) Select(hit);
+        // A part TAB reached is picked on its own, even out of its dormer already picked.
+        if (group is not null)
+        {
+            if (!group.All(IsSelected)) SelectMany(group);
+        }
+        else if (hit is not null && (!IsSelected(hit) || hovered && _hoverDormer is not null)) Select(hit);
 
         if (hit is not null)
         {
@@ -1681,6 +1746,15 @@ public partial class PlanView : FrameworkElement
     private void ReportSelection()
     {
         if (_selection.Count <= 1) return;
+
+        if (Document is not null && Dormers.Of(Document, _selection[0]) is { } dormer &&
+            Dormers.Parts(Document, dormer) is var parts && parts.Count == _selection.Count && parts.All(IsSelected))
+        {
+            HintChanged?.Invoke(this, $"{Dormers.Describe(dormer)} - its roof and {parts.Count - 1} walls. Drag to move it or press Del; " +
+                                      "TAB before clicking, or click it again in 3D, picks one part.");
+            return;
+        }
+
         HintChanged?.Invoke(this, $"{_selection.Count} selected. Drag to move them, or press Del.");
     }
 
@@ -3380,7 +3454,7 @@ public partial class PlanView : FrameworkElement
     /// snapped along it and kept inside it, swinging toward the side of the wall the cursor is
     /// on and hinged as Space last set - as Revit places them.
     /// </summary>
-    private Opening? OpeningAt(Point2D raw, bool isDoor, out string? problem, Wall? on = null)
+    private Opening? OpeningAt(Point2D raw, bool isDoor, out string? problem, Wall? on = null, double? sillHeight = null)
     {
         problem = null;
         if (Document is null) return null;
@@ -3408,16 +3482,36 @@ public partial class PlanView : FrameworkElement
             return null;
         }
 
-        // Where along the wall the click landed, snapped, then nudged so it fits.
+        // Where along the wall the click landed, snapped, then nudged so it fits. Placed from
+        // a view that shows heights, it goes at the height it was put.
         var distance = Units.SnapToGrid(wall.LocationCurve.Locate(raw).Along, SnapStepMm);
-        if (WallOpenings.ClampToWall(wall, type.Width, distance) is not { } placed)
+        var sill = sillHeight is { } asked ? Math.Max(0, asked) : isDoor ? 0 : NewWindowSillHeight;
+        var (width, height) = (type.Width, type.Height);
+        double placed;
+
+        // A window is made to suit the wall it goes in: smaller, keeping its proportions, where
+        // the wall has not room for it - a dormer's front, a gable, a short stretch between
+        // corners - with a little wall left all round it. A curtain wall holds it in a panel.
+        if (!isDoor && !Document.IsCurtainWall(wall))
+        {
+            if (WallOpenings.SizeToFit(Document, wall, Math.Clamp(distance, 0, wall.Length), sill, width, height) is not { } size)
+            {
+                problem = "There is no room in this wall for a window here, not even a small one. Try where the wall is taller or longer.";
+                return null;
+            }
+
+            (placed, sill, width, height) = size;
+        }
+        else if (WallOpenings.ClampToWall(wall, width, distance) is { } clamped)
+            placed = clamped;
+        else
         {
             problem = $"That wall is {Units.FormatLength(wall.Length)} long - too short for a " +
-                      $"{Units.FormatLength(type.Width)} {(isDoor ? "door" : "window")}.";
+                      $"{Units.FormatLength(width)} {(isDoor ? "door" : "window")}.";
             return null;
         }
 
-        if (!WallOpenings.CanPlace(Document, wall, type.Width, placed))
+        if (!WallOpenings.CanPlace(Document, wall, width, placed))
         {
             problem = "There is already an opening there.";
             return null;
@@ -3426,7 +3520,9 @@ public partial class PlanView : FrameworkElement
         // It opens toward the side of the wall the cursor is on.
         var interiorSide = Document.GetWallType(wall) is { } wallType && wall.Locate(wallType.Structure, raw).Across < 0;
 
-        Opening opening = isDoor ? new Door { SillHeight = 0 } : new BimWindow { SillHeight = NewWindowSillHeight };
+        Opening opening = isDoor ? new Door() : new BimWindow();
+        opening.SillHeight = sill;
+        if (Math.Abs(width - type.Width) > 1e-6) (opening.WidthOverride, opening.HeightOverride) = (width, height);
         opening.HostWallId = wall.Id;
         opening.DistanceAlongWall = placed;
         opening.TypeId = type.Id;
@@ -3439,6 +3535,14 @@ public partial class PlanView : FrameworkElement
         if (Document.GetWallType(wall) is { } lean && WallLean.Leans(wall, lean))
             opening.Orientation = OpeningOrientation.Slanted;
 
+        // A door stays inside the wall too, made shorter under a slope - see Opening.Placed -
+        // unless there is no room there for it at all.
+        if (opening.PlacedIn(Document, wall, type, placed) is null)
+        {
+            problem = $"The wall is too low here for a {(isDoor ? "door" : "window")}. Try further along it, where it is higher.";
+            return null;
+        }
+
         return opening;
     }
 
@@ -3449,14 +3553,11 @@ public partial class PlanView : FrameworkElement
         // A curtain wall has no hole cut in it for a door: the panel clicked becomes the door.
         if (isDoor && (on ?? HitTestWall(raw)) is { } curtain && Document.IsCurtainWall(curtain) && PlaceCurtainDoor(raw, curtain)) return;
 
-        if (OpeningAt(raw, isDoor, out var problem, on) is not { } opening)
+        if (OpeningAt(raw, isDoor, out var problem, on, sillHeight) is not { } opening)
         {
             HintChanged?.Invoke(this, problem ?? string.Empty);
             return;
         }
-
-        // Placed from a view that shows heights, it goes at the height it was put.
-        if (sillHeight is { } sill) opening.SillHeight = Math.Max(0, sill);
 
         // In a curtain wall it stays inside the panel it was put in.
         if (Document.FindType<OpeningType>(opening.TypeId) is { } placedType)
@@ -3473,7 +3574,17 @@ public partial class PlanView : FrameworkElement
         Apply(commands.Count == 1 ? commands[0] : new CompositeCommand(isDoor ? "Place Door" : "Place Window", commands));
         _openingPreview = null;
         Select(opening);
-        HintChanged?.Invoke(this, DefaultHintFor(ActiveTool));
+
+        // Said when it had to be brought down or made shorter to fit its wall, so that is no surprise.
+        var type = Document.FindType<OpeningType>(opening.TypeId);
+        var (placedSill, placedHeight) = opening.Placed(Document, type);
+        HintChanged?.Invoke(this, opening.WidthOverride is { } madeWidth
+            ? $"Made smaller to fit the wall: {Units.FormatLength(madeWidth)} x {Units.FormatLength(placedHeight)}, " +
+              $"sill {Units.FormatLength(placedSill)}. Change Width and Height in Properties for another size."
+            : Math.Abs(placedHeight - opening.HeightOf(type)) > 1 || Math.Abs(placedSill - opening.SillHeight) > 1
+                ? $"Fitted inside the wall: sill {Units.FormatLength(placedSill)}, {Units.FormatLength(placedHeight)} high. " +
+                  "It goes back up to its full size if the wall is made taller."
+                : DefaultHintFor(ActiveTool));
     }
 
     /// <summary>
@@ -3538,7 +3649,9 @@ public partial class PlanView : FrameworkElement
         double? sill = null;
         if (!isDoor && Document.FindType<OpeningType>(ActiveWindowTypeId) is { } type)
         {
-            var room = Math.Max(0, wall.GetHeight(Document) - type.Height);
+            // No higher than the wall is tall - which for a gable or a wall under a slope is its outline's top.
+            var tall = WallProfile.Of(Document, wall) is { } outline ? WallProfile.Top(outline) : wall.GetHeight(Document);
+            var room = Math.Max(0, tall - type.Height);
             sill = Units.SnapToGrid(Math.Clamp(at.Z - wall.GetBaseElevation(Document) - type.Height / 2, 0, room), SnapStepMm);
         }
 
@@ -4546,6 +4659,12 @@ public partial class PlanView : FrameworkElement
 
     private Element? Hovered => _hoverCandidates.Count == 0 ? null : _hoverCandidates[_hoverIndex % _hoverCandidates.Count];
 
+    // The dormer under the cursor, when what is under it is part of one: it is picked whole
+    // until TAB steps on to the part itself.
+    private Roof? _hoverDormer;
+
+    private bool HoveredWhole => _hoverDormer is not null && _hoverCandidates.Count > 0 && _hoverIndex % _hoverCandidates.Count == 0;
+
     private readonly Pen _hoverPen = CreateHoverPen();
 
     private static Pen CreateHoverPen()
@@ -4567,6 +4686,11 @@ public partial class PlanView : FrameworkElement
         _hoverCandidates = HitCandidates(raw).Distinct().ToList();
         _hoverIndex = 0;
         _hoverAnchor = raw;
+
+        // A dormer is picked whole, as a group is: its roof stands first for all of it, and TAB
+        // goes on to the part under the cursor on its own.
+        _hoverDormer = Document is null ? null : Dormers.Of(Document, _hoverCandidates.FirstOrDefault());
+        if (_hoverDormer is not null) _hoverCandidates.Insert(0, _hoverDormer);
 
         if (ReferenceEquals(before, Hovered)) return;
         ReportHover();
@@ -4602,6 +4726,13 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
+        if (HoveredWhole && _hoverDormer is { } dormer)
+        {
+            HintChanged?.Invoke(this, $"{Dormers.Describe(dormer)}: its roof and {Dormers.Parts(Document, dormer).Count - 1} walls   ·   " +
+                                      $"TAB for one part of it ({_hoverIndex + 1} of {_hoverCandidates.Count})");
+            return;
+        }
+
         var category = string.Concat(element.Category.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? " " + c : c.ToString()));
         var type = Document.ElementTypes.FirstOrDefault(t => t.Id == element.TypeId);
         var name = type is null ? category : $"{category} : {type.Name}";
@@ -4614,7 +4745,18 @@ public partial class PlanView : FrameworkElement
     /// <summary>The outline of whatever the cursor has picked out, drawn over the plan.</summary>
     private void DrawHover(DrawingContext dc)
     {
-        if (Document is null || _isPanning || Hovered is not { } element || IsSelected(element)) return;
+        if (Document is null || _isPanning || Hovered is not { } element) return;
+
+        // A dormer picked whole is ringed whole.
+        if (HoveredWhole && _hoverDormer is { } dormer)
+        {
+            var parts = Dormers.Parts(Document, dormer);
+            if (!parts.All(IsSelected))
+                foreach (var part in parts) DrawHoverOutline(dc, part);
+            return;
+        }
+
+        if (IsSelected(element)) return;
         DrawHoverOutline(dc, element);
     }
 
@@ -4820,6 +4962,7 @@ public partial class PlanView : FrameworkElement
         // reach a sheet - which is exactly why the renderer does not know about them.
         DrawRoofSketch(dc);
         DrawExtrusionPreview(dc);
+        DrawDormerPreview(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);

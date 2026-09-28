@@ -92,26 +92,204 @@ public static class WallProfile
     /// </summary>
     private static IReadOnlyList<Point2D>? UnderRoof(BimDocument document, Wall wall)
     {
-        if (wall.AttachedRoof(document) is not { } roof || roof.Surface(document).IsFlat) return null;
+        var over = wall.AttachedRoof(document) is { } above && !above.Surface(document).IsFlat ? above : null;
+        var under = wall.RoofUnder(document) is { } below && !below.Surface(document).IsFlat ? below : null;
+        if (over is null && under is null) return null;
         if (document.GetWallType(wall) is not { } type) return null;
 
         var length = wall.Length;
         if (length <= Tolerance) return null;
 
         var structure = type.Structure;
-        var half = structure.TotalWidth / 2;
         var bottom = wall.GetBaseElevation(document);
-        var unattached = wall.GetUnattachedTopElevation(document);
-        var surface = roof.Surface(document);
-        var thickness = document.FindType<SlabType>(roof.TypeId)?.Thickness ?? 0;
+        var ownTop = over is null ? wall.GetTopElevation(document) : wall.GetUnattachedTopElevation(document);
+        var thickness = over is null ? 0 : document.FindType<SlabType>(over.TypeId)?.Thickness ?? 0;
 
-        var faces = new[] { half, -half };
+        var faces = Faces(structure);
+        var along = Stations(wall, structure, length, new[] { over, under }.OfType<Roof>().Select(roof => roof.Surface(document)));
 
-        // Every point along the wall where the roof's underside changes direction under either
-        // face: where a face crosses the edge of a roof face. Between two of them each face is
-        // under one plane, so the top is straight - and the outline is exact.
+        double TopAt(double station)
+        {
+            if (over is null) return Math.Max(ownTop - bottom, 1);
+
+            // Only the faces the roof is over say how high the wall goes. A roof ending on the
+            // wall's line covers its inner face and not its outer one, and the outer face's own
+            // height would hold a gable end down to a sliver under the arch or the ridge.
+            var surface = over.Surface(document);
+            var heights = faces
+                .Select(across => wall.PointAt(structure, station, across))
+                .Where(point => Covered(over, point))
+                .Select(surface.HeightAt)
+                .ToList();
+
+            if (heights.Count == 0) return Math.Max(ownTop - bottom, 1);
+
+            // The inner face's height, but never through the top of the roof.
+            var top = Math.Min(heights.Max(), heights.Min() + thickness);
+            return Math.Max(top - bottom, 1);
+        }
+
+        double BottomAt(double station)
+        {
+            if (under is null) return 0;
+
+            // Standing on a roof: down to its top on whichever face it is lower, so no gap shows
+            // under the wall where the roof falls away across its thickness.
+            var heights = faces
+                .Select(across => wall.PointAt(structure, station, across))
+                .Where(point => Covered(under, point))
+                .Select(point => under.TopAt(document, point))
+                .ToList();
+
+            return heights.Count == 0 ? 0 : heights.Min() - bottom;
+        }
+
+        // Where the wall runs out from under a roof - or off one - its edge steps there, rather
+        // than sloping all the way to the next corner: the height just before each station and
+        // just after it are both kept when they differ.
+        List<Point2D> Edge(Func<double, double> heightAt)
+        {
+            var points = new List<Point2D>();
+            foreach (var station in along)
+            {
+                var before = station > 0 ? heightAt(Math.Max(0, station - 0.5)) : heightAt(station);
+                var after = station < length ? heightAt(Math.Min(length, station + 0.5)) : heightAt(station);
+
+                if (Math.Abs(before - after) > 1 && station > 0 && station < length)
+                {
+                    points.Add(new Point2D(station, before));
+                    points.Add(new Point2D(station, after));
+                }
+                else
+                {
+                    points.Add(new Point2D(station, heightAt(station)));
+                }
+            }
+
+            return points;
+        }
+
+        var bottoms = Edge(BottomAt);
+        var tops = Edge(station => Math.Max(TopAt(station), BottomAt(station) + 1));
+
+        // A wall standing on one roof under another - a dormer's side wall - runs out where the
+        // roof it stands on rises to meet the roof over it: past there it is buried in the roof.
+        // It ends at the point the two meet, rather than being carried on as a sliver - or, with
+        // nothing marking that point, being drawn straight on from its last corner up through
+        // the roof over it.
+        if (over is not null && under is not null && Buried(along, TopAt, BottomAt, length) is { } kept)
+            return kept;
+
+        // A roof that turns out level over the whole wall, and no roof under it, leaves it a
+        // plain rectangle.
+        if (bottoms.All(point => Math.Abs(point.Y) <= Tolerance) &&
+            tops.All(point => Math.Abs(point.Y - tops[0].Y) <= Tolerance) &&
+            Math.Abs(bottom + tops[0].Y - wall.GetTopElevation(document)) <= 1)
+        {
+            return null;
+        }
+
+        var outline = new List<Point2D>(bottoms);
+        outline.AddRange(tops.AsEnumerable().Reverse());
+
+        return Problem(outline, length) is null ? outline : null;
+    }
+
+    /// <summary>
+    /// The outline of a wall whose top comes down to its bottom somewhere along it: only the
+    /// stretch where it has any height, ending exactly where the two meet. Null when it has
+    /// height all along - nothing buried - or when what is left is in more than one piece.
+    /// </summary>
+    private static IReadOnlyList<Point2D>? Buried(
+        IReadOnlyList<double> along, Func<double, double> topAt, Func<double, double> bottomAt, double length)
+    {
+        var samples = along.Select(station => (X: station, Bottom: bottomAt(station), Top: topAt(station))).ToList();
+        if (samples.All(sample => sample.Top - sample.Bottom > 1)) return null;
+
+        // Where the top crosses the bottom between two stations - both are straight there - a
+        // point of its own, at no height.
+        var points = new List<(double X, double Bottom, double Top)>();
+        for (var i = 0; i < samples.Count; i++)
+        {
+            points.Add(samples[i]);
+            if (i + 1 == samples.Count) break;
+
+            var (a, b) = (samples[i], samples[i + 1]);
+            var (gapA, gapB) = (a.Top - a.Bottom, b.Top - b.Bottom);
+            if (gapA * gapB >= 0) continue;
+
+            var t = gapA / (gapA - gapB);
+            var bottom = a.Bottom + (b.Bottom - a.Bottom) * t;
+            points.Add((a.X + (b.X - a.X) * t, bottom, bottom));
+        }
+
+        // The stretches with height, between the points where it has none.
+        var runs = new List<List<(double X, double Bottom, double Top)>>();
+        List<(double X, double Bottom, double Top)>? run = null;
+        foreach (var point in points)
+        {
+            if (point.Top - point.Bottom < -Tolerance)
+            {
+                run = null;
+                continue;
+            }
+
+            if (run is null)
+            {
+                run = new List<(double, double, double)>();
+                runs.Add(run);
+            }
+
+            run.Add(point);
+        }
+
+        var solid = runs.Where(part => part.Count >= 2 && part[^1].X - part[0].X > 1 && part.Any(point => point.Top - point.Bottom > 1)).ToList();
+        if (solid.Count != 1) return null;
+
+        var outline = solid[0].Select(point => new Point2D(point.X, point.Bottom)).ToList();
+        outline.AddRange(solid[0].AsEnumerable().Reverse()
+            .Where(point => point.Top - point.Bottom > Tolerance)
+            .Select(point => new Point2D(point.X, point.Top)));
+
+        return Problem(outline, length) is null ? outline : null;
+    }
+
+    /// <summary>
+    /// The lowest the top of a roof comes under a wall standing on it - where the wall's base
+    /// is, so its outline only ever rises from there. Null where the roof is under none of it.
+    /// </summary>
+    public static double? LowestTopUnder(BimDocument document, Wall wall, Roof roof)
+    {
+        if (document.GetWallType(wall) is not { } type) return null;
+
+        var length = wall.Length;
+        if (length <= Tolerance) return null;
+
+        var structure = type.Structure;
+        var heights = Stations(wall, structure, length, new[] { roof.Surface(document) })
+            .SelectMany(station => Faces(structure).Select(across => wall.PointAt(structure, station, across)))
+            .Where(point => Covered(roof, point))
+            .Select(point => roof.TopAt(document, point))
+            .ToList();
+
+        return heights.Count == 0 ? null : heights.Min();
+    }
+
+    /// <summary>The two faces of a wall, across from its centre.</summary>
+    private static double[] Faces(Materials.CompoundStructure structure) =>
+        new[] { structure.TotalWidth / 2, -structure.TotalWidth / 2 };
+
+    /// <summary>
+    /// Every point along the wall where a roof's surface changes direction under either face:
+    /// where a face crosses the edge of a roof face. Between two of them each face is under one
+    /// plane, so the wall's edge there is straight - and its outline exact.
+    /// </summary>
+    private static List<double> Stations(Wall wall, Materials.CompoundStructure structure, double length, IEnumerable<RoofSurface> surfaces)
+    {
         var stations = new List<double> { 0, length };
-        foreach (var across in faces)
+
+        foreach (var surface in surfaces)
+        foreach (var across in Faces(structure))
         {
             var from = wall.PointAt(structure, 0, across);
             var to = wall.PointAt(structure, length, across);
@@ -138,50 +316,7 @@ public static class WallProfile
         if (along[^1] < length - 1) along.Add(length);
         else along[^1] = length;
 
-        double TopAt(double station)
-        {
-            var heights = faces.Select(across =>
-            {
-                var point = wall.PointAt(structure, station, across);
-                return Covered(roof, point) ? surface.HeightAt(point) : unattached;
-            }).ToList();
-
-            // The inner face's height, but never through the top of the roof.
-            var top = Math.Min(heights.Max(), heights.Min() + thickness);
-            return Math.Max(top - bottom, 1);
-        }
-
-        // Where the wall runs out from under the roof its top steps down there, rather than
-        // sloping down all the way to the next corner: the height just before each station
-        // and just after it are both kept when they differ.
-        var tops = new List<Point2D>();
-        foreach (var station in along)
-        {
-            var before = station > 0 ? TopAt(Math.Max(0, station - 0.5)) : TopAt(station);
-            var after = station < length ? TopAt(Math.Min(length, station + 0.5)) : TopAt(station);
-
-            if (Math.Abs(before - after) > 1 && station > 0 && station < length)
-            {
-                tops.Add(new Point2D(station, before));
-                tops.Add(new Point2D(station, after));
-            }
-            else
-            {
-                tops.Add(new Point2D(station, TopAt(station)));
-            }
-        }
-
-        // A roof that turns out level over the whole wall leaves it a plain rectangle.
-        if (tops.All(point => Math.Abs(point.Y - tops[0].Y) <= Tolerance) &&
-            Math.Abs(bottom + tops[0].Y - wall.GetTopElevation(document)) <= 1)
-        {
-            return null;
-        }
-
-        var outline = new List<Point2D> { new(0, 0), new(length, 0) };
-        outline.AddRange(tops.AsEnumerable().Reverse());
-
-        return Problem(outline, length) is null ? outline : null;
+        return along;
     }
 
     /// <summary>Whether a roof is over a point - inside its footprint, or on its edge.</summary>

@@ -391,6 +391,16 @@ public class ModelView : Border
         var indices = new Int32Collection(mesh.Indices);
 
         var geometry = new MeshGeometry3D { Positions = positions, TriangleIndices = indices };
+
+        // A curved surface built flat says which way it faces at each point, so it is shaded
+        // as the curve; otherwise the faces' own directions are used.
+        if (mesh.Normals is { } normals && normals.Count == mesh.Positions.Count)
+        {
+            var directions = new Vector3DCollection(normals.Count);
+            foreach (var n in normals) directions.Add(new Vector3D(n.X, n.Y, n.Z));
+            geometry.Normals = directions;
+        }
+
         geometry.Freeze();
         return geometry;
     }

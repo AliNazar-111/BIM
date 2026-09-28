@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Media;
 using BIMDesigner.Core;
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Parameters;
@@ -40,7 +41,7 @@ public partial class PlanView
     {
         if (Document is null) return false;
 
-        var point = SnapPoint(raw, null, out _);
+        var (point, locked) = ExtrusionSnap(raw);
 
         if (_extrusionFrom is not { } from)
         {
@@ -65,7 +66,9 @@ public partial class PlanView
         }
 
         var direction = (to - from).NormalisedOrDefault(Vector2D.UnitX);
-        var depth = Units.SnapToGrid((point - from).Dot(direction.PerpendicularLeft()), SnapStepMm);
+        // Locked onto a corner, the roof runs exactly to it; otherwise to a round distance.
+        var reach = (point - from).Dot(direction.PerpendicularLeft());
+        var depth = locked is null ? Units.SnapToGrid(reach, SnapStepMm) : reach;
 
         if (Math.Abs(depth) < SnapStepMm)
         {
@@ -180,6 +183,10 @@ public partial class PlanView
             "Edit Profile, or double-click it, to change its section.");
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
+
+        // Walls under it are asked about, as a roof picked from walls asks: attached, the
+        // gable walls rise to close the ends.
+        if (WallsToAttach(roof).Count > 0) RoofMadeFromWalls?.Invoke(this, roof);
         return roof;
     }
 
@@ -199,10 +206,89 @@ public partial class PlanView
         return true;
     }
 
+    /// <summary>What the cursor has locked onto while placing a roof by extrusion, named for the marker; null when nothing.</summary>
+    private string? _extrusionSnapKind;
+
+    /// <summary>
+    /// Where a Roof by Extrusion click lands: on a corner of a wall - the outside corner, where
+    /// a roof's edge usually goes, or the inside one - on the end of a wall's line, or on a grid
+    /// crossing, whichever is nearest within reach; on the drawing grid otherwise. Says which,
+    /// so the marker can.
+    /// </summary>
+    private (Point2D Point, string? Kind) ExtrusionSnap(Point2D raw)
+    {
+        if (Document is null) return (SnapToGrid(raw), null);
+
+        var reach = SnapPixelRadius / PixelsPerMm;
+        Point2D? best = null;
+        string? kind = null;
+
+        void Consider(Point2D candidate, string name)
+        {
+            var distance = candidate.DistanceTo(raw);
+            if (distance >= reach) return;
+
+            reach = distance;
+            best = candidate;
+            kind = name;
+        }
+
+        foreach (var wall in OnActiveLevel<Wall>())
+        {
+            if (!wall.IsCurved && Document.GetWallType(wall) is { } type && type.Structure.TotalWidth > 0)
+            {
+                // The corners of the wall as drawn, joins and all - so at an L the outside
+                // corner is the one point where both faces meet.
+                var half = type.Structure.TotalWidth / 2;
+
+                foreach (var corner in WallJoins.GetBandOutline(Document, wall, type, half, -half))
+                    Consider(corner, CornerKind(wall, corner));
+            }
+
+            Consider(wall.Start, "Wall end");
+            Consider(wall.End, "Wall end");
+        }
+
+        foreach (var crossing in Grids.Intersections(Document)) Consider(crossing, "Grid crossing");
+
+        return best is { } point ? (point, kind) : (SnapToGrid(raw), null);
+    }
+
+    /// <summary>
+    /// Whether a corner of a wall is on the outside of the building or the inside, judged by
+    /// the wall it is joined to there: the outside corner is on the far side of that wall's
+    /// line from the wall it belongs to. A wall end joined to nothing just has corners.
+    /// </summary>
+    private string CornerKind(Wall wall, Point2D corner)
+    {
+        var atStart = corner.DistanceTo(wall.Start) <= corner.DistanceTo(wall.End);
+        var end = atStart ? wall.Start : wall.End;
+        var body = (atStart ? wall.End : wall.Start) - end;
+
+        var joined = OnActiveLevel<Wall>().FirstOrDefault(other =>
+            !ReferenceEquals(other, wall) && !other.IsCurved &&
+            (other.Start.DistanceTo(end) < 1 || other.End.DistanceTo(end) < 1));
+        if (joined is null) return "Wall corner";
+
+        var across = (joined.End - joined.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+        var bodySide = body.NormalisedOrDefault(Vector2D.UnitX).Dot(across);
+
+        // Running straight on into the next wall, there is no inside or outside to it.
+        if (Math.Abs(bodySide) < 0.1) return "Wall corner";
+
+        return bodySide * (corner - end).Dot(across) < 0 ? "Outside corner" : "Inside corner";
+    }
+
     private void ExtrusionHover(Point2D raw)
     {
-        _extrusionCursor = SnapPoint(raw, null, out _);
-        if (_extrusionFrom is not null) InvalidateVisual();
+        var (point, kind) = ExtrusionSnap(raw);
+        _extrusionCursor = point;
+        _extrusionSnapKind = kind;
+
+        // The same ring every tool that locks onto the model shows.
+        _cursorModel = point;
+        _cursorIsSnapped = kind is not null;
+        InvalidateVisual();
     }
 
     private bool CancelExtrusion()
@@ -217,7 +303,24 @@ public partial class PlanView
     /// <summary>What the next click would make: the profile's line, then the roof's rectangle behind it.</summary>
     private void DrawExtrusionPreview(DrawingContext dc)
     {
-        if (ActiveTool != PlanTool.RoofExtrusion || _extrusionFrom is not { } from) return;
+        if (ActiveTool != PlanTool.RoofExtrusion) return;
+
+        // What the cursor has locked onto, named beside the ring.
+        if (_extrusionSnapKind is { } kind)
+        {
+            var text = new FormattedText(
+                kind,
+                System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Segoe UI"),
+                11,
+                _snapPen.Brush,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
+            dc.DrawText(text, ModelToScreen(_extrusionCursor) + new Vector(10, 8));
+        }
+
+        if (_extrusionFrom is not { } from) return;
 
         if (_extrusionTo is not { } to)
         {
@@ -227,7 +330,8 @@ public partial class PlanView
 
         var direction = (to - from).NormalisedOrDefault(Vector2D.UnitX);
         var across = direction.PerpendicularLeft();
-        var depth = Units.SnapToGrid((_extrusionCursor - from).Dot(across), SnapStepMm);
+        var reach = (_extrusionCursor - from).Dot(across);
+        var depth = _extrusionSnapKind is null ? Units.SnapToGrid(reach, SnapStepMm) : reach;
 
         var corners = new[] { from, to, to + across * depth, from + across * depth };
         for (var i = 0; i < corners.Length; i++)

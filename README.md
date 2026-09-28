@@ -251,8 +251,11 @@ drawn square-on in a window of its own, starting from a gable, gambrel, barrel v
 butterfly and moved point by point from there. The line drawn is the roof's underside, and
 its build-up stands on it, mitred at each change of pitch so the top runs through unbroken.
 A section that stands a line upright, or folds back under itself, cannot roof anything and is
-refused with the reason. The vault is an arch of short straight pieces rather than a true
-curve.
+refused with the reason. Any line can be bent into an arc, and an arc is kept as one: a
+barrel vault is a single arc, built from pieces fine enough to read as a curve, shaded as one
+smooth surface in 3D and drawn in plan without a line along every join. The clicks lock onto
+the corners of the walls, and the walls under the finished roof are offered attachment, so
+the gable ends rise to the arch.
 
 Roofs export as `IfcRoof` with the shape recorded on them — `HIP_ROOF`, `GABLE_ROOF`,
 `SHED_ROOF`, `GAMBREL_ROOF`, `BARREL_ROOF`, `FLAT_ROOF` — a pitched one as an assembly of one `IfcSlab` per face, each
@@ -279,8 +282,29 @@ beside a sloping eave starts at that eave's height, so a dormer continues the ea
 into even where the eave overhangs; elsewhere its height is measured from the roof's base.
 Faces that come out in the same plane — the two halves of a split eave — are joined into one.
 
-Not yet: sloped glazing, dormers with walls and a dormer opening, joining one roof to
-another, openings in roofs, fascias and soffits. (§3.3)
+**Round roofs are one surface.** A circle or an arc in a roof's sketch is kept as a circle or
+an arc: sloping, it rises as a cone - a turret, a rounded bay, the apse of a wing. The roof
+is built from pieces a few degrees wide, but the plan draws no hip down every join between
+them and the 3D view shades them as the curve they are; Edit Footprint gives the arc back as
+one line. **Rafter or Truss** says where a roof picked from walls starts its slope: on the
+walls' outside faces for a truss, their inside faces for rafters.
+
+**A dormer with walls is built as it is on site.** Its walls stand on the main roof - Attach
+Base finds the roof a wall rises out of, the wall's base follows the slope, and a side wall
+ends where it is buried in the roof, as a dormer's triangular cheek does. Its own roof,
+**joined** to the main roof, is carried back until it meets it and trimmed where it runs in,
+so the two meet in valleys; in plan it shows only where it is above. Then **Dormer Opening**
+cuts the main roof away under it, between the inside faces of its walls, back to where its
+underside meets the main roof. Every part of that is worked out from the elements each time,
+so moving the dormer's walls or roof moves the hole.
+
+**A loop inside a roof's outline is a hole in it.** Draw a rectangle, polygon or circle inside
+the outline in the roof's sketch and it is cut straight down through the roof - a skylight, a
+chimney, a light well - in 3D, section, plan, quantities and IFC. And a whole dormer can be
+clicked onto a slope with the **Dormer** tool: the walls, its roof joined into the main roof,
+and the opening under it, in one step - lowered to fit under the ridge if it would not.
+
+Not yet: sloped glazing, openings cut square to the slope, fascias and soffits. (§3.3)
 
 **A room stores where it is, not what shape it is.** Its outline, area, perimeter and volume
 are traced from the walls around it each time they are asked for, so moving a wall changes
@@ -365,6 +389,8 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Action | Input |
 | --- | --- |
 | Draw a wall | `Wall` tool (`W`), click start, click end (keeps chaining) |
+| Make a wall an exact length or height | Select it and type in Properties → Dimensions: **Length** moves its end along it, and the walls meeting it there come too so the corner holds; **Height** moves its top (its Top Offset, or its Unconnected Height when it has no top level). A curved wall's length, and the height of a wall attached to something above it, stay read-only |
+| Put a room drawn by eye into an exact shape | Select the walls round it → **Modify \| Walls** tab → **Add Shapes**, and pick one: **Rectangle** (four walls: a **Width** and a **Depth**), **Square** (four walls, one **Side**) or **Regular Polygon** (three or more walls - a triangle, pentagon, hexagon, octagon - every side and corner the same). Sizes are measured to the **Wall centres**, the **Inside faces** (the room) or the **Outside faces**. The window opens on the size the walls are now, so OK alone just straightens the shape up. The room keeps its middle, and turns square to the page if it nearly is; walls ending at a corner go with it |
 | Stop drawing | `Esc` or right-click — a second `Esc` clears the selection |
 | Select | `Select` tool (`S`), click an element |
 | Select several | `Ctrl`+click to add or remove, or drag a box on empty space |
@@ -514,9 +540,18 @@ it was at the last save, so undoing back to that point makes the project clean a
 | Reopen a roof's sketch | Double-click the roof, or select it → **Edit Footprint** |
 | Why a roof won't finish | The lines at fault turn red and the status bar says why: the outline is open, lines cross, there is more than one loop (openings in roofs come later), or a slope arrow no longer starts on a line |
 | Slope a roof a way no edge says | In the roof sketch, **Slope Arrow**: click a line of the outline for the tail, then where the slope rises toward. On the options bar, **Specify** is **Slope** (a pitch from the tail) or **Height at Tail** (heights at both ends, the pitch worked out between them). One arrow on a flat roof makes it fall one way — diagonally from corner to corner if drawn that way; an arrow up from a raised gable end makes a half-hip |
-| Add a gambrel, a barrel vault or any roof the same all along | **Roof by Extrusion** (next to Roof): click one end of the line the roof's section is drawn on, then the other end (the width it spans), then how far back the roof runs. Draw the section in the window that opens: pick **Gable**, **Gambrel**, **Barrel Vault**, **Shed**, **Butterfly** or **Flat** with a **Rise** and **Overhang**, then drag points, double-click a line to add one, right-click a point to take it out. **Base** is how high above the level it sits — it starts at the tops of the walls under it. **Finish** makes the roof |
+| Add a gambrel, a barrel vault or any roof the same all along | **Roof by Extrusion** (next to Roof): click one end of the line the roof's section is drawn on, then the other end (the width it spans), then how far back the roof runs. Each click locks onto a wall corner near it - the ring and its label say **Outside corner**, **Inside corner**, **Wall end** or **Grid crossing**. Draw the section in the window that opens: pick **Gable**, **Gambrel**, **Barrel Vault**, **Shed**, **Butterfly** or **Flat** with a **Rise** and **Overhang**, then drag points, double-click a line to add one, right-click a point to take it out, and drag the diamond in the middle of a line to bend it into an arc. **Base** is how high above the level it sits — it starts at the tops of the walls under it. **Finish** makes the roof, then offers to attach the walls under it so the gable ends close |
 | Change an extruded roof's section | Double-click it, or select it → **Edit Profile**. Its depth is **Extrusion Start** and **Extrusion End** in Properties |
 | Put a dormer in an eave | In the roof sketch, **Split** the eave twice, select the middle stretch and clear **Defines slope**, then draw two **Slope Arrows** from its ends to its middle. The middle of the eave lifts into a little gable with its own ridge and valleys |
+| Draw a round roof | In the roof sketch, **Circle** (the centre, then a point on it) or **Arc** (start, end, then a point it passes through). A sloping circle makes a cone; a sloping arc rounds off an end or a bay. **Split** divides an arc into two of the same circle |
+| Take a roof line from something already drawn | In the roof sketch, **Pick Lines**, then click the edge of a floor, ceiling or other roof, a wall's face or a grid line. **Offset** on the options bar sets the line off toward the cursor |
+| Move a sketch line across, or square two lines to a corner | **Offset**: type the distance on the options bar and click the line on the side it should go - its neighbours run on or back to meet it; tick **Copy** to add a copy instead. **Trim/Extend**: click two lines, each on the part to keep |
+| Type a line's pitch | In the roof sketch with **Select Lines**, click the pitch shown beside the line, type it and press Enter |
+| Level the eaves of a roof | In the roof sketch, **Align Eaves**: each eave's height shows beside it. Click the eave to match, then the eaves to bring to it - by their plate height, or with **Adjust Overhang** on the options bar by running their overhang out |
+| Start the slope on the inside of the walls | Select the roof (picked from walls), Properties → **Rafter or Truss** → Rafter. Truss, the default, starts it on the outside faces |
+| Add a dormer in one click | **Architecture → Dormer** (or select the roof → **Add Dormer**), set **Gable**, **Shed** or **Hip**, **Width**, **Height**, **Slope** and **Overhang** on the options bar, then click on the roof's slope where the front wall should be. Walls, dormer roof, the join and the opening are made together - one Ctrl+Z takes them all back. On a low roof the height comes down to what fits under the ridge; where no dormer can fit, the status bar says so. A window put in the dormer's front wall is made to suit it - smaller, keeping its proportions, with wall left all round it - and stays inside its gable if the dormer is changed. A click on the dormer's roof or any of its walls selects the whole dormer; TAB (or a second click in 3D) picks one part |
+| Cut a skylight or chimney hole in a roof | Select the roof → **Edit Footprint**, draw a **Rectangle**, **Polygon** or **Circle** inside its outline, **Finish ✓**. The shape is cut through the roof |
+| Build a dormer with walls | Draw the dormer's three walls on the main roof and **Attach Base** them (they stand on the roof and follow its slope). Sketch the dormer's roof over them, then **Attach Top** the walls to it. **Modify → Join/Unjoin Roof**: click the dormer roof's back edge, then the main roof - it runs back into it and meets it in valleys. Select the main roof → **Dormer Opening** → click the dormer's roof: the main roof is cut away under it, between its walls |
 | Change a roof edge | Select the roof and click one of its edges: it becomes an eave the roof slopes up from, or a gable it is cut off at. Arrows show which edges slope while the roof is selected |
 | Reshape a whole roof | Select it, Properties → **Roof Shape**: Hip, Gable, Shed or Flat. **Slope** sets the pitch of every sloping edge at once |
 | Change one eave's pitch or height | Select the roof: Properties lists **Slope at Edge N** and **Eave Offset at Edge N** for each sloping edge. Drop one eave for a catslide; raise the end eaves of a hip for a half-hip |

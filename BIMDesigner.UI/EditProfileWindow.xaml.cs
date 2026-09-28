@@ -43,7 +43,8 @@ public partial class EditProfileWindow : Window
             .Select(entry =>
             {
                 var (from, to) = entry.Opening.GetSpan(entry.Type!);
-                return (from, to, entry.Opening.SillHeight, entry.Opening.SillHeight + entry.Type!.Height);
+                var (sill, height) = entry.Opening.Placed(document, entry.Type, wall);
+                return (from, to, sill, sill + height);
             })
             .ToList();
 

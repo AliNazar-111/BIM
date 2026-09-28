@@ -437,6 +437,29 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Purple}" Geometry="M8,22 L22,10 M22,10 L16,11 M22,10 L21,16"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- Walls drawn by eye put into an exact shape: a rectangle, a square, a regular polygon. -->
+    <DrawingImage x:Key="Icon.AddShapes"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke.Blue}" Geometry="M3,17 L15,17 L15,29 L3,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Room}" Pen="{StaticResource Stroke}" Geometry="M9,13 L15,3 L21,13 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke.Blue}" Geometry="M22,14 L27,17 L27,23 L22,26 L17,23 L17,17 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.ShapeRectangle"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke.Blue}" Geometry="M3,9 L29,9 L29,23 L3,23 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.ShapeSquare"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke.Blue}" Geometry="M6,6 L26,6 L26,26 L6,26 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.ShapePolygon"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke.Blue}" Geometry="M16,3 L27,9.5 L27,22.5 L16,29 L5,22.5 L5,9.5 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <!-- A roof by extrusion: a profile pushed back through the building. -->
     <DrawingImage x:Key="Icon.RoofExtrusion"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>

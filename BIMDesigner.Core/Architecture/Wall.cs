@@ -254,7 +254,14 @@ public sealed class Wall : Element
     private double GetBaseElevation(BimDocument document, int depth)
     {
         if (BaseAttachedTo is { } slabId && FindSlab(document, slabId) is { } slab)
+        {
+            // On a pitched roof the base is the lowest the roof's top comes under the wall; the
+            // wall's outline rises from there with the roof, so it stands on it all along.
+            if (slab is Roof roof && !roof.Surface(document).IsFlat && WallProfile.LowestTopUnder(document, this, roof) is { } lowest)
+                return lowest;
+
             return slab.GetTopElevation(document);
+        }
 
         // Standing on the wall below: its top.
         if (depth < MaxAttachmentChain && BaseAttachedTo is { } belowId && FindWall(document, belowId) is { } below)
@@ -293,6 +300,10 @@ public sealed class Wall : Element
     public Roof? AttachedRoof(BimDocument document) =>
         TopAttachedTo is { } id ? FindSlab(document, id) as Roof : null;
 
+    /// <summary>The roof the wall stands on - a dormer's wall on the roof it rises out of - if its base is attached to one.</summary>
+    public Roof? RoofUnder(BimDocument document) =>
+        BaseAttachedTo is { } id ? FindSlab(document, id) as Roof : null;
+
     private double GetTopElevation(BimDocument document, int depth)
     {
         var bottom = GetBaseElevation(document, depth + 1);
@@ -321,6 +332,51 @@ public sealed class Wall : Element
 
     /// <summary>Resolves the wall's height, from wherever its base and top are held.</summary>
     public double GetHeight(BimDocument document) => GetTopElevation(document) - GetBaseElevation(document);
+
+    /// <summary>
+    /// Makes a straight wall a new length, as Revit's Length parameter does: its start stays
+    /// where it is and its end moves along it - and the walls that meet it there come too, so
+    /// the corner holds. Null when the length cannot be had: none at all, or one that would
+    /// shrink a wall meeting it there to nothing.
+    /// </summary>
+    public IUndoableCommand? LengthChange(BimDocument document, double length)
+    {
+        if (IsCurved || length <= WallJoins.JoinTolerance || Length <= WallJoins.JoinTolerance) return null;
+
+        var end = Start + (End - Start) / Length * length;
+        var commands = new List<IUndoableCommand> { new MoveWallCommand(this, Start, End, Start, end, "Change Length") };
+
+        foreach (var (other, atStart) in WallCorners.At(document, LevelId, End).Where(corner => !ReferenceEquals(corner.Wall, this)))
+        {
+            var (start, otherEnd) = atStart ? (end, other.End) : (other.Start, end);
+            if (start.DistanceTo(otherEnd) <= WallJoins.JoinTolerance) return null;
+
+            commands.Add(new MoveWallCommand(other, other.Start, other.End, start, otherEnd, "Change Length"));
+        }
+
+        return commands.Count == 1 ? commands[0] : new CompositeCommand("Change Length", commands);
+    }
+
+    /// <summary>
+    /// Makes the wall a new height by moving its top: the top offset from its top level where
+    /// it has one, its unconnected height where it has not.
+    /// </summary>
+    private bool TrySetHeight(BimDocument document, double height)
+    {
+        if (height <= 0) return false;
+
+        if (TopLevelId is { } topId && document.FindLevel(topId) is { } topLevel)
+        {
+            var offset = GetBaseElevation(document) + height - topLevel.Elevation;
+            if (!KeepsHeight(document, LevelId, BaseOffset, TopLevelId, offset)) return false;
+
+            TopOffset = offset;
+            return true;
+        }
+
+        UnconnectedHeight = height;
+        return true;
+    }
 
     /// <summary>What an attachment is to, as the property panel shows it.</summary>
     private static string AttachmentName(BimDocument document, Guid? slabId)
@@ -636,9 +692,17 @@ public sealed class Wall : Element
 
         yield return ParameterValue.Bind(WallParameters.RoomBounding, () => RoomBounding, v => RoomBounding = v);
 
-        // Dimensions - all computed, never stored
-        yield return ParameterValue.ReadOnly(WallParameters.Length, () => Length);
-        yield return ParameterValue.ReadOnly(WallParameters.Height, () => GetHeight(document));
+        // Dimensions - all computed, never stored. Length and height can be typed all the
+        // same, as in Revit: a new length moves the wall's end, and the ends of the walls that
+        // meet it there; a new height moves its top, by its top offset or its unconnected height.
+        // A curved wall's length, and the height of a wall whose top follows something over it
+        // or an outline of its own, are what those make them, and are shown, not set.
+        yield return IsCurved
+            ? ParameterValue.ReadOnly(WallParameters.Length, () => Length)
+            : ParameterValue.BindCommand<double>(WallParameters.Length, () => Length, length => LengthChange(document, length));
+        yield return TopAttachedTo is null && Profile is null
+            ? ParameterValue.BindValidated<double>(WallParameters.Height, () => GetHeight(document), height => TrySetHeight(document, height))
+            : ParameterValue.ReadOnly(WallParameters.Height, () => GetHeight(document));
         yield return ParameterValue.ReadOnly(WallParameters.Area, () => GetArea(document));
         yield return ParameterValue.ReadOnly(WallParameters.Volume, () => GetVolume(document));
         if (CurtainLayout.Of(document, this) is not null)

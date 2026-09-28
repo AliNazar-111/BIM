@@ -110,7 +110,7 @@
 
                 <TextBlock TextWrapping="Wrap" Margin="0,14,0,0" Foreground="{StaticResource Text.Muted}"
                            FontSize="{StaticResource UiFontSizeSmall}"
-                           Text="Drag a point to move it. Double-click a line to add a point on it; right-click a point to take it out. The profile is the roof's underside: its build-up stands on it."/>
+                           Text="Drag a point to move it. Drag the diamond in the middle of a line to bend it into an arc, and back to straighten it. Double-click a line to add a point on it; right-click a point to take it out. The profile is the roof's underside: its build-up stands on it."/>
             </StackPanel>
         </Border>
 

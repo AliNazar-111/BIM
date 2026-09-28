@@ -50,6 +50,7 @@ public static class ElementTransforms
 
             case Slab slab:
                 slab.SetBoundary(slab.Boundary.Select(point => point + delta).ToList());
+                (slab as Roof)?.TransformOpenings(point => point + delta);
                 break;
 
             case Room room:
@@ -124,7 +125,7 @@ public static class ElementTransforms
             {
                 var origin = Reflect(extrusion.Origin);
                 var direction = Reflect(extrusion.Origin + extrusion.Direction) - origin;
-                extruded.SetExtrusion(new RoofExtrusion(origin, direction, extrusion.Profile, -extrusion.End, -extrusion.Start));
+                extruded.SetExtrusion(extrusion.With(origin: origin, direction: direction, start: -extrusion.End, end: -extrusion.Start));
                 break;
             }
 
@@ -132,6 +133,7 @@ public static class ElementTransforms
                 // SetBoundary re-winds the outline, so a reflected one comes back the right
                 // way round and its area stays positive.
                 slab.SetBoundary(slab.Boundary.Select(Reflect).ToList());
+                (slab as Roof)?.TransformOpenings(Reflect);
                 break;
 
             case Room room:

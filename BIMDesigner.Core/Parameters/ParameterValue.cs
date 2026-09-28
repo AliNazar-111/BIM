@@ -135,6 +135,31 @@ public sealed class ParameterValue
         return parameter;
     }
 
+    /// <summary>
+    /// Binds a value whose change reaches beyond one property - a wall's length moves the ends
+    /// of the walls joined where it ends. As with <see cref="BindChoiceCommand"/>, the change is
+    /// made by a command, kept so the edit is undone exactly. A null command refuses the value.
+    /// </summary>
+    public static ParameterValue BindCommand<T>(ParameterDefinition definition, Func<T> get, Func<T, IUndoableCommand?> change)
+    {
+        ParameterValue? parameter = null;
+
+        parameter = new ParameterValue(definition, () => get(), raw =>
+        {
+            if (!TryConvert<T>(raw, out var value)) return false;
+            if (Equals(value, get())) return true;
+
+            var command = change(value);
+            if (command is null) return false;
+
+            command.Redo();
+            parameter!._appliedChange = command;
+            return true;
+        });
+
+        return parameter;
+    }
+
     private IUndoableCommand? _appliedChange;
 
     /// <summary>

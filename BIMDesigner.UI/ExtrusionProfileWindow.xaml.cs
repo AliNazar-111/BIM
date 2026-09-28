@@ -26,7 +26,7 @@ public partial class ExtrusionProfileWindow : System.Windows.Window
     /// <param name="levelElevation">The elevation of the roof's level.</param>
     /// <param name="levels">The project's levels, to set the profile out against.</param>
     public ExtrusionProfileWindow(
-        double spanStart, double span, IReadOnlyList<Point2D>? profile, double baseOffset,
+        double spanStart, double span, RoofProfile? profile, double baseOffset,
         double levelElevation, IReadOnlyList<(string Name, double Elevation)> levels)
     {
         InitializeComponent();
@@ -41,10 +41,11 @@ public partial class ExtrusionProfileWindow : System.Windows.Window
 
         // An existing profile gives its own numbers back: the rise above its eaves (or the base,
         // where the eaves hang below it) and how far it runs out past the building.
-        var rise = profile is { Count: >= 2 }
-            ? profile.Max(point => point.Y) - Math.Max(0, profile.Min(point => point.Y))
+        var drawn = profile is { Points.Count: >= 2 } ? new RoofExtrusion(new Point2D(0, 0), Vector2D.UnitX, profile, 0, 1).Points : null;
+        var rise = drawn is not null
+            ? drawn.Max(point => point.Y) - Math.Max(0, drawn.Min(point => point.Y))
             : Math.Round(span / 2 * Math.Tan(30 * Math.PI / 180) / 10) * 10;
-        var overhang = profile is { Count: >= 2 } ? Math.Max(0, spanStart - profile[0].X) : 0;
+        var overhang = drawn is not null ? Math.Max(0, spanStart - drawn[0].X) : 0;
 
         RiseBox.Text = Units.FormatLength(Math.Round(rise / 10) * 10);
         OverhangBox.Text = Units.FormatLength(Math.Round(overhang / 10) * 10);
@@ -52,7 +53,7 @@ public partial class ExtrusionProfileWindow : System.Windows.Window
         BaseBox.TextChanged += (_, _) => ShowLevels();
         ShowLevels();
 
-        Editor.Profile = profile is { Count: >= 2 } ? profile : Preset(RoofForm.Gable);
+        Editor.Profile = profile is { Points.Count: >= 2 } ? profile : Preset(RoofForm.Gable);
         Editor.ProfileChanged += (_, _) => Report();
 
         Loaded += (_, _) =>
@@ -63,7 +64,7 @@ public partial class ExtrusionProfileWindow : System.Windows.Window
     }
 
     /// <summary>The profile drawn, when the window was finished.</summary>
-    public IReadOnlyList<Point2D> Profile => Editor.Profile;
+    public RoofProfile Profile => Editor.Profile;
 
     /// <summary>The base the roof sits at, above its level.</summary>
     public double BaseOffset { get; private set; }
@@ -84,10 +85,8 @@ public partial class ExtrusionProfileWindow : System.Windows.Window
             : 0;
 
     /// <summary>A starting shape over the span, where the span is.</summary>
-    private IReadOnlyList<Point2D> Preset(RoofForm form) =>
-        RoofExtrusion.Preset(form, _span, Rise(), Overhang())
-            .Select(point => new Point2D(point.X + _spanStart, point.Y))
-            .ToList();
+    private RoofProfile Preset(RoofForm form) =>
+        RoofExtrusion.Preset(form, _span, Rise(), Overhang()).Shifted(_spanStart);
 
     /// <summary>The levels as heights above the base - which moves them when the base does.</summary>
     private void ShowLevels()
@@ -120,17 +119,32 @@ public partial class ExtrusionProfileWindow : System.Windows.Window
             return;
         }
 
-        var profile = Editor.Profile;
-        var pitches = Enumerable.Range(0, profile.Count - 1)
+        var profile = extrusion.Profile;
+        var drawn = extrusion.Points;
+        var straight = Enumerable.Range(0, profile.Count - 1).Where(i => extrusion.Sagittas[i] == 0).ToList();
+        var arcs = Enumerable.Range(0, profile.Count - 1)
+            .Select(i => RoofExtrusion.Circle(profile[i], profile[i + 1], extrusion.Sagittas[i]))
+            .OfType<(Point2D Centre, double Radius)>()
+            .Select(circle => Math.Round(circle.Radius / 10) * 10)
+            .Distinct()
+            .ToList();
+
+        var pitches = straight
             .Select(i => Math.Round(Math.Abs(Math.Atan2(profile[i + 1].Y - profile[i].Y, profile[i + 1].X - profile[i].X) * 180 / Math.PI), 1))
             .Distinct()
             .ToList();
 
+        var parts = new List<string>();
+        if (pitches.Count > 0)
+            parts.Add($"{(pitches.Count == 1 ? "pitch" : "pitches")} {string.Join(", ", pitches.Take(6).Select(pitch => $"{pitch:0.#}°"))}" +
+                      (pitches.Count > 6 ? " and more" : ""));
+        if (arcs.Count > 0)
+            parts.Add($"{(arcs.Count == 1 ? "an arc of radius" : "arcs of radius")} {string.Join(", ", arcs.Take(4).Select(Units.FormatLength))}");
+
         StatusText.Text =
-            $"{EnumText.Humanise(extrusion.Form())}: {Units.FormatLength(profile[^1].X - profile[0].X)} wide, " +
-            $"rising {Units.FormatLength(profile.Max(point => point.Y) - Math.Max(0, profile.Min(point => point.Y)))}; " +
-            $"{(pitches.Count == 1 ? "pitch" : "pitches")} {string.Join(", ", pitches.Take(6).Select(pitch => $"{pitch:0.#}°"))}" +
-            (pitches.Count > 6 ? " and more" : "") + ".";
+            $"{EnumText.Humanise(extrusion.Form())}: {Units.FormatLength(drawn[^1].X - drawn[0].X)} wide, " +
+            $"rising {Units.FormatLength(drawn.Max(point => point.Y) - Math.Max(0, drawn.Min(point => point.Y)))}; " +
+            $"{string.Join("; ", parts)}.";
         OkButton.IsEnabled = true;
     }
 

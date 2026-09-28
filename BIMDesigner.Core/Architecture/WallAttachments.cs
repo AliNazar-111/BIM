@@ -37,11 +37,22 @@ public static class WallAttachments
     {
         var top = wall.GetTopElevation(document);
 
-        return document.Elements.OfType<Floor>()
+        var floors = document.Elements.OfType<Floor>()
             .Where(floor => floor.GetTopElevation(document) < top - 1)
             .Where(floor => IsOver(document, floor, wall))
-            .OrderByDescending(floor => floor.GetTopElevation(document))
-            .Cast<Slab>()
+            .Select(floor => (Slab: (Slab)floor, Top: floor.GetTopElevation(document)));
+
+        // A pitched roof the wall rises through and comes out above - a dormer's walls, on the
+        // roof they stand on. A wall under a roof, whose top it never comes out of, is not on it.
+        var middle = wall.LocationCurve.PointAt(wall.Length / 2);
+        var roofs = document.Elements.OfType<Roof>()
+            .Where(roof => roof.Contains(middle) && !roof.Surface(document).IsFlat)
+            .Select(roof => (Slab: (Slab)roof, Top: roof.TopAt(document, middle)))
+            .Where(roof => roof.Top < top - 1 && roof.Top > wall.GetBaseElevation(document) - 1);
+
+        return floors.Concat(roofs)
+            .OrderByDescending(candidate => candidate.Top)
+            .Select(candidate => candidate.Slab)
             .FirstOrDefault();
     }
 

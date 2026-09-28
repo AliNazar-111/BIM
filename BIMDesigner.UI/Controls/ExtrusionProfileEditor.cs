@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using BIMDesigner.Core;
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.UI.Controls;
@@ -12,10 +13,12 @@ namespace BIMDesigner.UI.Controls;
 /// it roofs, above the base it sits on (specification section 3.3; Revit's Edit Profile).
 ///
 /// Points are dragged to where they should be; a double click on a line puts a new point
-/// there, a right click on a point takes it out. The width clicked in plan is shaded along the
-/// base, so the profile is drawn against the building rather than in empty space, and every
-/// line shows its pitch. A line that stands upright or runs back under the one before - the two
-/// things a roof cannot do - is drawn in red.
+/// there, a right click on a point takes it out. The diamond in the middle of each line bends
+/// it into an arc, dragged out as far as the arc should bow - and back onto the line to
+/// straighten it. The width clicked in plan is shaded along the base, so the profile is drawn
+/// against the building rather than in empty space; every line shows its pitch and every arc
+/// its radius. A line that stands upright or runs back under the one before - the two things a
+/// roof cannot do - is drawn in red.
 ///
 /// The view stays where it is while points are moved; it is fitted again only when asked,
 /// because a board that rescales under the cursor while something is being dragged is a board
@@ -24,7 +27,9 @@ namespace BIMDesigner.UI.Controls;
 public sealed class ExtrusionProfileEditor : FrameworkElement
 {
     private List<Point2D> _profile = new();
+    private List<double> _sagittas = new();
     private int _dragging = -1;
+    private int _bending = -1;
     private double _scale = 0.05;
     private Point2D _centre = new(3000, 1500);
 
@@ -36,10 +41,15 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
     {
         DashStyle = new DashStyle(new[] { 8.0, 4.0 }, 0)
     });
+    private static readonly Pen ChordPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0x70, 0xD6, 0x2E, 0xC4))), 1)
+    {
+        DashStyle = new DashStyle(new[] { 4.0, 4.0 }, 0)
+    });
     private static readonly Pen GridPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x9A, 0xA4, 0xB0))), 1));
     private static readonly Brush SpanBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0x9A, 0xA4, 0xB0)));
     private static readonly Brush TextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xB8, 0xC0, 0xCC)));
     private static readonly Brush PointBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF)));
+    private static readonly Brush BendBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xD6, 0x2E, 0xC4)));
 
     private static T Frozen<T>(T freezable) where T : Freezable
     {
@@ -72,26 +82,38 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
         }
     }
 
-    /// <summary>The profile, left to right: distance along, height above the base.</summary>
-    public IReadOnlyList<Point2D> Profile
+    /// <summary>The profile, left to right: distance along, height above the base, and how far each line bows.</summary>
+    public RoofProfile Profile
     {
-        get => _profile;
+        get => new(_profile.ToList(), _sagittas.ToList());
         set
         {
-            _profile = value.ToList();
+            _profile = value.Points.ToList();
+            _sagittas = Enumerable.Range(0, Math.Max(0, _profile.Count - 1))
+                .Select(i => i < value.Sagittas.Count ? value.Sagittas[i] : 0)
+                .ToList();
             InvalidateVisual();
         }
     }
 
     public event EventHandler? ProfileChanged;
 
+    /// <summary>A line of the profile as it is drawn: straight, or the arc it bows into.</summary>
+    private IReadOnlyList<Point2D> Curve(int segment) =>
+        RoofExtrusion.ArcPoints(_profile[segment], _profile[segment + 1], _sagittas[segment]);
+
+    /// <summary>Where the handle that bends a line sits: the middle of the line, or of its arc.</summary>
+    private Point2D BendHandle(int segment) =>
+        RoofExtrusion.ArcMiddle(_profile[segment], _profile[segment + 1], _sagittas[segment]);
+
     /// <summary>Frames the profile and the span with a margin all round.</summary>
     public void Fit()
     {
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
 
-        var xs = _profile.Select(point => point.X).Append(SpanStart).Append(SpanStart + Span).ToList();
-        var ys = _profile.Select(point => point.Y).Append(0).Append(Span / 4).ToList();
+        var drawn = Enumerable.Range(0, Math.Max(0, _profile.Count - 1)).SelectMany(Curve).Concat(_profile).ToList();
+        var xs = drawn.Select(point => point.X).Append(SpanStart).Append(SpanStart + Span).ToList();
+        var ys = drawn.Select(point => point.Y).Append(0).Append(Span / 4).ToList();
 
         var width = Math.Max(xs.Max() - xs.Min(), 100);
         var height = Math.Max(ys.Max() - ys.Min(), 100);
@@ -123,13 +145,25 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
         return -1;
     }
 
+    private int BendHandleAt(Point screen)
+    {
+        for (var i = 0; i + 1 < _profile.Count; i++)
+            if ((ToScreen(BendHandle(i)) - screen).Length <= 7) return i;
+
+        return -1;
+    }
+
     private int SegmentAt(Point screen)
     {
         var at = ToProfile(screen);
         var reach = 6 / _scale;
 
         for (var i = 0; i + 1 < _profile.Count; i++)
-            if (Line2D.DistanceFromSegment(at, _profile[i], _profile[i + 1]) <= reach) return i;
+        {
+            var curve = Curve(i);
+            for (var k = 0; k + 1 < curve.Count; k++)
+                if (Line2D.DistanceFromSegment(at, curve[k], curve[k + 1]) <= reach) return i;
+        }
 
         return -1;
     }
@@ -144,16 +178,32 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
 
         var screen = e.GetPosition(this);
 
-        // A double click on a line puts a new point on it, where it was clicked.
+        // A double click on a line puts a new point on it, where it was clicked - on an arc,
+        // on the arc, the two halves keeping its curve.
         if (e.ClickCount == 2 && PointAt(screen) < 0 && SegmentAt(screen) is var segment and >= 0)
         {
-            _profile.Insert(segment + 1, Snap(ToProfile(screen)));
+            var (a, b) = (_profile[segment], _profile[segment + 1]);
+
+            if (_sagittas[segment] == 0)
+            {
+                _profile.Insert(segment + 1, Snap(ToProfile(screen)));
+                _sagittas.Insert(segment + 1, 0);
+            }
+            else
+            {
+                var (at, first, second) = RoofExtrusion.SplitArc(a, b, _sagittas[segment], ToProfile(screen));
+                _profile.Insert(segment + 1, at);
+                _sagittas[segment] = first;
+                _sagittas.Insert(segment + 1, second);
+            }
+
             Changed();
             return;
         }
 
         _dragging = PointAt(screen);
-        if (_dragging >= 0) CaptureMouse();
+        _bending = _dragging < 0 ? BendHandleAt(screen) : -1;
+        if (_dragging >= 0 || _bending >= 0) CaptureMouse();
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -161,18 +211,35 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
         base.OnMouseMove(e);
 
         var screen = e.GetPosition(this);
-        Cursor = PointAt(screen) >= 0 || _dragging >= 0 ? Cursors.SizeAll : Cursors.Arrow;
+        Cursor = PointAt(screen) >= 0 || BendHandleAt(screen) >= 0 || _dragging >= 0 || _bending >= 0
+            ? Cursors.SizeAll
+            : Cursors.Arrow;
 
-        if (_dragging < 0 || e.LeftButton != MouseButtonState.Pressed) return;
+        if (e.LeftButton != MouseButtonState.Pressed) return;
 
-        _profile[_dragging] = Snap(ToProfile(screen));
-        Changed();
+        if (_dragging >= 0)
+        {
+            _profile[_dragging] = Snap(ToProfile(screen));
+            Changed();
+        }
+        else if (_bending >= 0)
+        {
+            // How far the arc bows is how far the handle is dragged off the straight line,
+            // square to it. Back within a whisker of the line, it is straight again.
+            var (a, b) = (_profile[_bending], _profile[_bending + 1]);
+            var normal = (b - a).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+            var bow = Math.Round((ToProfile(screen) - (a + (b - a) / 2)).Dot(normal) / 10) * 10;
+
+            _sagittas[_bending] = Math.Abs(bow) < 20 ? 0 : bow;
+            Changed();
+        }
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
         _dragging = -1;
+        _bending = -1;
         ReleaseMouseCapture();
     }
 
@@ -183,6 +250,21 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
         // A right click on a point takes it out - but a roof needs two to be a line at all.
         var point = PointAt(e.GetPosition(this));
         if (point < 0 || _profile.Count <= 2) return;
+
+        if (point == 0 || point == _profile.Count - 1)
+        {
+            _sagittas.RemoveAt(point == 0 ? 0 : point - 1);
+        }
+        else
+        {
+            // Between two arcs, the line that replaces them is the arc through all three points,
+            // so an arc that was split joins up again unchanged; otherwise it is straight.
+            var bothArcs = _sagittas[point - 1] != 0 && _sagittas[point] != 0;
+            var joined = bothArcs ? RoofExtrusion.SagittaThrough(_profile[point - 1], _profile[point], _profile[point + 1]) : 0;
+
+            _sagittas[point - 1] = joined;
+            _sagittas.RemoveAt(point);
+        }
 
         _profile.RemoveAt(point);
         Changed();
@@ -228,6 +310,7 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
         var spanTo = ToScreen(new Point2D(SpanStart + Span, 0));
         dc.DrawRectangle(SpanBrush, null, new Rect(new Point(spanFrom.X, baseY), new Point(spanTo.X, baseY + 10)));
         DrawText(dc, $"Span {Units.FormatLength(Span)}", new Point((spanFrom.X + spanTo.X) / 2, baseY + 14), dpi, centred: true);
+
         // A level the roof is based on is named on the base line, not drawn over it.
         var atBase = Levels.Where(level => Math.Abs(level.Height) < 1).Select(level => level.Name).ToList();
         DrawText(dc, atBase.Count > 0 ? $"Base ({string.Join(", ", atBase)})" : "Base", new Point(6, baseY - 16), dpi);
@@ -241,29 +324,54 @@ public sealed class ExtrusionProfileEditor : FrameworkElement
             DrawText(dc, name, new Point(6, y - 16), dpi);
         }
 
-        // The profile, a line at a time, with the pitch of each.
+        // The profile, a line at a time, with the pitch of each line and the radius of each arc.
         for (var i = 0; i + 1 < _profile.Count; i++)
         {
             var (a, b) = (_profile[i], _profile[i + 1]);
-            var run = b.X - a.X;
-            var faulty = run <= 1;
+            var curve = Curve(i);
+            var isArc = _sagittas[i] != 0;
+            var faulty = Enumerable.Range(0, curve.Count - 1).Any(k => curve[k + 1].X - curve[k].X <= 1)
+                         || Math.Abs(_sagittas[i]) > a.DistanceTo(b) / 2 + 1e-6;
+
+            var pen = faulty ? BadPen : LinePen;
+            for (var k = 0; k + 1 < curve.Count; k++) dc.DrawLine(pen, ToScreen(curve[k]), ToScreen(curve[k + 1]));
 
             var from = ToScreen(a);
             var to = ToScreen(b);
-            dc.DrawLine(faulty ? BadPen : LinePen, from, to);
+            if (isArc) dc.DrawLine(ChordPen, from, to);
 
-            if (faulty) continue;
+            if (!faulty)
+            {
+                var text = isArc && RoofExtrusion.Circle(a, b, _sagittas[i]) is { } circle
+                    ? $"R {Units.FormatLength(Math.Round(circle.Radius / 10) * 10)}"
+                    : $"{Math.Abs(Math.Atan2(b.Y - a.Y, b.X - a.X) * 180 / Math.PI):0.#}°";
 
-            // The pitch sits off the top side of its line, far enough out that a steep line
-            // does not run through it.
-            var pitch = Math.Atan2(b.Y - a.Y, run) * 180 / Math.PI;
-            var label = Text($"{Math.Abs(pitch):0.#}°", dpi);
-            var along = to - from;
-            along.Normalize();
-            var outward = new Vector(along.Y, -along.X);
-            var clear = 6 + Math.Abs(outward.X) * label.Width / 2 + Math.Abs(outward.Y) * label.Height / 2;
-            var centre = new Point((from.X + to.X) / 2, (from.Y + to.Y) / 2) + outward * clear;
-            dc.DrawText(label, new Point(centre.X - label.Width / 2, centre.Y - label.Height / 2));
+                // Off the top side of the line - or the bow of the arc - far enough out that a
+                // steep line does not run through it.
+                var label = Text(text, dpi);
+                var along = to - from;
+                along.Normalize();
+                var outward = new Vector(along.Y, -along.X);
+                if (_sagittas[i] < 0) outward = -outward;
+
+                var clear = 14 + Math.Abs(outward.X) * label.Width / 2 + Math.Abs(outward.Y) * label.Height / 2;
+                var centre = ToScreen(BendHandle(i)) + outward * clear;
+                dc.DrawText(label, new Point(centre.X - label.Width / 2, centre.Y - label.Height / 2));
+            }
+
+            // The handle that bends it: a small diamond at its middle.
+            var handle = ToScreen(BendHandle(i));
+            var diamond = new StreamGeometry();
+            using (var context = diamond.Open())
+            {
+                context.BeginFigure(new Point(handle.X, handle.Y - 5), isFilled: true, isClosed: true);
+                context.LineTo(new Point(handle.X + 5, handle.Y), true, false);
+                context.LineTo(new Point(handle.X, handle.Y + 5), true, false);
+                context.LineTo(new Point(handle.X - 5, handle.Y), true, false);
+            }
+
+            diamond.Freeze();
+            dc.DrawGeometry(isArc ? BendBrush : PointBrush, PointPen, diamond);
         }
 
         foreach (var point in _profile)

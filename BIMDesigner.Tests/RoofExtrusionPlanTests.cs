@@ -186,7 +186,7 @@ public class RoofExtrusionPlanTests
                 RoofExtrusion.Preset(RoofForm.Gable, request.Width, 1700), request.Start, request.End);
             var roof = plan.PlaceExtrusionRoof(gable, request.BaseOffset)!;
 
-            Assert.True(plan.ChangeExtrusion(roof, gable.With(profile: RoofExtrusion.Preset(RoofForm.Barrel, 6000, 2000)), 3200));
+            Assert.True(plan.ChangeExtrusion(roof, gable.With(shape: RoofExtrusion.Preset(RoofForm.Barrel, 6000, 2000)), 3200));
             Assert.Equal(RoofForm.Barrel, roof.Form);
             Assert.Equal(3200, roof.HeightOffset, precision: 6);
 
@@ -194,6 +194,70 @@ public class RoofExtrusionPlanTests
             Assert.Equal(RoofForm.Gable, roof.Form);
             Assert.Equal(3000, roof.HeightOffset, precision: 6);
             Assert.Contains(roof, document.Elements);
+        });
+    }
+
+    [Fact]
+    public void ClicksLockOntoTheCornersOfTheWalls()
+    {
+        OnUiThread(() =>
+        {
+            var (document, plan) = Box();
+            var south = document.Walls.First(wall => wall.Start == new Point2D(0, 0));
+            var type = document.GetWallType(south)!;
+            var half = type.Structure.TotalWidth / 2;
+
+            // The four corners of the south wall as drawn, joins and all: two at each end, one on
+            // each face. The one at the west end on the side away from the box is the outside corner.
+            var corners = WallJoins.GetBandOutline(document, south, type, half, -half);
+            var outside = corners.Where(corner => corner.Y < 0).OrderBy(corner => corner.X).First();
+            Assert.Equal(-half, outside.X, precision: 6);
+
+            RoofExtrusionRequest? placed = null;
+            plan.ExtrusionPlaced += (_, request) => placed = request;
+
+            // Clicked a little way off the corner, the click goes to the corner - not to the end
+            // of the wall's line, and not to the drawing grid.
+            Assert.True(plan.ExtrusionClick(outside + new Vector2D(-25, -20)));
+            Assert.True(plan.ExtrusionClick(new Point2D(10000 + half + 25, -half - 20)));
+            Assert.True(plan.ExtrusionClick(new Point2D(10000 + half + 20, 6000 + half + 25)));
+
+            Assert.NotNull(placed);
+            Assert.Equal(outside, placed!.Origin);
+
+            // Outside corner to outside corner, both ways: the roof covers the walls entirely.
+            Assert.Equal(10000 + 2 * half, placed.Width, precision: 6);
+            Assert.Equal(6000 + 2 * half, placed.End - placed.Start, precision: 6);
+        });
+    }
+
+    [Fact]
+    public void APlacedExtrudedRoofOffersToAttachTheWallsUnderIt()
+    {
+        OnUiThread(() =>
+        {
+            var (document, plan) = Box();
+            Roof? offered = null;
+            plan.RoofMadeFromWalls += (_, roof) => offered = roof;
+
+            // A vault over the 6 m span, running the 10 m length of the box.
+            var request = ClickOut(plan)!;
+            var roof = plan.PlaceExtrusionRoof(
+                new RoofExtrusion(request.Origin, request.Direction,
+                    RoofExtrusion.Preset(RoofForm.Barrel, request.Width, 1500), request.Start, request.End),
+                request.BaseOffset)!;
+
+            Assert.Same(roof, offered);
+            Assert.Equal(4, plan.AttachPickedWalls(roof));
+
+            // The end walls now rise to the arch; attached once, a second offer finds none.
+            var gable = document.Walls.First(wall => wall.Start == new Point2D(10000, 0));
+            Assert.Equal(4500, WallProfile.Of(document, gable)!.Max(point => point.Y), precision: 0);
+            Assert.Equal(0, plan.AttachPickedWalls(roof));
+
+            // One step to undo.
+            plan.History!.Undo();
+            Assert.All(document.Walls, wall => Assert.Null(wall.TopAttachedTo));
         });
     }
 

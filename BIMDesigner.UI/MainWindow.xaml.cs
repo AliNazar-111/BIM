@@ -127,7 +127,8 @@ public partial class MainWindow : Window
                 LevelPicker.SelectedItem = level;
             }
 
-            Plan.Select(element);
+            // A dormer is picked whole, and a second click on it picks the part.
+            Plan.SelectPicked(element);
             Model3D.Focus();
         };
 
@@ -152,7 +153,7 @@ public partial class MainWindow : Window
         Plan.RoofMadeFromWalls += (_, roof) =>
         {
             var answer = MessageBox.Show(this,
-                "Attach the walls this roof was picked from to it?\n\nTheir tops then follow the roof's underside - which closes the gable ends - and keep following it when it changes.",
+                $"Attach {(roof.IsExtrusion ? "the walls under this roof" : "the walls this roof was picked from")} to it?\n\nTheir tops then follow the roof's underside - which closes the gable ends - and keep following it when it changes.",
                 "Roof", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
 
             if (answer == MessageBoxResult.Yes && Plan.AttachPickedWalls(roof) > 0)
@@ -160,6 +161,28 @@ public partial class MainWindow : Window
                 RefreshProperties();
                 Refresh3D();
             }
+        };
+
+        // A dormer the roof could not take says so where it will be seen, and offers the one
+        // that does fit there, if one does.
+        Plan.DormerRefused += (_, refused) =>
+        {
+            if (refused.Instead is { } instead)
+            {
+                var answer = MessageBox.Show(this,
+                    $"{refused.Problem}\n\nA shed dormer - one gentle slope, no ridge of its own - fits here, " +
+                    $"{Units.FormatLength(instead.Height)} high. Add that instead?",
+                    "Dormer", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+
+                if (answer != MessageBoxResult.Yes) return;
+
+                Plan.Dormer = instead;
+                ShowDormerOptions();
+                Plan.DormerAt(refused.At);
+                return;
+            }
+
+            MessageBox.Show(this, refused.Problem, "Dormer", MessageBoxButton.OK, MessageBoxImage.Information);
         };
 
         // A roof by extrusion placed in plan: its section is drawn next, square-on, over the
@@ -393,9 +416,12 @@ public partial class MainWindow : Window
         // offering one would be asking a question the tool never reads the answer to.
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
-            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening;
+            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
+        DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Dormer) ShowDormerOptions();
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -518,6 +544,12 @@ public partial class MainWindow : Window
             RoofSketchModify.IsChecked = Plan.SketchTool == RoofSketchTool.Modify;
             RoofSketchArrow.IsChecked = Plan.SketchTool == RoofSketchTool.SlopeArrow;
             RoofSketchSplit.IsChecked = Plan.SketchTool == RoofSketchTool.Split;
+            RoofSketchArc.IsChecked = Plan.SketchTool == RoofSketchTool.Arc;
+            RoofSketchCircle.IsChecked = Plan.SketchTool == RoofSketchTool.Circle;
+            RoofSketchPickLines.IsChecked = Plan.SketchTool == RoofSketchTool.PickLines;
+            RoofSketchOffset.IsChecked = Plan.SketchTool == RoofSketchTool.Offset;
+            RoofSketchTrim.IsChecked = Plan.SketchTool == RoofSketchTool.TrimExtend;
+            RoofSketchAlignEaves.IsChecked = Plan.SketchTool == RoofSketchTool.AlignEaves;
 
             if (RoofTool.IsChecked != true)
             {
@@ -571,6 +603,18 @@ public partial class MainWindow : Window
             picking ? Visibility.Visible : Visibility.Collapsed;
         RoofSidesLabel.Visibility = RoofSidesBox.Visibility =
             Plan.SketchTool == RoofSketchTool.Polygon ? Visibility.Visible : Visibility.Collapsed;
+
+        // The offset belongs to Pick Lines and to Offset; Copy to Offset alone.
+        RoofOffsetBox.Text = Units.FormatLength(Plan.SketchOffset);
+        RoofOffsetCopyBox.IsChecked = Plan.SketchOffsetCopy;
+        RoofOffsetLabel.Visibility = RoofOffsetBox.Visibility =
+            Plan.SketchTool is RoofSketchTool.PickLines or RoofSketchTool.Offset ? Visibility.Visible : Visibility.Collapsed;
+        RoofOffsetCopyBox.Visibility = Plan.SketchTool == RoofSketchTool.Offset ? Visibility.Visible : Visibility.Collapsed;
+
+        // How Align Eaves brings an eave to height.
+        RoofAlignPicker.ItemsSource ??= new[] { "Adjust Height", "Adjust Overhang" };
+        RoofAlignPicker.SelectedIndex = Plan.SketchAlignByOverhang ? 1 : 0;
+        RoofAlignPicker.Visibility = Plan.SketchTool == RoofSketchTool.AlignEaves ? Visibility.Visible : Visibility.Collapsed;
 
         // A slope arrow's own settings, for new arrows or the ones selected.
         var arrow = Plan.SelectedSketchArrows.FirstOrDefault();
@@ -684,6 +728,72 @@ public partial class MainWindow : Window
         Plan.Focus();
     }
 
+    /// <summary>Add Dormer on a selected roof: the Dormer tool, ready to click onto it.</summary>
+    private void OnAddDormer(object sender, RoutedEventArgs e)
+    {
+        DormerTool.IsChecked = true;
+        Plan.Focus();
+    }
+
+    /// <summary>The dormer the next click makes, on the options bar.</summary>
+    private void ShowDormerOptions()
+    {
+        _loadingOptions = true;
+
+        var dormer = Plan.Dormer;
+        DormerShapePicker.ItemsSource ??= EnumText.Choices<DormerShape>();
+        DormerShapePicker.SelectedItem = EnumText.Humanise(dormer.Shape);
+        DormerWidthBox.Text = Units.FormatLength(dormer.Width);
+        DormerHeightBox.Text = Units.FormatLength(dormer.Height);
+        DormerSlopeBox.Text = ParameterFormatter.Format(ParameterDataType.Angle, dormer.Slope);
+        DormerOverhangBox.Text = Units.FormatLength(dormer.Overhang);
+
+        _loadingOptions = false;
+    }
+
+    private void OnDormerOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        static double? Read(ParameterDataType type, string text) =>
+            ParameterFormatter.TryParse(type, text, out var value) && value is double number ? number : null;
+
+        var dormer = Plan.Dormer;
+        var shape = DormerShapePicker.SelectedItem is string name && EnumText.TryParse<DormerShape>(name, out var picked) ? picked : dormer.Shape;
+
+        // A shed falls gently to the front; changing to one brings a steep pitch down with it.
+        var slope = Read(ParameterDataType.Angle, DormerSlopeBox.Text) is { } angle and > 1 and < 80 ? angle : dormer.Slope;
+        if (shape == DormerShape.Shed && dormer.Shape != DormerShape.Shed && slope > 20) slope = 15;
+        if (shape != DormerShape.Shed && dormer.Shape == DormerShape.Shed && slope < 25) slope = 35;
+
+        Plan.Dormer = dormer with
+        {
+            Shape = shape,
+            Width = Read(ParameterDataType.Length, DormerWidthBox.Text) is { } width and > 300 ? width : dormer.Width,
+            Height = Read(ParameterDataType.Length, DormerHeightBox.Text) is { } height and > 0 ? height : dormer.Height,
+            Slope = slope,
+            Overhang = Read(ParameterDataType.Length, DormerOverhangBox.Text) is { } overhang and >= 0 ? overhang : dormer.Overhang
+        };
+
+        ShowDormerOptions();
+    }
+
+    private void OnDormerOptionKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnDormerOptionChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    /// <summary>Dormer Opening: the selected roof waits for the dormer to be clicked.</summary>
+    private void OnDormerOpening(object sender, RoutedEventArgs e)
+    {
+        if (!Plan.BeginDormerOpening()) StatusHint.Text = "Select the roof the dormer comes out of first.";
+        Plan.Focus();
+    }
+
     /// <summary>The project's levels, by name and elevation, to set a roof's profile out against.</summary>
     private IReadOnlyList<(string Name, double Elevation)> LevelLines() =>
         _document.Levels.Select(level => (level.Name, level.Elevation)).ToList();
@@ -721,9 +831,9 @@ public partial class MainWindow : Window
 
         var (start, width) = Plan.SpanUnder(roof);
         var level = _document.FindLevel(roof.LevelId)?.Elevation ?? 0;
-        var window = new ExtrusionProfileWindow(start, width, extrusion.Profile, roof.HeightOffset, level, LevelLines()) { Owner = this };
+        var window = new ExtrusionProfileWindow(start, width, extrusion.Shape, roof.HeightOffset, level, LevelLines()) { Owner = this };
 
-        if (window.ShowDialog() == true && Plan.ChangeExtrusion(roof, extrusion.With(profile: window.Profile), window.BaseOffset))
+        if (window.ShowDialog() == true && Plan.ChangeExtrusion(roof, extrusion.With(shape: window.Profile), window.BaseOffset))
         {
             StatusHint.Text =
                 $"{EnumText.Humanise(roof.Form)} roof by extrusion: {Units.FormatArea(roof.SlopingArea(_document))} of covering.";
@@ -816,6 +926,41 @@ public partial class MainWindow : Window
 
         OnRoofOverhangChanged(sender, e);
         e.Handled = true;
+    }
+
+    private void OnRoofOffsetChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofOffsetBox.Text, out var value) && value is double millimetres)
+            Plan.SketchOffset = Math.Abs(millimetres);
+
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofOffsetKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnRoofOffsetChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    private void OnRoofAlignModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        Plan.SketchAlignByOverhang = RoofAlignPicker.SelectedIndex == 1;
+        Plan.Focus();
+    }
+
+    private void OnRoofOffsetCopyChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        Plan.SketchOffsetCopy = RoofOffsetCopyBox.IsChecked == true;
+        Plan.Focus();
     }
 
     private void OnRoofExtendToCoreChanged(object sender, RoutedEventArgs e)
@@ -1109,9 +1254,9 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, GridTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
-        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, WallOpeningTool
+        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
     ];
 
     private void OnToolChanged(object sender, RoutedEventArgs e)
@@ -1152,6 +1297,7 @@ public partial class MainWindow : Window
             : CeilingTool.IsChecked == true ? PlanTool.Ceiling
             : RoofTool.IsChecked == true ? PlanTool.Roof
             : RoofExtrusionTool.IsChecked == true ? PlanTool.RoofExtrusion
+            : DormerTool.IsChecked == true ? PlanTool.Dormer
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -1166,6 +1312,7 @@ public partial class MainWindow : Window
             : RevealTool.IsChecked == true ? PlanTool.Reveal
             : WallJoinsTool.IsChecked == true ? PlanTool.WallJoins
             : JoinGeometryTool.IsChecked == true ? PlanTool.JoinGeometry
+            : JoinRoofTool.IsChecked == true ? PlanTool.JoinRoof
             : WallOpeningTool.IsChecked == true ? PlanTool.WallOpening
             : PlanTool.Select);
 
@@ -1925,6 +2072,7 @@ public partial class MainWindow : Window
         ContextShapePanel.Visibility = wallsOnly;
         ContextAddPoint.IsEnabled = allWalls;
         ContextStraighten.IsEnabled = selected.OfType<Wall>().Any(wall => wall.IsCurved);
+        ContextAddShapes.IsEnabled = selected.Count >= 3 && selected.All(element => element is Wall);
         ContextAddPoint.IsChecked = Plan.AddingWallPoints;
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
@@ -1989,6 +2137,73 @@ public partial class MainWindow : Window
     {
         Plan.AddingWallPoints = ContextAddPoint.IsChecked == true;
         ContextAddPoint.IsChecked = Plan.AddingWallPoints;
+        Plan.Focus();
+    }
+
+    // ---- add shapes ----------------------------------------------------------------
+
+    /// <summary>Add Shapes: the shapes the selected walls can be put into, as a menu under the button.</summary>
+    private void OnAddShapesButton(object sender, RoutedEventArgs e)
+    {
+        ShapesMenu.PlacementTarget = ContextAddShapes;
+        ShapesMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        ShapesMenu.IsOpen = true;
+    }
+
+    /// <summary>A rectangle or square takes four walls; a regular polygon any number from three.</summary>
+    private void OnShapesMenuOpened(object sender, RoutedEventArgs e)
+    {
+        var walls = Plan.SelectedElements.Count(element => element is Wall);
+        var onlyWalls = walls == Plan.SelectedElements.Count;
+
+        ShapeRectangleItem.IsEnabled = ShapeSquareItem.IsEnabled = onlyWalls && walls == 4;
+        ShapePolygonItem.IsEnabled = onlyWalls && walls >= 3;
+        ShapePolygonItem.Header = onlyWalls && walls >= 3 ? $"Regular _Polygon - {WallPolygon.NameFor(walls)}" : "Regular _Polygon";
+    }
+
+    private void OnShapeRectangle(object sender, RoutedEventArgs e) => ShapeWalls(WallShapeKind.Rectangle);
+
+    private void OnShapeSquare(object sender, RoutedEventArgs e) => ShapeWalls(WallShapeKind.Square);
+
+    private void OnShapePolygon(object sender, RoutedEventArgs e) => ShapeWalls(WallShapeKind.Polygon);
+
+    /// <summary>Puts the selected walls of a room into the shape chosen, at the size asked for.</summary>
+    private void ShapeWalls(WallShapeKind kind)
+    {
+        var selected = Plan.SelectedElements;
+        var walls = selected.OfType<Wall>().ToList();
+
+        if (walls.Count != selected.Count)
+        {
+            StatusHint.Text = "Select only the walls of a room to give them a shape.";
+            return;
+        }
+
+        string? problem;
+        WallShapeWindow? window = null;
+
+        if (kind == WallShapeKind.Polygon)
+        {
+            if (WallPolygon.Find(_document, walls, out problem) is { } polygon) window = new WallShapeWindow(polygon);
+        }
+        else if (WallRectangle.Find(_document, walls, out problem) is { } rectangle)
+        {
+            window = new WallShapeWindow(rectangle, square: kind == WallShapeKind.Square);
+        }
+
+        if (window is null)
+        {
+            StatusHint.Text = problem;
+            return;
+        }
+
+        window.Owner = this;
+        if (window.ShowDialog() != true || window.Command is not { } command) return;
+
+        _history.Execute(command);
+        AfterHistoryChange();
+
+        StatusHint.Text = window.Made;
         Plan.Focus();
     }
 

@@ -83,11 +83,12 @@ public class WindowPlacementTests
             plan.ActiveWindowTypeId = type.Id;
             plan.SetTool(PlanTool.Window);
 
-            // Clicked at the very top of a 3 m wall: it sits under the head, not through it.
+            // Clicked at the very top of a 3 m wall: it sits under the top, not through it, with a
+            // little wall left over its head.
             plan.PlaceOpeningIn3D(wall.Id, new Point3D(3000, 100, 2980));
 
             var window = document.Elements.OfType<BIMDesigner.Core.Architecture.Window>().Single();
-            Assert.Equal(3000 - type.Height, window.SillHeight, precision: 6);
+            Assert.Equal(3000 - WallOpenings.FitMargin - type.Height, window.SillHeight, precision: 6);
         });
     }
 

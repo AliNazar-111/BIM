@@ -82,11 +82,21 @@ public class ParameterTests
     {
         var (document, wall, _) = Scenario();
 
-        foreach (var name in new[] { "Length", "Area", "Volume", "Height" })
+        foreach (var name in new[] { "Area", "Volume" })
         {
             var parameter = Parameter(wall.GetInstanceParameters(document), name);
             Assert.True(parameter.IsReadOnly, $"{name} must be computed, not stored");
             Assert.False(parameter.TrySet(1234d));
+        }
+
+        // Length and height are computed too, never stored - but typing one moves the wall's
+        // end or top to make it so, as Revit's do.
+        foreach (var name in new[] { "Length", "Height" })
+        {
+            var parameter = Parameter(wall.GetInstanceParameters(document), name);
+            Assert.False(parameter.IsReadOnly, $"{name} should be typed into, as in Revit");
+            Assert.True(parameter.TrySet(1234d));
+            Assert.Equal(1234d, (double)parameter.Value!, precision: 6);
         }
     }
 

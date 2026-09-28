@@ -149,7 +149,9 @@ public static class WallHoles
                 var to = Math.Min(wall.Length, centre + opening.WidthOf(openingType) / 2);
                 if (to - from <= WallJoins.JoinTolerance) continue;
 
-                holes.Add(new WallHole(from, to, shift + opening.SillHeight, shift + opening.SillHeight + opening.HeightOf(openingType)));
+                var (placedSill, placedHeight) = opening.Placed(document, openingType, partner);
+
+                holes.Add(new WallHole(from, to, shift + placedSill, shift + placedSill + placedHeight));
             }
         }
 
