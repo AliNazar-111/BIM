@@ -145,12 +145,16 @@ public class SectionView : FrameworkElement
         var bottom = Math.Min(_drawing.MinElevation, 0);
         var top = Math.Max(_drawing.MaxElevation, bottom + 1000);
 
+        // The level lines run past the building at both ends, and their names are written
+        // beyond the right-hand end: all of it in view, the names too.
         const double marginMm = 1200;
-        var width = Math.Max(_drawing.Width, 1000) + marginMm * 2;
+        const double labelPixels = 170, edgePixels = 12;
+        var overhang = Math.Max(1500, _drawing.Width * 0.04);
+        var width = Math.Max(_drawing.Width, 1000) + overhang * 2;
         var height = top - bottom + marginMm * 2;
 
-        _pixelsPerMm = Clamp(Math.Min(ActualWidth / width, ActualHeight / height));
-        _centre = new Point(_drawing.Width / 2, (bottom + top) / 2);
+        _pixelsPerMm = Clamp(Math.Min(Math.Max(ActualWidth - labelPixels - edgePixels * 2, 50) / width, ActualHeight / height));
+        _centre = new Point(_drawing.Width / 2 + labelPixels / 2 / _pixelsPerMm, (bottom + top) / 2);
 
         InvalidateVisual();
     }

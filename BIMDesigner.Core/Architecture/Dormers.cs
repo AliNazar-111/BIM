@@ -136,6 +136,25 @@ public static class Dormers
         }
     }
 
+    /// <summary>
+    /// Adding copies, with the roof under each copied dormer opened for it as it was for the
+    /// dormer copied - a copy of a dormer is a dormer, not a roof sitting on top of another -
+    /// as one step. A copy moved off the roof it was joined to is left as it is.
+    /// </summary>
+    public static IUndoableCommand AddCopies(BimDocument document, IReadOnlyList<Element> copies, string name)
+    {
+        var add = new AddElementsCommand(document, copies, name);
+        var openings = copies.OfType<Roof>()
+            .Where(copy => copy.Dormer is not null)
+            .Select(copy => (Copy: copy, Main: document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == copy.JoinedTo)))
+            .Where(pair => pair.Main is not null && pair.Main.LevelId == pair.Copy.LevelId &&
+                           pair.Main.Contains(Polygon2D.Centroid(pair.Copy.Boundary, pair.Copy.Boundary[0])))
+            .Select(pair => (IUndoableCommand)new SetDormerOpeningCommand(pair.Main!, pair.Copy.Id, open: true))
+            .ToList();
+
+        return openings.Count == 0 ? add : new CompositeCommand(name, openings.Prepend(add));
+    }
+
     /// <summary>What a dormer is made of that is still there: its roof, then its walls.</summary>
     public static IReadOnlyList<Element> Parts(BimDocument document, Roof dormer) =>
         WallsOf(document, dormer).Cast<Element>().Prepend(dormer).ToList();
@@ -146,10 +165,123 @@ public static class Dormers
             ? document.Walls.Where(wall => wall.TopAttachedTo == roof.Id && wall.BaseAttachedTo == main)
             : Enumerable.Empty<Wall>();
 
-    /// <summary>"Gable dormer, 2400 x 1400" - what it is, for the status bar.</summary>
-    public static string Describe(Roof dormer) => dormer.Dormer is { } made
-        ? $"{made.Shape} dormer, {Units.FormatLength(made.Width)} wide and {Units.FormatLength(made.Height)} high"
-        : "Dormer";
+    /// <summary>"Gable dormer, 2.4 m wide and 1.4 m high" - what it is, for the status bar: how high it actually is.</summary>
+    public static string Describe(BimDocument document, Roof dormer)
+    {
+        if (dormer.Dormer is not { } made) return "Dormer";
+
+        var front = dormer.DormerWalls.Count == 3 ? document.Walls.FirstOrDefault(wall => wall.Id == dormer.DormerWalls[1]) : null;
+        var main = document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == dormer.JoinedTo);
+        var height = front is not null && main is not null
+            ? dormer.BaseElevation(document) - main.TopAt(document, front.LocationCurve.PointAt(front.Length / 2))
+            : made.Height;
+
+        return $"{made.Shape} dormer, {Units.FormatLength(made.Width)} wide and {Units.FormatLength(height)} high";
+    }
+
+    /// <summary>
+    /// Puts every dormer made by the Dormer tool back on its roof as that roof now is: as high as
+    /// it was asked to be, or lower where the roof no longer has room for that under its ridge,
+    /// and its own roof carried back into the main roof again. After the main roof's slope
+    /// changes, or the walls under it move, a dormer would otherwise stand as it was built - its
+    /// roof coming out above the ridge, or stopping short of the roof it ran into. Worked out
+    /// afresh from the model each time, as roofs following their walls are, so an undo puts the
+    /// dormer back too. Returns whether any dormer changed.
+    /// </summary>
+    public static bool FollowRoofs(BimDocument document)
+    {
+        var changed = false;
+        foreach (var dormer in document.Elements.OfType<Roof>().Where(roof => roof.Dormer is not null && roof.JoinedTo is not null).ToList())
+            changed |= Follow(document, dormer);
+
+        return changed;
+    }
+
+    private static bool Follow(BimDocument document, Roof dormer)
+    {
+        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == dormer.JoinedTo) is not { } main) return false;
+        if (dormer.DormerWalls.Count != 3 || dormer.Boundary.Count != 4 || dormer.Edges.Count != 4) return false;
+
+        var walls = dormer.DormerWalls.Select(id => document.Walls.FirstOrDefault(wall => wall.Id == id)).ToList();
+        if (walls.Any(wall => wall is null)) return false;
+        var (left, front, right) = (walls[0]!, walls[1]!, walls[2]!);
+
+        var settings = dormer.Dormer!;
+        var at = front.LocationCurve.PointAt(front.Length / 2);
+        var thickness = document.GetWallType(front)?.Structure.TotalWidth ?? 0;
+        if (Frame(document, main, at) is not var (uphill, _, rise)) return false;
+
+        // As high as asked, or as high as fits - lower than a new one would be allowed, if that is
+        // all the roof has room for now, rather than left standing through it; a shed no steeper
+        // than the roof it sits in.
+        if (HeightThatFits(document, main, at, settings, thickness) is not { } fits || fits <= 0) return false;
+        var height = Math.Min(settings.Height, fits);
+        var level = document.FindLevel(dormer.LevelId)?.Elevation ?? 0;
+        var offset = main.TopAt(document, at) + height - level;
+        var slope = settings.Shape == DormerShape.Shed ? Math.Min(settings.Slope, Math.Atan(rise) * 180 / Math.PI - 5) : settings.Slope;
+
+        var before = (dormer.HeightOffset, Slopes: dormer.Edges.Select(edge => edge.SlopeDegrees).ToList(), Boundary: dormer.Boundary.ToList());
+        dormer.HeightOffset = offset;
+        if (settings.Shape == DormerShape.Shed)
+        {
+            var edges = dormer.Edges.Select(edge => edge.Copy()).ToList();
+            foreach (var edge in edges.Where(edge => edge.DefinesSlope)) edge.SlopeDegrees = slope;
+            dormer.SetEdges(edges);
+        }
+
+        // Its back edge from where the walls' back ends put it, carried back into the main roof.
+        var backEdge = Enumerable.Range(0, 4)
+            .OrderByDescending(i => (dormer.Boundary[i].MidpointTo(dormer.Boundary[(i + 1) % 4]) - at).Dot(uphill))
+            .First();
+        var overhang = dormer.Edges.Where(edge => edge.WallId is not null).Select(edge => edge.Overhang).DefaultIfEmpty(settings.Overhang).First();
+        if (RoofSketch.LineOnWall(document, left, !left.Flipped, overhang, false) is not var (leftBack, _) ||
+            RoofSketch.LineOnWall(document, right, !right.Flipped, overhang, false) is not var (_, rightBack))
+            return Restore();
+
+        var backMiddle = leftBack.MidpointTo(rightBack);
+        var edgeMiddle = dormer.Boundary[backEdge].MidpointTo(dormer.Boundary[(backEdge + 1) % 4]);
+        var based = RoofJoin.MovedEdge(dormer.Boundary, backEdge, uphill * (backMiddle - edgeMiddle).Dot(uphill));
+        if (RoofJoin.CarriedBack(document, dormer, based, backEdge, main) is not { } joined) return Restore();
+
+        var moved = joined.Where((corner, i) => corner.DistanceTo(before.Boundary[i]) > 1e-6).Any();
+        if (moved) dormer.SetBoundary(joined);
+
+        return moved || Math.Abs(before.HeightOffset - offset) > 1e-6 || !before.Slopes.SequenceEqual(dormer.Edges.Select(edge => edge.SlopeDegrees));
+
+        // Where it cannot be followed - the roof never meets it - it stays as it was.
+        bool Restore()
+        {
+            dormer.HeightOffset = before.HeightOffset;
+            if (!before.Slopes.SequenceEqual(dormer.Edges.Select(edge => edge.SlopeDegrees)))
+            {
+                var edges = dormer.Edges.Select(edge => edge.Copy()).ToList();
+                for (var i = 0; i < edges.Count; i++) edges[i].SlopeDegrees = before.Slopes[i];
+                dormer.SetEdges(edges);
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The nearest place level with a point, along the slope, where the dormer asked for fits -
+    /// away from a hipped end, where the roof slopes down at the side - or null when it fits
+    /// nowhere along it.
+    /// </summary>
+    public static Point2D? NearestThatFits(BimDocument document, Roof main, Point2D at, DormerSettings settings, double wallThickness)
+    {
+        if (Frame(document, main, at) is not var (_, across, _)) return null;
+
+        for (var step = 250.0; step <= 30000; step += 250)
+        foreach (var side in new[] { 1.0, -1.0 })
+        {
+            var point = at + across * (side * step);
+            if (main.Contains(point) && HeightThatFits(document, main, point, settings, wallThickness) is { } fits && fits >= MinimumHeight)
+                return point;
+        }
+
+        return null;
+    }
 
     /// <summary>The way up the roof's slope at a point, square across it, and how steep it is - or null where it is flat.</summary>
     private static (Vector2D Uphill, Vector2D Across, double Rise)? Frame(BimDocument document, Roof main, Point2D at)
@@ -197,12 +329,22 @@ public static class Dormers
 
         // No higher than fits under the ridge; a shed no steeper than the roof it sits in, or it
         // would never meet it.
-        var fits = HeightThatFits(document, main, at, settings, thickness) ?? 0;
+        var fitsHere = HeightThatFits(document, main, at, settings, thickness);
+        var fits = fitsHere ?? 0;
         if (fits < MinimumHeight)
         {
-            problem = $"The roof is too low here for a dormer: even {Units.FormatLength(MinimumHeight)} high, its roof would come out " +
-                      $"above the ridge, {Units.FormatLength(MinimumHeight - fits)} short of fitting. Click nearer the eave, make it " +
-                      "narrower or its slope shallower, try a Shed dormer - or give the main roof a steeper slope.";
+            // Near a hipped end the roof slopes away at the side, and that is what stops it:
+            // said so, with how far along it would fit.
+            var along = NearestThatFits(document, main, at, settings, thickness) is { } fitsAt
+                ? $" It fits {Units.FormatLength(at.DistanceTo(fitsAt))} further along the roof, away from its end. "
+                : " ";
+            var shed = settings.Shape == DormerShape.Shed ? "" : "try a Shed dormer, ";
+            problem = fitsHere is null
+                ? $"The dormer would hang off the roof here: {Units.FormatLength(settings.Width)} wide, its side runs past the roof's edge.{along}" +
+                  "Click further in from the edge, or make it narrower."
+                : $"The roof is too low here for a dormer: even {Units.FormatLength(MinimumHeight)} high, its roof would come out " +
+                  $"above the main roof, {Units.FormatLength(MinimumHeight - fits)} short of fitting.{along}Click nearer the eave or " +
+                  $"further from a hipped end, make it narrower or its slope shallower, {shed}or give the main roof a steeper slope.";
             return null;
         }
 
@@ -298,8 +440,9 @@ public static class Dormers
         dormer.SetBoundary(outline.Boundary);
         dormer.SetEdges(outline.Edges);
 
-        // One dormer, picked as one: the roof knows the walls that are part of it.
-        dormer.Dormer = size;
+        // One dormer, picked as one: the roof knows the walls that are part of it - and the
+        // dormer asked for, which it is kept as, as far as the roof has room for it.
+        dormer.Dormer = settings;
         dormer.DormerWalls.AddRange(walls.Select(wall => wall.Id));
 
         // Made, then joined and opened - the join works out how far back to carry the roof from

@@ -48,6 +48,7 @@ public sealed class PlanRenderer
     private readonly Pen _membranePen;
     private readonly Pen _componentPen;
     private readonly Pen _selectedPen;
+    private readonly Pen _overheadPen;
     private readonly Pen _previewPen;
     private readonly Pen _locationLinePen;
     private readonly Pen _openingPen;
@@ -95,6 +96,7 @@ public sealed class PlanRenderer
         _wallOutlinePen = RenderPens.Solid(ink.WallOutline, 1.3);
         _layerPen = RenderPens.Solid(ink.LayerSeparator, 0.7);
         _membranePen = RenderPens.Dashed(ink.WallOutline, 1.0, 5, 3);
+        _overheadPen = RenderPens.Dashed(ink.WallOutline, 0.9, 7, 4);
         _componentPen = RenderPens.Solid(ink.Component, 1.1);
         _selectedPen = RenderPens.Solid(ink.Selected, 2.2);
         _previewPen = RenderPens.Dashed(ink.Preview, 1.4, 4, 3);
@@ -229,6 +231,13 @@ public sealed class PlanRenderer
     /// one being worked on is there to set out against; repeating its grid bubbles, room tags
     /// and dimensions would double every label on the drawing.
     /// </summary>
+    /// <summary>
+    /// Whether each wall's length is written along it. A help while drawing, not part of the
+    /// drawing: a sheet, and so a print or a PDF, leaves it off, as Revit's temporary
+    /// dimensions never print.
+    /// </summary>
+    public bool ShowWallLabels { get; set; } = true;
+
     public void DrawContent(DrawingContext dc, bool underlay = false)
     {
         if (Document is null) return;
@@ -241,6 +250,9 @@ public sealed class PlanRenderer
 
         // Slabs are construction under everything else; rooms are the space above them.
         foreach (var slab in OnActiveLevel<Slab>()) DrawSlab(dc, slab);
+
+        // Fascias and gutters round the roofs: the strip each covers, seen from above.
+        foreach (var sweep in OnActiveLevel<RoofEdgeSweep>()) DrawRoofEdgeSweep(dc, sweep);
 
         if (!underlay)
             foreach (var room in OnActiveLevel<Room>()) DrawRoomFill(dc, room);
@@ -256,7 +268,8 @@ public sealed class PlanRenderer
 
         if (underlay) return;
 
-        foreach (var wall in OnActiveLevel<Wall>()) DrawWallLabel(dc, wall);
+        if (ShowWallLabels)
+            foreach (var wall in OnActiveLevel<Wall>()) DrawWallLabel(dc, wall);
         foreach (var room in OnActiveLevel<Room>()) DrawRoomTag(dc, room);
 
         foreach (var dimension in OnActiveLevel<Dimension>()) DrawDimension(dc, dimension);
@@ -406,6 +419,16 @@ public sealed class PlanRenderer
         if (type is null) return;
 
         var isSelected = IsSelected(wall);
+
+        // A wall standing above the cut - a dormer's, on the roof - is not cut by this plan:
+        // it is overhead, and drawn as its outline dashed, as things above the cut are.
+        if (IsOverhead(wall))
+        {
+            var half = type.Width / 2;
+            dc.DrawGeometry(null, isSelected ? _selectedPen : _overheadPen,
+                BuildOutline(WallJoins.GetBandOutline(Document, wall, type, half, -half)));
+            return;
+        }
 
         if (CurtainLayout.Of(Document, wall) is { } curtain)
         {
@@ -696,9 +719,19 @@ public sealed class PlanRenderer
     private bool Clean(Wall wall, Point2D joint, double reach = WallJoins.JoinTolerance) =>
         Document is null || WallJunctions.IsClean(Document, View, wall, joint, reach);
 
+    /// <summary>
+    /// Whether a wall stands wholly above this plan's cut, which is the cut height above its
+    /// storey - as a dormer's walls stand on the roof - so is seen overhead rather than cut.
+    /// </summary>
+    private bool IsOverhead(Wall wall) =>
+        Document is not null &&
+        wall.GetBaseElevation(Document) >
+        (Document.FindLevel(wall.LevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight + WallJoins.JoinTolerance;
+
     private void DrawWallLabel(DrawingContext dc, Wall wall)
     {
         var isSelected = IsSelected(wall);
+        if (IsOverhead(wall) && !isSelected) return;
 
         // Below about 16 mm of paper the number is longer than the wall it labels.
         if (!isSelected && wall.Length * PixelsPerMm <= Page(60)) return;
@@ -747,6 +780,9 @@ public sealed class PlanRenderer
 
         var wall = Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId);
         if (wall is null) return;
+
+        // Up in a wall above the cut, a door or window is not seen in this plan.
+        if (IsOverhead(wall)) return;
 
         var wallType = Document.GetWallType(wall);
         var type = Document.FindType<OpeningType>(opening.TypeId);
@@ -1039,6 +1075,15 @@ public sealed class PlanRenderer
     /// what the drawing is about - it is shown quietly, enough to say it is there and to be
     /// picked, without competing with the walls.
     /// </summary>
+    private void DrawRoofEdgeSweep(DrawingContext dc, RoofEdgeSweep sweep)
+    {
+        if (Document is null) return;
+
+        var pen = IsSelected(sweep) ? _selectedPen : _roofLinePen;
+        foreach (var footprint in RoofEdgeSweeps.Footprints(Document, sweep))
+            if (footprint.Count >= 3) dc.DrawGeometry(null, pen, BuildOutline(footprint));
+    }
+
     private void DrawSlab(DrawingContext dc, Slab slab)
     {
         if (Document is null || slab.Boundary.Count < 3) return;

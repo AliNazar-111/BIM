@@ -167,6 +167,17 @@ public partial class MainWindow : Window
         // that does fit there, if one does.
         Plan.DormerRefused += (_, refused) =>
         {
+            // Too near a hipped end: the same dormer, where it does fit along the slope.
+            if (refused.FitsAt is { } fitsAt)
+            {
+                var move = MessageBox.Show(this,
+                    $"{refused.Problem}\n\nPut the dormer there instead, {Units.FormatLength(refused.At.DistanceTo(fitsAt))} along from where you clicked?",
+                    "Dormer", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+
+                if (move == MessageBoxResult.Yes) Plan.DormerAt(fitsAt);
+                return;
+            }
+
             if (refused.Instead is { } instead)
             {
                 var answer = MessageBox.Show(this,
@@ -272,6 +283,9 @@ public partial class MainWindow : Window
             // change of type, an undo. Worked out afresh rather than carried by each command,
             // so no way of moving a wall can leave its roof behind.
             if (RoofSketch.FollowWalls(_document)) Plan.RefreshModel();
+
+            // And dormers go on standing on their roofs as those roofs now are.
+            if (Dormers.FollowRoofs(_document)) Plan.RefreshModel();
 
             RefreshTitle();
             CommandManager.InvalidateRequerySuggested();
@@ -411,6 +425,7 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Select && Plan.SelectedElements.Count > 0) RefreshContextTab();
         var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof or PlanTool.RoofExtrusion;
         var isSweep = tool is PlanTool.Sweep or PlanTool.Reveal;
+        var isRoofEdge = tool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit;
 
         // Grids, sections, annotation and the editing tools are not built from a type, so
         // offering one would be asking a question the tool never reads the answer to.
@@ -433,6 +448,9 @@ public partial class MainWindow : Window
         MirrorOptions.Visibility = tool == PlanTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
         ArrayOptions.Visibility = tool == PlanTool.Array ? Visibility.Visible : Visibility.Collapsed;
 
+        RoofEdgeTypePicker.Visibility = isRoofEdge ? Visibility.Visible : Visibility.Collapsed;
+        if (isRoofEdge) LoadRoofEdgeTypes(tool);
+
         SweepOptions.Visibility = isSweep ? Visibility.Visible : Visibility.Collapsed;
         SweepTypePicker.Visibility = isSweep ? Visibility.Visible : Visibility.Collapsed;
         if (isSweep) LoadSweepTypes(tool == PlanTool.Sweep ? SweepKind.Sweep : SweepKind.Reveal);
@@ -441,7 +459,7 @@ public partial class MainWindow : Window
         var selecting = tool == PlanTool.Select;
         ModifyCaption.Visibility = selecting ? Visibility.Visible : Visibility.Collapsed;
 
-        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.Component or PlanTool.Column || isSlab || isSweep || typeless || selecting
+        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.Component or PlanTool.Column || isSlab || isSweep || isRoofEdge || typeless || selecting
             ? Visibility.Collapsed : Visibility.Visible;
         TypeLabel.Visibility = typeless || selecting ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
@@ -505,6 +523,92 @@ public partial class MainWindow : Window
             ?? types.FirstOrDefault();
         _loadingOptions = false;
         OnActiveSweepTypeChanged(this, null!);
+    }
+
+    /// <summary>The fascia or gutter types, on the options bar for the tool that runs one.</summary>
+    /// <summary>A choice on the fascia, gutter or soffit picker: a type, or - for a fascia - whichever stands out.</summary>
+    private sealed record RoofEdgeTypeChoice(string Name, Guid Id, PlanTool Tool);
+
+    private void LoadRoofEdgeTypes(PlanTool tool)
+    {
+        _loadingOptions = true;
+        var types = (tool switch
+        {
+            PlanTool.Gutter => _document.TypesOf<GutterType>().Cast<ElementType>(),
+            PlanTool.Soffit => _document.TypesOf<SoffitType>().Cast<ElementType>(),
+            _ => _document.TypesOf<FasciaType>().Cast<ElementType>()
+        }).OrderBy(t => t.Name).Select(t => new RoofEdgeTypeChoice(t.Name, t.Id, tool)).ToList();
+
+        // A fascia can be left to stand out against whatever walls and roof it is put on.
+        if (tool == PlanTool.Fascia) types.Insert(0, new RoofEdgeTypeChoice("Automatic - stands out from the walls and roof", Guid.Empty, tool));
+
+        var active = tool switch
+        {
+            PlanTool.Gutter => Plan.ActiveGutterTypeId,
+            PlanTool.Soffit => Plan.ActiveSoffitTypeId,
+            _ => Plan.ActiveFasciaTypeId
+        };
+        RoofEdgeTypePicker.ItemsSource = types;
+        RoofEdgeTypePicker.SelectedItem = types.FirstOrDefault(t => t.Id == active) ?? types.FirstOrDefault();
+        _loadingOptions = false;
+        OnActiveRoofEdgeTypeChanged(this, null!);
+    }
+
+    private void OnActiveRoofEdgeTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null || RoofEdgeTypePicker.SelectedItem is not RoofEdgeTypeChoice choice) return;
+        switch (choice.Tool)
+        {
+            case PlanTool.Gutter: Plan.ActiveGutterTypeId = choice.Id; break;
+            case PlanTool.Soffit: Plan.ActiveSoffitTypeId = choice.Id; break;
+            default: Plan.ActiveFasciaTypeId = choice.Id; break;
+        }
+    }
+
+    /// <summary>Roof panel: a fascia all round each selected roof.</summary>
+    private void OnAddFasciaAllRound(object sender, RoutedEventArgs e) => AddRoofEdgesAllRound(RoofEdgeKind.Fascia);
+
+    /// <summary>Roof panel: gutters along every eave of each selected roof.</summary>
+    private void OnAddGuttersAllRound(object sender, RoutedEventArgs e) => AddRoofEdgesAllRound(RoofEdgeKind.Gutter);
+
+    /// <summary>Roof panel: soffits under every overhanging eave of each selected roof.</summary>
+    private void OnAddSoffitsAllRound(object sender, RoutedEventArgs e) => AddRoofEdgesAllRound(RoofEdgeKind.Soffit);
+
+    private void AddRoofEdgesAllRound(RoofEdgeKind kind)
+    {
+        var roofs = Plan.SelectedElements.OfType<Roof>().ToList();
+        if (roofs.Count == 0)
+        {
+            StatusHint.Text = "Select a roof first.";
+            return;
+        }
+
+        // A main roof's dormers too: their eaves want the same as its own.
+        roofs = roofs.Concat(roofs.SelectMany(roof => _document.Elements.OfType<Roof>().Where(dormer => dormer.JoinedTo == roof.Id)))
+            .Distinct().ToList();
+
+        var added = roofs.Select(roof => Plan.AddAllRound(roof, kind)).OfType<RoofEdgeSweep>().ToList();
+        AfterHistoryChange();
+        var edges = added.Sum(sweep => sweep.EdgeIds.Count);
+        var overhangs = roofs.Any(roof => RoofEdgeSweeps.SoffitEdges(_document, roof).Count > 0);
+        StatusHint.Text = added.Count == 0
+            ? roofs.All(roof => roof.IsExtrusion)
+                ? $"A roof by extrusion has no footprint edges for a {kind.ToString().ToLowerInvariant()} to run along."
+                : kind switch
+                {
+                    RoofEdgeKind.Gutter => "Every eave of that roof has a gutter already - or it has no eaves, being flat.",
+                    RoofEdgeKind.Soffit when !overhangs =>
+                        "This roof does not stand out past its walls, so there is no overhang underneath to close. " +
+                        "Give it one: set Overhang in Properties - 450 mm, say - then add soffits.",
+                    RoofEdgeKind.Soffit => "Every overhanging eave of that roof has a soffit already.",
+                    _ => "That roof has a fascia all round already."
+                }
+            : kind switch
+            {
+                RoofEdgeKind.Gutter => $"Gutters hung along {edges} eaves. Select one to change its type or move it with its offsets.",
+                RoofEdgeKind.Soffit => $"Soffits under {edges} eaves, closing the overhang back to the walls. Select one to change its type.",
+                _ => $"A fascia round {edges} edges. Select it to change its type; Fascia on the ribbon picks edges one by one."
+            };
     }
 
     private void OnActiveSweepTypeChanged(object sender, SelectionChangedEventArgs e)
@@ -1254,7 +1358,8 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool, GridTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
+        FasciaTool, GutterTool, SoffitTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
     ];
@@ -1298,6 +1403,9 @@ public partial class MainWindow : Window
             : RoofTool.IsChecked == true ? PlanTool.Roof
             : RoofExtrusionTool.IsChecked == true ? PlanTool.RoofExtrusion
             : DormerTool.IsChecked == true ? PlanTool.Dormer
+            : FasciaTool.IsChecked == true ? PlanTool.Fascia
+            : GutterTool.IsChecked == true ? PlanTool.Gutter
+            : SoffitTool.IsChecked == true ? PlanTool.Soffit
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -2077,9 +2185,15 @@ public partial class MainWindow : Window
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
-        ContextRoofPanel.Visibility = selected is [Roof] ? Visibility.Visible : Visibility.Collapsed;
+        // A roof on its own, or a whole dormer - its roof and walls - picked as one.
+        var dormerPicked = selected.OfType<Roof>().ToList() is [var dormerRoof] && Dormers.Of(_document, dormerRoof) is { } dormer &&
+                           Dormers.Parts(_document, dormer) is var parts && parts.Count == selected.Count && parts.All(selected.Contains);
+        ContextRoofPanel.Visibility = selected is [Roof] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
+        ContextAddDormer.Visibility = ContextDormerOpening.Visibility = selected is [Roof] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditFootprint.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
+        ContextAddFascia.Visibility = ContextAddGutters.Visibility = ContextAddSoffits.Visibility =
+            selected is [Roof { IsExtrusion: false }] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
         ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
             ? Visibility.Visible : Visibility.Collapsed;
         // Pick New belongs to anything that is carried by something else: a door or window in
@@ -2558,6 +2672,9 @@ public partial class MainWindow : Window
         SectionMarker => "Icon.Section",
         PlacedSweep { Kind: SweepKind.Reveal } => "Icon.Reveal",
         PlacedSweep => "Icon.Sweep",
+        Fascia => "Icon.Fascia",
+        Gutter => "Icon.Gutter",
+        Soffit => "Icon.Soffit",
         _ => "Icon.Select"
     };
 
@@ -2568,6 +2685,9 @@ public partial class MainWindow : Window
         StackedWallType => "Stacked Wall",
         WallType => "Basic Wall",
         WallSweepType { Kind: SweepKind.Reveal } => "Reveal",
+        FasciaType => "Fascia",
+        GutterType => "Gutter",
+        SoffitType => "Soffit",
         WallSweepType => "Wall Sweep",
         _ => category == BuiltInCategory.CurtainPanels ? "Curtain Panel" : CategoryTitle(category).TrimEnd('s')
     };

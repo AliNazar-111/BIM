@@ -428,6 +428,15 @@
                                 <RadioButton x:Name="DormerTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
                                              Content="Dormer" Checked="OnToolChanged"
                                              ToolTip="Click on a roof's slope: a whole dormer is built there - walls standing on the roof, a gable, shed or hip roof on them joined into the main roof, and the main roof opened under it. Shape and size on the options bar"/>
+                                <RadioButton x:Name="FasciaTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Fascia}"
+                                             Content="Fascia" Checked="OnToolChanged"
+                                             ToolTip="Roof: Fascia. Click a roof's edges one after another: a board runs along them all, covering the ends of the roof, mitred round the corners and up the verges. Esc finishes it"/>
+                                <RadioButton x:Name="GutterTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Gutter}"
+                                             Content="Gutter" Checked="OnToolChanged"
+                                             ToolTip="Roof: Gutter. Click a roof's eaves one after another: a gutter hangs along them, off the fascia if there is one. Esc finishes it"/>
+                                <RadioButton x:Name="SoffitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Soffit}"
+                                             Content="Soffit" Checked="OnToolChanged"
+                                             ToolTip="Roof: Soffit. Click a roof's eaves: a board closes the underside of the overhang, from the fascia back to the wall. Esc finishes it"/>
                                 <RadioButton x:Name="RoofExtrusionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofExtrusion}"
                                              Content="Roof by Extrusion" Checked="OnToolChanged"
                                              ToolTip="Roof by Extrusion: click the line the profile is drawn on and how far the roof runs back, then draw its section - a gambrel, a barrel vault, any roof the same all along"/>
@@ -776,6 +785,15 @@
                                 <Button x:Name="ContextAddDormer" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Roof}"
                                         Content="Add Dormer" Click="OnAddDormer"
                                         ToolTip="Then click on this roof's slope: walls, a dormer roof joined into this one, and the opening under it, all in one go"/>
+                                <Button x:Name="ContextAddFascia" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Fascia}"
+                                        Content="Fascia" Click="OnAddFasciaAllRound"
+                                        ToolTip="A fascia all round the selected roof, covering the ends of its build-up: along the eaves and up the verges, mitred at the corners"/>
+                                <Button x:Name="ContextAddGutters" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Gutter}"
+                                        Content="Gutters" Click="OnAddGuttersAllRound"
+                                        ToolTip="Gutters along every eave of the selected roof, hung off its fascia"/>
+                                <Button x:Name="ContextAddSoffits" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Soffit}"
+                                        Content="Soffits" Click="OnAddSoffitsAllRound"
+                                        ToolTip="Soffits under every eave of the selected roof that overhangs its wall, closing the overhang back to the wall"/>
                                 <Button x:Name="ContextDormerOpening" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallOpening}"
                                         Content="Dormer Opening" Click="OnDormerOpening"
                                         ToolTip="Then click a dormer's roof - joined to this one, on walls attached to it: this roof is cut away under the dormer, between its walls. Click the same dormer again to close the opening"/>
@@ -1073,6 +1091,10 @@
                     <TextBox x:Name="DormerOverhangBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="How far the dormer's roof stands out past its walls"/>
                 </StackPanel>
+
+                <ComboBox x:Name="RoofEdgeTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"
+                          DisplayMemberPath="Name" SelectionChanged="OnActiveRoofEdgeTypeChanged"
+                          Visibility="Collapsed" ToolTip="The fascia or gutter type to run along the edges picked"/>
 
                 <ComboBox x:Name="SweepTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveSweepTypeChanged"

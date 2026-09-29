@@ -40,7 +40,10 @@ public enum BuiltInCategory
     WallReveals,
     WallOpenings,
     CurtainPanels,
-    Profiles
+    Profiles,
+    Fascias,
+    Gutters,
+    RoofSoffits
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

@@ -26,6 +26,10 @@ public sealed class SectionRenderer
     private readonly Brush _levelTextBrush;
 
     private readonly Dictionary<ColourRgb, Brush> _fills = new();
+
+    // What the drawing is on - paper, or the editor's dark ground - which is what anything
+    // beyond the cut fades toward.
+    private readonly Color _ground;
     private readonly Dictionary<ColourRgb, Brush> _fadedFills = new();
 
     private Func<double, double, Point> _toScreen = (along, elevation) => new Point(along, -elevation);
@@ -44,6 +48,7 @@ public sealed class SectionRenderer
         _groundPen = RenderPens.Solid(ink.GroundLine, 1.0);
 
         _levelTextBrush = RenderPens.Fill(ink.LevelText);
+        _ground = ReferenceEquals(ink, DrawingPalette.Paper) ? Colors.White : Color.FromRgb(0x14, 0x17, 0x1D);
     }
 
     private HashSet<Guid> _selected = new();
@@ -156,13 +161,16 @@ public sealed class SectionRenderer
 
     /// <summary>
     /// What lies beyond the cut, drawn quietly. Fading it toward the background is what makes
-    /// depth read on a flat drawing.
+    /// depth read on a flat drawing. Mixed toward it rather than made see-through, so a nearer
+    /// wall still hides what is behind it.
     /// </summary>
     private Brush FadedFill(ColourRgb colour)
     {
         if (_fadedFills.TryGetValue(colour, out var cached)) return cached;
 
-        var brush = RenderPens.Fill(Color.FromArgb(0x55, colour.R, colour.G, colour.B));
+        const double strength = 0x55 / 255.0;
+        byte Mix(byte of, byte ground) => (byte)Math.Round(of * strength + ground * (1 - strength));
+        var brush = RenderPens.Fill(Color.FromRgb(Mix(colour.R, _ground.R), Mix(colour.G, _ground.G), Mix(colour.B, _ground.B)));
         _fadedFills[colour] = brush;
         return brush;
     }

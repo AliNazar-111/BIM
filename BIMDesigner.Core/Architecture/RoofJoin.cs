@@ -356,11 +356,29 @@ public static class RoofJoin
             return null;
         }
 
+        if (CarriedBack(document, roof, boundary, edge, target) is { } final)
+            return new CompositeCommand("Join Roof", new IUndoableCommand[]
+            {
+                new SetRoofSketchCommand(roof, final, roof.Edges, roof.SlopeArrows, "Join Roof"),
+                new SetRoofJoinCommand(roof, target.Id)
+            });
+
+        problem = "That roof never meets the other one going back from that edge: it stays above it. " +
+                  "Pick the edge that faces the roof it should run into, or lower the roof.";
+        return null;
+    }
+
+    /// <summary>
+    /// A roof's outline with one edge carried back, outward, until the roof along it is buried
+    /// in another roof - and a little further, so the trim, not the edge, is what meets it. Null
+    /// when it never is.
+    /// </summary>
+    internal static List<Point2D>? CarriedBack(BimDocument document, Roof roof, IReadOnlyList<Point2D> boundary, int edge, Roof target)
+    {
+        var count = boundary.Count;
         var thickness = document.FindType<SlabType>(roof.TypeId)?.Thickness ?? 0;
         var anticlockwise = Polygon2D.SignedArea(boundary) >= 0;
-        var from = boundary[edge];
-        var to = boundary[(edge + 1) % count];
-        var outward = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (anticlockwise ? -1 : 1);
+        var outward = (boundary[(edge + 1) % count] - boundary[edge]).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (anticlockwise ? -1 : 1);
 
         for (var reach = 0.0; reach <= 40000; reach += 100)
         {
@@ -368,21 +386,15 @@ public static class RoofJoin
             var surface = RoofShape.Build(moved, roof.Edges, roof.BaseElevation(document), roof.CutoffElevation(document),
                 roof.SlopeArrows, e => roof.BearingInset(document, e));
 
-            if (!Buried(document, surface, thickness, moved[edge], moved[(edge + 1) % count], target)) continue;
-
-            // A little further, so the trim - not the edge - is what meets the other roof.
-            var final = Moved(boundary, edge, outward * (reach + 100));
-            return new CompositeCommand("Join Roof", new IUndoableCommand[]
-            {
-                new SetRoofSketchCommand(roof, final, roof.Edges, roof.SlopeArrows, "Join Roof"),
-                new SetRoofJoinCommand(roof, target.Id)
-            });
+            if (Buried(document, surface, thickness, moved[edge], moved[(edge + 1) % count], target))
+                return Moved(boundary, edge, outward * (reach + 100));
         }
 
-        problem = "That roof never meets the other one going back from that edge: it stays above it. " +
-                  "Pick the edge that faces the roof it should run into, or lower the roof.";
         return null;
     }
+
+    /// <summary>The outline with one edge moved across by so much, its neighbours running on to meet it.</summary>
+    internal static List<Point2D> MovedEdge(IReadOnlyList<Point2D> boundary, int edge, Vector2D by) => Moved(boundary, edge, by);
 
     /// <summary>The outline with one edge moved across, its neighbours running on to meet it where it now is.</summary>
     private static List<Point2D> Moved(IReadOnlyList<Point2D> boundary, int edge, Vector2D by)

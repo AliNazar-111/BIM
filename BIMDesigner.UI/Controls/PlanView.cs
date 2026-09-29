@@ -76,7 +76,16 @@ public enum PlanTool
     DormerOpening,
 
     /// <summary>Clicks a whole dormer onto a roof's slope: walls, roof, join and opening.</summary>
-    Dormer
+    Dormer,
+
+    /// <summary>Runs a fascia along the roof edges clicked, round the corners between them.</summary>
+    Fascia,
+
+    /// <summary>Hangs a gutter along the roof edges clicked.</summary>
+    Gutter,
+
+    /// <summary>Closes the underside of the overhang along the roof eaves clicked.</summary>
+    Soffit
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -1076,6 +1085,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.JoinRoof => "Click the edge of the roof to join - a dormer's back edge - then the roof it runs into. Click a joined roof's edge to unjoin it.",
         PlanTool.DormerOpening => "Click the dormer's roof: the selected roof is cut away under it, between its walls.",
         PlanTool.Dormer => "Click on a roof's slope where the dormer's front wall should be. Shape and size are on the options bar.",
+        PlanTool.Fascia => "Click a roof's edges one after another: the fascia runs along them all, round the corners. Esc finishes it.",
+        PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
+        PlanTool.Soffit => "Click a roof's eaves one after another: the soffit closes the overhang under them, back to the wall. Esc finishes it.",
         PlanTool.WallOpening => "Click a wall where the opening goes. Set its size on the option bar; change it afterwards in Properties.",
         _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
@@ -1168,6 +1180,7 @@ public partial class PlanView : FrameworkElement
     {
         var changed = CancelExtrusion()
                       | CancelRoofJoin()
+                      | CancelRoofEdgePick()
                       || _pendingWallStart is not null
                       || _rehosting is not null
                       || _rehostingComponent is not null
@@ -1214,27 +1227,19 @@ public partial class PlanView : FrameworkElement
 
     public void ZoomToFit()
     {
-        var walls = Document?.Walls.ToList() ?? new List<Wall>();
+        var points = Document is null ? new List<Point2D>() : ExtentPoints(Document).ToList();
 
-        if (walls.Count == 0 || ActualWidth <= 0 || ActualHeight <= 0)
+        if (points.Count == 0 || ActualWidth <= 0 || ActualHeight <= 0)
         {
             PixelsPerMm = 0.05;
             ViewCentre = new Point2D(5000, 4000);
         }
         else
         {
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
+            var (minX, maxX) = (points.Min(p => p.X), points.Max(p => p.X));
+            var (minY, maxY) = (points.Min(p => p.Y), points.Max(p => p.Y));
 
-            foreach (var wall in walls)
-            {
-                minX = Math.Min(minX, Math.Min(wall.Start.X, wall.End.X));
-                minY = Math.Min(minY, Math.Min(wall.Start.Y, wall.End.Y));
-                maxX = Math.Max(maxX, Math.Max(wall.Start.X, wall.End.X));
-                maxY = Math.Max(maxY, Math.Max(wall.Start.Y, wall.End.Y));
-            }
-
-            const double marginMm = 1500;
+            const double marginMm = 1000;
             var widthMm = Math.Max(maxX - minX, 1000) + marginMm * 2;
             var heightMm = Math.Max(maxY - minY, 1000) + marginMm * 2;
 
@@ -1243,6 +1248,48 @@ public partial class PlanView : FrameworkElement
         }
 
         RaiseViewChanged();
+    }
+
+    /// <summary>
+    /// Everything a zoom to fit has to take in: walls, bowed ones by their curve; the outlines
+    /// of floors and roofs, overhangs and all; and the notes on the drawing - dimensions set
+    /// off from the walls, tags, rooms, grids and sections.
+    /// </summary>
+    private static IEnumerable<Point2D> ExtentPoints(BimDocument document)
+    {
+        foreach (var wall in document.Walls)
+        {
+            var curve = wall.LocationCurve;
+            for (var i = 0; i <= 16; i++) yield return curve.PointAt(curve.Length * i / 16);
+        }
+
+        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var point in slab.Boundary) yield return point;
+
+        foreach (var element in document.Elements)
+        {
+            switch (element)
+            {
+                case Dimension dimension:
+                    var (from, to) = dimension.GetDimensionLine(document);
+                    yield return from;
+                    yield return to;
+                    break;
+                case Tag tag: yield return tag.Position; break;
+                case TextNote note: yield return note.Position; break;
+                case Room room: yield return room.Location; break;
+                case Column column: yield return column.Location; break;
+                case Component component: yield return component.Location; break;
+                case Grid grid:
+                    yield return grid.Start;
+                    yield return grid.End;
+                    break;
+                case SectionMarker section:
+                    yield return section.Start;
+                    yield return section.End;
+                    break;
+            }
+        }
     }
 
     private void OnElementsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -1367,6 +1414,12 @@ public partial class PlanView : FrameworkElement
         {
             // Roof by Extrusion locks onto wall corners as well, and names what it found.
             ExtrusionHover(raw);
+        }
+        else if (ActiveTool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit)
+        {
+            RoofEdgeHover(raw);
+            _cursorModel = raw;
+            _cursorIsSnapped = false;
         }
         else if (ActiveTool == PlanTool.Dormer)
         {
@@ -1565,6 +1618,10 @@ public partial class PlanView : FrameworkElement
             case PlanTool.Dormer:
                 DormerAt(raw);
                 return;
+
+            case PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit:
+                PickRoofEdgeAt(raw);
+                return;
         }
 
         // Shaping a wall by hand: a double click on it adds a point, on a point takes it away;
@@ -1750,7 +1807,7 @@ public partial class PlanView : FrameworkElement
         if (Document is not null && Dormers.Of(Document, _selection[0]) is { } dormer &&
             Dormers.Parts(Document, dormer) is var parts && parts.Count == _selection.Count && parts.All(IsSelected))
         {
-            HintChanged?.Invoke(this, $"{Dormers.Describe(dormer)} - its roof and {parts.Count - 1} walls. Drag to move it or press Del; " +
+            HintChanged?.Invoke(this, $"{Dormers.Describe(Document, dormer)} - its roof and {parts.Count - 1} walls. Drag to move it or press Del; " +
                                       "TAB before clicking, or click it again in 3D, picks one part.");
             return;
         }
@@ -1979,7 +2036,7 @@ public partial class PlanView : FrameworkElement
 
     /// <summary>The following walls' moves, to record with the drag that caused them.</summary>
     private IEnumerable<IUndoableCommand> FollowerMoves() =>
-        _followers.Select(f => (IUndoableCommand)new MoveWallCommand(f.Wall, f.Start, f.End, f.Wall.Start, f.Wall.End, "Move"));
+        _followers.Select(f => (IUndoableCommand)new MoveWallCommand(f.Wall, f.Start, f.End, f.Wall.Start, f.Wall.End, "Move").KeepingOpenings(Document!));
 
     /// <summary>What a move drag carries: the selection, and whatever is locked to it.</summary>
     private readonly List<Element> _moveSet = new();
@@ -2203,7 +2260,7 @@ public partial class PlanView : FrameworkElement
             }
 
             History?.Record(new CompositeCommand("Move Wall Point",
-                shifted.Select(c => new MoveWallCommand(c.Wall, c.Start, c.End, c.Wall.Start, c.Wall.End, "Move Wall Point"))));
+                shifted.Select(c => new MoveWallCommand(c.Wall, c.Start, c.End, c.Wall.Start, c.Wall.End, "Move Wall Point").KeepingOpenings(Document!))));
             ModelChanged?.Invoke(this, EventArgs.Empty);
             InvalidateVisual();
             return;
@@ -2245,7 +2302,7 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        var endMove = new MoveWallCommand(wall, _dragOriginalStart, _dragOriginalEnd, wall.Start, wall.End, "Move Wall End");
+        var endMove = new MoveWallCommand(wall, _dragOriginalStart, _dragOriginalEnd, wall.Start, wall.End, "Move Wall End").KeepingOpenings(Document!);
         History?.Record(_followers.Count == 0
             ? endMove
             : new CompositeCommand("Move Wall End", FollowerMoves().Prepend(endMove).ToList()));
@@ -3196,7 +3253,7 @@ public partial class PlanView : FrameworkElement
             var copies = ElementCopy.Duplicate(Document, _selection);
             foreach (var copy in copies) ElementTransforms.Mirror(copy, axis);
 
-            Apply(new AddElementsCommand(Document, copies, "Mirror Copy"));
+            Apply(Dormers.AddCopies(Document, copies, "Mirror Copy"));
             SelectMany(copies.Where(ElementTransforms.CanMove));
 
             HintChanged?.Invoke(this, $"Mirrored {Plural(copies.Count, "element")} as copies.");
@@ -3265,7 +3322,7 @@ public partial class PlanView : FrameworkElement
             placed.AddRange(copies);
         }
 
-        Apply(new AddElementsCommand(Document, placed, $"Array x{ArrayCount}"));
+        Apply(Dormers.AddCopies(Document, placed, $"Array x{ArrayCount}"));
 
         HintChanged?.Invoke(this,
             $"Placed {ArrayCount - 1} {(ArrayCount - 1 == 1 ? "copy" : "copies")}, " +
@@ -3318,7 +3375,13 @@ public partial class PlanView : FrameworkElement
         // Pasting again must make new elements again, not add the same ones twice.
         var pasted = ElementCopy.Duplicate(Document, _clipboard);
 
+        var elsewhere = pasted.Where(element => element.LevelId != ActiveLevelId && element is not Grid).Select(element => element.Id).ToHashSet();
         foreach (var element in pasted) MoveToLevel(element, ActiveLevelId);
+
+        // Pasted onto another storey, what it was attached to or joined into stayed behind: a
+        // wall pasted up a floor does not go on reaching for the roof of the floor below.
+        var copied = pasted.Select(element => element.Id).ToHashSet();
+        foreach (var element in pasted.Where(element => elsewhere.Contains(element.Id))) LetGoOfWhatStayed(element, copied);
 
         if (!inPlace)
         {
@@ -3329,7 +3392,7 @@ public partial class PlanView : FrameworkElement
                     ElementTransforms.Move(element, shift);
         }
 
-        Apply(new AddElementsCommand(Document, pasted, inPlace ? "Paste in Place" : "Paste"));
+        Apply(Dormers.AddCopies(Document, pasted, inPlace ? "Paste in Place" : "Paste"));
         SelectMany(pasted.Where(element => element is not IHostedElement));
 
         var level = Document.FindLevel(ActiveLevelId)?.Name ?? "this level";
@@ -3374,6 +3437,27 @@ public partial class PlanView : FrameworkElement
         }
 
         element.LevelId = levelId;
+    }
+
+    /// <summary>A pasted element's attachments and joins to anything not pasted with it, let go.</summary>
+    private static void LetGoOfWhatStayed(Element element, HashSet<Guid> pasted)
+    {
+        bool Stayed(Guid? id) => id is { } other && !pasted.Contains(other);
+
+        switch (element)
+        {
+            case Wall wall:
+                if (Stayed(wall.TopAttachedTo)) wall.TopAttachedTo = null;
+                if (Stayed(wall.BaseAttachedTo)) wall.BaseAttachedTo = null;
+                break;
+            case Column column:
+                if (Stayed(column.TopAttachedTo)) column.TopAttachedTo = null;
+                if (Stayed(column.BaseAttachedTo)) column.BaseAttachedTo = null;
+                break;
+            case Roof roof when Stayed(roof.JoinedTo):
+                roof.JoinedTo = null;
+                break;
+        }
     }
 
     private Point2D CentreOf(IEnumerable<Element> elements)
@@ -4452,7 +4536,7 @@ public partial class PlanView : FrameworkElement
         }
 
         Apply(new MoveWallCommand(
-            _trimSubject, _trimSubject.Start, _trimSubject.End, newStart, newEnd, "Trim Wall"));
+            _trimSubject, _trimSubject.Start, _trimSubject.End, newStart, newEnd, "Trim Wall").KeepingOpenings(Document));
 
         Select(_trimSubject);
         _trimSubject = null;
@@ -4728,7 +4812,7 @@ public partial class PlanView : FrameworkElement
 
         if (HoveredWhole && _hoverDormer is { } dormer)
         {
-            HintChanged?.Invoke(this, $"{Dormers.Describe(dormer)}: its roof and {Dormers.Parts(Document, dormer).Count - 1} walls   ·   " +
+            HintChanged?.Invoke(this, $"{Dormers.Describe(Document, dormer)}: its roof and {Dormers.Parts(Document, dormer).Count - 1} walls   ·   " +
                                       $"TAB for one part of it ({_hoverIndex + 1} of {_hoverCandidates.Count})");
             return;
         }
@@ -4793,6 +4877,11 @@ public partial class PlanView : FrameworkElement
             case Slab slab:
                 ring = slab.Boundary;
                 break;
+
+            case RoofEdgeSweep edgeSweep:
+                foreach (var footprint in RoofEdgeSweeps.Footprints(Document, edgeSweep).Where(footprint => footprint.Count >= 3))
+                    DrawModelPolyline(dc, _hoverPen, footprint.Append(footprint[0]).ToList());
+                return;
 
             case Room room:
                 ring = room.GetBoundary(Document).Polygon;
@@ -4881,6 +4970,14 @@ public partial class PlanView : FrameworkElement
         // Sweeps sit on wall faces, so they are picked before the walls they are on.
         foreach (var sweep in SweepsAt(model)) yield return sweep;
 
+        // Fascias and gutters run round a roof's edge: thin, so picked by coming near them.
+        var edgeReach = 5 / PixelsPerMm;
+        foreach (var edgeSweep in OnActiveLevel<RoofEdgeSweep>().Where(edgeSweep =>
+                     RoofEdgeSweeps.Footprints(Document, edgeSweep).Any(footprint => footprint.Count >= 3 &&
+                         (Polygon2D.Contains(footprint, model) ||
+                          footprint.Select((corner, i) => DistanceToSegment(model, corner, footprint[(i + 1) % footprint.Count])).Min() <= edgeReach))))
+            yield return edgeSweep;
+
         // Walls before rooms: a room covers the whole floor, so it would swallow every click.
         foreach (var wall in WallsAt(model)) yield return wall;
 
@@ -4963,6 +5060,7 @@ public partial class PlanView : FrameworkElement
         DrawRoofSketch(dc);
         DrawExtrusionPreview(dc);
         DrawDormerPreview(dc);
+        DrawRoofEdgePick(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);

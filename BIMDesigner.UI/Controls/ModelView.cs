@@ -459,8 +459,9 @@ public class ModelView : Border
         // Cool sky fill on the shaded side, so it is dark but still legible.
         root.Children.Add(new DirectionalLight(Color.FromRgb(0x50, 0x5C, 0x70), new Vector3D(0.85, -0.35, -0.25)));
 
-        // A little light back off the ground, which stops undersides going solid black.
-        root.Children.Add(new DirectionalLight(Color.FromRgb(0x2A, 0x2C, 0x30), new Vector3D(0.1, 0.1, 1.0)));
+        // Light back off the ground, which stops undersides going solid black: enough that a
+        // soffit under the eaves, a balcony's underside, still shows its colour.
+        root.Children.Add(new DirectionalLight(Color.FromRgb(0x74, 0x74, 0x6C), new Vector3D(0.1, 0.1, 1.0)));
     }
 
     /// <summary>

@@ -51,6 +51,12 @@ public sealed record SectionPiece(
     /// a cut through a leaning wall. Null for the ordinary case.
     /// </summary>
     public IReadOnlyList<(double X, double Y)>? Shape { get; init; }
+
+    /// <summary>
+    /// How far beyond the cut this piece is, when it is not the same all over its element - a
+    /// face of a roof, nearer or farther than the roof's others. Null to go by its element.
+    /// </summary>
+    public double? Distance { get; init; }
 }
 
 public sealed record SectionLevelLine(string Name, double Elevation);
@@ -138,6 +144,33 @@ public static class SectionProjection
 
             foreach (var column in document.Elements.OfType<Column>().Where(column => shows(column)))
                 AddColumn(document, marker, column, pieces);
+
+            // Fascias and gutters, where the cut goes through them: the profile as it slices it.
+            foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(sweep => shows(sweep)))
+            {
+                var material = document.FindMaterial(sweep switch
+                {
+                    Fascia => document.FindType<FasciaType>(sweep.TypeId)?.MaterialId ?? Guid.Empty,
+                    Gutter => document.FindType<GutterType>(sweep.TypeId)?.MaterialId ?? Guid.Empty,
+                    Soffit => document.FindType<SoffitType>(sweep.TypeId)?.MaterialId ?? Guid.Empty,
+                    _ => Guid.Empty
+                });
+
+                foreach (var shape in RoofEdgeSweeps.Cut(document, sweep, marker.DepthOf, marker.DistanceAlong))
+                {
+                    if (shape.Count < 3) continue;
+                    pieces.Add(new SectionPiece(
+                        new SectionRect(shape.Min(c => c.X), shape.Min(c => c.Y), shape.Max(c => c.X), shape.Max(c => c.Y)),
+                        SectionPart.SlabLayer,
+                        SectionDepth.Cut,
+                        material?.CutColour ?? DefaultCut,
+                        material?.Name ?? sweep.Category.ToString(),
+                        sweep.Id)
+                    {
+                        Shape = shape
+                    });
+                }
+            }
         }
 
         var levels = document.Levels
@@ -145,11 +178,37 @@ public static class SectionProjection
             .Select(level => new SectionLevelLine(level.Name, level.Elevation))
             .ToList();
 
-        // Stable sort by depth: everything beyond the cut plane is drawn before the cut
-        // itself, so the cut always reads as the front of the drawing.
+        // Everything beyond the cut plane is drawn before the cut itself, so the cut always
+        // reads as the front of the drawing - and what is beyond, farthest first, so a nearer
+        // wall hides what is behind it rather than a window in a far wall showing through it.
+        // The sort is stable, so a door or window still comes after the wall it is in.
+        var elements = document.Elements.GroupBy(element => element.Id).ToDictionary(group => group.Key, group => group.First());
+        var distances = new Dictionary<Guid, double>();
+
+        double Nearest(IEnumerable<Point2D> points) =>
+            points.Select(point => Math.Max(0, marker.DepthOf(point))).DefaultIfEmpty(0).Min();
+
+        double Distance(Guid id)
+        {
+            if (distances.TryGetValue(id, out var known)) return known;
+
+            var distance = elements.GetValueOrDefault(id) switch
+            {
+                Wall wall => Nearest(new[] { wall.Start, wall.End, wall.LocationCurve.PointAt(wall.Length / 2) }),
+                Opening opening => Distance(opening.HostWallId),
+                Slab slab => Nearest(slab.Boundary),
+                Column column => Nearest(new[] { column.Location }),
+                _ => 0
+            };
+
+            distances[id] = distance;
+            return distance;
+        }
+
         var ordered = pieces
             .Where(piece => !piece.Bounds.IsEmpty)
             .OrderBy(piece => (int)piece.Depth)
+            .ThenByDescending(piece => piece.Depth == SectionDepth.Seen ? piece.Distance ?? Distance(piece.ElementId) : 0)
             .ToList();
 
         return new SectionDrawing(marker.Name, marker.Length, ordered, levels);
@@ -943,6 +1002,76 @@ public static class SectionProjection
 
             Flush();
         }
+
+        AddRoofSeen(document, marker, roof, pieces);
+    }
+
+    /// <summary>
+    /// What is seen of a roof beyond the cut: each face in front of the viewer, within the
+    /// section's depth, drawn where it lies - the far slope and the hipped ends rising over the
+    /// rooms, as the inside of the roof is seen from below, its underside toward the viewer. A
+    /// face seen edge on, as the slopes of a gable cut across its ridge are, shows nothing.
+    /// </summary>
+    private static void AddRoofSeen(BimDocument document, SectionMarker marker, Roof roof, List<SectionPiece> pieces)
+    {
+        // The underside's layer: the lowest of them.
+        var underside = RoofSolid.Pieces(document, roof)
+            .GroupBy(piece => piece.Layer)
+            .OrderBy(layer => layer.Min(piece => piece.Bottom.HeightAt(piece.Outline[0])))
+            .FirstOrDefault();
+        if (underside is null) return;
+
+        var material = document.FindMaterial(underside.Key.MaterialId);
+
+        foreach (var piece in underside)
+        {
+            // Only what is in front of the viewer and not past the far clip, and within the
+            // width of the section.
+            var seen = ClipTo(piece.Outline, point => marker.DepthOf(point), 0, marker.ViewDepth);
+            seen = ClipTo(seen, marker.DistanceAlong, 0, marker.Length);
+            if (seen.Count < 3) continue;
+
+            var shape = seen.Select(point => (X: marker.DistanceAlong(point), Y: piece.Bottom.HeightAt(point))).ToList();
+            if (Math.Abs(Polygon2D.SignedArea(shape.Select(corner => new Point2D(corner.X, corner.Y)).ToList())) < 1000) continue;
+
+            pieces.Add(new SectionPiece(
+                new SectionRect(shape.Min(c => c.X), shape.Min(c => c.Y), shape.Max(c => c.X), shape.Max(c => c.Y)),
+                SectionPart.SlabLayer,
+                SectionDepth.Seen,
+                material?.SurfaceColour ?? DefaultCut,
+                material?.Name ?? underside.Key.Function.ToString(),
+                roof.Id)
+            {
+                Shape = shape,
+                // Ordered by where it is lowest - its eave, where it meets the walls it stands on - so
+                // a wall in front of that edge hides what of the roof is behind it.
+                Distance = marker.DepthOf(seen.MinBy(point => piece.Bottom.HeightAt(point)))
+            });
+        }
+    }
+
+    /// <summary>The part of a plan outline where a measure of its points lies between two values.</summary>
+    private static List<Point2D> ClipTo(IReadOnlyList<Point2D> outline, Func<Point2D, double> measure, double low, double high)
+    {
+        var kept = outline.ToList();
+        foreach (var (limit, below) in new[] { (low, false), (high, true) })
+        {
+            if (kept.Count == 0) break;
+
+            double Inside(Point2D point) => below ? limit - measure(point) : measure(point) - limit;
+            var next = new List<Point2D>();
+            for (var i = 0; i < kept.Count; i++)
+            {
+                var (a, b) = (kept[i], kept[(i + 1) % kept.Count]);
+                var (da, db) = (Inside(a), Inside(b));
+                if (da >= 0) next.Add(a);
+                if ((da >= 0) != (db >= 0)) next.Add(a + (b - a) * (da / (da - db)));
+            }
+
+            kept = next;
+        }
+
+        return kept;
     }
 
     /// <summary>

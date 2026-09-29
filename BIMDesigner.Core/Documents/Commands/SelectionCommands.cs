@@ -38,7 +38,8 @@ public sealed class AddElementsCommand : IUndoableCommand
 }
 
 /// <summary>
-/// Deletes several elements, and everything hosted by any of them, as one step.
+/// Deletes several elements, and everything hosted by any of them, as one step - and the
+/// dormers made on a roof being deleted, which stand on it and have nowhere else to be.
 ///
 /// Undo restores the original order, so the project browser and the drawing order do not
 /// shuffle every time something is undone.
@@ -67,27 +68,38 @@ public sealed class DeleteElementsCommand : IUndoableCommand
 
     public string Name { get; }
 
-    private int CountHosted()
+    private int CountHosted() => Doomed().Count - _targets.Count;
+
+    /// <summary>What goes: the targets, the dormers made on any roof among them, and everything hosted by any of those.</summary>
+    private List<Element> Doomed()
     {
-        var ids = _targets.Select(element => element.Id).ToHashSet();
-
-        return _document.Elements
-            .OfType<IHostedElement>()
-            .Count(hosted => ids.Contains(hosted.HostId) && !ids.Contains(((Element)hosted).Id));
-    }
-
-    public void Redo()
-    {
-        _removed.Clear();
-
-        var ids = _targets.Select(element => element.Id).ToHashSet();
         var doomed = new List<Element>(_targets);
+        var ids = doomed.Select(element => element.Id).ToHashSet();
+
+        foreach (var roof in _targets.OfType<Roof>())
+        foreach (var dormer in _document.Elements.OfType<Roof>().Where(other => other.Dormer is not null && other.JoinedTo == roof.Id).ToList())
+        foreach (var part in Dormers.Parts(_document, dormer))
+            if (ids.Add(part.Id)) doomed.Add(part);
 
         doomed.AddRange(_document.Elements
             .OfType<IHostedElement>()
             .Where(hosted => ids.Contains(hosted.HostId))
             .Cast<Element>()
             .Where(element => !ids.Contains(element.Id)));
+
+        return doomed;
+    }
+
+    // What was left pointing at something deleted, and what it pointed at: undone, put back.
+    private readonly List<Action> _reattach = new();
+
+    public void Redo()
+    {
+        _removed.Clear();
+        _reattach.Clear();
+
+        var doomed = Doomed();
+        Detach(doomed.Select(element => element.Id).ToHashSet());
 
         // Highest index first, so removing one does not shift the others.
         foreach (var entry in doomed
@@ -100,12 +112,54 @@ public sealed class DeleteElementsCommand : IUndoableCommand
         }
     }
 
+    /// <summary>
+    /// Lets go of what is being deleted: walls and columns attached to a roof or floor that is
+    /// going stand to their own heights again, a roof joined to it is no longer joined, and a
+    /// roof opened for a dormer that is going is closed - rather than all of them pointing at
+    /// something no longer there.
+    /// </summary>
+    private void Detach(HashSet<Guid> gone)
+    {
+        foreach (var element in _document.Elements.Where(element => !gone.Contains(element.Id)))
+        {
+            switch (element)
+            {
+                case Wall wall:
+                    if (wall.TopAttachedTo is { } wallTop && gone.Contains(wallTop)) { wall.TopAttachedTo = null; _reattach.Add(() => wall.TopAttachedTo = wallTop); }
+                    if (wall.BaseAttachedTo is { } wallFoot && gone.Contains(wallFoot)) { wall.BaseAttachedTo = null; _reattach.Add(() => wall.BaseAttachedTo = wallFoot); }
+                    break;
+
+                case Column column:
+                    if (column.TopAttachedTo is { } columnTop && gone.Contains(columnTop)) { column.TopAttachedTo = null; _reattach.Add(() => column.TopAttachedTo = columnTop); }
+                    if (column.BaseAttachedTo is { } columnFoot && gone.Contains(columnFoot)) { column.BaseAttachedTo = null; _reattach.Add(() => column.BaseAttachedTo = columnFoot); }
+                    break;
+
+                case Roof roof:
+                    if (roof.JoinedTo is { } joined && gone.Contains(joined)) { roof.JoinedTo = null; _reattach.Add(() => roof.JoinedTo = joined); }
+                    for (var i = roof.DormerOpenings.Count - 1; i >= 0; i--)
+                    {
+                        if (!gone.Contains(roof.DormerOpenings[i])) continue;
+
+                        var (index, id) = (i, roof.DormerOpenings[i]);
+                        roof.DormerOpenings.RemoveAt(i);
+                        _reattach.Add(() => roof.DormerOpenings.Insert(index, id));
+                    }
+
+                    break;
+            }
+        }
+    }
+
     public void Undo()
     {
         foreach (var (element, index) in _removed.OrderBy(entry => entry.Index))
             _document.Elements.Insert(Math.Min(index, _document.Elements.Count), element);
 
+        // Last let go, first taken back, so a list is rebuilt in the order it was.
+        for (var i = _reattach.Count - 1; i >= 0; i--) _reattach[i]();
+
         _removed.Clear();
+        _reattach.Clear();
     }
 }
 

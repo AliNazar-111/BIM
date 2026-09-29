@@ -649,4 +649,64 @@ public class SectionTests
             Assert.Equal(a.Bounds.Top, b.Bounds.Top, precision: 6);
         }
     }
+
+    [Fact]
+    public void WhatIsBeyondTheCutIsDrawnFarthestFirstSoNearerWallsHideIt()
+    {
+        // Two walls parallel to the cut, one behind the other, each with a window at the same
+        // place: the nearer wall is drawn after the farther one and its window, so it hides them.
+        var document = Project();
+        var type = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior"));
+        var window = document.TypesOf<WindowType>().First();
+        var level = document.Levels[0].Id;
+        var far = new Wall { Start = new Point2D(0, 6000), End = new Point2D(8000, 6000), TypeId = type.Id, LevelId = level, UnconnectedHeight = 3000 };
+        var near = new Wall { Start = new Point2D(0, 2000), End = new Point2D(8000, 2000), TypeId = type.Id, LevelId = level, UnconnectedHeight = 3000 };
+        document.Add(far);
+        document.Add(near);
+        var farWindow = new Window { HostWallId = far.Id, LevelId = level, TypeId = window.Id, DistanceAlongWall = 4000, SillHeight = 900 };
+        document.Add(farWindow);
+
+        var marker = new SectionMarker { Start = new Point2D(-1000, 0), End = new Point2D(9000, 0), LevelId = level, Name = "A" };
+        if (marker.DepthOf(new Point2D(0, 5000)) < 0) marker.Flipped = true;
+        document.Add(marker);
+
+        var pieces = SectionProjection.Build(document, marker).Pieces.ToList();
+        var lastFar = pieces.FindLastIndex(piece => piece.ElementId == far.Id || piece.ElementId == farWindow.Id);
+        var firstNear = pieces.FindIndex(piece => piece.ElementId == near.Id);
+
+        Assert.True(firstNear > lastFar, "The nearer wall is drawn before what is behind it, so what is behind shows over it.");
+    }
+
+    [Fact]
+    public void ARoofBeyondTheCutIsSeenAndOneSeenEdgeOnIsNot()
+    {
+        // A hip roof over a 10 m x 7 m box, cut along its length: the far slope and the hipped
+        // ends rise over the rooms beyond the cut. Cut across a gable's ridge, its slopes are
+        // seen edge on and show nothing beyond the cut itself.
+        foreach (var hip in new[] { true, false })
+        {
+            var document = Project();
+            var level = document.Levels[0].Id;
+            var roof = new Roof { TypeId = document.TypesOf<RoofType>().First().Id, LevelId = level, HeightOffset = 3000 };
+            roof.SetBoundary(new[] { new Point2D(0, 0), new Point2D(10000, 0), new Point2D(10000, 7000), new Point2D(0, 7000) });
+            roof.SetEdges(Enumerable.Range(0, 4).Select(i => new RoofEdge { DefinesSlope = hip || i % 2 == 0, SlopeDegrees = 35 }));
+            document.Add(roof);
+
+            var marker = hip
+                ? new SectionMarker { Start = new Point2D(-1000, 3000), End = new Point2D(11000, 3000), LevelId = level, Name = "A" }
+                : new SectionMarker { Start = new Point2D(5000, -1000), End = new Point2D(5000, 8000), LevelId = level, Name = "A" };
+            document.Add(marker);
+
+            var seen = SectionProjection.Build(document, marker).Pieces
+                .Where(piece => piece.ElementId == roof.Id && piece.Depth == SectionDepth.Seen)
+                .ToList();
+
+            if (hip)
+            {
+                Assert.NotEmpty(seen);
+                Assert.All(seen, piece => Assert.True(piece.Bounds.Bottom >= 3000 - 1, "The roof is seen below its eaves."));
+            }
+            else Assert.Empty(seen);
+        }
+    }
 }

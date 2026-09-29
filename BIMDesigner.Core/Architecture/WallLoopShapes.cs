@@ -195,7 +195,7 @@ public abstract class WallLoopShape
         {
             var (wall, forward) = Sides[i];
             var (from, to) = (corners[i], corners[(i + 1) % Count]);
-            commands.Add(new MoveWallCommand(wall, wall.Start, wall.End, forward ? from : to, forward ? to : from, name));
+            commands.Add(new MoveWallCommand(wall, wall.Start, wall.End, forward ? from : to, forward ? to : from, name).KeepingOpenings(_document));
         }
 
         // Walls ending at a corner - a partition run up to it, say - go with the corner.
@@ -209,7 +209,7 @@ public abstract class WallLoopShape
                 var (start, end) = atStart ? (corners[i], other.End) : (other.Start, corners[i]);
                 if (start.DistanceTo(end) <= WallJoins.JoinTolerance) continue;
 
-                commands.Add(new MoveWallCommand(other, other.Start, other.End, start, end, name));
+                commands.Add(new MoveWallCommand(other, other.Start, other.End, start, end, name).KeepingOpenings(_document));
             }
         }
 

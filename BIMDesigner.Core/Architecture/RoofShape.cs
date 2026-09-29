@@ -13,6 +13,14 @@ namespace BIMDesigner.Core.Architecture;
 /// </summary>
 public sealed class RoofEdge
 {
+    /// <summary>
+    /// Which edge this is, whatever else changes: kept by a copy of it, so it survives the
+    /// roof's sketch being edited and an undo. What runs along an edge - a fascia, a gutter -
+    /// finds it by this, not by where it comes in the outline, which changes when a line is
+    /// added before it. Both halves of an edge that is split keep it.
+    /// </summary>
+    public Guid Id { get; init; } = Guid.NewGuid();
+
     /// <summary>Whether the roof slopes up from this edge, or is cut off at it.</summary>
     public bool DefinesSlope { get; set; }
 
@@ -67,6 +75,7 @@ public sealed class RoofEdge
 
     public RoofEdge Copy() => new()
     {
+        Id = Id,
         DefinesSlope = DefinesSlope,
         SlopeDegrees = SlopeDegrees,
         PlateOffset = PlateOffset,

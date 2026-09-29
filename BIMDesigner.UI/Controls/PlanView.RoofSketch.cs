@@ -173,8 +173,11 @@ public partial class PlanView
     /// <summary>Whether new lines slope - Revit's "Defines slope" on the options bar.</summary>
     public bool SketchDefinesSlope { get; set; } = true;
 
-    /// <summary>How far a picked line stands out from its wall.</summary>
-    public double SketchOverhang { get; set; }
+    /// <summary>
+    /// How far a picked line stands out from its wall: 450 mm to start with, as most eaves do,
+    /// so a roof picked off its walls has an overhang for a soffit and a fascia clear of the wall.
+    /// </summary>
+    public double SketchOverhang { get; set; } = 450;
 
     /// <summary>Measure the overhang from the wall's core rather than its finish face.</summary>
     public bool SketchExtendToCore { get; set; }

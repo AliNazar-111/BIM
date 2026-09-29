@@ -166,14 +166,18 @@ public partial class PlanView
 /// <summary>A dormer click the roof could not take: where, why, and a dormer that would fit there instead, if one would.</summary>
 public sealed class DormerRefusedEventArgs : EventArgs
 {
-    public DormerRefusedEventArgs(Point2D at, string problem, DormerSettings? instead)
+    public DormerRefusedEventArgs(Point2D at, string problem, DormerSettings? instead, Point2D? fitsAt = null)
     {
         At = at;
         Problem = problem;
         Instead = instead;
+        FitsAt = fitsAt;
     }
 
     public Point2D At { get; }
+
+    /// <summary>The nearest place along the slope where the dormer asked for does fit, if there is one.</summary>
+    public Point2D? FitsAt { get; }
 
     public string Problem { get; }
 
@@ -244,8 +248,10 @@ public partial class PlanView
             var instead = Dormer.Shape == DormerShape.Shed || wallType is null
                 ? null
                 : Dormers.InsteadAt(Document, roof, at, Dormer, wallType.Structure.TotalWidth);
+            var fitsAt = wallType is null ? null : Dormers.NearestThatFits(Document, roof, at, Dormer, wallType.Structure.TotalWidth);
 
-            Refuse(raw, problem!, instead);
+            HintChanged?.Invoke(this, problem!);
+            DormerRefused?.Invoke(this, new DormerRefusedEventArgs(raw, problem!, instead, fitsAt));
             return false;
         }
 

@@ -110,7 +110,11 @@ public static class ElementCopy
             ExteriorTaper = wall.ExteriorTaper,
             InteriorTaper = wall.InteriorTaper,
             StartJoin = wall.StartJoin,
-            EndJoin = wall.EndJoin
+            EndJoin = wall.EndJoin,
+            AcrossOffset = wall.AcrossOffset,
+            CurtainGlass = wall.CurtainGlass,
+            TopAttachedTo = wall.TopAttachedTo,
+            BaseAttachedTo = wall.BaseAttachedTo
         }, wall)),
 
         Door door => CarryCommon(new Door
@@ -122,7 +126,12 @@ public static class ElementCopy
             FlipHand = door.FlipHand,
             SwingAngle = door.SwingAngle,
             FrameType = door.FrameType,
-            Finish = door.Finish
+            FrameMaterial = door.FrameMaterial,
+            Finish = door.Finish,
+            Orientation = door.Orientation,
+            IsOpen = door.IsOpen,
+            WidthOverride = door.WidthOverride,
+            HeightOverride = door.HeightOverride
         }, door),
 
         Window window => CarryCommon(new Window
@@ -131,7 +140,11 @@ public static class ElementCopy
             DistanceAlongWall = window.DistanceAlongWall,
             SillHeight = window.SillHeight,
             FlipFacing = window.FlipFacing,
-            FlipHand = window.FlipHand
+            FlipHand = window.FlipHand,
+            Orientation = window.Orientation,
+            IsOpen = window.IsOpen,
+            WidthOverride = window.WidthOverride,
+            HeightOverride = window.HeightOverride
         }, window),
 
         Floor floor => CloneSlab(new Floor(), floor),
@@ -227,6 +240,9 @@ public static class ElementCopy
         }, note),
 
         PlacedSweep placed => CarryPlacedSweep(placed),
+        Fascia fascia => CarryRoofEdgeSweep(new Fascia(), fascia),
+        Gutter gutter => CarryRoofEdgeSweep(new Gutter(), gutter),
+        Soffit soffit => CarryRoofEdgeSweep(new Soffit(), soffit),
 
         WallOpening opening => CarryCommon(new WallOpening
         {
@@ -278,6 +294,15 @@ public static class ElementCopy
     /// a mark identifies one element, and two doors both marked D-04 is a defect that reaches
     /// the site through the door schedule.
     /// </summary>
+    private static Element CarryRoofEdgeSweep(RoofEdgeSweep copy, RoofEdgeSweep original)
+    {
+        copy.RoofId = original.RoofId;
+        copy.EdgeIds.AddRange(original.EdgeIds);
+        copy.HorizontalOffset = original.HorizontalOffset;
+        copy.VerticalOffset = original.VerticalOffset;
+        return CarryCommon(copy, original);
+    }
+
     private static Element CarryPlacedSweep(PlacedSweep placed)
     {
         var copy = new PlacedSweep
@@ -363,6 +388,10 @@ public static class ElementCopy
                     else joined.JoinedTo.RemoveAt(i);
                 }
 
+                break;
+
+            case RoofEdgeSweep edge when replacements.TryGetValue(edge.RoofId, out var edgeRoof):
+                edge.RoofId = edgeRoof;
                 break;
 
             case PlacedSweep placed:

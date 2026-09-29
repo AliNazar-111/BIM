@@ -344,14 +344,14 @@ public sealed class Wall : Element
         if (IsCurved || length <= WallJoins.JoinTolerance || Length <= WallJoins.JoinTolerance) return null;
 
         var end = Start + (End - Start) / Length * length;
-        var commands = new List<IUndoableCommand> { new MoveWallCommand(this, Start, End, Start, end, "Change Length") };
+        var commands = new List<IUndoableCommand> { new MoveWallCommand(this, Start, End, Start, end, "Change Length").KeepingOpenings(document) };
 
         foreach (var (other, atStart) in WallCorners.At(document, LevelId, End).Where(corner => !ReferenceEquals(corner.Wall, this)))
         {
             var (start, otherEnd) = atStart ? (end, other.End) : (other.Start, end);
             if (start.DistanceTo(otherEnd) <= WallJoins.JoinTolerance) return null;
 
-            commands.Add(new MoveWallCommand(other, other.Start, other.End, start, otherEnd, "Change Length"));
+            commands.Add(new MoveWallCommand(other, other.Start, other.End, start, otherEnd, "Change Length").KeepingOpenings(document));
         }
 
         return commands.Count == 1 ? commands[0] : new CompositeCommand("Change Length", commands);

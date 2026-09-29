@@ -86,6 +86,31 @@
         <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M14,21 L18,21 L18,28 L14,28 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- A roof's slope ending in a board down its edge. -->
+    <DrawingImage x:Key="Icon.Fascia"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M14,20 L28,20 L28,29 L14,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M6,17 L27,5 L29,9 L8,21 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M3,16 L7,16 L7,25 L3,25 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- A roof's slope with a half-round gutter hung at its eave. -->
+    <DrawingImage x:Key="Icon.Gutter"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M14,20 L28,20 L28,29 L14,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M9,15 L27,5 L29,9 L11,19 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Line}" Pen="{StaticResource Stroke}" Geometry="M2,17 L10,17 A4,4 0 0 1 2,17 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- A roof's overhang closed underneath, back to the wall. -->
+    <DrawingImage x:Key="Icon.Soffit"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M18,19 L28,19 L28,29 L18,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M4,13 L27,4 L29,8 L6,17 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M3,12 L6,12 L6,19 L3,19 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M6,17 L18,17 L18,19 L6,19 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Column"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M11,5 A5,2 0 1 1 21,5 A5,2 0 1 1 11,5 Z"/>

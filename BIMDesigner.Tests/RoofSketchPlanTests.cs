@@ -138,6 +138,7 @@ public class RoofSketchPlanTests
         {
             var (document, _, plan) = Box();
             plan.SetTool(PlanTool.Roof);
+            plan.SketchOverhang = 0;
 
             plan.SketchHover(OutsideEach[0]);
             Assert.True(plan.SketchTab());
@@ -292,6 +293,7 @@ public class RoofSketchPlanTests
         {
             var (_, _, plan) = Box();
             plan.SetTool(PlanTool.Roof);
+            plan.SketchOverhang = 0;
             foreach (var point in OutsideEach) plan.SketchClick(point);
 
             plan.SketchTool = RoofSketchTool.Modify;

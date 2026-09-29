@@ -128,6 +128,43 @@ public static class ProjectFile
                 Description = sweepType.Description
             });
 
+        foreach (var fascia in document.TypesOf<FasciaType>())
+            dto.FasciaTypes.Add(new FasciaTypeDto
+            {
+                Id = fascia.Id, Name = fascia.Name, TypeMark = fascia.TypeMark, Thickness = fascia.Thickness, Depth = fascia.Depth,
+                MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description
+            });
+
+        foreach (var gutter in document.TypesOf<GutterType>())
+            dto.GutterTypes.Add(new GutterTypeDto
+            {
+                Id = gutter.Id, Name = gutter.Name, TypeMark = gutter.TypeMark, Shape = gutter.Shape.ToString(), Width = gutter.Width,
+                Depth = gutter.Depth, WallThickness = gutter.WallThickness, MaterialId = gutter.MaterialId, Cost = gutter.Cost,
+                Description = gutter.Description
+            });
+
+        foreach (var soffit in document.TypesOf<SoffitType>())
+            dto.SoffitTypes.Add(new SoffitTypeDto
+            {
+                Id = soffit.Id, Name = soffit.Name, TypeMark = soffit.TypeMark, Thickness = soffit.Thickness,
+                MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description
+            });
+
+        foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>())
+            dto.RoofEdgeSweeps.Add(new RoofEdgeSweepDto
+            {
+                Id = sweep.Id,
+                Kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", _ => "Fascia" },
+                TypeId = sweep.TypeId,
+                LevelId = sweep.LevelId,
+                RoofId = sweep.RoofId,
+                EdgeIds = sweep.EdgeIds.ToList(),
+                HorizontalOffset = sweep.HorizontalOffset,
+                VerticalOffset = sweep.VerticalOffset,
+                Mark = sweep.Mark,
+                Comments = sweep.Comments
+            });
+
         foreach (var opening in document.Elements.OfType<WallOpening>())
             dto.WallOpenings.Add(new WallOpeningDto
             {
@@ -453,6 +490,7 @@ public static class ProjectFile
                 RoofEdges = slab is Roof roof
                     ? roof.Edges.Select(edge => new RoofEdgeDto
                     {
+                        Id = edge.Id,
                         DefinesSlope = edge.DefinesSlope,
                         SlopeDegrees = edge.SlopeDegrees,
                         PlateOffset = edge.PlateOffset,
@@ -947,6 +985,29 @@ public static class ProjectFile
             });
         }
 
+        foreach (var fascia in dto.FasciaTypes)
+            document.AddType(new FasciaType(fascia.Name)
+            {
+                Id = fascia.Id, TypeMark = fascia.TypeMark, Thickness = PositiveOr(fascia.Thickness, 25),
+                Depth = double.IsFinite(fascia.Depth) ? Math.Max(0, fascia.Depth) : 0,
+                MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description
+            });
+
+        foreach (var soffit in dto.SoffitTypes)
+            document.AddType(new SoffitType(soffit.Name)
+            {
+                Id = soffit.Id, TypeMark = soffit.TypeMark, Thickness = PositiveOr(soffit.Thickness, 12),
+                MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description
+            });
+
+        foreach (var gutter in dto.GutterTypes)
+            document.AddType(new GutterType(gutter.Name)
+            {
+                Id = gutter.Id, TypeMark = gutter.TypeMark, Shape = ParseEnum(gutter.Shape, GutterShape.HalfRound),
+                Width = PositiveOr(gutter.Width, 125), Depth = PositiveOr(gutter.Depth, 75), WallThickness = PositiveOr(gutter.WallThickness, 4),
+                MaterialId = gutter.MaterialId, Cost = gutter.Cost, Description = gutter.Description
+            });
+
         foreach (var dtoCurtain in dto.CurtainWallTypes)
         {
             var curtain = new CurtainWallType(dtoCurtain.Name)
@@ -1267,6 +1328,7 @@ public static class ProjectFile
                 {
                     pitched.SetEdges(slab.RoofEdges.Select(edge => new RoofEdge
                     {
+                        Id = edge.Id ?? Guid.NewGuid(),
                         DefinesSlope = edge.DefinesSlope,
                         SlopeDegrees = edge.SlopeDegrees,
                         PlateOffset = edge.PlateOffset,
@@ -1334,6 +1396,27 @@ public static class ProjectFile
             };
             placed.HostWallIds.AddRange(dtoPlaced.HostWallIds.Where(wallIds.Contains).Distinct());
             if (placed.HostWallIds.Count > 0) document.Add(placed);
+        }
+
+        // A fascia or gutter whose roof is gone has nothing to run along.
+        var roofIds = document.Elements.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
+        foreach (var saved in dto.RoofEdgeSweeps.Where(saved => roofIds.Contains(saved.RoofId)))
+        {
+            RoofEdgeSweep sweep = saved.Kind switch
+            {
+                "Gutter" => new Gutter { Id = saved.Id },
+                "Soffit" => new Soffit { Id = saved.Id },
+                _ => new Fascia { Id = saved.Id }
+            };
+            sweep.TypeId = saved.TypeId;
+            sweep.LevelId = saved.LevelId;
+            sweep.RoofId = saved.RoofId;
+            sweep.EdgeIds.AddRange(saved.EdgeIds.Distinct());
+            sweep.HorizontalOffset = double.IsFinite(saved.HorizontalOffset) ? saved.HorizontalOffset : 0;
+            sweep.VerticalOffset = double.IsFinite(saved.VerticalOffset) ? saved.VerticalOffset : 0;
+            sweep.Mark = saved.Mark ?? string.Empty;
+            sweep.Comments = saved.Comments ?? string.Empty;
+            document.Add(sweep);
         }
 
         foreach (var type in dto.ColumnTypes)

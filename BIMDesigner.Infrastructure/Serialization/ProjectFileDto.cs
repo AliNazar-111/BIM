@@ -35,6 +35,12 @@ internal sealed class ProjectFileDto
     public List<SweepProfileTypeDto> SweepProfiles { get; set; } = new();
     public List<WallSweepTypeDto> WallSweepTypes { get; set; } = new();
     public List<PlacedSweepDto> PlacedSweeps { get; set; } = new();
+
+    /// <summary>Fascia and gutter types, and the fascias and gutters run along roof edges. Missing from older files.</summary>
+    public List<FasciaTypeDto> FasciaTypes { get; set; } = new();
+    public List<GutterTypeDto> GutterTypes { get; set; } = new();
+    public List<SoffitTypeDto> SoffitTypes { get; set; } = new();
+    public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
     public List<WallOpeningDto> WallOpenings { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
@@ -364,6 +370,9 @@ internal sealed class RoofArrowDto
 /// <summary>What a roof does at one edge of its footprint: the whole shape of a roof is this, per edge.</summary>
 internal sealed class RoofEdgeDto
 {
+    /// <summary>Which edge it is, for a fascia or gutter along it; absent in older files.</summary>
+    public Guid? Id { get; set; }
+
     public bool DefinesSlope { get; set; }
     public double SlopeDegrees { get; set; } = 30;
     public double PlateOffset { get; set; }
@@ -941,6 +950,58 @@ internal sealed class WallOpeningDto
     public double Width { get; set; }
     public double Height { get; set; }
     public double SillHeight { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class FasciaTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Fascia";
+    public string TypeMark { get; set; } = string.Empty;
+    public double Thickness { get; set; } = 25;
+    public double Depth { get; set; }
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class SoffitTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Soffit";
+    public string TypeMark { get; set; } = string.Empty;
+    public double Thickness { get; set; } = 12;
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class GutterTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Gutter";
+    public string TypeMark { get; set; } = string.Empty;
+    public string Shape { get; set; } = "HalfRound";
+    public double Width { get; set; } = 125;
+    public double Depth { get; set; } = 75;
+    public double WallThickness { get; set; } = 4;
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>A fascia or gutter: the roof it runs along, which of its edges, and how far it is moved off them.</summary>
+internal sealed class RoofEdgeSweepDto
+{
+    public Guid Id { get; set; }
+    public string Kind { get; set; } = "Fascia";
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid RoofId { get; set; }
+    public List<Guid> EdgeIds { get; set; } = new();
+    public double HorizontalOffset { get; set; }
+    public double VerticalOffset { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }

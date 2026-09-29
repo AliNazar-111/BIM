@@ -155,6 +155,7 @@ public static class IfcExport
 
             foreach (var wall in _document.Walls) ExportWall(wall);
             foreach (var slab in _document.Elements.OfType<Slab>()) ExportSlab(slab);
+            foreach (var edge in _document.Elements.OfType<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
 
@@ -1012,6 +1013,61 @@ public static class IfcExport
         /// outline, so it is written as the triangles of its solids - the same ones the 3D view
         /// draws - in the wall's own coordinates.
         /// </summary>
+        /// <summary>
+        /// A fascia or gutter: its own element to a receiving application, placed on the storey of
+        /// the roof it runs along, its body the triangles the 3D view draws.
+        /// </summary>
+        private void ExportRoofEdgeSweep(RoofEdgeSweep sweep)
+        {
+            var mesh = RoofEdgeSweeps.Mesh(_document, sweep, sweep.LevelId);
+            if (mesh.IsEmpty) return;
+
+            var storey = StoreyOf(sweep);
+            var storeyElevation = _document.FindLevel(sweep.LevelId)?.Elevation ?? 0;
+            var kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", _ => "Fascia" };
+
+            var proxy = New<IfcBuildingElementProxy>(p =>
+            {
+                p.GlobalId = sweep.Id.ToIfc();
+                p.Name = _document.ElementTypes.FirstOrDefault(type => type.Id == sweep.TypeId)?.Name ?? kind;
+                p.ObjectType = kind;
+                p.Tag = sweep.Mark;
+                p.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+
+                var representation = New<IfcShapeRepresentation>(r =>
+                {
+                    r.ContextOfItems = _context;
+                    r.RepresentationIdentifier = "Body";
+                    r.RepresentationType = "Tessellation";
+
+                    var points = New<IfcCartesianPointList3D>(list =>
+                    {
+                        foreach (var point in mesh.Positions)
+                            list.CoordList.GetAt(list.CoordList.Count).AddRange(new IfcLengthMeasure[] { point.X, point.Y, point.Z - storeyElevation });
+                    });
+
+                    r.Items.Add(New<IfcTriangulatedFaceSet>(faces =>
+                    {
+                        faces.Coordinates = points;
+                        faces.Closed = true;
+                        for (var i = 0; i + 2 < mesh.Indices.Count; i += 3)
+                            faces.CoordIndex.GetAt(faces.CoordIndex.Count).AddRange(new IfcPositiveInteger[]
+                            {
+                                mesh.Indices[i] + 1, mesh.Indices[i + 1] + 1, mesh.Indices[i + 2] + 1
+                            });
+                    }));
+                });
+
+                p.Representation = New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+            });
+
+            Contain(sweep, proxy);
+        }
+
         private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, params MeshKind[] kinds)
         {
             var baseElevation = wall.GetBaseElevation(_document);

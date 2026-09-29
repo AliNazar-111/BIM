@@ -61,8 +61,10 @@ public sealed class Roof : Slab
     /// <summary>Replaces every edge's settings, as reading a file or copying a roof does.</summary>
     public void SetEdges(IEnumerable<RoofEdge> edges)
     {
+        // Read before clearing: the edges may be worked out from this roof's own.
+        var replacement = edges.ToList();
         _edges.Clear();
-        _edges.AddRange(edges);
+        _edges.AddRange(replacement);
         MatchEdgesToBoundary();
     }
 
@@ -563,6 +565,21 @@ public sealed class Roof : Slab
                 () => EnumText.Humanise(Bearing),
                 value => { if (EnumText.TryParse<RoofBearing>(value, out var bearing)) Bearing = bearing; },
                 EnumText.Choices<RoofBearing>());
+
+            // How far it stands out past the walls it was picked from - all of them at once.
+            // Moving its edges out is what gives an eave a soffit to close and a fascia to hang
+            // clear of the wall; the roof follows its walls, so its outline follows too.
+            yield return ParameterValue.BindCommand<double>(
+                RoofParameters.Overhang,
+                () => _edges.FirstOrDefault(edge => edge.WallId is not null)?.Overhang ?? 0,
+                overhang => overhang is < 0 or > 5000
+                    ? null
+                    : new SetRoofEdgesCommand(this, _edges.Select(edge =>
+                    {
+                        var copy = edge.Copy();
+                        if (copy.WallId is not null) copy.Overhang = overhang;
+                        return copy;
+                    }), "Roof Overhang"));
         }
 
         yield return ParameterValue.BindChoice(
@@ -680,6 +697,9 @@ public static class RoofParameters
 
     public static readonly ParameterDefinition CutoffOffset =
         new("Cutoff Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition Overhang =
+        new("Overhang", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition RafterOrTruss =
         new("Rafter or Truss", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);

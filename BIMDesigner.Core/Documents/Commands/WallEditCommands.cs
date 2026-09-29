@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.Core.Documents.Commands;
@@ -28,16 +29,68 @@ public sealed class MoveWallCommand : IUndoableCommand
 
     public string Name { get; }
 
+    // The doors, windows and openings in the wall, and where along it each was and goes.
+    private readonly List<(Element Hosted, double Before, double After)> _hosted = new();
+
+    /// <summary>
+    /// Keeps the doors, windows and openings in the wall where they stand in the building when
+    /// its ends move, rather than at the same distance from a start that has moved - so
+    /// stretching a room does not slide its windows along it. Moving the whole wall carries
+    /// them with it, as it always did. One the wall no longer reaches is brought back inside
+    /// it. Where the wall is already at its new ends - a drag, recorded after the fact - they
+    /// are put in place now; otherwise when the command is done.
+    /// </summary>
+    public MoveWallCommand KeepingOpenings(BimDocument document)
+    {
+        if (_wall.IsElliptical || _wall.IsSpline) return this;
+        if (((_newStart - _oldStart) - (_newEnd - _oldEnd)).Length < 1e-6) return this;
+
+        var before = WallCurve.Of(_oldStart, _oldEnd, _wall.Bulge);
+        var after = WallCurve.Of(_newStart, _newEnd, _wall.Bulge);
+
+        foreach (var element in document.Elements)
+        {
+            (double Along, double Width)? at = element switch
+            {
+                Opening opening when opening.HostWallId == _wall.Id =>
+                    (opening.DistanceAlongWall, opening.WidthOf(document.FindType<OpeningType>(opening.TypeId))),
+                WallOpening cut when cut.HostWallId == _wall.Id => (cut.DistanceAlongWall, cut.Width),
+                _ => null
+            };
+            if (at is not var (along, width)) continue;
+
+            var length = after.Length;
+            var moved = after.Locate(before.PointAt(along)).Along;
+            moved = width < length ? Math.Clamp(moved, width / 2, length - width / 2) : length / 2;
+            if (Math.Abs(moved - along) > 1e-9) _hosted.Add((element, along, moved));
+        }
+
+        if (_wall.Start.DistanceTo(_newStart) < 1e-9 && _wall.End.DistanceTo(_newEnd) < 1e-9) Place(after: true);
+        return this;
+    }
+
+    private void Place(bool after)
+    {
+        foreach (var (hosted, before, moved) in _hosted)
+        {
+            var along = Math.Max(0, after ? moved : before);
+            if (hosted is Opening opening) opening.DistanceAlongWall = along;
+            else if (hosted is WallOpening cut) cut.DistanceAlongWall = along;
+        }
+    }
+
     public void Redo()
     {
         _wall.Start = _newStart;
         _wall.End = _newEnd;
+        Place(after: true);
     }
 
     public void Undo()
     {
         _wall.Start = _oldStart;
         _wall.End = _oldEnd;
+        Place(after: false);
     }
 }
 

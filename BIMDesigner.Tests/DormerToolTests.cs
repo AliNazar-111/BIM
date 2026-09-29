@@ -168,7 +168,7 @@ public class DormerToolTests
         Assert.Null(Dormers.Of(document, main));
         Assert.Null(Dormers.Of(document, document.Walls.First()));
         Assert.Equal(walls.Cast<Element>().Prepend(dormer), Dormers.Parts(document, dormer));
-        Assert.Contains("Gable dormer", Dormers.Describe(dormer));
+        Assert.Contains("Gable dormer", Dormers.Describe(document, dormer));
 
         // Saved and opened again, it is still one.
         var reloaded = ProjectFile.FromJson(ProjectFile.ToJson(document));
@@ -209,5 +209,46 @@ public class DormerToolTests
         Assert.Equal(corner.X + 2000, dormer.Boundary[0].X, 3);
         Assert.Equal(wallStart.X + 2000, ((Wall)parts[1]).Start.X, 3);
         Assert.Single(RoofJoin.Openings(document, main));
+    }
+
+    [Theory]
+    [InlineData(DormerShape.Gable)]
+    [InlineData(DormerShape.Shed)]
+    public void NearAHippedEndItSaysWhereAlongTheSlopeItFits(DormerShape shape)
+    {
+        var (document, main, wallType) = House(10000, 7000, 40);
+        foreach (var edge in main.Edges) (edge.DefinesSlope, edge.SlopeDegrees) = (true, 40);
+        var settings = DormerSettings.Default with { Shape = shape, Slope = shape == DormerShape.Shed ? 15 : 35 };
+        var at = new Point2D(1800, 600);
+
+        Assert.Null(Dormers.Add(document, main, at, settings, wallType.Id, out var problem, out _));
+        Assert.True(problem!.Contains("further along the roof"), problem);
+        if (shape == DormerShape.Shed) Assert.DoesNotContain("Shed dormer", problem);
+
+        var fitsAt = Dormers.NearestThatFits(document, main, at, settings, wallType.Structure.TotalWidth);
+        Assert.NotNull(fitsAt);
+        Assert.Equal(at.Y, fitsAt!.Value.Y, 1.0);
+        Assert.NotNull(Dormers.Add(document, main, fitsAt.Value, settings, wallType.Id, out problem, out _));
+    }
+
+    [Theory]
+    [InlineData(10000, 7000, 40)]
+    [InlineData(12000, 8000, 35)]
+    [InlineData(8000, 6000, 45)]
+    public void WhereverItSaysItFitsAlongTheSlopeItBuilds(double width, double depth, double pitch)
+    {
+        for (var x = 500.0; x < width; x += 1500)
+        for (var y = 300.0; y < depth / 2 - 500; y += 700)
+        {
+            var (document, main, wallType) = House(width, depth, pitch);
+            foreach (var edge in main.Edges) (edge.DefinesSlope, edge.SlopeDegrees) = (true, pitch);
+
+            var at = new Point2D(x, y);
+            if (Dormers.Add(document, main, at, DormerSettings.Default, wallType.Id, out _, out _) is not null) continue;
+            if (Dormers.NearestThatFits(document, main, at, DormerSettings.Default, wallType.Structure.TotalWidth) is not { } fitsAt) continue;
+
+            var built = Dormers.Add(document, main, fitsAt, DormerSettings.Default, wallType.Id, out var problem, out _);
+            Assert.True(built is not null, $"Said it fits at {fitsAt} for a click at {at} on a {width:0} x {depth:0} roof, but: {problem}");
+        }
     }
 }

@@ -129,6 +129,8 @@ public abstract class Opening : Element, IHostedElement
     /// grows again, and follows a dormer as the dormer is changed. See <see cref="WallOpenings.Fit"/>.
     ///
     /// Everything that draws, cuts or reports it goes by this, not by its sill and height as set.
+    /// Where the wall has no room left for it at all - a dormer lowered as far as its roof
+    /// makes it - it has no height, and is not drawn, until the wall has room again.
     /// </summary>
     public (double Sill, double Height) Placed(BimDocument document, OpeningType? type, Wall? wall = null, IReadOnlyList<Point2D>? outline = null)
     {
@@ -136,7 +138,7 @@ public abstract class Opening : Element, IHostedElement
         if (type is null) return asSet;
 
         wall ??= document.Walls.FirstOrDefault(w => w.Id == HostWallId);
-        return wall is null ? asSet : PlacedIn(document, wall, type, DistanceAlongWall, outline) ?? asSet;
+        return wall is null ? asSet : PlacedIn(document, wall, type, DistanceAlongWall, outline) ?? (SillHeight, 0);
     }
 
     /// <summary>

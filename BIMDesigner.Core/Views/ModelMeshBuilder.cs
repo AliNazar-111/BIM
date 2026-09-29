@@ -38,6 +38,13 @@ public static class ModelMeshBuilder
         foreach (var component in document.Elements.OfType<Component>().Where(c => shows(c)))
             AddComponent(document, component, meshes);
 
+        // Fascias and gutters along the roofs' edges, on the storey of the roof they follow.
+        foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(s => shows(s)))
+        {
+            var levelId = document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId)?.LevelId ?? sweep.LevelId;
+            if (RoofEdgeSweeps.Mesh(document, sweep, levelId) is { IsEmpty: false } mesh) meshes.Add(mesh);
+        }
+
         return Finished(meshes);
     }
 

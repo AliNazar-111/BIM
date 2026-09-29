@@ -318,8 +318,8 @@ sketch's slope symbols only show while editing the sketch.
 | Openings: Vertical, By Face | 🟡 | Vertical openings are drawn in the roof's own sketch as inner loops; no separate Vertical or By Face (square to the slope) tool yet |
 | Dormer (slope-arrow and dormer-opening methods) | ✅ | Slope-arrow dormer: split the eave, clear the middle's slope, two arrows. With walls: walls standing on the roof (Attach Base finds it; their base follows its slope and they end where they are buried), a gable roof on them joined to the main roof, then Dormer Opening cuts the main roof between the walls' inside faces, back to where the dormer's underside meets it |
 | **Dormer tool** (one click; not in Revit) | ✅ | Click on a roof's slope: front and side walls standing on the roof, a Gable, Shed or Hip roof picked off them, joined into the main roof, and the main roof opened under it - one undo step. Width, Height, Slope and Overhang on the options bar; the height is lowered to what fits under the ridge, and a roof too low for any dormer says so. Doors and windows in its walls - or in any wall whose outline is lower than they are - are kept inside it, live: brought down or made shorter where they would come out of the top, back to their own size when there is room. A new window is sized to the wall it goes in, keeping its proportions and clear of the corners. The dormer selects as one, like a group: TAB or a second click in 3D reaches a part |
-| Fascia, Gutter | ⬜ | Wall sweeps exist; could be reused along roof edges |
-| Soffit | ⬜ | |
+| Fascia, Gutter | ✅ | Picked edge by edge (consecutive picks one element, Esc to start another) or all round a selected roof in one click. Run at the roof's top outer edge, level along eaves and up and over verges; mitred at hips and ridges, butted where an eave meets a verge. A fascia is as deep as the roof's edge unless its type says otherwise; a gutter hangs off the fascia's face. Horizontal and vertical offsets; follows the roof by edge identity through sketch edits; 3D, plan, section, IFC, schedules. Not yet: user-drawn profiles, angle |
+| Soffit | ✅ | Under the eaves that overhang their walls, from the roof's edge back to the wall face, level at the bottom of the fascia; mitred at hips, square at verges. Picked by eave or all round in one click; follows the roof. Not yet: sketched soffits, sloped soffits under verges |
 | Shape editing (flat roofs: points, split lines, supports) | ⬜ | |
 | Plan display of ridges, hips, valleys | ✅ | |
 | Section through pitched roof | ✅ | |
@@ -472,7 +472,7 @@ What was built, and where it differs from Revit:
 - **Openings**: Vertical and By Face, as sketches.
 - **Dormer Opening**: pick the dormer's walls and joined roof to cut the main roof.
 
-### R9 — Fascia, gutter, soffit ⬜
+### R9 — Fascia, gutter, soffit ✅
 
 - Fascia and gutter as profile sweeps along picked roof edges (reuse the wall sweep engine),
   continuous and mitred across picks, Restart to break; offsets and angle.

@@ -29,8 +29,10 @@ public abstract class Slab : Element
 
     public virtual void SetBoundary(IEnumerable<Point2D> points)
     {
+        // Read before clearing: the points may be worked out from this slab's own.
+        var replacement = points.ToList();
         _boundary.Clear();
-        _boundary.AddRange(points);
+        _boundary.AddRange(replacement);
 
         // Stored anticlockwise so area is positive and every slab winds the same way.
         if (Polygon2D.SignedArea(_boundary) < 0) _boundary.Reverse();

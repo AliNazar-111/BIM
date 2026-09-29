@@ -169,12 +169,17 @@ public sealed class BimDocument
         var families = _types.Values.OfType<ComponentType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var columnTypes = _types.Values.OfType<ColumnType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Fascias, gutters and soffits are a library too, added to as it grows.
+        var roofEdgeTypes = _types.Values.Where(type => type is FasciaType or GutterType or SoffitType)
+            .Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         foreach (var type in template.ElementTypes.Where(type => type switch
                  {
                      CurtainWallType => !hasCurtain,
                      OpeningType opening => !known.Contains(opening.Name),
                      ComponentType component => !families.Contains(component.Name),
                      ColumnType column => !columnTypes.Contains(column.Name),
+                     FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
                  }))
         {
@@ -194,6 +199,9 @@ public sealed class BimDocument
         WallType wall => wall.Structure.Layers.Select(layer => layer.MaterialId),
         CurtainWallType curtain => new[] { curtain.GlassMaterialId, curtain.SolidMaterialId, curtain.MullionMaterialId },
         WallSweepType sweep => new[] { sweep.MaterialId },
+        FasciaType fascia => new[] { fascia.MaterialId },
+        GutterType gutter => new[] { gutter.MaterialId },
+        SoffitType soffit => new[] { soffit.MaterialId },
         ColumnType column => new[] { column.MaterialId },
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
         _ => Array.Empty<Guid>()
@@ -713,6 +721,46 @@ public sealed class BimDocument
         };
         foreach (var material in new[] { glass, aluminium, spandrel }) document.AddMaterial(material);
 
+        // Roof edges: a painted board to cover the ends of the roof, and gutters to hang off it.
+        var fasciaBoard = new Material("Timber Fascia, Painted White")
+        {
+            Density = 500,
+            ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("F1F0EA"),
+            CutColour = ColourRgb.FromHex("D9D5C7"),
+            CostPerCubicMetre = 1400m
+        };
+        var gutterPlastic = new Material("PVC-U, Black")
+        {
+            Density = 1400,
+            ThermalConductivity = 0.19,
+            SurfaceColour = ColourRgb.FromHex("2E3034"),
+            CutColour = ColourRgb.FromHex("24262A"),
+            CostPerCubicMetre = 3000m
+        };
+        // Dark by default, so it reads against a light roof and a light wall; white as well.
+        var fasciaDark = new Material("Fascia Board, Anthracite")
+        {
+            Density = 500,
+            ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("3E434A"),
+            CutColour = ColourRgb.FromHex("33373D"),
+            CostPerCubicMetre = 1500m
+        };
+        foreach (var material in new[] { fasciaBoard, gutterPlastic, fasciaDark }) document.AddMaterial(material);
+
+        var fascia = new FasciaType("Fascia - 25 mm Board, Anthracite") { Thickness = 25, MaterialId = fasciaDark.Id, TypeMark = "F1", Cost = 20m };
+        var whiteFascia = new FasciaType("Fascia - 25 mm Board, White") { Thickness = 25, MaterialId = fasciaBoard.Id, TypeMark = "F2", Cost = 18m };
+        var halfRound = new GutterType("Gutter - Half Round 125")
+        {
+            Shape = GutterShape.HalfRound, Width = 125, WallThickness = 4, MaterialId = gutterPlastic.Id, TypeMark = "G1", Cost = 14m
+        };
+        var soffitBoard = new SoffitType("Soffit - 12 mm Board") { Thickness = 12, MaterialId = fasciaBoard.Id, TypeMark = "S1", Cost = 22m };
+        var boxGutter = new GutterType("Gutter - Box 100 x 75")
+        {
+            Shape = GutterShape.Box, Width = 100, Depth = 75, WallThickness = 4, MaterialId = gutterPlastic.Id, TypeMark = "G2", Cost = 16m
+        };
+
         var storefront = new CurtainWallType("Curtain Wall - Storefront 1500")
         {
             AutomaticallyEmbed = true,
@@ -894,6 +942,7 @@ public sealed class BimDocument
                  {
                      generic, exterior, partition,
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
+                     fascia, whiteFascia, halfRound, boxGutter, soffitBoard,
                      storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
                      curtainSingle, curtainDouble, curtainSlider,
