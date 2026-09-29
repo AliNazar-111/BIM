@@ -139,6 +139,9 @@ public partial class MainWindow : Window
         Plan.ViewChanged += (_, _) => RefreshStatus();
         Plan.HintChanged += (_, hint) => StatusHint.Text = hint;
 
+        // A door that cannot be turned to open a way it would hit something: an error, in a dialog.
+        Plan.DoorRefused += (_, why) => MessageBox.Show(this, why, "Door", MessageBoxButton.OK, MessageBoxImage.Warning);
+
         // Pick New offers its Placement choice only while it is waiting for a host, as Revit's
         // Placement panel appears only for the length of the move.
         Plan.PickNewHostChanged += (_, _) => ShowOptionsForActiveTool();
@@ -273,6 +276,11 @@ public partial class MainWindow : Window
 
     private void LoadDocument(BimDocument document, string? path, bool seedExample)
     {
+        // Roofs on their walls and dormers on their roofs, as any edit would leave them: a file
+        // saved before they followed as they do now opens as it would be drawn after one.
+        RoofSketch.FollowWalls(document);
+        Dormers.FollowRoofs(document);
+
         _document = document;
         _path = path;
 
@@ -1846,7 +1854,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void AttachSelectedWalls(bool top)
     {
-        var walls = Plan.SelectedElements.OfType<Wall>().ToList();
+        var walls = SelectedWallsOrHosts();
         if (walls.Count == 0)
         {
             StatusHint.Text = "Select the walls to attach first.";
@@ -1922,7 +1930,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var changes = Plan.SelectedElements.OfType<Wall>()
+        var changes = SelectedWallsOrHosts()
             .SelectMany(wall => new[]
             {
                 (Wall: wall, Top: true, Attached: wall.TopAttachedTo),
@@ -2042,9 +2050,76 @@ public partial class MainWindow : Window
             $"{Plural(_document.Elements.OfType<Column>().Count(c => c.TypeId == type.Id), "column")} changed with it.";
     }
 
+    /// <summary>
+    /// The walls selected - and for a curtain panel, the curtain wall it is part of: a panel is
+    /// what a click on the glass picks, and it is the wall that has a grid and a top to attach.
+    /// </summary>
+    private List<Wall> SelectedWallsOrHosts() => Plan.SelectedElements
+        .Select(element => element switch
+        {
+            Wall wall => wall,
+            CurtainPanel panel => _document.Walls.FirstOrDefault(wall => wall.Id == panel.HostWallId),
+            _ => null
+        })
+        .OfType<Wall>()
+        .Distinct()
+        .ToList();
+
+    /// <summary>
+    /// Makes one wall of walls running on from each other in a straight line, of one type: the
+    /// selected ones, or with one selected - or a panel of one - that one and whatever runs on
+    /// from its ends. A glass gable split in two becomes one sheet of glass, the joint gone.
+    /// </summary>
+    private void OnMergeWalls(object sender, RoutedEventArgs e)
+    {
+        var walls = SelectedWallsOrHosts();
+        if (walls.Count == 0)
+        {
+            StatusHint.Text = "Select the walls to merge - or one of them, to merge it with the walls running on from its ends.";
+            return;
+        }
+
+        var keep = walls[0];
+        var pool = walls.Count == 1 ? _document.Walls.ToList() : walls;
+        var commands = new List<IUndoableCommand>();
+
+        // One at a time, each taken into the kept wall, which grows as it goes.
+        while (pool.FirstOrDefault(other => WallCorners.CanMerge(keep, other) && WallCorners.InLine(keep, other)) is { } next)
+        {
+            var merge = new MergeWallsCommand(_document, keep, next);
+            merge.Redo();
+            commands.Add(merge);
+            pool.Remove(next);
+        }
+
+        if (commands.Count == 0)
+        {
+            StatusHint.Text = "Nothing to merge: walls become one only where they are of the same type and run on from each other in a straight line.";
+            return;
+        }
+
+        _history.Record(commands.Count == 1 ? commands[0] : new CompositeCommand("Merge Walls", commands));
+        Plan.Select(keep);
+        AfterHistoryChange();
+        StatusHint.Text = $"{commands.Count + 1} walls made one - the joint between them is gone.";
+    }
+
+    /// <summary>Curtain Wall panel: from a panel to the wall it is part of.</summary>
+    private void OnSelectCurtainHost(object sender, RoutedEventArgs e)
+    {
+        if (SelectedWallsOrHosts() is not [var wall])
+        {
+            StatusHint.Text = "Select a curtain panel first.";
+            return;
+        }
+
+        Plan.Select(wall);
+        StatusHint.Text = "Curtain wall selected: change its type or height in Properties, edit its grid, or attach its top to the roof over it.";
+    }
+
     private void OnEditCurtainGrid(object sender, RoutedEventArgs e)
     {
-        if (Plan.SelectedElements.OfType<Wall>().ToList() is not [var wall] || !_document.IsCurtainWall(wall))
+        if (SelectedWallsOrHosts() is not [var wall] || !_document.IsCurtainWall(wall))
         {
             StatusHint.Text = "Select one curtain wall to edit its grid.";
             return;
@@ -2055,7 +2130,11 @@ public partial class MainWindow : Window
 
         // The windows added there are cut into the wall as elements of their own, so they are
         // part of the same one step as the grid.
-        var commands = new List<IUndoableCommand> { new SetCurtainLayoutCommand(wall, dialog.ResultGrid, dialog.ResultPanels) };
+        // Its doors hung to open to a side they have room to: not up into the soffit under the eaves.
+        var commands = new List<IUndoableCommand>
+        {
+            new SetCurtainLayoutCommand(wall, dialog.ResultGrid, DoorSwing.Settled(_document, wall, dialog.ResultGrid, dialog.ResultPanels))
+        };
 
         foreach (var (typeId, along, sill) in dialog.ResultWindows)
             commands.Add(new AddElementCommand(_document, new BIMDesigner.Core.Architecture.Window
@@ -2185,6 +2264,7 @@ public partial class MainWindow : Window
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
+        ContextCurtainPanel.Visibility = selected.Count > 0 && selected.All(element => element is CurtainPanel) ? Visibility.Visible : Visibility.Collapsed;
         // A roof on its own, or a whole dormer - its roof and walls - picked as one.
         var dormerPicked = selected.OfType<Roof>().ToList() is [var dormerRoof] && Dormers.Of(_document, dormerRoof) is { } dormer &&
                            Dormers.Parts(_document, dormer) is var parts && parts.Count == selected.Count && parts.All(selected.Contains);
@@ -2495,9 +2575,16 @@ public partial class MainWindow : Window
         var selected = Plan.SelectedElements;
         if (selected.Count == 0)
         {
+            _propertyDormer = null;
             ShowViewProperties();
             return;
         }
+
+        // A whole dormer picked shows as the dormer - its roof, which carries its shape and size -
+        // unless its walls have been asked for from the list since it was picked.
+        var dormer = WholeDormer(selected);
+        if (dormer is not null && !ReferenceEquals(dormer, _propertyDormer)) _propertyCategory = dormer.Category;
+        _propertyDormer = dormer;
 
         var categories = selected
             .GroupBy(element => element.Category)
@@ -2519,7 +2606,7 @@ public partial class MainWindow : Window
         var type = typeIds.Count == 1 ? _document.ElementTypes.FirstOrDefault(t => t.Id == typeIds[0]) : null;
 
         SelectedTypeImage.Source = TryFindResource(IconFor(element, type)) as System.Windows.Media.ImageSource;
-        SelectedFamilyName.Text = FamilyName(category, type);
+        SelectedFamilyName.Text = elements.Count == 1 && element is Roof { Dormer: not null } ? "Dormer" : FamilyName(category, type);
         SelectedTypeName.Text = typeIds.Count > 1 ? "Multiple Types" : type?.Name ?? CategoryTitle(category);
 
         // "Doors" -> "door", so the hint reads naturally for whatever is selected.
@@ -2560,6 +2647,16 @@ public partial class MainWindow : Window
             .Select(layer => new LayerRow(layer, _document))
             .ToList();
     }
+
+    /// <summary>The dormer made by the Dormer tool a selection is the whole of, if it is.</summary>
+    private Roof? WholeDormer(IReadOnlyList<Element> selected) =>
+        selected.OfType<Roof>().Where(roof => roof.Dormer is not null).Take(2).ToList() is [var roof] &&
+        Dormers.Parts(_document, roof).Select(part => part.Id).ToHashSet().SetEquals(selected.Select(element => element.Id))
+            ? roof
+            : null;
+
+    /// <summary>The dormer the panel last showed whole, so a choice of its walls from the list is kept while it stays picked.</summary>
+    private Roof? _propertyDormer;
 
     private void OnPropertyCategoryChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -2711,6 +2808,15 @@ public partial class MainWindow : Window
 
             var row = new ParameterRow(same.Prepend(parameter).OfType<ParameterValue>().ToList());
             row.ValueCommitted += OnParameterCommitted;
+            row.Explained += (_, said) =>
+            {
+                StatusHint.Text = said.Message;
+
+                // Refused, it is an error, and said so where it cannot be missed - once the edit
+                // under way in the panel has finished.
+                if (said.Refused)
+                    Dispatcher.BeginInvoke(() => MessageBox.Show(this, said.Message, said.Parameter, MessageBoxButton.OK, MessageBoxImage.Warning));
+            };
             rows.Add(row);
         }
 

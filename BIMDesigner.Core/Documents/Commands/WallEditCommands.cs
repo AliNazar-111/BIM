@@ -173,9 +173,23 @@ public sealed class SplitWallCommand : IUndoableCommand
             var farStart = layout.Verticals.Count(v => v <= _splitAlong + 1e-6) - 1;
             var panels = wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>();
 
-            _firstCurtain = (new CurtainGrid(inner.Where(v => v < _splitAlong).ToList(), horizontals),
+            // Stretches taken out of the lines go with the half they are in: a horizontal one
+            // across the split, cut there.
+            var removed = wall.CurtainGrid?.Removed ?? Array.Empty<CurtainSegment>();
+            var nearRemoved = removed
+                .Where(s => s.Vertical ? s.Line < _splitAlong : Math.Min(s.From, s.To) < _splitAlong)
+                .Select(s => s.Vertical ? s : s with { From = Math.Min(s.From, s.To), To = Math.Min(Math.Max(s.From, s.To), _splitAlong) })
+                .ToList();
+            var farRemoved = removed
+                .Where(s => s.Vertical ? s.Line > _splitAlong : Math.Max(s.From, s.To) > _splitAlong)
+                .Select(s => s.Vertical
+                    ? s with { Line = s.Line - _splitAlong }
+                    : s with { From = Math.Max(Math.Min(s.From, s.To), _splitAlong) - _splitAlong, To = Math.Max(s.From, s.To) - _splitAlong })
+                .ToList();
+
+            _firstCurtain = (new CurtainGrid(inner.Where(v => v < _splitAlong).ToList(), horizontals).WithRemoved(nearRemoved),
                 panels.Where(p => p.Column < firstColumns).ToList());
-            secondCurtain = (new CurtainGrid(inner.Where(v => v > _splitAlong).Select(v => v - _splitAlong).ToList(), horizontals),
+            secondCurtain = (new CurtainGrid(inner.Where(v => v > _splitAlong).Select(v => v - _splitAlong).ToList(), horizontals).WithRemoved(farRemoved),
                 panels.Where(p => p.Column >= farStart)
                     .Select(p => p with { Column = p.Column - farStart }).ToList());
         }
@@ -984,6 +998,67 @@ public sealed class MergeWallsCommand : IUndoableCommand
             var hosts = sweep.HostWallIds.Select(id => id == remove.Id ? keep.Id : id).Distinct().ToList();
             _sweeps.Add((sweep, sweep.HostWallIds.ToList(), hosts));
         }
+
+        _curtainBefore = (keep.CurtainGrid, keep.CurtainPanels);
+        _curtainAfter = MergedCurtain(document, keep, remove, line) ?? _curtainBefore;
+    }
+
+    // A curtain wall's own grid and panel choices, before and after.
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _curtainBefore, _curtainAfter;
+
+    /// <summary>
+    /// Two curtain walls made one: each one's grid lines where they were along the one wall now,
+    /// none at the joint between them - it is one wall of glass now, not two meeting - and each
+    /// panel made a door, solid or glass of its own in the bay it now falls in. Null when neither
+    /// has a grid or panel of its own, and the type's grid is set out along the whole wall.
+    /// </summary>
+    private static (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels)? MergedCurtain(
+        BimDocument document, Wall keep, Wall remove, WallCurve line)
+    {
+        if (keep.CurtainGrid is null && remove.CurtainGrid is null &&
+            (keep.CurtainPanels?.Count ?? 0) == 0 && (remove.CurtainPanels?.Count ?? 0) == 0)
+            return null;
+
+        var halves = new[] { keep, remove }
+            .Select(wall => (Wall: wall, Layout: CurtainLayout.Of(document, wall)))
+            .Where(half => half.Layout is not null)
+            .Select(half => (half.Wall, Layout: half.Layout!))
+            .ToList();
+        if (halves.Count != 2) return null;
+
+        double Along(Wall wall, double distance) => Math.Clamp(line.Locate(wall.LocationCurve.PointAt(distance)).Along, 0, line.Length);
+
+        static List<double> Distinct(IEnumerable<double> values) =>
+            values.OrderBy(value => value).Aggregate(new List<double>(), (kept, value) =>
+            {
+                if (kept.Count == 0 || value - kept[^1] > 1) kept.Add(value);
+                return kept;
+            });
+
+        var verticals = Distinct(halves.SelectMany(half => half.Layout.Verticals.Skip(1).SkipLast(1).Select(v => Along(half.Wall, v))))
+            .Where(v => v > 1 && v < line.Length - 1).ToList();
+        var horizontals = Distinct(halves.SelectMany(half => half.Layout.Horizontals.Skip(1).SkipLast(1)));
+
+        static int Index(IReadOnlyList<double> inner, double at) => inner.Count(line => line <= at);
+
+        var panels = new Dictionary<(int, int), CurtainPanelOverride>();
+        foreach (var (wall, layout) in halves)
+        foreach (var chosen in wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
+        {
+            if (layout.Cells.FirstOrDefault(cell => cell.Column == chosen.Column && cell.Row == chosen.Row) is not { } cell) continue;
+
+            var (column, row) = (Index(verticals, Along(wall, (cell.From + cell.To) / 2)), Index(horizontals, (cell.Bottom + cell.Top) / 2));
+            panels[(column, row)] = chosen with { Column = column, Row = row };
+        }
+
+        // Stretches taken out of the lines go with them: a vertical one to where its line is now,
+        // a horizontal one to where its ends are.
+        var removed = halves.SelectMany(half => (half.Wall.CurtainGrid?.Removed ?? Array.Empty<CurtainSegment>())
+            .Select(s => s.Vertical
+                ? s with { Line = Along(half.Wall, s.Line) }
+                : s with { From = Along(half.Wall, s.From), To = Along(half.Wall, s.To) }));
+
+        return (new CurtainGrid(verticals, horizontals).WithRemoved(removed), panels.Values.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList());
     }
 
     public string Name => "Remove Wall Point";
@@ -991,6 +1066,7 @@ public sealed class MergeWallsCommand : IUndoableCommand
     public void Redo()
     {
         (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _after;
+        (_keep.CurtainGrid, _keep.CurtainPanels) = _curtainAfter;
         foreach (var (opening, _, _, distance) in _openings)
         {
             opening.HostWallId = _keep.Id;
@@ -1022,6 +1098,7 @@ public sealed class MergeWallsCommand : IUndoableCommand
         }
 
         (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _before;
+        (_keep.CurtainGrid, _keep.CurtainPanels) = _curtainBefore;
     }
 }
 

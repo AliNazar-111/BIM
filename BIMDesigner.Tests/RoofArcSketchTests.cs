@@ -64,11 +64,11 @@ public class RoofArcSketchTests
         Assert.NotEmpty(meshes);
 
         // Its top is shaded as one curve: where two of its faces meet on the rim, both are
-        // shaded facing the same way there, so no band shows between them.
-        foreach (var mesh in meshes)
+        // shaded facing the same way there, so no band shows between them. Its layers lie one
+        // on the next, so it is the top one that has an upper surface to shade.
+        var shaded = 0;
+        foreach (var mesh in meshes.Where(mesh => mesh.Normals is not null))
         {
-            Assert.NotNull(mesh.Normals);
-
             var up = Enumerable.Range(0, mesh.TriangleCount)
                 .SelectMany(t => Enumerable.Range(0, 3).Select(k => mesh.Indices[3 * t + k]))
                 .Where(index => mesh.Normals![index].Z > 0.5)
@@ -76,13 +76,17 @@ public class RoofArcSketchTests
                 .Where(at => at.Count() == 2)
                 .ToList();
 
-            Assert.NotEmpty(up);
+            if (up.Count == 0) continue;
+
+            shaded++;
             Assert.All(up, at =>
             {
                 var (a, b) = (mesh.Normals![at.First()], mesh.Normals![at.Last()]);
                 Assert.True(a.X * b.X + a.Y * b.Y + a.Z * b.Z > 0.9999, "Two faces of the cone are shaded differently where they meet.");
             });
         }
+
+        Assert.Equal(1, shaded);
     }
 
     [Fact]

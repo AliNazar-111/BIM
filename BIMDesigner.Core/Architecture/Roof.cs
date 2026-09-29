@@ -502,33 +502,46 @@ public sealed class Roof : Slab
         yield return ParameterValue.ReadOnly(RoofParameters.SlopingArea, () => SlopingArea(document));
     }
 
+    /// <summary>Whether this is a dormer's roof that changes as one with its walls - see <see cref="Dormers.Change"/>.</summary>
+    private bool IsWholeDormer => Dormer is not null && DormerWalls.Count == 3;
+
     private IEnumerable<ParameterValue> FootprintParameters(BimDocument document)
     {
-        yield return ParameterValue.BindChoice(
-            RoofParameters.Shape,
-            () => EnumText.Humanise(Form),
-            value =>
-            {
-                // Freeform is what a roof is called once its edges have been set one at a
-                // time; choosing it would have nothing to do, so it is left alone.
-                if (EnumText.TryParse<RoofForm>(value, out var form) && form is not (RoofForm.Freeform or RoofForm.Gambrel or RoofForm.Barrel or RoofForm.Conical))
-                    SetShape(form);
-            },
-            // A gambrel or a vault is a profile, drawn as a roof by extrusion: a footprint
-            // cannot be one, so neither is offered here.
-            new[] { RoofForm.Flat, RoofForm.Shed, RoofForm.Gable, RoofForm.Hip, RoofForm.Freeform, RoofForm.Conical }
-                .Select(form => EnumText.Humanise(form)).ToArray());
+        // A dormer is changed as it was made, as one: its roof's own shape, slope and overhang,
+        // and each edge's, would pull it apart set one at a time.
+        var dormer = IsWholeDormer;
+        if (dormer)
+        {
+            foreach (var parameter in DormerParameters(document)) yield return parameter;
+        }
+        else
+        {
+            yield return ParameterValue.BindChoice(
+                RoofParameters.Shape,
+                () => EnumText.Humanise(Form),
+                value =>
+                {
+                    // Freeform is what a roof is called once its edges have been set one at a
+                    // time; choosing it would have nothing to do, so it is left alone.
+                    if (EnumText.TryParse<RoofForm>(value, out var form) && form is not (RoofForm.Freeform or RoofForm.Gambrel or RoofForm.Barrel or RoofForm.Conical))
+                        SetShape(form);
+                },
+                // A gambrel or a vault is a profile, drawn as a roof by extrusion: a footprint
+                // cannot be one, so neither is offered here.
+                new[] { RoofForm.Flat, RoofForm.Shed, RoofForm.Gable, RoofForm.Hip, RoofForm.Freeform, RoofForm.Conical }
+                    .Select(form => EnumText.Humanise(form)).ToArray());
 
-        yield return ParameterValue.BindValidated(
-            RoofParameters.Slope, () => SlopeDegrees, (double pitch) =>
-            {
-                // A roof at 90° would be a wall, and one at a negative pitch would drain into
-                // the building: neither is a roof, so neither is accepted.
-                if (pitch < 0 || pitch >= 90) return false;
+            yield return ParameterValue.BindValidated(
+                RoofParameters.Slope, () => SlopeDegrees, (double pitch) =>
+                {
+                    // A roof at 90° would be a wall, and one at a negative pitch would drain into
+                    // the building: neither is a roof, so neither is accepted.
+                    if (pitch < 0 || pitch >= 90) return false;
 
-                SlopeDegrees = pitch;
-                return true;
-            });
+                    SlopeDegrees = pitch;
+                    return true;
+                });
+        }
 
         // Cutoff: none, measured from the roof's own base, or from a level - Revit's Cutoff
         // Level and Cutoff Offset.
@@ -565,6 +578,10 @@ public sealed class Roof : Slab
                 () => EnumText.Humanise(Bearing),
                 value => { if (EnumText.TryParse<RoofBearing>(value, out var bearing)) Bearing = bearing; },
                 EnumText.Choices<RoofBearing>());
+        }
+
+        if (!dormer && _edges.Any(edge => edge.WallId is not null))
+        {
 
             // How far it stands out past the walls it was picked from - all of them at once.
             // Moving its edges out is what gives an eave a soffit to close and a fascia to hang
@@ -607,7 +624,57 @@ public sealed class Roof : Slab
         yield return ParameterValue.ReadOnly(
             RoofParameters.SlopingEdges, () => _edges.Count(edge => edge.DefinesSlope));
 
-        foreach (var parameter in EdgeParameters()) yield return parameter;
+        if (!dormer)
+            foreach (var parameter in EdgeParameters()) yield return parameter;
+    }
+
+    /// <summary>
+    /// A dormer made by the Dormer tool, changed as it was made: its shape, width, height, slope
+    /// and overhang, its walls and roof following together - windows, fascias and gutters with
+    /// them. Its height and slope are what it has, which the roof may keep lower than asked.
+    /// </summary>
+    private IEnumerable<ParameterValue> DormerParameters(BimDocument document)
+    {
+        IUndoableCommand? Change(Func<DormerSettings, DormerSettings> to, out string? message)
+        {
+            message = null;
+            return Dormer is { } made ? Dormers.Change(document, this, to(made), out message) : null;
+        }
+
+        yield return ParameterValue.BindChoiceCommand(
+            RoofParameters.Shape,
+            () => EnumText.Humanise(Dormer?.Shape ?? DormerShape.Gable),
+            (string value, out string? message) =>
+            {
+                message = null;
+                if (!EnumText.TryParse<DormerShape>(value, out var shape)) return null;
+
+                // A shed falls gently to the front; a gable or hip is pitched like a roof. Turned
+                // from a shed, it takes the slope a gable is usually built at - brought down,
+                // as a shed's is, as far as it must be to keep its height.
+                return Change(made => made with
+                {
+                    Shape = shape,
+                    Slope = made.Shape == DormerShape.Shed && shape != DormerShape.Shed ? Math.Max(made.Slope, DormerSettings.Default.Slope) : made.Slope
+                }, out message);
+            },
+            EnumText.Choices<DormerShape>());
+
+        yield return ParameterValue.BindCommand(
+            RoofParameters.DormerWidth, () => Dormer?.Width ?? 0,
+            (double width, out string? message) => Change(made => made with { Width = width }, out message));
+
+        yield return ParameterValue.BindCommand(
+            RoofParameters.DormerHeight, () => Math.Round(Dormers.HeightOf(document, this), 3),
+            (double height, out string? message) => Change(made => made with { Height = height }, out message));
+
+        yield return ParameterValue.BindCommand(
+            RoofParameters.Slope, () => _edges.FirstOrDefault(edge => edge.DefinesSlope)?.SlopeDegrees ?? Dormer?.Slope ?? 0,
+            (double slope, out string? message) => Change(made => made with { Slope = slope }, out message));
+
+        yield return ParameterValue.BindCommand(
+            RoofParameters.Overhang, () => _edges.FirstOrDefault(edge => edge.WallId is not null)?.Overhang ?? Dormer?.Overhang ?? 0,
+            (double overhang, out string? message) => Change(made => made with { Overhang = overhang }, out message));
     }
 
     /// <summary>
@@ -700,6 +767,12 @@ public static class RoofParameters
 
     public static readonly ParameterDefinition Overhang =
         new("Overhang", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition DormerWidth =
+        new("Dormer Width", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition DormerHeight =
+        new("Dormer Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition RafterOrTruss =
         new("Rafter or Truss", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);

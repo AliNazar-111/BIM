@@ -4,13 +4,16 @@ using System.Windows.Input;
 using System.Windows.Media;
 using BIMDesigner.Core;
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.UI.Controls;
 
 /// <summary>
 /// One curtain wall seen face-on, edited by hand: click a panel to fill it with the chosen
-/// kind, click a grid line to select it and drag to move it, Delete to take it away, and
-/// double-click to add a vertical line (with Shift, a horizontal one) where you click.
+/// kind, click a grid line to select the stretch of it between the lines crossing it - Delete
+/// takes out that stretch alone, making the panels either side one, as Revit's Add/Remove
+/// Segments does - double-click a line for all of it, drag to move it, and double-click
+/// elsewhere to add a vertical line (with Shift, a horizontal one) where you click.
 ///
 /// Panel choices are kept by cell, so when a line is added the cell it splits passes its
 /// choice to both halves, and when one is taken away the two cells either side become one.
@@ -46,6 +49,8 @@ public sealed class CurtainGridEditor : FrameworkElement
     private static readonly Pen EdgePen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x60, 0x68, 0x74))), 1));
     private static readonly Pen EmptyPen = Frozen(new Pen(MutedBrush, 1) { DashStyle = DashStyles.Dash });
     private static readonly Pen SelectedPen = Frozen(new Pen(SelectedBrush, 2.5));
+    private static readonly Pen RemovedPen = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0x9A, 0x48))), 1.6) { DashStyle = DashStyles.Dash });
+    private static readonly Pen SelectedRemovedPen = Frozen(new Pen(SelectedBrush, 2.5) { DashStyle = DashStyles.Dash });
     private static readonly Pen FramePen = Frozen(new Pen(FrameBrush, 2.5));
 
     private CurtainWallType _type = new("preview");
@@ -56,6 +61,7 @@ public sealed class CurtainGridEditor : FrameworkElement
     private double _height = 1;
     private List<double> _verticals = new();
     private List<double> _horizontals = new();
+    private List<CurtainSegment> _removed = new();
     private Dictionary<(int Column, int Row), CurtainPanelOverride> _panels = new();
 
     private (bool Vertical, int Index)? _dragging;
@@ -99,8 +105,14 @@ public sealed class CurtainGridEditor : FrameworkElement
 
     private readonly List<(Guid TypeId, double DistanceAlongWall, double SillHeight)> _added = new();
 
-    /// <summary>The line selected, if any: vertical or horizontal, by its place among the inner lines.</summary>
-    public (bool Vertical, int Index)? Selected { get; private set; }
+    /// <summary>
+    /// The line selected, if any: vertical or horizontal, by its place among the inner lines -
+    /// and which stretch of it, between the lines crossing it, or null for all of it.
+    /// </summary>
+    public (bool Vertical, int Index, int? Span)? Selected { get; private set; }
+
+    /// <summary>The stretches taken out of the lines.</summary>
+    public IReadOnlyList<CurtainSegment> Removed => _removed;
 
     /// <summary>Whether the lines have been changed from what was shown.</summary>
     public bool GridEdited { get; private set; }
@@ -115,12 +127,18 @@ public sealed class CurtainGridEditor : FrameworkElement
             .OrderBy(p => p.Column).ThenBy(p => p.Row)
             .ToList();
 
-    /// <summary>The wall to edit: its type, size, inner grid lines and panel choices.</summary>
+    /// <summary>
+    /// The wall to edit: its type, size, inner grid lines and panel choices - and its top where it
+    /// slopes, under a pitched roof, so a glazed gable is edited as the shape it is.
+    /// </summary>
     public void Show(CurtainWallType type, double length, double height,
         IEnumerable<double> verticals, IEnumerable<double> horizontals, IEnumerable<CurtainPanelOverride> panels,
-        IEnumerable<(double From, double To, double Sill, double Head)>? windows = null)
+        IEnumerable<(double From, double To, double Sill, double Head)>? windows = null,
+        IReadOnlyList<Point2D>? topLine = null, IEnumerable<CurtainSegment>? removed = null)
     {
         _type = type;
+        _topLine = topLine;
+        _removed = removed?.ToList() ?? new List<CurtainSegment>();
         _windows = windows?.ToList() ?? new List<(double, double, double, double)>();
         _length = Math.Max(length, 1);
         _height = Math.Max(height, 1);
@@ -159,18 +177,41 @@ public sealed class CurtainGridEditor : FrameworkElement
             .ToDictionary(p => p.Key, p => p.Value);
 
         lines.Insert(split, at);
-        Selected = (vertical, split);
+        Selected = (vertical, split, null);
         Changed(grid: true);
         return true;
     }
 
-    /// <summary>Takes away the selected line, joining the cells either side of it into one.</summary>
+    /// <summary>
+    /// Selects a line - one stretch of it, between the lines crossing it, or all of it with no
+    /// stretch given - as a click on it does. Public so it can be driven from tests.
+    /// </summary>
+    public void Select(bool vertical, int index, int? span)
+    {
+        Selected = (vertical, index, span);
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Takes away what is selected: a stretch of a line - the panels either side of it become
+    /// one - or the whole line, joining the cells either side of it into one. A stretch already
+    /// taken out is put back.
+    /// </summary>
     public void RemoveSelected()
     {
-        if (Selected is not var (vertical, index)) return;
+        if (Selected is not var (vertical, index, span)) return;
 
         var lines = vertical ? _verticals : _horizontals;
         if (index < 0 || index >= lines.Count) return;
+
+        if (span is { } stretch)
+        {
+            ToggleStretch(vertical, index, stretch);
+            return;
+        }
+
+        var line = lines[index];
+        _removed.RemoveAll(segment => segment.Vertical == vertical && Math.Abs(segment.Line - line) < 0.5);
 
         // The line between cell index and index + 1: the second goes, the first takes its place.
         _panels = _panels
@@ -189,6 +230,69 @@ public sealed class CurtainGridEditor : FrameworkElement
         Changed(grid: true);
     }
 
+    /// <summary>The lines crossing a line, both edges of the wall included: vertical lines are crossed by the horizontal ones.</summary>
+    private List<double> Crossing(bool vertical) =>
+        (vertical ? _horizontals : _verticals).Prepend(0).Append(vertical ? _height : _length).ToList();
+
+    /// <summary>Which stretch of a line a point along it falls in, between the lines crossing it.</summary>
+    private int StretchAt(bool vertical, double at)
+    {
+        var crossing = Crossing(vertical);
+        for (var i = 0; i + 1 < crossing.Count; i++)
+            if (at < crossing[i + 1]) return i;
+        return crossing.Count - 2;
+    }
+
+    private (double From, double To) Stretch(bool vertical, int span)
+    {
+        var crossing = Crossing(vertical);
+        var i = Math.Clamp(span, 0, crossing.Count - 2);
+        return (crossing[i], crossing[i + 1]);
+    }
+
+    private bool IsRemoved(bool vertical, double line, int span)
+    {
+        var (from, to) = Stretch(vertical, span);
+        return _removed.Any(segment => segment.Covers(vertical, line, (from + to) / 2));
+    }
+
+    /// <summary>
+    /// Takes a stretch of a line out, making the panels either side of it one - or puts one back.
+    /// Only where the panel made is a rectangle, as a panel has to be.
+    /// </summary>
+    private void ToggleStretch(bool vertical, int index, int span)
+    {
+        var line = (vertical ? _verticals : _horizontals)[index];
+        var (from, to) = Stretch(vertical, span);
+        var middle = (from + to) / 2;
+
+        var existing = _removed.FindIndex(segment => segment.Covers(vertical, line, middle));
+        if (existing >= 0)
+        {
+            _removed.RemoveAt(existing);
+            Changed(grid: true);
+            return;
+        }
+
+        var segment = new CurtainSegment(vertical, line, from, to);
+        _removed.Add(segment);
+
+        // The bays either side of it: one panel now, or the stretch cannot come out.
+        var layout = Layout();
+        CurtainCell? At(double along, double up) =>
+            layout.Cells.FirstOrDefault(cell => along > cell.From && along < cell.To && up > cell.Bottom && up < cell.Top);
+        var (a, b) = vertical ? (At(line - 1, middle), At(line + 1, middle)) : (At(middle, line - 1), At(middle, line + 1));
+        if (a is null || b is null || a.Column != b.Column || a.Row != b.Row)
+        {
+            _removed.Remove(segment);
+            Refused?.Invoke(this, "Taking that stretch out would leave a panel that is not a rectangle. Take out the stretch beside it first, or double-click the line and take it all away.");
+            InvalidateVisual();
+            return;
+        }
+
+        Changed(grid: true);
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
@@ -203,7 +307,7 @@ public sealed class CurtainGridEditor : FrameworkElement
             switch (cell.Kind)
             {
                 case CurtainPanelKind.Empty:
-                    dc.DrawRectangle(null, EmptyPen, box);
+                    foreach (var piece in layout.ClearPieces(cell)) dc.DrawGeometry(null, EmptyPen, Shape(piece));
                     break;
                 case CurtainPanelKind.Door:
                     dc.DrawRectangle(DoorBrush, EdgePen, box);
@@ -212,14 +316,15 @@ public sealed class CurtainGridEditor : FrameworkElement
                     break;
 
                 default:
-                    dc.DrawRectangle(
-                        cell.Kind == CurtainPanelKind.Solid ? SolidBrush : GlazingBrush(cell.Glass), null, box);
+                    // Under a sloping top, the pane is the shape it is cut to.
+                    var fill = cell.Kind == CurtainPanelKind.Solid ? SolidBrush : GlazingBrush(cell.Glass);
+                    foreach (var piece in layout.ClearPieces(cell)) dc.DrawGeometry(fill, null, Shape(piece));
                     break;
             }
         }
 
         foreach (var mullion in layout.Mullions)
-            dc.DrawRectangle(FrameBrush, EdgePen, Box(mullion.From, mullion.To, mullion.Bottom, mullion.Top));
+            dc.DrawGeometry(FrameBrush, EdgePen, Shape((mullion.From, mullion.To, mullion.Bottom, mullion.Top, mullion.TopAt(mullion.To)), mullion.BottomAt(mullion.To)));
 
         // The windows cut into the wall, which belong to no one panel: drawn over the glass
         // where they are, so the elevation shows what the wall actually is.
@@ -233,19 +338,47 @@ public sealed class CurtainGridEditor : FrameworkElement
                 new Point(opening.Left + opening.Width / 2, opening.Bottom));
         }
 
-        dc.DrawRectangle(null, EdgePen, Box(0, _length, 0, _height));
+        // The wall's outline: a rectangle, or up to the rake of a gable.
+        var outline = new StreamGeometry();
+        using (var context = outline.Open())
+        {
+            context.BeginFigure(ToScreen(0, 0), false, true);
+            context.LineTo(ToScreen(_length, 0), true, false);
+            foreach (var point in (_topLine ?? new[] { new Point2D(0, _height), new Point2D(_length, _height) }).Reverse())
+                context.LineTo(ToScreen(point.X, point.Y), true, false);
+        }
 
-        // Every inner line, thin, so lines with no mullion on them can still be found.
-        for (var i = 0; i < _verticals.Count; i++)
-            dc.DrawLine(Selected == (true, i) ? SelectedPen : EmptyPen, ToScreen(_verticals[i], 0), ToScreen(_verticals[i], _height));
-        for (var i = 0; i < _horizontals.Count; i++)
-            dc.DrawLine(Selected == (false, i) ? SelectedPen : EmptyPen, ToScreen(0, _horizontals[i]), ToScreen(_length, _horizontals[i]));
+        outline.Freeze();
+        dc.DrawGeometry(null, EdgePen, outline);
 
-        var hint = Selected is var (vertical, index)
-            ? vertical
-                ? $"Vertical line {Units.FormatLength(_verticals[index])} along. Drag to move, Delete to take it away."
-                : $"Horizontal line {Units.FormatLength(_horizontals[index])} up. Drag to move, Delete to take it away."
-            : "Click a panel to fill it. Click a line to move or delete it. Double-click to add a vertical line, Shift for horizontal.";
+        // Every inner line, stretch by stretch, thin, so lines with no mullion on them can still
+        // be found - the stretches taken out dotted - up to the top of the wall where it is.
+        foreach (var upright in new[] { true, false })
+        {
+            var lines = upright ? _verticals : _horizontals;
+            var crossing = Crossing(upright);
+            for (var i = 0; i < lines.Count; i++)
+            for (var part = 0; part + 1 < crossing.Count; part++)
+            {
+                var (from, to) = (crossing[part], crossing[part + 1]);
+                if (upright) to = Math.Min(to, layout.TopAt(lines[i]));
+                if (to - from <= 1e-6) continue;
+
+                var removed = IsRemoved(upright, lines[i], part);
+                var selected = Selected is var (onUpright, onIndex, onStretch) && onUpright == upright && onIndex == i && (onStretch is null || onStretch == part);
+                var pen = selected ? removed ? SelectedRemovedPen : SelectedPen : removed ? RemovedPen : EmptyPen;
+                dc.DrawLine(pen, upright ? ToScreen(lines[i], from) : ToScreen(from, lines[i]), upright ? ToScreen(lines[i], to) : ToScreen(to, lines[i]));
+            }
+        }
+
+        var hint = Selected is var (vertical, index, span)
+            ? (vertical ? $"Vertical line {Units.FormatLength(_verticals[index])} along" : $"Horizontal line {Units.FormatLength(_horizontals[index])} up") +
+              (span is { } stretch
+                  ? IsRemoved(vertical, (vertical ? _verticals : _horizontals)[index], stretch)
+                      ? ", this stretch taken out. Delete puts it back."
+                      : ", the stretch between the lines crossing it. Delete takes out this stretch - the panels either side become one. Double-click the line for all of it; drag to move it."
+                  : ", all of it. Drag to move, Delete to take it away.")
+            : "Click a panel to fill it. Click a line for the stretch between the lines crossing it, double-click for the whole line. Double-click elsewhere to add a vertical line, Shift for horizontal.";
         dc.DrawText(new FormattedText(hint, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface("Segoe UI"), 11, Selected is null ? MutedBrush : TextBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip), new Point(8, 4));
     }
@@ -261,15 +394,23 @@ public sealed class CurtainGridEditor : FrameworkElement
 
         if (e.ClickCount == 2)
         {
+            // On a line, all of it; anywhere else, a new line there.
+            if (LineAt(position) is var (onVertical, onIndex))
+            {
+                Selected = (onVertical, onIndex, null);
+                InvalidateVisual();
+                return;
+            }
+
             if (along > 0 && along < _length && up > 0 && up < _height)
                 AddLine(!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? up : along);
             return;
         }
 
-        if (LineAt(position) is { } line)
+        if (LineAt(position) is var (vertical, index))
         {
-            Selected = line;
-            _dragging = line;
+            Selected = (vertical, index, StretchAt(vertical, vertical ? up : along));
+            _dragging = (vertical, index);
             CaptureMouse();
             InvalidateVisual();
             return;
@@ -296,7 +437,15 @@ public sealed class CurtainGridEditor : FrameworkElement
         var high = (index < lines.Count - 1 ? lines[index + 1] : extent) - MinimumPanel;
         if (high < low) return;
 
+        var was = lines[index];
         lines[index] = Math.Clamp(Math.Round((vertical ? along : up) / Snap) * Snap, low, high);
+        if (Math.Abs(lines[index] - was) < 1e-9) return;
+
+        // Its stretches taken out go with it.
+        for (var k = 0; k < _removed.Count; k++)
+            if (_removed[k].Vertical == vertical && Math.Abs(_removed[k].Line - was) < 0.5)
+                _removed[k] = _removed[k] with { Line = lines[index] };
+
         Changed(grid: true);
     }
 
@@ -370,7 +519,25 @@ public sealed class CurtainGridEditor : FrameworkElement
     }
 
     private CurtainLayout Layout() =>
-        CurtainLayout.Build(_type, _length, _height, new CurtainGrid(_verticals, _horizontals), Panels);
+        CurtainLayout.Build(_type, _length, _height, new CurtainGrid(_verticals, _horizontals, _removed), Panels, topLine: _topLine);
+
+    private IReadOnlyList<Point2D>? _topLine;
+
+    /// <summary>A piece of the elevation with a level bottom and a straight top, as drawn.</summary>
+    private Geometry Shape((double From, double To, double Bottom, double TopFrom, double TopTo) piece, double? bottomAtTo = null)
+    {
+        var geometry = new StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            context.BeginFigure(ToScreen(piece.From, piece.Bottom), true, true);
+            context.LineTo(ToScreen(piece.To, bottomAtTo ?? piece.Bottom), true, false);
+            context.LineTo(ToScreen(piece.To, piece.TopTo), true, false);
+            context.LineTo(ToScreen(piece.From, piece.TopFrom), true, false);
+        }
+
+        geometry.Freeze();
+        return geometry;
+    }
 
     private double Scale => Math.Min((ActualWidth - 2 * Inset) / _length, (ActualHeight - 2 * Inset - 14) / _height);
 

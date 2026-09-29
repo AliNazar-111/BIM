@@ -715,6 +715,9 @@
                                 <Button x:Name="ContextStraighten" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Straighten}"
                                         Content="Straighten" Click="OnStraightenWalls"
                                         ToolTip="Take every point and bend off the selected walls, back to a straight line between their ends"/>
+                                <Button x:Name="ContextMergeWalls" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Wall}"
+                                        Content="Merge Walls" Click="OnMergeWalls"
+                                        ToolTip="Make one wall of walls of the same type that run on from each other in a straight line - the joint between them goes. With one wall selected, the walls running on from its ends join it"/>
                                 <Button x:Name="ContextAddShapes" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.AddShapes}"
                                         Content="Add Shapes" Click="OnAddShapesButton"
                                         ToolTip="Put the selected walls of a room into an exact shape - a rectangle, a square or a regular polygon - of the size you type">
@@ -760,7 +763,7 @@
                                 <StackPanel Margin="2,0,0,0">
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
                                             Content="Attach Top" Click="OnAttachTops"
-                                            ToolTip="Take the selected walls up to the floor, ceiling or roof over each"/>
+                                            ToolTip="Take the selected walls up to the floor, ceiling or roof over each - a gable end up to the ridge, glass and all"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachBase}"
                                             Content="Attach Base" Click="OnAttachBases"
                                             ToolTip="Stand the selected walls on the floor under each"/>
@@ -815,6 +818,28 @@
                             <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Door}"
                                     Content="Pick New" Click="OnPickNewHost"
                                     ToolTip="Move the selection onto another host: a door or window into another wall, or a component onto another face or onto the level. Placement above says what will be taken"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextCurtainPanel" Header="Curtain Wall" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainWall}"
+                                        Content="Select Wall" Click="OnSelectCurtainHost"
+                                        ToolTip="Select the curtain wall this panel is part of: its type, its height, and everything that edits a wall"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
+                                        Content="Curtain Grid" Click="OnEditCurtainGrid"
+                                        ToolTip="Add, move or delete the grid lines of the curtain wall this panel is part of, and make panels solid, empty or doors"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Wall}"
+                                        Content="Merge Walls" Click="OnMergeWalls"
+                                        ToolTip="Make one wall of this curtain wall and any of the same type running on from its ends in a straight line: the joint line between them goes"/>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
+                                            Content="Attach Top" Click="OnAttachTops"
+                                            ToolTip="Take the curtain wall up to the roof or floor over it. Under a pitched roof its glass follows the slope, up to the ridge of a gable"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Detach}"
+                                            Content="Detach Top/Base" Click="OnDetachWalls"
+                                            ToolTip="Detach the curtain wall's top and base, back to its own height"/>
+                                </StackPanel>
+                            </StackPanel>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl x:Name="ContextSweepPanel" Header="Profile" Style="{StaticResource ContextRibbonPanel}">

@@ -756,13 +756,15 @@ public static class SectionProjection
                 var through = layout.Mullions.FirstOrDefault(m => m.IsVertical && s >= m.From && s <= m.To);
                 if (through is not null)
                 {
-                    pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), through.Bottom, through.Top,
+                    pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), through.BottomAt(s), through.TopAt(s),
                         SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
                     continue;
                 }
 
-                foreach (var cell in layout.Cells.Where(c => s >= c.From && s <= c.To))
+                foreach (var found in layout.Cells.Where(c => s >= c.From && s <= c.To))
                 {
+                    // Under a sloping top, only as high as the rake comes here.
+                    var cell = found with { ClearTop = Math.Min(found.ClearTop, layout.TopAt(s) - layout.TopInset) };
                     if (cell.ClearTop - cell.ClearBottom <= Epsilon) continue;
 
                     var piece = cell.Kind switch
@@ -781,7 +783,8 @@ public static class SectionProjection
                 }
 
                 foreach (var transom in layout.Mullions.Where(m => !m.IsVertical && s >= m.From && s <= m.To))
-                    pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), transom.Bottom, transom.Top, SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
+                    if (transom.TopAt(s) - transom.BottomAt(s) > Epsilon)
+                        pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), transom.BottomAt(s), transom.TopAt(s), SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
             }
 
             return;
@@ -794,28 +797,32 @@ public static class SectionProjection
 
         double Seen(double along) => marker.DistanceAlong(wall.PointAt(structure, along, 0));
 
-        SectionPiece Face(double from, double to, double low, double high, SectionPart part, Material? material, ColourRgb fallback)
+        // Seen square-on, a face may slope along its top or bottom: under the rake of a glazed gable.
+        SectionPiece Face(double from, double to, double lowFrom, double lowTo, double highFrom, double highTo,
+            SectionPart part, Material? material, ColourRgb fallback)
         {
             var (a, b) = (Seen(from), Seen(to));
-            return Piece(a, b, low, high, part, SectionDepth.Seen, material, fallback) with
+            return Piece(a, b, Math.Min(lowFrom, lowTo), Math.Max(highFrom, highTo), part, SectionDepth.Seen, material, fallback) with
             {
-                Shape = new[] { (a, bottom + low), (b, bottom + low), (b, bottom + high), (a, bottom + high) }
+                Shape = new[] { (a, bottom + lowFrom), (b, bottom + lowTo), (b, bottom + highTo), (a, bottom + highFrom) }
             };
         }
 
         foreach (var cell in layout.Cells.Where(c => c.Kind != CurtainPanelKind.Empty && c.ClearTo > c.ClearFrom && c.ClearTop > c.ClearBottom))
+        foreach (var (from, to, low, topFrom, topTo) in layout.ClearPieces(cell))
         {
             pieces.Add(cell.Kind switch
             {
-                CurtainPanelKind.Solid => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.WallFace, solid, DefaultCut),
-                CurtainPanelKind.Door => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.DoorLeaf, null, LeafColour),
-                _ => Face(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop, SectionPart.Glazing,
+                CurtainPanelKind.Solid => Face(from, to, low, low, topFrom, topTo, SectionPart.WallFace, solid, DefaultCut),
+                CurtainPanelKind.Door => Face(from, to, low, low, topFrom, topTo, SectionPart.DoorLeaf, null, LeafColour),
+                _ => Face(from, to, low, low, topFrom, topTo, SectionPart.Glazing,
                     cell.Glass == CurtainGlass.Clear ? glass : null, CurtainGlassLook.ColourOf(cell.Glass, GlazingColour))
             });
         }
 
         foreach (var mullion in layout.Mullions)
-            pieces.Add(Face(mullion.From, mullion.To, mullion.Bottom, mullion.Top, SectionPart.Frame, metal, DefaultCut));
+            pieces.Add(Face(mullion.From, mullion.To, mullion.Bottom, mullion.BottomAt(mullion.To), mullion.Top, mullion.TopAt(mullion.To),
+                SectionPart.Frame, metal, DefaultCut));
     }
 
     /// <summary>

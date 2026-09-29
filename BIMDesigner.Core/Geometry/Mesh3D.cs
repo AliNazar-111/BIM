@@ -301,7 +301,18 @@ public sealed class Mesh3D
     /// As above, with the top and bottom marked as part of a curved surface - a cone built
     /// from flat faces - so <see cref="SmoothGroups"/> can shade them as one.
     /// </summary>
-    public void AddExtrusion(IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top, int? smoothGroup)
+    public void AddExtrusion(IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top, int? smoothGroup) =>
+        AddExtrusion(outline, bottom, top, smoothGroup, null);
+
+    /// <summary>
+    /// As above, for one piece of a solid built of several: an edge <paramref name="inside"/>
+    /// says is shared with a neighbouring piece, the two running on into each other, is inside
+    /// the solid and has no side. Two sides back to back there would be hidden - until, far off,
+    /// the depth buffer cannot tell them from the surface above and they show through it.
+    /// </summary>
+    public void AddExtrusion(
+        IReadOnlyList<Point2D> outline, Func<Point2D, double> bottom, Func<Point2D, double> top, int? smoothGroup,
+        Func<Point2D, Point2D, bool>? inside, bool topCap = true, bool bottomCap = true)
     {
         if (outline.Count < 3) return;
 
@@ -318,6 +329,7 @@ public sealed class Mesh3D
         {
             var j = (i + 1) % ring.Count;
             if (ring[i].DistanceTo(ring[j]) <= 1e-9) continue;
+            if (inside?.Invoke(ring[i], ring[j]) == true) continue;
 
             AddQuad(Low(i), Low(j), High(j), High(i));
 
@@ -331,12 +343,18 @@ public sealed class Mesh3D
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(ring))
         {
-            if (smoothGroup is { } group) _smoothTriangles[TriangleCount] = group;
-            AddTriangle(High(i), High(j), High(k));
+            if (topCap)
+            {
+                if (smoothGroup is { } group) _smoothTriangles[TriangleCount] = group;
+                AddTriangle(High(i), High(j), High(k));
+            }
 
             // The underside faces down, so it winds the other way.
-            if (smoothGroup is { } under) _smoothTriangles[TriangleCount] = under;
-            AddTriangle(Low(i), Low(k), Low(j));
+            if (bottomCap)
+            {
+                if (smoothGroup is { } under) _smoothTriangles[TriangleCount] = under;
+                AddTriangle(Low(i), Low(k), Low(j));
+            }
         }
     }
 

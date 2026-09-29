@@ -660,6 +660,14 @@ internal sealed class CurtainWallTypeDto
     public bool AutomaticallyEmbed { get; set; }
 }
 
+internal sealed class CurtainSegmentDto
+{
+    public bool Vertical { get; set; }
+    public double Line { get; set; }
+    public double From { get; set; }
+    public double To { get; set; }
+}
+
 internal sealed class CurtainPanelDto
 {
     public int Column { get; set; }
@@ -880,6 +888,10 @@ internal sealed class WallDto
     /// <summary>A curtain wall's own grid lines, when it does not follow its type's.</summary>
     public List<double>? CurtainVerticals { get; set; }
     public List<double>? CurtainHorizontals { get; set; }
+
+    /// <summary>Stretches taken out of those lines, which make the bays either side one panel.</summary>
+    public List<CurtainSegmentDto>? CurtainRemoved { get; set; }
+
     public List<CurtainPanelDto>? CurtainPanels { get; set; }
 
     /// <summary>What the whole curtain wall is glazed with, for panels that do not say otherwise.</summary>

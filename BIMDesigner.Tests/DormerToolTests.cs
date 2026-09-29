@@ -14,7 +14,7 @@ namespace BIMDesigner.Tests;
 public class DormerToolTests
 {
     /// <summary>A box of walls 3 m high and a gable roof on it, eaves along the long sides.</summary>
-    private static (BimDocument Document, Roof Main, WallType WallType) House(double width, double depth, double pitch)
+    internal static (BimDocument Document, Roof Main, WallType WallType) House(double width, double depth, double pitch)
     {
         var document = BimDocument.CreateDefault();
         var level = document.Levels[0].Id;
@@ -250,5 +250,71 @@ public class DormerToolTests
             var built = Dormers.Add(document, main, fitsAt, DormerSettings.Default, wallType.Id, out var problem, out _);
             Assert.True(built is not null, $"Said it fits at {fitsAt} for a click at {at} on a {width:0} x {depth:0} roof, but: {problem}");
         }
+    }
+
+    [Fact]
+    public void OnAHeavyRoofTheDormerIsRoofedWithALighterBuildUp()
+    {
+        // The house's roof is the 320 mm warm flat build-up: a lid on a dormer.
+        var (document, main, wallType) = House(10000, 10000, 40);
+        Assert.True(document.FindType<SlabType>(main.TypeId)!.Thickness > Dormers.MaximumRoofThickness);
+
+        Assert.NotNull(Dormers.Add(document, main, new Point2D(5000, 800), DormerSettings.Default, wallType.Id, out _, out _));
+        var dormer = document.Elements.OfType<Roof>().Single(roof => !ReferenceEquals(roof, main));
+        var type = document.FindType<SlabType>(dormer.TypeId)!;
+        Assert.InRange(type.Thickness, 100, Dormers.MaximumRoofThickness);
+
+        // A light roof of its own is kept for the dormer too.
+        main.TypeId = type.Id;
+        Assert.Equal(type.Id, Dormers.RoofTypeFor(document, main));
+    }
+
+    [Theory]
+    [InlineData(DormerShape.Gable)]
+    [InlineData(DormerShape.Hip)]
+    public void OnAShallowRoofASteepDormerIsMadeShallowerToKeepItsHeight(DormerShape shape)
+    {
+        var (document, main, wallType) = House(11000, 9000, 30);
+        var at = new Point2D(5500, 700);
+        var asked = DormerSettings.Default with { Shape = shape };
+        var atItsOwnSlope = Dormers.HeightThatFits(document, main, at, asked, wallType.Structure.TotalWidth)!.Value;
+        Assert.True(atItsOwnSlope < asked.Height);
+
+        Assert.NotNull(Dormers.Add(document, main, at, asked, wallType.Id, out var problem, out var used));
+        Assert.True(used.Slope < asked.Slope, problem);
+        Assert.InRange(used.Slope, 29.5, asked.Slope);
+        Assert.True(used.Height > atItsOwnSlope + 50);
+
+        // It is kept at that slope, so following the roof leaves it as it was made.
+        var dormer = document.Elements.OfType<Roof>().Single(roof => !ReferenceEquals(roof, main));
+        Assert.Equal(used.Slope, dormer.Dormer!.Slope);
+        var height = Dormers.HeightOf(document, dormer);
+        Dormers.FollowRoofs(document);
+        Assert.Equal(height, Dormers.HeightOf(document, dormer), 1);
+    }
+
+    [Fact]
+    public void AShedTooSteepForTheRoofIsMadeGentlerRatherThanRefused()
+    {
+        var (document, main, wallType) = House(11000, 9000, 30);
+        var asked = DormerSettings.Default with { Shape = DormerShape.Shed };
+
+        Assert.NotNull(Dormers.Add(document, main, new Point2D(5500, 700), asked, wallType.Id, out var problem, out var used));
+        Assert.InRange(used.Slope, 10, 25);
+        Assert.True(used.Height >= Dormers.MinimumHeight, problem);
+    }
+
+    [Fact]
+    public void AProjectFromBeforeGainsThePitchedBuildUp()
+    {
+        var document = BimDocument.CreateDefault();
+        foreach (var type in document.TypesOf<RoofType>().Where(type => !type.Name.StartsWith("Roof - Warm Flat")).ToList())
+            document.RemoveType(type);
+        Assert.Single(document.TypesOf<RoofType>());
+
+        document.EnsureDefaultTypes();
+
+        var pitched = document.TypesOf<RoofType>().Single(type => type.Name.StartsWith("Roof - Slate"));
+        Assert.All(pitched.Structure.Layers, layer => Assert.NotNull(document.FindMaterial(layer.MaterialId)));
     }
 }

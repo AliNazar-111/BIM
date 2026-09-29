@@ -103,7 +103,8 @@
                              ToolTip="How high above the base, such as 2100 or 2.1 m"/>
                     <Button Grid.Column="2" Content="Horizontal" Padding="12,4" Click="OnAddHorizontal"/>
                 </Grid>
-                <Button Content="Delete Selected Line" Padding="12,5" HorizontalAlignment="Left" Margin="0,0,0,16" Click="OnDeleteLine"/>
+                <Button Content="Delete Selected" Padding="12,5" HorizontalAlignment="Left" Margin="0,0,0,16" Click="OnDeleteLine"
+                        ToolTip="Take out the stretch of line selected - the panels either side become one - or the whole line when it is all selected (double-click a line). A stretch already taken out is put back"/>
 
                 <TextBlock Text="START AGAIN" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
                 <Button Content="Follow the Type" Padding="12,5" HorizontalAlignment="Left" Click="OnFollowType"

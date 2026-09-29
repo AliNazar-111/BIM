@@ -11,6 +11,9 @@ namespace BIMDesigner.Core.Parameters;
 /// disagree. Computed values such as Length or Volume are exposed the same way, with no
 /// setter, which is what makes them read-only in the UI.
 /// </summary>
+/// <summary>A change to make for a value, or null to refuse it - saying why, or what was made of it.</summary>
+public delegate IUndoableCommand? ExplainedChange<in T>(T value, out string? message);
+
 public sealed class ParameterValue
 {
     private readonly Func<object?> _get;
@@ -158,6 +161,79 @@ public sealed class ParameterValue
         });
 
         return parameter;
+    }
+
+    /// <summary>
+    /// As <see cref="BindCommand{T}"/>, for a change that says why it was refused - or what was
+    /// made of it, when that is not quite what was asked: a dormer brought down to fit under the
+    /// ridge. What it says is kept in <see cref="Message"/> for the panel to show.
+    /// </summary>
+    public static ParameterValue BindCommand<T>(ParameterDefinition definition, Func<T> get, ExplainedChange<T> change)
+    {
+        ParameterValue? parameter = null;
+
+        parameter = new ParameterValue(definition, () => get(), raw =>
+        {
+            if (!TryConvert<T>(raw, out var value)) return false;
+            if (Equals(value, get())) return true;
+
+            var command = change(value, out var message);
+            parameter!.Message = message;
+            if (command is null) return false;
+
+            command.Redo();
+            parameter._appliedChange = command;
+            return true;
+        });
+
+        return parameter;
+    }
+
+    /// <summary>As <see cref="BindCommand{T}(ParameterDefinition, Func{T}, ExplainedChange{T})"/>, for a yes-or-no value.</summary>
+    public static ParameterValue BindFlagCommand(ParameterDefinition definition, Func<bool> get, ExplainedChange<bool> change) =>
+        BindCommand(definition, get, change);
+
+    /// <summary>As <see cref="BindChoiceCommand"/>, for a change that says why it was refused, or what was made of it.</summary>
+    public static ParameterValue BindChoiceCommand(
+        ParameterDefinition definition,
+        Func<string> get,
+        ExplainedChange<string> change,
+        IReadOnlyList<string> allowedValues)
+    {
+        ParameterValue? parameter = null;
+
+        parameter = new ParameterValue(definition, () => get(), raw =>
+        {
+            var text = raw?.ToString();
+            if (text is null || !allowedValues.Contains(text)) return false;
+            if (text == get()) return true;
+
+            var command = change(text, out var message);
+            parameter!.Message = message;
+            if (command is null) return false;
+
+            command.Redo();
+            parameter._appliedChange = command;
+            return true;
+        })
+        {
+            AllowedValues = allowedValues
+        };
+
+        return parameter;
+    }
+
+    /// <summary>
+    /// What the last write had to say - why it was refused, or what was made of it - if the
+    /// parameter explains itself. Taking it clears it, so it is shown once.
+    /// </summary>
+    public string? Message { get; private set; }
+
+    public string? TakeMessage()
+    {
+        var message = Message;
+        Message = null;
+        return message;
     }
 
     private IUndoableCommand? _appliedChange;

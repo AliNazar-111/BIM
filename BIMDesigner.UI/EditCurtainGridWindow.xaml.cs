@@ -15,6 +15,7 @@ namespace BIMDesigner.UI;
 public partial class EditCurtainGridWindow : Window
 {
     private readonly CurtainWallType _type;
+    private readonly IReadOnlyList<BIMDesigner.Core.Geometry.Point2D>? _topLine;
     private readonly double _length;
     private readonly double _height;
     private readonly bool _hadOwnGrid;
@@ -32,6 +33,7 @@ public partial class EditCurtainGridWindow : Window
         _type = layout.Type;
         _length = layout.Length;
         _height = layout.Height;
+        _topLine = layout.TopLine;
         _hadOwnGrid = wall.CurtainGrid is not null;
         // The windows cut into this wall, so the elevation shows them where they are.
         _windows = WallOpenings.Of(document, wall)
@@ -47,7 +49,7 @@ public partial class EditCurtainGridWindow : Window
         WallCaption.Text = $"ELEVATION  -  {_type.Name.ToUpperInvariant()}, {Units.FormatLength(_length)} BY {Units.FormatLength(_height)}, ITS START ON THE LEFT";
 
         Editor.Show(_type, _length, _height, Inner(layout.Verticals), Inner(layout.Horizontals),
-            wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>(), _windows);
+            wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>(), _windows, _topLine, wall.CurtainGrid?.Removed);
         // Which door a door panel becomes: any door type in the project, as Revit picks a
         // curtain wall door in the Type Selector.
         var doorTypes = CurtainDoors.TypesFor(document);
@@ -153,7 +155,7 @@ public partial class EditCurtainGridWindow : Window
     {
         if (Editor.Selected is null)
         {
-            MessageText.Text = "Click a grid line on the drawing to select it first.";
+            MessageText.Text = "Click a grid line on the drawing to select a stretch of it, or double-click it for all of it, first.";
             return;
         }
 
@@ -165,7 +167,7 @@ public partial class EditCurtainGridWindow : Window
         Editor.Show(_type, _length, _height,
             Inner(CurtainLayout.Build(_type, _length, _height, null, null).Verticals),
             Inner(CurtainLayout.Build(_type, _length, _height, null, null).Horizontals),
-            Array.Empty<CurtainPanelOverride>(), _windows);
+            Array.Empty<CurtainPanelOverride>(), _windows, _topLine);
         _followType = true;
     }
 
@@ -174,7 +176,7 @@ public partial class EditCurtainGridWindow : Window
         // A grid only becomes the wall's own once a line has been changed; otherwise it keeps
         // following the type, and stretching the wall re-spaces it.
         var ownGrid = Editor.GridEdited || (_hadOwnGrid && !_followType);
-        ResultGrid = ownGrid ? new CurtainGrid(Editor.Verticals.ToList(), Editor.Horizontals.ToList()) : null;
+        ResultGrid = ownGrid ? new CurtainGrid(Editor.Verticals.ToList(), Editor.Horizontals.ToList()).WithRemoved(Editor.Removed) : null;
         ResultPanels = Editor.Panels.Count == 0 ? null : Editor.Panels;
         ResultWindows = Editor.AddedWindows;
         DialogResult = true;

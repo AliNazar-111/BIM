@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Parameters;
 
@@ -128,11 +129,22 @@ public sealed class CurtainPanel : Element
 
         // Whether a door panel is drawn standing open, as an ordinary door is. A panel that is
         // not a door has nothing to swing, so it stays shut and cannot be set.
+        // Opened, it opens to a side it has room to - see DoorSwing.
         yield return cell()?.Kind == CurtainPanelKind.Door
-            ? ParameterValue.Bind(
+            ? ParameterValue.BindFlagCommand(
                 CurtainPanelParameters.IsOpen,
                 () => cell()?.IsOpen ?? false,
-                v => Set(document, panel => panel with { IsOpen = v }))
+                (bool open, out string? message) =>
+                {
+                    message = null;
+                    if (wall is null || cell() is not { } here) return null;
+
+                    string? hit = null;
+                    var facing = open ? DoorSwing.Settle(flip => DoorSwing.Hits(document, wall, here, flip), here.FlipFacing, out hit) : here.FlipFacing;
+                    if (facing != here.FlipFacing) message = $"It opens the other way: the way it faced, it would swing up into {hit}.";
+                    return new SetCurtainLayoutCommand(wall, wall.CurtainGrid,
+                        Changed(wall, panel => panel with { IsOpen = open, FlipFacing = facing }), open ? "Open Panel" : "Close Panel");
+                })
             : ParameterValue.ReadOnly(CurtainPanelParameters.IsOpen, () => false);
 
         // Which way a door panel is hung and which way it opens: the mirror of the door, the
@@ -142,10 +154,23 @@ public sealed class CurtainPanel : Element
             () => cell()?.FlipHand ?? false,
             v => Set(document, panel => panel with { FlipHand = v }));
 
-        yield return ParameterValue.Bind(
+        // Not to a side it would hit something opening to, when it clears the side it faces now.
+        yield return ParameterValue.BindFlagCommand(
             CurtainPanelParameters.FlipFacing,
             () => cell()?.FlipFacing ?? false,
-            v => Set(document, panel => panel with { FlipFacing = v }));
+            (bool flip, out string? message) =>
+            {
+                message = null;
+                if (wall is null || cell() is not { } here) return null;
+
+                if (DoorSwing.Hits(document, wall, here, flip) is { } hit && DoorSwing.Hits(document, wall, here, here.FlipFacing) is null)
+                {
+                    message = $"It stays facing this way: opening the other way it would swing up into {hit}.";
+                    return null;
+                }
+
+                return new SetCurtainLayoutCommand(wall, wall.CurtainGrid, Changed(wall, panel => panel with { FlipFacing = flip }), "Mirror Panel");
+            });
 
         // Where the panel is: along the wall to its middle, and the height of its underside.
         // Setting the distance slides the whole bay, lines and all, along the wall.
@@ -192,7 +217,11 @@ public sealed class CurtainPanel : Element
         var horizontals = layout.Horizontals.ToList();
         var lines = across ? verticals : horizontals;
         var index = across ? Column : Row;
-        if (index < 0 || index + 1 >= lines.Count) return false;
+
+        // A panel of several bays - the line between them taken out - is sized by its outer lines.
+        var span = across ? cell.Columns : cell.Rows;
+        if (index < 0 || index + span >= lines.Count) return false;
+        var before = (Low: lines[index], High: lines[index + span]);
 
         var extent = across ? layout.Length : layout.Height;
         var change = clear - (across ? cell.ClearTo - cell.ClearFrom : cell.ClearTop - cell.ClearBottom);
@@ -200,23 +229,36 @@ public sealed class CurtainPanel : Element
 
         // The ends of the wall are not grid lines that can be moved.
         var lowFixed = index == 0;
-        var highFixed = index + 1 == lines.Count - 1;
+        var highFixed = index + span == lines.Count - 1;
         if (lowFixed && highFixed) return false;
 
         var low = lines[index] - (highFixed ? change : lowFixed ? 0 : change / 2);
-        var high = lines[index + 1] + (lowFixed ? change : highFixed ? 0 : change / 2);
+        var high = lines[index + span] + (lowFixed ? change : highFixed ? 0 : change / 2);
 
-        // Whatever is next door keeps enough to be a panel, and so does this one.
+        // Whatever is next door keeps enough to be a panel, and so does this one - and the lines
+        // inside it, where it spans several bays, keep theirs.
         var floor = index == 0 ? 0 : lines[index - 1] + CurtainDoors.MinimumPanel;
-        var ceiling = index + 2 >= lines.Count ? extent : lines[index + 2] - CurtainDoors.MinimumPanel;
+        var ceiling = index + span + 1 >= lines.Count ? extent : lines[index + span + 1] - CurtainDoors.MinimumPanel;
         if (low < floor - 1e-6 || high > ceiling + 1e-6 || high - low < CurtainDoors.MinimumPanel) return false;
+        if (span > 1 && (lines[index + 1] - low < CurtainDoors.MinimumPanel || high - lines[index + span - 1] < CurtainDoors.MinimumPanel)) return false;
 
         lines[index] = low;
-        lines[index + 1] = high;
+        lines[index + span] = high;
 
-        wall.CurtainGrid = new CurtainGrid(Inner(verticals, layout.Length), Inner(horizontals, layout.Height));
+        wall.CurtainGrid = new CurtainGrid(Inner(verticals, layout.Length), Inner(horizontals, layout.Height),
+            Moved(wall.CurtainGrid?.Removed, across, (before.Low, low), (before.High, high)));
         return true;
     }
+
+    /// <summary>The stretches taken out of a wall's grid lines, carried with their lines where those have moved.</summary>
+    private static IReadOnlyList<CurtainSegment>? Moved(IReadOnlyList<CurtainSegment>? removed, bool vertical, params (double From, double To)[] moves) =>
+        removed?.Select(segment =>
+        {
+            if (segment.Vertical != vertical) return segment;
+            foreach (var (from, to) in moves)
+                if (Math.Abs(segment.Line - from) < 0.5) return segment with { Line = to };
+            return segment;
+        }).ToList();
 
     /// <summary>
     /// Slides the panel along the wall to put its middle here, taking both the grid lines round
@@ -230,23 +272,23 @@ public sealed class CurtainPanel : Element
 
         var verticals = layout.Verticals.ToList();
         var horizontals = layout.Horizontals.ToList();
-        if (Column < 0 || Column + 1 >= verticals.Count) return false;
-        if (Column == 0 || Column + 1 == verticals.Count - 1) return false;
+        var span = cell.Columns;
+        if (Column < 0 || Column + span >= verticals.Count) return false;
+        if (Column == 0 || Column + span == verticals.Count - 1) return false;
 
         var change = middle - (cell.ClearFrom + cell.ClearTo) / 2;
         if (Math.Abs(change) < CurtainDoors.Tolerance / 10) return true;
 
-        var low = verticals[Column] + change;
-        var high = verticals[Column + 1] + change;
+        // A panel of several bays slides whole, the lines inside it with it.
+        var was = verticals.Skip(Column).Take(span + 1).ToList();
+        var floor = verticals[Column - 1] + CurtainDoors.MinimumPanel;
+        var ceiling = Column + span + 1 >= verticals.Count ? layout.Length : verticals[Column + span + 1] - CurtainDoors.MinimumPanel;
+        if (was[0] + change < floor - 1e-6 || was[^1] + change > ceiling + 1e-6) return false;
 
-        var floor = Column == 0 ? 0 : verticals[Column - 1] + CurtainDoors.MinimumPanel;
-        var ceiling = Column + 2 >= verticals.Count ? layout.Length : verticals[Column + 2] - CurtainDoors.MinimumPanel;
-        if (low < floor - 1e-6 || high > ceiling + 1e-6) return false;
+        for (var k = 0; k <= span; k++) verticals[Column + k] = was[k] + change;
 
-        verticals[Column] = low;
-        verticals[Column + 1] = high;
-
-        wall.CurtainGrid = new CurtainGrid(Inner(verticals, layout.Length), Inner(horizontals, layout.Height));
+        wall.CurtainGrid = new CurtainGrid(Inner(verticals, layout.Length), Inner(horizontals, layout.Height),
+            Moved(wall.CurtainGrid?.Removed, true, was.Select(x => (x, x + change)).ToArray()));
         return true;
     }
 
@@ -261,7 +303,12 @@ public sealed class CurtainPanel : Element
     private void Set(BimDocument document, Func<CurtainPanelOverride, CurtainPanelOverride> change)
     {
         if (document.Walls.FirstOrDefault(w => w.Id == HostWallId) is not { } wall) return;
+        wall.CurtainPanels = Changed(wall, change);
+    }
 
+    /// <summary>The wall's panels with this one changed - not set on the wall, for a command to set.</summary>
+    private IReadOnlyList<CurtainPanelOverride>? Changed(Wall wall, Func<CurtainPanelOverride, CurtainPanelOverride> change)
+    {
         var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>()).ToList();
         var index = panels.FindIndex(p => p.Column == Column && p.Row == Row);
 
@@ -272,7 +319,7 @@ public sealed class CurtainPanel : Element
         var updated = change(current);
 
         // A door has to stand on the floor, as it does everywhere else. A window does not.
-        if (updated.Kind == CurtainPanelKind.Door && Row != 0) return;
+        if (updated.Kind == CurtainPanelKind.Door && Row != 0) return wall.CurtainPanels;
 
         if (index >= 0) panels[index] = updated;
         else panels.Add(updated);
@@ -281,7 +328,7 @@ public sealed class CurtainPanel : Element
         if (updated.Kind == CurtainPanelKind.Glazed && updated.Glass == wall.CurtainGlass)
             panels.RemoveAll(p => p.Column == Column && p.Row == Row);
 
-        wall.CurtainPanels = panels.Count == 0 ? null : panels.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList();
+        return panels.Count == 0 ? null : panels.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList();
     }
 }
 

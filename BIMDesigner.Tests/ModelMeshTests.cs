@@ -473,4 +473,42 @@ public class ModelMeshTests
         var bounds = ModelMeshBuilder.Bounds(ModelMeshBuilder.Build(document).Where(m => m.ElementId == wall.Id))!.Value;
         Assert.Equal(4000, bounds.Min.Z, precision: 6);
     }
+
+    [Fact]
+    public void TheFacesInsideARoofAreNotDrawn()
+    {
+        // A roof opened for a dormer: its face is cut in two round the opening, and its layers
+        // lie one on the next. Faces inside it are never seen - until, far off, they flicker
+        // through the surface.
+        var (document, main, wallType) = DormerToolTests.House(10000, 10000, 40);
+        Assert.NotNull(Dormers.Add(document, main, new Point2D(5000, 800), DormerSettings.Default, wallType.Id, out _, out _));
+        var meshes = ModelMeshBuilder.Build(document).Where(mesh => mesh.ElementId == main.Id).ToList();
+
+        // Only the finish on top faces up, and only the layer underneath faces down.
+        Assert.Single(meshes, mesh => Normals(mesh).Any(normal => normal.Z > 0.5));
+        Assert.Single(meshes, mesh => Normals(mesh).Any(normal => normal.Z < -0.5));
+
+        // Nor does a face stand down the cut between the two halves, beyond the opening.
+        var opening = RoofJoin.Openings(document, main).Single();
+        var (low, high) = (opening.Min(point => point.Y), opening.Max(point => point.Y));
+        var across = opening.Average(point => point.X);
+        foreach (var mesh in meshes)
+        for (var t = 0; t < mesh.TriangleCount; t++)
+        {
+            var corners = Enumerable.Range(0, 3).Select(k => mesh.Positions[mesh.Indices[3 * t + k]]).ToList();
+            var middle = corners.Average(point => point.Y);
+            Assert.False(corners.All(point => Math.Abs(point.X - across) < 1) && (middle < low - 1 || middle > high + 1),
+                "A face stands inside the roof, down the cut round the opening.");
+        }
+    }
+
+    private static IEnumerable<Point3D> Normals(Mesh3D mesh) =>
+        Enumerable.Range(0, mesh.TriangleCount).Select(t =>
+        {
+            var (a, b, c) = (mesh.Positions[mesh.Indices[3 * t]], mesh.Positions[mesh.Indices[3 * t + 1]], mesh.Positions[mesh.Indices[3 * t + 2]]);
+            var (u, v) = ((b.X - a.X, b.Y - a.Y, b.Z - a.Z), (c.X - a.X, c.Y - a.Y, c.Z - a.Z));
+            var n = (X: u.Item2 * v.Item3 - u.Item3 * v.Item2, Y: u.Item3 * v.Item1 - u.Item1 * v.Item3, Z: u.Item1 * v.Item2 - u.Item2 * v.Item1);
+            var length = Math.Sqrt(n.X * n.X + n.Y * n.Y + n.Z * n.Z);
+            return length < 1e-9 ? new Point3D(0, 0, 0) : new Point3D(n.X / length, n.Y / length, n.Z / length);
+        });
 }

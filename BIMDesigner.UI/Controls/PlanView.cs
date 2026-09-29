@@ -600,7 +600,7 @@ public partial class PlanView : FrameworkElement
         // A door or window selected: Space flips which way it faces.
         if (_selection.Count == 1 && _selection[0] is Opening selectedOpening && Document is not null)
         {
-            Apply(new FlipOpeningCommand(selectedOpening, facing: true));
+            FlipFacing(selectedOpening);
             InvalidateVisual();
             return true;
         }
@@ -685,6 +685,9 @@ public partial class PlanView : FrameworkElement
 
     /// <summary>Raised with a line of guidance for the status bar as tools change state.</summary>
     public event EventHandler<string>? HintChanged;
+
+    /// <summary>Raised with why, when a door cannot be turned to open a way it would hit something over it.</summary>
+    public event EventHandler<string>? DoorRefused;
 
     /// <summary>Raised when a section marker is drawn, so its view can be opened at once.</summary>
     public event EventHandler<SectionMarker>? SectionPlaced;
@@ -845,7 +848,7 @@ public partial class PlanView : FrameworkElement
         if (walls.Count != 2 || !WallCorners.CanMerge(walls[0].Wall, walls[1].Wall))
         {
             HintChanged?.Invoke(this, walls.Count == 2
-                ? "These two walls cannot become one: they differ in type, or one is curved, profiled or a curtain wall."
+                ? "These two walls cannot become one: they differ in type, or one is curved or has an edited profile."
                 : "More than two walls meet here, so there is no single wall to make of them.");
             return true;
         }
@@ -1638,7 +1641,8 @@ public partial class PlanView : FrameworkElement
         // A door or window's flip arrows: facing across the wall, hand along it.
         if (OpeningFlipAt(e.GetPosition(this)) is { } flip && _selection[0] is Opening flipped)
         {
-            Apply(new FlipOpeningCommand(flipped, flip.Facing));
+            if (flip.Facing) FlipFacing(flipped);
+            else Apply(new FlipOpeningCommand(flipped, facing: false));
             InvalidateVisual();
             return;
         }
@@ -3614,6 +3618,9 @@ public partial class PlanView : FrameworkElement
         opening.FlipFacing = isDoor && interiorSide;
         opening.FlipHand = _placeFlipHand;
 
+        // Hung to open to a side it has room to: not up into the soffit under the eaves.
+        if (isDoor) opening.FlipFacing = DoorSwing.Settle(flip => DoorSwing.Hits(Document, opening, flip), opening.FlipFacing, out _);
+
         // Placed into a slanted wall, it leans with it. One that was already in the wall when
         // the wall was slanted keeps standing upright, which is Revit's rule.
         if (Document.GetWallType(wall) is { } lean && WallLean.Leans(wall, lean))
@@ -3758,6 +3765,16 @@ public partial class PlanView : FrameworkElement
             return true;
         }
 
+        // Not turned to open to a side it would hit something opening to, when it clears this one.
+        if (!hand && panel.Cell(Document) is { } here &&
+            DoorSwing.Hits(Document, wall, here, !here.FlipFacing) is { } hit && DoorSwing.Hits(Document, wall, here, here.FlipFacing) is null)
+        {
+            var why = $"The door stays opening this way: the other way it would swing up into {hit}.";
+            HintChanged?.Invoke(this, why);
+            DoorRefused?.Invoke(this, why);
+            return true;
+        }
+
         var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
             .Select(p => p.Column != panel.Column || p.Row != panel.Row
                 ? p
@@ -3771,6 +3788,35 @@ public partial class PlanView : FrameworkElement
         HintChanged?.Invoke(this, hand ? "Hinged on the other side." : "Opening the other way.");
         InvalidateVisual();
         return true;
+    }
+
+    /// <summary>A door or window turned to face the other way - unless it would hit something opening that way and does not this way.</summary>
+    private void FlipFacing(Opening opening)
+    {
+        if (Document is not null && DoorSwing.Hits(Document, opening, !opening.FlipFacing) is { } hit &&
+            DoorSwing.Hits(Document, opening, opening.FlipFacing) is null)
+        {
+            var why = $"The door stays opening this way: the other way it would swing up into {hit}.";
+            HintChanged?.Invoke(this, why);
+            DoorRefused?.Invoke(this, why);
+            return;
+        }
+
+        Apply(new FlipOpeningCommand(opening, facing: true));
+    }
+
+    /// <summary>A door opened to a side it has room to - turned to the other, if it would hit something opening the way it faces - or shut.</summary>
+    private void OpenDoor(Opening opening, bool open)
+    {
+        if (open && Document is not null &&
+            DoorSwing.Settle(flip => DoorSwing.Hits(Document, opening, flip), opening.FlipFacing, out var hit) != opening.FlipFacing)
+        {
+            Apply(new CompositeCommand("Open", new IUndoableCommand[] { new FlipOpeningCommand(opening, facing: true), new OpenOpeningCommand(opening, true) }));
+            HintChanged?.Invoke(this, $"The door stands open - the other way: the way it faced, it would swing up into {hit}.");
+            return;
+        }
+
+        Apply(new OpenOpeningCommand(opening, open));
     }
 
     /// <summary>
@@ -3787,13 +3833,21 @@ public partial class PlanView : FrameworkElement
             return true;
         }
 
+        // Opened, to a side it has room to.
+        string? hit = null;
+        var facing = open && panel.Cell(Document) is { } here
+            ? DoorSwing.Settle(flip => DoorSwing.Hits(Document, wall, here, flip), here.FlipFacing, out hit)
+            : (bool?)null;
+
         var panels = (wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>())
-            .Select(p => p.Column != panel.Column || p.Row != panel.Row ? p : p with { IsOpen = open })
+            .Select(p => p.Column != panel.Column || p.Row != panel.Row ? p : p with { IsOpen = open, FlipFacing = facing ?? p.FlipFacing })
             .ToList();
 
         Apply(new SetCurtainLayoutCommand(wall, wall.CurtainGrid, panels, open ? "Open Panel" : "Close Panel"));
         Select(panel);
-        HintChanged?.Invoke(this, open ? "The door stands open." : "The door is shut.");
+        HintChanged?.Invoke(this, hit is not null
+            ? $"The door stands open - the other way: the way it faced, it would swing up into {hit}."
+            : open ? "The door stands open." : "The door is shut.");
         InvalidateVisual();
         return true;
     }
@@ -4615,9 +4669,9 @@ public partial class PlanView : FrameworkElement
         switch (picked)
         {
             case Opening opening:
-                items.Add((opening.IsOpen ? "Close" : "Open", () => Apply(new OpenOpeningCommand(opening, !opening.IsOpen))));
+                items.Add((opening.IsOpen ? "Close" : "Open", () => OpenDoor(opening, !opening.IsOpen)));
                 items.Add((string.Empty, null));
-                items.Add(("Flip Facing", () => Apply(new FlipOpeningCommand(opening, facing: true))));
+                items.Add(("Flip Facing", () => FlipFacing(opening)));
                 items.Add(("Flip Hand", () => Apply(new FlipOpeningCommand(opening, facing: false))));
                 items.Add(("Pick New Host", BeginPickNewHost));
                 items.Add((string.Empty, null));

@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Parameters;
@@ -214,8 +215,28 @@ public abstract class Opening : Element, IHostedElement
             () => DistanceAlongWall,
             v => { if (v >= 0) DistanceAlongWall = Math.Max(0, KeptInPanel(document, type, v, SillHeight).Along); });
 
-        yield return ParameterValue.Bind(OpeningParameters.IsOpen, () => IsOpen, v => IsOpen = v);
-        yield return ParameterValue.Bind(OpeningParameters.FlipFacing, () => FlipFacing, v => FlipFacing = v);
+        // A door opened opens to a side it has room to, and is not turned to face one it has not
+        // - see DoorSwing.
+        yield return ParameterValue.BindFlagCommand(OpeningParameters.IsOpen, () => IsOpen, (bool open, out string? message) =>
+        {
+            message = null;
+            if (!open || DoorSwing.Settle(flip => DoorSwing.Hits(document, this, flip), FlipFacing, out var hit) == FlipFacing)
+                return new OpenOpeningCommand(this, open);
+
+            message = $"It opens the other way: the way it faced, it would swing up into {hit}.";
+            return new CompositeCommand("Open", new IUndoableCommand[] { new FlipOpeningCommand(this, facing: true), new OpenOpeningCommand(this, true) });
+        });
+        yield return ParameterValue.BindFlagCommand(OpeningParameters.FlipFacing, () => FlipFacing, (bool flip, out string? message) =>
+        {
+            message = null;
+            if (DoorSwing.Hits(document, this, flip) is { } hit && DoorSwing.Hits(document, this, FlipFacing) is null)
+            {
+                message = $"It stays facing this way: opening the other way it would swing up into {hit}.";
+                return null;
+            }
+
+            return new FlipOpeningCommand(this, facing: true);
+        });
         yield return ParameterValue.Bind(OpeningParameters.FlipHand, () => FlipHand, v => FlipHand = v);
 
         // Only a slanted wall can hold a leaning door, so elsewhere this says so rather than

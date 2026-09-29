@@ -116,13 +116,21 @@ public static class CurtainDoors
 
         panels[(column, 0)] = new CurtainPanelOverride(column, 0, CurtainPanelKind.Door, type.Id);
 
-        var grid = new CurtainGrid(Inner(verticals, length), Inner(horizontals, height));
+        var grid = new CurtainGrid(Inner(verticals, length), Inner(horizontals, height), wall.CurtainGrid?.Removed);
         var result = panels.Values.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList();
 
-        return CurtainLayout.Build(layout.Type, length, height, grid, result)
-            .Cells.FirstOrDefault(c => c.Column == column && c.Row == 0) is { } filled
-            ? new CurtainDoorPlacement(grid, result, filled, added)
-            : null;
+        if (CurtainLayout.Build(layout.Type, length, height, grid, result, wall.CurtainGlass, layout.TopLine)
+                .Cells.FirstOrDefault(c => c.Column == column && c.Row == 0) is not { } filled)
+            return null;
+
+        // Hung to open to a side it has room to: not up into the soffit under the eaves.
+        if (DoorSwing.Settle(flip => DoorSwing.Hits(document, wall, filled, flip), false, out _))
+        {
+            filled = filled with { FlipFacing = true };
+            result = result.Select(p => p.Column == column && p.Row == 0 ? p with { FlipFacing = true } : p).ToList();
+        }
+
+        return new CurtainDoorPlacement(grid, result, filled, added);
     }
 
     /// <summary>

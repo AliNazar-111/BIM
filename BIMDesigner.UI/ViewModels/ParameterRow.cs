@@ -4,6 +4,25 @@ using BIMDesigner.Core.Parameters;
 
 namespace BIMDesigner.UI.ViewModels;
 
+/// <summary>What the model said about an edit: why it was refused, or what was made of it.</summary>
+public sealed class ParameterExplainedEventArgs : EventArgs
+{
+    public ParameterExplainedEventArgs(string parameter, string message, bool refused)
+    {
+        Parameter = parameter;
+        Message = message;
+        Refused = refused;
+    }
+
+    /// <summary>The parameter edited, by name.</summary>
+    public string Parameter { get; }
+
+    public string Message { get; }
+
+    /// <summary>Whether the edit was refused - nothing changed - rather than made other than asked.</summary>
+    public bool Refused { get; }
+}
+
 /// <summary>An accepted parameter edit, carrying what it takes to reverse it: one change per element edited.</summary>
 public sealed class ParameterCommittedEventArgs : EventArgs
 {
@@ -107,10 +126,13 @@ public sealed class ParameterRow : INotifyPropertyChanged
     private void Commit(Func<ParameterValue, bool> write)
     {
         var changes = new List<(ParameterValue, object?, object?)>();
+        var refused = false;
         foreach (var parameter in _parameters)
         {
             var oldValue = parameter.Value;
-            if (write(parameter) && !Equals(oldValue, parameter.Value))
+            var taken = write(parameter);
+            refused |= !taken;
+            if (taken && !Equals(oldValue, parameter.Value))
                 changes.Add((parameter, oldValue, parameter.Value));
         }
 
@@ -119,10 +141,17 @@ public sealed class ParameterRow : INotifyPropertyChanged
         OnPropertyChanged(nameof(Flag));
 
         if (changes.Count > 0) ValueCommitted?.Invoke(this, new ParameterCommittedEventArgs(changes));
+
+        // Why it was refused, or what was made of it, where the parameter says.
+        if (_parameters.Select(parameter => parameter.TakeMessage()).FirstOrDefault(message => message is not null) is { } said)
+            Explained?.Invoke(this, new ParameterExplainedEventArgs(Name, said, refused && changes.Count == 0));
     }
 
     /// <summary>Raised after a write the model accepted, so it can be recorded and redrawn.</summary>
     public event EventHandler<ParameterCommittedEventArgs>? ValueCommitted;
+
+    /// <summary>Raised when a write was refused, or made other than asked, with what the model says about it.</summary>
+    public event EventHandler<ParameterExplainedEventArgs>? Explained;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

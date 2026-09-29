@@ -169,9 +169,11 @@ public sealed class BimDocument
         var families = _types.Values.OfType<ComponentType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var columnTypes = _types.Values.OfType<ColumnType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // Fascias, gutters and soffits are a library too, added to as it grows.
+        // Fascias, gutters and soffits are a library too, added to as it grows - and so are
+        // roofs: a project made when the only roof was a flat one gains a pitched build-up.
         var roofEdgeTypes = _types.Values.Where(type => type is FasciaType or GutterType or SoffitType)
             .Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var roofTypes = _types.Values.OfType<RoofType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var type in template.ElementTypes.Where(type => type switch
                  {
@@ -180,6 +182,7 @@ public sealed class BimDocument
                      ComponentType component => !families.Contains(component.Name),
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
+                     RoofType => !roofTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
                  }))
         {
@@ -680,6 +683,40 @@ public sealed class BimDocument
             CoarseScaleFillColour = ColourRgb.FromHex("D4D0C6")
         };
 
+        // A pitched roof's build-up: slates on timber rafters, lined underneath - light enough
+        // for a dormer, which the Dormer tool gives it where the main roof is heavier.
+        var slate = new Material("Roof Slate, Blue-Grey")
+        {
+            Density = 2700,
+            ThermalConductivity = 2.2,
+            SurfaceColour = ColourRgb.FromHex("59616B"),
+            CutColour = ColourRgb.FromHex("4B525B"),
+            CostPerCubicMetre = 2600m
+        };
+        var softwood = new Material("Timber, Softwood")
+        {
+            Density = 500,
+            ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("C2A27A"),
+            CutColour = ColourRgb.FromHex("B0906A"),
+            CostPerCubicMetre = 650m
+        };
+        foreach (var material in new[] { slate, softwood }) document.AddMaterial(material);
+
+        var pitchedRoof = new RoofType("Roof - Slate on Timber Rafters 150mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, slate.Id, 18),
+            new MaterialLayer(LayerFunction.Structure, softwood.Id, 120),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12)))
+        {
+            TypeMark = "R2",
+            AssemblyCode = "B1020",
+            Function = SlabFunction.Structural,
+            FireRating = "30 min",
+            HeatTransferCoefficient = 0.2,
+            Cost = 120m,
+            CoarseScaleFillColour = ColourRgb.FromHex("7A6A58")
+        };
+
         var flatRoof = new RoofType("Roof - Warm Flat 320mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, plaster.Id, 10),
             new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 160),
@@ -948,7 +985,7 @@ public sealed class BimDocument
                      curtainSingle, curtainDouble, curtainSlider,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight,
-                     screedFloor, timberFloor, plasterboardCeiling, flatRoof
+                     screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof
                  })
         {
             document.AddType(type);

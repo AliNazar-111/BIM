@@ -84,16 +84,29 @@ public static class WallCorners
 
     /// <summary>
     /// Whether two walls can become one again: straight, of one type, on one level, meeting
-    /// end to end, and with nothing drawn on them - an edited profile or a curtain grid - that
-    /// belongs to one of them only.
+    /// end to end, and with no edited profile, which belongs to one of them only. Curtain walls
+    /// bring their grids with them - see MergeWallsCommand.
     /// </summary>
     public static bool CanMerge(Wall first, Wall second) =>
         !ReferenceEquals(first, second) &&
         !first.IsCurved && !second.IsCurved &&
         first.TypeId == second.TypeId && first.LevelId == second.LevelId &&
         first.Profile is null && second.Profile is null &&
-        first.CurtainGrid is null && second.CurtainGrid is null &&
         SharedEnd(first, second) is not null;
+
+    /// <summary>Whether two walls meeting end to end run on in one straight line: made one, nothing moves.</summary>
+    public static bool InLine(Wall first, Wall second)
+    {
+        if (SharedEnd(first, second) is not { } joint) return false;
+
+        var line = WallCurve.Of(first.Start, first.End, 0);
+        var far = second.Start.DistanceTo(joint) <= second.End.DistanceTo(joint) ? second.End : second.Start;
+        var near = first.Start.DistanceTo(joint) <= first.End.DistanceTo(joint) ? first.End : first.Start;
+
+        // Off the line by no more than a join's tolerance, and on the far side of the joint.
+        var direction = (joint - near).NormalisedOrDefault(Vector2D.UnitX);
+        return Math.Abs(line.Locate(far).Left) <= WallJoins.JoinTolerance && (far - joint).Dot(direction) > 0;
+    }
 
     /// <summary>The point where two walls meet end to end, or null.</summary>
     public static Point2D? SharedEnd(Wall first, Wall second)

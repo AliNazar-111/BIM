@@ -143,7 +143,7 @@ public class LayerFunctionTests
             Assert.Equal(LayerFunction.Finish2, exterior.Structure.Layers[^1].Function);
             Assert.Equal(330, exterior.Width, precision: 6);
 
-            var roof = reloaded.TypesOf<RoofType>().Single();
+            var roof = reloaded.TypesOf<RoofType>().Single(t => t.Name.StartsWith("Roof - Warm Flat"));
             Assert.Equal(LayerFunction.Finish1, roof.Structure.Layers[0].Function);
             Assert.Equal(320, roof.Structure.TotalWidth, precision: 6);
         }

@@ -258,10 +258,13 @@ public partial class PlanView
         // Already done: recorded as one step, not done again.
         History?.Record(command);
 
+        var shallower = used.Slope < Dormer.Slope - 0.01
+            ? $"Its slope is {used.Slope:0.#}° - shallower than asked, so it stands higher under the ridge. "
+            : "";
         HintChanged?.Invoke(this, (used.Height < Dormer.Height - 1
                 ? $"{EnumText.Humanise(used.Shape)} dormer added, {Units.FormatLength(used.Height)} high - as high as fits under the ridge here. "
-                : $"{EnumText.Humanise(used.Shape)} dormer added. ") +
-            "Its walls, roof and the opening under it are ordinary elements: select them to change them.");
+                : $"{EnumText.Humanise(used.Shape)} dormer added. ") + shallower +
+            "Select it to change its shape and size in Properties - its walls and roof follow together; TAB picks one part.");
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -300,9 +303,10 @@ public partial class PlanView
         if (roof.Surface(Document).FaceAt(at) is not { } face || face.Plane.Rise < 0.05) return;
 
         var thickness = DormerWallType()?.Structure.TotalWidth ?? 300;
-        var fits = Dormers.HeightThatFits(Document, roof, at, Dormer, thickness) ?? 0;
-        var fitting = fits >= Dormers.MinimumHeight;
-        var height = fitting ? Math.Min(Dormer.Height, fits) : Dormer.Height;
+        var size = Dormers.SizeAt(Document, roof, at, Dormer, thickness, out _);
+        var fitting = size is not null;
+        var height = size?.Height ?? Dormer.Height;
+        var eased = size is { } made && made.Slope < Dormer.Slope - 0.01;
 
         var uphill = new Vector2D(face.Plane.A, face.Plane.B) / face.Plane.Rise;
         var across = uphill.PerpendicularLeft();
@@ -314,10 +318,11 @@ public partial class PlanView
         foreach (var (from, to) in new[] { (left + uphill * run, left), (left, right), (right, right + uphill * run) })
             dc.DrawLine(pen, ModelToScreen(from), ModelToScreen(to));
 
+        var slope = eased ? $" at {size!.Slope:0.#}°" : "";
         var label = fitting
             ? height < Dormer.Height - 1
-                ? $"{EnumText.Humanise(Dormer.Shape)}, {Units.FormatLength(height)} high - all that fits here"
-                : $"{EnumText.Humanise(Dormer.Shape)}, {Units.FormatLength(height)} high"
+                ? $"{EnumText.Humanise(Dormer.Shape)}, {Units.FormatLength(height)} high{slope} - all that fits here"
+                : $"{EnumText.Humanise(Dormer.Shape)}, {Units.FormatLength(height)} high{slope}"
             : Dormer.Shape != DormerShape.Shed && Dormers.InsteadAt(Document, roof, at, Dormer, thickness) is { } shed
                 ? $"Too low here for a {EnumText.Humanise(Dormer.Shape).ToLowerInvariant()} dormer - a shed {Units.FormatLength(shed.Height)} high fits"
                 : "Too low here for a dormer - a steeper roof would take one";

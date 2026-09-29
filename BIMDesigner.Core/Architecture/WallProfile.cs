@@ -73,6 +73,26 @@ public static class WallProfile
     }
 
     /// <summary>
+    /// The top of a curtain wall attached to a pitched roof: the roof's underside all along it,
+    /// as points along the wall and heights above its base - a glazed gable rising to a point
+    /// under the ridge, as Revit's Attach Top takes one. A curtain wall is not given an outline
+    /// as a wall of masonry is: its grid is set out to the full height and cut off at this line,
+    /// its panes shaped to it and a mullion run up the rake. Null for any other wall, and where
+    /// the roof over it is level or it stands on a roof as well.
+    /// </summary>
+    public static IReadOnlyList<Point2D>? CurtainTop(BimDocument document, Wall wall)
+    {
+        if (wall.IsCurved || wall.CrossSection != WallCrossSection.Vertical) return null;
+        if (document.FindType<CurtainWallType>(wall.TypeId) is null || wall.RoofUnder(document) is not null) return null;
+        if (UnderRoof(document, wall) is not { } outline) return null;
+
+        // The outline runs along its bottom, at no height, then back along its top: the top is
+        // everything off the bottom, turned round to run from the start.
+        var top = outline.Where(point => point.Y > 0.5).Reverse().ToList();
+        return top.Count >= 2 ? top : null;
+    }
+
+    /// <summary>
     /// The outline of a wall whose top is attached to a pitched roof: up to the roof's
     /// underside all along it (specification section 3.1, "attach top to roofs"; Revit's
     /// Attach Top).

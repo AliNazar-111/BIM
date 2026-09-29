@@ -713,6 +713,9 @@ public static class ProjectFile
                 ProfileLength = wall.ProfileLength,
                 CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
                 CurtainHorizontals = wall.CurtainGrid?.Horizontals.ToList(),
+                CurtainRemoved = wall.CurtainGrid?.Removed?
+                    .Select(segment => new CurtainSegmentDto { Vertical = segment.Vertical, Line = segment.Line, From = segment.From, To = segment.To })
+                    .ToList(),
                 CurtainGlass = wall.CurtainGlass.ToString(),
                 CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), OpeningTypeId = p.OpeningTypeId, Glass = p.Glass.ToString(), FlipHand = p.FlipHand, FlipFacing = p.FlipFacing, IsOpen = p.IsOpen }).ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
@@ -1125,7 +1128,11 @@ public static class ProjectFile
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
-                    ? new CurtainGrid(verticals.Where(double.IsFinite).ToList(), horizontals.Where(double.IsFinite).ToList())
+                    ? new CurtainGrid(verticals.Where(double.IsFinite).ToList(), horizontals.Where(double.IsFinite).ToList(),
+                        wall.CurtainRemoved?
+                            .Where(segment => double.IsFinite(segment.Line) && double.IsFinite(segment.From) && double.IsFinite(segment.To))
+                            .Select(segment => new CurtainSegment(segment.Vertical, segment.Line, segment.From, segment.To))
+                            .ToList() is { Count: > 0 } removed ? removed : null)
                     : null,
                 CurtainGlass = ParseEnum(wall.CurtainGlass, CurtainGlass.Clear),
                 CurtainPanels = wall.CurtainPanels?

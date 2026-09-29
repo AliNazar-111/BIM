@@ -452,10 +452,26 @@ public static class ModelMeshBuilder
                 var (a, b) = (Math.Max(from, paneFrom), Math.Min(to, paneTo));
                 if (b - a <= 1) continue;
 
-                if (cell.Kind == CurtainPanelKind.Glazed)
-                    AddPane(mesh, wall, body, a, b, pane, bottom + low, bottom + high);
-                else
-                    mesh.AddExtrusion(CurtainGeometry.Band(wall, body, a, b, pane, -pane), bottom + low, bottom + high);
+                // Under a sloping top, the pane is shaped to it: cut along the rake. Glass is one
+                // sheet to the shape - a gable's pane is not two halves meeting under the ridge,
+                // with a line where they meet.
+                var pieces = layout.Under(a, b, low, high).Where(piece => piece.To - piece.From > 1).ToList();
+                if (cell.Kind == CurtainPanelKind.Glazed && layout.TopLine is not null && !wall.IsCurved)
+                {
+                    foreach (var sheet in Sheets(pieces))
+                        AddPaneShape(mesh, wall, body, sheet.Select(point => new Point2D(point.X, bottom + point.Y)).ToList(), pane);
+                    continue;
+                }
+
+                foreach (var piece in pieces)
+                {
+                    if (cell.Kind == CurtainPanelKind.Glazed)
+                        AddPane(mesh, wall, body, piece.From, piece.To, pane, bottom + piece.Bottom, bottom + piece.TopFrom, bottom + piece.TopTo);
+                    else
+                        mesh.AddExtrusion(CurtainGeometry.Band(wall, body, piece.From, piece.To, pane, -pane),
+                            _ => bottom + piece.Bottom,
+                            point => bottom + Lerp(piece.TopFrom, piece.TopTo, piece.From, piece.To, wall.LocationCurve.Locate(point).Along));
+                }
             }
         }
 
@@ -488,6 +504,29 @@ public static class ModelMeshBuilder
                 : (mullion.From, mullion.To);
 
             if (spanTo <= trimFrom + 1 || span >= trimTo - 1) continue;
+
+            // Under a sloping top: an upright stopped at the rake, a transom cut off by it, or the
+            // rake itself - their bottoms and tops follow it along the wall.
+            if (mullion.IsSloped)
+            {
+                var (from, to) = (Math.Max(span, trimFrom), Math.Min(spanTo, trimTo));
+                if (to - from <= 1) continue;
+
+                double Along(Point2D point) => wall.LocationCurve.Locate(point).Along;
+                Func<Point2D, double> low = mullion.IsVertical
+                    ? _ => bottom + mullion.Bottom
+                    : point => bottom + mullion.BottomAt(Along(point));
+                Func<Point2D, double> high = mullion.IsVertical
+                    ? point => bottom + Math.Max(mullion.Bottom, layout.TopAt(Along(point)) - layout.TopInset)
+                    : point => bottom + mullion.TopAt(Along(point));
+
+                frame.AddExtrusion(
+                    type.MullionProfile == MullionProfile.Circular && mullion.IsVertical
+                        ? CurtainGeometry.Circle(wall, body, (from + to) / 2, radius)
+                        : CurtainGeometry.Band(wall, body, from, to, depth, -depth),
+                    low, high);
+                continue;
+            }
 
             var run = mullion.IsVertical
                 ? (mullion.Bottom, mullion.Top)
@@ -585,12 +624,18 @@ public static class ModelMeshBuilder
     /// mullions holding it in any case, where nobody can see them.
     /// </summary>
     private static void AddPane(
-        Mesh3D mesh, Wall wall, WallType body, double from, double to, double half, double z0, double z1)
+        Mesh3D mesh, Wall wall, WallType body, double from, double to, double half, double z0, double z1, double? z1AtTo = null)
     {
-        if (to - from <= 1e-6 || z1 - z0 <= 1e-6) return;
+        var topTo = z1AtTo ?? z1;
+        if (to - from <= 1e-6 || Math.Max(z1, topTo) - z0 <= 1e-6) return;
 
         var path = CurtainGeometry.Path(wall, body, from, to);
         if (path.Count < 2) return;
+
+        // A sloping top runs straight from one end of the pane to the other.
+        var run = new double[path.Count];
+        for (var i = 1; i < path.Count; i++) run[i] = run[i - 1] + path[i].Point.DistanceTo(path[i - 1].Point);
+        double TopAt(int i) => run[^1] <= 1e-9 ? z1 : z1 + (topTo - z1) * run[i] / run[^1];
 
         foreach (var side in new[] { half, -half })
         for (var i = 0; i + 1 < path.Count; i++)
@@ -600,14 +645,97 @@ public static class ModelMeshBuilder
 
             mesh.AddQuad(
                 new Point3D(a.X, a.Y, z0), new Point3D(b.X, b.Y, z0),
-                new Point3D(b.X, b.Y, z1), new Point3D(a.X, a.Y, z1));
+                new Point3D(b.X, b.Y, TopAt(i + 1)), new Point3D(a.X, a.Y, TopAt(i)));
         }
 
         // The outline, so the pane still reads as a pane where it meets its frame.
         var (start, end) = (path[0].Point, path[^1].Point);
         mesh.AddEdge(new Point3D(start.X, start.Y, z0), new Point3D(end.X, end.Y, z0));
-        mesh.AddEdge(new Point3D(start.X, start.Y, z1), new Point3D(end.X, end.Y, z1));
+        mesh.AddEdge(new Point3D(start.X, start.Y, z1), new Point3D(end.X, end.Y, topTo));
     }
+
+    /// <summary>
+    /// The pieces of a pane cut to a sloping top, joined into the outlines they make - along the
+    /// wall and height - one for each stretch where they run on from each other unbroken.
+    /// </summary>
+    private static IEnumerable<List<Point2D>> Sheets(IReadOnlyList<(double From, double To, double Bottom, double TopFrom, double TopTo)> pieces)
+    {
+        var run = new List<(double From, double To, double Bottom, double TopFrom, double TopTo)>();
+        foreach (var piece in pieces.OrderBy(piece => piece.From))
+        {
+            if (run.Count > 0 && Math.Abs(piece.From - run[^1].To) > 1e-6)
+            {
+                yield return Outline(run);
+                run.Clear();
+            }
+
+            run.Add(piece);
+        }
+
+        if (run.Count > 0) yield return Outline(run);
+
+        static List<Point2D> Outline(List<(double From, double To, double Bottom, double TopFrom, double TopTo)> run)
+        {
+            var points = new List<Point2D> { new(run[0].From, run[0].Bottom), new(run[^1].To, run[^1].Bottom) };
+            for (var i = run.Count - 1; i >= 0; i--)
+            {
+                points.Add(new Point2D(run[i].To, run[i].TopTo));
+                points.Add(new Point2D(run[i].From, run[i].TopFrom));
+            }
+
+            // Corners met twice where one piece runs on into the next, and points in a straight
+            // line along its bottom or top, are one corner or none.
+            var outline = new List<Point2D>();
+            foreach (var point in points)
+                if (outline.Count == 0 || outline[^1].DistanceTo(point) > 1e-6) outline.Add(point);
+            if (outline.Count > 1 && outline[^1].DistanceTo(outline[0]) <= 1e-6) outline.RemoveAt(outline.Count - 1);
+
+            for (var i = outline.Count - 1; i >= 0 && outline.Count > 3; i--)
+            {
+                var (before, at, after) = (outline[(i - 1 + outline.Count) % outline.Count], outline[i], outline[(i + 1) % outline.Count]);
+                var cross = (at.X - before.X) * (after.Y - before.Y) - (at.Y - before.Y) * (after.X - before.X);
+                if (Math.Abs(cross) <= 1e-6 * Math.Max(1, before.DistanceTo(after))) outline.RemoveAt(i);
+            }
+
+            return outline;
+        }
+    }
+
+    /// <summary>
+    /// A flat pane of glass of any outline in a straight wall's elevation - along the wall and
+    /// height - its two faces a distance either side of the centreline.
+    /// </summary>
+    private static void AddPaneShape(Mesh3D mesh, Wall wall, WallType body, IReadOnlyList<Point2D> shape, double half)
+    {
+        if (shape.Count < 3 || Polygon2D.Area(shape) <= 1) return;
+
+        var ring = Polygon2D.SignedArea(shape) >= 0 ? shape : shape.Reverse().ToList();
+        var triangles = Polygon2D.Triangulate(ring);
+        var structure = body.Structure;
+        var middle = ring.Average(point => point.X);
+
+        foreach (var side in new[] { half, -half })
+        {
+            var points = ring.Select(point => wall.PointAt(structure, point.X, side) is var at ? new Point3D(at.X, at.Y, point.Y) : default).ToList();
+            var outward = wall.PointAt(structure, middle, side) - wall.PointAt(structure, middle, 0);
+            mesh.AddFace(points, triangles, new Point3D(outward.X, outward.Y, 0));
+        }
+
+        // The outline along its bottom and top, so the pane still reads as a pane where it meets
+        // its frame.
+        for (var i = 0; i < ring.Count; i++)
+        {
+            var (a, b) = (ring[i], ring[(i + 1) % ring.Count]);
+            if (Math.Abs(a.X - b.X) <= 1e-6) continue;
+
+            var (from, to) = (wall.PointAt(structure, a.X, 0), wall.PointAt(structure, b.X, 0));
+            mesh.AddEdge(new Point3D(from.X, from.Y, a.Y), new Point3D(to.X, to.Y, b.Y));
+        }
+    }
+
+    /// <summary>A height running straight from one end of a stretch of wall to the other.</summary>
+    private static double Lerp(double atFrom, double atTo, double from, double to, double along) =>
+        to - from <= 1e-9 ? atFrom : atFrom + (atTo - atFrom) * Math.Clamp((along - from) / (to - from), 0, 1);
 
     /// <summary>A round bar lying along a path at one height: a round transom.</summary>
     private static void AddTube(Mesh3D mesh, IReadOnlyList<(Point2D Point, Vector2D Across)> path, double height, double radius)
@@ -937,8 +1065,11 @@ public static class ModelMeshBuilder
             return;
         }
 
-        // The pieces are the same ones a section cuts, eaves and all, so the two agree.
-        foreach (var group in RoofSolid.Pieces(document, roof).GroupBy(piece => piece.Layer))
+        // The pieces are the same ones a section cuts, eaves and all, so the two agree. Where one
+        // layer lies on the next, the face between them is inside the roof: neither is drawn,
+        // or far off the two would flicker through the finish as one.
+        var all = RoofSolid.Pieces(document, roof);
+        foreach (var group in all.GroupBy(piece => piece.Layer))
         {
             var layer = group.Key;
             var material = document.FindMaterial(layer.MaterialId);
@@ -949,13 +1080,58 @@ public static class ModelMeshBuilder
 
             // The faces of a cone are one curved surface built flat, so they are shaded as one
             // - across the join where one arc runs on into the next too. A real crease between
-            // them is steeper than smoothing crosses, and stays sharp.
-            foreach (var piece in group)
-                mesh.AddExtrusion(piece.Outline, piece.Bottom.HeightAt, piece.Top.HeightAt, piece.SmoothGroup is null ? null : 0);
+            // them is steeper than smoothing crosses, and stays sharp. Where pieces of the layer
+            // meet - a face cut in two round a dormer's opening - the join has no sides.
+            var pieces = group.ToList();
+            foreach (var piece in pieces)
+                mesh.AddExtrusion(piece.Outline, piece.Bottom.HeightAt, piece.Top.HeightAt, piece.SmoothGroup is null ? null : 0,
+                    (a, b) => Joined(pieces, piece, a, b),
+                    topCap: !all.Any(other => Stacked(other, piece)),
+                    bottomCap: !all.Any(other => Stacked(piece, other)));
 
             mesh.SmoothGroups();
             if (!mesh.IsEmpty) meshes.Add(mesh);
         }
+    }
+
+    /// <summary>Whether one piece of roof lies right on another: the same outline, its underside the other's top all round.</summary>
+    private static bool Stacked(RoofPiece upper, RoofPiece lower)
+    {
+        const double tolerance = 0.5;
+
+        if (ReferenceEquals(upper, lower) || upper.Outline.Count != lower.Outline.Count) return false;
+        if (!upper.Outline.All(point => lower.Outline.Any(other => other.DistanceTo(point) < tolerance))) return false;
+
+        return upper.Outline.All(point => Math.Abs(upper.Bottom.HeightAt(point) - lower.Top.HeightAt(point)) < tolerance);
+    }
+
+    /// <summary>
+    /// Whether an edge of a piece of roof is one another piece of the same layer has too, the two
+    /// running on into each other at the same heights along it: inside the roof, not a face of it.
+    /// </summary>
+    private static bool Joined(IReadOnlyList<RoofPiece> pieces, RoofPiece piece, Point2D a, Point2D b)
+    {
+        const double tolerance = 0.5;
+
+        foreach (var other in pieces)
+        {
+            if (ReferenceEquals(other, piece)) continue;
+
+            var outline = other.Outline;
+            for (var i = 0; i < outline.Count; i++)
+            {
+                var (c, d) = (outline[i], outline[(i + 1) % outline.Count]);
+                var same = (a.DistanceTo(c) < tolerance && b.DistanceTo(d) < tolerance) ||
+                           (a.DistanceTo(d) < tolerance && b.DistanceTo(c) < tolerance);
+                if (!same) continue;
+
+                return new[] { a, b }.All(point =>
+                    Math.Abs(piece.Top.HeightAt(point) - other.Top.HeightAt(point)) < tolerance &&
+                    Math.Abs(piece.Bottom.HeightAt(point) - other.Bottom.HeightAt(point)) < tolerance);
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
