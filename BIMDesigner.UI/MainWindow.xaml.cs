@@ -46,6 +46,9 @@ public partial class MainWindow : Window
     /// <summary>The same guard for the plan and the section.</summary>
     private bool _syncingSectionSelection;
 
+    /// <summary>A 3D rebuild asked for by a drag and not yet done, so a fast drag asks once.</summary>
+    private bool _dragRebuildPending;
+
     /// <summary>Guards the section picker while it is being repopulated.</summary>
     private bool _loadingSections;
 
@@ -101,12 +104,44 @@ public partial class MainWindow : Window
             Plan.ShowMenuFor(picked, Model3D);
         };
 
+        // A roof window selected in 3D can be dragged along its roof. The view is rebuilt as it
+        // goes, but no more often than it can be drawn, and the drag is one step to undo.
+        Model3D.CanDrag = Plan.CanDragIn3D;
+        Model3D.ElementDragged += (_, drag) =>
+        {
+            if (!Plan.DragRoofWindowIn3D(drag.Id, drag.From, drag.Through) || _dragRebuildPending) return;
+
+            _dragRebuildPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            {
+                _dragRebuildPending = false;
+                Refresh3D();
+            });
+        };
+        Model3D.ElementDragEnded += (_, _) => Plan.EndRoofWindowDrag();
+
         Model3D.ElementClicked += (_, hit) =>
         {
             // A door or window tool active: a click on a wall in 3D puts one in it, at the
             // place it was clicked. Revit places them in plan, section, elevation and 3D alike.
             if (hit is { } picked && Plan.ActiveTool is PlanTool.Door or PlanTool.Window &&
                 Plan.PlaceOpeningIn3D(picked.Id, picked.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            // And the roof window tool: a click on a roof puts one in it there.
+            if (hit is { } onRoof && Plan.ActiveTool == PlanTool.RoofWindow &&
+                Plan.PlaceRoofWindowIn3D(onRoof.Id, onRoof.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            // The shaft tool: a click on a roof, floor or ceiling cuts a shaft through it there.
+            if (hit is { } onSlab && Plan.ActiveTool == PlanTool.Shaft &&
+                Plan.PlaceShaftIn3D(onSlab.Id, onSlab.At))
             {
                 Model3D.Focus();
                 return;
@@ -141,6 +176,7 @@ public partial class MainWindow : Window
 
         // A door that cannot be turned to open a way it would hit something: an error, in a dialog.
         Plan.DoorRefused += (_, why) => MessageBox.Show(this, why, "Door", MessageBoxButton.OK, MessageBoxImage.Warning);
+        Plan.RoofWindowRefused += (_, why) => MessageBox.Show(this, why, "Roof Window", MessageBoxButton.OK, MessageBoxImage.Warning);
 
         // Pick New offers its Placement choice only while it is waiting for a host, as Revit's
         // Placement panel appears only for the length of the move.
@@ -364,6 +400,11 @@ public partial class MainWindow : Window
         WindowTypePicker.ItemsSource = windowTypes;
         WindowTypePicker.SelectedItem = windowTypes.FirstOrDefault();
 
+        var roofWindowTypes = _document.TypesOf<RoofWindowType>().OrderBy(t => t.Name).ToList();
+        RoofWindowTypePicker.ItemsSource = roofWindowTypes;
+        RoofWindowTypePicker.SelectedItem = roofWindowTypes.FirstOrDefault();
+        Plan.ActiveRoofWindowTypeId = roofWindowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
+
         var families = _document.TypesOf<ComponentType>()
             .OrderBy(t => t.Kind.ToString())
             .ThenBy(t => t.Name)
@@ -440,11 +481,13 @@ public partial class MainWindow : Window
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
-            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer;
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Dormer) ShowDormerOptions();
+        ShaftOptions.Visibility = tool == PlanTool.Shaft ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Shaft) ShowShaftOptions();
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -467,12 +510,13 @@ public partial class MainWindow : Window
         var selecting = tool == PlanTool.Select;
         ModifyCaption.Visibility = selecting ? Visibility.Visible : Visibility.Collapsed;
 
-        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.Component or PlanTool.Column || isSlab || isSweep || isRoofEdge || typeless || selecting
+        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.RoofWindow or PlanTool.Component or PlanTool.Column || isSlab || isSweep || isRoofEdge || typeless || selecting
             ? Visibility.Collapsed : Visibility.Visible;
         TypeLabel.Visibility = typeless || selecting ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
         TagOnPlacementBox.Visibility = tool is PlanTool.Door or PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
         WindowTypePicker.Visibility = tool == PlanTool.Window ? Visibility.Visible : Visibility.Collapsed;
+        RoofWindowTypePicker.Visibility = tool == PlanTool.RoofWindow ? Visibility.Visible : Visibility.Collapsed;
         ComponentTypePicker.Visibility = tool == PlanTool.Component ? Visibility.Visible : Visibility.Collapsed;
         ColumnTypePicker.Visibility = ColumnOptions.Visibility =
             tool == PlanTool.Column ? Visibility.Visible : Visibility.Collapsed;
@@ -898,6 +942,49 @@ public partial class MainWindow : Window
         Plan.Focus();
         e.Handled = true;
     }
+
+    /// <summary>The shaft the next click cuts, on the options bar.</summary>
+    private void ShowShaftOptions()
+    {
+        _loadingOptions = true;
+
+        var round = Plan.ActiveShaftShape == ShaftShape.Round;
+        ShaftShapePicker.ItemsSource ??= EnumText.Choices<ShaftShape>();
+        ShaftShapePicker.SelectedItem = EnumText.Humanise(Plan.ActiveShaftShape);
+        ShaftWidthLabel.Text = round ? "Diameter" : "Width";
+        ShaftWidthBox.Text = Units.FormatLength(Plan.ActiveShaftWidth);
+        ShaftDepthBox.Text = Units.FormatLength(Plan.ActiveShaftDepth);
+        ShaftDepthLabel.Visibility = ShaftDepthBox.Visibility = round ? Visibility.Collapsed : Visibility.Visible;
+
+        _loadingOptions = false;
+    }
+
+    private void OnShaftOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        static double? Read(string text) =>
+            ParameterFormatter.TryParse(ParameterDataType.Length, text, out var value) && value is double number ? number : null;
+
+        if (ShaftShapePicker.SelectedItem is string name && EnumText.TryParse<ShaftShape>(name, out var shape))
+            Plan.ActiveShaftShape = shape;
+        if (Read(ShaftWidthBox.Text) is { } width and >= Shafts.SmallestSize) Plan.ActiveShaftWidth = width;
+        if (Read(ShaftDepthBox.Text) is { } depth and >= Shafts.SmallestSize) Plan.ActiveShaftDepth = depth;
+
+        ShowShaftOptions();
+    }
+
+    private void OnShaftOptionKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnShaftOptionChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    /// <summary>Shaft, from a selected roof: the tool, waiting for the click on the roof.</summary>
+    private void OnAddShaft(object sender, RoutedEventArgs e) => ShaftTool.IsChecked = true;
 
     /// <summary>Dormer Opening: the selected roof waits for the dormer to be clicked.</summary>
     private void OnDormerOpening(object sender, RoutedEventArgs e)
@@ -1367,7 +1454,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, GridTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
     ];
@@ -1414,6 +1501,8 @@ public partial class MainWindow : Window
             : FasciaTool.IsChecked == true ? PlanTool.Fascia
             : GutterTool.IsChecked == true ? PlanTool.Gutter
             : SoffitTool.IsChecked == true ? PlanTool.Soffit
+            : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
+            : ShaftTool.IsChecked == true ? PlanTool.Shaft
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -1707,6 +1796,15 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
         if (DoorTypePicker.SelectedItem is DoorType type) Plan.ActiveDoorTypeId = type.Id;
     }
+
+    private void OnActiveRoofWindowTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (RoofWindowTypePicker.SelectedItem is RoofWindowType type) Plan.ActiveRoofWindowTypeId = type.Id;
+    }
+
+    /// <summary>Roof panel: the Roof Window tool, to click on the roof's slope.</summary>
+    private void OnAddRoofWindow(object sender, RoutedEventArgs e) => RoofWindowTool.IsChecked = true;
 
     private void OnActiveWindowTypeChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -2274,6 +2372,8 @@ public partial class MainWindow : Window
         ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
         ContextAddFascia.Visibility = ContextAddGutters.Visibility = ContextAddSoffits.Visibility =
             selected is [Roof { IsExtrusion: false }] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
+        ContextAddRoofWindow.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
+        ContextAddShaft.Visibility = ContextAddRoofWindow.Visibility;
         ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
             ? Visibility.Visible : Visibility.Collapsed;
         // Pick New belongs to anything that is carried by something else: a door or window in
@@ -2772,6 +2872,8 @@ public partial class MainWindow : Window
         Fascia => "Icon.Fascia",
         Gutter => "Icon.Gutter",
         Soffit => "Icon.Soffit",
+        RoofWindow => "Icon.RoofWindow",
+        ShaftOpening => "Icon.Shaft",
         _ => "Icon.Select"
     };
 
@@ -2785,6 +2887,7 @@ public partial class MainWindow : Window
         FasciaType => "Fascia",
         GutterType => "Gutter",
         SoffitType => "Soffit",
+        RoofWindowType => "Roof Window",
         WallSweepType => "Wall Sweep",
         _ => category == BuiltInCategory.CurtainPanels ? "Curtain Panel" : CategoryTitle(category).TrimEnd('s')
     };

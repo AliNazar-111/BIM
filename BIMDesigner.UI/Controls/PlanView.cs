@@ -85,7 +85,13 @@ public enum PlanTool
     Gutter,
 
     /// <summary>Closes the underside of the overhang along the roof eaves clicked.</summary>
-    Soffit
+    Soffit,
+
+    /// <summary>Puts a roof window in the roof slope clicked, lined up with it.</summary>
+    RoofWindow,
+
+    /// <summary>Cuts a shaft straight down through the roofs, floors and ceilings where it is clicked.</summary>
+    Shaft
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -327,7 +333,11 @@ public partial class PlanView : FrameworkElement
     /// something would be baffling.
     /// </summary>
     private bool IsOnActiveLevel(Element element) =>
-        element is Grid || (element.LevelId == ActiveLevelId && _shows(element));
+        element is Grid ||
+        ((element.LevelId == ActiveLevelId ||
+          // A shaft is on every plan it passes up through.
+          (element is ShaftOpening shaft && Document is not null && Shafts.ShownOn(Document, shaft, ActiveLevelId))) &&
+         _shows(element));
 
     /// <summary>This view's filters, worked out once per repaint or pick rather than per element.</summary>
     private Func<Element, bool> _shows = _ => true;
@@ -1091,6 +1101,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.Fascia => "Click a roof's edges one after another: the fascia runs along them all, round the corners. Esc finishes it.",
         PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
         PlanTool.Soffit => "Click a roof's eaves one after another: the soffit closes the overhang under them, back to the wall. Esc finishes it.",
+        PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
+        PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
         PlanTool.WallOpening => "Click a wall where the opening goes. Set its size on the option bar; change it afterwards in Properties.",
         _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
     };
@@ -1424,6 +1436,18 @@ public partial class PlanView : FrameworkElement
             _cursorModel = raw;
             _cursorIsSnapped = false;
         }
+        else if (ActiveTool == PlanTool.RoofWindow)
+        {
+            RoofWindowHover(raw);
+            _cursorModel = raw;
+            _cursorIsSnapped = false;
+        }
+        else if (ActiveTool == PlanTool.Shaft)
+        {
+            _cursorModel = SnapToGrid(raw);
+            _cursorIsSnapped = false;
+            ShaftHover(_cursorModel);
+        }
         else if (ActiveTool == PlanTool.Dormer)
         {
             DormerHover(raw);
@@ -1624,6 +1648,14 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit:
                 PickRoofEdgeAt(raw);
+                return;
+
+            case PlanTool.RoofWindow:
+                PlaceRoofWindowAt(raw);
+                return;
+
+            case PlanTool.Shaft:
+                PlaceShaftAt(SnapToGrid(raw));
                 return;
         }
 
@@ -2058,6 +2090,9 @@ public partial class PlanView : FrameworkElement
             foreach (var locked in WallLamination.LockedGroup(Document, wall))
                 if (!_moveSet.Contains(locked)) _moveSet.Add(locked);
 
+        // The windows in a roof go with it.
+        if (Document is not null) _moveSet.AddRange(RoofWindows.Following(Document, _moveSet));
+
         // At the locked corners of what moves, the walls staying put stretch to keep meeting it.
         _followers.Clear();
         if (Document is not null)
@@ -2101,6 +2136,14 @@ public partial class PlanView : FrameworkElement
 
         var distance = far ? SnapStepMm * 10 : SnapStepMm;
         var step = direction * distance;
+
+        // A roof window stops at the edge of its slope rather than being nudged off it.
+        if (!continuing || _nudgeRun is null) CollectMoveSet();
+        if (RoofWindowStepProblem(_moveSet, step) is { } stuck)
+        {
+            HintChanged?.Invoke(this, stuck);
+            return false;
+        }
 
         if (continuing && _nudgeRun is not null)
         {
@@ -2148,6 +2191,10 @@ public partial class PlanView : FrameworkElement
 
             _dragLastPoint = target;
             _dragTotal += step;
+
+            // A roof window dragged off its slope says so as it goes; let go there, it goes back.
+            if (Document is not null && RoofWindows.Misplaced(Document, _moveSet) is { } misplaced)
+                HintChanged?.Invoke(this, misplaced);
 
             _cursorIsSnapped = false;
             InvalidateVisual();
@@ -2238,6 +2285,20 @@ public partial class PlanView : FrameworkElement
         if (grip == GripKind.Move)
         {
             if (_dragTotal.X == 0 && _dragTotal.Y == 0) return;
+
+            // A roof window left where it does not fit - off its roof, over a ridge, on another
+            // opening - goes back to where it was, and says why.
+            if (Document is not null && RoofWindows.Misplaced(Document, _moveSet) is { } misplaced)
+            {
+                foreach (var element in _moveSet.Where(ElementTransforms.CanMove)) ElementTransforms.Move(element, -_dragTotal);
+                foreach (var (follower, _, start, end) in _followers) (follower.Start, follower.End) = (start, end);
+
+                _dragTotal = default;
+                HintChanged?.Invoke(this, misplaced);
+                RoofWindowRefused?.Invoke(this, misplaced);
+                InvalidateVisual();
+                return;
+            }
 
             var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal, document: Document);
             if (_followers.Count > 0) History?.Record(new CompositeCommand("Move", FollowerMoves().Prepend(command).ToList()));
@@ -4937,6 +4998,15 @@ public partial class PlanView : FrameworkElement
                     DrawModelPolyline(dc, _hoverPen, footprint.Append(footprint[0]).ToList());
                 return;
 
+            case RoofWindow roofWindow:
+                if (RoofWindows.Frame(Document, roofWindow) is { } roofWindowFrame)
+                    DrawModelPolyline(dc, _hoverPen, roofWindowFrame.Corners.Append(roofWindowFrame.Corners[0]).ToList());
+                return;
+
+            case ShaftOpening shaft:
+                ring = shaft.Outline;
+                break;
+
             case Room room:
                 ring = room.GetBoundary(Document).Polygon;
                 break;
@@ -5023,6 +5093,14 @@ public partial class PlanView : FrameworkElement
 
         // Sweeps sit on wall faces, so they are picked before the walls they are on.
         foreach (var sweep in SweepsAt(model)) yield return sweep;
+
+        // A shaft is a hole through what it passes, so it is picked before them.
+        foreach (var shaft in ShaftsAt(model)) yield return shaft;
+
+        // Roof windows are in roofs, so they are picked before the roofs they are in.
+        foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
+                     RoofWindows.Frame(Document, roofWindow) is { } frame && Polygon2D.Contains(frame.Corners, model)))
+            yield return roofWindow;
 
         // Fascias and gutters run round a roof's edge: thin, so picked by coming near them.
         var edgeReach = 5 / PixelsPerMm;
@@ -5115,6 +5193,8 @@ public partial class PlanView : FrameworkElement
         DrawExtrusionPreview(dc);
         DrawDormerPreview(dc);
         DrawRoofEdgePick(dc);
+        DrawRoofWindowPreview(dc);
+        DrawShaftPreview(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);

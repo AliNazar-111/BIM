@@ -174,6 +174,7 @@ public sealed class BimDocument
         var roofEdgeTypes = _types.Values.Where(type => type is FasciaType or GutterType or SoffitType)
             .Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofTypes = _types.Values.OfType<RoofType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var roofWindowTypes = _types.Values.OfType<RoofWindowType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var type in template.ElementTypes.Where(type => type switch
                  {
@@ -183,6 +184,7 @@ public sealed class BimDocument
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
+                     RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
                  }))
         {
@@ -205,6 +207,7 @@ public sealed class BimDocument
         FasciaType fascia => new[] { fascia.MaterialId },
         GutterType gutter => new[] { gutter.MaterialId },
         SoffitType soffit => new[] { soffit.MaterialId },
+        RoofWindowType roofWindow => new[] { roofWindow.FrameMaterialId, roofWindow.GlassMaterialId },
         ColumnType column => new[] { column.MaterialId },
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
         _ => Array.Empty<Guid>()
@@ -786,6 +789,38 @@ public sealed class BimDocument
         };
         foreach (var material in new[] { fasciaBoard, gutterPlastic, fasciaDark }) document.AddMaterial(material);
 
+        // Roof windows: a frame of dark grey aluminium cladding round a double-glazed pane.
+        var roofWindowFrame = new Material("Aluminium, Dark Grey")
+        {
+            Density = 2700,
+            ThermalConductivity = 160,
+            SurfaceColour = ColourRgb.FromHex("3A3F46"),
+            CutColour = ColourRgb.FromHex("2F343A"),
+            CostPerCubicMetre = 9000m
+        };
+        document.AddMaterial(roofWindowFrame);
+
+        var roofWindow = new RoofWindowType("Roof Window - Centre Pivot 780 x 980")
+        {
+            Width = 780, Height = 980, Operation = RoofWindowOperation.CentrePivot,
+            FrameMaterialId = roofWindowFrame.Id, GlassMaterialId = glass.Id, TypeMark = "RW1", Cost = 420m
+        };
+        var tallRoofWindow = new RoofWindowType("Roof Window - Centre Pivot 780 x 1400")
+        {
+            Width = 780, Height = 1400, Operation = RoofWindowOperation.CentrePivot,
+            FrameMaterialId = roofWindowFrame.Id, GlassMaterialId = glass.Id, TypeMark = "RW2", Cost = 520m
+        };
+        var escapeRoofWindow = new RoofWindowType("Roof Window - Top Hung Escape 1140 x 1180")
+        {
+            Width = 1140, Height = 1180, Operation = RoofWindowOperation.TopHung,
+            FrameMaterialId = roofWindowFrame.Id, GlassMaterialId = glass.Id, TypeMark = "RW3", Cost = 690m
+        };
+        var fixedRooflight = new RoofWindowType("Rooflight - Fixed 1000 x 1000")
+        {
+            Width = 1000, Height = 1000, Operation = RoofWindowOperation.Fixed, Upstand = 150,
+            FrameMaterialId = roofWindowFrame.Id, GlassMaterialId = glass.Id, TypeMark = "RL1", Cost = 610m
+        };
+
         var fascia = new FasciaType("Fascia - 25 mm Board, Anthracite") { Thickness = 25, MaterialId = fasciaDark.Id, TypeMark = "F1", Cost = 20m };
         var whiteFascia = new FasciaType("Fascia - 25 mm Board, White") { Thickness = 25, MaterialId = fasciaBoard.Id, TypeMark = "F2", Cost = 18m };
         var halfRound = new GutterType("Gutter - Half Round 125")
@@ -980,6 +1015,7 @@ public sealed class BimDocument
                      generic, exterior, partition,
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
                      fascia, whiteFascia, halfRound, boxGutter, soffitBoard,
+                     roofWindow, tallRoofWindow, escapeRoofWindow, fixedRooflight,
                      storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
                      curtainSingle, curtainDouble, curtainSlider,

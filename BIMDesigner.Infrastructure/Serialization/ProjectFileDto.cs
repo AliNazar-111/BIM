@@ -41,6 +41,9 @@ internal sealed class ProjectFileDto
     public List<GutterTypeDto> GutterTypes { get; set; } = new();
     public List<SoffitTypeDto> SoffitTypes { get; set; } = new();
     public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
+    public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
+    public List<RoofWindowDto> RoofWindows { get; set; } = new();
+    public List<ShaftOpeningDto> ShaftOpenings { get; set; } = new();
     public List<WallOpeningDto> WallOpenings { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
@@ -1014,6 +1017,52 @@ internal sealed class RoofEdgeSweepDto
     public List<Guid> EdgeIds { get; set; } = new();
     public double HorizontalOffset { get; set; }
     public double VerticalOffset { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class RoofWindowTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Roof Window";
+    public string TypeMark { get; set; } = string.Empty;
+    public double Width { get; set; } = 780;
+    public double Height { get; set; } = 980;
+    public double FrameWidth { get; set; } = 70;
+    public double Upstand { get; set; } = 90;
+    public string? Operation { get; set; }
+    public Guid FrameMaterialId { get; set; }
+    public Guid GlassMaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class RoofWindowDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid RoofId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class ShaftOpeningDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public string Shape { get; set; } = "Rectangle";
+    public double Width { get; set; } = 600;
+    public double Depth { get; set; } = 600;
+    public double Angle { get; set; }
+    public double BaseOffset { get; set; }
+    public Guid? TopLevelId { get; set; }
+    public double TopOffset { get; set; }
+    public double UnconnectedHeight { get; set; } = 3000;
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }

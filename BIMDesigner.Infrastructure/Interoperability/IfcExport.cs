@@ -156,6 +156,7 @@ public static class IfcExport
             foreach (var wall in _document.Walls) ExportWall(wall);
             foreach (var slab in _document.Elements.OfType<Slab>()) ExportSlab(slab);
             foreach (var edge in _document.Elements.OfType<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
+            foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
 
@@ -412,6 +413,31 @@ public static class IfcExport
             Contain(slab, product);
             AssignLayers(product, type.Id, type.Structure, flipped: false);
             AddSlabProperties(product, slab, type);
+
+            // The shafts through it: the whole slab with a void for each, as IFC keeps a hole,
+            // so a receiving application can move the shaft or fill it in.
+            foreach (var shaft in Shafts.Through(_document, slab))
+            {
+                var voidPlacement = New<IfcLocalPlacement>(p =>
+                {
+                    p.PlacementRelTo = placement;
+                    p.RelativePlacement = Placement(Point3D(0, 0, -1));
+                });
+
+                var hole = New<IfcOpeningElement>(o =>
+                {
+                    o.Name = "Shaft opening";
+                    o.PredefinedType = IfcOpeningElementTypeEnum.OPENING;
+                    o.ObjectPlacement = voidPlacement;
+                    o.Representation = Extrude(shaft.Outline, thickness + 2);
+                });
+
+                New<IfcRelVoidsElement>(relation =>
+                {
+                    relation.RelatingBuildingElement = product;
+                    relation.RelatedOpeningElement = hole;
+                });
+            }
         }
 
         private void AddSlabProperties(IfcElement product, Slab slab, SlabType type) =>
@@ -1017,6 +1043,68 @@ public static class IfcExport
         /// A fascia or gutter: its own element to a receiving application, placed on the storey of
         /// the roof it runs along, its body the triangles the 3D view draws.
         /// </summary>
+        /// <summary>A roof window as an IfcWindow of the skylight kind, its frame and pane as one body.</summary>
+        private void ExportRoofWindow(RoofWindow window)
+        {
+            var meshes = RoofWindows.Meshes(_document, window);
+            if (meshes.Count == 0) return;
+
+            var type = _document.FindType<RoofWindowType>(window.TypeId);
+            var storey = StoreyOf(window);
+            var storeyElevation = _document.FindLevel(window.LevelId)?.Elevation ?? 0;
+
+            var product = New<IfcWindow>(w =>
+            {
+                w.GlobalId = window.Id.ToIfc();
+                w.Name = type?.Name ?? "Roof Window";
+                w.ObjectType = "Roof Window";
+                w.Tag = window.Mark;
+                w.PredefinedType = IfcWindowTypeEnum.SKYLIGHT;
+                if (type is not null)
+                {
+                    w.OverallWidth = type.Width;
+                    w.OverallHeight = type.Height;
+                }
+
+                w.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+
+                var representation = New<IfcShapeRepresentation>(r =>
+                {
+                    r.ContextOfItems = _context;
+                    r.RepresentationIdentifier = "Body";
+                    r.RepresentationType = "Tessellation";
+
+                    foreach (var mesh in meshes)
+                    {
+                        var points = New<IfcCartesianPointList3D>(list =>
+                        {
+                            foreach (var point in mesh.Positions)
+                                list.CoordList.GetAt(list.CoordList.Count).AddRange(new IfcLengthMeasure[] { point.X, point.Y, point.Z - storeyElevation });
+                        });
+
+                        r.Items.Add(New<IfcTriangulatedFaceSet>(faces =>
+                        {
+                            faces.Coordinates = points;
+                            faces.Closed = true;
+                            for (var i = 0; i + 2 < mesh.Indices.Count; i += 3)
+                                faces.CoordIndex.GetAt(faces.CoordIndex.Count).AddRange(new IfcPositiveInteger[]
+                                {
+                                    mesh.Indices[i] + 1, mesh.Indices[i + 1] + 1, mesh.Indices[i + 2] + 1
+                                });
+                        }));
+                    }
+                });
+
+                w.Representation = New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+            });
+
+            Contain(window, product);
+        }
+
         private void ExportRoofEdgeSweep(RoofEdgeSweep sweep)
         {
             var mesh = RoofEdgeSweeps.Mesh(_document, sweep, sweep.LevelId);

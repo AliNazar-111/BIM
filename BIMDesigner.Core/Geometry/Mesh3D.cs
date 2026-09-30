@@ -325,20 +325,27 @@ public sealed class Mesh3D
         Point3D Low(int i) => Point3D.On(ring[i], low[i]);
         Point3D High(int i) => Point3D.On(ring[i], high[i]);
 
+        // Which sides are shared with a neighbouring piece: none of them is a face.
+        var shared = new bool[ring.Count];
+        for (var i = 0; i < ring.Count; i++)
+            shared[i] = inside?.Invoke(ring[i], ring[(i + 1) % ring.Count]) == true;
+
         for (var i = 0; i < ring.Count; i++)
         {
             var j = (i + 1) % ring.Count;
             if (ring[i].DistanceTo(ring[j]) <= 1e-9) continue;
-            if (inside?.Invoke(ring[i], ring[j]) == true) continue;
+            if (shared[i]) continue;
 
             AddQuad(Low(i), Low(j), High(j), High(i));
 
             // The outline at both ends, and the corner joining them - where there is a corner. A
             // curved wall is drawn as many short faces, and a line up each join between them
-            // would stripe what is one smooth surface.
+            // would stripe what is one smooth surface. Where the side before is shared with the
+            // next piece, the face runs on into that piece's: no corner there either.
             AddEdge(Low(i), Low(j));
             AddEdge(High(i), High(j));
-            if (ring.Count <= DetailedLoop && IsCorner(ring, i)) AddEdge(Low(i), High(i));
+            var before = (i - 1 + ring.Count) % ring.Count;
+            if (ring.Count <= DetailedLoop && IsCorner(ring, i) && !shared[before]) AddEdge(Low(i), High(i));
         }
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(ring))

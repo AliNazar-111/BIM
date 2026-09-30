@@ -362,6 +362,41 @@ public static class PolygonBoolean
             .ToList();
     }
 
+    /// <summary>
+    /// A region as outlines without holes, for whatever is built from plain outlines - a piece of
+    /// roof, a floor extruded a piece at a time. One with a hole in it is cut in two straight
+    /// across the hole, and each half again until none is left with a hole.
+    /// </summary>
+    public static IEnumerable<IReadOnlyList<Point2D>> WithoutHoles(Region region)
+    {
+        if (region.Holes.Count == 0)
+        {
+            yield return region.Outer;
+            yield break;
+        }
+
+        var hole = region.Holes[0];
+        var across = hole.Average(point => point.X);
+        var reach = region.Outer.Select(point => Math.Abs(point.X - across) + Math.Abs(point.Y)).Max() * 2 + 1000;
+        var middleY = region.Outer.Average(point => point.Y);
+
+        var loops = new List<IReadOnlyList<Point2D>> { region.Outer };
+        loops.AddRange(region.Holes);
+
+        foreach (var side in new[] { -1, 1 })
+        {
+            var half = new[]
+            {
+                new Point2D(across, middleY - reach), new Point2D(across + side * reach, middleY - reach),
+                new Point2D(across + side * reach, middleY + reach), new Point2D(across, middleY + reach)
+            };
+
+            foreach (var part in Combine(loops, new[] { (IReadOnlyList<Point2D>)half }, BooleanOperation.Intersection))
+            foreach (var outline in WithoutHoles(part))
+                yield return outline;
+        }
+    }
+
     /// <summary>Whether a point is inside a shape: in its outer loop and in none of its holes.</summary>
     public static bool Inside(IReadOnlyList<IReadOnlyList<Point2D>> shape, Point2D point)
     {

@@ -150,6 +150,30 @@ public static class ProjectFile
                 MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description
             });
 
+        foreach (var type in document.TypesOf<RoofWindowType>())
+            dto.RoofWindowTypes.Add(new RoofWindowTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Width = type.Width, Height = type.Height,
+                FrameWidth = type.FrameWidth, Upstand = type.Upstand, Operation = type.Operation.ToString(),
+                FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
+            });
+
+        foreach (var window in document.Elements.OfType<RoofWindow>())
+            dto.RoofWindows.Add(new RoofWindowDto
+            {
+                Id = window.Id, TypeId = window.TypeId, LevelId = window.LevelId, RoofId = window.RoofId,
+                X = window.Location.X, Y = window.Location.Y, Mark = window.Mark, Comments = window.Comments
+            });
+
+        foreach (var shaft in document.Elements.OfType<ShaftOpening>())
+            dto.ShaftOpenings.Add(new ShaftOpeningDto
+            {
+                Id = shaft.Id, LevelId = shaft.LevelId, X = shaft.Location.X, Y = shaft.Location.Y,
+                Shape = shaft.Shape.ToString(), Width = shaft.Width, Depth = shaft.Depth, Angle = shaft.Angle,
+                BaseOffset = shaft.BaseOffset, TopLevelId = shaft.TopLevelId, TopOffset = shaft.TopOffset,
+                UnconnectedHeight = shaft.UnconnectedHeight, Mark = shaft.Mark, Comments = shaft.Comments
+            });
+
         foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>())
             dto.RoofEdgeSweeps.Add(new RoofEdgeSweepDto
             {
@@ -996,6 +1020,15 @@ public static class ProjectFile
                 MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description
             });
 
+        foreach (var type in dto.RoofWindowTypes)
+            document.AddType(new RoofWindowType(type.Name)
+            {
+                Id = type.Id, TypeMark = type.TypeMark, Width = PositiveOr(type.Width, 780), Height = PositiveOr(type.Height, 980),
+                FrameWidth = PositiveOr(type.FrameWidth, 70), Upstand = double.IsFinite(type.Upstand) && type.Upstand >= 0 ? type.Upstand : 90,
+                Operation = ParseEnum(type.Operation, RoofWindowOperation.CentrePivot),
+                FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
+            });
+
         foreach (var soffit in dto.SoffitTypes)
             document.AddType(new SoffitType(soffit.Name)
             {
@@ -1425,6 +1458,30 @@ public static class ProjectFile
             sweep.Comments = saved.Comments ?? string.Empty;
             document.Add(sweep);
         }
+
+        // A roof window whose roof is gone has nothing to sit in.
+        foreach (var saved in dto.RoofWindows.Where(saved => roofIds.Contains(saved.RoofId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new RoofWindow
+            {
+                Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, RoofId = saved.RoofId,
+                Location = new Point2D(saved.X, saved.Y), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
+        // A shaft stands on a level; one whose level is gone has nowhere to start from.
+        foreach (var saved in dto.ShaftOpenings.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new ShaftOpening
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y),
+                Shape = ParseEnum(saved.Shape, ShaftShape.Rectangle),
+                Width = double.IsFinite(saved.Width) && saved.Width >= Shafts.SmallestSize ? saved.Width : 600,
+                Depth = double.IsFinite(saved.Depth) && saved.Depth >= Shafts.SmallestSize ? saved.Depth : 600,
+                Angle = double.IsFinite(saved.Angle) ? saved.Angle : 0,
+                BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0,
+                TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
+                TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
+                UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight > 0 ? saved.UnconnectedHeight : Shafts.DefaultHeight,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
 
         foreach (var type in dto.ColumnTypes)
             document.AddType(new ColumnType(

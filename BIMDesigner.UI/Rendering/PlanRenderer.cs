@@ -253,6 +253,8 @@ public sealed class PlanRenderer
 
         // Fascias and gutters round the roofs: the strip each covers, seen from above.
         foreach (var sweep in OnActiveLevel<RoofEdgeSweep>()) DrawRoofEdgeSweep(dc, sweep);
+        foreach (var roofWindow in OnActiveLevel<RoofWindow>()) DrawRoofWindow(dc, roofWindow);
+        foreach (var shaft in ShaftsOnPlan()) DrawShaft(dc, shaft);
 
         if (!underlay)
             foreach (var room in OnActiveLevel<Room>()) DrawRoomFill(dc, room);
@@ -1068,13 +1070,40 @@ public sealed class PlanRenderer
 
     // ---- rooms and slabs -------------------------------------------------------
 
+    /// <summary>A roof window seen from above: its frame, the glass inside it, and a line across the glass.</summary>
+    private void DrawRoofWindow(DrawingContext dc, RoofWindow window)
+    {
+        if (Document is null || RoofWindows.Frame(Document, window) is not { } frame) return;
+
+        var pen = IsSelected(window) ? _selectedPen : _roofLinePen;
+        dc.DrawGeometry(null, pen, BuildOutline(frame.Corners));
+        dc.DrawGeometry(null, pen, BuildOutline(frame.Glass));
+
+        var glass = frame.Glass;
+        dc.DrawLine(pen, ModelToScreen(glass[0]), ModelToScreen(glass[2]));
+    }
+
     /// <summary>
-    /// Draws a floor, ceiling or roof as its outline over a faint fill.
-    ///
-    /// A floor plan is a horizontal cut through the building, so the slab below the cut is not
-    /// what the drawing is about - it is shown quietly, enough to say it is there and to be
-    /// picked, without competing with the walls.
+    /// A shaft opening as a plan draws one: its outline with a cross through it - a hole all
+    /// the way down, not a thing standing there.
     /// </summary>
+    private void DrawShaft(DrawingContext dc, ShaftOpening shaft)
+    {
+        var outline = shaft.Outline;
+        if (outline.Count < 3) return;
+
+        var pen = IsSelected(shaft) ? _selectedPen : _roofLinePen;
+        dc.DrawGeometry(null, pen, BuildOutline(outline));
+
+        foreach (var (from, to) in shaft.Cross) dc.DrawLine(pen, ModelToScreen(from), ModelToScreen(to));
+    }
+
+    /// <summary>The shafts drawn on this plan: those on its level, and those passing up through it.</summary>
+    private IEnumerable<ShaftOpening> ShaftsOnPlan() =>
+        Document is null
+            ? Enumerable.Empty<ShaftOpening>()
+            : Document.Elements.OfType<ShaftOpening>().Where(shaft => Shafts.ShownOn(Document, shaft, ActiveLevelId) && Filter(shaft));
+
     private void DrawRoofEdgeSweep(DrawingContext dc, RoofEdgeSweep sweep)
     {
         if (Document is null) return;
@@ -1084,6 +1113,13 @@ public sealed class PlanRenderer
             if (footprint.Count >= 3) dc.DrawGeometry(null, pen, BuildOutline(footprint));
     }
 
+    /// <summary>
+    /// Draws a floor, ceiling or roof as its outline over a faint fill.
+    ///
+    /// A floor plan is a horizontal cut through the building, so the slab below the cut is not
+    /// what the drawing is about - it is shown quietly, enough to say it is there and to be
+    /// picked, without competing with the walls.
+    /// </summary>
     private void DrawSlab(DrawingContext dc, Slab slab)
     {
         if (Document is null || slab.Boundary.Count < 3) return;
@@ -1092,6 +1128,14 @@ public sealed class PlanRenderer
         if (type is null) return;
 
         var isSelected = IsSelected(slab);
+
+        // A floor or ceiling with shafts through it: drawn with the holes in it.
+        if (slab is not Roof && Shafts.Through(Document, slab).Any())
+        {
+            foreach (var region in Shafts.Regions(Document, slab))
+                dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildLoops(Shafts.Loops(region)));
+            return;
+        }
 
         // A roof joined to another shows only where it is above it: its edge there is the
         // valley where the two meet, not the footprint carried back under the other roof.
@@ -1555,6 +1599,24 @@ public sealed class PlanRenderer
     // ---- shared plumbing -------------------------------------------------------
 
     /// <summary>A closed polygon in model coordinates, converted to a screen geometry.</summary>
+    /// <summary>A shape of several loops - an outline and the holes in it - filled between them.</summary>
+    private StreamGeometry BuildLoops(IReadOnlyList<IReadOnlyList<Point2D>> loops)
+    {
+        var geometry = new StreamGeometry { FillRule = FillRule.EvenOdd };
+
+        using (var ctx = geometry.Open())
+        {
+            foreach (var loop in loops.Where(loop => loop.Count >= 3))
+            {
+                ctx.BeginFigure(ModelToScreen(loop[0]), isFilled: true, isClosed: true);
+                ctx.PolyLineTo(loop.Skip(1).Select(ModelToScreen).ToArray(), isStroked: true, isSmoothJoin: false);
+            }
+        }
+
+        geometry.Freeze();
+        return geometry;
+    }
+
     public StreamGeometry BuildOutline(IReadOnlyList<Point2D> corners)
     {
         var geometry = new StreamGeometry();

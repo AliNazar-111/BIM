@@ -41,7 +41,7 @@ test before the next begins.
 | **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection | §3.7 §13.4 | ✅ |
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |
 | **1.6** | **Floors, ceilings and flat roofs** — layered build-ups sharing the wall layer system, outline picked from an enclosed space, quantities and persistence | §3.2 §3.3 §3.4 | ✅ |
-| 1.6b | Free-sketched slab outlines, slab openings and shafts, slab edges, span direction | §3.2 | ⬜ |
+| 1.6b | Free-sketched slab outlines, slab openings and shafts, slab edges, span direction | §3.2 | 🔨 |
 | **1.6c** | **Pitched roofs** — slope per edge, pitch and eave height per edge, cutoff, hip/gable/shed/dutch/cross-gable shapes, ridge/hip/valley generation, plan/section/3D, takeoff by sloping area, `IfcRoof`. Built in steps R1–R10 of [ROOFS.md](ROOFS.md): done so far are sketch mode with Pick Walls and overhangs, arcs and cones, walls attaching to the slope, eave cuts, slope arrows, roof by extrusion (gambrel, barrel vault), Join Roof, openings and dormer openings, the one-click Dormer tool, and fascias, gutters and soffits; still to come are By Face openings and flat-roof shape editing | §3.3 | 🔨 |
 | **1.7** | **Levels and grids** — plan shows one storey, level switching, gridlines with bubbles, snapping to grid crossings | §2.3 | ✅ |
 | **1.7b** | **Levels** — add, rename, move and delete storeys (with cascade and one-step undo), underlay of the storey below | §2.3 §6.1 | ✅ |

@@ -185,6 +185,9 @@ public sealed class MoveElementsCommand : IUndoableCommand
         var named = _elements.Count;
         if (document is not null) _elements.AddRange(ColumnGrids.Following(document, _elements));
 
+        // A roof window goes with its roof.
+        if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
+
         Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
 
@@ -235,6 +238,9 @@ public sealed class NudgeElementsCommand : IUndoableCommand
         // ones it would land on once pushed.
         var named = _elements.Count;
         if (document is not null) _elements.AddRange(ColumnGrids.Following(document, _elements));
+
+        // A roof window goes with its roof.
+        if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
 
         Name = named == 1 ? "Move" : "Move " + named + " Elements";
     }

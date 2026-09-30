@@ -38,6 +38,10 @@ public static class ModelMeshBuilder
         foreach (var component in document.Elements.OfType<Component>().Where(c => shows(c)))
             AddComponent(document, component, meshes);
 
+        // Roof windows in the roofs, on the storey of their roof.
+        foreach (var window in document.Elements.OfType<RoofWindow>().Where(w => shows(w)))
+            meshes.AddRange(RoofWindows.Meshes(document, window));
+
         // Fascias and gutters along the roofs' edges, on the storey of the roof they follow.
         foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(s => shows(s)))
         {
@@ -1023,6 +1027,17 @@ public static class ModelMeshBuilder
 
         var surface = (document.FindLevel(slab.LevelId)?.Elevation ?? 0) + slab.HeightOffset;
 
+        // Less the shafts through it. What is left is built a piece at a time, cut straight
+        // across each hole; those cuts are inside the slab, not faces of it.
+        IReadOnlyList<IReadOnlyList<Point2D>> pieces = new[] { slab.Boundary };
+        Func<Point2D, Point2D, bool>? cut = null;
+        if (Shafts.Through(document, slab).Any())
+        {
+            var regions = Shafts.Regions(document, slab);
+            pieces = Shafts.Pieces(regions);
+            cut = Shafts.CutAlong(regions);
+        }
+
         foreach (var (layer, start, end) in type.Structure.GetLayerOffsets())
         {
             // A membrane is a line with no volume: nothing to build or cut.
@@ -1042,7 +1057,8 @@ public static class ModelMeshBuilder
                 material?.SurfaceColour ?? DefaultSurface,
                 material?.Name ?? layer.Function.ToString());
 
-            mesh.AddExtrusion(slab.Boundary, surface - end, surface - start);
+            foreach (var piece in pieces)
+                mesh.AddExtrusion(piece, _ => surface - end, _ => surface - start, null, cut);
             meshes.Add(mesh);
         }
     }

@@ -416,7 +416,10 @@ public sealed class Roof : Slab
     /// it is the surface, not the footprint, that tiles are bought by.
     /// </summary>
     public double SlopingArea(BimDocument document) =>
-        JoinedTo is null && DormerOpenings.Count == 0 && Openings.Count == 0 ? Surface(document).SlopingArea : RoofJoin.SlopingArea(document, this);
+        JoinedTo is null && DormerOpenings.Count == 0 && Openings.Count == 0 && !RoofWindows.On(document, this).Any() &&
+        !Shafts.Through(document, this).Any()
+            ? Surface(document).SlopingArea
+            : RoofJoin.SlopingArea(document, this);
 
     /// <summary>
     /// The roof this one is joined to - Revit's Join Roof. A dormer's roof is joined to the roof

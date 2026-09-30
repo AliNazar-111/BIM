@@ -55,9 +55,9 @@ public abstract class Slab : Element
 
     public bool Contains(Point2D point) => Polygon2D.Contains(_boundary, point);
 
-    /// <summary>Volume in mm³, from the plan area and the type's build-up thickness.</summary>
+    /// <summary>Volume in mm³, from the plan area less the shafts through it and the type's build-up thickness.</summary>
     public virtual double GetVolume(BimDocument document) =>
-        Area * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
+        Shafts.NetArea(document, this) * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
@@ -77,7 +77,8 @@ public abstract class Slab : Element
             SlabParameters.HeightOffset, () => HeightOffset, v => HeightOffset = v);
 
         // Dimensions, all from the sketched outline and the type - never stored.
-        yield return ParameterValue.ReadOnly(SlabParameters.Area, () => Area);
+        // Less the shafts through it, as a floor's area is measured - a roof's is its footprint.
+        yield return ParameterValue.ReadOnly(SlabParameters.Area, () => this is Roof ? Area : Shafts.NetArea(document, this));
         yield return ParameterValue.ReadOnly(SlabParameters.Perimeter, () => Perimeter);
         yield return ParameterValue.ReadOnly(SlabParameters.Thickness, () => type?.Thickness ?? 0);
         yield return ParameterValue.ReadOnly(SlabParameters.Volume, () => GetVolume(document));

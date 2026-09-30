@@ -104,6 +104,7 @@ public sealed class DeleteLevelCommand : IUndoableCommand
     private readonly int _index;
     private readonly List<Element> _hosted;
     private readonly List<(Wall Wall, double Height)> _released;
+    private readonly List<(ShaftOpening Shaft, double Height, double WasHeight)> _releasedShafts;
 
     public DeleteLevelCommand(BimDocument document, Level level)
     {
@@ -116,6 +117,12 @@ public sealed class DeleteLevelCommand : IUndoableCommand
         _released = Levels.ConstrainedTo(document, level.Id)
             .Where(wall => !_hosted.Contains(wall))
             .Select(wall => (wall, wall.GetHeight(document)))
+            .ToList();
+
+        // A shaft up to the level keeps the height it has, as a wall does.
+        _releasedShafts = document.Elements.OfType<ShaftOpening>()
+            .Where(shaft => shaft.TopLevelId == level.Id && !_hosted.Contains(shaft))
+            .Select(shaft => (shaft, shaft.TopElevation(document) - shaft.BaseElevation(document), shaft.UnconnectedHeight))
             .ToList();
     }
 
@@ -134,6 +141,12 @@ public sealed class DeleteLevelCommand : IUndoableCommand
             if (height > 0) wall.UnconnectedHeight = height;
         }
 
+        foreach (var (shaft, height, _) in _releasedShafts)
+        {
+            shaft.TopLevelId = null;
+            if (height > 0) shaft.UnconnectedHeight = height;
+        }
+
         foreach (var element in _hosted) _document.Remove(element);
 
         _document.RemoveLevel(_level);
@@ -146,5 +159,11 @@ public sealed class DeleteLevelCommand : IUndoableCommand
         foreach (var element in _hosted) _document.Add(element);
 
         foreach (var (wall, _) in _released) wall.TopLevelId = _level.Id;
+
+        foreach (var (shaft, _, wasHeight) in _releasedShafts)
+        {
+            shaft.TopLevelId = _level.Id;
+            shaft.UnconnectedHeight = wasHeight;
+        }
     }
 }

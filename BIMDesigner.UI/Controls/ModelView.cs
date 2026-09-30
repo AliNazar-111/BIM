@@ -14,6 +14,12 @@ using MediaPoint3D = System.Windows.Media.Media3D.Point3D;
 
 namespace BIMDesigner.UI.Controls;
 
+/// <summary>
+/// A drag in the 3D view: what is being dragged, and the line of sight through the cursor, as
+/// the eye and a point further along it, in millimetres.
+/// </summary>
+public readonly record struct ModelDrag(Guid Id, CorePoint3D From, CorePoint3D Through);
+
 /// <summary>How the 3D view colours what it draws (specification section 6.2).</summary>
 public enum VisualStyle
 {
@@ -75,9 +81,12 @@ public class ModelView : Border
     private double _pitch = 28;
     private double _distance = 30;
 
-    private enum Gesture { None, Orbit, Pan }
+    private enum Gesture { None, Orbit, Pan, Drag }
 
     private Gesture _gesture = Gesture.None;
+
+    /// <summary>What a left drag that began on it is moving, rather than orbiting the view.</summary>
+    private Guid _dragged;
     private Point _gestureStart;
     private Point _gestureLast;
     private bool _movedBeyondClick;
@@ -132,6 +141,18 @@ public class ModelView : Border
 
     /// <summary>Raised with the element right-clicked on, to ask what should be done with it.</summary>
     public event EventHandler<Guid>? ElementMenuRequested;
+
+    /// <summary>
+    /// Whether a selected element can be dragged across the model - a roof window along its
+    /// roof. A left drag that begins on one moves it; anywhere else it orbits the view.
+    /// </summary>
+    public Func<Guid, bool>? CanDrag { get; set; }
+
+    /// <summary>Raised as a selected element is dragged, with the line of sight through the cursor.</summary>
+    public event EventHandler<ModelDrag>? ElementDragged;
+
+    /// <summary>Raised when a drag of an element ends, so the move can be recorded as one step.</summary>
+    public event EventHandler<Guid>? ElementDragEnded;
 
     // ---- content ----------------------------------------------------------------
 
@@ -655,6 +676,17 @@ public class ModelView : Border
         Focus();
 
         _gesture = e.ChangedButton == MouseButton.Left ? Gesture.Orbit : Gesture.Pan;
+
+        // A left press on something selected that can be dragged picks it up rather than
+        // turning the view.
+        if (_gesture == Gesture.Orbit && CanDrag is not null &&
+            HitTest(e.GetPosition(_viewport)) is { } pressed &&
+            _selected.Contains(pressed.Id) && CanDrag(pressed.Id))
+        {
+            _gesture = Gesture.Drag;
+            _dragged = pressed.Id;
+        }
+
         _gestureStart = e.GetPosition(this);
         _gestureLast = _gestureStart;
         _movedBeyondClick = false;
@@ -673,6 +705,14 @@ public class ModelView : Border
 
         if ((now - _gestureStart).Length > ClickSlop) _movedBeyondClick = true;
         if (!_movedBeyondClick) return;
+
+        if (_gesture == Gesture.Drag)
+        {
+            var (from, through) = RayThrough(e.GetPosition(_viewport));
+            ElementDragged?.Invoke(this, new ModelDrag(_dragged, from, through));
+            Cursor = Cursors.SizeAll;
+            return;
+        }
 
         if (_gesture == Gesture.Orbit)
         {
@@ -725,20 +765,28 @@ public class ModelView : Border
             return;
         }
 
-        var wasClick = _gesture == Gesture.Orbit && !_movedBeyondClick;
+        // A press on something draggable that never moved is still a click on it.
+        var wasClick = _gesture is Gesture.Orbit or Gesture.Drag && !_movedBeyondClick;
+        var wasDrag = _gesture == Gesture.Drag && _movedBeyondClick;
 
         _gesture = Gesture.None;
         ReleaseMouseCapture();
         Cursor = Cursors.Arrow;
 
         if (wasClick) ElementClicked?.Invoke(this, HitTest(e.GetPosition(_viewport)));
+        if (wasDrag) ElementDragEnded?.Invoke(this, _dragged);
     }
 
     protected override void OnLostMouseCapture(MouseEventArgs e)
     {
         base.OnLostMouseCapture(e);
+
+        // Capture lost mid-drag - another window, Alt+Tab - ends it where it got to.
+        var wasDrag = _gesture == Gesture.Drag && _movedBeyondClick;
         _gesture = Gesture.None;
         Cursor = Cursors.Arrow;
+
+        if (wasDrag) ElementDragEnded?.Invoke(this, _dragged);
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
@@ -776,6 +824,40 @@ public class ModelView : Border
             ZoomToFit();
             _hasFitted = true;
         }
+    }
+
+    /// <summary>
+    /// The line of sight through a point of the view: the eye, and a point a metre along the
+    /// line from it, in millimetres. What a drag follows across a surface - worked out from the
+    /// camera rather than from what is under the cursor, so it still finds the roof where the
+    /// thing being dragged has left a hole in it.
+    /// </summary>
+    private (CorePoint3D From, CorePoint3D Through) RayThrough(Point point)
+    {
+        var width = Math.Max(_viewport.ActualWidth, 1);
+        var height = Math.Max(_viewport.ActualHeight, 1);
+
+        var look = _camera.LookDirection;
+        look.Normalize();
+
+        var right = Vector3D.CrossProduct(look, _camera.UpDirection);
+        if (right.Length < 1e-6) right = new Vector3D(1, 0, 0);
+        right.Normalize();
+
+        var up = Vector3D.CrossProduct(right, look);
+        up.Normalize();
+
+        // The field of view is across the width; up the height it is narrower by the aspect.
+        var half = Math.Tan(_camera.FieldOfView / 2 * Math.PI / 180);
+        var across = (2 * point.X / width - 1) * half;
+        var upward = (1 - 2 * point.Y / height) * half * height / width;
+
+        var eye = _camera.Position;
+        var along = eye + look + right * across + up * upward;
+
+        return (
+            new CorePoint3D(eye.X * MillimetresPerUnit, eye.Y * MillimetresPerUnit, eye.Z * MillimetresPerUnit),
+            new CorePoint3D(along.X * MillimetresPerUnit, along.Y * MillimetresPerUnit, along.Z * MillimetresPerUnit));
     }
 
     /// <summary>

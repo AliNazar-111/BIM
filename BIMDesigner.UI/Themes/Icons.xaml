@@ -103,6 +103,23 @@
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
     <!-- A roof's overhang closed underneath, back to the wall. -->
+    <!-- A window lying in a roof's slope. -->
+    <DrawingImage x:Key="Icon.RoofWindow"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M2,26 L16,6 L30,26 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Pen="{StaticResource Stroke}" Geometry="M17,11 L22,11 L27,19 L20,19 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Glass}" Pen="{StaticResource Stroke}" Geometry="M18.5,12.5 L21.3,12.5 L24.8,17.5 L21,17.5 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Shaft"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,22 L16,15 L30,22 L16,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M11,22 L16,19.5 L21,22 L16,24.5 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,10 L16,3 L30,10 L16,17 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M11,10 L16,7.5 L21,10 L16,12.5 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M11,10 L11,22 M21,10 L21,22 M16,12.5 L16,24.5"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Soffit"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Wall}" Pen="{StaticResource Stroke}" Geometry="M18,19 L28,19 L28,29 L18,29 Z"/>

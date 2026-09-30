@@ -434,6 +434,12 @@
                                 <RadioButton x:Name="GutterTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Gutter}"
                                              Content="Gutter" Checked="OnToolChanged"
                                              ToolTip="Roof: Gutter. Click a roof's eaves one after another: a gutter hangs along them, off the fascia if there is one. Esc finishes it"/>
+                                <RadioButton x:Name="RoofWindowTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofWindow}"
+                                             Content="Roof Window" Checked="OnToolChanged"
+                                             ToolTip="Roof Window: click on a roof's slope - in plan or in 3D - and a roof window goes in it, lined up with the slope, the roof cut away under it"/>
+                                <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Shaft}"
+                                             Content="Shaft" Checked="OnToolChanged"
+                                             ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there. A chimney or flue through the roof, a stairwell or lift shaft through the floors. Shape and size on the options bar"/>
                                 <RadioButton x:Name="SoffitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Soffit}"
                                              Content="Soffit" Checked="OnToolChanged"
                                              ToolTip="Roof: Soffit. Click a roof's eaves: a board closes the underside of the overhang, from the fascia back to the wall. Esc finishes it"/>
@@ -797,6 +803,12 @@
                                 <Button x:Name="ContextAddSoffits" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Soffit}"
                                         Content="Soffits" Click="OnAddSoffitsAllRound"
                                         ToolTip="Soffits under every eave of the selected roof that overhangs its wall, closing the overhang back to the wall"/>
+                                <Button x:Name="ContextAddRoofWindow" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.RoofWindow}"
+                                        Content="Roof Window" Click="OnAddRoofWindow"
+                                        ToolTip="Then click on the roof's slope: a roof window goes in it there, lined up with the slope, the roof cut away under it"/>
+                                <Button x:Name="ContextAddShaft" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Shaft}"
+                                        Content="Shaft" Click="OnAddShaft"
+                                        ToolTip="Then click on the roof: a chimney or flue opening is cut straight down through it there"/>
                                 <Button x:Name="ContextDormerOpening" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallOpening}"
                                         Content="Dormer Opening" Click="OnDormerOpening"
                                         ToolTip="Then click a dormer's roof - joined to this one, on walls attached to it: this roof is cut away under the dormer, between its walls. Click the same dormer again to close the opening"/>
@@ -1022,6 +1034,10 @@
                           DisplayMemberPath="Name" SelectionChanged="OnActiveWindowTypeChanged"
                           Visibility="Collapsed" ToolTip="The type new windows are placed as"/>
 
+                <ComboBox x:Name="RoofWindowTypePicker" Style="{StaticResource OptionCombo}" MinWidth="250"
+                          DisplayMemberPath="Name" SelectionChanged="OnActiveRoofWindowTypeChanged"
+                          Visibility="Collapsed" ToolTip="The roof window type put in the roof"/>
+
                 <ComboBox x:Name="ColumnTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveColumnTypeChanged"
                           Visibility="Collapsed" ToolTip="The type new columns are placed as"/>
@@ -1115,6 +1131,19 @@
                     <TextBlock Text="Overhang" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <TextBox x:Name="DormerOverhangBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="How far the dormer's roof stands out past its walls"/>
+                </StackPanel>
+
+                <StackPanel x:Name="ShaftOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Shaft" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="ShaftShapePicker" Style="{StaticResource OptionCombo}" MinWidth="100"
+                              SelectionChanged="OnShaftOptionChanged"
+                              ToolTip="Rectangle: a chimney, stairwell or lift shaft. Round: a flue or pipe sleeve"/>
+                    <TextBlock x:Name="ShaftWidthLabel" Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="ShaftWidthBox" Width="70" VerticalAlignment="Center" LostFocus="OnShaftOptionChanged" KeyDown="OnShaftOptionKey"
+                             ToolTip="Across the shaft, along the project's X axis; a round one's diameter"/>
+                    <TextBlock x:Name="ShaftDepthLabel" Text="Depth" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="ShaftDepthBox" Width="70" VerticalAlignment="Center" LostFocus="OnShaftOptionChanged" KeyDown="OnShaftOptionKey"
+                             ToolTip="Across the shaft, along the project's Y axis"/>
                 </StackPanel>
 
                 <ComboBox x:Name="RoofEdgeTypePicker" Style="{StaticResource OptionCombo}" MinWidth="220"

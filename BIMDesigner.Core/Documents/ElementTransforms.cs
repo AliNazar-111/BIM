@@ -29,6 +29,12 @@ public static class ElementTransforms
         // A component standing on its level has a position of its own; one fixed to a wall
         // face is carried by it, like a door.
         Component component => !component.IsHosted,
+
+        // A roof window is set where it is in plan, on its roof: it moves on its own, and with its roof.
+        RoofWindow => true,
+
+        // A shaft belongs to nothing: it is where it was put, and cuts whatever is there.
+        ShaftOpening => true,
         IHostedElement => false,
         Wall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -59,6 +65,14 @@ public static class ElementTransforms
 
             case Component component:
                 component.Location += delta;
+                break;
+
+            case RoofWindow roofWindow:
+                roofWindow.Location += delta;
+                break;
+
+            case ShaftOpening shaft:
+                shaft.Location += delta;
                 break;
 
             case Column column:
@@ -143,6 +157,21 @@ public static class ElementTransforms
             case Column column:
                 column.Location = Reflect(column.Location);
                 break;
+
+            case RoofWindow roofWindow:
+                roofWindow.Location = Reflect(roofWindow.Location);
+                break;
+
+            case ShaftOpening shaft:
+            {
+                // Its width turned the way the mirror turns it.
+                var turn = shaft.Angle * Math.PI / 180;
+                var along = Reflect(shaft.Location + new Vector2D(Math.Cos(turn), Math.Sin(turn)) * 1000);
+                shaft.Location = Reflect(shaft.Location);
+                var way = along - shaft.Location;
+                shaft.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
+                break;
+            }
 
             case Component component:
             {

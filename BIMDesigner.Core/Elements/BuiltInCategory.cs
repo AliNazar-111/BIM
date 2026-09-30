@@ -43,7 +43,9 @@ public enum BuiltInCategory
     Profiles,
     Fascias,
     Gutters,
-    RoofSoffits
+    RoofSoffits,
+    RoofWindows,
+    ShaftOpenings
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

@@ -243,6 +243,13 @@ public static class ElementCopy
         Fascia fascia => CarryRoofEdgeSweep(new Fascia(), fascia),
         Gutter gutter => CarryRoofEdgeSweep(new Gutter(), gutter),
         Soffit soffit => CarryRoofEdgeSweep(new Soffit(), soffit),
+        RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location }, roofWindow),
+        ShaftOpening shaft => CarryCommon(new ShaftOpening
+        {
+            Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
+            BaseOffset = shaft.BaseOffset, TopLevelId = shaft.TopLevelId, TopOffset = shaft.TopOffset,
+            UnconnectedHeight = shaft.UnconnectedHeight
+        }, shaft),
 
         WallOpening opening => CarryCommon(new WallOpening
         {
@@ -392,6 +399,10 @@ public static class ElementCopy
 
             case RoofEdgeSweep edge when replacements.TryGetValue(edge.RoofId, out var edgeRoof):
                 edge.RoofId = edgeRoof;
+                break;
+
+            case RoofWindow roofWindow when replacements.TryGetValue(roofWindow.RoofId, out var windowRoof):
+                roofWindow.RoofId = windowRoof;
                 break;
 
             case PlacedSweep placed:

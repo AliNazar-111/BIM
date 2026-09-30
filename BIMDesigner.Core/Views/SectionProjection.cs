@@ -145,6 +145,10 @@ public static class SectionProjection
             foreach (var column in document.Elements.OfType<Column>().Where(column => shows(column)))
                 AddColumn(document, marker, column, pieces);
 
+            // Roof windows the cut goes through: the frame each side, the pane between.
+            foreach (var window in document.Elements.OfType<RoofWindow>().Where(window => shows(window)))
+                AddRoofWindow(document, marker, window, pieces);
+
             // Fascias and gutters, where the cut goes through them: the profile as it slices it.
             foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(sweep => shows(sweep)))
             {
@@ -215,6 +219,66 @@ public static class SectionProjection
     }
 
     // ---- walls -----------------------------------------------------------------
+
+    /// <summary>
+    /// A roof window where the section cuts it: its frame from the roof's underside to the top of
+    /// the upstand where the cut crosses it, each side, and the pane lying between.
+    /// </summary>
+    private static void AddRoofWindow(BimDocument document, SectionMarker marker, RoofWindow window, List<SectionPiece> pieces)
+    {
+        if (RoofWindows.Frame(document, window) is not { } frame) return;
+        if (Crossing(marker, frame.Corners) is not var (enter, leave)) return;
+
+        var frameMaterial = document.FindMaterial(frame.Type.FrameMaterialId);
+        var glassMaterial = document.FindMaterial(frame.Type.GlassMaterialId);
+        var stretch = frame.Plane.VerticalStretch;
+
+        SectionPiece Piece(Point2D from, Point2D to, Func<Point2D, double> low, Func<Point2D, double> high, SectionPart part, Material? material, ColourRgb fallback)
+        {
+            var shape = new[]
+            {
+                (marker.DistanceAlong(from), low(from)), (marker.DistanceAlong(to), low(to)),
+                (marker.DistanceAlong(to), high(to)), (marker.DistanceAlong(from), high(from))
+            };
+            return new SectionPiece(
+                new SectionRect(shape.Min(p => p.Item1), shape.Min(p => p.Item2), shape.Max(p => p.Item1), shape.Max(p => p.Item2)),
+                part, SectionDepth.Cut, material?.CutColour ?? fallback, material?.Name ?? "Roof Window", window.Id)
+            {
+                Shape = shape
+            };
+        }
+
+        // Through the glass as well as the frame, or through the frame only, past a corner of it.
+        if (Crossing(marker, frame.Glass) is var (glassIn, glassOut))
+        {
+            pieces.Add(Piece(enter, glassIn, frame.Bottom, frame.FrameTop, SectionPart.Frame, frameMaterial, DefaultCut));
+            pieces.Add(Piece(glassOut, leave, frame.Bottom, frame.FrameTop, SectionPart.Frame, frameMaterial, DefaultCut));
+            pieces.Add(Piece(glassIn, glassOut, p => frame.FrameTop(p) - 30 * stretch, p => frame.FrameTop(p) - 20 * stretch,
+                SectionPart.Glazing, glassMaterial, GlazingColour));
+        }
+        else
+        {
+            pieces.Add(Piece(enter, leave, frame.Bottom, frame.FrameTop, SectionPart.Frame, frameMaterial, DefaultCut));
+        }
+    }
+
+    /// <summary>Where the section line goes into an outline in plan and where it comes out, in order along it; null where it misses.</summary>
+    private static (Point2D Enter, Point2D Leave)? Crossing(SectionMarker marker, IReadOnlyList<Point2D> outline)
+    {
+        var points = new List<Point2D>();
+        for (var i = 0; i < outline.Count; i++)
+        {
+            var (a, b) = (outline[i], outline[(i + 1) % outline.Count]);
+            var (da, db) = (marker.DepthOf(a), marker.DepthOf(b));
+            if (da * db >= 0 || Math.Abs(da - db) < 1e-9) continue;
+
+            points.Add(a + (b - a) * (da / (da - db)));
+        }
+
+        if (points.Count < 2) return null;
+        var ordered = points.OrderBy(marker.DistanceAlong).ToList();
+        return (ordered[0], ordered[^1]);
+    }
 
     /// <summary>
     /// A wall, tier by tier: each construction it is made of is cut as if it were the whole
@@ -911,7 +975,12 @@ public static class SectionProjection
         // which is the order a floor build-up is specified in.
         var top = (document.FindLevel(slab.LevelId)?.Elevation ?? 0) + slab.HeightOffset;
 
-        foreach (var (from, to) in CrossPolygon(marker, slab.Boundary))
+        // Less the shafts through it: where the cut crosses one, there is no floor.
+        var spans = Shafts.Through(document, slab).Any()
+            ? Shafts.Regions(document, slab).SelectMany(region => CrossShape(marker, Shafts.Loops(region))).ToList()
+            : CrossPolygon(marker, slab.Boundary).ToList();
+
+        foreach (var (from, to) in spans)
         {
             foreach (var (layer, start, end) in structure.GetLayerOffsets())
             {
@@ -1188,7 +1257,15 @@ public static class SectionProjection
     /// more than one, which is why this returns spans rather than a single range.
     /// </summary>
     private static IEnumerable<(double From, double To)> CrossPolygon(
-        SectionMarker marker, IReadOnlyList<Point2D> polygon)
+        SectionMarker marker, IReadOnlyList<Point2D> polygon) =>
+        CrossShape(marker, new[] { polygon });
+
+    /// <summary>
+    /// The stretches of the cut line inside a shape of several loops - an outline and the holes
+    /// in it: inside the outline and out of every hole.
+    /// </summary>
+    private static IEnumerable<(double From, double To)> CrossShape(
+        SectionMarker marker, IReadOnlyList<IReadOnlyList<Point2D>> loops)
     {
         var length = marker.Length;
         var origin = marker.Start;
@@ -1196,6 +1273,7 @@ public static class SectionProjection
 
         var breaks = new List<double> { 0, length };
 
+        foreach (var polygon in loops)
         for (var i = 0; i < polygon.Count; i++)
         {
             var a = polygon[i];
@@ -1222,7 +1300,7 @@ public static class SectionProjection
 
             // Testing the middle of each stretch is what makes this work for a concave
             // outline: counting crossings alone cannot say which stretches are the inside.
-            if (Polygon2D.Contains(polygon, origin + ray * ((from + to) / 2))) yield return (from, to);
+            if (PolygonBoolean.Inside(loops, origin + ray * ((from + to) / 2))) yield return (from, to);
         }
     }
 }

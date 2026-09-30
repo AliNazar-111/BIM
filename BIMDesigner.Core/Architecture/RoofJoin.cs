@@ -58,38 +58,10 @@ public static class RoofJoin
 
     /// <summary>
     /// A region as outlines without holes, which is what a piece of roof is built from: one with
-    /// a hole in it - an opening in the middle of a face - is cut in two across the hole, and
-    /// each half again until none is left with a hole.
+    /// a hole in it - an opening in the middle of a face - is cut in two across the hole.
     /// </summary>
-    private static IEnumerable<IReadOnlyList<Point2D>> Simple(PolygonBoolean.Region region)
-    {
-        if (region.Holes.Count == 0)
-        {
-            yield return region.Outer;
-            yield break;
-        }
-
-        var hole = region.Holes[0];
-        var across = hole.Average(point => point.X);
-        var reach = region.Outer.Select(point => Math.Abs(point.X - across) + Math.Abs(point.Y)).Max() * 2 + 1000;
-        var middleY = region.Outer.Average(point => point.Y);
-
-        var loops = new List<IReadOnlyList<Point2D>> { region.Outer };
-        loops.AddRange(region.Holes);
-
-        foreach (var side in new[] { -1, 1 })
-        {
-            var half = new[]
-            {
-                new Point2D(across, middleY - reach), new Point2D(across + side * reach, middleY - reach),
-                new Point2D(across + side * reach, middleY + reach), new Point2D(across, middleY + reach)
-            };
-
-            foreach (var part in PolygonBoolean.Combine(loops, new[] { (IReadOnlyList<Point2D>)half }, BooleanOperation.Intersection))
-            foreach (var outline in Simple(part))
-                yield return outline;
-        }
-    }
+    private static IEnumerable<IReadOnlyList<Point2D>> Simple(PolygonBoolean.Region region) =>
+        PolygonBoolean.WithoutHoles(region);
 
     /// <summary>Every point of two roofs, so a cut can be made big enough to cover both.</summary>
     private static IReadOnlyList<Point2D> Extent(Roof a, Roof b) => a.Boundary.Concat(b.Boundary).ToList();
@@ -204,10 +176,13 @@ public static class RoofJoin
     /// The holes cut in a roof for its dormers: under each dormer's roof, where its underside is
     /// above this roof's top, and between the inside faces of the walls whose tops carry it.
     /// </summary>
-    public static IReadOnlyList<IReadOnlyList<Point2D>> Openings(BimDocument document, Roof roof)
+    public static IReadOnlyList<IReadOnlyList<Point2D>> Openings(BimDocument document, Roof roof, RoofWindow? exceptWindow = null)
     {
-        // The holes drawn in its sketch, then those cut for its dormers.
+        // The holes drawn in its sketch, those its roof windows and the shafts through it cut,
+        // then those cut for its dormers.
         var openings = roof.Openings.Select(opening => opening.Points).ToList();
+        openings.AddRange(RoofWindows.Holes(document, roof, exceptWindow));
+        openings.AddRange(Shafts.Holes(document, roof));
 
         foreach (var id in roof.DormerOpenings)
         {
