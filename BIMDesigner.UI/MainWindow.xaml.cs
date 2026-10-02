@@ -139,6 +139,14 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // The downpipe tool: a click on a gutter puts one on it there.
+            if (hit is { } onGutter && Plan.ActiveTool == PlanTool.Downpipe &&
+                Plan.PlaceDownpipeIn3D(onGutter.Id, onGutter.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
             // The shaft tool: a click on a roof, floor or ceiling cuts a shaft through it there.
             if (hit is { } onSlab && Plan.ActiveTool == PlanTool.Shaft &&
                 Plan.PlaceShaftIn3D(onSlab.Id, onSlab.At))
@@ -481,7 +489,7 @@ public partial class MainWindow : Window
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
-            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft;
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -874,6 +882,13 @@ public partial class MainWindow : Window
         RefreshProperties();
         RefreshProjectBrowser();
         Refresh3D();
+
+        // A flat roof sitting at a storey's floor is really that storey's floor, and a roof stands
+        // on its line: it would rise up into the storey rather than hang below it.
+        if (Plan.SelectedElements.OfType<Roof>().FirstOrDefault() is { } roof &&
+            CurtainSpandrels.FloorPosingAsRoof(_document, roof) is { } storey)
+            StatusHint.Text = $"This flat roof sits at {storey}, where walls stand on it. A roof stands on its line, so it rises up into {storey}. " +
+                              $"If it is the floor of {storey}, draw it with Floor on {storey} instead: its top is at the level and it hangs below.";
     }
 
     private void OnDeleteSketchLines(object sender, RoutedEventArgs e) => Plan.DeleteSelectedSketchLines();
@@ -981,6 +996,34 @@ public partial class MainWindow : Window
         OnShaftOptionChanged(sender, e);
         Plan.Focus();
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Downpipes, for a selected gutter or roof: one at each end of each gutter - the roof's, and
+    /// its dormers' - where there is not one already.
+    /// </summary>
+    private void OnAddDownpipes(object sender, RoutedEventArgs e)
+    {
+        var selected = Plan.SelectedElements;
+        var roofs = selected.OfType<Roof>().ToList();
+        roofs = roofs.Concat(roofs.SelectMany(roof => _document.Elements.OfType<Roof>().Where(dormer => dormer.JoinedTo == roof.Id))).Distinct().ToList();
+
+        var gutters = selected.OfType<Gutter>()
+            .Concat(_document.Elements.OfType<Gutter>().Where(gutter => roofs.Any(roof => roof.Id == gutter.RoofId)))
+            .Distinct()
+            .ToList();
+
+        if (gutters.Count == 0)
+        {
+            StatusHint.Text = "That roof has no gutters to take downpipes: add Gutters first.";
+            return;
+        }
+
+        var added = Plan.AddDownpipesAtEnds(gutters);
+        AfterHistoryChange();
+        StatusHint.Text = added == 0
+            ? "Every end of those gutters has a downpipe already."
+            : $"{added} downpipe{(added == 1 ? "" : "s")} down from the gutters' ends. Use the Downpipe tool to add one anywhere along a gutter.";
     }
 
     /// <summary>Shaft, from a selected roof: the tool, waiting for the click on the roof.</summary>
@@ -1454,7 +1497,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, GridTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
     ];
@@ -1503,6 +1546,7 @@ public partial class MainWindow : Window
             : SoffitTool.IsChecked == true ? PlanTool.Soffit
             : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
             : ShaftTool.IsChecked == true ? PlanTool.Shaft
+            : DownpipeTool.IsChecked == true ? PlanTool.Downpipe
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -2215,6 +2259,46 @@ public partial class MainWindow : Window
         StatusHint.Text = "Curtain wall selected: change its type or height in Properties, edit its grid, or attach its top to the roof over it.";
     }
 
+    /// <summary>
+    /// Spandrels at Floors, for the selected curtain walls: a transom at the top and the underside
+    /// of each floor behind them, and spandrel panels between - all of them one step to undo.
+    /// </summary>
+    private void OnSpandrelsAtFloors(object sender, RoutedEventArgs e)
+    {
+        var walls = Plan.SelectedElements.OfType<Wall>().Where(_document.IsCurtainWall).ToList();
+        if (walls.Count == 0)
+        {
+            StatusHint.Text = "Select the curtain walls to line up with the floors behind them.";
+            return;
+        }
+
+        var commands = new List<IUndoableCommand>();
+        var said = new List<string>();
+        string? refused = null;
+        foreach (var wall in walls)
+        {
+            if (CurtainSpandrels.Apply(_document, wall, out var message) is { } command)
+            {
+                commands.Add(command);
+                if (message is not null) said.Add(message);
+            }
+            else
+            {
+                refused ??= message;
+            }
+        }
+
+        if (commands.Count == 0)
+        {
+            MessageBox.Show(this, refused ?? "Nothing to line up with.", "Spandrels at Floors", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _history.Execute(commands.Count == 1 ? commands[0] : new CompositeCommand("Spandrels at Floors", commands));
+        AfterHistoryChange();
+        StatusHint.Text = commands.Count == 1 ? said.FirstOrDefault() ?? "Spandrels at the floors." : $"Spandrels at the floors behind {commands.Count} curtain walls.";
+    }
+
     private void OnEditCurtainGrid(object sender, RoutedEventArgs e)
     {
         if (SelectedWallsOrHosts() is not [var wall] || !_document.IsCurtainWall(wall))
@@ -2361,12 +2445,15 @@ public partial class MainWindow : Window
         ContextAddPoint.IsChecked = Plan.AddingWallPoints;
         ContextResetProfile.IsEnabled = selected.OfType<Wall>().Any(wall => wall.Profile is not null);
         ContextCurtainGrid.Visibility = selected is [Wall one] && _document.IsCurtainWall(one) ? Visibility.Visible : Visibility.Collapsed;
+        ContextSpandrels.Visibility = selected.Count > 0 && selected.All(element => element is Wall wall && _document.IsCurtainWall(wall))
+            ? Visibility.Visible : Visibility.Collapsed;
         ContextSweepPanel.Visibility = selected is [PlacedSweep] ? Visibility.Visible : Visibility.Collapsed;
         ContextCurtainPanel.Visibility = selected.Count > 0 && selected.All(element => element is CurtainPanel) ? Visibility.Visible : Visibility.Collapsed;
         // A roof on its own, or a whole dormer - its roof and walls - picked as one.
         var dormerPicked = selected.OfType<Roof>().ToList() is [var dormerRoof] && Dormers.Of(_document, dormerRoof) is { } dormer &&
                            Dormers.Parts(_document, dormer) is var parts && parts.Count == selected.Count && parts.All(selected.Contains);
-        ContextRoofPanel.Visibility = selected is [Roof] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
+        ContextRoofPanel.Visibility = selected is [Roof] or [Gutter] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
+        ContextAddDownpipes.Visibility = selected is [Roof { IsExtrusion: false }] or [Gutter] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
         ContextAddDormer.Visibility = ContextDormerOpening.Visibility = selected is [Roof] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditFootprint.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
@@ -2874,6 +2961,7 @@ public partial class MainWindow : Window
         Soffit => "Icon.Soffit",
         RoofWindow => "Icon.RoofWindow",
         ShaftOpening => "Icon.Shaft",
+        Downpipe => "Icon.Downpipe",
         _ => "Icon.Select"
     };
 

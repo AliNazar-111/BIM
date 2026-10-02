@@ -45,7 +45,8 @@ public enum BuiltInCategory
     Gutters,
     RoofSoffits,
     RoofWindows,
-    ShaftOpenings
+    ShaftOpenings,
+    Downpipes
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

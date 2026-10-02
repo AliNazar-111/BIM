@@ -81,11 +81,18 @@ public sealed class DeleteElementsCommand : IUndoableCommand
         foreach (var part in Dormers.Parts(_document, dormer))
             if (ids.Add(part.Id)) doomed.Add(part);
 
-        doomed.AddRange(_document.Elements
-            .OfType<IHostedElement>()
-            .Where(hosted => ids.Contains(hosted.HostId))
-            .Cast<Element>()
-            .Where(element => !ids.Contains(element.Id)));
+        // Everything hosted by any of those, and by what that hosts in turn: a roof's gutters and their downpipes.
+        for (var added = true; added;)
+        {
+            var more = _document.Elements
+                .OfType<IHostedElement>()
+                .Where(hosted => ids.Contains(hosted.HostId))
+                .Cast<Element>()
+                .Where(element => ids.Add(element.Id))
+                .ToList();
+            doomed.AddRange(more);
+            added = more.Count > 0;
+        }
 
         return doomed;
     }
@@ -185,8 +192,9 @@ public sealed class MoveElementsCommand : IUndoableCommand
         var named = _elements.Count;
         if (document is not null) _elements.AddRange(ColumnGrids.Following(document, _elements));
 
-        // A roof window goes with its roof.
+        // A roof window goes with its roof, and a gutter's downpipes with the roof the gutter is on.
         if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
+        if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
 
         Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
@@ -239,8 +247,9 @@ public sealed class NudgeElementsCommand : IUndoableCommand
         var named = _elements.Count;
         if (document is not null) _elements.AddRange(ColumnGrids.Following(document, _elements));
 
-        // A roof window goes with its roof.
+        // A roof window goes with its roof, and a gutter's downpipes with the roof the gutter is on.
         if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
+        if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
 
         Name = named == 1 ? "Move" : "Move " + named + " Elements";
     }
@@ -286,10 +295,17 @@ public sealed class MirrorElementsCommand : IUndoableCommand
     private readonly List<Element> _elements;
     private readonly Line2D _axis;
 
-    public MirrorElementsCommand(IEnumerable<Element> elements, Line2D axis)
+    public MirrorElementsCommand(IEnumerable<Element> elements, Line2D axis, BimDocument? document = null)
     {
         _elements = elements.Where(ElementTransforms.CanMove).ToList();
         _axis = axis;
+
+        // What goes with a roof goes with it into the mirror: its roof windows, its gutters' downpipes.
+        if (document is not null)
+        {
+            _elements.AddRange(RoofWindows.Following(document, _elements));
+            _elements.AddRange(Downpipes.Following(document, _elements));
+        }
 
         Name = _elements.Count == 1 ? "Mirror" : $"Mirror {_elements.Count} Elements";
     }

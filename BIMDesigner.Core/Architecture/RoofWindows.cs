@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
@@ -59,11 +60,11 @@ public sealed class RoofWindowType : ElementType
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 
-        yield return ParameterValue.BindValidated(RoofWindowParameters.Width, () => Width, (double v) => Set(v >= 300 && v > 2 * FrameWidth + 50, () => Width = v));
-        yield return ParameterValue.BindValidated(RoofWindowParameters.Height, () => Height, (double v) => Set(v >= 300 && v > 2 * FrameWidth + 50, () => Height = v));
+        yield return ParameterValue.BindValidated(RoofWindowParameters.Width, () => Width, (double v) => Set(Unbuildable(v, Height, FrameWidth, Upstand) is null, () => Width = v));
+        yield return ParameterValue.BindValidated(RoofWindowParameters.Height, () => Height, (double v) => Set(Unbuildable(Width, v, FrameWidth, Upstand) is null, () => Height = v));
         yield return ParameterValue.BindValidated(RoofWindowParameters.FrameWidth, () => FrameWidth,
-            (double v) => Set(v > 10 && 2 * v + 50 < Math.Min(Width, Height), () => FrameWidth = v));
-        yield return ParameterValue.BindValidated(RoofWindowParameters.Upstand, () => Upstand, (double v) => Set(v >= 0 && v <= 500, () => Upstand = v));
+            (double v) => Set(Unbuildable(Width, Height, v, Upstand) is null, () => FrameWidth = v));
+        yield return ParameterValue.BindValidated(RoofWindowParameters.Upstand, () => Upstand, (double v) => Set(Unbuildable(Width, Height, FrameWidth, v) is null, () => Upstand = v));
         yield return ParameterValue.BindChoice(
             RoofWindowParameters.Operation,
             () => EnumText.Humanise(Operation),
@@ -76,6 +77,14 @@ public sealed class RoofWindowType : ElementType
             yield return MaterialOf(document, RoofWindowParameters.GlassMaterial, () => GlassMaterialId, id => GlassMaterialId = id);
         }
     }
+
+    /// <summary>Why a roof window of these sizes could not be made - too small, all frame - or null where it can.</summary>
+    public static string? Unbuildable(double width, double height, double frameWidth, double upstand) =>
+        width < 300 || height < 300 ? "A roof window is at least 300 mm across and up the slope."
+        : frameWidth <= 10 ? "Its frame has to be more than 10 mm wide."
+        : 2 * frameWidth + 50 >= Math.Min(width, height) ? "Its frame would leave no glass: make the frame narrower, or the window bigger."
+        : upstand is < 0 or > 500 ? "Its upstand has to be between 0 and 500 mm."
+        : null;
 
     private static bool Set(bool valid, Action apply)
     {
@@ -108,6 +117,51 @@ public sealed class RoofWindow : Element, IHostedElement
     /// <summary>Its middle, in plan.</summary>
     public Point2D Location { get; set; }
 
+    // This window's own size, frame, upstand and materials, where it has been given them: null
+    // takes its type's. Changing one window changes that window, and neither its type nor the
+    // windows put in after it.
+
+    /// <summary>Across the slope, outside the frame; null for its type's.</summary>
+    public double? Width { get; set; }
+
+    /// <summary>Up the slope, outside the frame; null for its type's.</summary>
+    public double? Height { get; set; }
+
+    /// <summary>How wide its frame is; null for its type's.</summary>
+    public double? FrameWidth { get; set; }
+
+    /// <summary>How far it stands up out of the roof; null for its type's.</summary>
+    public double? Upstand { get; set; }
+
+    /// <summary>What its frame is made of; null for its type's.</summary>
+    public Guid? FrameMaterialId { get; set; }
+
+    /// <summary>What it is glazed with; null for its type's.</summary>
+    public Guid? GlassMaterialId { get; set; }
+
+    /// <summary>All of its own values at once, so a change can be kept and undone whole.</summary>
+    public RoofWindowOwn Own
+    {
+        get => new(Width, Height, FrameWidth, Upstand, FrameMaterialId, GlassMaterialId);
+        set => (Width, Height, FrameWidth, Upstand, FrameMaterialId, GlassMaterialId) =
+            (value.Width, value.Height, value.FrameWidth, value.Upstand, value.FrameMaterialId, value.GlassMaterialId);
+    }
+
+    /// <summary>
+    /// Its type as this window is built: the type's size, frame, upstand and materials, with this
+    /// window's own wherever it has them. The type itself when it has none.
+    /// </summary>
+    public RoofWindowType Built(RoofWindowType type) =>
+        Own == default
+            ? type
+            : new RoofWindowType(type.Name)
+            {
+                Id = type.Id, TypeMark = type.TypeMark, Description = type.Description, Cost = type.Cost, Operation = type.Operation,
+                Width = Width ?? type.Width, Height = Height ?? type.Height,
+                FrameWidth = FrameWidth ?? type.FrameWidth, Upstand = Upstand ?? type.Upstand,
+                FrameMaterialId = FrameMaterialId ?? type.FrameMaterialId, GlassMaterialId = GlassMaterialId ?? type.GlassMaterialId
+            };
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         var roof = document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == RoofId);
@@ -116,15 +170,99 @@ public sealed class RoofWindow : Element, IHostedElement
         yield return ParameterValue.ReadOnly(RoofWindowParameters.Roof,
             () => roof is null ? "<none>" : document.FindType<SlabType>(roof.TypeId)?.Name ?? "Roof");
         yield return ParameterValue.ReadOnly(RoofWindowParameters.Slope, () => RoofWindows.Frame(document, this)?.Plane.SlopeDegrees ?? 0);
-        yield return ParameterValue.ReadOnly(RoofWindowParameters.InstanceWidth, () => type?.Width ?? 0);
-        yield return ParameterValue.ReadOnly(RoofWindowParameters.InstanceHeight, () => type?.Height ?? 0);
         yield return ParameterValue.ReadOnly(RoofWindowParameters.SillHeight,
             () => RoofWindows.Frame(document, this) is { } frame
                 ? frame.Top(frame.Corners[0]) - (document.FindLevel(LevelId)?.Elevation ?? 0)
                 : 0);
 
+        if (type is not null)
+        {
+            // This window's size and make-up, changed for it alone.
+            yield return ParameterValue.BindCommand<double>(RoofWindowParameters.InstanceWidth, () => Built(type).Width,
+                (double value, out string? message) => Change(document, type, own => own with { Width = value }, out message));
+            yield return ParameterValue.BindCommand<double>(RoofWindowParameters.InstanceHeight, () => Built(type).Height,
+                (double value, out string? message) => Change(document, type, own => own with { Height = value }, out message));
+            yield return ParameterValue.BindCommand<double>(RoofWindowParameters.InstanceFrameWidth, () => Built(type).FrameWidth,
+                (double value, out string? message) => Change(document, type, own => own with { FrameWidth = value }, out message));
+            yield return ParameterValue.BindCommand<double>(RoofWindowParameters.InstanceUpstand, () => Built(type).Upstand,
+                (double value, out string? message) => Change(document, type, own => own with { Upstand = value }, out message));
+
+            var materials = new[] { RoofWindowOwn.ByType }
+                .Concat(document.Materials.Select(material => material.Name).OrderBy(name => name))
+                .ToArray();
+            yield return ParameterValue.BindChoiceCommand(RoofWindowParameters.InstanceFrameMaterial,
+                () => MaterialName(document, FrameMaterialId),
+                (string name, out string? message) => Change(document, type, own => own with { FrameMaterialId = MaterialNamed(document, name) }, out message),
+                materials);
+            yield return ParameterValue.BindChoiceCommand(RoofWindowParameters.InstanceGlassMaterial,
+                () => MaterialName(document, GlassMaterialId),
+                (string name, out string? message) => Change(document, type, own => own with { GlassMaterialId = MaterialNamed(document, name) }, out message),
+                materials);
+        }
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
+
+    private static string MaterialName(BimDocument document, Guid? id) =>
+        id is { } own ? document.FindMaterial(own)?.Name ?? RoofWindowOwn.ByType : RoofWindowOwn.ByType;
+
+    private static Guid? MaterialNamed(BimDocument document, string name) =>
+        name == RoofWindowOwn.ByType ? null : document.Materials.FirstOrDefault(material => material.Name == name)?.Id;
+
+    /// <summary>
+    /// The change that gives this window its own values, or null - with why - where they would
+    /// not make a window, or the window would no longer fit where it is on its roof.
+    /// </summary>
+    private IUndoableCommand? Change(BimDocument document, RoofWindowType type, Func<RoofWindowOwn, RoofWindowOwn> change, out string? message)
+    {
+        var before = Own;
+        var after = change(before);
+
+        Own = after;
+        try
+        {
+            var built = Built(type);
+            message = RoofWindowType.Unbuildable(built.Width, built.Height, built.FrameWidth, built.Upstand) ??
+                      (RoofWindows.Frame(document, this) is { } frame
+                          ? RoofWindows.Problem(document, frame, this) is { } problem ? $"At that size it would not fit where it is. {problem}" : null
+                          : "It would no longer be on its roof.");
+        }
+        finally
+        {
+            Own = before;
+        }
+
+        return message is null ? new SetRoofWindowOwnCommand(this, before, after) : null;
+    }
+}
+
+/// <summary>A roof window's own size, frame, upstand and materials; a null takes its type's.</summary>
+public readonly record struct RoofWindowOwn(
+    double? Width, double? Height, double? FrameWidth, double? Upstand, Guid? FrameMaterialId, Guid? GlassMaterialId)
+{
+    /// <summary>What a material choice shows while the window takes its type's.</summary>
+    public const string ByType = "<by type>";
+}
+
+/// <summary>Gives one roof window its own size, frame, upstand or materials.</summary>
+public sealed class SetRoofWindowOwnCommand : IUndoableCommand
+{
+    private readonly RoofWindow _window;
+    private readonly RoofWindowOwn _before;
+    private readonly RoofWindowOwn _after;
+
+    public SetRoofWindowOwnCommand(RoofWindow window, RoofWindowOwn before, RoofWindowOwn after)
+    {
+        _window = window;
+        _before = before;
+        _after = after;
+    }
+
+    public string Name => "Roof Window";
+
+    public void Redo() => _window.Own = _after;
+
+    public void Undo() => _window.Own = _before;
 }
 
 /// <summary>
@@ -175,7 +313,7 @@ public static class RoofWindows
     public static RoofWindowFrame? Frame(BimDocument document, RoofWindow window) =>
         document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == window.RoofId) is { } roof &&
         document.FindType<RoofWindowType>(window.TypeId) is { } type
-            ? FrameOn(document, roof, type, window.Location)
+            ? FrameOn(document, roof, window.Built(type), window.Location)
             : null;
 
     /// <summary>A roof window of a type on a roof, with its middle at a point: lined up with the face under that point. Null off the roof.</summary>
@@ -346,7 +484,11 @@ public static class RoofWindowParameters
     public static readonly ParameterDefinition Slope = new("Slope", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition SillHeight = new("Sill Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition InstanceWidth = new("Width", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
-    public static readonly ParameterDefinition InstanceHeight = new("Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition InstanceHeight = new("Height (up the slope)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition InstanceFrameWidth = new("Frame Width", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition InstanceUpstand = new("Upstand", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition InstanceFrameMaterial = new("Frame Material", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
+    public static readonly ParameterDefinition InstanceGlassMaterial = new("Glass Material", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
 
     public static readonly ParameterDefinition Width = new("Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Height = new("Height (up the slope)", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);

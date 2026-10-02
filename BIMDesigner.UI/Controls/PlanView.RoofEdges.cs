@@ -146,6 +146,12 @@ public partial class PlanView
                 return new Soffit { RoofId = roof.Id, LevelId = roof.LevelId, TypeId = TypeOr<SoffitType>(ActiveSoffitTypeId) };
 
             case RoofEdgeKind.Gutter:
+                var gutterType = TypeOr<GutterType>(ActiveGutterTypeId);
+
+                // A fascia gutter is the fascia: it goes on the roof's edge itself.
+                if (Document!.FindType<GutterType>(gutterType) is { Shape: GutterShape.Fascia })
+                    return new Gutter { RoofId = roof.Id, LevelId = roof.LevelId, TypeId = gutterType };
+
                 var fasciaThickness = RoofEdgeSweeps.Of(Document!, roof).OfType<Fascia>()
                     .Select(fascia => Document!.FindType<FasciaType>(fascia.TypeId)?.Thickness ?? 0)
                     .DefaultIfEmpty(0)
@@ -153,7 +159,7 @@ public partial class PlanView
 
                 return new Gutter
                 {
-                    RoofId = roof.Id, LevelId = roof.LevelId, TypeId = TypeOr<GutterType>(ActiveGutterTypeId),
+                    RoofId = roof.Id, LevelId = roof.LevelId, TypeId = gutterType,
                     HorizontalOffset = fasciaThickness,
                     VerticalOffset = -40
                 };

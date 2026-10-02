@@ -10,11 +10,44 @@ namespace BIMDesigner.Core.Architecture;
 /// <summary>The section a gutter is made in.</summary>
 public enum GutterShape
 {
-    /// <summary>A half round, open at the top.</summary>
+    /// <summary>Half round: a classic U-shaped trough, open at the top - traditional and on older brick houses.</summary>
     HalfRound,
 
-    /// <summary>A square channel, open at the top.</summary>
-    Box
+    /// <summary>Box: a large square channel, as on commercial buildings and big roofs.</summary>
+    Box,
+
+    /// <summary>K-style: a flat back and bottom and a front moulded like a crown moulding - the usual house gutter, holding a lot of water.</summary>
+    KStyle,
+
+    /// <summary>Fascia gutter: deep and square-fronted, in place of the fascia board, for a smooth modern edge.</summary>
+    Fascia
+}
+
+/// <summary>The shape of a fascia board's face, seen end on.</summary>
+public enum FasciaProfile
+{
+    /// <summary>Moulded: a board with a capping nose standing out along its top - the original board.</summary>
+    Moulded,
+
+    /// <summary>Square: a flat upright board fixed to the rafter ends, often a thick one to carry heavy gutters.</summary>
+    Square,
+
+    /// <summary>Capping (cover board): a thin board over a sound timber fascia already there, its leg turned back over the old board's top.</summary>
+    Capping,
+
+    /// <summary>Ogee: a sculpted S-curved face along its top, for a traditional look.</summary>
+    Ogee,
+
+    /// <summary>Round: curved at its bottom edge, fixed straight onto the rafter feet - the sleek edge of a new build.</summary>
+    Round
+}
+
+/// <summary>The section of a downpipe.</summary>
+public enum DownpipeShape
+{
+    Round,
+    Square,
+    Rectangular
 }
 
 /// <summary>
@@ -38,15 +71,22 @@ public sealed class FasciaType : ElementType
 
     public Guid MaterialId { get; set; }
 
+    /// <summary>The shape of its face: moulded, square, a capping board, ogee or round.</summary>
+    public FasciaProfile Profile { get; set; } = FasciaProfile.Moulded;
+
     public FasciaType Duplicate(string name) => new(name)
     {
-        Thickness = Thickness, Depth = Depth, MaterialId = MaterialId, Description = Description, Cost = Cost
+        Thickness = Thickness, Depth = Depth, MaterialId = MaterialId, Profile = Profile, Description = Description, Cost = Cost
     };
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
 
+        yield return ParameterValue.BindChoice(RoofEdgeSweepParameters.FasciaProfile,
+            () => EnumText.Humanise(Profile),
+            v => { if (EnumText.TryParse<FasciaProfile>(v, out var profile)) Profile = profile; },
+            EnumText.Choices<FasciaProfile>());
         yield return ParameterValue.Bind(RoofEdgeSweepParameters.Thickness, () => Thickness, v => { if (v > 0) Thickness = v; });
         yield return ParameterValue.Bind(RoofEdgeSweepParameters.FasciaDepth, () => Depth, v => { if (v >= 0) Depth = v; });
         if (RoofEdgeSweepParameters.MaterialOf(document, () => MaterialId, id => MaterialId = id) is { } material) yield return material;
@@ -75,9 +115,26 @@ public sealed class GutterType : ElementType
 
     public Guid MaterialId { get; set; }
 
+    /// <summary>How far apart the hangers holding it are, mm; none at 0.</summary>
+    public double HangerSpacing { get; set; } = Gutters.HangerSpacing;
+
+    /// <summary>Whether a leaf screen covers it, keeping leaves out and letting water in.</summary>
+    public bool LeafGuard { get; set; }
+
+    /// <summary>The section of the downpipes that take the water down from it.</summary>
+    public DownpipeShape DownpipeShape { get; set; } = DownpipeShape.Round;
+
+    /// <summary>How wide its downpipes are, mm - a round one's diameter; along the wall for a rectangular one.</summary>
+    public double DownpipeWidth { get; set; } = 68;
+
+    /// <summary>How deep a rectangular downpipe is, out from the wall, mm.</summary>
+    public double DownpipeDepth { get; set; } = 68;
+
     public GutterType Duplicate(string name) => new(name)
     {
         Shape = Shape, Width = Width, Depth = Depth, WallThickness = WallThickness, MaterialId = MaterialId,
+        HangerSpacing = HangerSpacing, LeafGuard = LeafGuard, DownpipeShape = DownpipeShape,
+        DownpipeWidth = DownpipeWidth, DownpipeDepth = DownpipeDepth,
         Description = Description, Cost = Cost
     };
 
@@ -93,6 +150,30 @@ public sealed class GutterType : ElementType
         yield return ParameterValue.Bind(RoofEdgeSweepParameters.Depth, () => Depth, v => { if (v > WallThickness) Depth = v; });
         yield return ParameterValue.Bind(RoofEdgeSweepParameters.WallThickness, () => WallThickness, v => { if (v > 0 && 2 * v < Width) WallThickness = v; });
         if (RoofEdgeSweepParameters.MaterialOf(document, () => MaterialId, id => MaterialId = id) is { } material) yield return material;
+
+        yield return ParameterValue.BindValidated(RoofEdgeSweepParameters.HangerSpacing, () => HangerSpacing, (double v) =>
+        {
+            if (v != 0 && v < 150) return false;
+            HangerSpacing = v;
+            return true;
+        });
+        yield return ParameterValue.Bind(RoofEdgeSweepParameters.LeafGuard, () => LeafGuard, v => LeafGuard = v);
+        yield return ParameterValue.BindChoice(RoofEdgeSweepParameters.DownpipeShape,
+            () => EnumText.Humanise(DownpipeShape),
+            v => { if (EnumText.TryParse<DownpipeShape>(v, out var shape)) DownpipeShape = shape; },
+            EnumText.Choices<DownpipeShape>());
+        yield return ParameterValue.BindValidated(RoofEdgeSweepParameters.DownpipeWidth, () => DownpipeWidth, (double v) =>
+        {
+            if (v < 30 || v > 300) return false;
+            DownpipeWidth = v;
+            return true;
+        });
+        yield return ParameterValue.BindValidated(RoofEdgeSweepParameters.DownpipeDepth, () => DownpipeDepth, (double v) =>
+        {
+            if (v < 30 || v > 300) return false;
+            DownpipeDepth = v;
+            return true;
+        });
     }
 }
 
@@ -135,6 +216,10 @@ public abstract class RoofEdgeSweep : Element, IHostedElement
         yield return ParameterValue.Bind(RoofEdgeSweepParameters.VerticalOffset, () => VerticalOffset, v => VerticalOffset = v);
         yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.Length, () => Length(document));
 
+        // A vented soffit's air into the roof, all along it: what the eaves are checked against.
+        if (this is Soffit && document.FindType<SoffitType>(TypeId) is { } soffit)
+            yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.InstanceFreeAirArea, () => soffit.FreeAirArea * Length(document) / 1000);
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 }
@@ -161,7 +246,27 @@ public sealed class Soffit : RoofEdgeSweep
     public override BuiltInCategory Category => BuiltInCategory.RoofSoffits;
 }
 
-/// <summary>A soffit's type: how thick the board is, and what it is made of.</summary>
+/// <summary>What a soffit board is like: sealed, letting air into the roof above it, or a light hollow board.</summary>
+public enum SoffitBoard
+{
+    /// <summary>Solid, plain: a flat sealed board with no holes - a porch or carport ceiling, a warm roof that needs no air.</summary>
+    Solid,
+
+    /// <summary>Vented, perforated all over: small slots across the board let air into the roof space, against damp and mould.</summary>
+    Vented,
+
+    /// <summary>Centre vented: a perforated strip down the middle, solid either side.</summary>
+    CentreVented,
+
+    /// <summary>Hollow: a light cavity board in narrow planks, quick to put up.</summary>
+    Hollow
+}
+
+/// <summary>
+/// A soffit's type: how thick the board is, what it is made of - uPVC, aluminium, timber, fibre
+/// cement, steel - and what kind of board it is: solid, vented all over, vented down the middle,
+/// or hollow, with the air a vented one lets into the roof.
+/// </summary>
 public sealed class SoffitType : ElementType
 {
     public SoffitType(string name) : base(name)
@@ -174,9 +279,25 @@ public sealed class SoffitType : ElementType
 
     public Guid MaterialId { get; set; }
 
+    public SoffitBoard Board { get; set; } = SoffitBoard.Solid;
+
+    /// <summary>
+    /// How much open air the board lets through, mm² per metre of eave: what is checked against
+    /// the ventilation a roof needs at its eaves. None through a solid or hollow board.
+    /// </summary>
+    public double FreeAirArea { get; set; }
+
+    /// <summary>What a board of each kind lets through when nothing else is said, mm² per metre of eave.</summary>
+    public static double TypicalFreeAirArea(SoffitBoard board) => board switch
+    {
+        SoffitBoard.Vented => 25000,
+        SoffitBoard.CentreVented => 10000,
+        _ => 0
+    };
+
     public SoffitType Duplicate(string name) => new(name)
     {
-        Thickness = Thickness, MaterialId = MaterialId, Description = Description, Cost = Cost
+        Thickness = Thickness, MaterialId = MaterialId, Board = Board, FreeAirArea = FreeAirArea, Description = Description, Cost = Cost
     };
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
@@ -184,11 +305,32 @@ public sealed class SoffitType : ElementType
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
         yield return ParameterValue.Bind(RoofEdgeSweepParameters.Thickness, () => Thickness, v => { if (v > 0) Thickness = v; });
         if (RoofEdgeSweepParameters.MaterialOf(document, () => MaterialId, id => MaterialId = id) is { } material) yield return material;
+
+        // Changing the kind of board brings its air with it: a solid board lets none through.
+        yield return ParameterValue.BindChoice(
+            RoofEdgeSweepParameters.Board,
+            () => EnumText.Humanise(Board),
+            v =>
+            {
+                if (!EnumText.TryParse<SoffitBoard>(v, out var board) || board == Board) return;
+                Board = board;
+                FreeAirArea = TypicalFreeAirArea(board);
+            },
+            EnumText.Choices<SoffitBoard>());
+        yield return ParameterValue.BindValidated(RoofEdgeSweepParameters.FreeAirArea, () => FreeAirArea, (double v) =>
+        {
+            if (v < 0 || (v > 0 && Board is SoffitBoard.Solid or SoffitBoard.Hollow)) return false;
+            FreeAirArea = v;
+            return true;
+        });
     }
 }
 
-/// <summary>One strip of a soffit: under one eave, its outline in plan, its top, and how long the eave is.</summary>
-public sealed record SoffitPiece(IReadOnlyList<Point2D> Outline, double Top, double Bottom, double Length);
+/// <summary>
+/// One strip of a soffit: under one eave, its outline in plan, its top and underside, how long
+/// the eave is, and which way the eave runs and the strip goes in from it - from its start.
+/// </summary>
+public sealed record SoffitPiece(IReadOnlyList<Point2D> Outline, double Top, double Bottom, double Length, Point2D From, Vector2D Along, Vector2D Inward);
 
 public static class RoofEdgeSweepParameters
 {
@@ -205,6 +347,15 @@ public static class RoofEdgeSweepParameters
     public static readonly ParameterDefinition Depth = new("Depth", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition WallThickness = new("Sheet Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Material, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+    public static readonly ParameterDefinition Board = new("Board", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition FreeAirArea = new("Free Air Area (mm²/m)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition FasciaProfile = new("Profile", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition HangerSpacing = new("Hanger Spacing (0 = none)", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition LeafGuard = new("Leaf Screen", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition DownpipeShape = new("Downpipe Shape", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition DownpipeWidth = new("Downpipe Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition DownpipeDepth = new("Downpipe Depth", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition InstanceFreeAirArea = new("Free Air Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Construction);
 
     /// <summary>What a fascia, gutter or soffit type is made of, chosen from the project's materials.</summary>
     public static ParameterValue? MaterialOf(BimDocument? document, Func<Guid> get, Action<Guid> set) =>
@@ -281,7 +432,7 @@ public static class RoofEdgeSweeps
         var runs = new List<RoofEdgeRun>();
         if (on.All(picked => picked))
         {
-            runs.Add(Run(document, roof, sweep, Enumerable.Range(0, count).ToList(), closed: true));
+            runs.AddRange(Run(document, roof, sweep, Enumerable.Range(0, count).ToList(), closed: true));
             return runs;
         }
 
@@ -291,20 +442,43 @@ public static class RoofEdgeSweeps
 
             var edges = new List<int>();
             for (var i = start; on[i % count] && edges.Count < count; i++) edges.Add(i % count);
-            runs.Add(Run(document, roof, sweep, edges, closed: false));
+            runs.AddRange(Run(document, roof, sweep, edges, closed: false));
         }
 
         return runs;
     }
 
-    private static RoofEdgeRun Run(BimDocument document, Roof roof, RoofEdgeSweep sweep, IReadOnlyList<int> edges, bool closed)
+    /// <summary>The roof one is carried back into and trimmed against - a dormer's main roof - if it is.</summary>
+    private static Roof? CarriedInto(BimDocument document, Roof roof) =>
+        roof.JoinedTo is { } joined
+            ? document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof) && !other.IsExtrusion)
+            : null;
+
+    /// <summary>
+    /// A run along some edges of a roof - or more than one, where the roof is carried back into
+    /// another and its edges go in under that roof's top on the way round: the run stops where
+    /// it goes in, and starts again where it comes out.
+    /// </summary>
+    private static IReadOnlyList<RoofEdgeRun> Run(BimDocument document, Roof roof, RoofEdgeSweep sweep, IReadOnlyList<int> edges, bool closed)
     {
         var surface = roof.Surface(document);
         var thickness = document.FindType<SlabType>(roof.TypeId)?.Thickness ?? 0;
         var boundary = roof.Boundary;
         var count = boundary.Count;
         var anticlockwise = Polygon2D.SignedArea(boundary) >= 0;
-        var segments = new List<RoofEdgeSegment>();
+        var target = CarriedInto(document, roof);
+
+        // The stretches of the run, split wherever it goes into the other roof.
+        var pieces = new List<List<RoofEdgeSegment>> { new() };
+        var broken = false;
+        bool? startsClear = null;
+        var endsClear = true;
+
+        void Break()
+        {
+            broken = true;
+            if (pieces[^1].Count > 0) pieces.Add(new List<RoofEdgeSegment>());
+        }
 
         foreach (var edge in edges)
         {
@@ -344,11 +518,129 @@ public static class RoofEdgeSweeps
                 var profile = Profile(document, sweep, edgeDepth)
                     .Select(point => new Point2D(point.X + sweep.HorizontalOffset, point.Y + sweep.VerticalOffset))
                     .ToList();
-                segments.Add(new RoofEdgeSegment(from, to, outVector, up, profile));
+
+                // Where the edge runs on into the roof it is carried back into, the fascia or
+                // gutter goes in with it and stops before any of it reaches that roof's
+                // underside - buried in the roof, not showing in the room under it. Its section
+                // is square to the edge, so on a slope it leans: each corner is tested where it is.
+                var clear = Clear(document, target, p, q, at =>
+                {
+                    var edgeTop = new Vector3(at.X, at.Y, Top(at));
+                    return profile.Select(point => edgeTop + outVector * point.X + up * point.Y)
+                        .Select(point => (new Point2D(point.X, point.Y), point.Z));
+                }).ToList();
+
+                startsClear ??= clear.Count > 0 && clear[0].From < 1e-9;
+                if (clear.Count == 0) Break();
+                foreach (var (u, v) in clear)
+                {
+                    if (u > 1e-9) Break();
+                    pieces[^1].Add(new RoofEdgeSegment(from + (to - from) * u, from + (to - from) * v, outVector, up, profile));
+                    if (v < 1 - 1e-9) Break();
+                }
+
+                endsClear = clear.Count > 0 && clear[^1].To > 1 - 1e-9;
             }
         }
 
-        return new RoofEdgeRun(segments, closed);
+        if (!broken) return new[] { new RoofEdgeRun(pieces[0], closed) };
+
+        // All round and broken: the stretch it ended on runs on into the one it started with.
+        var runs = pieces.Where(piece => piece.Count > 0).ToList();
+        if (closed && runs.Count > 1 && startsClear == true && endsClear)
+        {
+            runs[0] = runs[^1].Concat(runs[0]).ToList();
+            runs.RemoveAt(runs.Count - 1);
+        }
+
+        return runs.Select(piece => new RoofEdgeRun(piece, false)).ToList();
+    }
+
+    /// <summary>How far inside a roof, above its underside, what runs into it stops, mm: well clear of the ceiling it would otherwise touch.</summary>
+    private const double BuriedBy = 25;
+
+    /// <summary>
+    /// The stretches of a line from p to q, as shares of it, where what stands along it - the
+    /// corners of a section, wherever they are - is clear of another roof's underside: above it,
+    /// or not over that roof at all. All of it, when there is no other roof.
+    /// </summary>
+    private static IEnumerable<(double From, double To)> Clear(
+        BimDocument document, Roof? target, Point2D p, Point2D q, Func<Point2D, IEnumerable<(Point2D At, double Z)>> corners)
+    {
+        if (target is null)
+        {
+            yield return (0, 1);
+            yield break;
+        }
+
+        bool Above(double t) =>
+            corners(p + (q - p) * t).All(corner => !target.Contains(corner.At) || corner.Z > target.UndersideAt(document, corner.At) + BuriedBy);
+
+        // Stepped along, then each change narrowed down to where it happens.
+        const int steps = 32;
+        double? start = Above(0) ? 0 : null;
+        var was = start is not null;
+        for (var i = 1; i <= steps; i++)
+        {
+            var t = (double)i / steps;
+            var now = Above(t);
+            if (now == was) continue;
+
+            var (low, high) = ((double)(i - 1) / steps, t);
+            for (var k = 0; k < 40; k++)
+            {
+                var middle = (low + high) / 2;
+                if (Above(middle) == was) low = middle;
+                else high = middle;
+            }
+
+            var change = (low + high) / 2;
+            if (start is { } from)
+            {
+                if (change - from > 1e-6) yield return (from, change);
+                start = null;
+            }
+            else
+            {
+                start = change;
+            }
+
+            was = now;
+        }
+
+        if (start is { } open && 1 - open > 1e-6) yield return (open, 1);
+    }
+
+    /// <summary>
+    /// Where another roof's underside stands at or above a height, in plan: a level board at that
+    /// height is buried in the roof there - or under it, in the room.
+    /// </summary>
+    private static IEnumerable<IReadOnlyList<Point2D>> Buried(BimDocument document, Roof target, double height)
+    {
+        foreach (var facet in target.Surface(document).Facets)
+        {
+            var plane = facet.Plane;
+            if (plane.Rise < 1e-9)
+            {
+                if (plane.C >= height) yield return facet.Outline;
+                continue;
+            }
+
+            // The side of the line where the underside is at the height that it rises to, as a
+            // rectangle reaching well past the face.
+            var uphill = new Vector2D(plane.A, plane.B) * (1 / plane.Rise);
+            var level = new Point2D(0, 0) + uphill * ((height - plane.C) / plane.Rise);
+            var along = uphill.PerpendicularLeft();
+            var reach = facet.Outline.Max(point => point.DistanceTo(level)) * 2 + 1000;
+            var side = new[]
+            {
+                level - along * reach, level + along * reach,
+                level + along * reach + uphill * reach, level - along * reach + uphill * reach
+            };
+
+            foreach (var region in PolygonBoolean.Combine(facet.Outline, side, BooleanOperation.Intersection))
+                yield return region.Outer;
+        }
     }
 
     /// <summary>Where along a to b a line from one point to another crosses it, as a share of a to b; null if it does not.</summary>
@@ -377,20 +669,10 @@ public static class RoofEdgeSweeps
         {
             case Fascia when document.FindType<FasciaType>(sweep.TypeId) is { } fascia:
             {
-                // A moulded board, as a fascia is made: a capping nose standing out along its
-                // top and a drip lip below the roof's edge, which hides the soffit's front
-                // edge. The steps are what make it read along an eave - faces turned up, out
-                // and down, each lit differently, and a line at each - rather than a flat band
-                // the colour of whatever is next to it. As deep as its type says, if it says.
-                var thickness = fascia.Thickness;
+                // Down past the roof's edge by a drip, which hides the soffit's front edge. As
+                // deep as its type says, if it says.
                 var depth = fascia.Depth > 0 ? fascia.Depth : Math.Max(edgeDepth, 50) + FasciaDrip;
-                var nose = Math.Min(FasciaNose, thickness);
-                var cap = Math.Min(FasciaCap, depth / 3);
-                return new[]
-                {
-                    new Point2D(0, -depth), new Point2D(thickness, -depth), new Point2D(thickness, -cap),
-                    new Point2D(thickness + nose, -cap), new Point2D(thickness + nose, 0), new Point2D(0, 0)
-                };
+                return FasciaSection(fascia.Profile, fascia.Thickness, depth);
             }
 
             case Gutter when document.FindType<GutterType>(sweep.TypeId) is { } gutter:
@@ -401,36 +683,84 @@ public static class RoofEdgeSweeps
         }
     }
 
-    private static IReadOnlyList<Point2D> GutterSection(GutterType gutter)
-    {
-        var (width, sheet) = (gutter.Width, Math.Min(gutter.WallThickness, gutter.Width / 4));
-        List<Point2D> points;
+    private static IReadOnlyList<Point2D> GutterSection(GutterType gutter) => Gutters.Form(gutter).Sheet;
 
-        if (gutter.Shape == GutterShape.Box)
+    /// <summary>How thick a capping board is over the fascia already there, mm.</summary>
+    public const double CappingCover = 9;
+
+    /// <summary>
+    /// A fascia board's section, out from the roof's edge and down from its top, wound
+    /// anticlockwise. The shaping is what makes a fascia read along an eave - faces turned up,
+    /// out and down, each lit differently - rather than a flat band the colour of whatever is
+    /// next to it; the square board is the plain one.
+    /// </summary>
+    public static IReadOnlyList<Point2D> FasciaSection(FasciaProfile profile, double thickness, double depth)
+    {
+        List<Point2D> points;
+        switch (profile)
         {
-            var depth = gutter.Depth;
-            points = new List<Point2D>
+            case FasciaProfile.Square:
+                points = new List<Point2D> { new(0, -depth), new(thickness, -depth), new(thickness, 0), new(0, 0) };
+                break;
+
+            case FasciaProfile.Capping:
             {
-                new(0, 0), new(0, -depth), new(width, -depth), new(width, 0),
-                new(width - sheet, 0), new(width - sheet, -depth + sheet), new(sheet, -depth + sheet), new(sheet, 0)
-            };
-        }
-        else
-        {
-            // Round the bottom from the inner rim to the outer, then back inside it.
-            const int pieces = 12;
-            var (centre, outer, inner) = (width / 2, width / 2, width / 2 - sheet);
-            points = new List<Point2D>();
-            for (var i = 0; i <= pieces; i++)
-            {
-                var angle = Math.PI * i / pieces;
-                points.Add(new Point2D(centre - outer * Math.Cos(angle), -outer * Math.Sin(angle)));
+                // A thin face over the old board, and a leg turned back over its top.
+                var cover = Math.Min(CappingCover, thickness / 2);
+                points = new List<Point2D>
+                {
+                    new(0, -cover), new(thickness - cover, -cover), new(thickness - cover, -depth),
+                    new(thickness, -depth), new(thickness, 0), new(0, 0)
+                };
+                break;
             }
 
-            for (var i = pieces; i >= 0; i--)
+            case FasciaProfile.Ogee:
             {
-                var angle = Math.PI * i / pieces;
-                points.Add(new Point2D(centre - inner * Math.Cos(angle), -inner * Math.Sin(angle)));
+                // Up the plain face, then out along an S - hollow, then round - to a nose at the top.
+                var reach = Math.Min(20, thickness * 0.8);
+                var (low, high) = (-Math.Min(0.35 * depth, 90), -Math.Min(0.05 * depth, 12));
+                points = new List<Point2D> { new(0, -depth), new(thickness, -depth) };
+                const int steps = 10;
+                for (var i = 0; i <= steps; i++)
+                {
+                    var s = (double)i / steps;
+                    points.Add(new Point2D(thickness + reach * (0.5 - 0.5 * Math.Cos(Math.PI * s)), low + (high - low) * s));
+                }
+
+                points.Add(new Point2D(thickness + reach, 0));
+                points.Add(new Point2D(0, 0));
+                break;
+            }
+
+            case FasciaProfile.Round:
+            {
+                // Its bottom edge rounded back toward the building.
+                var radius = Math.Min(thickness * 0.9, depth / 3);
+                points = new List<Point2D> { new(0, -depth) };
+                const int steps = 8;
+                for (var i = 0; i <= steps; i++)
+                {
+                    var angle = -Math.PI / 2 + Math.PI / 2 * i / steps;
+                    points.Add(new Point2D(thickness - radius + radius * Math.Cos(angle), -depth + radius + radius * Math.Sin(angle)));
+                }
+
+                points.Add(new Point2D(thickness, 0));
+                points.Add(new Point2D(0, 0));
+                break;
+            }
+
+            default:
+            {
+                // A capping nose standing out along its top.
+                var nose = Math.Min(FasciaNose, thickness);
+                var cap = Math.Min(FasciaCap, depth / 3);
+                points = new List<Point2D>
+                {
+                    new(0, -depth), new(thickness, -depth), new(thickness, -cap),
+                    new(thickness + nose, -cap), new(thickness + nose, 0), new(0, 0)
+                };
+                break;
             }
         }
 
@@ -511,7 +841,13 @@ public static class RoofEdgeSweeps
             var board = document.FindMaterial(document.FindType<SoffitType>(sweep.TypeId)?.MaterialId ?? Guid.Empty);
             var soffit = new Mesh3D(sweep.Id, levelId, MeshKind.Ceiling, board?.SurfaceColour ?? ColourRgb.FromHex("E8E6E0"),
                 board?.Name ?? "Soffit");
-            foreach (var piece in SoffitPieces(document, sweep)) soffit.AddExtrusion(piece.Outline, piece.Bottom, piece.Top);
+            var kind = document.FindType<SoffitType>(sweep.TypeId)?.Board ?? SoffitBoard.Solid;
+            foreach (var piece in SoffitPieces(document, sweep))
+            {
+                soffit.AddExtrusion(piece.Outline, piece.Bottom, piece.Top);
+                Face(soffit, piece, kind);
+            }
+
             return soffit;
         }
 
@@ -524,36 +860,114 @@ public static class RoofEdgeSweeps
         var mesh = new Mesh3D(sweep.Id, levelId, MeshKind.Sweep, material?.SurfaceColour ?? ColourRgb.FromHex("E8E6E0"),
             material?.Name ?? sweep.Category.ToString());
 
+        var gutterType = sweep is Gutter ? document.FindType<GutterType>(sweep.TypeId) : null;
         foreach (var run in Runs(document, sweep))
         {
-            var rings = Rings(run);
-            for (var s = 0; s < run.Segments.Count; s++)
-            {
-                var profile = run.Segments[s].Profile;
-                var (start, end) = rings[s];
-                var count = profile.Count;
+            AddRun(mesh, run);
 
-                for (var k = 0; k < count; k++)
-                {
-                    var j = (k + 1) % count;
-                    mesh.AddQuad(start[k].ToPoint(), end[k].ToPoint(), end[j].ToPoint(), start[j].ToPoint());
-                    if (IsCorner(profile, k)) mesh.AddEdge(start[k].ToPoint(), end[k].ToPoint());
-                }
-
-                // Where a stretch meets the next the mitre is drawn; where the run stops it is closed.
-                var opens = !run.Closed && s == 0;
-                var closes = !run.Closed && s == run.Segments.Count - 1;
-                if (opens) Cap(mesh, profile, start);
-                if (closes) Cap(mesh, profile, end);
-                for (var k = 0; k < count; k++)
-                {
-                    mesh.AddEdge(end[k].ToPoint(), end[(k + 1) % count].ToPoint());
-                    if (opens) mesh.AddEdge(start[k].ToPoint(), start[(k + 1) % count].ToPoint());
-                }
-            }
+            // A gutter's end caps, hangers and leaf screen.
+            if (gutterType is not null) Gutters.AddParts(mesh, gutterType, sweep, run);
         }
 
         return mesh;
+    }
+
+    /// <summary>A run swept onto a mesh: each stretch a mitred prism of its profile, capped where the run ends.</summary>
+    public static void AddRun(Mesh3D mesh, RoofEdgeRun run)
+    {
+        var rings = Rings(run);
+        for (var s = 0; s < run.Segments.Count; s++)
+        {
+            var profile = run.Segments[s].Profile;
+            var (start, end) = rings[s];
+            var count = profile.Count;
+
+            for (var k = 0; k < count; k++)
+            {
+                var j = (k + 1) % count;
+                mesh.AddQuad(start[k].ToPoint(), end[k].ToPoint(), end[j].ToPoint(), start[j].ToPoint());
+                if (IsCorner(profile, k)) mesh.AddEdge(start[k].ToPoint(), end[k].ToPoint());
+            }
+
+            // Where a stretch meets the next the mitre is drawn; where the run stops it is closed.
+            var opens = !run.Closed && s == 0;
+            var closes = !run.Closed && s == run.Segments.Count - 1;
+            if (opens) Cap(mesh, profile, start);
+            if (closes) Cap(mesh, profile, end);
+            for (var k = 0; k < count; k++)
+            {
+                mesh.AddEdge(end[k].ToPoint(), end[(k + 1) % count].ToPoint());
+                if (opens) mesh.AddEdge(start[k].ToPoint(), start[(k + 1) % count].ToPoint());
+            }
+        }
+    }
+
+    /// <summary>Slots in a vented board, mm: how long, how far apart along it, and how far apart across it.</summary>
+    private const double SlotLength = 36, SlotPitch = 72, SlotRows = 36;
+
+    /// <summary>How wide a hollow board's planks are, mm.</summary>
+    private const double PlankWidth = 100;
+
+    /// <summary>
+    /// What shows on a soffit's underside, drawn as lines just below it: rows of slots across a
+    /// vented board, a band of them down the middle of a centre-vented one, the joints between
+    /// the planks of a hollow one. A solid board is plain.
+    /// </summary>
+    private static void Face(Mesh3D mesh, SoffitPiece piece, SoffitBoard board)
+    {
+        if (board == SoffitBoard.Solid) return;
+
+        var z = piece.Bottom - 0.5;
+        var along = piece.Outline.Select(point => (point - piece.From).Dot(piece.Along)).ToList();
+        var (start, end) = (along.Min(), along.Max());
+        var depth = piece.Outline.Max(point => (point - piece.From).Dot(piece.Inward));
+        Point2D At(double s, double w) => piece.From + piece.Along * s + piece.Inward * w;
+
+        // Rows across the board: all of it, clear of its edges, or two down its middle.
+        var rows = board switch
+        {
+            SoffitBoard.Vented => Enumerable.Range(0, (int)Math.Max(1, Math.Floor((depth - 60) / SlotRows) + 1))
+                .Select(row => 30 + row * SlotRows)
+                .Where(w => w <= depth - 30)
+                .ToList(),
+            SoffitBoard.CentreVented => new List<double> { depth / 2 - SlotRows / 2, depth / 2 + SlotRows / 2 },
+            _ => Enumerable.Range(1, (int)Math.Max(0, Math.Ceiling(depth / PlankWidth) - 1)).Select(row => row * PlankWidth).ToList()
+        };
+
+        foreach (var w in rows)
+        {
+            if (board == SoffitBoard.Hollow)
+            {
+                // A joint the length of the board, where it is under the board.
+                foreach (var (from, to) in Inside(piece.Outline, At(start, w), At(end, w)))
+                    mesh.AddEdge(Point3D.On(from, z), Point3D.On(to, z));
+                continue;
+            }
+
+            // Slots staggered row to row, as a perforated board is punched.
+            var offset = rows.IndexOf(w) % 2 * SlotPitch / 2;
+            for (var s = start + SlotPitch / 2 + offset; s + SlotLength / 2 <= end; s += SlotPitch)
+            {
+                var (from, to) = (At(s - SlotLength / 2, w), At(s + SlotLength / 2, w));
+                if (Polygon2D.Contains(piece.Outline, from) && Polygon2D.Contains(piece.Outline, to))
+                    mesh.AddEdge(Point3D.On(from, z), Point3D.On(to, z));
+            }
+        }
+    }
+
+    /// <summary>The stretches of a line from one point to another that lie inside an outline.</summary>
+    private static IEnumerable<(Point2D From, Point2D To)> Inside(IReadOnlyList<Point2D> outline, Point2D from, Point2D to)
+    {
+        var shares = new List<double> { 0, 1 };
+        for (var i = 0; i < outline.Count; i++)
+            if (Crossing(from, to, outline[i], outline[(i + 1) % outline.Count]) is { } t && t > 0 && t < 1) shares.Add(t);
+        shares.Sort();
+
+        for (var i = 0; i + 1 < shares.Count; i++)
+        {
+            var (a, b) = (from + (to - from) * shares[i], from + (to - from) * shares[i + 1]);
+            if (a.DistanceTo(b) > 1 && Polygon2D.Contains(outline, a.MidpointTo(b))) yield return (a, b);
+        }
     }
 
     /// <summary>Whether the profile turns at a point enough to be a line along the sweep, rather than part of a curve.</summary>
@@ -675,6 +1089,7 @@ public static class RoofEdgeSweeps
         var thickness = document.FindType<SlabType>(roof.TypeId)?.Thickness ?? 0;
         var board = Math.Max(1, document.FindType<SoffitType>(sweep.TypeId)?.Thickness ?? 12);
         var wanted = sweep.EdgeIds.ToHashSet();
+        var target = CarriedInto(document, roof);
 
         // Under a level eave that overhangs its wall.
         bool Under(int i) => wanted.Contains(roof.Edges[i].Id) && roof.Edges[i].DefinesSlope && roof.Edges[i].Overhang > 1;
@@ -707,7 +1122,24 @@ public static class RoofEdgeSweeps
 
             var outline = new List<Point2D> { a, b, inB, inA };
             if (Polygon2D.SignedArea(outline) < 0) outline.Reverse();
-            pieces.Add(new SoffitPiece(outline, underside, underside - board, a.DistanceTo(b)));
+
+            // Where the roof is carried back into another, the soffit stops where it goes in
+            // under that roof's underside.
+            IReadOnlyList<IReadOnlyList<Point2D>> parts = new[] { outline };
+            if (target is not null)
+            {
+                IReadOnlyList<PolygonBoolean.Region> left = new[] { new PolygonBoolean.Region(outline, Array.Empty<IReadOnlyList<Point2D>>()) };
+                foreach (var buried in Buried(document, target, underside - board - BuriedBy))
+                    left = left.SelectMany(region => PolygonBoolean.Combine(region.Holes.Prepend(region.Outer).ToList(), new[] { buried }, BooleanOperation.Difference)).ToList();
+                parts = left.Select(region => region.Outer).Where(part => Polygon2D.Area(part) > 100).ToList();
+            }
+
+            var along = (b - a).NormalisedOrDefault(Vector2D.UnitX);
+            foreach (var part in parts)
+            {
+                var length = part.Max(point => (point - a).Dot(along)) - part.Min(point => (point - a).Dot(along));
+                pieces.Add(new SoffitPiece(part, underside, underside - board, length, a, along, Inward(i)));
+            }
         }
 
         return pieces;
@@ -730,10 +1162,6 @@ public static class RoofEdgeSweeps
         OpenEdges(document, roof).Where(i => roof.Edges[i].DefinesSlope && roof.Edges[i].Overhang > 1).Select(i => roof.Edges[i].Id).ToList();
 
     /// <summary>
-    /// The edges a fascia goes round by itself: every edge of the roof, but not one carried back
-    /// into another roof it is joined to - a dormer's back edge, buried in the main roof.
-    /// </summary>
-    /// <summary>
     /// The fascia type that stands out most on a roof: the one whose colour is furthest from
     /// both the walls it runs above and the roof it finishes - a dark board under a light roof on
     /// pale render, a white one on brick. A fascia the colour of its surroundings is a band no
@@ -752,7 +1180,11 @@ public static class RoofEdgeSweeps
 
         ColourRgb? Of(Guid materialId) => document.FindMaterial(materialId)?.SurfaceColour;
 
-        var types = document.TypesOf<FasciaType>().ToList();
+        // Left to itself it chooses between the plain moulded boards: timber, composite, a
+        // capping board, an ogee or round one is a choice someone makes for themselves.
+        var all = document.TypesOf<FasciaType>().ToList();
+        var types = all.Where(type => type.Profile == FasciaProfile.Moulded).ToList();
+        if (types.Count == 0) types = all;
         if (types.Count == 0) return null;
 
         // The roof's finish, and the faces of the walls its edges were picked off.
@@ -782,6 +1214,10 @@ public static class RoofEdgeSweeps
             .First();
     }
 
+    /// <summary>
+    /// The edges a fascia goes round by itself: every edge of the roof, but not one carried back
+    /// into another roof it is joined to - a dormer's back edge, buried in the main roof.
+    /// </summary>
     public static IReadOnlyList<Guid> FasciaEdges(BimDocument document, Roof roof) =>
         OpenEdges(document, roof).Select(i => roof.Edges[i].Id).ToList();
 

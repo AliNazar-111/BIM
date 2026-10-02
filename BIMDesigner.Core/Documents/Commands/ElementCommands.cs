@@ -60,11 +60,19 @@ public sealed class DeleteElementCommand : IUndoableCommand
     {
         _removed.Clear();
 
+        // What it hosts goes with it, and what that hosts: a roof's gutters, and their downpipes.
         var doomed = new List<Element> { _element };
-        doomed.AddRange(_document.Elements
-            .OfType<IHostedElement>()
-            .Where(hosted => hosted.HostId == _element.Id)
-            .Cast<Element>());
+        var ids = new HashSet<Guid> { _element.Id };
+        for (var added = true; added;)
+        {
+            var more = _document.Elements.OfType<IHostedElement>()
+                .Where(hosted => ids.Contains(hosted.HostId))
+                .Cast<Element>()
+                .Where(element => ids.Add(element.Id))
+                .ToList();
+            doomed.AddRange(more);
+            added = more.Count > 0;
+        }
 
         // Highest index first, so removing one does not shift the others.
         foreach (var element in doomed

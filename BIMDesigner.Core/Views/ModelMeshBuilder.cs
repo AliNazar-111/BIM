@@ -49,6 +49,10 @@ public static class ModelMeshBuilder
             if (RoofEdgeSweeps.Mesh(document, sweep, levelId) is { IsEmpty: false } mesh) meshes.Add(mesh);
         }
 
+        // The downpipes taking the water down from them.
+        foreach (var pipe in document.Elements.OfType<Downpipe>().Where(p => shows(p)))
+            if (Downpipes.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
+
         return Finished(meshes);
     }
 
@@ -1011,6 +1015,11 @@ public static class ModelMeshBuilder
     /// A floor, ceiling or roof as its layers, hanging down from its upper surface - the same
     /// convention the section uses, so the two views cannot disagree about where it sits.
     /// </summary>
+    /// <summary>What the slot between a floor and a curtain wall is packed with, and its colour where the project has no such material.</summary>
+    public const string FireStopMaterial = "Fire Stop, Mineral Wool";
+
+    private static readonly ColourRgb FireStopColour = ColourRgb.FromHex("D8C98A");
+
     private static void AddSlab(BimDocument document, Slab slab, List<Mesh3D> meshes)
     {
         if (slab.Boundary.Count < 3) return;
@@ -1027,15 +1036,27 @@ public static class ModelMeshBuilder
 
         var surface = (document.FindLevel(slab.LevelId)?.Elevation ?? 0) + slab.HeightOffset;
 
-        // Less the shafts through it. What is left is built a piece at a time, cut straight
-        // across each hole; those cuts are inside the slab, not faces of it.
+        // Cut back from the curtain walls in front of it, and less the shafts through it. What
+        // is left is built a piece at a time, cut straight across each hole; those cuts are
+        // inside the slab, not faces of it.
         IReadOnlyList<IReadOnlyList<Point2D>> pieces = new[] { slab.Boundary };
         Func<Point2D, Point2D, bool>? cut = null;
-        if (Shafts.Through(document, slab).Any())
+        if (SlabEdges.IsCut(document, slab))
         {
-            var regions = Shafts.Regions(document, slab);
+            var regions = SlabEdges.Regions(document, slab);
             pieces = Shafts.Pieces(regions);
             cut = Shafts.CutAlong(regions);
+        }
+
+        // The fire stop packed into the slot between its edge and the curtain wall, its full depth.
+        var stops = SlabEdges.FireStops(document, slab);
+        if (stops.Count > 0)
+        {
+            var fireStop = document.Materials.FirstOrDefault(material => material.Name == FireStopMaterial);
+            var stopMesh = new Mesh3D(slab.Id, slab.LevelId, MeshKind.Floor, fireStop?.SurfaceColour ?? FireStopColour, fireStop?.Name ?? FireStopMaterial);
+            var depth = type.Structure.TotalWidth;
+            foreach (var stop in stops) stopMesh.AddExtrusion(stop, surface - depth, surface);
+            if (!stopMesh.IsEmpty) meshes.Add(stopMesh);
         }
 
         foreach (var (layer, start, end) in type.Structure.GetLayerOffsets())

@@ -350,8 +350,7 @@ public static class Shafts
     }
 
     /// <summary>A floor's or ceiling's area less the shafts through it, mm².</summary>
-    public static double NetArea(BimDocument document, Slab slab) =>
-        Through(document, slab).Any() ? Regions(document, slab).Sum(region => region.Area) : slab.Area;
+    public static double NetArea(BimDocument document, Slab slab) => SlabEdges.NetArea(document, slab);
 
     /// <summary>What a shaft passes through, for the property panel: "1 roof, 2 floors".</summary>
     public static string CutSummary(BimDocument document, ShaftOpening shaft)

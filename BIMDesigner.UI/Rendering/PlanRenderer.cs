@@ -255,6 +255,7 @@ public sealed class PlanRenderer
         foreach (var sweep in OnActiveLevel<RoofEdgeSweep>()) DrawRoofEdgeSweep(dc, sweep);
         foreach (var roofWindow in OnActiveLevel<RoofWindow>()) DrawRoofWindow(dc, roofWindow);
         foreach (var shaft in ShaftsOnPlan()) DrawShaft(dc, shaft);
+        foreach (var pipe in DownpipesOnPlan()) DrawDownpipe(dc, pipe);
 
         if (!underlay)
             foreach (var room in OnActiveLevel<Room>()) DrawRoomFill(dc, room);
@@ -1098,6 +1099,28 @@ public sealed class PlanRenderer
         foreach (var (from, to) in shaft.Cross) dc.DrawLine(pen, ModelToScreen(from), ModelToScreen(to));
     }
 
+    /// <summary>
+    /// A downpipe seen from above: its section where it runs down the wall, and the swan neck from
+    /// the gutter's outlet back to it.
+    /// </summary>
+    private void DrawDownpipe(DrawingContext dc, Downpipe pipe)
+    {
+        if (Document is null || Downpipes.Path(Document, pipe) is not { } path) return;
+
+        var pen = IsSelected(pipe) ? _selectedPen : _roofLinePen;
+        dc.DrawGeometry(null, pen, BuildOutline(path.Footprint));
+        if (path.Points[0].Plan.DistanceTo(path.Foot) > 1) dc.DrawLine(pen, ModelToScreen(path.Points[0].Plan), ModelToScreen(path.Foot));
+    }
+
+    /// <summary>The downpipes drawn on this plan: on their gutter's storey, and on every one they pass down through.</summary>
+    private IEnumerable<Downpipe> DownpipesOnPlan() =>
+        Document is null
+            ? Enumerable.Empty<Downpipe>()
+            : Document.Elements.OfType<Downpipe>().Where(pipe => Filter(pipe) &&
+                (pipe.LevelId == ActiveLevelId ||
+                 (Document.FindLevel(ActiveLevelId) is { } level && Downpipes.Path(Document, pipe) is { } path &&
+                  level.Elevation >= path.Bottom - 1 && level.Elevation < path.Points[0].Z)));
+
     /// <summary>The shafts drawn on this plan: those on its level, and those passing up through it.</summary>
     private IEnumerable<ShaftOpening> ShaftsOnPlan() =>
         Document is null
@@ -1129,10 +1152,10 @@ public sealed class PlanRenderer
 
         var isSelected = IsSelected(slab);
 
-        // A floor or ceiling with shafts through it: drawn with the holes in it.
-        if (slab is not Roof && Shafts.Through(Document, slab).Any())
+        // A floor or ceiling with shafts through it, or cut back from a curtain wall: drawn as built.
+        if (slab is not Roof && SlabEdges.IsCut(Document, slab))
         {
-            foreach (var region in Shafts.Regions(Document, slab))
+            foreach (var region in SlabEdges.Regions(Document, slab))
                 dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildLoops(Shafts.Loops(region)));
             return;
         }

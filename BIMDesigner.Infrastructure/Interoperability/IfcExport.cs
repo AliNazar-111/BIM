@@ -156,6 +156,7 @@ public static class IfcExport
             foreach (var wall in _document.Walls) ExportWall(wall);
             foreach (var slab in _document.Elements.OfType<Slab>()) ExportSlab(slab);
             foreach (var edge in _document.Elements.OfType<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
+            foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
@@ -1034,22 +1035,13 @@ public static class IfcExport
             });
         }
 
-        /// <summary>
-        /// A leaning wall's body. A slanted or tapered wall is not an upright extrusion of one
-        /// outline, so it is written as the triangles of its solids - the same ones the 3D view
-        /// draws - in the wall's own coordinates.
-        /// </summary>
-        /// <summary>
-        /// A fascia or gutter: its own element to a receiving application, placed on the storey of
-        /// the roof it runs along, its body the triangles the 3D view draws.
-        /// </summary>
         /// <summary>A roof window as an IfcWindow of the skylight kind, its frame and pane as one body.</summary>
         private void ExportRoofWindow(RoofWindow window)
         {
             var meshes = RoofWindows.Meshes(_document, window);
             if (meshes.Count == 0) return;
 
-            var type = _document.FindType<RoofWindowType>(window.TypeId);
+            var type = _document.FindType<RoofWindowType>(window.TypeId) is { } found ? window.Built(found) : null;
             var storey = StoreyOf(window);
             var storeyElevation = _document.FindLevel(window.LevelId)?.Elevation ?? 0;
 
@@ -1105,21 +1097,58 @@ public static class IfcExport
             Contain(window, product);
         }
 
+        /// <summary>
+        /// A fascia or gutter: its own element to a receiving application, placed on the storey of
+        /// the roof it runs along, its body the triangles the 3D view draws.
+        /// </summary>
         private void ExportRoofEdgeSweep(RoofEdgeSweep sweep)
         {
             var mesh = RoofEdgeSweeps.Mesh(_document, sweep, sweep.LevelId);
             if (mesh.IsEmpty) return;
 
-            var storey = StoreyOf(sweep);
-            var storeyElevation = _document.FindLevel(sweep.LevelId)?.Elevation ?? 0;
             var kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", _ => "Fascia" };
+            var proxy = ExportMeshProxy(sweep, mesh, _document.ElementTypes.FirstOrDefault(type => type.Id == sweep.TypeId)?.Name ?? kind, kind);
+
+            // A soffit's board, and the air it lets into the roof - what eaves ventilation is checked by.
+            if (sweep is Soffit && _document.FindType<SoffitType>(sweep.TypeId) is { } soffit)
+                WriteSet(proxy, "Soffit", new Dictionary<string, IfcValue?>
+                {
+                    ["Board"] = new IfcLabel(EnumText.Humanise(soffit.Board)),
+                    ["FreeAirAreaPerMetre"] = new IfcReal(soffit.FreeAirArea),
+                    ["FreeAirArea"] = new IfcAreaMeasure(soffit.FreeAirArea * sweep.Length(_document) / 1000 / 1e6)
+                });
+        }
+
+        /// <summary>A downpipe: its own element to a receiving application, its body the triangles the 3D view draws.</summary>
+        private void ExportDownpipe(Downpipe pipe)
+        {
+            if (Downpipes.Mesh(_document, pipe) is not { } mesh) return;
+
+            var gutter = _document.Elements.OfType<Gutter>().FirstOrDefault(candidate => candidate.Id == pipe.GutterId);
+            var type = gutter is null ? null : _document.FindType<GutterType>(gutter.TypeId);
+            var proxy = ExportMeshProxy(pipe, mesh, type is null ? "Downpipe" : $"Downpipe {Downpipes.Size(type)}", "Downpipe");
+
+            if (type is not null && Downpipes.Path(_document, pipe) is { } path)
+                WriteSet(proxy, "Downpipe", new Dictionary<string, IfcValue?>
+                {
+                    ["Shape"] = new IfcLabel(EnumText.Humanise(type.DownpipeShape)),
+                    ["Size"] = new IfcLabel(Downpipes.Size(type)),
+                    ["Length"] = new IfcLengthMeasure(path.Length)
+                });
+        }
+
+        /// <summary>An element as a building element proxy, on its storey, its body a triangulated face set.</summary>
+        private IfcBuildingElementProxy ExportMeshProxy(Element element, Mesh3D mesh, string name, string kind)
+        {
+            var storey = StoreyOf(element);
+            var storeyElevation = _document.FindLevel(element.LevelId)?.Elevation ?? 0;
 
             var proxy = New<IfcBuildingElementProxy>(p =>
             {
-                p.GlobalId = sweep.Id.ToIfc();
-                p.Name = _document.ElementTypes.FirstOrDefault(type => type.Id == sweep.TypeId)?.Name ?? kind;
+                p.GlobalId = element.Id.ToIfc();
+                p.Name = name;
                 p.ObjectType = kind;
-                p.Tag = sweep.Mark;
+                p.Tag = element.Mark;
                 p.ObjectPlacement = New<IfcLocalPlacement>(placement =>
                 {
                     placement.PlacementRelTo = storey?.ObjectPlacement;
@@ -1153,9 +1182,15 @@ public static class IfcExport
                 p.Representation = New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
             });
 
-            Contain(sweep, proxy);
+            Contain(element, proxy);
+            return proxy;
         }
 
+        /// <summary>
+        /// A leaning wall's body. A slanted or tapered wall is not an upright extrusion of one
+        /// outline, so it is written as the triangles of its solids - the same ones the 3D view
+        /// draws - in the wall's own coordinates.
+        /// </summary>
         private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, params MeshKind[] kinds)
         {
             var baseElevation = wall.GetBaseElevation(_document);

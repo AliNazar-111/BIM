@@ -114,7 +114,7 @@ public partial class PlanView
         if (_roofWindowDrag is not { } drag || !ReferenceEquals(drag.Window, window)) _roofWindowDrag = (window, window.Location);
 
         if (RoofWindows.Along(Document, roof, from, through) is not { } at ||
-            RoofWindows.FrameOn(Document, roof, type, at) is not { } frame)
+            RoofWindows.FrameOn(Document, roof, window.Built(type), at) is not { } frame)
         {
             HintChanged?.Invoke(this, "Keep the cursor on the roof: a roof window slides along the roof it is in.");
             return false;

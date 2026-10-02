@@ -35,6 +35,9 @@ public static class ElementTransforms
 
         // A shaft belongs to nothing: it is where it was put, and cuts whatever is there.
         ShaftOpening => true,
+
+        // A downpipe slides along its gutter to wherever it is moved to.
+        Downpipe => true,
         IHostedElement => false,
         Wall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -73,6 +76,10 @@ public static class ElementTransforms
 
             case ShaftOpening shaft:
                 shaft.Location += delta;
+                break;
+
+            case Downpipe pipe:
+                pipe.Location += delta;
                 break;
 
             case Column column:
@@ -160,6 +167,10 @@ public static class ElementTransforms
 
             case RoofWindow roofWindow:
                 roofWindow.Location = Reflect(roofWindow.Location);
+                break;
+
+            case Downpipe pipe:
+                pipe.Location = Reflect(pipe.Location);
                 break;
 
             case ShaftOpening shaft:

@@ -975,10 +975,23 @@ public static class SectionProjection
         // which is the order a floor build-up is specified in.
         var top = (document.FindLevel(slab.LevelId)?.Elevation ?? 0) + slab.HeightOffset;
 
-        // Less the shafts through it: where the cut crosses one, there is no floor.
-        var spans = Shafts.Through(document, slab).Any()
-            ? Shafts.Regions(document, slab).SelectMany(region => CrossShape(marker, Shafts.Loops(region))).ToList()
+        // Less the shafts through it, and cut back from the curtain walls in front of it: where
+        // the cut crosses a shaft or the slot at its edge, there is no floor.
+        var spans = SlabEdges.IsCut(document, slab)
+            ? SlabEdges.Regions(document, slab).SelectMany(region => CrossShape(marker, Shafts.Loops(region))).ToList()
             : CrossPolygon(marker, slab.Boundary).ToList();
+
+        // The fire stop in that slot, packed the depth of the floor.
+        var fireStop = document.Materials.FirstOrDefault(material => material.Name == ModelMeshBuilder.FireStopMaterial);
+        foreach (var stop in SlabEdges.FireStops(document, slab))
+        foreach (var (from, to) in CrossPolygon(marker, stop))
+            pieces.Add(new SectionPiece(
+                new SectionRect(from, top - structure.TotalWidth, to, top),
+                SectionPart.SlabLayer,
+                SectionDepth.Cut,
+                fireStop?.CutColour ?? ColourRgb.FromHex("C9B874"),
+                ModelMeshBuilder.FireStopMaterial,
+                slab.Id));
 
         foreach (var (from, to) in spans)
         {

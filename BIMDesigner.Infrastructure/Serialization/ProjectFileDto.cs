@@ -44,6 +44,7 @@ internal sealed class ProjectFileDto
     public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
     public List<RoofWindowDto> RoofWindows { get; set; } = new();
     public List<ShaftOpeningDto> ShaftOpenings { get; set; } = new();
+    public List<DownpipeDto> Downpipes { get; set; } = new();
     public List<WallOpeningDto> WallOpenings { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
@@ -979,6 +980,7 @@ internal sealed class FasciaTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+    public string? Profile { get; set; }
 }
 
 internal sealed class SoffitTypeDto
@@ -990,6 +992,8 @@ internal sealed class SoffitTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+    public string? Board { get; set; }
+    public double FreeAirArea { get; set; }
 }
 
 internal sealed class GutterTypeDto
@@ -1004,6 +1008,22 @@ internal sealed class GutterTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+    public double HangerSpacing { get; set; } = 600;
+    public bool LeafGuard { get; set; }
+    public string? DownpipeShape { get; set; }
+    public double DownpipeWidth { get; set; } = 68;
+    public double DownpipeDepth { get; set; } = 68;
+}
+
+internal sealed class DownpipeDto
+{
+    public Guid Id { get; set; }
+    public Guid GutterId { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
 }
 
 /// <summary>A fascia or gutter: the roof it runs along, which of its edges, and how far it is moved off them.</summary>
@@ -1047,6 +1067,12 @@ internal sealed class RoofWindowDto
     public double Y { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+    public double? Width { get; set; }
+    public double? Height { get; set; }
+    public double? FrameWidth { get; set; }
+    public double? Upstand { get; set; }
+    public Guid? FrameMaterialId { get; set; }
+    public Guid? GlassMaterialId { get; set; }
 }
 
 internal sealed class ShaftOpeningDto

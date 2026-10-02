@@ -44,13 +44,20 @@ public static class ElementCopy
         }
 
         // Anything hosted in something being copied comes with it, whether or not it was
-        // picked: a wall without its doors is not a copy of that wall.
-        foreach (var hosted in document.Elements.OfType<IHostedElement>())
+        // picked: a wall without its doors is not a copy of that wall. And what is hosted in
+        // that - a gutter's downpipes, with the roof the gutter is on.
+        for (var added = true; added;)
         {
-            if (!seen.Contains(hosted.HostId)) continue;
+            added = false;
+            foreach (var hosted in document.Elements.OfType<IHostedElement>())
+            {
+                if (!seen.Contains(hosted.HostId)) continue;
 
-            var element = (Element)hosted;
-            if (seen.Add(element.Id)) originals.Add(element);
+                var element = (Element)hosted;
+                if (!seen.Add(element.Id)) continue;
+                originals.Add(element);
+                added = true;
+            }
         }
 
         var copies = new List<Element>();
@@ -243,7 +250,8 @@ public static class ElementCopy
         Fascia fascia => CarryRoofEdgeSweep(new Fascia(), fascia),
         Gutter gutter => CarryRoofEdgeSweep(new Gutter(), gutter),
         Soffit soffit => CarryRoofEdgeSweep(new Soffit(), soffit),
-        RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location }, roofWindow),
+        RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location, Own = roofWindow.Own }, roofWindow),
+        Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location }, pipe),
         ShaftOpening shaft => CarryCommon(new ShaftOpening
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
@@ -403,6 +411,10 @@ public static class ElementCopy
 
             case RoofWindow roofWindow when replacements.TryGetValue(roofWindow.RoofId, out var windowRoof):
                 roofWindow.RoofId = windowRoof;
+                break;
+
+            case Downpipe pipe when replacements.TryGetValue(pipe.GutterId, out var pipeGutter):
+                pipe.GutterId = pipeGutter;
                 break;
 
             case PlacedSweep placed:

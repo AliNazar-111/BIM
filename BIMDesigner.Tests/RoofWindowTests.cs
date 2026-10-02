@@ -3,6 +3,7 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Parameters;
 using BIMDesigner.Core.Views;
 using BIMDesigner.Infrastructure.Serialization;
 
@@ -130,6 +131,78 @@ public class RoofWindowTests
         var cut = SectionProjection.Build(document, marker).Pieces.Where(piece => piece.ElementId == window.Id).ToList();
         Assert.Equal(2, cut.Count(piece => piece.Part == SectionPart.Frame));
         Assert.Single(cut, piece => piece.Part == SectionPart.Glazing);
+    }
+
+    private static ParameterValue Parameter(BimDocument document, RoofWindow window, string name) =>
+        window.GetInstanceParameters(document).Single(parameter => parameter.Name == name);
+
+    [Fact]
+    public void ChangingOneWindowChangesThatOneAloneAndNotItsTypeOrTheNextOnePutIn()
+    {
+        var (document, roof, type) = House();
+        var first = Put(document, roof, type, new Point2D(3000, 2000));
+        var second = Put(document, roof, type, new Point2D(7000, 2000));
+
+        var width = Parameter(document, first, "Width");
+        Assert.True(width.TrySet(1000.0));
+        Assert.True(Parameter(document, first, "Upstand").TrySet(150.0));
+
+        Assert.Equal(1000, RoofWindows.Frame(document, first)!.Type.Width);
+        var corners = RoofWindows.Frame(document, first)!.Corners;
+        Assert.Equal(1000, corners[0].DistanceTo(corners[1]), 6);
+        Assert.Equal(type.Width, RoofWindows.Frame(document, second)!.Type.Width);
+        Assert.Equal(780, type.Width);
+        Assert.Equal(90, type.Upstand);
+
+        // The next one put in is the type's size.
+        var next = Put(document, roof, type, new Point2D(5000, 6000));
+        Assert.Equal(780, RoofWindows.Frame(document, next)!.Type.Width);
+
+        // One step back, and it is its type's size again.
+        width.TakeAppliedChange()!.Undo();
+        Assert.Null(first.Width);
+        Assert.Equal(780, RoofWindows.Frame(document, first)!.Type.Width);
+    }
+
+    [Fact]
+    public void ASizeThatWouldNotFitWhereItIsIsRefusedWithWhy()
+    {
+        var (document, roof, type) = House();
+        var window = Put(document, roof, type, new Point2D(5000, 3000));
+
+        // Up the slope into the ridge.
+        var height = Parameter(document, window, "Height (up the slope)");
+        Assert.False(height.TrySet(2400.0));
+        Assert.Contains("ridge", height.Message);
+        Assert.Null(window.Height);
+
+        // All frame and no glass.
+        var frame = Parameter(document, window, "Frame Width");
+        Assert.False(frame.TrySet(400.0));
+        Assert.Contains("no glass", frame.Message);
+    }
+
+    [Fact]
+    public void ItsOwnMaterialsAndSizeGoWithItWhenCopiedSavedAndOpened()
+    {
+        var (document, roof, type) = House();
+        var window = Put(document, roof, type, new Point2D(5000, 2000));
+        var timber = document.Materials.First(material => material.Id != type.FrameMaterialId);
+
+        Assert.True(Parameter(document, window, "Frame Material").TrySet(timber.Name));
+        Assert.True(Parameter(document, window, "Width").TrySet(940.0));
+        Assert.Equal(timber.Id, window.FrameMaterialId);
+        Assert.Contains(RoofWindows.Meshes(document, window), mesh => mesh.Description == timber.Name);
+
+        var copy = ElementCopy.Duplicate(document, new[] { window }).OfType<RoofWindow>().Single();
+        Assert.Equal(window.Own, copy.Own);
+
+        var reloaded = ProjectFile.FromJson(ProjectFile.ToJson(document)).Elements.OfType<RoofWindow>().Single(again => again.Id == window.Id);
+        Assert.Equal(window.Own, reloaded.Own);
+
+        // Back to its type's.
+        Assert.True(Parameter(document, window, "Frame Material").TrySet(RoofWindowOwn.ByType));
+        Assert.Null(window.FrameMaterialId);
     }
 
     [Fact]

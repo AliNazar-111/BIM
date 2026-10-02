@@ -132,7 +132,7 @@ public static class ProjectFile
             dto.FasciaTypes.Add(new FasciaTypeDto
             {
                 Id = fascia.Id, Name = fascia.Name, TypeMark = fascia.TypeMark, Thickness = fascia.Thickness, Depth = fascia.Depth,
-                MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description
+                MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description, Profile = fascia.Profile.ToString()
             });
 
         foreach (var gutter in document.TypesOf<GutterType>())
@@ -140,14 +140,23 @@ public static class ProjectFile
             {
                 Id = gutter.Id, Name = gutter.Name, TypeMark = gutter.TypeMark, Shape = gutter.Shape.ToString(), Width = gutter.Width,
                 Depth = gutter.Depth, WallThickness = gutter.WallThickness, MaterialId = gutter.MaterialId, Cost = gutter.Cost,
-                Description = gutter.Description
+                Description = gutter.Description, HangerSpacing = gutter.HangerSpacing, LeafGuard = gutter.LeafGuard,
+                DownpipeShape = gutter.DownpipeShape.ToString(), DownpipeWidth = gutter.DownpipeWidth, DownpipeDepth = gutter.DownpipeDepth
+            });
+
+        foreach (var pipe in document.Elements.OfType<Downpipe>())
+            dto.Downpipes.Add(new DownpipeDto
+            {
+                Id = pipe.Id, GutterId = pipe.GutterId, LevelId = pipe.LevelId, X = pipe.Location.X, Y = pipe.Location.Y,
+                Mark = pipe.Mark, Comments = pipe.Comments
             });
 
         foreach (var soffit in document.TypesOf<SoffitType>())
             dto.SoffitTypes.Add(new SoffitTypeDto
             {
                 Id = soffit.Id, Name = soffit.Name, TypeMark = soffit.TypeMark, Thickness = soffit.Thickness,
-                MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description
+                MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description,
+                Board = soffit.Board.ToString(), FreeAirArea = soffit.FreeAirArea
             });
 
         foreach (var type in document.TypesOf<RoofWindowType>())
@@ -162,7 +171,9 @@ public static class ProjectFile
             dto.RoofWindows.Add(new RoofWindowDto
             {
                 Id = window.Id, TypeId = window.TypeId, LevelId = window.LevelId, RoofId = window.RoofId,
-                X = window.Location.X, Y = window.Location.Y, Mark = window.Mark, Comments = window.Comments
+                X = window.Location.X, Y = window.Location.Y, Mark = window.Mark, Comments = window.Comments,
+                Width = window.Width, Height = window.Height, FrameWidth = window.FrameWidth, Upstand = window.Upstand,
+                FrameMaterialId = window.FrameMaterialId, GlassMaterialId = window.GlassMaterialId
             });
 
         foreach (var shaft in document.Elements.OfType<ShaftOpening>())
@@ -1017,7 +1028,10 @@ public static class ProjectFile
             {
                 Id = fascia.Id, TypeMark = fascia.TypeMark, Thickness = PositiveOr(fascia.Thickness, 25),
                 Depth = double.IsFinite(fascia.Depth) ? Math.Max(0, fascia.Depth) : 0,
-                MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description
+                MaterialId = fascia.MaterialId, Cost = fascia.Cost, Description = fascia.Description,
+
+                // A board saved before fascias had profiles was the moulded one.
+                Profile = ParseEnum(fascia.Profile, FasciaProfile.Moulded)
             });
 
         foreach (var type in dto.RoofWindowTypes)
@@ -1033,7 +1047,11 @@ public static class ProjectFile
             document.AddType(new SoffitType(soffit.Name)
             {
                 Id = soffit.Id, TypeMark = soffit.TypeMark, Thickness = PositiveOr(soffit.Thickness, 12),
-                MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description
+                MaterialId = soffit.MaterialId, Cost = soffit.Cost, Description = soffit.Description,
+
+                // A board saved before soffits had kinds was a plain one.
+                Board = ParseEnum(soffit.Board, SoffitBoard.Solid),
+                FreeAirArea = double.IsFinite(soffit.FreeAirArea) && soffit.FreeAirArea > 0 ? soffit.FreeAirArea : 0
             });
 
         foreach (var gutter in dto.GutterTypes)
@@ -1041,7 +1059,11 @@ public static class ProjectFile
             {
                 Id = gutter.Id, TypeMark = gutter.TypeMark, Shape = ParseEnum(gutter.Shape, GutterShape.HalfRound),
                 Width = PositiveOr(gutter.Width, 125), Depth = PositiveOr(gutter.Depth, 75), WallThickness = PositiveOr(gutter.WallThickness, 4),
-                MaterialId = gutter.MaterialId, Cost = gutter.Cost, Description = gutter.Description
+                MaterialId = gutter.MaterialId, Cost = gutter.Cost, Description = gutter.Description,
+                HangerSpacing = double.IsFinite(gutter.HangerSpacing) && gutter.HangerSpacing >= 0 ? gutter.HangerSpacing : 600,
+                LeafGuard = gutter.LeafGuard,
+                DownpipeShape = ParseEnum(gutter.DownpipeShape, DownpipeShape.Round),
+                DownpipeWidth = PositiveOr(gutter.DownpipeWidth, 68), DownpipeDepth = PositiveOr(gutter.DownpipeDepth, 68)
             });
 
         foreach (var dtoCurtain in dto.CurtainWallTypes)
@@ -1464,7 +1486,23 @@ public static class ProjectFile
             document.Add(new RoofWindow
             {
                 Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, RoofId = saved.RoofId,
-                Location = new Point2D(saved.X, saved.Y), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Location = new Point2D(saved.X, saved.Y), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+
+                // Its own size and make-up, where it had them; anything unreadable takes its type's.
+                Width = Own(saved.Width), Height = Own(saved.Height), FrameWidth = Own(saved.FrameWidth), Upstand = Own(saved.Upstand),
+                FrameMaterialId = saved.FrameMaterialId is { } frame && document.FindMaterial(frame) is not null ? frame : null,
+                GlassMaterialId = saved.GlassMaterialId is { } glass && document.FindMaterial(glass) is not null ? glass : null
+            });
+
+        static double? Own(double? value) => value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+
+        // A downpipe hangs off its gutter; one whose gutter is gone has nothing to drain.
+        var gutterIds = document.Elements.OfType<Gutter>().Select(gutter => gutter.Id).ToHashSet();
+        foreach (var saved in dto.Downpipes.Where(saved => gutterIds.Contains(saved.GutterId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new Downpipe
+            {
+                Id = saved.Id, GutterId = saved.GutterId, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y),
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
         // A shaft stands on a level; one whose level is gone has nowhere to start from.

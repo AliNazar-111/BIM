@@ -91,7 +91,10 @@ public enum PlanTool
     RoofWindow,
 
     /// <summary>Cuts a shaft straight down through the roofs, floors and ceilings where it is clicked.</summary>
-    Shaft
+    Shaft,
+
+    /// <summary>Puts a downpipe on the gutter clicked, down the wall under it.</summary>
+    Downpipe
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -335,8 +338,9 @@ public partial class PlanView : FrameworkElement
     private bool IsOnActiveLevel(Element element) =>
         element is Grid ||
         ((element.LevelId == ActiveLevelId ||
-          // A shaft is on every plan it passes up through.
-          (element is ShaftOpening shaft && Document is not null && Shafts.ShownOn(Document, shaft, ActiveLevelId))) &&
+          // A shaft is on every plan it passes up through, and a downpipe on every one it passes down through.
+          (element is ShaftOpening shaft && Document is not null && Shafts.ShownOn(Document, shaft, ActiveLevelId)) ||
+          (element is Downpipe pipe && Document is not null && DownpipeShownHere(pipe))) &&
          _shows(element));
 
     /// <summary>This view's filters, worked out once per repaint or pick rather than per element.</summary>
@@ -1102,6 +1106,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
         PlanTool.Soffit => "Click a roof's eaves one after another: the soffit closes the overhang under them, back to the wall. Esc finishes it.",
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
+        PlanTool.Downpipe => "Click on a gutter where the downpipe goes: an outlet in its bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. Its size and section come from the gutter's type.",
         PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
         PlanTool.WallOpening => "Click a wall where the opening goes. Set its size on the option bar; change it afterwards in Properties.",
         _ => "Click to select, TAB for alternates, Ctrl+click to add, or drag a box. Drag a selection to move it."
@@ -1442,6 +1447,12 @@ public partial class PlanView : FrameworkElement
             _cursorModel = raw;
             _cursorIsSnapped = false;
         }
+        else if (ActiveTool == PlanTool.Downpipe)
+        {
+            DownpipeHover(raw);
+            _cursorModel = raw;
+            _cursorIsSnapped = false;
+        }
         else if (ActiveTool == PlanTool.Shaft)
         {
             _cursorModel = SnapToGrid(raw);
@@ -1656,6 +1667,10 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.Shaft:
                 PlaceShaftAt(SnapToGrid(raw));
+                return;
+
+            case PlanTool.Downpipe:
+                PlaceDownpipeAt(raw);
                 return;
         }
 
@@ -2092,6 +2107,7 @@ public partial class PlanView : FrameworkElement
 
         // The windows in a roof go with it.
         if (Document is not null) _moveSet.AddRange(RoofWindows.Following(Document, _moveSet));
+        if (Document is not null) _moveSet.AddRange(Downpipes.Following(Document, _moveSet));
 
         // At the locked corners of what moves, the walls staying put stretch to keep meeting it.
         _followers.Clear();
@@ -3325,7 +3341,7 @@ public partial class PlanView : FrameworkElement
         }
         else
         {
-            var command = new MirrorElementsCommand(_selection.ToList(), axis);
+            var command = new MirrorElementsCommand(_selection.ToList(), axis, Document);
             Apply(command);
 
             HintChanged?.Invoke(this, $"Mirrored {Plural(_selection.Count, "element")}.");
@@ -5007,6 +5023,11 @@ public partial class PlanView : FrameworkElement
                 ring = shaft.Outline;
                 break;
 
+            case Downpipe pipe:
+                if (Downpipes.Path(Document, pipe) is { } pipePath)
+                    DrawModelPolyline(dc, _hoverPen, pipePath.Footprint.Append(pipePath.Footprint[0]).ToList());
+                return;
+
             case Room room:
                 ring = room.GetBoundary(Document).Polygon;
                 break;
@@ -5096,6 +5117,9 @@ public partial class PlanView : FrameworkElement
 
         // A shaft is a hole through what it passes, so it is picked before them.
         foreach (var shaft in ShaftsAt(model)) yield return shaft;
+
+        // A downpipe stands against its wall, under its gutter: picked before either.
+        foreach (var pipe in DownpipesAt(model)) yield return pipe;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
@@ -5195,6 +5219,7 @@ public partial class PlanView : FrameworkElement
         DrawRoofEdgePick(dc);
         DrawRoofWindowPreview(dc);
         DrawShaftPreview(dc);
+        DrawDownpipePreview(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);

@@ -434,6 +434,9 @@
                                 <RadioButton x:Name="GutterTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Gutter}"
                                              Content="Gutter" Checked="OnToolChanged"
                                              ToolTip="Roof: Gutter. Click a roof's eaves one after another: a gutter hangs along them, off the fascia if there is one. Esc finishes it"/>
+                                <RadioButton x:Name="DownpipeTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Downpipe}"
+                                             Content="Downpipe" Checked="OnToolChanged"
+                                             ToolTip="Downpipe: click on a gutter - in plan or in 3D - and a downpipe takes the water from there: an outlet in the gutter's bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. A dormer's lets its water onto the roof below. Section and size come from the gutter's type"/>
                                 <RadioButton x:Name="RoofWindowTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofWindow}"
                                              Content="Roof Window" Checked="OnToolChanged"
                                              ToolTip="Roof Window: click on a roof's slope - in plan or in 3D - and a roof window goes in it, lined up with the slope, the roof cut away under it"/>
@@ -766,6 +769,9 @@
                                 <Button x:Name="ContextCurtainGrid" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
                                         Content="Curtain Grid" Click="OnEditCurtainGrid"
                                         ToolTip="Add, move or delete the grid lines of the selected curtain wall"/>
+                                <Button x:Name="ContextSpandrels" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Spandrel}"
+                                        Content="Spandrels at Floors" Click="OnSpandrelsAtFloors"
+                                        ToolTip="Where a floor runs behind the selected curtain walls: a transom at the floor's top and another at its underside - or the ceiling's - with opaque spandrel panels between, hiding the slab edge, the fire-stopped gap and the ceiling void. Clear glass is left from floor to ceiling"/>
                                 <StackPanel Margin="2,0,0,0">
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
                                             Content="Attach Top" Click="OnAttachTops"
@@ -803,6 +809,9 @@
                                 <Button x:Name="ContextAddSoffits" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Soffit}"
                                         Content="Soffits" Click="OnAddSoffitsAllRound"
                                         ToolTip="Soffits under every eave of the selected roof that overhangs its wall, closing the overhang back to the wall"/>
+                                <Button x:Name="ContextAddDownpipes" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Downpipe}"
+                                        Content="Downpipes" Click="OnAddDownpipes"
+                                        ToolTip="A downpipe at each end of each gutter on the selected roof - or of the selected gutter - and at the corners of one that goes all round, where there is not one already"/>
                                 <Button x:Name="ContextAddRoofWindow" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.RoofWindow}"
                                         Content="Roof Window" Click="OnAddRoofWindow"
                                         ToolTip="Then click on the roof's slope: a roof window goes in it there, lined up with the slope, the roof cut away under it"/>

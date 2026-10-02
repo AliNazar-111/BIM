@@ -188,13 +188,43 @@ public sealed class BimDocument
                      _ => !present.Contains(type.Category)
                  }))
         {
-            foreach (var materialId in MaterialsUsedBy(type))
+            foreach (var materialId in MaterialsUsedBy(type).ToList())
             {
-                if (_materials.ContainsKey(materialId)) continue;
-                if (template.FindMaterial(materialId) is { } material) AddMaterial(material);
+                if (_materials.ContainsKey(materialId) || template.FindMaterial(materialId) is not { } material) continue;
+
+                // The project's own material of that name, where it has one, rather than a second
+                // "Timber, Softwood" beside it.
+                if (_materials.Values.FirstOrDefault(own => string.Equals(own.Name, material.Name, StringComparison.OrdinalIgnoreCase)) is { } same &&
+                    RepointMaterial(type, materialId, same.Id))
+                    continue;
+
+                AddMaterial(material);
             }
 
             AddType(type);
+        }
+    }
+
+    /// <summary>Points a type that refers to a material by itself at another; false for a type it cannot be done for here.</summary>
+    private static bool RepointMaterial(ElementType type, Guid from, Guid to)
+    {
+        switch (type)
+        {
+            case SoffitType soffit when soffit.MaterialId == from:
+                soffit.MaterialId = to;
+                return true;
+            case FasciaType fascia when fascia.MaterialId == from:
+                fascia.MaterialId = to;
+                return true;
+            case GutterType gutter when gutter.MaterialId == from:
+                gutter.MaterialId = to;
+                return true;
+            case RoofWindowType roofWindow when roofWindow.FrameMaterialId == from || roofWindow.GlassMaterialId == from:
+                if (roofWindow.FrameMaterialId == from) roofWindow.FrameMaterialId = to;
+                if (roofWindow.GlassMaterialId == from) roofWindow.GlassMaterialId = to;
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -828,6 +858,146 @@ public sealed class BimDocument
             Shape = GutterShape.HalfRound, Width = 125, WallThickness = 4, MaterialId = gutterPlastic.Id, TypeMark = "G1", Cost = 14m
         };
         var soffitBoard = new SoffitType("Soffit - 12 mm Board") { Thickness = 12, MaterialId = fasciaBoard.Id, TypeMark = "S1", Cost = 22m };
+
+        // Soffits by the air they let into the roof - solid, vented all over, vented down the
+        // middle, hollow - in white uPVC, the usual board; and by what they are made of:
+        // aluminium, timber, fibre cement, steel.
+        var pvcWhite = new Material("PVC-U, White")
+        {
+            Density = 1400,
+            ThermalConductivity = 0.17,
+            SurfaceColour = ColourRgb.FromHex("F4F4F1"),
+            CutColour = ColourRgb.FromHex("DADAD5"),
+            CostPerCubicMetre = 2400m
+        };
+        var fibreCement = new Material("Fibre Cement Board")
+        {
+            Density = 1300,
+            ThermalConductivity = 0.25,
+            SurfaceColour = ColourRgb.FromHex("D6D3CA"),
+            CutColour = ColourRgb.FromHex("B9B5AA"),
+            CostPerCubicMetre = 1800m
+        };
+        var coatedSteel = new Material("Steel, Colour Coated")
+        {
+            Density = 7850,
+            ThermalConductivity = 50,
+            SurfaceColour = ColourRgb.FromHex("C9CDD1"),
+            CutColour = ColourRgb.FromHex("9EA3A8"),
+            CostPerCubicMetre = 12000m
+        };
+        foreach (var material in new[] { pvcWhite, fibreCement, coatedSteel }) document.AddMaterial(material);
+
+        SoffitType Soffit(string name, string mark, double thickness, Material material, SoffitBoard board, decimal cost) =>
+            new(name)
+            {
+                Thickness = thickness, MaterialId = material.Id, Board = board, FreeAirArea = SoffitType.TypicalFreeAirArea(board),
+                TypeMark = mark, Cost = cost
+            };
+
+        var soffits = new[]
+        {
+            Soffit("Soffit - uPVC Solid 10 mm", "S2", 10, pvcWhite, SoffitBoard.Solid, 16m),
+            Soffit("Soffit - uPVC Vented 10 mm", "S3", 10, pvcWhite, SoffitBoard.Vented, 19m),
+            Soffit("Soffit - uPVC Centre Vented 10 mm", "S4", 10, pvcWhite, SoffitBoard.CentreVented, 18m),
+            Soffit("Soffit - uPVC Hollow 9 mm", "S5", 9, pvcWhite, SoffitBoard.Hollow, 12m),
+            Soffit("Soffit - Aluminium Vented 1 mm", "S6", 1, aluminium, SoffitBoard.Vented, 34m),
+            Soffit("Soffit - Timber 18 mm", "S7", 18, softwood, SoffitBoard.Solid, 26m),
+            Soffit("Soffit - Fibre Cement 9 mm", "S8", 9, fibreCement, SoffitBoard.Solid, 30m),
+            Soffit("Soffit - Steel 0.7 mm, Colour Coated", "S9", 0.7, coatedSteel, SoffitBoard.Solid, 38m)
+        };
+
+        // Fascias by what they are made of - timber, uPVC, aluminium, composite, fibre cement -
+        // and by the shape of their face: square, a capping board over an old fascia, ogee, round.
+        var cedar = new Material("Timber, Western Red Cedar")
+        {
+            Density = 370, ThermalConductivity = 0.11,
+            SurfaceColour = ColourRgb.FromHex("A5673F"), CutColour = ColourRgb.FromHex("8A5433"), CostPerCubicMetre = 1900m
+        };
+        var composite = new Material("Composite, Wood-Plastic Grey")
+        {
+            Density = 1300, ThermalConductivity = 0.25,
+            SurfaceColour = ColourRgb.FromHex("8C857A"), CutColour = ColourRgb.FromHex("6F695F"), CostPerCubicMetre = 2600m
+        };
+        // What the slot between a floor's edge and a curtain wall is packed with.
+        var fireStop = new Material("Fire Stop, Mineral Wool")
+        {
+            Density = 100, ThermalConductivity = 0.035,
+            SurfaceColour = ColourRgb.FromHex("D8C98A"), CutColour = ColourRgb.FromHex("C9B874"), CostPerCubicMetre = 400m
+        };
+        foreach (var material in new[] { cedar, composite, fireStop }) document.AddMaterial(material);
+
+        FasciaType Fascia(string name, string mark, FasciaProfile profile, double thickness, Material material, decimal cost) =>
+            new(name) { Profile = profile, Thickness = thickness, MaterialId = material.Id, TypeMark = mark, Cost = cost };
+
+        // Gutters by their section - K-style, half round, box, fascia gutter - and in what they
+        // are made of: aluminium, copper (bright, or gone green-blue with age), vinyl,
+        // galvanised steel, zinc. Each with the downpipes that go with it.
+        var aluminiumWhite = new Material("Aluminium, Powder Coated White")
+        {
+            Density = 2700, ThermalConductivity = 160,
+            SurfaceColour = ColourRgb.FromHex("F2F2EE"), CutColour = ColourRgb.FromHex("C9CBCC"), CostPerCubicMetre = 9500m
+        };
+        var aluminiumAnthracite = new Material("Aluminium, Powder Coated Anthracite")
+        {
+            Density = 2700, ThermalConductivity = 160,
+            SurfaceColour = ColourRgb.FromHex("3B3F45"), CutColour = ColourRgb.FromHex("2E3136"), CostPerCubicMetre = 9500m
+        };
+        var copper = new Material("Copper")
+        {
+            Density = 8960, ThermalConductivity = 400,
+            SurfaceColour = ColourRgb.FromHex("B87333"), CutColour = ColourRgb.FromHex("8E5626"), CostPerCubicMetre = 90000m
+        };
+        var copperPatina = new Material("Copper, Patinated")
+        {
+            Density = 8960, ThermalConductivity = 400,
+            SurfaceColour = ColourRgb.FromHex("6FAE9C"), CutColour = ColourRgb.FromHex("8E5626"), CostPerCubicMetre = 90000m
+        };
+        var galvanised = new Material("Steel, Galvanised")
+        {
+            Density = 7850, ThermalConductivity = 50,
+            SurfaceColour = ColourRgb.FromHex("A9AFB4"), CutColour = ColourRgb.FromHex("858B90"), CostPerCubicMetre = 11000m
+        };
+        var zinc = new Material("Zinc, Pre-Weathered")
+        {
+            Density = 7140, ThermalConductivity = 116,
+            SurfaceColour = ColourRgb.FromHex("7F868C"), CutColour = ColourRgb.FromHex("656B70"), CostPerCubicMetre = 30000m
+        };
+        foreach (var material in new[] { aluminiumWhite, aluminiumAnthracite, copper, copperPatina, galvanised, zinc }) document.AddMaterial(material);
+
+        GutterType Gutter(string name, string mark, GutterShape shape, double width, double depth, double sheet, Material material,
+            DownpipeShape pipe, double pipeWidth, double pipeDepth, decimal cost) =>
+            new(name)
+            {
+                Shape = shape, Width = width, Depth = depth, WallThickness = sheet, MaterialId = material.Id,
+                DownpipeShape = pipe, DownpipeWidth = pipeWidth, DownpipeDepth = pipeDepth, TypeMark = mark, Cost = cost
+            };
+
+        var gutters = new[]
+        {
+            Gutter("Gutter - K-Style 125, Aluminium White", "G3", GutterShape.KStyle, 125, 100, 0.7, aluminiumWhite, DownpipeShape.Rectangular, 50, 75, 18m),
+            Gutter("Gutter - K-Style 150, Aluminium White", "G4", GutterShape.KStyle, 150, 115, 0.8, aluminiumWhite, DownpipeShape.Rectangular, 75, 100, 24m),
+            Gutter("Gutter - K-Style 125, Vinyl White", "G5", GutterShape.KStyle, 125, 100, 2.5, pvcWhite, DownpipeShape.Rectangular, 50, 75, 11m),
+            Gutter("Gutter - K-Style 125, Galvanised Steel", "G6", GutterShape.KStyle, 125, 100, 0.8, galvanised, DownpipeShape.Rectangular, 50, 75, 20m),
+            Gutter("Gutter - Half Round 150, Copper", "G7", GutterShape.HalfRound, 150, 75, 0.7, copper, DownpipeShape.Round, 76, 76, 65m),
+            Gutter("Gutter - Half Round 150, Copper Patina", "G8", GutterShape.HalfRound, 150, 75, 0.7, copperPatina, DownpipeShape.Round, 76, 76, 65m),
+            Gutter("Gutter - Half Round 125, Zinc", "G9", GutterShape.HalfRound, 125, 63, 0.7, zinc, DownpipeShape.Round, 76, 76, 45m),
+            Gutter("Gutter - Box 200 x 150, Galvanised Steel", "G10", GutterShape.Box, 200, 150, 1.2, galvanised, DownpipeShape.Square, 100, 100, 40m),
+            Gutter("Gutter - Fascia 120 x 180, Aluminium Anthracite", "G11", GutterShape.Fascia, 120, 180, 1.0, aluminiumAnthracite, DownpipeShape.Rectangular, 65, 100, 38m)
+        };
+
+        var fascias = new[]
+        {
+            Fascia("Fascia - Timber 25 mm, Pine", "F3", FasciaProfile.Square, 25, softwood, 14m),
+            Fascia("Fascia - Timber 25 mm, Cedar", "F4", FasciaProfile.Square, 25, cedar, 24m),
+            Fascia("Fascia - uPVC Square 18 mm, White", "F5", FasciaProfile.Square, 18, pvcWhite, 12m),
+            Fascia("Fascia - uPVC Capping 9 mm, White", "F6", FasciaProfile.Capping, 31, pvcWhite, 9m),
+            Fascia("Fascia - uPVC Ogee 18 mm, White", "F7", FasciaProfile.Ogee, 18, pvcWhite, 15m),
+            Fascia("Fascia - uPVC Round 18 mm, White", "F8", FasciaProfile.Round, 18, pvcWhite, 14m),
+            Fascia("Fascia - Aluminium Square, Anthracite", "F9", FasciaProfile.Square, 30, aluminiumAnthracite, 32m),
+            Fascia("Fascia - Composite 25 mm, Grey", "F10", FasciaProfile.Square, 25, composite, 22m),
+            Fascia("Fascia - Fibre Cement 12 mm", "F11", FasciaProfile.Square, 12, fibreCement, 18m)
+        };
         var boxGutter = new GutterType("Gutter - Box 100 x 75")
         {
             Shape = GutterShape.Box, Width = 100, Depth = 75, WallThickness = 4, MaterialId = gutterPlastic.Id, TypeMark = "G2", Cost = 16m
@@ -1014,7 +1184,10 @@ public sealed class BimDocument
                  {
                      generic, exterior, partition,
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
-                     fascia, whiteFascia, halfRound, boxGutter, soffitBoard,
+                     fascia, whiteFascia, halfRound, boxGutter, soffitBoard, soffits[0], soffits[1], soffits[2], soffits[3],
+                     soffits[4], soffits[5], soffits[6], soffits[7],
+                     gutters[0], gutters[1], gutters[2], gutters[3], gutters[4], gutters[5], gutters[6], gutters[7], gutters[8],
+                     fascias[0], fascias[1], fascias[2], fascias[3], fascias[4], fascias[5], fascias[6], fascias[7], fascias[8],
                      roofWindow, tallRoofWindow, escapeRoofWindow, fixedRooflight,
                      storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
