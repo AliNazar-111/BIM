@@ -44,8 +44,9 @@ public static class RoofSolid
     private const double Tolerance = 1e-6;
 
     public static IReadOnlyList<RoofPiece> Pieces(BimDocument document, Roof roof) =>
-        // Trimmed where it runs into a roof it is joined to, and opened for the dormers on it.
-        RoofJoin.Open(document, roof, RoofJoin.Trim(document, roof, Uncut(document, roof)));
+        // Falling to its drains, if it is flat and has them; trimmed where it runs into a roof it
+        // is joined to, and opened for the dormers on it.
+        RoofJoin.Open(document, roof, RoofJoin.Trim(document, roof, RoofDrainage.Taper(document, roof, Uncut(document, roof))));
 
     /// <summary>The roof's pieces before any other roof has a say in them.</summary>
     private static IReadOnlyList<RoofPiece> Uncut(BimDocument document, Roof roof)

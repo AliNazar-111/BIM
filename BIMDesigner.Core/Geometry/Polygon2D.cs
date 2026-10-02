@@ -166,7 +166,13 @@ public static class Polygon2D
         foreach (var other in indices)
         {
             if (other == a || other == b || other == c) continue;
-            if (InsideTriangle(polygon[other], pa, pb, pc)) return false;
+
+            // A point where the ear's own corner is - the twin of a corner where a hole was
+            // bridged in - is not in the way of clipping it.
+            var point = polygon[other];
+            if (point.DistanceTo(pa) < 1e-9 || point.DistanceTo(pb) < 1e-9 || point.DistanceTo(pc) < 1e-9) continue;
+
+            if (InsideTriangle(point, pa, pb, pc)) return false;
         }
 
         return true;

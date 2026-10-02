@@ -53,6 +53,17 @@ public static class ModelMeshBuilder
         foreach (var pipe in document.Elements.OfType<Downpipe>().Where(p => shows(p)))
             if (Downpipes.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
 
+        // And the drains in flat roofs, with the pipes taking their water away.
+        foreach (var drain in document.Elements.OfType<RoofDrain>().Where(d => shows(d)))
+        {
+            if (RoofDrainage.Mesh(document, drain) is { } drainMesh) meshes.Add(drainMesh);
+            if (RoofDrainage.PipeMesh(document, drain) is { } pipeMesh) meshes.Add(pipeMesh);
+        }
+
+        // Chimneys, through the roofs they rise through.
+        foreach (var chimney in document.Elements.OfType<Chimney>().Where(c => shows(c)))
+            meshes.AddRange(Chimneys.Meshes(document, chimney));
+
         return Finished(meshes);
     }
 

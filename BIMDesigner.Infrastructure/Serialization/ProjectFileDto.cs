@@ -42,9 +42,12 @@ internal sealed class ProjectFileDto
     public List<SoffitTypeDto> SoffitTypes { get; set; } = new();
     public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
     public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
+    public List<ChimneyTypeDto> ChimneyTypes { get; set; } = new();
     public List<RoofWindowDto> RoofWindows { get; set; } = new();
     public List<ShaftOpeningDto> ShaftOpenings { get; set; } = new();
     public List<DownpipeDto> Downpipes { get; set; } = new();
+    public List<RoofDrainDto> RoofDrains { get; set; } = new();
+    public List<ChimneyDto> Chimneys { get; set; } = new();
     public List<WallOpeningDto> WallOpenings { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
@@ -327,6 +330,7 @@ internal sealed class SlabDto
     public List<RoofOpeningDto>? RoofOpenings { get; set; }
 
     public double RoofFasciaDepth { get; set; } = 150;
+    public double RoofDrainageFall { get; set; } = 40;
 
     /// <summary>For a roof, the slope arrows drawn in its sketch.</summary>
     public List<RoofArrowDto> RoofArrows { get; set; } = new();
@@ -1013,6 +1017,61 @@ internal sealed class GutterTypeDto
     public string? DownpipeShape { get; set; }
     public double DownpipeWidth { get; set; } = 68;
     public double DownpipeDepth { get; set; } = 68;
+}
+
+internal sealed class RoofDrainDto
+{
+    public Guid Id { get; set; }
+    public Guid RoofId { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double OutletDiameter { get; set; } = 100;
+    public string? Discharge { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class ChimneyDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; } = 450;
+    public double Depth { get; set; } = 450;
+    public double Angle { get; set; }
+    public double BaseOffset { get; set; }
+    public int Flues { get; set; } = 1;
+    public string? Rule { get; set; }
+    public double ExtraHeight { get; set; }
+    public string? Fireplace { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class ChimneyTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Chimney";
+    public string TypeMark { get; set; } = string.Empty;
+    public string? Construction { get; set; }
+    public double Width { get; set; } = 450;
+    public double Depth { get; set; } = 450;
+    public double FlueDiameter { get; set; } = 185;
+    public int Flues { get; set; } = 1;
+    public double MinimumHeight { get; set; }
+    public string? Fireplace { get; set; }
+    public int TemperatureClass { get; set; } = 600;
+    public string? PressureClass { get; set; }
+    public bool Wet { get; set; }
+    public int CorrosionClass { get; set; } = 3;
+    public bool SootFireResistant { get; set; } = true;
+    public double ClearanceToCombustibles { get; set; } = 40;
+    public string? FireRating { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
 }
 
 internal sealed class DownpipeDto

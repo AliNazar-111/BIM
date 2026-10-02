@@ -111,6 +111,22 @@
         <GeometryDrawing Brush="{StaticResource Ink.Glass}" Pen="{StaticResource Stroke}" Geometry="M18.5,12.5 L21.3,12.5 L24.8,17.5 L21,17.5 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Chimney"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M2,29 L16,15 L30,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Red}" Pen="{StaticResource Stroke}" Geometry="M18,8 L24,8 L24,23 L18,17 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M17,6 L25,6 L25,8 L17,8 Z M19.5,3 L22.5,3 L22.5,6 L19.5,6 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.RoofDrain"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M3,5 L29,5 L29,27 L3,27 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M3,5 L16,16 L29,5 M3,27 L16,16 L29,27"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Blue}" Pen="{StaticResource Stroke}">
+            <GeometryDrawing.Geometry><EllipseGeometry Center="16,16" RadiusX="4.5" RadiusY="4.5"/></GeometryDrawing.Geometry>
+        </GeometryDrawing>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Spandrel"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Glass}" Pen="{StaticResource Stroke}" Geometry="M3,3 L29,3 L29,29 L3,29 Z"/>

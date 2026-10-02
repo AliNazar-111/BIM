@@ -94,7 +94,13 @@ public enum PlanTool
     Shaft,
 
     /// <summary>Puts a downpipe on the gutter clicked, down the wall under it.</summary>
-    Downpipe
+    Downpipe,
+
+    /// <summary>Puts a drain in the flat roof clicked; the roof falls to it.</summary>
+    RoofDrain,
+
+    /// <summary>Puts up a chimney stack where clicked, through the roof over it.</summary>
+    Chimney
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -340,7 +346,8 @@ public partial class PlanView : FrameworkElement
         ((element.LevelId == ActiveLevelId ||
           // A shaft is on every plan it passes up through, and a downpipe on every one it passes down through.
           (element is ShaftOpening shaft && Document is not null && Shafts.ShownOn(Document, shaft, ActiveLevelId)) ||
-          (element is Downpipe pipe && Document is not null && DownpipeShownHere(pipe))) &&
+          (element is Downpipe pipe && Document is not null && DownpipeShownHere(pipe)) ||
+          (element is Chimney chimney && Document is not null && Chimneys.ShownOn(Document, chimney, ActiveLevelId))) &&
          _shows(element));
 
     /// <summary>This view's filters, worked out once per repaint or pick rather than per element.</summary>
@@ -1106,6 +1113,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
         PlanTool.Soffit => "Click a roof's eaves one after another: the soffit closes the overhang under them, back to the wall. Esc finishes it.",
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
+        PlanTool.Chimney => "Click where the chimney stack goes: it rises from this storey up through the roof over it, as far above it as the height rule asks, capped with a pot on each flue. Size and flues on the option bar.",
+        PlanTool.RoofDrain => "Click on a flat roof where a drain goes: the roof's insulation is tapered to fall to it - at the roof's Drainage Fall, 1 in 40 to start - in valleys from its corners, with ridges between drains.",
         PlanTool.Downpipe => "Click on a gutter where the downpipe goes: an outlet in its bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. Its size and section come from the gutter's type.",
         PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
         PlanTool.WallOpening => "Click a wall where the opening goes. Set its size on the option bar; change it afterwards in Properties.",
@@ -1447,6 +1456,18 @@ public partial class PlanView : FrameworkElement
             _cursorModel = raw;
             _cursorIsSnapped = false;
         }
+        else if (ActiveTool == PlanTool.Chimney)
+        {
+            _cursorModel = SnapToGrid(raw);
+            _cursorIsSnapped = false;
+            ChimneyHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.RoofDrain)
+        {
+            _cursorModel = SnapToGrid(raw);
+            _cursorIsSnapped = false;
+            DrainHover(_cursorModel);
+        }
         else if (ActiveTool == PlanTool.Downpipe)
         {
             DownpipeHover(raw);
@@ -1671,6 +1692,14 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.Downpipe:
                 PlaceDownpipeAt(raw);
+                return;
+
+            case PlanTool.RoofDrain:
+                PlaceRoofDrainAt(SnapToGrid(raw));
+                return;
+
+            case PlanTool.Chimney:
+                PlaceChimneyAt(SnapToGrid(raw));
                 return;
         }
 
@@ -2108,6 +2137,7 @@ public partial class PlanView : FrameworkElement
         // The windows in a roof go with it.
         if (Document is not null) _moveSet.AddRange(RoofWindows.Following(Document, _moveSet));
         if (Document is not null) _moveSet.AddRange(Downpipes.Following(Document, _moveSet));
+        if (Document is not null) _moveSet.AddRange(RoofDrainage.Following(Document, _moveSet));
 
         // At the locked corners of what moves, the walls staying put stretch to keep meeting it.
         _followers.Clear();
@@ -2155,7 +2185,7 @@ public partial class PlanView : FrameworkElement
 
         // A roof window stops at the edge of its slope rather than being nudged off it.
         if (!continuing || _nudgeRun is null) CollectMoveSet();
-        if (RoofWindowStepProblem(_moveSet, step) is { } stuck)
+        if ((RoofWindowStepProblem(_moveSet, step) ?? ChimneyStepProblem(_moveSet, step)) is { } stuck)
         {
             HintChanged?.Invoke(this, stuck);
             return false;
@@ -2316,9 +2346,22 @@ public partial class PlanView : FrameworkElement
                 return;
             }
 
+            // A chimney dragged into a wall comes back out into the room, against the wall's face.
             var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal, document: Document);
-            if (_followers.Count > 0) History?.Record(new CompositeCommand("Move", FollowerMoves().Prepend(command).ToList()));
-            else if (!command.IsEmpty) History?.Record(command);
+            var fitted = Document is null ? null : FitChimneysCommand.For(Document, _moveSet.OfType<Chimney>());
+            if (fitted is not null)
+                HintChanged?.Invoke(this, "A chimney stands in the room: it is set against the wall's face, its fireplace to the room.");
+
+            if (_followers.Count > 0 || fitted is not null)
+            {
+                var steps = FollowerMoves().Prepend(command).ToList();
+                if (fitted is not null) steps.Add(fitted);
+                History?.Record(new CompositeCommand("Move", steps));
+            }
+            else if (!command.IsEmpty)
+            {
+                History?.Record(command);
+            }
 
             _dragTotal = default;
             ModelChanged?.Invoke(this, EventArgs.Empty);
@@ -3333,6 +3376,7 @@ public partial class PlanView : FrameworkElement
         {
             var copies = ElementCopy.Duplicate(Document, _selection);
             foreach (var copy in copies) ElementTransforms.Mirror(copy, axis);
+            FitLoneChimneys(copies);
 
             Apply(Dormers.AddCopies(Document, copies, "Mirror Copy"));
             SelectMany(copies.Where(ElementTransforms.CanMove));
@@ -3341,8 +3385,11 @@ public partial class PlanView : FrameworkElement
         }
         else
         {
+            // A chimney mirrored to face a wall turns round to face the room, as one step with the mirror.
             var command = new MirrorElementsCommand(_selection.ToList(), axis, Document);
-            Apply(command);
+            command.Redo();
+            var fitted = _selection.OfType<Wall>().Any() ? null : FitChimneysCommand.For(Document, _selection.OfType<Chimney>());
+            History?.Record(fitted is null ? command : new CompositeCommand("Mirror", new IUndoableCommand[] { command, fitted }));
 
             HintChanged?.Invoke(this, $"Mirrored {Plural(_selection.Count, "element")}.");
         }
@@ -3403,6 +3450,7 @@ public partial class PlanView : FrameworkElement
             placed.AddRange(copies);
         }
 
+        FitLoneChimneys(placed);
         Apply(Dormers.AddCopies(Document, placed, $"Array x{ArrayCount}"));
 
         HintChanged?.Invoke(this,
@@ -3472,6 +3520,8 @@ public partial class PlanView : FrameworkElement
                 if (ElementTransforms.CanMove(element))
                     ElementTransforms.Move(element, shift);
         }
+
+        FitLoneChimneys(pasted);
 
         Apply(Dormers.AddCopies(Document, pasted, inPlace ? "Paste in Place" : "Paste"));
         SelectMany(pasted.Where(element => element is not IHostedElement));
@@ -5023,6 +5073,18 @@ public partial class PlanView : FrameworkElement
                 ring = shaft.Outline;
                 break;
 
+            case Chimney chimney:
+                ring = Chimneys.Footprint(Document, chimney, ActiveLevelId);
+                break;
+
+            case RoofDrain drain:
+            {
+                var centre = ModelToScreen(drain.Location);
+                var radius = (drain.OutletDiameter / 2 + 60) * PixelsPerMm;
+                dc.DrawEllipse(null, _hoverPen, centre, radius, radius);
+                return;
+            }
+
             case Downpipe pipe:
                 if (Downpipes.Path(Document, pipe) is { } pipePath)
                     DrawModelPolyline(dc, _hoverPen, pipePath.Footprint.Append(pipePath.Footprint[0]).ToList());
@@ -5120,6 +5182,10 @@ public partial class PlanView : FrameworkElement
 
         // A downpipe stands against its wall, under its gutter: picked before either.
         foreach (var pipe in DownpipesAt(model)) yield return pipe;
+
+        // A drain is in its roof, so it is picked before the roof; and a chimney before what it rises through.
+        foreach (var drain in RoofDrainsAt(model)) yield return drain;
+        foreach (var chimney in ChimneysAt(model)) yield return chimney;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
@@ -5220,6 +5286,8 @@ public partial class PlanView : FrameworkElement
         DrawRoofWindowPreview(dc);
         DrawShaftPreview(dc);
         DrawDownpipePreview(dc);
+        DrawRoofDrainPreview(dc);
+        DrawChimneyPreview(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);

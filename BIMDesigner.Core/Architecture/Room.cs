@@ -103,9 +103,20 @@ public sealed class Room : Element
         yield return ParameterValue.ReadOnly(
             RoomParameters.Perimeter, () => boundary.IsEnclosed ? boundary.Perimeter : (double?)null);
 
-        yield return ParameterValue.ReadOnly(
-            RoomParameters.Volume, () => boundary.IsEnclosed ? boundary.Area * Height : (double?)null);
+        // Under what is over it: a ceiling, the storey above, a sloping roof - measured once.
+        var space = new Lazy<RoomSpace?>(() => boundary.IsEnclosed ? RoomHeadroom.Measure(document, this) : null);
+
+        yield return ParameterValue.ReadOnly(RoomParameters.Volume, () => space.Value?.Volume);
         yield return ParameterValue.ReadOnly(RoomParameters.Height, () => Height);
+        yield return ParameterValue.ReadOnly(RoomParameters.LowestHeadroom, () => space.Value?.Lowest);
+        yield return ParameterValue.ReadOnly(RoomParameters.HighestHeadroom, () => space.Value?.Highest);
+        yield return ParameterValue.ReadOnly(RoomParameters.CountedArea, () => space.Value?.AreaCounted);
+        yield return ParameterValue.ReadOnly(RoomParameters.FullHeightArea, () => space.Value?.AreaFullHeight);
+        yield return ParameterValue.ReadOnly(RoomParameters.SpaceStandard, () => space.Value is { } measured
+            ? measured.FullHeightShare >= RoomHeadroom.FullHeightShare
+                ? $"Meets it: {measured.FullHeightShare:P0} at 2.3 m or more"
+                : $"Short: {measured.FullHeightShare:P0} at 2.3 m or more, 75% needed"
+            : null);
         yield return ParameterValue.ReadOnly(RoomParameters.BoundingWalls, () => boundary.BoundingWalls.Count);
 
         // Finishes - what a finishes schedule reports
@@ -161,6 +172,21 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition Height =
         new("Unbounded Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition LowestHeadroom =
+        new("Headroom (lowest)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition HighestHeadroom =
+        new("Headroom (highest)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition CountedArea =
+        new("Area over 1.5 m Headroom", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition FullHeightArea =
+        new("Area over 2.3 m Headroom", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition SpaceStandard =
+        new("Space Standard (75% at 2.3 m)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition BoundingWalls =
         new("Bounding Walls", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);

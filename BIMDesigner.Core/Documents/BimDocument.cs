@@ -175,6 +175,7 @@ public sealed class BimDocument
             .Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofTypes = _types.Values.OfType<RoofType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofWindowTypes = _types.Values.OfType<RoofWindowType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var chimneyTypes = _types.Values.OfType<ChimneyType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var type in template.ElementTypes.Where(type => type switch
                  {
@@ -185,6 +186,7 @@ public sealed class BimDocument
                      FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
+                     ChimneyType => !chimneyTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
                  }))
         {
@@ -1179,6 +1181,7 @@ public sealed class BimDocument
         };
 
         foreach (var component in components) document.AddType(component);
+        foreach (var chimney in ChimneyType.Library()) document.AddType(chimney);
 
         foreach (var type in new ElementType[]
                  {

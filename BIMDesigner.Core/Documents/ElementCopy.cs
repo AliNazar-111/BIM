@@ -252,6 +252,12 @@ public static class ElementCopy
         Soffit soffit => CarryRoofEdgeSweep(new Soffit(), soffit),
         RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location, Own = roofWindow.Own }, roofWindow),
         Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location }, pipe),
+        RoofDrain drain => CarryCommon(new RoofDrain { RoofId = drain.RoofId, Location = drain.Location, OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge }, drain),
+        Chimney chimney => CarryCommon(new Chimney
+        {
+            Location = chimney.Location, Width = chimney.Width, Depth = chimney.Depth, Angle = chimney.Angle, BaseOffset = chimney.BaseOffset,
+            Flues = chimney.Flues, Rule = chimney.Rule, ExtraHeight = chimney.ExtraHeight, Fireplace = chimney.Fireplace
+        }, chimney),
         ShaftOpening shaft => CarryCommon(new ShaftOpening
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
@@ -296,6 +302,7 @@ public static class ElementCopy
             copied.DormerWalls.AddRange(roof.DormerWalls);
             copied.SetOpenings(roof.Openings);
             copied.FasciaDepth = roof.FasciaDepth;
+            copied.DrainageFall = roof.DrainageFall;
             copied.SetSlopeArrows(roof.SlopeArrows.Select(arrow => arrow.Copy()));
             copied.SetExtrusion(roof.Extrusion);
             copied.SetEdges(roof.Edges.Select(edge => edge.Copy()));
@@ -415,6 +422,10 @@ public static class ElementCopy
 
             case Downpipe pipe when replacements.TryGetValue(pipe.GutterId, out var pipeGutter):
                 pipe.GutterId = pipeGutter;
+                break;
+
+            case RoofDrain drain when replacements.TryGetValue(drain.RoofId, out var drainRoof):
+                drain.RoofId = drainRoof;
                 break;
 
             case PlacedSweep placed:

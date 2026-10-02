@@ -195,6 +195,7 @@ public sealed class MoveElementsCommand : IUndoableCommand
         // A roof window goes with its roof, and a gutter's downpipes with the roof the gutter is on.
         if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
         if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
+        if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
 
         Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
@@ -250,6 +251,7 @@ public sealed class NudgeElementsCommand : IUndoableCommand
         // A roof window goes with its roof, and a gutter's downpipes with the roof the gutter is on.
         if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
         if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
+        if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
 
         Name = named == 1 ? "Move" : "Move " + named + " Elements";
     }
@@ -305,6 +307,7 @@ public sealed class MirrorElementsCommand : IUndoableCommand
         {
             _elements.AddRange(RoofWindows.Following(document, _elements));
             _elements.AddRange(Downpipes.Following(document, _elements));
+            _elements.AddRange(RoofDrainage.Following(document, _elements));
         }
 
         Name = _elements.Count == 1 ? "Mirror" : $"Mirror {_elements.Count} Elements";

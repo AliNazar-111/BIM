@@ -95,16 +95,25 @@ public sealed class RenameTypeCommand : IUndoableCommand
     public void Undo() => _type.Name = _oldName;
 }
 
-/// <summary>Gives several elements the same type as one step, as picking a type for a selection does.</summary>
+/// <summary>
+/// Gives several elements the same type as one step, as picking a type for a selection does. A
+/// chimney given a new type takes on its size, flues and fireplace too: a brick stack made a
+/// twin-wall flue becomes a 200 mm pipe, not a 450 mm one.
+/// </summary>
 public sealed class SetElementsTypeCommand : IUndoableCommand
 {
     private readonly List<(Element Element, Guid OldTypeId)> _elements;
     private readonly Guid _newTypeId;
+    private readonly ChimneyType? _chimneyType;
+    private readonly List<(Chimney Chimney, double Width, double Depth, int Flues, ChimneyFireplace Fireplace)> _chimneys;
 
     public SetElementsTypeCommand(IEnumerable<Element> elements, ElementType type)
     {
         _elements = elements.Distinct().Select(element => (element, element.TypeId)).ToList();
         _newTypeId = type.Id;
+        _chimneyType = type as ChimneyType;
+        _chimneys = _elements.Select(entry => entry.Element).OfType<Chimney>()
+            .Select(chimney => (chimney, chimney.Width, chimney.Depth, chimney.Flues, chimney.Fireplace)).ToList();
         Name = _elements.Count == 1 ? $"Change Type to {type.Name}" : $"Change {_elements.Count} to {type.Name}";
     }
 
@@ -113,11 +122,22 @@ public sealed class SetElementsTypeCommand : IUndoableCommand
     public void Redo()
     {
         foreach (var (element, _) in _elements) element.TypeId = _newTypeId;
+        if (_chimneyType is not { } type) return;
+
+        foreach (var (chimney, _, _, _, _) in _chimneys)
+        {
+            chimney.Width = type.Width;
+            chimney.Depth = type.IsRound ? type.Width : type.Depth;
+            chimney.Flues = type.Flues;
+            chimney.Fireplace = type.Fireplace;
+        }
     }
 
     public void Undo()
     {
         foreach (var (element, oldTypeId) in _elements) element.TypeId = oldTypeId;
+        foreach (var (chimney, width, depth, flues, fireplace) in _chimneys)
+            (chimney.Width, chimney.Depth, chimney.Flues, chimney.Fireplace) = (width, depth, flues, fireplace);
     }
 }
 

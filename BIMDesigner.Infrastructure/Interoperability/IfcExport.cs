@@ -157,6 +157,8 @@ public static class IfcExport
             foreach (var slab in _document.Elements.OfType<Slab>()) ExportSlab(slab);
             foreach (var edge in _document.Elements.OfType<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
             foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
+            foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
+            foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
@@ -1135,6 +1137,98 @@ public static class IfcExport
                     ["Size"] = new IfcLabel(Downpipes.Size(type)),
                     ["Length"] = new IfcLengthMeasure(path.Length)
                 });
+        }
+
+        /// <summary>
+        /// A chimney as an IfcChimney, all of it as one body, with the height its rule asks for,
+        /// how many flues it draws, its fire rating and its EN 1443 designation.
+        /// </summary>
+        private void ExportChimney(Chimney chimney)
+        {
+            var meshes = Chimneys.Meshes(_document, chimney);
+            if (meshes.Count == 0) return;
+
+            var type = Chimneys.TypeOf(_document, chimney);
+            var storey = StoreyOf(chimney);
+            var storeyElevation = _document.FindLevel(chimney.LevelId)?.Elevation ?? 0;
+            var product = New<IfcChimney>(c =>
+            {
+                c.GlobalId = chimney.Id.ToIfc();
+                c.Name = type.Name;
+                c.ObjectType = EnumText.Humanise(type.Construction);
+                c.Tag = chimney.Mark;
+                c.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                c.Representation = TessellatedBody(meshes, storeyElevation);
+            });
+            Contain(chimney, product);
+
+            WriteSet(product, "Pset_ChimneyCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["NumberOfDrafts"] = type.HasFlue ? new IfcCountMeasure(chimney.Flues) : null,
+                ["FireRating"] = string.IsNullOrEmpty(type.FireRating) ? null : new IfcLabel(type.FireRating),
+                ["IsExternal"] = new IfcBoolean(Chimneys.HighestContact(_document, chimney) is not null)
+            });
+            WriteSet(product, "Chimney", new Dictionary<string, IfcValue?>
+            {
+                ["Construction"] = new IfcLabel(EnumText.Humanise(type.Construction)),
+                ["Flues"] = new IfcInteger(chimney.Flues),
+                ["FlueInternalDiameter"] = type.HasFlue ? new IfcPositiveLengthMeasure(type.FlueDiameter) : null,
+                ["Designation"] = new IfcLabel(type.Designation),
+                ["ClearanceToCombustibles"] = new IfcLengthMeasure(type.ClearanceToCombustibles),
+                ["AtItsFoot"] = new IfcLabel(EnumText.Humanise(chimney.Fireplace)),
+                ["HeightRule"] = new IfcLabel(chimney.Rule == ChimneyRule.ThreeTwoTen ? "US 3-2-10" : "Approved Document J"),
+                ["Height"] = new IfcLengthMeasure(Chimneys.Top(_document, chimney) - Chimneys.Foot(_document, chimney))
+            });
+        }
+
+        /// <summary>Meshes as one triangulated body, their heights taken from the storey.</summary>
+        private IfcProductDefinitionShape TessellatedBody(IReadOnlyList<Mesh3D> meshes, double storeyElevation)
+        {
+            var representation = New<IfcShapeRepresentation>(r =>
+            {
+                r.ContextOfItems = _context;
+                r.RepresentationIdentifier = "Body";
+                r.RepresentationType = "Tessellation";
+                foreach (var mesh in meshes.Where(mesh => !mesh.IsEmpty))
+                {
+                    var points = New<IfcCartesianPointList3D>(list =>
+                    {
+                        foreach (var point in mesh.Positions)
+                            list.CoordList.GetAt(list.CoordList.Count).AddRange(new IfcLengthMeasure[] { point.X, point.Y, point.Z - storeyElevation });
+                    });
+                    r.Items.Add(New<IfcTriangulatedFaceSet>(faces =>
+                    {
+                        faces.Coordinates = points;
+                        faces.Closed = true;
+                        for (var i = 0; i + 2 < mesh.Indices.Count; i += 3)
+                            faces.CoordIndex.GetAt(faces.CoordIndex.Count).AddRange(new IfcPositiveInteger[]
+                            {
+                                mesh.Indices[i] + 1, mesh.Indices[i + 1] + 1, mesh.Indices[i + 2] + 1
+                            });
+                    }));
+                }
+            });
+
+            return New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+        }
+
+        /// <summary>A roof drain: its own element, with its outlet size and the roof it takes the water from.</summary>
+        private void ExportRoofDrain(RoofDrain drain)
+        {
+            if (RoofDrainage.Mesh(_document, drain) is not { } mesh) return;
+
+            var proxy = ExportMeshProxy(drain, mesh, $"Roof Drain {drain.OutletDiameter:0}", "Roof Drain");
+            var roof = _document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == drain.RoofId);
+            WriteSet(proxy, "RoofDrain", new Dictionary<string, IfcValue?>
+            {
+                ["OutletDiameter"] = new IfcLengthMeasure(drain.OutletDiameter),
+                ["CatchmentArea"] = roof is null ? null : new IfcAreaMeasure(RoofDrainage.CatchmentArea(_document, roof, drain) / 1e6)
+            });
         }
 
         /// <summary>An element as a building element proxy, on its storey, its body a triangulated face set.</summary>

@@ -78,6 +78,7 @@ public sealed class PlanRenderer
     private readonly Brush _labelBackdrop;
     private readonly Brush _componentBrush;
     private readonly Brush _roomBrush;
+    private readonly Brush _chimneyBrush;
     private readonly Brush _roomSelectedBrush;
     private readonly Brush _roomTagBrush;
     private readonly Brush _unenclosedBrush;
@@ -145,6 +146,7 @@ public sealed class PlanRenderer
         // which space is which, it does not replace the drawing.
         _componentBrush = RenderPens.Fill(ink.ComponentFill);
         _roomBrush = RenderPens.Fill(ink.RoomFill);
+        _chimneyBrush = RenderPens.Fill(Color.FromArgb(0xA0, 0x8E, 0x4B, 0x34));
         _roomSelectedBrush = RenderPens.Fill(ink.RoomFillSelected);
         _roomTagBrush = RenderPens.Fill(ink.RoomTagText);
     }
@@ -256,6 +258,13 @@ public sealed class PlanRenderer
         foreach (var roofWindow in OnActiveLevel<RoofWindow>()) DrawRoofWindow(dc, roofWindow);
         foreach (var shaft in ShaftsOnPlan()) DrawShaft(dc, shaft);
         foreach (var pipe in DownpipesOnPlan()) DrawDownpipe(dc, pipe);
+        foreach (var drain in OnActiveLevel<RoofDrain>()) DrawRoofDrain(dc, drain);
+        if (Document is not null)
+        {
+            foreach (var drain in Document.Elements.OfType<RoofDrain>().Where(drain => Filter(drain))) DrawDrainPipe(dc, drain);
+            foreach (var chimney in Document.Elements.OfType<Chimney>().Where(chimney => Filter(chimney) && Chimneys.ShownOn(Document, chimney, ActiveLevelId)))
+                DrawChimney(dc, chimney);
+        }
 
         if (!underlay)
             foreach (var room in OnActiveLevel<Room>()) DrawRoomFill(dc, room);
@@ -1112,6 +1121,127 @@ public sealed class PlanRenderer
         if (path.Points[0].Plan.DistanceTo(path.Foot) > 1) dc.DrawLine(pen, ModelToScreen(path.Points[0].Plan), ModelToScreen(path.Foot));
     }
 
+    /// <summary>
+    /// A flat roof's falls to its drains: the valleys and ridges where its faces meet, and an
+    /// arrow down each face toward the drain it falls to - as a roof plan shows tapered falls.
+    /// </summary>
+    private void DrawFalls(DrawingContext dc, Roof roof)
+    {
+        if (Document is null || !RoofDrainage.Drains(Document, roof)) return;
+
+        var boundary = roof.Boundary;
+        bool OnBoundary(Point2D a, Point2D b)
+        {
+            var middle = a.MidpointTo(b);
+            return Enumerable.Range(0, boundary.Count)
+                .Any(i => Line2D.DistanceFromSegment(middle, boundary[i], boundary[(i + 1) % boundary.Count]) < 1);
+        }
+
+        foreach (var region in RoofDrainage.Regions(Document, roof))
+        {
+            var outline = region.Outline;
+            for (var i = 0; i < outline.Count; i++)
+            {
+                var (a, b) = (outline[i], outline[(i + 1) % outline.Count]);
+                if (a.DistanceTo(b) > 1 && !OnBoundary(a, b)) dc.DrawLine(_overheadPen, ModelToScreen(a), ModelToScreen(b));
+            }
+
+            // Down the face, from its middle toward the drain.
+            var middle = Polygon2D.Centroid(outline, outline[0]);
+            var length = Math.Min(600, Math.Sqrt(Polygon2D.Area(outline)) / 3);
+            if (length < 100) continue;
+            var tip = middle + region.Downhill * (length / 2);
+            dc.DrawLine(_roofLinePen, ModelToScreen(middle - region.Downhill * (length / 2)), ModelToScreen(tip));
+            DrawArrow(dc, _roofLinePen, tip, region.Downhill, length / 4);
+        }
+    }
+
+    /// <summary>
+    /// A chimney in plan: its stack, and each flue in it - on its own storey and on every one it
+    /// rises through. On its own storey, a breast shows its fireplace opening and the hearth
+    /// before it; a guyed stack, the anchors of its wires.
+    /// </summary>
+    private void DrawChimney(DrawingContext dc, Chimney chimney)
+    {
+        if (Document is null) return;
+
+        var pen = IsSelected(chimney) ? _selectedPen : _wallOutlinePen;
+        var type = Chimneys.TypeOf(Document, chimney);
+        var breast = chimney.LevelId == ActiveLevelId ? Chimneys.Breast(Document, chimney) : null;
+
+        if (breast is not null)
+        {
+            dc.DrawGeometry(null, _slabPen, BuildOutline(breast.Hearth));
+            foreach (var part in PolygonBoolean.Combine(breast.Outline, breast.Opening, BooleanOperation.Difference))
+                dc.DrawGeometry(_chimneyBrush, pen, BuildOutline(part.Outer));
+        }
+        else
+        {
+            dc.DrawGeometry(_chimneyBrush, pen, BuildOutline(Chimneys.Outline(Document, chimney)));
+        }
+
+        if (!type.HasFlue)
+        {
+            // A solar chimney: open from bottom to top, its glazed front marked.
+            dc.DrawGeometry(_labelBackdrop, pen, BuildOutline(Chimneys.Rectangle(chimney, chimney.Width - 300, chimney.Depth - 300)));
+            return;
+        }
+
+        // Above a fireplace the flues have not begun: the breast is solid there in plan.
+        if (breast is null)
+        {
+            var round = type.IsRound || type.Construction != ChimneyConstruction.Masonry;
+            var size = round
+                ? Math.Max(20, type.FlueDiameter / 2)
+                : Chimneys.LinerWidth(chimney) / 2;
+            foreach (var flue in Chimneys.Flues(Document, chimney))
+            {
+                var centre = ModelToScreen(flue);
+                var r = size * PixelsPerMm;
+                if (round) dc.DrawEllipse(_labelBackdrop, pen, centre, r, r);
+                else dc.DrawGeometry(_labelBackdrop, pen, BuildOutline(Chimneys.Rectangle(chimney, 2 * size, 2 * size, flue)));
+            }
+        }
+
+        if (type.Construction == ChimneyConstruction.GuyedStack && chimney.LevelId == ActiveLevelId)
+            foreach (var anchor in Chimneys.Anchors(Document, chimney))
+            {
+                dc.DrawLine(_overheadPen, ModelToScreen(chimney.Location), ModelToScreen(anchor));
+                dc.DrawGeometry(null, pen, BuildOutline(Chimneys.Rectangle(chimney, 600, 600, anchor)));
+            }
+    }
+
+    /// <summary>
+    /// A roof drain's pipe on the storeys it goes down past: the rainwater pipe inside, or the
+    /// downpipe outside with the hopper head at its top.
+    /// </summary>
+    private void DrawDrainPipe(DrawingContext dc, RoofDrain drain)
+    {
+        if (Document is null || Document.FindLevel(ActiveLevelId) is not { } level) return;
+        if (RoofDrainage.Pipe(Document, drain) is not { } pipe) return;
+        if (level.Elevation < pipe.Bottom || level.Elevation >= pipe.Points[0].Z) return;
+
+        var pen = IsSelected(drain) ? _selectedPen : _roofLinePen;
+        var down = pipe.Points.Zip(pipe.Points.Skip(1)).FirstOrDefault(pair => Math.Abs(pair.First.X - pair.Second.X) < 1e-6 && Math.Abs(pair.First.Y - pair.Second.Y) < 1e-6 && pair.First.Z > pair.Second.Z);
+        var at = down.First.Plan;
+        var radius = drain.OutletDiameter / 2 * PixelsPerMm;
+        dc.DrawEllipse(null, pen, ModelToScreen(at), radius, radius);
+        if (pipe.Hopper is var (outline, _, _)) dc.DrawGeometry(null, pen, BuildOutline(outline));
+    }
+
+    /// <summary>A roof drain seen from above: its flange, and the outlet in it.</summary>
+    private void DrawRoofDrain(DrawingContext dc, RoofDrain drain)
+    {
+        var pen = IsSelected(drain) ? _selectedPen : _roofLinePen;
+        var centre = ModelToScreen(drain.Location);
+        var outer = (drain.OutletDiameter / 2 + 60) * PixelsPerMm;
+        var inner = drain.OutletDiameter / 2 * PixelsPerMm;
+        dc.DrawEllipse(null, pen, centre, outer, outer);
+        dc.DrawEllipse(null, pen, centre, inner, inner);
+        dc.DrawLine(pen, new Point(centre.X - inner, centre.Y), new Point(centre.X + inner, centre.Y));
+        dc.DrawLine(pen, new Point(centre.X, centre.Y - inner), new Point(centre.X, centre.Y + inner));
+    }
+
     /// <summary>The downpipes drawn on this plan: on their gutter's storey, and on every one they pass down through.</summary>
     private IEnumerable<Downpipe> DownpipesOnPlan() =>
         Document is null
@@ -1172,6 +1302,7 @@ public sealed class PlanRenderer
         if (slab is Roof roof)
         {
             DrawRoofLines(dc, roof, isSelected, outlines);
+            DrawFalls(dc, roof);
 
             // Where the roof is cut away for a dormer, the hole's outline.
             foreach (var opening in RoofJoin.Openings(Document, roof))
@@ -1270,6 +1401,19 @@ public sealed class PlanRenderer
             isSelected ? _roomSelectedBrush : _roomBrush,
             isSelected ? _selectedPen : null,
             BuildOutline(boundary.Polygon));
+
+        // Under a sloping roof, the line where the headroom comes down to 1.5 m: the floor beyond
+        // it is not counted in the room's area.
+        var lines = RoomHeadroom.Contour(Document, room, RoomHeadroom.CountedHeadroom);
+        foreach (var (from, to) in lines) dc.DrawLine(_overheadPen, ModelToScreen(from), ModelToScreen(to));
+
+        if (lines.Count > 0)
+        {
+            var (a, b) = lines.OrderByDescending(line => line.From.DistanceTo(line.To)).First();
+            var label = Text("1.5 m headroom", Page(9), _roomTagBrush);
+            var middle = ModelToScreen(a.MidpointTo(b));
+            dc.DrawText(label, new Point(middle.X - label.Width / 2, middle.Y - label.Height - Page(1)));
+        }
     }
 
     /// <summary>

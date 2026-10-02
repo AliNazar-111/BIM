@@ -467,6 +467,7 @@ public static class RoofEdgeSweeps
         var count = boundary.Count;
         var anticlockwise = Polygon2D.SignedArea(boundary) >= 0;
         var target = CarriedInto(document, roof);
+        var drainage = RoofDrainage.Regions(document, roof);
 
         // The stretches of the run, split wherever it goes into the other roof.
         var pieces = new List<List<RoofEdgeSegment>> { new() };
@@ -491,6 +492,12 @@ public static class RoofEdgeSweeps
             var stations = new List<double> { 0, 1 };
             foreach (var (from, to) in surface.BreakLines)
                 if (Crossing(a, b, from, to) is { } t && t > 1e-6 && t < 1 - 1e-6) stations.Add(t);
+
+            // And wherever a valley or ridge of a flat roof's falls meets the edge.
+            foreach (var region in drainage)
+            for (var k = 0; k < region.Outline.Count; k++)
+                if (Crossing(a, b, region.Outline[k], region.Outline[(k + 1) % region.Outline.Count]) is { } t && t > 1e-6 && t < 1 - 1e-6)
+                    stations.Add(t);
             stations = stations.Distinct().OrderBy(t => t).ToList();
 
             for (var i = 0; i + 1 < stations.Count; i++)
@@ -499,7 +506,8 @@ public static class RoofEdgeSweeps
                 var inside = p.MidpointTo(q) - outward * 1;
                 var face = surface.FaceAt(inside);
                 var stretch = face?.Plane.VerticalStretch ?? 1;
-                double Top(Point2D at) => (face?.Plane.HeightAt(at) ?? surface.HeightAt(inside)) + thickness * stretch;
+                double Top(Point2D at) =>
+                    (face?.Plane.HeightAt(at) ?? surface.HeightAt(inside)) + thickness * stretch + RoofDrainage.Rise(document, roof, at);
 
                 var from = new Vector3(p.X, p.Y, Top(p));
                 var to = new Vector3(q.X, q.Y, Top(q));

@@ -481,7 +481,8 @@ public sealed class Mesh3D
         foreach (var hole in solid) Walls(Anticlockwise(hole, false), bottom, top);
 
         // The caps: one simple outline that goes round every hole, so ear clipping can cut it.
-        var bridged = Polygon2D.BridgeHoles(Anticlockwise(outline, true), solid.Select(hole => Anticlockwise(hole, true)).ToList());
+        // A hole is bridged in wound against the outline, so the cap goes round it, not over it.
+        var bridged = Polygon2D.BridgeHoles(Anticlockwise(outline, true), solid.Select(hole => Anticlockwise(hole, false)).ToList());
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(bridged))
         {
@@ -567,7 +568,7 @@ public sealed class Mesh3D
     private void Cap(IReadOnlyList<Point2D> outer, IReadOnlyList<IReadOnlyList<Point2D>> holes, double z, bool up)
     {
         var ring = Anticlockwise(outer, true);
-        var solid = holes.Where(hole => hole.Count >= 3).Select(hole => Anticlockwise(hole, true)).ToList();
+        var solid = holes.Where(hole => hole.Count >= 3).Select(hole => Anticlockwise(hole, false)).ToList();
         var outline = solid.Count == 0 ? ring : Polygon2D.BridgeHoles(ring, solid);
 
         foreach (var (i, j, k) in Polygon2D.Triangulate(outline))

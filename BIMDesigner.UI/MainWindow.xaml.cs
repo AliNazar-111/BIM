@@ -139,6 +139,22 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // The chimney tool: a click on a roof puts a stack up through it there.
+            if (hit is { } onChimneyRoof && Plan.ActiveTool == PlanTool.Chimney &&
+                Plan.PlaceChimneyIn3D(onChimneyRoof.Id, onChimneyRoof.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            // The roof drain tool: a click on a flat roof puts one in it there.
+            if (hit is { } onFlatRoof && Plan.ActiveTool == PlanTool.RoofDrain &&
+                Plan.PlaceRoofDrainIn3D(onFlatRoof.Id, onFlatRoof.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
             // The downpipe tool: a click on a gutter puts one on it there.
             if (hit is { } onGutter && Plan.ActiveTool == PlanTool.Downpipe &&
                 Plan.PlaceDownpipeIn3D(onGutter.Id, onGutter.At))
@@ -489,13 +505,15 @@ public partial class MainWindow : Window
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
-            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe;
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Dormer) ShowDormerOptions();
         ShaftOptions.Visibility = tool == PlanTool.Shaft ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Shaft) ShowShaftOptions();
+        ChimneyOptions.Visibility = tool == PlanTool.Chimney ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Chimney) ShowChimneyOptions();
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -958,6 +976,37 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>The chimney the next click puts up, on the options bar.</summary>
+    private void ShowChimneyOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<ChimneyType>().ToList();
+        ChimneyTypePicker.ItemsSource = types;
+        var type = types.FirstOrDefault(t => t.Id == Plan.ActiveChimneyTypeId) ?? types.FirstOrDefault();
+        ChimneyTypePicker.SelectedItem = type;
+        ChimneyFireplacePicker.ItemsSource ??= EnumText.Choices<ChimneyFireplace>();
+        ChimneyFireplacePicker.SelectedItem = EnumText.Humanise(Plan.ActiveChimneyFireplace ?? type?.Fireplace ?? ChimneyFireplace.None);
+        _loadingOptions = false;
+    }
+
+    private void OnChimneyOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (ChimneyTypePicker.SelectedItem is ChimneyType type && type.Id != Plan.ActiveChimneyTypeId)
+        {
+            // A new type brings its own fireplace with it: a stove for a twin-wall flue, none for a gas vent.
+            Plan.ActiveChimneyTypeId = type.Id;
+            Plan.ActiveChimneyFireplace = null;
+        }
+        else if (ChimneyFireplacePicker.SelectedItem is string fireplace && EnumText.TryParse<ChimneyFireplace>(fireplace, out var chosen))
+        {
+            Plan.ActiveChimneyFireplace = chosen;
+        }
+
+        ShowChimneyOptions();
+    }
+
     /// <summary>The shaft the next click cuts, on the options bar.</summary>
     private void ShowShaftOptions()
     {
@@ -1025,6 +1074,9 @@ public partial class MainWindow : Window
             ? "Every end of those gutters has a downpipe already."
             : $"{added} downpipe{(added == 1 ? "" : "s")} down from the gutters' ends. Use the Downpipe tool to add one anywhere along a gutter.";
     }
+
+    /// <summary>Roof Drain, from a selected flat roof: the tool, waiting for the click on the roof.</summary>
+    private void OnAddRoofDrain(object sender, RoutedEventArgs e) => RoofDrainTool.IsChecked = true;
 
     /// <summary>Shaft, from a selected roof: the tool, waiting for the click on the roof.</summary>
     private void OnAddShaft(object sender, RoutedEventArgs e) => ShaftTool.IsChecked = true;
@@ -1497,7 +1549,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, GridTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
     ];
@@ -1547,6 +1599,8 @@ public partial class MainWindow : Window
             : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
             : ShaftTool.IsChecked == true ? PlanTool.Shaft
             : DownpipeTool.IsChecked == true ? PlanTool.Downpipe
+            : RoofDrainTool.IsChecked == true ? PlanTool.RoofDrain
+            : ChimneyTool.IsChecked == true ? PlanTool.Chimney
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -2461,6 +2515,7 @@ public partial class MainWindow : Window
             selected is [Roof { IsExtrusion: false }] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
         ContextAddRoofWindow.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
         ContextAddShaft.Visibility = ContextAddRoofWindow.Visibility;
+        ContextAddRoofDrain.Visibility = selected is [Roof flatRoof] && RoofDrainage.CanDrain(_document, flatRoof) ? Visibility.Visible : Visibility.Collapsed;
         ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
             ? Visibility.Visible : Visibility.Collapsed;
         // Pick New belongs to anything that is carried by something else: a door or window in
@@ -2962,6 +3017,8 @@ public partial class MainWindow : Window
         RoofWindow => "Icon.RoofWindow",
         ShaftOpening => "Icon.Shaft",
         Downpipe => "Icon.Downpipe",
+        RoofDrain => "Icon.RoofDrain",
+        Chimney => "Icon.Chimney",
         _ => "Icon.Select"
     };
 
@@ -2976,6 +3033,7 @@ public partial class MainWindow : Window
         GutterType => "Gutter",
         SoffitType => "Soffit",
         RoofWindowType => "Roof Window",
+        ChimneyType => "Chimney",
         WallSweepType => "Wall Sweep",
         _ => category == BuiltInCategory.CurtainPanels ? "Curtain Panel" : CategoryTitle(category).TrimEnd('s')
     };

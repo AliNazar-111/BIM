@@ -238,6 +238,12 @@ public sealed class Roof : Slab
     public RafterCut RafterCut { get; set; } = RafterCut.PlumbCut;
 
     /// <summary>
+    /// A flat roof's fall to its drains, one in this many: 1 in 40 by default, the design fall
+    /// that leaves at least 1 in 80 once built.
+    /// </summary>
+    public double DrainageFall { get; set; } = RoofDrainage.DesignFall;
+
+    /// <summary>
     /// How deep the upright part of a two-cut eave is - Revit's Fascia Depth. Between nothing
     /// and the roof's thickness; the rest of the eave is cut away level underneath, which is
     /// where a soffit board goes.
@@ -393,7 +399,9 @@ public sealed class Roof : Slab
     {
         var surface = Surface(document);
         var face = surface.FaceAt(point);
-        return surface.HeightAt(point) + Thickness(document) * (face?.Plane.VerticalStretch ?? 1);
+
+        // A flat roof's top rises over the falls to its drains.
+        return surface.HeightAt(point) + Thickness(document) * (face?.Plane.VerticalStretch ?? 1) + RoofDrainage.Rise(document, this, point);
     }
 
     /// <summary>
@@ -417,7 +425,7 @@ public sealed class Roof : Slab
     /// </summary>
     public double SlopingArea(BimDocument document) =>
         JoinedTo is null && DormerOpenings.Count == 0 && Openings.Count == 0 && !RoofWindows.On(document, this).Any() &&
-        !Shafts.Through(document, this).Any()
+        !Shafts.Through(document, this).Any() && !Chimneys.Holes(document, this).Any()
             ? Surface(document).SlopingArea
             : RoofJoin.SlopingArea(document, this);
 
@@ -544,6 +552,30 @@ public sealed class Roof : Slab
                     SlopeDegrees = pitch;
                     return true;
                 });
+        }
+
+        // A flat roof falls to its drains: how steeply, and what that leaves along the valleys.
+        if (Surface(document).IsFlat)
+        {
+            yield return ParameterValue.BindValidated(RoofParameters.DrainageFall, () => DrainageFall, (double ratio) =>
+            {
+                if (ratio < 10 || ratio > 200) return false;
+                DrainageFall = ratio;
+                return true;
+            });
+
+            if (RoofDrainage.Drains(document, this))
+            {
+                yield return ParameterValue.ReadOnly(RoofParameters.ValleyFall, () => $"1 in {RoofDrainage.ValleyFall(this):0}");
+                yield return ParameterValue.ReadOnly(RoofParameters.FallCheck, () => RoofDrainage.ValleyFall(this) <= RoofDrainage.FinishedFall
+                    ? $"Falls at 1 in {RoofDrainage.FinishedFall:0} or steeper everywhere, valleys included"
+                    : $"Valleys fall at only 1 in {RoofDrainage.ValleyFall(this):0}: steeper than 1 in {RoofDrainage.FinishedFall:0} is needed");
+                yield return ParameterValue.ReadOnly(RoofParameters.Drains, () => RoofDrainage.On(document, this).Count());
+                yield return ParameterValue.ReadOnly(RoofParameters.ThickestTaper, () =>
+                    (document.FindType<SlabType>(TypeId) is { } type && RoofDrainage.TaperedLayer(type.Structure) is var layer and >= 0
+                        ? type.Structure.Layers[layer].Thickness
+                        : 0) + Boundary.Max(point => RoofDrainage.Rise(document, this, point)));
+            }
         }
 
         // Cutoff: none, measured from the roof's own base, or from a level - Revit's Cutoff
@@ -750,6 +782,21 @@ public sealed class SetRoofEdgesCommand : IUndoableCommand
 
 public static class RoofParameters
 {
+    public static readonly ParameterDefinition DrainageFall =
+        new("Drainage Fall (1 in)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ValleyFall =
+        new("Fall along Valleys", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FallCheck =
+        new("Finished Fall Check (1 in 80)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Drains =
+        new("Roof Drains", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ThickestTaper =
+        new("Thickest Tapered Insulation", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition Shape =
         new("Roof Shape", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
 

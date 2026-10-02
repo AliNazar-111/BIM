@@ -144,6 +144,32 @@ public static class ProjectFile
                 DownpipeShape = gutter.DownpipeShape.ToString(), DownpipeWidth = gutter.DownpipeWidth, DownpipeDepth = gutter.DownpipeDepth
             });
 
+        foreach (var drain in document.Elements.OfType<RoofDrain>())
+            dto.RoofDrains.Add(new RoofDrainDto
+            {
+                Id = drain.Id, RoofId = drain.RoofId, LevelId = drain.LevelId, X = drain.Location.X, Y = drain.Location.Y,
+                OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge.ToString(), Mark = drain.Mark, Comments = drain.Comments
+            });
+
+        foreach (var chimney in document.Elements.OfType<Chimney>())
+            dto.Chimneys.Add(new ChimneyDto
+            {
+                Id = chimney.Id, TypeId = chimney.TypeId, LevelId = chimney.LevelId, X = chimney.Location.X, Y = chimney.Location.Y, Width = chimney.Width,
+                Depth = chimney.Depth, Angle = chimney.Angle, BaseOffset = chimney.BaseOffset, Flues = chimney.Flues,
+                Rule = chimney.Rule.ToString(), ExtraHeight = chimney.ExtraHeight, Fireplace = chimney.Fireplace.ToString(),
+                Mark = chimney.Mark, Comments = chimney.Comments
+            });
+
+        foreach (var type in document.TypesOf<ChimneyType>())
+            dto.ChimneyTypes.Add(new ChimneyTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Construction = type.Construction.ToString(),
+                Width = type.Width, Depth = type.Depth, FlueDiameter = type.FlueDiameter, Flues = type.Flues, MinimumHeight = type.MinimumHeight,
+                Fireplace = type.Fireplace.ToString(), TemperatureClass = type.TemperatureClass, PressureClass = type.PressureClass,
+                Wet = type.Wet, CorrosionClass = type.CorrosionClass, SootFireResistant = type.SootFireResistant,
+                ClearanceToCombustibles = type.ClearanceToCombustibles, FireRating = type.FireRating, Cost = type.Cost, Description = type.Description
+            });
+
         foreach (var pipe in document.Elements.OfType<Downpipe>())
             dto.Downpipes.Add(new DownpipeDto
             {
@@ -557,6 +583,7 @@ public static class ProjectFile
                     }).ToList()
                     : null,
                 RoofFasciaDepth = slab is Roof fascia ? fascia.FasciaDepth : 150,
+                RoofDrainageFall = slab is Roof drained ? drained.DrainageFall : RoofDrainage.DesignFall,
                 RoofExtrusion = slab is Roof { Extrusion: { } extrusion }
                     ? new RoofExtrusionDto
                     {
@@ -1043,6 +1070,23 @@ public static class ProjectFile
                 FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
             });
 
+        foreach (var type in dto.ChimneyTypes)
+            document.AddType(new ChimneyType(type.Name)
+            {
+                Id = type.Id, TypeMark = type.TypeMark, Construction = ParseEnum(type.Construction, ChimneyConstruction.Masonry),
+                Width = PositiveOr(type.Width, 450), Depth = PositiveOr(type.Depth, 450),
+                FlueDiameter = double.IsFinite(type.FlueDiameter) && type.FlueDiameter >= 0 ? type.FlueDiameter : 185,
+                Flues = type.Flues is >= 1 and <= 8 ? type.Flues : 1,
+                MinimumHeight = double.IsFinite(type.MinimumHeight) && type.MinimumHeight >= 0 ? type.MinimumHeight : 0,
+                Fireplace = ParseEnum(type.Fireplace, ChimneyFireplace.None),
+                TemperatureClass = type.TemperatureClass is >= 80 and <= 1000 ? type.TemperatureClass : 600,
+                PressureClass = string.IsNullOrWhiteSpace(type.PressureClass) ? "N1" : type.PressureClass,
+                Wet = type.Wet, CorrosionClass = type.CorrosionClass is >= 1 and <= 3 ? type.CorrosionClass : 3,
+                SootFireResistant = type.SootFireResistant,
+                ClearanceToCombustibles = double.IsFinite(type.ClearanceToCombustibles) && type.ClearanceToCombustibles >= 0 ? type.ClearanceToCombustibles : 40,
+                FireRating = type.FireRating ?? string.Empty, Cost = type.Cost, Description = type.Description
+            });
+
         foreach (var soffit in dto.SoffitTypes)
             document.AddType(new SoffitType(soffit.Name)
             {
@@ -1367,6 +1411,7 @@ public static class ProjectFile
                     }));
                 }
                 pitched.FasciaDepth = slab.RoofFasciaDepth;
+                pitched.DrainageFall = double.IsFinite(slab.RoofDrainageFall) && slab.RoofDrainageFall >= 10 ? slab.RoofDrainageFall : RoofDrainage.DesignFall;
                 if (slab.RoofExtrusion is { } extruded)
                 {
                     var profile = new List<Point2D>();
@@ -1495,6 +1540,34 @@ public static class ProjectFile
             });
 
         static double? Own(double? value) => value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
+
+        // A roof drain is in its roof; one whose roof is gone has nothing to drain.
+        var drainRoofs = document.Elements.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
+        foreach (var saved in dto.RoofDrains.Where(saved => drainRoofs.Contains(saved.RoofId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new RoofDrain
+            {
+                Id = saved.Id, RoofId = saved.RoofId, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y),
+                OutletDiameter = saved.OutletDiameter is > 0 and var size && double.IsFinite(size) ? size : 100,
+                Discharge = ParseEnum(saved.Discharge, DrainDischarge.Internal),
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
+        foreach (var saved in dto.Chimneys.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new Chimney
+            {
+                Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y),
+                Width = double.IsFinite(saved.Width) && saved.Width >= 60 ? saved.Width : 450,
+                Depth = double.IsFinite(saved.Depth) && saved.Depth >= 60 ? saved.Depth : 450,
+                Angle = double.IsFinite(saved.Angle) ? saved.Angle : 0,
+                BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0,
+                Flues = saved.Flues is >= 1 and <= 8 ? saved.Flues : 1,
+                Rule = ParseEnum(saved.Rule, ChimneyRule.ApprovedDocumentJ),
+                ExtraHeight = double.IsFinite(saved.ExtraHeight) && saved.ExtraHeight >= 0 ? saved.ExtraHeight : 0,
+
+                // A chimney saved before there were fireplaces had none.
+                Fireplace = ParseEnum(saved.Fireplace, ChimneyFireplace.None),
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
 
         // A downpipe hangs off its gutter; one whose gutter is gone has nothing to drain.
         var gutterIds = document.Elements.OfType<Gutter>().Select(gutter => gutter.Id).ToHashSet();

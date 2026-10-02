@@ -38,6 +38,12 @@ public static class ElementTransforms
 
         // A downpipe slides along its gutter to wherever it is moved to.
         Downpipe => true,
+
+        // A roof drain is set where it is on its roof, as a roof window is.
+        RoofDrain => true,
+
+        // A chimney stands where it was put, and cuts whatever roof is there.
+        Chimney => true,
         IHostedElement => false,
         Wall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -80,6 +86,14 @@ public static class ElementTransforms
 
             case Downpipe pipe:
                 pipe.Location += delta;
+                break;
+
+            case RoofDrain drain:
+                drain.Location += delta;
+                break;
+
+            case Chimney chimney:
+                chimney.Location += delta;
                 break;
 
             case Column column:
@@ -172,6 +186,19 @@ public static class ElementTransforms
             case Downpipe pipe:
                 pipe.Location = Reflect(pipe.Location);
                 break;
+
+            case RoofDrain drain:
+                drain.Location = Reflect(drain.Location);
+                break;
+
+            case Chimney chimney:
+            {
+                var along = Reflect(chimney.Location + new Vector2D(chimney.Along.X, chimney.Along.Y) * 1000);
+                chimney.Location = Reflect(chimney.Location);
+                var way = along - chimney.Location;
+                chimney.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
+                break;
+            }
 
             case ShaftOpening shaft:
             {

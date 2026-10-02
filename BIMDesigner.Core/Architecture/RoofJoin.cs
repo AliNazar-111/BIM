@@ -183,6 +183,7 @@ public static class RoofJoin
         var openings = roof.Openings.Select(opening => opening.Points).ToList();
         openings.AddRange(RoofWindows.Holes(document, roof, exceptWindow));
         openings.AddRange(Shafts.Holes(document, roof));
+        openings.AddRange(Chimneys.Holes(document, roof));
 
         foreach (var id in roof.DormerOpenings)
         {

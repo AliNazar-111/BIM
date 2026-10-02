@@ -422,41 +422,71 @@
                                 <RadioButton x:Name="ColumnTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Column}"
                                              Content="Column" Checked="OnToolChanged"
                                              ToolTip="Stand an architectural column: the box-out round a structural column, a pier or a pilaster. Space turns it"/>
+                                <RadioButton x:Name="FloorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Floor}"
+                                             Content="Floor" Checked="OnToolChanged" ToolTip="Lay a floor over an enclosed space (F2)"/>
+                                <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Ceiling}"
+                                             Content="Ceiling" Checked="OnToolChanged" ToolTip="Put a ceiling over an enclosed space (F3)"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Roof" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="RoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
                                              Content="Roof" Checked="OnToolChanged"
                                              ToolTip="Roof by Footprint: sketch the roof's outline or pick the walls it sits on, and say which edges slope (F4)"/>
-                                <RadioButton x:Name="DormerTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
-                                             Content="Dormer" Checked="OnToolChanged"
-                                             ToolTip="Click on a roof's slope: a whole dormer is built there - walls standing on the roof, a gable, shed or hip roof on them joined into the main roof, and the main roof opened under it. Shape and size on the options bar"/>
-                                <RadioButton x:Name="FasciaTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Fascia}"
-                                             Content="Fascia" Checked="OnToolChanged"
-                                             ToolTip="Roof: Fascia. Click a roof's edges one after another: a board runs along them all, covering the ends of the roof, mitred round the corners and up the verges. Esc finishes it"/>
-                                <RadioButton x:Name="GutterTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Gutter}"
-                                             Content="Gutter" Checked="OnToolChanged"
-                                             ToolTip="Roof: Gutter. Click a roof's eaves one after another: a gutter hangs along them, off the fascia if there is one. Esc finishes it"/>
-                                <RadioButton x:Name="DownpipeTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Downpipe}"
-                                             Content="Downpipe" Checked="OnToolChanged"
-                                             ToolTip="Downpipe: click on a gutter - in plan or in 3D - and a downpipe takes the water from there: an outlet in the gutter's bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. A dormer's lets its water onto the roof below. Section and size come from the gutter's type"/>
-                                <RadioButton x:Name="RoofWindowTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofWindow}"
-                                             Content="Roof Window" Checked="OnToolChanged"
-                                             ToolTip="Roof Window: click on a roof's slope - in plan or in 3D - and a roof window goes in it, lined up with the slope, the roof cut away under it"/>
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="RoofExtrusionTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.RoofExtrusion}"
+                                                 Content="By Extrusion" Checked="OnToolChanged"
+                                                 ToolTip="Roof by Extrusion: click the line the profile is drawn on and how far the roof runs back, then draw its section - a gambrel, a barrel vault, any roof the same all along"/>
+                                    <RadioButton x:Name="DormerTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Roof}"
+                                                 Content="Dormer" Checked="OnToolChanged"
+                                                 ToolTip="Click on a roof's slope: a whole dormer is built there - walls standing on the roof, a gable, shed or hip roof on them joined into the main roof, and the main roof opened under it. Shape and size on the options bar"/>
+                                    <RadioButton x:Name="RoofWindowTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.RoofWindow}"
+                                                 Content="Roof Window" Checked="OnToolChanged"
+                                                 ToolTip="Roof Window: click on a roof's slope - in plan or in 3D - and a roof window goes in it, lined up with the slope, the roof cut away under it"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="FasciaTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Fascia}"
+                                                 Content="Fascia" Checked="OnToolChanged"
+                                                 ToolTip="Roof: Fascia. Click a roof's edges one after another: a board runs along them all, covering the ends of the roof, mitred round the corners and up the verges. Esc finishes it"/>
+                                    <RadioButton x:Name="GutterTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Gutter}"
+                                                 Content="Gutter" Checked="OnToolChanged"
+                                                 ToolTip="Roof: Gutter. Click a roof's eaves one after another: a gutter hangs along them, off the fascia if there is one. Esc finishes it"/>
+                                    <RadioButton x:Name="SoffitTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Soffit}"
+                                                 Content="Soffit" Checked="OnToolChanged"
+                                                 ToolTip="Roof: Soffit. Click a roof's eaves: a board closes the underside of the overhang, from the fascia back to the wall. Esc finishes it"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="DownpipeTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Downpipe}"
+                                                 Content="Downpipe" Checked="OnToolChanged"
+                                                 ToolTip="Downpipe: click on a gutter - in plan or in 3D - and a downpipe takes the water from there: an outlet in the gutter's bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. A dormer's lets its water onto the roof below. Section and size come from the gutter's type"/>
+                                    <RadioButton x:Name="RoofDrainTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.RoofDrain}"
+                                                 Content="Roof Drain" Checked="OnToolChanged"
+                                                 ToolTip="Roof Drain: click on a flat roof - in plan or 3D - where a rainwater outlet goes. The roof's insulation is tapered to fall to its drains. Near the edge the water goes out through it to a hopper head and downpipe; further in, down a rainwater pipe inside the building"/>
+                                    <RadioButton x:Name="ChimneyTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Chimney}"
+                                                 Content="Chimney" Checked="OnToolChanged"
+                                                 ToolTip="Chimney: click where the stack goes - in plan, or on a roof in 3D. It rises from the storey up through the roof, as far above it as the height rule asks (Approved Document J, or the US 3-2-10 rule), capped with a pot on each flue"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Opening" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Shaft}"
                                              Content="Shaft" Checked="OnToolChanged"
-                                             ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there. A chimney or flue through the roof, a stairwell or lift shaft through the floors. Shape and size on the options bar"/>
-                                <RadioButton x:Name="SoffitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Soffit}"
-                                             Content="Soffit" Checked="OnToolChanged"
-                                             ToolTip="Roof: Soffit. Click a roof's eaves: a board closes the underside of the overhang, from the fascia back to the wall. Esc finishes it"/>
-                                <RadioButton x:Name="RoofExtrusionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RoofExtrusion}"
-                                             Content="Roof by Extrusion" Checked="OnToolChanged"
-                                             ToolTip="Roof by Extrusion: click the line the profile is drawn on and how far the roof runs back, then draw its section - a gambrel, a barrel vault, any roof the same all along"/>
-                                <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Ceiling}"
-                                             Content="Ceiling" Checked="OnToolChanged" ToolTip="Put a ceiling over an enclosed space (F3)"/>
-                                <RadioButton x:Name="FloorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Floor}"
-                                             Content="Floor" Checked="OnToolChanged" ToolTip="Lay a floor over an enclosed space (F2)"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
+                                             ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
+                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallOpening}"
+                                             Content="Wall Opening" Checked="OnToolChanged"
+                                             ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Curtain" Style="{StaticResource RibbonPanel}">
+                            <StackPanel>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.CurtainGrid}"
                                         Content="Curtain Grid" Click="OnEditCurtainGrid"
                                         ToolTip="Add, move or delete the grid lines of the selected curtain wall, and make panels solid, empty or doors"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallTypes}"
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.WallTypes}"
                                         Content="Wall Types" Click="OnManageWallTypes"
                                         ToolTip="Layered, stacked and curtain wall types"/>
                             </StackPanel>
@@ -470,9 +500,6 @@
                                 <RadioButton x:Name="RevealTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Reveal}"
                                              Content="Reveal" Checked="OnToolChanged"
                                              ToolTip="Cut a groove along a wall, or up it"/>
-                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallOpening}"
-                                             Content="Wall Opening" Checked="OnToolChanged"
-                                             ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
                                         Content="Edit Profile" Click="OnEditProfile"
                                         ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
@@ -809,6 +836,9 @@
                                 <Button x:Name="ContextAddSoffits" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Soffit}"
                                         Content="Soffits" Click="OnAddSoffitsAllRound"
                                         ToolTip="Soffits under every eave of the selected roof that overhangs its wall, closing the overhang back to the wall"/>
+                                <Button x:Name="ContextAddRoofDrain" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.RoofDrain}"
+                                        Content="Roof Drain" Click="OnAddRoofDrain"
+                                        ToolTip="Then click on the roof where a drain goes: the flat roof falls to its drains"/>
                                 <Button x:Name="ContextAddDownpipes" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Downpipe}"
                                         Content="Downpipes" Click="OnAddDownpipes"
                                         ToolTip="A downpipe at each end of each gutter on the selected roof - or of the selected gutter - and at the corners of one that goes all round, where there is not one already"/>
@@ -1140,6 +1170,16 @@
                     <TextBlock Text="Overhang" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <TextBox x:Name="DormerOverhangBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="How far the dormer's roof stands out past its walls"/>
+                </StackPanel>
+
+                <StackPanel x:Name="ChimneyOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Chimney" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="ChimneyTypePicker" Style="{StaticResource OptionCombo}" MinWidth="300"
+                              DisplayMemberPath="Name" SelectionChanged="OnChimneyOptionChanged"
+                              ToolTip="How it is built: a brick stack with pots, a block system chimney, a twin-wall steel flue, a gas vent, a steel or industrial stack"/>
+                    <TextBlock Text="At its foot" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="ChimneyFireplacePicker" Style="{StaticResource OptionCombo}" MinWidth="90" SelectionChanged="OnChimneyOptionChanged"
+                              ToolTip="An open fireplace or a stove opening into the room through the front of the breast - or nothing. Put by a wall, its back goes to the wall"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ShaftOptions" Orientation="Horizontal" Visibility="Collapsed">

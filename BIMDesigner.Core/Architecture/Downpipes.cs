@@ -181,7 +181,7 @@ public static class Downpipes
     /// How far out from the roof's edge the face of the wall under it is - the outermost wall
     /// running along the eave, under it - and that wall; nothing where no wall is there.
     /// </summary>
-    private static (double? FaceOut, Wall? Wall) WallFace(BimDocument document, Point2D edge, Vector2D outward, Vector2D along)
+    internal static (double? FaceOut, Wall? Wall) WallFace(BimDocument document, Point2D edge, Vector2D outward, Vector2D along, double beyond = 50)
     {
         (double, Wall)? best = null;
         foreach (var wall in document.Walls.Where(wall => !wall.IsCurved))
@@ -195,7 +195,7 @@ public static class Downpipes
 
             var centreOut = -(edge - wall.Start).Dot(outward);
             var faceOut = centreOut + type.Structure.TotalWidth / 2;
-            if (centreOut < -2500 || faceOut > 50) continue;
+            if (centreOut < -2500 || faceOut > beyond) continue;
 
             if (best is null || faceOut > best.Value.Item1) best = (faceOut, wall);
         }
@@ -207,7 +207,7 @@ public static class Downpipes
     /// Where a downpipe ends: on the roof below, for a dormer's, which lets its water onto the roof
     /// it comes out of; otherwise at the foot of the wall it runs down, or the lowest level.
     /// </summary>
-    private static (double Bottom, bool OntoRoof) Ground(BimDocument document, Roof roof, Wall? wall, Point2D foot)
+    internal static (double Bottom, bool OntoRoof) Ground(BimDocument document, Roof roof, Wall? wall, Point2D foot)
     {
         if (roof.JoinedTo is { } joined &&
             document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof)) is { IsExtrusion: false } below &&
