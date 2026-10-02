@@ -44,7 +44,7 @@ public enum VisualStyle
 /// and a building expressed in millimetres runs out of precision fast enough to make surfaces
 /// shimmer against each other.
 /// </summary>
-public class ModelView : Border
+public partial class ModelView : Border
 {
     private const double MillimetresPerUnit = 1000;
     private const double FieldOfView = 45;
@@ -105,7 +105,13 @@ public class ModelView : Border
 
         _viewport.Camera = _camera;
         _viewport.Children.Add(_scene);
-        Child = _viewport;
+
+        // The levels and gridlines of an elevation are drawn over the model, not in it.
+        _overlay = new ElevationOverlay(this);
+        var layers = new Grid();
+        layers.Children.Add(_viewport);
+        layers.Children.Add(_overlay);
+        Child = layers;
 
         UpdateCamera();
     }
@@ -545,6 +551,12 @@ public class ModelView : Border
     /// <summary>Frames everything visible, from wherever the camera is currently looking.</summary>
     public void ZoomToFit()
     {
+        if (_elevation is not null)
+        {
+            ElevationZoomToFit();
+            return;
+        }
+
         var visible = _meshes.Where(mesh => !_hiddenLevels.Contains(mesh.LevelId));
 
         if (ModelMeshBuilder.Bounds(visible) is not { } bounds)
@@ -594,6 +606,7 @@ public class ModelView : Border
     /// <summary>Turns the camera to look from a direction, round the same point and at the same distance.</summary>
     public void LookFrom(double yaw, double pitch)
     {
+        if (_elevation is not null) return;
         pitch = Math.Clamp(pitch, -MaxPitch, MaxPitch);
 
         // The short way round.
@@ -620,6 +633,7 @@ public class ModelView : Border
     /// <summary>Turns the camera round the model by this much, as dragging does.</summary>
     public void Orbit(double yawDegrees, double pitchDegrees)
     {
+        if (_elevation is not null) return;
         _yaw += yawDegrees;
         _pitch = Math.Clamp(_pitch + pitchDegrees, -MaxPitch, MaxPitch);
         UpdateCamera();
@@ -635,8 +649,12 @@ public class ModelView : Border
     /// <summary>Back to the standard three-quarter view from the south-west.</summary>
     public void ResetView()
     {
-        _yaw = -135;
-        _pitch = 28;
+        if (_elevation is null)
+        {
+            _yaw = -135;
+            _pitch = 28;
+        }
+
         ZoomToFit();
     }
 
@@ -660,6 +678,7 @@ public class ModelView : Border
         // flicker against each other.
         _camera.NearPlaneDistance = Math.Max(0.01, _distance * 0.005);
         _camera.FarPlaneDistance = _distance * 12 + 200;
+        UpdateElevationCamera();
         CameraChanged?.Invoke(this, EventArgs.Empty);
 
         // Edge width follows the camera, but rebuilding on every wheel notch would be wasted
@@ -697,6 +716,7 @@ public class ModelView : Border
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        if (_pendingCorner is not null) _overlay.InvalidateVisual();
         if (_gesture == Gesture.None) return;
 
         var now = e.GetPosition(this);
@@ -714,7 +734,8 @@ public class ModelView : Border
             return;
         }
 
-        if (_gesture == Gesture.Orbit)
+        // An elevation does not turn: a drag slides it.
+        if (_gesture == Gesture.Orbit && _elevation is null)
         {
             _yaw -= delta.X * 0.4;
 
@@ -834,6 +855,8 @@ public class ModelView : Border
     /// </summary>
     private (CorePoint3D From, CorePoint3D Through) RayThrough(Point point)
     {
+        if (_elevation is not null) return ElevationRay(point);
+
         var width = Math.Max(_viewport.ActualWidth, 1);
         var height = Math.Max(_viewport.ActualHeight, 1);
 

@@ -64,6 +64,10 @@ public static class ModelMeshBuilder
         foreach (var chimney in document.Elements.OfType<Chimney>().Where(c => shows(c)))
             meshes.AddRange(Chimneys.Meshes(document, chimney));
 
+        // Walls shaped in plan - trapezoids and polygons - stood up from their outlines.
+        foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(w => shows(w)))
+            if (PolygonWalls.Mesh(document, shaped) is { } shapedMesh) meshes.Add(shapedMesh);
+
         return Finished(meshes);
     }
 
@@ -216,14 +220,28 @@ public static class ModelMeshBuilder
 
         // Each construction the wall is made of, between its own heights: one for an ordinary
         // wall, one per tier for a stacked one.
+        // A wall in parts is shown as its parts, each its own piece; its doors, windows and
+        // sweeps are still its own.
+        var parts = Parts.Of(document, wall);
+
+        // A framed wall's core is its frame: the studs stand where the core was, the finishes on them.
+        var framing = WallFramings.Of(document, wall);
         foreach (var (type, tierBottom, tierTop) in document.GetWallTiers(wall).Where(_ => profile is null))
         {
             var first = meshes.Count;
-            AddTier(document, wall, type, tierBottom, tierTop, openings, meshes);
+            AddTier(document, wall, type, tierBottom, tierTop, openings, meshes, layers: parts.Count == 0, core: framing is null);
             Lean(wall, type, bottom, meshes, first);
         }
 
+        foreach (var part in parts)
+            if (Parts.Mesh(document, part) is { } partMesh) meshes.Add(partMesh);
+
+        if (framing is not null && WallFramings.Mesh(document, framing) is { } frame) meshes.Add(frame);
+
         if (document.GetWallType(wall) is not { } planType) return;
+
+        // Paint on its faces, and the parts split off them, just proud of the face.
+        meshes.AddRange(WallPaint.Meshes(document, wall, planType));
 
         // Sweeps placed on this wall on their own, built like the type's and carrying their own
         // id, so clicking one selects it rather than the wall. Placed reveals are cut into the wall above.
@@ -275,10 +293,17 @@ public static class ModelMeshBuilder
     private static void AddTier(
         BimDocument document, Wall wall, WallType type, double bottom, double top,
         IReadOnlyList<(Opening? Opening, OpeningType? Type, double From, double To, double Sill, double Head)> openings,
-        List<Mesh3D> meshes)
+        List<Mesh3D> meshes, bool layers = true, bool core = true)
     {
         var structure = type.Structure;
         if (structure.TotalWidth <= 0 || top <= bottom) return;
+
+        // A log wall is built as its logs, course on course, instead of its layers.
+        if (layers && LogWalls.Mesh(document, wall, type, bottom, top) is { } logs)
+        {
+            meshes.Add(logs);
+            layers = false;
+        }
 
         var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
         var half = structure.TotalWidth / 2;
@@ -307,6 +332,13 @@ public static class ModelMeshBuilder
         var reveals = WallSweeps.Reveals(document, wall, type, bottom, top);
         var breaks = reveals.SelectMany(r => new[] { r.Bottom, r.Top }).ToList();
 
+        // A band of another material within a layer is built as its own run of it.
+        breaks.AddRange(WallBands.Edges(type, bottom));
+
+        // Walls stopping against this one carry their layers on into it, as high as they stand.
+        var intrusions = WallJoins.Intrusions(document, wall, type);
+        breaks.AddRange(intrusions.SelectMany(intrusion => new[] { intrusion.Bottom, intrusion.Top }));
+
         // Upright reveals split each piece along the wall, the part in the groove built thinner.
         var verticals = WallSweeps.VerticalReveals(document, wall);
         var split = pieces
@@ -314,16 +346,31 @@ public static class ModelMeshBuilder
                 .Select(part => (part.Slice, piece.Bottom, piece.Top, Reveals: part.Bands.Count == 0 ? reveals : reveals.Concat(part.Bands).ToList())))
             .ToList();
 
-        foreach (var (layer, start, end) in structure.GetLayerOffsets())
+        var layerIndex = -1;
+        foreach (var (layer, start, end) in structure.GetLayerOffsets().Where(_ => layers))
         {
+            layerIndex++;
+
             // A membrane is a line with no volume: nothing to build or cut.
             if (layer.Thickness <= 0) continue;
 
-            var material = document.FindMaterial(layer.MaterialId);
-            var mesh = new Mesh3D(
-                wall.Id, wall.LevelId, MeshKind.Wall,
-                material?.SurfaceColour ?? DefaultSurface,
-                material?.Name ?? layer.Function.ToString());
+            // A framed wall's core is left to its frame.
+            if (!core && (structure.CoreStartIndex < 0 || layerIndex >= structure.CoreStartIndex && layerIndex <= structure.CoreEndIndex)) continue;
+
+            // One mesh for each material the layer is built in: its own, and its bands'.
+            var byMaterial = new Dictionary<Guid, Mesh3D>();
+            Mesh3D MeshFor(Guid materialId)
+            {
+                if (byMaterial.TryGetValue(materialId, out var found)) return found;
+
+                var material = document.FindMaterial(materialId);
+                return byMaterial[materialId] = new Mesh3D(
+                    wall.Id, wall.LevelId, MeshKind.Wall,
+                    material?.SurfaceColour ?? DefaultSurface,
+                    material?.Name ?? layer.Function.ToString());
+            }
+
+            MeshFor(layer.MaterialId);
 
             foreach (var (slice, pieceBottom, pieceTop, pieceReveals) in split)
             {
@@ -337,14 +384,15 @@ public static class ModelMeshBuilder
                         is not var (outer, inner))
                         continue;
 
-                    var outline = WallJoins.GetBandOutline(
-                        wall, type, outer, inner, Unwrapped(slice.CutFrom), Unwrapped(slice.CutTo));
-
-                    mesh.AddExtrusion(outline, heights[i], heights[i + 1]);
+                    var middle = (heights[i] + heights[i + 1]) / 2;
+                    var here = intrusions.Where(intrusion => intrusion.At(middle)).ToList();
+                    var mesh = MeshFor(WallBands.MaterialAt(type, layerIndex, middle - bottom));
+                    foreach (var piece in WallJoins.LayerPieces(wall, type, outer, inner, Unwrapped(slice.CutFrom), Unwrapped(slice.CutTo), here))
+                        mesh.AddExtrusion(piece, heights[i], heights[i + 1]);
                 }
             }
 
-            meshes.Add(mesh);
+            meshes.AddRange(byMaterial.Values.Where(mesh => !mesh.IsEmpty || byMaterial.Count == 1));
         }
 
         AddSweeps(document, wall, type, bottom, top, meshes);
@@ -996,7 +1044,7 @@ public static class ModelMeshBuilder
         cut.Condition == WallEndCondition.Jamb ? new WallCut(cut.Points, cut.Condition) : cut;
 
     /// <summary>The part of a plan outline between two distances along a wall, either of which may be open.</summary>
-    private static IReadOnlyList<Point2D> ClipAlong(IReadOnlyList<Point2D> outline, Func<Point2D, double> along, double from, double to)
+    internal static IReadOnlyList<Point2D> ClipAlong(IReadOnlyList<Point2D> outline, Func<Point2D, double> along, double from, double to)
     {
         var kept = outline.ToList();
         foreach (var (limit, keepBelow) in new[] { (from, false), (to, true) })

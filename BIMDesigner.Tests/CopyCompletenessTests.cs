@@ -40,9 +40,10 @@ public class CopyCompletenessTests
             var original = (Element)Activator.CreateInstance(type)!;
 
             // A mark is a number to be given out again, not a setting: copies are numbered afresh.
+            // A pin holds the original where it is; its copy is put somewhere new, so is free.
             var settings = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead && p.GetSetMethod() is not null && p.GetIndexParameters().Length == 0)
-                .Where(p => p.Name is not ("Id" or "Mark"));
+                .Where(p => p.Name is not ("Id" or "Mark" or "Pinned"));
 
             foreach (var setting in settings)
             {

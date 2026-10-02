@@ -197,6 +197,12 @@ public sealed class Wall : Element
     /// </summary>
     public IReadOnlyList<Point2D>? Profile { get; set; }
 
+    /// <summary>
+    /// Paint and Split Face on its two faces: regions of each face, the whole of it or parts
+    /// split off, and the material painted on each. Empty for a wall as its type finishes it.
+    /// </summary>
+    public IReadOnlyList<WallFaceRegion> FaceRegions { get; set; } = Array.Empty<WallFaceRegion>();
+
     /// <summary>How long the wall was when its profile was edited: corners at that distance stay on the end.</summary>
     public double ProfileLength { get; set; }
 

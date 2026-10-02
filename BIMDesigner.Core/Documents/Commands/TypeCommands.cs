@@ -151,13 +151,18 @@ public sealed record WallTypeDesign(
     WallWrapping WrapAtInserts,
     WallWrapping WrapAtEnds,
     IReadOnlyList<MaterialLayer> Layers,
-    IReadOnlyList<WallSweep>? Sweeps = null)
+    IReadOnlyList<WallSweep>? Sweeps = null,
+    IReadOnlyList<WallBand>? Bands = null)
 {
+    /// <summary>Why the bands cannot be, or null.</summary>
+    public string? BandProblem() => Bands is { } bands ? WallBands.Problem(bands, Layers.Count) : null;
+
     /// <summary>What a type currently is, with its own copies of the layers.</summary>
     public static WallTypeDesign Of(WallType type) => new(
         type.Name, type.Function, type.WrapAtInserts, type.WrapAtEnds,
         type.Structure.Layers.Select(layer => layer.Clone()).ToList(),
-        type.Sweeps.ToList());
+        type.Sweeps.ToList(),
+        type.Bands.ToList());
 
     /// <summary>Why this cannot be applied, or null if it can.</summary>
     public string? Problem(BimDocument document, WallType editing)
@@ -224,6 +229,12 @@ public sealed class EditWallTypeCommand : IUndoableCommand
         {
             _type.Sweeps.Clear();
             _type.Sweeps.AddRange(sweeps);
+        }
+
+        if (design.Bands is { } bands)
+        {
+            _type.Bands.Clear();
+            _type.Bands.AddRange(bands);
         }
     }
 }

@@ -17,7 +17,34 @@ public enum DimensionAnchor
     WallEnd,
 
     /// <summary>The nearest point on a gridline.</summary>
-    Grid
+    Grid,
+
+    /// <summary>A wall's centreline: the middle of its whole thickness.</summary>
+    WallCentreline,
+
+    /// <summary>A wall's finish face on its exterior side.</summary>
+    WallExteriorFace,
+
+    /// <summary>A wall's finish face on its interior side.</summary>
+    WallInteriorFace,
+
+    /// <summary>The middle of a wall's core - its structure - which need not be the middle of the wall.</summary>
+    WallCoreCentre,
+
+    /// <summary>The exterior face of a wall's core.</summary>
+    WallCoreExterior,
+
+    /// <summary>The interior face of a wall's core.</summary>
+    WallCoreInterior
+}
+
+/// <summary>Which line of a wall a dimension measures to when a wall is clicked: Revit's "Prefer" on the options bar.</summary>
+public enum DimensionPreference
+{
+    WallCentrelines,
+    WallFaces,
+    CentreOfCore,
+    FacesOfCore
 }
 
 /// <summary>
@@ -51,7 +78,63 @@ public sealed class DimensionReference
             (DimensionAnchor.WallStart, Wall wall) => wall.Start,
             (DimensionAnchor.WallEnd, Wall wall) => wall.End,
             (DimensionAnchor.Grid, Grid grid) => grid.Line.ClosestPointTo(FallbackPoint),
+            _ when Line(document) is { } line => line.Point,
             _ => FallbackPoint
+        };
+    }
+
+    /// <summary>Whether this end measures to a line of a wall rather than a point.</summary>
+    public bool IsWallLine => Anchor is DimensionAnchor.WallCentreline or DimensionAnchor.WallExteriorFace or DimensionAnchor.WallInteriorFace
+        or DimensionAnchor.WallCoreCentre or DimensionAnchor.WallCoreExterior or DimensionAnchor.WallCoreInterior;
+
+    /// <summary>
+    /// The line this end measures to - a gridline, or a wall's centreline, face or core face,
+    /// at the point along it nearest where it was picked, and which way it runs there - or
+    /// null for an end that is a point.
+    /// </summary>
+    public (Point2D Point, Vector2D Direction)? Line(BimDocument document)
+    {
+        switch (Find(document))
+        {
+            case Grid grid when Anchor == DimensionAnchor.Grid:
+                return (grid.Line.ClosestPointTo(FallbackPoint), (grid.End - grid.Start).NormalisedOrDefault(Vector2D.UnitX));
+
+            case Wall wall when IsWallLine && document.GetWallType(wall) is { } type:
+            {
+                var across = Across(type.Structure, Anchor);
+                var along = Math.Clamp(wall.Locate(type.Structure, FallbackPoint).Along, 0, wall.Length);
+                return (wall.PointAt(type.Structure, along, across), wall.TangentAt(along));
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>A wall line's two ends, for showing which line a dimension end is on; null for a point.</summary>
+    public (Point2D From, Point2D To)? WallLineSpan(BimDocument document)
+    {
+        if (!IsWallLine || Find(document) is not Wall wall || document.GetWallType(wall) is not { } type) return null;
+
+        var across = Across(type.Structure, Anchor);
+        return (wall.PointAt(type.Structure, 0, across), wall.PointAt(type.Structure, wall.Length, across));
+    }
+
+    /// <summary>How far a wall line lies from the middle of the wall's thickness, toward its exterior.</summary>
+    private static double Across(Materials.CompoundStructure structure, DimensionAnchor anchor)
+    {
+        var half = structure.TotalWidth / 2;
+        var coreExterior = half - structure.ExteriorWidth;
+        var coreInterior = -half + structure.InteriorWidth;
+
+        return anchor switch
+        {
+            DimensionAnchor.WallExteriorFace => half,
+            DimensionAnchor.WallInteriorFace => -half,
+            DimensionAnchor.WallCoreExterior => coreExterior,
+            DimensionAnchor.WallCoreInterior => coreInterior,
+            DimensionAnchor.WallCoreCentre => (coreExterior + coreInterior) / 2,
+            _ => 0
         };
     }
 
@@ -75,6 +158,38 @@ public sealed class DimensionReference
         Anchor = DimensionAnchor.Grid,
         FallbackPoint = grid.Line.ClosestPointTo(near)
     };
+
+    /// <summary>A line of a wall - its centreline, a face, its core's middle or a core face - near a point picked on it.</summary>
+    public static DimensionReference ToWallLine(Wall wall, DimensionAnchor anchor, Point2D near) => new()
+    {
+        ElementId = wall.Id,
+        Anchor = anchor,
+        FallbackPoint = near
+    };
+
+    /// <summary>
+    /// The line of a wall a click on it measures to, under a preference: its centreline or its
+    /// core's middle; or, for faces, whichever face - or core face - is nearer the click.
+    /// </summary>
+    public static DimensionReference ToWall(BimDocument document, Wall wall, Point2D near, DimensionPreference prefer)
+    {
+        var anchor = prefer switch
+        {
+            DimensionPreference.WallCentrelines => DimensionAnchor.WallCentreline,
+            DimensionPreference.CentreOfCore => DimensionAnchor.WallCoreCentre,
+            _ when document.GetWallType(wall) is not { } type => DimensionAnchor.WallCentreline,
+            DimensionPreference.WallFaces => Nearer(DimensionAnchor.WallExteriorFace, DimensionAnchor.WallInteriorFace, document.GetWallType(wall)!.Structure),
+            _ => Nearer(DimensionAnchor.WallCoreExterior, DimensionAnchor.WallCoreInterior, document.GetWallType(wall)!.Structure)
+        };
+
+        return ToWallLine(wall, anchor, near);
+
+        DimensionAnchor Nearer(DimensionAnchor exterior, DimensionAnchor interior, Materials.CompoundStructure structure)
+        {
+            var across = wall.Locate(structure, near).Across;
+            return Math.Abs(across - Across(structure, exterior)) <= Math.Abs(across - Across(structure, interior)) ? exterior : interior;
+        }
+    }
 }
 
 /// <summary>
@@ -104,9 +219,32 @@ public sealed class Dimension : Element
     /// </summary>
     public string Override { get; set; } = string.Empty;
 
-    public Point2D StartPoint(BimDocument document) => Start.Resolve(document);
+    public Point2D StartPoint(BimDocument document) => Ends(document).From;
 
-    public Point2D EndPoint(BimDocument document) => End.Resolve(document);
+    public Point2D EndPoint(BimDocument document) => Ends(document).To;
+
+    /// <summary>
+    /// What is measured between. To a line - a wall's face, a gridline - it is measured square to
+    /// it, as Revit's aligned dimension does: between two parallel lines, straight across from
+    /// one to the other wherever they were picked; from a point to a line, to the foot of the
+    /// square from the point. Between points, point to point.
+    /// </summary>
+    public (Point2D From, Point2D To) Ends(BimDocument document)
+    {
+        var (from, to) = (Start.Resolve(document), End.Resolve(document));
+        var (startLine, endLine) = (Start.Line(document), End.Line(document));
+
+        static Point2D Foot(Point2D point, (Point2D Point, Vector2D Direction) line) =>
+            line.Point + line.Direction * (point - line.Point).Dot(line.Direction);
+
+        return (startLine, endLine) switch
+        {
+            ({ } a, { } b) when Math.Abs(a.Direction.Cross(b.Direction)) < 0.01 => (from, Foot(from, b)),
+            ({ } a, null) => (Foot(to, a), to),
+            (null, { } b) => (from, Foot(from, b)),
+            _ => (from, to)
+        };
+    }
 
     /// <summary>The measurement, in millimetres, taken from the model as it stands.</summary>
     public double Measure(BimDocument document) => StartPoint(document).DistanceTo(EndPoint(document));
@@ -118,8 +256,7 @@ public sealed class Dimension : Element
     /// <summary>The two ends of the dimension line itself, offset from what is measured.</summary>
     public (Point2D From, Point2D To) GetDimensionLine(BimDocument document)
     {
-        var from = StartPoint(document);
-        var to = EndPoint(document);
+        var (from, to) = Ends(document);
         var normal = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
 
         return (from + normal * Offset, to + normal * Offset);

@@ -73,6 +73,9 @@ public static class Downpipes
     /// <summary>How near a run's end an outlet may come, mm, clear of its end cap.</summary>
     public const double EndMargin = 100;
 
+    /// <summary>How far above the roof below a dormer's downpipe turns down to it at the least, mm: room for the pipe to drop.</summary>
+    public const double AboveRoofBelow = 50;
+
     public static IEnumerable<Downpipe> On(BimDocument document, RoofEdgeSweep gutter) =>
         document.Elements.OfType<Downpipe>().Where(pipe => pipe.GutterId == gutter.Id);
 
@@ -134,6 +137,46 @@ public static class Downpipes
         if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == gutter.RoofId) is not { } roof) return null;
         if (Nearest(document, gutter, pipe.Location) is not var (segment, along, _)) return null;
 
+        // Where a dormer's gutter runs back into the main roof, a downpipe would come out of it
+        // inside that roof and down into the room under it: it goes along the gutter to the
+        // nearest place that is out over the roof.
+        return At(document, gutter, type, roof, segment, along) ??
+               Places(document, gutter, pipe.Location).Select(place => At(document, gutter, type, roof, place.Segment, place.Along)).FirstOrDefault(path => path is not null);
+    }
+
+    /// <summary>Places along a gutter, kept clear of the ends of each stretch, the nearest a point first.</summary>
+    private static IEnumerable<(RoofEdgeSegment Segment, double Along)> Places(BimDocument document, RoofEdgeSweep gutter, Point2D near)
+    {
+        var places = new List<(RoofEdgeSegment Segment, double Along, double Distance)>();
+        foreach (var segment in RoofEdgeSweeps.Runs(document, gutter).SelectMany(run => run.Segments))
+        {
+            var (from, to) = (segment.From.Plan, segment.To.Plan);
+            var planLength = from.DistanceTo(to);
+            if (segment.Length < 1e-6 || planLength < 1e-6) continue;
+
+            var margin = Math.Min(EndMargin, planLength / 2);
+            for (var s = margin; s <= planLength - margin + 1e-6; s += 25)
+                places.Add((segment, s / planLength * segment.Length, near.DistanceTo(from + (to - from) * (s / planLength))));
+        }
+
+        return places.OrderBy(place => place.Distance).Select(place => (place.Segment, place.Along));
+    }
+
+    /// <summary>
+    /// The roof a gutter's roof is carried back into - a dormer's main roof - which its downpipes
+    /// let their water onto, if it is.
+    /// </summary>
+    private static Roof? RoofBelow(BimDocument document, Roof roof) =>
+        roof.JoinedTo is { } joined
+            ? document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof) && !other.IsExtrusion)
+            : null;
+
+    /// <summary>
+    /// A downpipe with its outlet at a place along a gutter - or null where it would not come out
+    /// over the roof below: the outlet, and the swan neck back to the wall, inside that roof.
+    /// </summary>
+    private static DownpipePath? At(BimDocument document, RoofEdgeSweep gutter, GutterType type, Roof roof, RoofEdgeSegment segment, double along)
+    {
         var form = Gutters.Form(type);
         var at = segment.From + segment.Along * along;
         var outlet = segment.Place(at, new Point2D(form.Outlet + gutter.HorizontalOffset, form.Bottom + gutter.VerticalOffset));
@@ -145,7 +188,8 @@ public static class Downpipes
 
         // Back to the wall under the eave, standing off it; straight down where there is none.
         var outletOut = (outlet - at).Dot(outward);
-        var (faceOut, wall) = WallFace(document, at.Plan, new Vector2D(outward.X, outward.Y), new Vector2D(across.X, across.Y));
+        var below = RoofBelow(document, roof);
+        var (faceOut, wall) = WallFace(document, at.Plan, new Vector2D(outward.X, outward.Y), new Vector2D(across.X, across.Y), below: below);
         var pipeOut = faceOut is { } face ? face + Clearance + standOff : outletOut;
         var back = outletOut - pipeOut;
 
@@ -159,15 +203,22 @@ public static class Downpipes
         // The swan neck: two elbows and an offset at 45° between them.
         if (Math.Abs(back) > 5) points.Add(points[^1] - outward * back - down * Math.Abs(back));
 
+        // All of that out over the roof below, with room under it for the pipe to drop.
+        if (below is not null && points.Any(point => below.Contains(point.Plan) && point.Z < below.TopAt(document, point.Plan) + AboveRoofBelow)) return null;
+
         var foot = points[^1].Plan;
         var (bottom, ontoRoof) = Ground(document, roof, wall, foot);
         var top = points[^1].Z;
 
         if (top - bottom > ShoeRise + 50)
         {
-            // Down the wall, and out at the foot through a shoe.
+            // Down the wall, and out at the foot through a shoe - which stays on top of a roof it
+            // lets its water onto, where that roof rises the way it points.
             points.Add(new Vector3(foot.X, foot.Y, bottom + ShoeRise));
-            points.Add(new Vector3(foot.X, foot.Y, bottom + ShoeRise) + outward * ShoeReach - down * ShoeReach);
+            var shoe = new Vector3(foot.X, foot.Y, bottom + ShoeRise) + outward * ShoeReach - down * ShoeReach;
+            if (ontoRoof && below is not null && below.Contains(shoe.Plan))
+                shoe = new Vector3(shoe.X, shoe.Y, Math.Max(shoe.Z, below.TopAt(document, shoe.Plan) + 10));
+            points.Add(shoe);
         }
         else if (top - bottom > 10)
         {
@@ -179,13 +230,17 @@ public static class Downpipes
 
     /// <summary>
     /// How far out from the roof's edge the face of the wall under it is - the outermost wall
-    /// running along the eave, under it - and that wall; nothing where no wall is there.
+    /// running along the eave, under it - and that wall; nothing where no wall is there. Over a
+    /// roof below, only a wall coming up through it: one under it is inside the house.
     /// </summary>
-    internal static (double? FaceOut, Wall? Wall) WallFace(BimDocument document, Point2D edge, Vector2D outward, Vector2D along, double beyond = 50)
+    internal static (double? FaceOut, Wall? Wall) WallFace(BimDocument document, Point2D edge, Vector2D outward, Vector2D along, double beyond = 50, Roof? below = null)
     {
+        var roofTop = below is not null && below.Contains(edge) ? below.TopAt(document, edge) : double.NegativeInfinity;
+
         (double, Wall)? best = null;
         foreach (var wall in document.Walls.Where(wall => !wall.IsCurved))
         {
+            if (wall.GetTopElevation(document) <= roofTop) continue;
             if (Math.Abs(wall.Direction.Cross(along)) > 0.05) continue;
             if (document.GetWallType(wall) is not { } type) continue;
 
@@ -209,9 +264,7 @@ public static class Downpipes
     /// </summary>
     internal static (double Bottom, bool OntoRoof) Ground(BimDocument document, Roof roof, Wall? wall, Point2D foot)
     {
-        if (roof.JoinedTo is { } joined &&
-            document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof)) is { IsExtrusion: false } below &&
-            below.Contains(foot))
+        if (RoofBelow(document, roof) is { } below && below.Contains(foot))
             return (below.TopAt(document, foot), true);
 
         if (wall is not null) return (wall.GetBaseElevation(document), false);
@@ -222,24 +275,37 @@ public static class Downpipes
     /// <summary>
     /// Where downpipes go on a gutter by themselves: at each end of each run, and at each corner
     /// of one that goes all round - brought back along the gutter, past the overhang, to where
-    /// there is wall under it to run down, near its corner.
+    /// there is wall under it to run down, near its corner. An end that runs back into the roof
+    /// below - the top end of a dormer's side gutter, in the main roof - is stopped, not an
+    /// outlet: the water runs the other way, to the first end or corner out over that roof.
     /// </summary>
     public static IReadOnlyList<Point2D> AtEnds(BimDocument document, RoofEdgeSweep gutter)
     {
-        var half = document.FindType<GutterType>(gutter.TypeId) is { } type ? type.DownpipeWidth / 2 : 35;
-        var places = new List<Point2D>();
+        var type = document.FindType<GutterType>(gutter.TypeId);
+        var roof = document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == gutter.RoofId);
+        var half = type is not null ? type.DownpipeWidth / 2 : 35;
+        var below = roof is null ? null : RoofBelow(document, roof);
+        bool Clear(RoofEdgeSegment segment, double along) => type is null || roof is null || At(document, gutter, type, roof, segment, along) is not null;
 
+        var places = new List<Point2D>();
         foreach (var run in RoofEdgeSweeps.Runs(document, gutter))
         {
             if (run.Segments.Count == 0) continue;
 
-            // Each end of each stretch where the run turns or stops, looking back along it.
-            var ends = run.Closed
-                ? run.Segments.Select(segment => (Segment: segment, FromStart: true))
-                : new[] { (Segment: run.Segments[0], FromStart: true), (Segment: run.Segments[^1], FromStart: false) };
+            if (run.Closed)
+            {
+                // Each corner of a run all round, looking back along the stretch from it.
+                foreach (var segment in run.Segments)
+                    if (NearCorner(document, segment, fromStart: true, half, below, Clear) is { } corner) places.Add(corner);
+                continue;
+            }
 
-            foreach (var (segment, fromStart) in ends)
-                places.Add(NearCorner(document, segment, fromStart, half));
+            // Each end of a run - or, where it is buried, the first end of a stretch along from it that is not.
+            var fromFirst = run.Segments.SelectMany(segment => new[] { (Segment: segment, FromStart: true), (Segment: segment, FromStart: false) });
+            var fromLast = run.Segments.Reverse().SelectMany(segment => new[] { (Segment: segment, FromStart: false), (Segment: segment, FromStart: true) });
+            foreach (var ends in new[] { fromFirst, fromLast })
+                if (ends.Select(end => NearCorner(document, end.Segment, end.FromStart, half, below, Clear)).FirstOrDefault(place => place is not null) is { } place)
+                    places.Add(place);
         }
 
         // Not two in one place: a short run gets one.
@@ -248,24 +314,30 @@ public static class Downpipes
 
     /// <summary>
     /// The first place back from one end of a stretch of gutter with wall under it, clear of the
-    /// wall's corner - or just in from the end, where no wall is found.
+    /// wall's corner - or just in from the end, where no wall is found. None where the end is
+    /// buried in the roof below.
     /// </summary>
-    private static Point2D NearCorner(BimDocument document, RoofEdgeSegment segment, bool fromStart, double half)
+    private static Point2D? NearCorner(BimDocument document, RoofEdgeSegment segment, bool fromStart, double half, Roof? below, Func<RoofEdgeSegment, double, bool> clear)
     {
         var length = segment.Length;
         var outward = new Vector2D(segment.Out.X, segment.Out.Y).NormalisedOrDefault(Vector2D.UnitY);
         var along = new Vector2D(segment.Along.X, segment.Along.Y).NormalisedOrDefault(Vector2D.UnitX);
         Point2D At(double s) => (fromStart ? segment.From + segment.Along * s : segment.To - segment.Along * s).Plan;
+        bool ClearAt(double s) => clear(segment, fromStart ? s : length - s);
+
+        var nearEnd = Math.Min(EndMargin + 50, length / 2);
+        if (!ClearAt(nearEnd)) return null;
 
         for (var s = EndMargin + 50; s <= Math.Min(length / 2, 3000); s += 25)
         {
             var at = At(s);
-            if (WallFace(document, at, outward, along) is { Wall: { } wall } &&
-                Math.Min((at - wall.Start).Dot(wall.Direction), wall.Length - (at - wall.Start).Dot(wall.Direction)) >= half + 200)
+            if (WallFace(document, at, outward, along, below: below) is { Wall: { } wall } &&
+                Math.Min((at - wall.Start).Dot(wall.Direction), wall.Length - (at - wall.Start).Dot(wall.Direction)) >= half + 200 &&
+                ClearAt(s))
                 return at;
         }
 
-        return At(Math.Min(EndMargin + 50, length / 2));
+        return At(nearEnd);
     }
 
     /// <summary>

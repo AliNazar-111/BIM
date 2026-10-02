@@ -56,6 +56,11 @@ public enum PlanTool
     Offset,
     Mirror,
     Array,
+    SplitGap,
+    Paint,
+    SplitFace,
+    Rotate,
+    Scale,
     Sweep,
     Reveal,
 
@@ -384,6 +389,8 @@ public partial class PlanView : FrameworkElement
         set
         {
             _drawShape = value;
+            CancelArcTools();
+            CancelShapedWall();
             _pendingWallStart = null;
             _pendingArcEnd = null;
             _splinePoints.Clear();
@@ -584,6 +591,7 @@ public partial class PlanView : FrameworkElement
     {
         WallShape.Spline => "Click points the wall curves through. Enter or a double click finishes, the first point closes a loop, Esc cancels.",
         WallShape.Arc => "Click where the arc ends. Space flips it, Esc cancels.",
+        WallShape.TangentArc => "Click where the arc ends: it leaves the wall smoothly. Esc stops.",
         WallShape.Rectangle => "Click the opposite corner. Shift makes it square, Space flips the walls, Esc cancels.",
         WallShape.Polygon => PolygonInscribed
             ? "Click where a corner goes. Esc cancels."
@@ -888,6 +896,7 @@ public partial class PlanView : FrameworkElement
     private void BeginCornerDrag(Point2D corner, Point2D raw)
     {
         if (Document is null) return;
+        if (RefusePinned(WallCorners.At(Document, ActiveLevelId, corner).Select(entry => (Element)entry.Item1), "moved")) return;
 
         _cornerWalls.Clear();
         foreach (var (wall, atStart) in WallCorners.At(Document, ActiveLevelId, corner))
@@ -1100,10 +1109,15 @@ public partial class PlanView : FrameworkElement
         PlanTool.Roof => "Pick Walls: hover just outside a wall and click - the roof edge goes on that face. Finish ✓ when the outline closes.",
         PlanTool.RoofExtrusion => "Roof by Extrusion: click where the profile's line starts, then where it ends, then how far the roof runs back from it.",
         PlanTool.Split => "Click a wall where it should be split.",
+        PlanTool.SplitGap => "Click a wall where the joint goes: it is split in two with the Joint Gap between them.",
+        PlanTool.Paint => "Pick a material above, then click a wall's face: in plan on the side to paint, or anywhere on it in an elevation or the 3D view.",
+        PlanTool.SplitFace => "Open an elevation or the 3D view and click two opposite corners on a wall's face to split that part off it.",
         PlanTool.Trim => "Click the wall to trim or extend.",
         PlanTool.Offset => "Click a wall on the side the copy should go. Set the distance above.",
         PlanTool.Mirror => "Select what to mirror first, then click two points on the mirror line.",
         PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
+        PlanTool.Rotate => "Select what to rotate first. Click where the angle starts, then where it ends - or type an Angle and press Enter.",
+        PlanTool.Scale => "Select what to scale first, set the scale above, then click the point it is scaled about.",
         PlanTool.WallJoins => "Click the square at a wall join to change it; Ctrl+click adds more. Then choose on the option bar.",
         PlanTool.JoinGeometry => "Click a wall, then a parallel wall beside it (up to 150 mm away) to join them, or two joined walls to unjoin them.",
         PlanTool.JoinRoof => "Click the edge of the roof to join - a dormer's back edge - then the roof it runs into. Click a joined roof's edge to unjoin it.",
@@ -1189,6 +1203,7 @@ public partial class PlanView : FrameworkElement
     public void DeleteSelected()
     {
         if (Document is null || _selection.Count == 0) return;
+        if (RefusePinned(_selection, "deleted")) return;
 
         Apply(new DeleteElementsCommand(Document, _selection.ToList()));
         Select(null);
@@ -1210,6 +1225,9 @@ public partial class PlanView : FrameworkElement
         var changed = CancelExtrusion()
                       | CancelRoofJoin()
                       | CancelRoofEdgePick()
+                      | CancelSplitFace()
+                      | CancelArcTools()
+                      | CancelShapedWall()
                       || _pendingWallStart is not null
                       || _rehosting is not null
                       || _rehostingComponent is not null
@@ -1219,7 +1237,12 @@ public partial class PlanView : FrameworkElement
                       || _trimSubject is not null
                       || _pendingDimension is not null
                       || _bandStart is not null
+                      || _rotateFrom is not null
+                      || _rotateCentre is not null
+                      || _placingRotateCentre
                       || SweepEdit != SweepEditMode.None;
+
+        ResetRotate();
 
         EndSweepEdit();
         AddingWallPoints = false;
@@ -1487,7 +1510,7 @@ public partial class PlanView : FrameworkElement
             _cursorIsSnapped = false;
         }
         else if (ActiveTool is PlanTool.Wall or PlanTool.Dimension or PlanTool.Section
-            or PlanTool.Mirror or PlanTool.Array)
+            or PlanTool.Mirror or PlanTool.Array or PlanTool.Rotate or PlanTool.Scale)
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
         }
@@ -1522,7 +1545,10 @@ public partial class PlanView : FrameworkElement
         if (ActiveTool == PlanTool.Select && _dragging == GripKind.None && _bandStart is null && SweepEdit == SweepEditMode.None)
             UpdateHover(raw);
 
-        if (_pendingWallStart is not null || _pendingDimension is not null || _cursorIsSnapped)
+        // What is being drawn, or turned, or scaled, follows the cursor as it goes - not only
+        // when it snaps to something.
+        if (_pendingWallStart is not null || _pendingDimension is not null || _cursorIsSnapped ||
+            ActiveTool is PlanTool.Rotate or PlanTool.Scale or PlanTool.Mirror or PlanTool.Array)
             InvalidateVisual();
     }
 
@@ -1574,6 +1600,7 @@ public partial class PlanView : FrameworkElement
                 else if (DrawShape == WallShape.Freehand) BeginStroke(raw);
                 else if (DrawShape is WallShape.BySegment or WallShape.ByRoom) PlaceAgainst(raw);
                 else if (DrawShape == WallShape.Spline && e.ClickCount == 2 && _pendingWallStart is not null) FinishSpline(closed: false);
+                else if (DrawShape == WallShape.PolygonOutline && e.ClickCount == 2 && _shapedPoints.Count >= 3) FinishPolygonWall();
                 else PlaceWallPoint(SnapPoint(raw, null, out _));
                 return;
 
@@ -1646,12 +1673,35 @@ public partial class PlanView : FrameworkElement
                 OffsetAt(raw);
                 return;
 
+            case PlanTool.SplitGap:
+                SplitWithGapAt(raw);
+                return;
+
+            case PlanTool.Paint:
+                PaintInPlan(raw);
+                return;
+
+            case PlanTool.SplitFace:
+                HintChanged?.Invoke(this, DefaultHintFor(PlanTool.SplitFace));
+                return;
+
             case PlanTool.Mirror:
                 PlaceMirrorPoint(SnapPoint(raw, null, out _));
                 return;
 
             case PlanTool.Array:
                 PlaceArrayPoint(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Rotate:
+            {
+                var point = SnapPoint(raw, null, out var snapped);
+                PlaceRotatePoint(point, snapped);
+                return;
+            }
+
+            case PlanTool.Scale:
+                PlaceScalePoint(SnapPoint(raw, null, out _));
                 return;
 
             case PlanTool.WallJoins:
@@ -1720,6 +1770,13 @@ public partial class PlanView : FrameworkElement
             if (flip.Facing) FlipFacing(flipped);
             else Apply(new FlipOpeningCommand(flipped, facing: false));
             InvalidateVisual();
+            return;
+        }
+
+        // An elevation marker opens its elevation.
+        if (ElevationMarkerAt(e.GetPosition(this)) is { } elevation)
+        {
+            ElevationPicked?.Invoke(this, elevation);
             return;
         }
 
@@ -2072,6 +2129,7 @@ public partial class PlanView : FrameworkElement
     private void BeginEndGripDrag(GripKind grip, Point2D raw)
     {
         if (SelectedWall is not { } wall) return;
+        if (RefusePinned(new[] { wall }, "reshaped")) return;
 
         _dragging = grip;
         _dragAnchor = raw;
@@ -2150,6 +2208,13 @@ public partial class PlanView : FrameworkElement
     {
         if (!_selection.Any(ElementTransforms.CanMove)) return;
 
+        // A pinned element in the selection holds it all: nothing of it moves.
+        if (_selection.Any(element => element.Pinned))
+        {
+            RefusePinned(_selection, "moved");
+            return;
+        }
+
         _dragging = GripKind.Move;
         CollectMoveSet();
 
@@ -2179,6 +2244,8 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null || _dragging != GripKind.None) return false;
         if (!_selection.Any(ElementTransforms.CanMove)) return false;
+
+        if (RefusePinned(_selection, "moved")) return false;
 
         var distance = far ? SnapStepMm * 10 : SnapStepMm;
         var step = direction * distance;
@@ -2437,9 +2504,32 @@ public partial class PlanView : FrameworkElement
 
     // ---- tools -----------------------------------------------------------------
 
+    /// <summary>A click with the Wall tool, at a point already snapped. Public so tests can drive it.</summary>
+    public void PlaceWallPointAt(Point2D model) => PlaceWallPoint(model);
+
     private void PlaceWallPoint(Point2D model)
     {
         if (Document is null) return;
+
+        switch (_drawShape)
+        {
+            case WallShape.TangentArc:
+                PlaceTangentArcPoint(model);
+                InvalidateVisual();
+                return;
+            case WallShape.CentreEndsArc:
+                PlaceCentreArcPoint(model);
+                InvalidateVisual();
+                return;
+            case WallShape.FilletArc:
+                PickFilletWall(model);
+                InvalidateVisual();
+                return;
+            case WallShape.Trapezoid or WallShape.PolygonOutline:
+                PlaceShapedWallPoint(model);
+                InvalidateVisual();
+                return;
+        }
 
         if (_pendingWallStart is null)
         {
@@ -2497,6 +2587,8 @@ public partial class PlanView : FrameworkElement
                 Flipped = DrawFlipped
             };
 
+            // With a radius set, the corner with the wall before is rounded off.
+            commands.AddRange(RoundChainCorner(wall));
             commands.Add(new AddElementCommand(Document, Configured(wall), "Draw Wall"));
             Apply(commands.Count == 1 ? commands[0] : new CompositeCommand("Draw Wall", commands));
 
@@ -3039,6 +3131,8 @@ public partial class PlanView : FrameworkElement
     /// <summary>Enter while drawing: finishes a spline wall at its last point. Returns whether there was one to finish.</summary>
     public bool FinishDrawing()
     {
+        if (ActiveTool == PlanTool.Wall && _drawShape == WallShape.PolygonOutline) return FinishPolygonWall();
+
         if (ActiveTool != PlanTool.Wall || _drawShape != WallShape.Spline || _pendingWallStart is null || _splinePoints.Count == 0)
             return false;
 
@@ -3167,6 +3261,17 @@ public partial class PlanView : FrameworkElement
             if (wall.End.DistanceTo(point) <= tolerance) return DimensionReference.ToWall(wall, atStart: false);
         }
 
+        // On a wall: the line of it the options bar prefers - its centreline, the face nearer
+        // the click, its core's middle or the nearer core face.
+        foreach (var wall in OnActiveLevel<Wall>())
+        {
+            if (Document.GetWallType(wall) is not { } type) continue;
+
+            var (along, across) = wall.Locate(type.Structure, point);
+            if (along >= 0 && along <= wall.Length && Math.Abs(across) <= type.Structure.TotalWidth / 2 + tolerance)
+                return DimensionReference.ToWall(Document, wall, point, DimensionPrefer);
+        }
+
         foreach (var grid in OnActiveLevel<Grid>())
         {
             if (grid.Line.ClosestPointTo(point).DistanceTo(point) <= tolerance)
@@ -3191,19 +3296,18 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        var from = _pendingDimension.Resolve(Document);
-        if (from.DistanceTo(point) < SnapStepMm)
-        {
-            HintChanged?.Invoke(this, "Those two points are the same. Pick somewhere else.");
-            return;
-        }
-
         var dimension = new Dimension
         {
             Start = _pendingDimension,
             End = ReferenceAt(point),
             LevelId = ActiveLevelId
         };
+
+        if (dimension.Measure(Document) < 1)
+        {
+            HintChanged?.Invoke(this, "Those two are the same place. Pick somewhere else.");
+            return;
+        }
 
         Apply(new AddElementCommand(Document, dimension, "Add Dimension"));
         Select(dimension);
@@ -3385,6 +3489,8 @@ public partial class PlanView : FrameworkElement
         }
         else
         {
+            if (RefusePinned(_selection, "mirrored - Keep originals mirrors copies of it instead")) return;
+
             // A chimney mirrored to face a wall turns round to face the room, as one step with the mirror.
             var command = new MirrorElementsCommand(_selection.ToList(), axis, Document);
             command.Redo();
@@ -4676,6 +4782,42 @@ public partial class PlanView : FrameworkElement
         HintChanged?.Invoke(this, "Wall split. Click another wall to split it.");
     }
 
+    /// <summary>How wide Split with Gap leaves the joint, mm.</summary>
+    public double JointGap { get; set; } = 25;
+
+    /// <summary>
+    /// Splits a wall with a gap between the two halves, centred where it is clicked - a movement
+    /// joint. Refused where a door or window is in the way, or too near an end. Public so tests
+    /// can drive it.
+    /// </summary>
+    public bool SplitWithGapAt(Point2D raw)
+    {
+        if (Document is null) return false;
+
+        if (HitTestWall(raw) is not { } wall)
+        {
+            HintChanged?.Invoke(this, "No wall there. Click a wall where the joint should go.");
+            return false;
+        }
+
+        if (RefusePinned(new[] { wall }, "split")) return false;
+
+        var curve = wall.LocationCurve;
+        var along = Units.SnapToGrid(curve.Locate(raw).Along, Math.Min(SnapStepMm, 10));
+        if (WallGaps.Split(Document, wall, along, JointGap, out var problem) is not var (command, beyond))
+        {
+            HintChanged?.Invoke(this, problem ?? "That wall cannot be split there.");
+            return false;
+        }
+
+        History?.Record(command);
+        Select(beyond);
+        HintChanged?.Invoke(this, $"Split with a {Units.FormatLength(JointGap)} gap. Click another wall for another joint.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
     private void TrimAt(Point2D raw)
     {
         if (Document is null) return;
@@ -5073,6 +5215,26 @@ public partial class PlanView : FrameworkElement
                 ring = shaft.Outline;
                 break;
 
+            case PolygonWall shaped:
+                ring = shaped.Outline;
+                break;
+
+            case WallFraming framing:
+            {
+                var framed = Document.Walls.FirstOrDefault(w => w.Id == framing.HostId);
+                ring = framed is null ? null : Document.GetWallType(framed) is { } framedType
+                    ? WallJoins.GetBandOutline(Document, framed, framedType, framedType.Width / 2, -framedType.Width / 2)
+                    : null;
+                break;
+            }
+
+            case Part part:
+            {
+                var host = Document.Walls.FirstOrDefault(w => w.Id == part.HostId);
+                ring = host is null ? null : Parts.PlanAt(Document, part, host.GetBaseElevation(Document) + StackedWallType.PlanCutHeight).FirstOrDefault();
+                break;
+            }
+
             case Chimney chimney:
                 ring = Chimneys.Footprint(Document, chimney, ActiveLevelId);
                 break;
@@ -5151,6 +5313,24 @@ public partial class PlanView : FrameworkElement
         // walls - otherwise it could never be selected where it matters.
         foreach (var section in OnActiveLevel<SectionMarker>())
             if (DistanceToSegment(model, section.Start, section.End) <= 6 / PixelsPerMm) yield return section;
+
+        foreach (var shaped in OnActiveLevel<PolygonWall>())
+            if (Polygon2D.Contains(shaped.Outline, model)) yield return shaped;
+
+        // A stud of a wall's frame picks the frame.
+        foreach (var framing in Document.Elements.OfType<WallFraming>())
+        {
+            if (Document.Walls.FirstOrDefault(w => w.Id == framing.HostId) is not { } framed || !IsOnActiveLevel(framed)) continue;
+            if (WallFramings.PlanAt(Document, framing, StackedWallType.PlanCutHeight).Any(stud => Polygon2D.Contains(stud, model))) yield return framing;
+        }
+
+        // A part of a wall, where the plan cuts it, before the wall it is a part of.
+        foreach (var part in Document.Elements.OfType<Part>())
+        {
+            if (Document.Walls.FirstOrDefault(w => w.Id == part.HostId) is not { } host || !IsOnActiveLevel(host)) continue;
+            var cut = host.GetBaseElevation(Document) + StackedWallType.PlanCutHeight;
+            if (Parts.PlanAt(Document, part, cut).Any(outline => Polygon2D.Contains(outline, model))) yield return part;
+        }
 
         foreach (var opening in OnActiveLevel<Opening>())
         {
@@ -5288,6 +5468,12 @@ public partial class PlanView : FrameworkElement
         DrawDownpipePreview(dc);
         DrawRoofDrainPreview(dc);
         DrawChimneyPreview(dc);
+        DrawElevationMarkers(dc);
+        DrawArcToolPreview(dc);
+        DrawShapedWallPreview(dc);
+        DrawRotatePreview(dc);
+        DrawScalePreview(dc);
+        DrawPins(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
         DrawJunctions(dc);
@@ -5454,13 +5640,23 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     private void DrawPendingDimension(DrawingContext dc)
     {
-        if (_pendingDimension is null || Document is null) return;
+        if (ActiveTool != PlanTool.Dimension || Document is null) return;
 
-        var from = _pendingDimension.Resolve(Document);
-        _renderer.DrawPendingDimension(dc, from, _cursorModel);
+        // The wall line the cursor would measure to, lit along its length.
+        var under = ReferenceAt(_cursorModel);
+        if (under.WallLineSpan(Document) is { } span)
+            dc.DrawLine(_selectedPen, ModelToScreen(span.From), ModelToScreen(span.To));
+
+        if (_pendingDimension is null) return;
+        if (_pendingDimension.WallLineSpan(Document) is { } first)
+            dc.DrawLine(_selectedPen, ModelToScreen(first.From), ModelToScreen(first.To));
+
+        // Measured as it will be: square to a face or gridline.
+        var (from, to) = new Dimension { Start = _pendingDimension, End = under }.Ends(Document);
+        _renderer.DrawPendingDimension(dc, from, to);
 
         // The end already fixed, so it is obvious which one is being dragged.
-        if (from.DistanceTo(_cursorModel) >= 1)
+        if (from.DistanceTo(to) >= 1)
             dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(from), 4, 4);
     }
 
@@ -5481,7 +5677,8 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        if (_pendingWallStart is null) return;
+        if (_pendingWallStart is null || _drawShape is WallShape.TangentArc or WallShape.CentreEndsArc or WallShape.FilletArc
+                or WallShape.Trapezoid or WallShape.PolygonOutline) return;
 
         var type = Document?.PlanWallType(ActiveWallTypeId, NewWallHeight);
 

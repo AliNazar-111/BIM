@@ -142,6 +142,16 @@ public static class SectionProjection
             foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, marker, wall, pieces);
             foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, marker, slab, pieces);
 
+            // A wall shaped in plan is cut through where the line crosses its outline.
+            foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(shaped => shows(shaped)))
+            {
+                var material = document.FindMaterial(shaped.MaterialId);
+                var (bottom, top) = (shaped.GetBaseElevation(document), shaped.GetTopElevation(document));
+                foreach (var (from, to) in CrossPolygon(marker, shaped.Outline))
+                    pieces.Add(new SectionPiece(new SectionRect(from, bottom, to, top), SectionPart.WallLayer, SectionDepth.Cut,
+                        material?.CutColour ?? DefaultCut, material?.Name ?? "Wall", shaped.Id));
+            }
+
             foreach (var column in document.Elements.OfType<Column>().Where(column => shows(column)))
                 AddColumn(document, marker, column, pieces);
 
@@ -552,8 +562,11 @@ public static class SectionProjection
                 .ToList();
         }
 
+        var layerIndex = -1;
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
+            layerIndex++;
+
             // A membrane is a line with no volume: nothing to build or cut.
             if (layer.Thickness <= 0) continue;
 
@@ -565,12 +578,13 @@ public static class SectionProjection
                 continue;
             }
 
-            var material = document.FindMaterial(layer.MaterialId);
-
+            // A band of another material in the layer is cut as itself.
             foreach (var (bottom, top) in solid)
+            foreach (var (runBottom, runTop, materialId) in WallBands.Runs(type, layerIndex, bottom, top, baseElevation))
             {
+                var material = document.FindMaterial(materialId);
                 pieces.Add(new SectionPiece(
-                    new SectionRect(layerFrom, bottom, layerTo, top),
+                    new SectionRect(layerFrom, runBottom, layerTo, runTop),
                     SectionPart.WallLayer,
                     SectionDepth.Cut,
                     material?.CutColour ?? DefaultCut,
@@ -615,9 +629,10 @@ public static class SectionProjection
         }
 
         var layers = structure.GetLayerOffsets()
-            .Where(entry => entry.Layer.Thickness > 0)
-            .Select(entry => (entry.Layer, Spans: CrossPolygon(marker,
-                WallJoins.GetBandOutline(wall, type, half - entry.Start, half - entry.End, startCut, endCut)).ToList()))
+            .Select((entry, index) => (entry, index))
+            .Where(item => item.entry.Layer.Thickness > 0)
+            .Select(item => (item.entry.Layer, Index: item.index, Spans: CrossPolygon(marker,
+                WallJoins.GetBandOutline(wall, type, half - item.entry.Start, half - item.entry.End, startCut, endCut)).ToList()))
             .ToList();
 
         foreach (var (from, to) in crossings)
@@ -626,18 +641,18 @@ public static class SectionProjection
             var openings = OpeningsAt(document, wall, wall.Locate(structure, middle).Along);
             var solid = SolidHeights(document, openings, baseElevation, topElevation);
 
-            foreach (var (layer, spans) in layers)
+            foreach (var (layer, index, spans) in layers)
             {
-                var material = document.FindMaterial(layer.MaterialId);
-
                 foreach (var (layerFrom, layerTo) in spans)
                 {
                     var left = Math.Max(from, layerFrom);
                     var right = Math.Min(to, layerTo);
                     if (right - left <= Epsilon) continue;
 
-                    foreach (var (bottom, top) in solid)
+                    foreach (var (solidBottom, solidTop) in solid)
+                    foreach (var (bottom, top, materialId) in WallBands.Runs(type, index, solidBottom, solidTop, baseElevation))
                     {
+                        var material = document.FindMaterial(materialId);
                         pieces.Add(new SectionPiece(
                             new SectionRect(left, bottom, right, top),
                             SectionPart.WallLayer,

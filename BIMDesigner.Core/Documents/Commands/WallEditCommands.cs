@@ -117,6 +117,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly WallSpline? _firstSpline;
     private readonly (IReadOnlyList<Point2D>? Profile, double Length) _originalProfile, _firstProfile;
     private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _originalCurtain, _firstCurtain;
+    private readonly IReadOnlyList<WallFaceRegion> _originalRegions, _firstRegions;
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
     private readonly List<Wall> _liningsOfWall = new();
@@ -194,6 +195,18 @@ public sealed class SplitWallCommand : IUndoableCommand
                     .Select(p => p with { Column = p.Column - farStart }).ToList());
         }
 
+        // Paint and split faces go with the half they are on; one across the split is cut there,
+        // each half's part running to the split.
+        _originalRegions = wall.FaceRegions;
+        _firstRegions = wall.FaceRegions
+            .Where(region => (region.From ?? double.NegativeInfinity) < _splitAlong - 1e-6)
+            .Select(region => region.To is { } to && to < _splitAlong ? region : region with { To = null })
+            .ToList();
+        var secondRegions = wall.FaceRegions
+            .Where(region => (region.To ?? double.PositiveInfinity) > _splitAlong + 1e-6)
+            .Select(region => region with { From = region.From is { } from && from > _splitAlong ? from - _splitAlong : null, To = region.To - _splitAlong })
+            .ToList();
+
         // Doors and windows beyond the split belong to the far half now.
         foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
             _moved.Add((opening, opening.DistanceAlongWall));
@@ -210,6 +223,7 @@ public sealed class SplitWallCommand : IUndoableCommand
             ProfileLength = secondProfile.Length,
             CurtainGrid = secondCurtain.Grid,
             CurtainPanels = secondCurtain.Panels,
+            FaceRegions = secondRegions,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             UpperSlantAngle = wall.UpperSlantAngle,
@@ -263,6 +277,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.Spline = _firstSpline;
         (_wall.Profile, _wall.ProfileLength) = _firstProfile;
         (_wall.CurtainGrid, _wall.CurtainPanels) = _firstCurtain;
+        _wall.FaceRegions = _firstRegions;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
         foreach (var lining in _liningsOfWall) lining.JoinedTo.Add(_remainder.Id);
@@ -306,6 +321,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.Spline = _originalSpline;
         (_wall.Profile, _wall.ProfileLength) = _originalProfile;
         (_wall.CurtainGrid, _wall.CurtainPanels) = _originalCurtain;
+        _wall.FaceRegions = _originalRegions;
         _wall.EndJoin = _originalEndJoin;
     }
 }
@@ -704,6 +720,62 @@ public sealed class FlipWallsCommand : IUndoableCommand
 /// Several edits that the user made as one action, undone and redone together - drawing a
 /// wall that also pulls the previous one round to meet it, for instance.
 /// </summary>
+/// <summary>
+/// Splits a wall in two with a gap between them, centred where it is split - a movement joint,
+/// as Revit's Split with Gap makes. The two walls keep everything the wall had, each its own
+/// part of it, and neither joins across the gap.
+/// </summary>
+public static class WallGaps
+{
+    /// <summary>The narrowest and widest joint, mm: Revit's 1/16" to 1'-0".</summary>
+    public const double LeastGap = 1.6, MostGap = 304.8;
+
+    /// <summary>
+    /// The split, made and returned as one step to record, with the wall beyond the gap; null,
+    /// with why, where it cannot be made - a door or window in the way, or too near an end.
+    /// </summary>
+    public static (IUndoableCommand Command, Wall Beyond)? Split(BimDocument document, Wall wall, double along, double gap, out string? problem)
+    {
+        problem = null;
+        if (gap < LeastGap - 1e-9 || gap > MostGap + 1e-9)
+        {
+            problem = $"A joint gap is between {Units.FormatLength(LeastGap)} and {Units.FormatLength(MostGap)}.";
+            return null;
+        }
+
+        var (from, to) = (along - gap / 2, along + gap / 2);
+        if (from <= WallJoins.JoinTolerance || to >= wall.Length - WallJoins.JoinTolerance)
+        {
+            problem = "Too close to the end of the wall to split with a gap there.";
+            return null;
+        }
+
+        if (!WallOpenings.GetSolidRuns(document, wall).Any(run => run.From <= from + 1e-6 && run.To >= to - 1e-6))
+        {
+            problem = "A door, window or opening is in the way: split the wall clear of it.";
+            return null;
+        }
+
+        // Split twice, the gap apart, and take the piece between away.
+        var first = new SplitWallCommand(document, wall, wall.LocationCurve.PointAt(from));
+        first.Redo();
+        var between = first.Remainder;
+        var second = new SplitWallCommand(document, between, between.LocationCurve.PointAt(gap));
+        second.Redo();
+        var beyond = second.Remainder;
+        var remove = new DeleteElementsCommand(document, new Element[] { between });
+        remove.Redo();
+
+        // Neither end reaches across the joint.
+        var near = new SetWallJoinCommand(document, wall, atStart: false, WallJoinKind.Disallow);
+        near.Redo();
+        var far = new SetWallJoinCommand(document, beyond, atStart: true, WallJoinKind.Disallow);
+        far.Redo();
+
+        return (new CompositeCommand("Split with Gap", new IUndoableCommand[] { first, second, remove, near, far }), beyond);
+    }
+}
+
 public sealed class CompositeCommand : IUndoableCommand
 {
     private readonly List<IUndoableCommand> _commands;

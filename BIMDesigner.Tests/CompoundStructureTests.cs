@@ -139,7 +139,8 @@ public class CompoundStructureTests
         var document = BimDocument.CreateDefault();
         var types = document.TypesOf<WallType>().ToList();
 
-        Assert.Equal(3, types.Count);
+        Assert.Equal(3, types.Count(type => type.Log is null));
+        Assert.Equal(3, types.Count(type => type.Log is not null));
         Assert.All(types, type => Assert.True(type.Width > 0));
         Assert.All(types, type => Assert.NotEmpty(type.Structure.Layers));
 

@@ -157,6 +157,36 @@ public class GutterPartsTests
     }
 
     [Fact]
+    public void ADormersDownpipesStayOutOfTheMainRoofAndTheRoomUnderIt()
+    {
+        var (document, dormer, gutter, _) = Guttered(dormer: true);
+        var main = document.Elements.OfType<Roof>().Single(roof => roof.Id == dormer.JoinedTo);
+        void OutOverTheRoof(DownpipePath path) =>
+            Assert.All(path.Points, point => Assert.True(!main.Contains(point.Plan) || point.Z > main.TopAt(document, point.Plan), $"{point} is in the main roof"));
+
+        // One down each cheek, from the gutter's low end - none at the top ends, buried in the main roof.
+        var places = Downpipes.AtEnds(document, gutter);
+        Assert.Equal(2, places.Count);
+        foreach (var place in places)
+        {
+            var pipe = new Downpipe { GutterId = gutter.Id, LevelId = gutter.LevelId, Location = place };
+            var path = Downpipes.Path(document, pipe)!;
+            Assert.True(path.OntoRoof);
+            OutOverTheRoof(path);
+
+            // Against the cheek it runs down, not a wall of the storey under the main roof.
+            var cheek = Dormers.Parts(document, dormer).OfType<Wall>().Min(wall => Math.Abs(wall.Start.X - path.Foot.X));
+            Assert.True(cheek < 300, $"{cheek:0} mm from the dormer's cheek");
+        }
+
+        // One put at a top end goes along the gutter to where it comes out over the roof.
+        var top = RoofEdgeSweeps.Runs(document, gutter).SelectMany(run => run.Segments)
+            .SelectMany(segment => new[] { segment.From, segment.To }).MaxBy(point => main.TopAt(document, point.Plan) - point.Z)!;
+        var moved = Downpipes.Path(document, new Downpipe { GutterId = gutter.Id, LevelId = gutter.LevelId, Location = top.Plan })!;
+        OutOverTheRoof(moved);
+    }
+
+    [Fact]
     public void AtEachEndOfAnOpenGutterAndEachCornerOfOneAllRound()
     {
         var (document, roof, gutter, _) = Guttered();

@@ -91,6 +91,37 @@ public sealed class WallCut
 
     public WallWrapping Wrapping { get; }
 
+    /// <summary>
+    /// For an end stopping against another wall's face: how far each of this wall's layers goes
+    /// on into that wall, past the face, by the layers' join priorities - as (outer, inner)
+    /// offsets of the layer from this wall's middle, and the depth. Empty for any other cut.
+    /// </summary>
+    public IReadOnlyList<(double Outer, double Inner, double Depth)> LayerDepths { get; init; } = Array.Empty<(double, double, double)>();
+
+    /// <summary>Which way is into the wall this end stops against, square to its face.</summary>
+    public Vector2D Into { get; init; }
+
+    /// <summary>The wall this end stops against, where its layers go on into it; empty otherwise.</summary>
+    public Guid Against { get; init; }
+
+    /// <summary>
+    /// The cut one layer of the wall ends at: the face this end stops against, or deeper into
+    /// that wall where the layer's priority takes it on past layers of lower priority.
+    /// </summary>
+    public WallCut ForBand(double outer, double inner)
+    {
+        if (LayerDepths.Count == 0 || !IsStraight) return this;
+
+        var middle = (outer + inner) / 2;
+        foreach (var (o, i, depth) in LayerDepths)
+        {
+            if (middle > Math.Max(o, i) + 1e-6 || middle < Math.Min(o, i) - 1e-6) continue;
+            return depth <= 1e-6 ? this : new WallCut(Points.Select(point => point + Into * depth).ToList(), Condition, Wrapping);
+        }
+
+        return this;
+    }
+
     /// <summary>A plain line: the only kind of cut an opening or a free end has.</summary>
     public bool IsStraight => Points.Count == 2;
 
@@ -115,10 +146,11 @@ public sealed class WallCut
     /// <summary>The line of a straight cut.</summary>
     public Line2D Line => Line2D.Through(Points[0], Points[1]);
 
-    public WallCut With(WallEndCondition condition) => new(Points, condition, Wrapping);
+    public WallCut With(WallEndCondition condition) =>
+        new(Points, condition, Wrapping) { LayerDepths = LayerDepths, Into = Into, Against = Against };
 
     /// <summary>The same cut with its layers cut straight through rather than turned round it.</summary>
-    public WallCut Unwrapped() => Wrapping == WallWrapping.None ? this : new WallCut(Points, Condition);
+    public WallCut Unwrapped() => Wrapping == WallWrapping.None ? this : new WallCut(Points, Condition) { LayerDepths = LayerDepths, Into = Into, Against = Against };
 }
 
 /// <summary>

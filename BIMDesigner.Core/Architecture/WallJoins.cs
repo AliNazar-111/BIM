@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Materials;
 
 namespace BIMDesigner.Core.Architecture;
 
@@ -65,6 +66,25 @@ public static class WallJoins
     private const double MitreWidthRatio = 0.6;
 
     private const double Epsilon = 1e-6;
+
+    /// <summary>
+    /// Another wall's layer coming into this one through its face, where that wall stops against
+    /// it: from the face (an offset from this wall's middle) to as deep as it goes, between two
+    /// edges that cross this wall so far along it, over the heights that wall stands between.
+    /// </summary>
+    public sealed record WallIntrusion(
+        double Face, double Deep, Line2D FromEdge, double FromAlong, Line2D ToEdge, double ToAlong, double Bottom, double Top)
+    {
+        /// <summary>Whether a layer of this wall, between two offsets from its middle, lies wholly where it passes - and so is cut through.</summary>
+        public bool Passes(double outer, double inner)
+        {
+            var (low, high) = (Math.Min(Face, Deep), Math.Max(Face, Deep));
+            return Math.Min(outer, inner) >= low - 1e-6 && Math.Max(outer, inner) <= high + 1e-6 && Math.Abs(outer - inner) > 1e-6;
+        }
+
+        /// <summary>Whether it is there at a height.</summary>
+        public bool At(double z) => z >= Bottom - 1e-6 && z <= Top + 1e-6;
+    }
 
     /// <summary>How each end of the wall is cut, and what kind of end it is.</summary>
     public static (WallCut Start, WallCut End) GetEndCuts(BimDocument document, Wall wall, WallType type)
@@ -689,9 +709,153 @@ public static class WallJoins
             MiterLimit * Math.Max(type.Width, runType.Width),
             MiterLengthFraction * wall.Length);
 
-        return CutStaysNearTheJoint(face, wall, type, SquareCut(wall, type, atStart), budget)
-            ? WallCut.Along(face, wall, WallEndCondition.Butt)
-            : null;
+        if (!CutStaysNearTheJoint(face, wall, type, SquareCut(wall, type, atStart), budget)) return null;
+
+        // Into the run, square to its face: from the face toward its middle.
+        var (runBodyStart, _) = run.GetBodyCentreline(runType.Structure);
+        var middle = new Line2D(runBodyStart, run.Direction).ClosestPointTo(joint);
+        var into = (middle - face.ClosestPointTo(middle)).NormalisedOrDefault(face.Direction.PerpendicularLeft());
+        var nearExterior = into.Dot(run.ExteriorNormal) < 0;
+
+        var cut = WallCut.Along(face, wall, WallEndCondition.Butt);
+        return new WallCut(cut.Points, cut.Condition, cut.Wrapping)
+        {
+            LayerDepths = LayerDepths(type.Structure, runType.Structure, nearExterior),
+            Into = into,
+            Against = run.Id
+        };
+    }
+
+    /// <summary>
+    /// How far each layer of a wall stopping against another goes on into it, past its face, as
+    /// Revit cleans a tee by layer priority: a layer passes through the other wall's layers of
+    /// lower priority - Structure [1] highest, Finish 2 [5] lowest - and stops at the first of
+    /// equal or higher priority, which it joins. Nothing passes the other wall's core boundary,
+    /// and the core passes everything outside it, so a partition's studs run through the plaster
+    /// of the wall it meets to that wall's blockwork, while its plasterboard stops at the face.
+    /// </summary>
+    public static IReadOnlyList<(double Outer, double Inner, double Depth)> LayerDepths(
+        CompoundStructure mine, CompoundStructure theirs, bool theirExteriorIsNear)
+    {
+        // Their layers from the near face inward, each with whether it is in their core.
+        var near = theirs.Layers.Select((layer, index) => (Layer: layer, Core: InCore(theirs, index))).ToList();
+        if (!theirExteriorIsNear) near.Reverse();
+        var toCore = near.TakeWhile(entry => !entry.Core).Sum(entry => entry.Layer.Thickness);
+
+        double Passes(LayerFunction function)
+        {
+            if (function == LayerFunction.Membrane) return 0;
+
+            var depth = 0.0;
+            foreach (var (layer, core) in near)
+            {
+                if (core) break;
+                if (layer.Thickness <= 0) continue;
+                if ((int)layer.Function <= (int)function) break;
+                depth += layer.Thickness;
+            }
+
+            return depth;
+        }
+
+        var half = mine.TotalWidth / 2;
+        return mine.GetLayerOffsets()
+            .Select((entry, index) => (half - entry.Start, half - entry.End,
+                entry.Layer.Thickness <= 0 ? 0 : InCore(mine, index) ? toCore : Passes(entry.Layer.Function)))
+            .ToList();
+    }
+
+    /// <summary>Whether a layer is in its assembly's core: from the first structure layer to the last, or the whole of one with none.</summary>
+    private static bool InCore(CompoundStructure structure, int index) =>
+        structure.CoreStartIndex < 0 || index >= structure.CoreStartIndex && index <= structure.CoreEndIndex;
+
+    /// <summary>
+    /// Where other walls' layers come into this one, through its face, where they stop against
+    /// it: each the band of a layer of the other wall, between its two edges, from this wall's
+    /// face to as deep as it goes - and over the height that wall stands. The layers of this
+    /// wall it passes through are cut away there.
+    /// </summary>
+    public static IReadOnlyList<WallIntrusion> Intrusions(BimDocument document, Wall wall, WallType type)
+    {
+        var intrusions = new List<WallIntrusion>();
+        var structure = type.Structure;
+        var curve = wall.LocationCurve;
+        var half = type.Width / 2;
+
+        foreach (var other in document.Walls)
+        {
+            if (ReferenceEquals(other, wall) || other.IsCurved) continue;
+            if (document.GetWallType(other) is not { } otherType) continue;
+
+            var reach = half + otherType.Width + type.Width + JoinTolerance;
+            if (curve.DistanceTo(other.Start) > reach && curve.DistanceTo(other.End) > reach) continue;
+
+            var (startCut, endCut) = GetEndCuts(document, other, otherType);
+            foreach (var (cut, atStart) in new[] { (startCut, true), (endCut, false) })
+            {
+                if (cut.Against != wall.Id || !cut.IsStraight) continue;
+
+                var end = atStart ? 0 : other.Length;
+                var nearAcross = Math.Sign(wall.Locate(structure, cut.Points[0]).Across) * half;
+                var (bottom, top) = (other.GetBaseElevation(document), other.GetTopElevation(document));
+
+                foreach (var (outer, inner, depth) in cut.LayerDepths)
+                {
+                    if (depth <= Epsilon || Math.Abs(outer - inner) <= Epsilon) continue;
+
+                    var edgeA = new Line2D(other.PointAt(otherType.Structure, end, outer), other.Direction);
+                    var edgeB = new Line2D(other.PointAt(otherType.Structure, end, inner), other.Direction);
+                    if (wall.EdgeCrossing(structure, edgeA, 0, edgeA.Origin) is not { } a ||
+                        wall.EdgeCrossing(structure, edgeB, 0, edgeB.Origin) is not { } b)
+                        continue;
+
+                    var (alongA, alongB) = (wall.Locate(structure, a).Along, wall.Locate(structure, b).Along);
+                    var (first, second) = alongA <= alongB ? (edgeA, edgeB) : (edgeB, edgeA);
+                    intrusions.Add(new WallIntrusion(nearAcross, nearAcross - Math.Sign(nearAcross) * depth,
+                        first, Math.Min(alongA, alongB), second, Math.Max(alongA, alongB), bottom, top));
+                }
+            }
+        }
+
+        return intrusions.OrderBy(intrusion => intrusion.FromAlong).ToList();
+    }
+
+    /// <summary>
+    /// One layer of a stretch of wall as the pieces it is drawn and built as: ended at each end
+    /// as deep as the layer goes into a wall it stops against, and broken wherever another
+    /// wall's layer comes through it from its face.
+    /// </summary>
+    public static IReadOnlyList<Point2D[]> LayerPieces(
+        Wall wall, WallType type, double outer, double inner, WallCut cutFrom, WallCut cutTo, IReadOnlyList<WallIntrusion> intrusions)
+    {
+        var from = cutFrom.ForBand(outer, inner);
+        var to = cutTo.ForBand(outer, inner);
+        var structure = type.Structure;
+        double Along(WallCut cut) => wall.Locate(structure, cut.Points[cut.Points.Count / 2]).Along;
+
+        var (start, finish) = (Along(cutFrom), Along(cutTo));
+        var through = intrusions
+            .Where(intrusion => intrusion.Passes(outer, inner) && intrusion.FromAlong > start + Epsilon && intrusion.ToAlong < finish - Epsilon)
+            .ToList();
+        if (through.Count == 0) return new[] { GetBandOutline(wall, type, outer, inner, from, to) };
+
+        var pieces = new List<Point2D[]>();
+        var cursor = from;
+        var cursorAlong = start;
+        foreach (var intrusion in through)
+        {
+            if (intrusion.FromAlong > cursorAlong + JoinTolerance)
+                pieces.Add(GetBandOutline(wall, type, outer, inner, cursor, WallCut.Along(intrusion.FromEdge, wall, WallEndCondition.Butt)));
+
+            if (intrusion.ToAlong > cursorAlong)
+            {
+                cursor = WallCut.Along(intrusion.ToEdge, wall, WallEndCondition.Butt);
+                cursorAlong = intrusion.ToAlong;
+            }
+        }
+
+        if (finish > cursorAlong + JoinTolerance) pieces.Add(GetBandOutline(wall, type, outer, inner, cursor, to));
+        return pieces;
     }
 
     /// <summary>

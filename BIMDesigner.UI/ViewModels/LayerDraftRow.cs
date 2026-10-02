@@ -162,6 +162,12 @@ public sealed class LayerDraftRow : INotifyPropertyChanged
         Edited?.Invoke(this, EventArgs.Empty);
     }
 
-    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (name != nameof(Label)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Label)));
+    }
+
+    /// <summary>The layer as a band names it: what it does and what it is made of.</summary>
+    public string Label => $"{FunctionName} - {_document.FindMaterial(_materialId)?.Name ?? "no material"}";
 }

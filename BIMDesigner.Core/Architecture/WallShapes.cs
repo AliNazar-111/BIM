@@ -7,6 +7,22 @@ public enum WallShape
 {
     Line,
     Arc,
+
+    /// <summary>An arc carrying on smoothly from the end of the wall before it.</summary>
+    TangentArc,
+
+    /// <summary>An arc from its centre, then its start - which sets the radius - then its end.</summary>
+    CentreEndsArc,
+
+    /// <summary>An arc rounding off the corner between two walls, at a radius.</summary>
+    FilletArc,
+
+    /// <summary>A wall thicker at one end than the other, one material through: a trapezoid in plan.</summary>
+    Trapezoid,
+
+    /// <summary>A wall of any outline, clicked round corner by corner, one material through.</summary>
+    PolygonOutline,
+
     Rectangle,
     Polygon,
     Circle,

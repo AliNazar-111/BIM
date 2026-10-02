@@ -13,6 +13,7 @@ namespace BIMDesigner.Tests;
 /// goes against the wall's face with its fireplace to the room; dragged or nudged into a wall,
 /// it stays out of it.
 /// </summary>
+[Collection("Wpf")]
 public class ChimneyWallTests
 {
     private static void OnUiThread(Action action)

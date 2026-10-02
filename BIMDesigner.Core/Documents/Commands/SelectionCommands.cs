@@ -324,3 +324,126 @@ public sealed class MirrorElementsCommand : IUndoableCommand
 
     public void Undo() => Redo();
 }
+
+/// <summary>
+/// Turns elements about a point by an angle, anticlockwise in degrees - and what goes with them:
+/// a roof's windows, drains and downpipes, and the components fixed to a wall that turns.
+/// </summary>
+public sealed class RotateElementsCommand : IUndoableCommand
+{
+    private readonly List<Element> _elements;
+    private readonly Point2D _centre;
+    private readonly double _degrees;
+
+    public RotateElementsCommand(IEnumerable<Element> elements, Point2D centre, double degrees, BimDocument? document = null)
+    {
+        _elements = elements.Where(ElementTransforms.CanMove).ToList();
+        _centre = centre;
+        _degrees = degrees;
+        if (document is not null) _elements.AddRange(Carried(document, _elements));
+
+        Name = _elements.Count == 1 ? "Rotate" : $"Rotate {_elements.Count} Elements";
+    }
+
+    /// <summary>What turns or scales along with elements: what is set in a roof, and what is fixed to a wall.</summary>
+    internal static IEnumerable<Element> Carried(BimDocument document, IReadOnlyList<Element> elements)
+    {
+        var carried = new List<Element>();
+        carried.AddRange(RoofWindows.Following(document, elements));
+        carried.AddRange(Downpipes.Following(document, elements));
+        carried.AddRange(RoofDrainage.Following(document, elements));
+
+        var walls = elements.OfType<Wall>().Select(wall => wall.Id).ToHashSet();
+        carried.AddRange(document.Elements.OfType<Component>()
+            .Where(component => component.IsHosted && walls.Contains(component.HostId) && !elements.Contains(component)));
+        return carried.Distinct();
+    }
+
+    public string Name { get; }
+
+    public bool IsEmpty => _elements.Count == 0;
+
+    public void Redo()
+    {
+        foreach (var element in _elements) ElementTransforms.Rotate(element, _centre, _degrees);
+    }
+
+    public void Undo()
+    {
+        foreach (var element in _elements) ElementTransforms.Rotate(element, _centre, -_degrees);
+    }
+}
+
+/// <summary>
+/// Scales elements' setting out about a point - walls longer or shorter, floors larger or
+/// smaller, what stands at a point moved in or out - with thicknesses, heights and sizes kept.
+/// </summary>
+public sealed class ScaleElementsCommand : IUndoableCommand
+{
+    private readonly List<Element> _elements;
+    private readonly Point2D _centre;
+    private readonly double _factor;
+    private readonly BimDocument? _document;
+
+    public ScaleElementsCommand(IEnumerable<Element> elements, Point2D centre, double factor, BimDocument? document = null)
+    {
+        if (factor <= 0 || !double.IsFinite(factor)) throw new ArgumentOutOfRangeException(nameof(factor), "A scale is more than nothing.");
+
+        _elements = elements.Where(ElementTransforms.CanScale).ToList();
+        _centre = centre;
+        _factor = factor;
+        _document = document;
+        if (document is not null) _elements.AddRange(RotateElementsCommand.Carried(document, _elements));
+
+        Name = _elements.Count == 1 ? "Scale" : $"Scale {_elements.Count} Elements";
+    }
+
+    public string Name { get; }
+
+    public bool IsEmpty => _elements.Count == 0;
+
+    public void Redo() => Apply(_factor);
+
+    public void Undo() => Apply(1 / _factor);
+
+    private void Apply(double factor)
+    {
+        foreach (var element in _elements) ElementTransforms.Scale(element, _centre, factor);
+
+        // A component on a wall stays against its face: the wall moved, its thickness did not.
+        if (_document is not null)
+            foreach (var component in _elements.OfType<Component>().Where(component => component.IsHosted)) component.FollowHost(_document);
+    }
+}
+
+/// <summary>
+/// Pins elements where they are, or unpins them. A pinned element is not moved, turned,
+/// scaled, mirrored or deleted until it is unpinned - so a grid, or a wall set out to a
+/// survey, cannot be knocked out of place.
+/// </summary>
+public sealed class PinElementsCommand : IUndoableCommand
+{
+    private readonly List<(Element Element, bool Was)> _elements;
+    private readonly bool _pinned;
+
+    public PinElementsCommand(IEnumerable<Element> elements, bool pinned)
+    {
+        _elements = elements.Distinct().Where(element => element.Pinned != pinned).Select(element => (element, element.Pinned)).ToList();
+        _pinned = pinned;
+        Name = pinned ? "Pin" : "Unpin";
+    }
+
+    public string Name { get; }
+
+    public bool IsEmpty => _elements.Count == 0;
+
+    public void Redo()
+    {
+        foreach (var (element, _) in _elements) element.Pinned = _pinned;
+    }
+
+    public void Undo()
+    {
+        foreach (var (element, was) in _elements) element.Pinned = was;
+    }
+}

@@ -43,11 +43,17 @@ internal sealed class ProjectFileDto
     public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
     public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
     public List<ChimneyTypeDto> ChimneyTypes { get; set; } = new();
+
+    /// <summary>The elements pinned where they are.</summary>
+    public List<Guid> PinnedIds { get; set; } = new();
     public List<RoofWindowDto> RoofWindows { get; set; } = new();
     public List<ShaftOpeningDto> ShaftOpenings { get; set; } = new();
     public List<DownpipeDto> Downpipes { get; set; } = new();
     public List<RoofDrainDto> RoofDrains { get; set; } = new();
     public List<ChimneyDto> Chimneys { get; set; } = new();
+    public List<PartDto> Parts { get; set; } = new();
+    public List<WallFramingDto> WallFramings { get; set; } = new();
+    public List<PolygonWallDto> PolygonWalls { get; set; } = new();
     public List<WallOpeningDto> WallOpenings { get; set; } = new();
 
     public List<DoorTypeDto> DoorTypes { get; set; } = new();
@@ -709,6 +715,14 @@ internal sealed class StackTierDto
     public double Height { get; set; }
 }
 
+internal sealed class WallBandDto
+{
+    public int Layer { get; set; }
+    public double Bottom { get; set; }
+    public double? Top { get; set; }
+    public Guid MaterialId { get; set; }
+}
+
 internal sealed class WallTypeDto
 {
     public Guid Id { get; set; }
@@ -740,6 +754,10 @@ internal sealed class WallTypeDto
 
     /// <summary>Profiles run along the faces of walls of this type. Missing from older files.</summary>
     public List<WallSweepDto> Sweeps { get; set; } = new();
+    public List<WallBandDto>? Bands { get; set; }
+    public string? LogShape { get; set; }
+    public double? LogCourse { get; set; }
+    public double? LogOverhang { get; set; }
     public string CoarseScaleFillColour { get; set; } = "#8A93A1";
 
     public List<MaterialLayerDto> Layers { get; set; } = new();
@@ -843,6 +861,16 @@ internal sealed class WindowDto : OpeningDto
 {
 }
 
+internal sealed class WallFaceRegionDto
+{
+    public string Face { get; set; } = "Exterior";
+    public double? From { get; set; }
+    public double? To { get; set; }
+    public double? Bottom { get; set; }
+    public double? Top { get; set; }
+    public Guid? MaterialId { get; set; }
+}
+
 internal sealed class WallDto
 {
     public Guid Id { get; set; }
@@ -892,6 +920,7 @@ internal sealed class WallDto
     /// <summary>An edited elevation outline as x, y pairs (along, height above base), and the wall length it was edited at.</summary>
     public List<double>? Profile { get; set; }
     public double ProfileLength { get; set; }
+    public List<WallFaceRegionDto>? FaceRegions { get; set; }
 
     /// <summary>A curtain wall's own grid lines, when it does not follow its type's.</summary>
     public List<double>? CurtainVerticals { get; set; }
@@ -1028,6 +1057,60 @@ internal sealed class RoofDrainDto
     public double Y { get; set; }
     public double OutletDiameter { get; set; } = 100;
     public string? Discharge { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class PolygonWallDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Kind { get; set; }
+    public List<double>? Outline { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public double StartThickness { get; set; }
+    public double EndThickness { get; set; }
+    public string? StraightSide { get; set; }
+    public Guid MaterialId { get; set; }
+    public double BaseOffset { get; set; }
+    public Guid? TopLevelId { get; set; }
+    public double TopOffset { get; set; }
+    public double UnconnectedHeight { get; set; } = 3000;
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class WallFramingDto
+{
+    public Guid Id { get; set; }
+    public Guid HostId { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Material { get; set; }
+    public string? Section { get; set; }
+    public double Spacing { get; set; } = 600;
+    public int TopPlates { get; set; } = 2;
+    public int NoggingRows { get; set; } = 1;
+    public bool FromEnd { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+internal sealed class PartDto
+{
+    public Guid Id { get; set; }
+    public Guid HostId { get; set; }
+    public Guid LevelId { get; set; }
+    public int Layer { get; set; }
+    public double? From { get; set; }
+    public double? To { get; set; }
+    public double? Bottom { get; set; }
+    public double? Top { get; set; }
+    public double Gap { get; set; }
+    public Guid? MaterialId { get; set; }
+    public bool Excluded { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }

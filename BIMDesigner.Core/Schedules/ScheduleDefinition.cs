@@ -137,6 +137,16 @@ public sealed class ScheduleDefinition
         new ScheduleDefinition("Grid Schedule", BuiltInCategory.Grids, "Name", "Length")
         {
             SortBy = "Name"
-        }
+        },
+
+        // The pieces walls are built of, as they are ordered: a part taken out is not built.
+        new ScheduleDefinition("Part Schedule", BuiltInCategory.Parts,
+                "Mark", "Original Type", "Construction", "Material", "Thickness", "Length", "Height", "Area", "Volume")
+            {
+                SortBy = "Material",
+                GroupBy = "Material",
+                Filters = { new ScheduleFilter("Excluded", ScheduleOperator.NotEquals, "Yes") }
+            }
+            .WithoutTotals("Thickness", "Length", "Height")
     };
 }

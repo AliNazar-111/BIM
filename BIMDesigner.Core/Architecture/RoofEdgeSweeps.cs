@@ -384,6 +384,10 @@ public readonly record struct Vector3(double X, double Y, double Z)
     public static Vector3 Of(Point3D point) => new(point.X, point.Y, point.Z);
     public Point3D ToPoint() => new(X, Y, Z);
     public Point2D Plan => new(X, Y);
+
+    // A record would print every property, Normalised among them - a Vector3 printing its own
+    // Normalised, for ever, until the stack runs out.
+    public override string ToString() => $"({X:0} mm, {Y:0} mm, {Z:0} mm)";
 }
 
 /// <summary>

@@ -264,6 +264,10 @@ public sealed class PlanRenderer
             foreach (var drain in Document.Elements.OfType<RoofDrain>().Where(drain => Filter(drain))) DrawDrainPipe(dc, drain);
             foreach (var chimney in Document.Elements.OfType<Chimney>().Where(chimney => Filter(chimney) && Chimneys.ShownOn(Document, chimney, ActiveLevelId)))
                 DrawChimney(dc, chimney);
+
+            // Walls shaped in plan, cut through their outline, in what they are made of.
+            foreach (var shaped in Document.Elements.OfType<PolygonWall>().Where(shaped => Filter(shaped) && shaped.LevelId == ActiveLevelId))
+                dc.DrawGeometry(MaterialBrush(shaped.MaterialId), IsSelected(shaped) ? _selectedPen : _wallOutlinePen, BuildOutline(shaped.Outline));
         }
 
         if (!underlay)
@@ -305,6 +309,18 @@ public sealed class PlanRenderer
     /// <summary>The height the plan cuts the wall being drawn at, and the reveals it might cut through.</summary>
     private double _cutElevation;
     private IReadOnlyList<(double Bottom, double Top, WallSide Side, double Depth)> _reveals = Array.Empty<(double, double, WallSide, double)>();
+
+    private readonly Brush _timberStudBrush = RenderPens.Fill(Color.FromRgb(0xD9, 0xB8, 0x86));
+    private readonly Brush _steelStudBrush = RenderPens.Fill(Color.FromRgb(0xA9, 0xAF, 0xB4));
+
+    /// <summary>The parts of the wall being drawn: drawn as themselves, instead of its layers.</summary>
+    private IReadOnlyList<Part> _wallParts = Array.Empty<Part>();
+
+    /// <summary>How far up the wall being drawn the plan cuts it: what a banded layer is made of there.</summary>
+    private double _cutHeight;
+
+    /// <summary>The layers of other walls coming into the wall being drawn, where they stop against it.</summary>
+    private IReadOnlyList<WallJoins.WallIntrusion> _intrusions = Array.Empty<WallJoins.WallIntrusion>();
 
     /// <summary>
     /// The sweeps the plan cuts through: each drawn as the band it makes beside the wall face, as
@@ -458,6 +474,8 @@ public sealed class PlanRenderer
         // Reveals and sweeps show in plan only where the plan cuts them.
         var wallBottom = wall.GetBaseElevation(Document);
         _cutElevation = wallBottom + cutHeight;
+        _cutHeight = cutHeight;
+        _wallParts = Parts.Of(Document, wall);
         _reveals = WallSweeps.Reveals(Document, wall, type, wallBottom, wallBottom + wall.GetHeight(Document));
 
         // The wall is drawn as the stretches that remain solid. An opening is not painted
@@ -465,6 +483,9 @@ public sealed class PlanRenderer
         // those stretches start and stop is worked out in Core, so the plan and the 3D model
         // cannot disagree about the shape of a wall.
         var gaps = WallJoins.FaceGaps(Document, wall, type);
+
+        // Where other walls stopping against it carry their layers on into it, at the cut.
+        _intrusions = WallJoins.Intrusions(Document, wall, type).Where(intrusion => intrusion.At(_cutElevation)).ToList();
 
         // A wall with an edited profile is cut only where it reaches the cut height; below it,
         // the rest is seen from above, as its outline.
@@ -486,6 +507,25 @@ public sealed class PlanRenderer
         }
 
         _reveals = horizontal;
+
+        // A framed wall: its studs where the plan cuts them.
+        if (WallFramings.Of(Document, wall) is { } framing)
+        {
+            var steel = framing.Material == FramingMaterial.Steel;
+            var studBrush = steel ? _steelStudBrush : _timberStudBrush;
+            foreach (var stud in WallFramings.PlanAt(Document, framing, cutHeight))
+                dc.DrawGeometry(studBrush, IsSelected(framing) ? _selectedPen : _layerPen, BuildOutline(Cut(stud)));
+        }
+
+        // A log wall's logs run on past its corners, crossing the other wall's.
+        foreach (var end in LogWalls.CornerEnds(Document, wall, type))
+            dc.DrawGeometry(MaterialBrush(type.Structure.Layers.FirstOrDefault()?.MaterialId ?? Guid.Empty), _wallOutlinePen, BuildOutline(Cut(end)));
+
+        // A wall in parts: each part where the plan cuts it, in its own material and outlined,
+        // so the joints between the panels show.
+        foreach (var piece in _wallParts)
+        foreach (var outline in Parts.PlanAt(Document, piece, _cutElevation))
+            dc.DrawGeometry(MaterialBrush(Parts.MaterialOf(Document, piece)), IsSelected(piece) ? _selectedPen : _layerPen, BuildOutline(Cut(outline)));
 
         var wallTop = wallBottom + wall.GetHeight(Document);
         DrawSweeps(dc, wall, type, type.Sweeps.Select(s => (s, wall.Id)), wallBottom, wallTop);
@@ -615,7 +655,7 @@ public sealed class PlanRenderer
             dc.DrawGeometry(CoarseBrush(type), null,
                 BuildOutline(Cut(WallJoins.GetBandOutline(wall, type, half, -half, cutFrom, cutTo))));
         }
-        else
+        else if (_wallParts.Count == 0)
         {
             var thinnestLayer = structure.Layers.Count == 0
                 ? structure.TotalWidth
@@ -629,8 +669,11 @@ public sealed class PlanRenderer
                 ? _layerPen
                 : null;
 
+            var layerIndex = -1;
             foreach (var (layer, start, end) in structure.GetLayerOffsets())
             {
+                layerIndex++;
+
                 // A membrane has no thickness: it is drawn as the dashed line it is on a detail.
                 if (layer.Thickness <= 0)
                 {
@@ -640,8 +683,13 @@ public sealed class PlanRenderer
                 }
 
                 if (WallSweeps.Recess(half - start, half - end, half, _reveals, _cutElevation) is not var (outer, inner)) continue;
-                var band = Cut(WallJoins.GetBandOutline(wall, type, outer, inner, cutFrom, cutTo));
-                dc.DrawGeometry(MaterialBrush(layer.MaterialId), separator, BuildOutline(band));
+
+                // Each layer ends as deep as its priority takes it into a wall it stops against,
+                // and gives way where another wall's layers come through it.
+                // A band of another material where the plan cuts the layer is drawn as that.
+                var cutMaterial = type.Bands.Count == 0 ? layer.MaterialId : WallBands.MaterialAt(type, layerIndex, _cutHeight);
+                foreach (var piece in WallJoins.LayerPieces(wall, type, outer, inner, cutFrom, cutTo, _intrusions))
+                    dc.DrawGeometry(MaterialBrush(cutMaterial), separator, BuildOutline(Cut(piece)));
             }
         }
 

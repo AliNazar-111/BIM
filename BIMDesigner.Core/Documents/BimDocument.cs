@@ -174,6 +174,7 @@ public sealed class BimDocument
         var roofEdgeTypes = _types.Values.Where(type => type is FasciaType or GutterType or SoffitType)
             .Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofTypes = _types.Values.OfType<RoofType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var wallTypeNames = _types.Values.OfType<WallType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofWindowTypes = _types.Values.OfType<RoofWindowType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var chimneyTypes = _types.Values.OfType<ChimneyType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -185,6 +186,7 @@ public sealed class BimDocument
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
+                     WallType { Log: not null } => !wallTypeNames.Contains(type.Name),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
@@ -205,6 +207,32 @@ public sealed class BimDocument
 
             AddType(type);
         }
+
+        // Finishes to paint with: a project made before Paint gains them, by name.
+        foreach (var finish in FinishMaterials())
+            if (!_materials.Values.Any(own => string.Equals(own.Name, finish.Name, StringComparison.OrdinalIgnoreCase)))
+                AddMaterial(finish);
+    }
+
+    /// <summary>
+    /// Paints and tiles, for Paint to put on a wall's face: a white emulsion and three colours, a
+    /// masonry paint for outside, wall tiles plain and mosaic.
+    /// </summary>
+    private static IEnumerable<Material> FinishMaterials()
+    {
+        Material Finish(string name, string colour, decimal cost) => new(name)
+        {
+            Density = 1300, ThermalConductivity = 0.5, SurfaceColour = ColourRgb.FromHex(colour), CutColour = ColourRgb.FromHex(colour),
+            CostPerCubicMetre = cost
+        };
+
+        yield return Finish("Paint, White Emulsion", "F2F0EA", 0m);
+        yield return Finish("Paint, Terracotta", "B5573A", 0m);
+        yield return Finish("Paint, Sage Green", "9AAE8F", 0m);
+        yield return Finish("Paint, Charcoal", "3C3F44", 0m);
+        yield return Finish("Paint, Masonry, Off-White", "E8E2D2", 0m);
+        yield return Finish("Ceramic Tile, White Gloss", "F4F6F7", 0m);
+        yield return Finish("Ceramic Tile, Blue Mosaic", "3E6E9E", 0m);
     }
 
     /// <summary>Points a type that refers to a material by itself at another; false for a type it cannot be done for here.</summary>
@@ -317,6 +345,7 @@ public sealed class BimDocument
 
         foreach (var material in new[] { concrete, brick, block, insulation, cavity, plaster, plasterboard })
             document.AddMaterial(material);
+        foreach (var finish in FinishMaterials()) document.AddMaterial(finish);
 
         // A single structural layer - the simplest assembly.
         var generic = new WallType("Generic - 200mm", CompoundStructure.Single(concrete.Id, 200))
@@ -1183,6 +1212,14 @@ public sealed class BimDocument
         foreach (var component in components) document.AddType(component);
         foreach (var chimney in ChimneyType.Library()) document.AddType(chimney);
 
+        // Log walls, as Archicad builds them: round logs, D-logs flat inside, squared logs.
+        var logRound = new WallType("Log Wall - Round 220", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 220)))
+            { Function = WallFunction.Exterior, Log = new LogWall(LogShape.Round, 190, 300), WrapAtEnds = WallWrapping.None, TypeMark = "L1", Cost = 210m };
+        var logD = new WallType("Log Wall - D-Log 200", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 200)))
+            { Function = WallFunction.Exterior, Log = new LogWall(LogShape.DLog, 180, 250), WrapAtEnds = WallWrapping.None, TypeMark = "L2", Cost = 180m };
+        var logSquare = new WallType("Log Wall - Square 180", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 180)))
+            { Function = WallFunction.Exterior, Log = new LogWall(LogShape.Square, 180, 200), WrapAtEnds = WallWrapping.None, TypeMark = "L3", Cost = 160m };
+
         foreach (var type in new ElementType[]
                  {
                      generic, exterior, partition,
@@ -1197,7 +1234,8 @@ public sealed class BimDocument
                      curtainSingle, curtainDouble, curtainSlider,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight,
-                     screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof
+                     screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
+                     logRound, logD, logSquare
                  })
         {
             document.AddType(type);

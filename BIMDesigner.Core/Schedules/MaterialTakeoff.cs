@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 
 namespace BIMDesigner.Core.Schedules;
@@ -59,9 +60,35 @@ public static class MaterialTakeoff
             var type = document.GetWallType(wall);
             if (type is null) continue;
 
-            // Face area, so each layer is counted over the wall's elevation.
+            // Face area, so each layer is counted over the wall's elevation - and a band of
+            // another material in a layer over its share of the wall's height.
             var area = wall.GetArea(document);
-            AddLayers(document, lines, "Walls", type.Name, type.Structure, area);
+            if (type.Bands.Count == 0) AddLayers(document, lines, "Walls", type.Name, type.Structure, area);
+            else AddBandedLayers(document, lines, type, area, wall.GetHeight(document));
+
+            // Paint is bought by the area it covers: no thickness, no volume.
+            foreach (var (materialId, painted) in WallPaint.PaintedAreas(document, wall))
+            {
+                var material = document.FindMaterial(materialId);
+                lines.Add(new TakeoffLine
+                {
+                    Category = "Paint", TypeName = type.Name, Material = material?.Name ?? "<missing material>",
+                    Thickness = 0, Area = painted, Volume = 0, Cost = 0
+                });
+            }
+        }
+
+        // A wall shaped in plan is one material through: its footprint by its height.
+        foreach (var shaped in document.Elements.OfType<PolygonWall>())
+        {
+            var material = document.FindMaterial(shaped.MaterialId);
+            var volume = PolygonWalls.Volume(document, shaped);
+            lines.Add(new TakeoffLine
+            {
+                Category = "Walls", TypeName = shaped.Kind == PolygonWallKind.Trapezoid ? "Trapezoid Wall" : "Polygon Wall",
+                Material = material?.Name ?? "<missing material>", Thickness = 0, Area = Polygon2D.Area(shaped.Outline), Volume = volume,
+                Cost = (decimal)Units.CubicMmToCubicMetres(volume) * (material?.CostPerCubicMetre ?? 0)
+            });
         }
 
         foreach (var slab in document.Elements.OfType<Slab>())
@@ -77,6 +104,33 @@ public static class MaterialTakeoff
         }
 
         return lines;
+    }
+
+    /// <summary>A banded wall type's layers, each split into the materials it is built in up its height.</summary>
+    private static void AddBandedLayers(BimDocument document, List<TakeoffLine> lines, WallType type, double area, double height)
+    {
+        if (height <= 0) return;
+
+        for (var index = 0; index < type.Structure.Layers.Count; index++)
+        {
+            var layer = type.Structure.Layers[index];
+            foreach (var (bottom, top, materialId) in WallBands.Runs(type, index, 0, height, 0))
+            {
+                var material = document.FindMaterial(materialId);
+                var share = area * (top - bottom) / height;
+                var volume = share * layer.Thickness;
+                lines.Add(new TakeoffLine
+                {
+                    Category = "Walls",
+                    TypeName = type.Name,
+                    Material = material?.Name ?? "<missing material>",
+                    Thickness = layer.Thickness,
+                    Area = share,
+                    Volume = volume,
+                    Cost = (decimal)Units.CubicMmToCubicMetres(volume) * (material?.CostPerCubicMetre ?? 0)
+                });
+            }
+        }
     }
 
     private static void AddLayers(

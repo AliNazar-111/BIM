@@ -22,7 +22,10 @@ public enum MeshKind
     Sweep,
 
     /// <summary>The frame of a curtain wall: mullions along its grid lines.</summary>
-    Mullion
+    Mullion,
+
+    /// <summary>The studs, plates and headers framing inside a wall.</summary>
+    Framing
 }
 
 /// <summary>

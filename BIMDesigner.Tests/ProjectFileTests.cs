@@ -17,7 +17,7 @@ public class ProjectFileTests
         document.ProjectInformation.Name = "Riverside Depot";
         document.ProjectInformation.Client = "Acme Construction";
 
-        var exterior = document.TypesOf<WallType>().Single(t => t.Function == WallFunction.Exterior);
+        var exterior = document.TypesOf<WallType>().Single(t => t.Function == WallFunction.Exterior && t.Log is null);
         var ground = document.Levels.Single(l => l.Name == "Ground Floor");
         var first = document.Levels.Single(l => l.Name == "First Floor");
 

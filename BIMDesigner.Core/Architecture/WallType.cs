@@ -42,8 +42,15 @@ public sealed class WallType : ElementType
     {
         var copy = DuplicateBody(name);
         copy.Sweeps.AddRange(Sweeps);
+        copy.Bands.AddRange(Bands);
         return copy;
     }
+
+    /// <summary>
+    /// Bands of its layers made of other materials between heights - a tile band at the foot of
+    /// the plaster: Revit's vertically compound wall. Later bands lie over earlier ones.
+    /// </summary>
+    public List<WallBand> Bands { get; } = new();
 
     private WallType DuplicateBody(string name) => new(name, Structure.Clone())
     {
@@ -63,8 +70,12 @@ public sealed class WallType : ElementType
         WrapAtEnds = WrapAtEnds,
         ExteriorTaperAngle = ExteriorTaperAngle,
         InteriorTaperAngle = InteriorTaperAngle,
-        CoarseScaleFillColour = CoarseScaleFillColour
+        CoarseScaleFillColour = CoarseScaleFillColour,
+        Log = Log
     };
+
+    /// <summary>Built of logs laid in courses rather than of its layers - a log wall - or null for a layered wall.</summary>
+    public LogWall? Log { get; set; }
 
     /// <summary>Total thickness in millimetres, derived from the layers.</summary>
     public double Width => Structure.TotalWidth;
@@ -134,11 +145,49 @@ public sealed class WallType : ElementType
             () => EnumText.Humanise(WrapAtEnds),
             v => { if (EnumText.TryParse<WallWrapping>(v, out var w)) WrapAtEnds = w; },
             new[] { WallWrapping.None, WallWrapping.Exterior, WallWrapping.Interior }.Select(w => EnumText.Humanise(w)).ToArray());
+
+        // Built of logs instead of its layers, and how.
+        yield return ParameterValue.BindChoice(WallTypeParameters.BuiltAs,
+            () => Log is null ? "Layers" : "Logs",
+            v => Log = v == "Logs" ? Log ?? LogWall.Default : null,
+            new[] { "Layers", "Logs" });
+
+        if (Log is { } log)
+        {
+            yield return ParameterValue.BindChoice(WallTypeParameters.LogShape,
+                () => EnumText.Humanise(log.Shape),
+                v => { if (EnumText.TryParse<LogShape>(v, out var shape)) Log = log with { Shape = shape }; },
+                EnumText.Choices<LogShape>());
+            yield return ParameterValue.BindValidated(WallTypeParameters.LogCourse, () => log.CourseHeight, (double v) =>
+            {
+                if (v < 50 || v > 1000) return false;
+                Log = log with { CourseHeight = v };
+                return true;
+            });
+            yield return ParameterValue.BindValidated(WallTypeParameters.LogOverhang, () => log.Overhang, (double v) =>
+            {
+                if (v < 0 || v > 2000) return false;
+                Log = log with { Overhang = v };
+                return true;
+            });
+        }
     }
 }
 
 public static class WallTypeParameters
 {
+    public static readonly ParameterDefinition BuiltAs =
+        new("Built As", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LogShape =
+        new("Log Section", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LogCourse =
+        new("Log Course Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LogOverhang =
+        new("Log Corner Overhang", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition Width =
         new("Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
 

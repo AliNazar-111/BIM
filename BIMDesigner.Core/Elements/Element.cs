@@ -34,6 +34,12 @@ public abstract class Element
     /// <summary>Null while the element survives to the end of the project.</summary>
     public DesignPhase? PhaseDemolished { get; set; }
 
+    /// <summary>
+    /// Pinned where it is: it is not moved, turned, scaled, mirrored or deleted until it is
+    /// unpinned. A copy of it is not pinned.
+    /// </summary>
+    public bool Pinned { get; set; }
+
     /// <summary>Worksharing bucket (specification section 7). One default workset for now.</summary>
     public string Workset { get; set; } = "Workset1";
 

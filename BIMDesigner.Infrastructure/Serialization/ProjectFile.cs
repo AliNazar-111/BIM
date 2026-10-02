@@ -151,6 +151,33 @@ public static class ProjectFile
                 OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge.ToString(), Mark = drain.Mark, Comments = drain.Comments
             });
 
+        foreach (var shaped in document.Elements.OfType<PolygonWall>())
+            dto.PolygonWalls.Add(new PolygonWallDto
+            {
+                Id = shaped.Id, LevelId = shaped.LevelId, Kind = shaped.Kind.ToString(),
+                Outline = shaped.Outline.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                StartX = shaped.Start.X, StartY = shaped.Start.Y, EndX = shaped.End.X, EndY = shaped.End.Y,
+                StartThickness = shaped.StartThickness, EndThickness = shaped.EndThickness, StraightSide = shaped.StraightSide.ToString(),
+                MaterialId = shaped.MaterialId, BaseOffset = shaped.BaseOffset, TopLevelId = shaped.TopLevelId, TopOffset = shaped.TopOffset,
+                UnconnectedHeight = shaped.UnconnectedHeight, Mark = shaped.Mark, Comments = shaped.Comments
+            });
+
+        foreach (var framing in document.Elements.OfType<WallFraming>())
+            dto.WallFramings.Add(new WallFramingDto
+            {
+                Id = framing.Id, HostId = framing.HostId, LevelId = framing.LevelId, Material = framing.Material.ToString(),
+                Section = framing.Section, Spacing = framing.Spacing, TopPlates = framing.TopPlates, NoggingRows = framing.NoggingRows,
+                FromEnd = framing.FromEnd, Mark = framing.Mark, Comments = framing.Comments
+            });
+
+        foreach (var part in document.Elements.OfType<Part>())
+            dto.Parts.Add(new PartDto
+            {
+                Id = part.Id, HostId = part.HostId, LevelId = part.LevelId, Layer = part.Layer, From = part.From, To = part.To,
+                Bottom = part.Bottom, Top = part.Top, Gap = part.Gap, MaterialId = part.MaterialId, Excluded = part.Excluded,
+                Mark = part.Mark, Comments = part.Comments
+            });
+
         foreach (var chimney in document.Elements.OfType<Chimney>())
             dto.Chimneys.Add(new ChimneyDto
             {
@@ -329,6 +356,13 @@ public static class ProjectFile
                     Cuttable = sweep.Cuttable,
                     ProfileId = sweep.ProfileId,
                     Returns = sweep.Returns
+                }).ToList(),
+                LogShape = type.Log?.Shape.ToString(),
+                LogCourse = type.Log?.CourseHeight,
+                LogOverhang = type.Log?.Overhang,
+                Bands = type.Bands.Count == 0 ? null : type.Bands.Select(band => new WallBandDto
+                {
+                    Layer = band.Layer, Bottom = band.Bottom, Top = band.Top, MaterialId = band.MaterialId
                 }).ToList(),
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
                 Layers = type.Structure.Layers.Select(layer => new MaterialLayerDto
@@ -773,6 +807,11 @@ public static class ProjectFile
                 SplineTo = wall.Spline?.To,
                 Profile = wall.Profile?.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 ProfileLength = wall.ProfileLength,
+                FaceRegions = wall.FaceRegions.Count == 0 ? null : wall.FaceRegions.Select(region => new WallFaceRegionDto
+                {
+                    Face = region.Face.ToString(), From = region.From, To = region.To, Bottom = region.Bottom, Top = region.Top,
+                    MaterialId = region.MaterialId
+                }).ToList(),
                 CurtainVerticals = wall.CurtainGrid?.Verticals.ToList(),
                 CurtainHorizontals = wall.CurtainGrid?.Horizontals.ToList(),
                 CurtainRemoved = wall.CurtainGrid?.Removed?
@@ -798,6 +837,9 @@ public static class ProjectFile
                 PhaseCreated = wall.PhaseCreated.ToString(),
                 PhaseDemolished = wall.PhaseDemolished?.ToString()
             });
+
+        // What is pinned, by its id: one list for every kind of element.
+        dto.PinnedIds.AddRange(document.Elements.Where(element => element.Pinned).Select(element => element.Id));
 
         return dto;
     }
@@ -983,7 +1025,12 @@ public static class ProjectFile
                 WrapAtEnds = EndWrapping(dto.FormatVersion, type, structure),
                 ExteriorTaperAngle = Math.Clamp(type.ExteriorTaperAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
                 InteriorTaperAngle = Math.Clamp(type.InteriorTaperAngle, -WallLean.MaxAngle, WallLean.MaxAngle),
-                CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x8A, 0x93, 0xA1))
+                CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x8A, 0x93, 0xA1)),
+
+                // Built of logs, where it was; a course or overhang that is not a size is the usual one.
+                Log = type.LogShape is null ? null : new LogWall(ParseEnum(type.LogShape, LogShape.Round),
+                    type.LogCourse is > 0 and var course && double.IsFinite(course) ? course : LogWall.Default.CourseHeight,
+                    type.LogOverhang is >= 0 and var overhang && double.IsFinite(overhang) ? overhang : LogWall.Default.Overhang)
             });
 
             // A sweep with no size is not a sweep.
@@ -1006,6 +1053,11 @@ public static class ProjectFile
                     sweep.Cuttable,
                     sweep.ProfileId,
                     sweep.Returns)));
+
+            // Bands of other materials in its layers; one on a layer it has not got, or upside down, is dropped.
+            loaded.Bands.AddRange((type.Bands ?? new List<WallBandDto>())
+                .Select(band => new WallBand(band.Layer, band.Bottom, Finite(band.Top), band.MaterialId))
+                .Where(band => WallBands.Problem(new[] { band }, loaded.Structure.Layers.Count) is null));
         }
 
         // After the wall types, which their tiers are made of.
@@ -1226,6 +1278,12 @@ public static class ProjectFile
                 EndCleanup = ParseEnum(wall.EndCleanup, WallJoinCleanup.UseViewSetting),
                 Profile = ReadProfile(wall),
                 ProfileLength = ReadProfile(wall) is null ? 0 : wall.ProfileLength,
+
+                // Paint and split faces; a bound that is not a number is left open.
+                FaceRegions = (wall.FaceRegions ?? new List<WallFaceRegionDto>())
+                    .Select(region => new WallFaceRegion(ParseEnum(region.Face, WallFace.Exterior), Finite(region.From), Finite(region.To),
+                        Finite(region.Bottom), Finite(region.Top), region.MaterialId))
+                    .ToList(),
                 CurtainGrid = wall.CurtainVerticals is { } verticals && wall.CurtainHorizontals is { } horizontals
                     ? new CurtainGrid(verticals.Where(double.IsFinite).ToList(), horizontals.Where(double.IsFinite).ToList(),
                         wall.CurtainRemoved?
@@ -1569,6 +1627,50 @@ public static class ProjectFile
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
+        // A wall shaped in plan, from its outline; one with no outline left is nothing.
+        foreach (var saved in dto.PolygonWalls.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var points = (saved.Outline ?? new List<double>()).Where(double.IsFinite).ToList();
+            var outline = Enumerable.Range(0, points.Count / 2).Select(i => new Point2D(points[2 * i], points[2 * i + 1])).ToList();
+            if (outline.Count < 3) continue;
+
+            document.Add(new PolygonWall
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Kind = ParseEnum(saved.Kind, PolygonWallKind.Polygon), Outline = outline,
+                Start = new Point2D(saved.StartX, saved.StartY), End = new Point2D(saved.EndX, saved.EndY),
+                StartThickness = saved.StartThickness > 0 ? saved.StartThickness : 300, EndThickness = saved.EndThickness > 0 ? saved.EndThickness : 150,
+                StraightSide = ParseEnum(saved.StraightSide, TrapezoidSide.Centre), MaterialId = saved.MaterialId,
+                BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0,
+                TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
+                TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
+                UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight > 0 ? saved.UnconnectedHeight : 3000,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+        }
+
+        // A wall's frame; one whose wall is gone is nothing.
+        var framedWalls = document.Walls.Select(wall => wall.Id).ToHashSet();
+        foreach (var saved in dto.WallFramings.Where(saved => framedWalls.Contains(saved.HostId)))
+            document.Add(new WallFraming
+            {
+                Id = saved.Id, HostId = saved.HostId, LevelId = saved.LevelId, Material = ParseEnum(saved.Material, FramingMaterial.Timber),
+                Section = FramingSection.Named(saved.Section).Name,
+                Spacing = double.IsFinite(saved.Spacing) && saved.Spacing >= 200 ? saved.Spacing : 600,
+                TopPlates = saved.TopPlates is 1 or 2 ? saved.TopPlates : 2, NoggingRows = saved.NoggingRows is >= 0 and <= 4 ? saved.NoggingRows : 1,
+                FromEnd = saved.FromEnd, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
+        // A part is a layer of its wall; one whose wall is gone is nothing.
+        var partHosts = document.Walls.Select(wall => wall.Id).ToHashSet();
+        foreach (var saved in dto.Parts.Where(saved => partHosts.Contains(saved.HostId) && saved.Layer >= 0))
+            document.Add(new Part
+            {
+                Id = saved.Id, HostId = saved.HostId, LevelId = saved.LevelId, Layer = saved.Layer,
+                From = Finite(saved.From), To = Finite(saved.To), Bottom = Finite(saved.Bottom), Top = Finite(saved.Top),
+                Gap = double.IsFinite(saved.Gap) ? Math.Max(0, saved.Gap) : 0, MaterialId = saved.MaterialId, Excluded = saved.Excluded,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
         // A downpipe hangs off its gutter; one whose gutter is gone has nothing to drain.
         var gutterIds = document.Elements.OfType<Gutter>().Select(gutter => gutter.Id).ToHashSet();
         foreach (var saved in dto.Downpipes.Where(saved => gutterIds.Contains(saved.GutterId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
@@ -1866,6 +1968,9 @@ public static class ProjectFile
         // gaps so every tool in the build can actually be used on an older file.
         document.EnsureDefaultTypes();
 
+        var pinned = dto.PinnedIds.ToHashSet();
+        foreach (var element in document.Elements.Where(element => pinned.Contains(element.Id))) element.Pinned = true;
+
         return document;
     }
 
@@ -1963,6 +2068,9 @@ public static class ProjectFile
     private static double PositiveOr(double value, double fallback) => value > 0 ? value : fallback;
 
     /// <summary>Unknown enum text falls back rather than failing the whole load.</summary>
+    /// <summary>A saved number, or nothing where it was not one.</summary>
+    private static double? Finite(double? value) => value is { } number && double.IsFinite(number) ? number : null;
+
     private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(text, ignoreCase: true, out var value) ? value : fallback;
 

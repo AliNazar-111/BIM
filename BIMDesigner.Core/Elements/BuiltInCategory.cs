@@ -48,7 +48,8 @@ public enum BuiltInCategory
     ShaftOpenings,
     Downpipes,
     RoofDrains,
-    Chimneys
+    Chimneys,
+    Parts
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

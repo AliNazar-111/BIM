@@ -102,6 +102,7 @@ public static class ElementCopy
             Spline = wall.Spline,
             Profile = wall.Profile?.ToList(),
             ProfileLength = wall.ProfileLength,
+            FaceRegions = wall.FaceRegions.ToList(),
             CurtainGrid = wall.CurtainGrid,
             CurtainPanels = wall.CurtainPanels,
             CrossSection = wall.CrossSection,
@@ -253,6 +254,23 @@ public static class ElementCopy
         RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location, Own = roofWindow.Own }, roofWindow),
         Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location }, pipe),
         RoofDrain drain => CarryCommon(new RoofDrain { RoofId = drain.RoofId, Location = drain.Location, OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge }, drain),
+        PolygonWall shaped => CarryCommon(new PolygonWall
+        {
+            Kind = shaped.Kind, Outline = shaped.Outline.ToList(), Start = shaped.Start, End = shaped.End,
+            StartThickness = shaped.StartThickness, EndThickness = shaped.EndThickness, StraightSide = shaped.StraightSide,
+            MaterialId = shaped.MaterialId, BaseOffset = shaped.BaseOffset, TopLevelId = shaped.TopLevelId, TopOffset = shaped.TopOffset,
+            UnconnectedHeight = shaped.UnconnectedHeight
+        }, shaped),
+        WallFraming framing => CarryCommon(new WallFraming
+        {
+            HostId = framing.HostId, Material = framing.Material, Section = framing.Section, Spacing = framing.Spacing,
+            TopPlates = framing.TopPlates, NoggingRows = framing.NoggingRows, FromEnd = framing.FromEnd
+        }, framing),
+        Part part => CarryCommon(new Part
+        {
+            HostId = part.HostId, Layer = part.Layer, From = part.From, To = part.To, Bottom = part.Bottom, Top = part.Top,
+            Gap = part.Gap, MaterialId = part.MaterialId, Excluded = part.Excluded
+        }, part),
         Chimney chimney => CarryCommon(new Chimney
         {
             Location = chimney.Location, Width = chimney.Width, Depth = chimney.Depth, Angle = chimney.Angle, BaseOffset = chimney.BaseOffset,

@@ -159,6 +159,7 @@ public static class IfcExport
             foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
             foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
             foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
+            foreach (var shaped in _document.Elements.OfType<PolygonWall>()) ExportPolygonWall(shaped);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
@@ -1183,6 +1184,41 @@ public static class IfcExport
                 ["AtItsFoot"] = new IfcLabel(EnumText.Humanise(chimney.Fireplace)),
                 ["HeightRule"] = new IfcLabel(chimney.Rule == ChimneyRule.ThreeTwoTen ? "US 3-2-10" : "Approved Document J"),
                 ["Height"] = new IfcLengthMeasure(Chimneys.Top(_document, chimney) - Chimneys.Foot(_document, chimney))
+            });
+        }
+
+        /// <summary>A wall shaped in plan as an IfcWall, its body stood up from its outline, with what it is made of.</summary>
+        private void ExportPolygonWall(PolygonWall shaped)
+        {
+            if (PolygonWalls.Mesh(_document, shaped) is not { } mesh) return;
+
+            var storey = StoreyOf(shaped);
+            var storeyElevation = _document.FindLevel(shaped.LevelId)?.Elevation ?? 0;
+            var product = New<IfcWall>(w =>
+            {
+                w.GlobalId = shaped.Id.ToIfc();
+                w.Name = shaped.Kind == PolygonWallKind.Trapezoid ? "Trapezoid Wall" : "Polygon Wall";
+                w.Tag = shaped.Mark;
+                w.PredefinedType = IfcWallTypeEnum.SOLIDWALL;
+                w.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                w.Representation = TessellatedBody(new[] { mesh }, storeyElevation);
+            });
+            Contain(shaped, product);
+
+            WriteSet(product, "Pset_WallCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = new IfcIdentifier(shaped.Kind.ToString())
+            });
+            WriteSet(product, "Wall", new Dictionary<string, IfcValue?>
+            {
+                ["Material"] = _document.FindMaterial(shaped.MaterialId) is { } material ? new IfcLabel(material.Name) : null,
+                ["ThicknessAtStart"] = shaped.Kind == PolygonWallKind.Trapezoid ? new IfcPositiveLengthMeasure(shaped.StartThickness) : null,
+                ["ThicknessAtEnd"] = shaped.Kind == PolygonWallKind.Trapezoid ? new IfcPositiveLengthMeasure(shaped.EndThickness) : null,
+                ["Volume"] = new IfcVolumeMeasure(PolygonWalls.Volume(_document, shaped))
             });
         }
 

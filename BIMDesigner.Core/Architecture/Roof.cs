@@ -467,12 +467,18 @@ public sealed class Roof : Slab
         _openings.AddRange(openings);
     }
 
-    /// <summary>Moves the openings with the roof, when it is moved, mirrored or turned.</summary>
-    public void TransformOpenings(Func<Point2D, Point2D> map)
+    /// <summary>
+    /// Takes what is drawn in the roof's sketch besides its outline - its openings and its slope
+    /// arrows - along with it, when it is moved, mirrored, turned or scaled.
+    /// </summary>
+    public void TransformSketch(Func<Point2D, Point2D> map)
     {
         var moved = _openings.Select(opening => opening with { Points = opening.Points.Select(map).ToList() }).ToList();
         _openings.Clear();
         _openings.AddRange(moved);
+
+        foreach (var arrow in _arrows)
+            (arrow.Tail, arrow.Head) = (map(arrow.Tail), map(arrow.Head));
     }
 
     public override double GetVolume(BimDocument document) =>

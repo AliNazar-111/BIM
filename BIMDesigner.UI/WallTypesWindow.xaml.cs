@@ -34,6 +34,7 @@ public partial class WallTypesWindow : Window
     private readonly ObservableCollection<LayerDraftRow> _rows = new();
     private readonly ObservableCollection<TierDraftRow> _tiers = new();
     private readonly ObservableCollection<SweepDraftRow> _sweeps = new();
+    private readonly ObservableCollection<BandDraftRow> _bands = new();
 
     private WallType? _editing;
     private StackedWallType? _stacked;
@@ -41,10 +42,19 @@ public partial class WallTypesWindow : Window
     private bool _loading;
     private bool _dirty;
 
+    /// <summary>Whether it opens scrolled down to the bands, rather than at the top.</summary>
+    public bool OpenAtBands { get; init; }
+
     public WallTypesWindow(BimDocument document, UndoStack history, ElementType? start)
     {
         InitializeComponent();
         ScreenFit.Apply(this);
+        Loaded += (_, _) =>
+        {
+            if (!OpenAtBands) return;
+            BandSection.BringIntoView();
+            if (BandGrid.Items.Count == 0) BandHint.Visibility = Visibility.Visible;
+        };
 
         _document = document;
         _history = history;
@@ -69,6 +79,7 @@ public partial class WallTypesWindow : Window
         LayerGrid.ItemsSource = _rows;
         TierGrid.ItemsSource = _tiers;
         SweepGrid.ItemsSource = _sweeps;
+        BandGrid.ItemsSource = _bands;
 
         ShowTypes(start is WallType or StackedWallType or CurtainWallType
             ? start
@@ -233,6 +244,7 @@ public partial class WallTypesWindow : Window
         _tiers.Clear();
         foreach (var sweep in _sweeps) sweep.Edited -= OnRowEdited;
         _sweeps.Clear();
+        _bands.Clear();
 
         LayeredPanel.Visibility = _stacked is null && _curtain is null ? Visibility.Visible : Visibility.Collapsed;
         StackedPanel.Visibility = _stacked is null ? Visibility.Collapsed : Visibility.Visible;
@@ -247,6 +259,7 @@ public partial class WallTypesWindow : Window
 
             foreach (var layer in wall.Structure.Layers) AddRow(new LayerDraftRow(_document, layer));
             foreach (var sweep in wall.Sweeps) AddSweepRow(new SweepDraftRow(_document, sweep));
+            foreach (var band in wall.Bands) AddBandRow(new BandDraftRow(_document, _rows, band));
         }
         else if (_stacked is { } stacked)
         {
@@ -317,13 +330,17 @@ public partial class WallTypesWindow : Window
         var sweeps = _sweeps.Select(row => row.ToSweep()).ToList();
         if (sweeps.Any(sweep => sweep is null)) return null;
 
+        var bands = _bands.Select(row => row.ToBand()).ToList();
+        if (bands.Any(band => band is null)) return null;
+
         return new WallTypeDesign(
             NameBox.Text,
             EnumText.TryParse<WallFunction>(FunctionPicker.SelectedItem as string, out var function) ? function : WallFunction.Interior,
             EnumText.TryParse<WallWrapping>(InsertWrapPicker.SelectedItem as string, out var inserts) ? inserts : WallWrapping.None,
             EnumText.TryParse<WallWrapping>(EndWrapPicker.SelectedItem as string, out var ends) ? ends : WallWrapping.None,
             layers!,
-            sweeps.OfType<WallSweep>().ToList());
+            sweeps.OfType<WallSweep>().ToList(),
+            bands.OfType<WallBand>().ToList());
     }
 
     /// <summary>The tiers as they stand in the editor, bottom first, or null while a height is not a length.</summary>
@@ -365,8 +382,8 @@ public partial class WallTypesWindow : Window
 
         var design = Design();
         return design is null
-            ? "Every layer except a membrane needs a thickness, and every sweep and reveal a depth and height, greater than zero - e.g. 100 or 12.5 mm."
-            : design.Problem(_document, _editing);
+            ? "Every layer except a membrane needs a thickness, every sweep and reveal a depth and height, and every band a layer and its heights - e.g. 100 or 12.5 mm, the top left empty to run to the top of the wall."
+            : design.BandProblem() ?? design.Problem(_document, _editing);
     }
 
     /// <summary>Brings the markers, the previews, the width and the buttons up to date.</summary>
@@ -409,6 +426,7 @@ public partial class WallTypesWindow : Window
             UpButton.IsEnabled = index > 0;
             DownButton.IsEnabled = index >= 0 && index < _rows.Count - 1;
             RemoveSweepButton.IsEnabled = SelectedSweep is not null;
+            RemoveBandButton.IsEnabled = BandGrid.SelectedItem is BandDraftRow;
         }
 
         var problem = Problem();
@@ -454,6 +472,9 @@ public partial class WallTypesWindow : Window
         row.Edited -= OnRowEdited;
         _rows.Remove(row);
 
+        // A band on the layer goes with it.
+        foreach (var band in _bands.Where(band => band.IsOn(row)).ToList()) _bands.Remove(band);
+
         LayerGrid.SelectedItem = _rows[Math.Min(index, _rows.Count - 1)];
         MarkChanged();
     }
@@ -478,6 +499,40 @@ public partial class WallTypesWindow : Window
     // ---- sweeps and reveals ---------------------------------------------------------
 
     private SweepDraftRow? SelectedSweep => SweepGrid.SelectedItem as SweepDraftRow;
+
+    // ---- bands ----------------------------------------------------------------------
+
+    private void AddBandRow(BandDraftRow row)
+    {
+        row.Edited += (_, _) => MarkChanged();
+        _bands.Add(row);
+    }
+
+    private void OnBandSelected(object sender, SelectionChangedEventArgs e) => UpdateState();
+
+    /// <summary>
+    /// A new band: on the layer selected, or the inside finish, from the bottom up to 1.2 m - a
+    /// tile band at the foot of the plaster, to start from - in a tile where the project has one.
+    /// </summary>
+    private void OnAddBand(object sender, RoutedEventArgs e)
+    {
+        if (_editing is null || _rows.Count == 0) return;
+
+        var layer = SelectedRow ?? _rows[^1];
+        var tile = _document.Materials.FirstOrDefault(m => m.Name.StartsWith("Ceramic Tile", StringComparison.OrdinalIgnoreCase))?.Id ?? layer.MaterialId;
+        var row = new BandDraftRow(_document, _rows, new WallBand(_rows.IndexOf(layer), 0, 1200, tile));
+        AddBandRow(row);
+        BandGrid.SelectedItem = row;
+        MarkChanged();
+    }
+
+    private void OnRemoveBand(object sender, RoutedEventArgs e)
+    {
+        if (BandGrid.SelectedItem is not BandDraftRow row) return;
+
+        _bands.Remove(row);
+        MarkChanged();
+    }
 
     private void AddSweepRow(SweepDraftRow row)
     {

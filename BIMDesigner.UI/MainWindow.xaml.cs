@@ -8,6 +8,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using BIMDesigner.Core;
+using BIMDesigner.Core.Annotation;
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
@@ -131,6 +132,19 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // Paint and Split Face act on the face of a wall where it is clicked.
+            if (hit is { } painted && Plan.ActiveTool == PlanTool.Paint && Plan.PaintIn3D(painted.Id, painted.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            if (hit is { } split && Plan.ActiveTool == PlanTool.SplitFace && Plan.SplitFaceIn3D(split.Id, split.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
             // And the roof window tool: a click on a roof puts one in it there.
             if (hit is { } onRoof && Plan.ActiveTool == PlanTool.RoofWindow &&
                 Plan.PlaceRoofWindowIn3D(onRoof.Id, onRoof.At))
@@ -201,6 +215,10 @@ public partial class MainWindow : Window
         // A door that cannot be turned to open a way it would hit something: an error, in a dialog.
         Plan.DoorRefused += (_, why) => MessageBox.Show(this, why, "Door", MessageBoxButton.OK, MessageBoxImage.Warning);
         Plan.RoofWindowRefused += (_, why) => MessageBox.Show(this, why, "Roof Window", MessageBoxButton.OK, MessageBoxImage.Warning);
+        Plan.PinnedRefused += (_, why) => MessageBox.Show(this, why, "Pinned", MessageBoxButton.OK, MessageBoxImage.Warning);
+        Plan.ToolFinished += (_, _) => BackToModify();
+        Plan.ElevationPicked += (_, side) => ShowElevation(side);
+        Plan.SplitFaceChanged += (_, _) => Model3D.PendingCorner = Plan.SplitFaceCorner;
 
         // Pick New offers its Placement choice only while it is waiting for a host, as Revit's
         // Placement panel appears only for the length of the move.
@@ -504,7 +522,9 @@ public partial class MainWindow : Window
         // offering one would be asking a question the tool never reads the answer to.
         var typeless = tool is PlanTool.Grid or PlanTool.Section
             or PlanTool.Dimension or PlanTool.Tag or PlanTool.Text
-            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
+            or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.Rotate or PlanTool.Scale or PlanTool.SplitGap
+            or PlanTool.Paint or PlanTool.SplitFace
+            or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
@@ -524,6 +544,21 @@ public partial class MainWindow : Window
         WallDrawOptions.Visibility = tool == PlanTool.Wall ? Visibility.Visible : Visibility.Collapsed;
         MirrorOptions.Visibility = tool == PlanTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
         ArrayOptions.Visibility = tool == PlanTool.Array ? Visibility.Visible : Visibility.Collapsed;
+        DimensionOptions.Visibility = tool == PlanTool.Dimension ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Dimension)
+        {
+            _loadingOptions = true;
+            DimensionPreferPicker.ItemsSource ??= DimensionPreferences.Keys.ToList();
+            DimensionPreferPicker.SelectedItem = DimensionPreferences.First(entry => entry.Value == Plan.DimensionPrefer).Key;
+            _loadingOptions = false;
+        }
+
+        SplitGapOptions.Visibility = tool == PlanTool.SplitGap ? Visibility.Visible : Visibility.Collapsed;
+        PaintOptions.Visibility = tool == PlanTool.Paint ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Paint) ShowPaintOptions();
+        RotateOptions.Visibility = tool == PlanTool.Rotate ? Visibility.Visible : Visibility.Collapsed;
+        RotateCentreButton.IsChecked = Plan.PlacingRotateCentre;
+        ScaleOptions.Visibility = tool == PlanTool.Scale ? Visibility.Visible : Visibility.Collapsed;
 
         RoofEdgeTypePicker.Visibility = isRoofEdge ? Visibility.Visible : Visibility.Collapsed;
         if (isRoofEdge) LoadRoofEdgeTypes(tool);
@@ -1550,9 +1585,31 @@ public partial class MainWindow : Window
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, GridTool,
-        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
+        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
+        RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
     ];
+
+    /// <summary>
+    /// Leaves whatever tool is on for Modify, keeping the selection - Esc, the Modify button,
+    /// and Rotate or Scale once they have done their work.
+    /// </summary>
+    private void BackToModify()
+    {
+        if (SelectTool.IsChecked == true)
+        {
+            // Already ticked - but some other tool still on in the plan: put the two back in step.
+            foreach (var other in ToolButtons().Where(button => button is not null && !ReferenceEquals(button, SelectTool))) other.IsChecked = false;
+            Plan.SetTool(PlanTool.Select);
+            ShowOptionsForActiveTool();
+        }
+        else
+        {
+            SelectTool.IsChecked = true;
+        }
+
+        RefreshContextTab();
+    }
 
     private void OnToolChanged(object sender, RoutedEventArgs e)
     {
@@ -1607,10 +1664,15 @@ public partial class MainWindow : Window
             : TagTool.IsChecked == true ? PlanTool.Tag
             : TextTool.IsChecked == true ? PlanTool.Text
             : SplitTool.IsChecked == true ? PlanTool.Split
+            : SplitGapTool.IsChecked == true ? PlanTool.SplitGap
+            : PaintTool.IsChecked == true ? PlanTool.Paint
+            : SplitFaceTool.IsChecked == true ? PlanTool.SplitFace
             : TrimTool.IsChecked == true ? PlanTool.Trim
             : OffsetTool.IsChecked == true ? PlanTool.Offset
             : MirrorTool.IsChecked == true ? PlanTool.Mirror
             : ArrayTool.IsChecked == true ? PlanTool.Array
+            : RotateTool.IsChecked == true ? PlanTool.Rotate
+            : ScaleTool.IsChecked == true ? PlanTool.Scale
             : SweepTool.IsChecked == true ? PlanTool.Sweep
             : RevealTool.IsChecked == true ? PlanTool.Reveal
             : WallJoinsTool.IsChecked == true ? PlanTool.WallJoins
@@ -1758,7 +1820,9 @@ public partial class MainWindow : Window
         {
             if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
             {
-                if (Plan.SelectedElements.Count > 0) Plan.Select(null);
+                if (Plan.CancelPendingOperation()) { }
+                else if (Plan.ActiveTool != PlanTool.Select) BackToModify();
+                else if (Plan.SelectedElements.Count > 0) Plan.Select(null);
                 else OnClose3D(this, e);
 
                 e.Handled = true;
@@ -1801,6 +1865,13 @@ public partial class MainWindow : Window
             }
         }
 
+        if (Keyboard.Modifiers == ModifierKeys.Shift && e.Key == Key.P)
+        {
+            Plan.PinSelected(false);
+            e.Handled = true;
+            return;
+        }
+
         if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.V)
         {
             OnPasteInPlace(this, e);
@@ -1817,9 +1888,12 @@ public partial class MainWindow : Window
                 if (Plan.FinishDrawing()) e.Handled = true;
                 break;
             case Key.Escape:
-                // Esc first abandons whatever tool operation is half-done, and only then lets
-                // go of the selection - so it takes two presses to lose a selection by accident.
-                if (!Plan.CancelPendingOperation()) Plan.Select(null);
+                // Esc first abandons whatever tool operation is half-done, then leaves the tool
+                // for Modify, as Revit's does, and only then lets go of the selection - so it
+                // takes more than one press to lose a selection by accident.
+                if (Plan.CancelPendingOperation()) break;
+                if (Plan.ActiveTool != PlanTool.Select) BackToModify();
+                else Plan.Select(null);
                 break;
             case Key.O:
                 OffsetTool.IsChecked = true;
@@ -1829,6 +1903,15 @@ public partial class MainWindow : Window
                 break;
             case Key.Y:
                 ArrayTool.IsChecked = true;
+                break;
+            case Key.Q:
+                RotateTool.IsChecked = true;
+                break;
+            case Key.K:
+                ScaleTool.IsChecked = true;
+                break;
+            case Key.P:
+                Plan.PinSelected(true);
                 break;
             case Key.F:
                 Plan.ZoomToFit();
@@ -2490,7 +2573,10 @@ public partial class MainWindow : Window
 
         var allWalls = selected.All(element => element is Wall);
         var wallsOnly = allWalls ? Visibility.Visible : Visibility.Collapsed;
-        ContextSplit.Visibility = ContextTrim.Visibility = ContextOffset.Visibility = wallsOnly;
+        ContextSplit.Visibility = ContextSplitGap.Visibility = ContextTrim.Visibility = ContextOffset.Visibility = wallsOnly;
+        ContextScale.IsEnabled = selected.Any(ElementTransforms.CanScale);
+        ContextPin.Visibility = selected.Any(element => !element.Pinned) ? Visibility.Visible : Visibility.Collapsed;
+        ContextUnpin.Visibility = selected.Any(element => element.Pinned) ? Visibility.Visible : Visibility.Collapsed;
         ContextModePanel.Visibility = ContextWallPanel.Visibility = wallsOnly;
         ContextShapePanel.Visibility = wallsOnly;
         ContextAddPoint.IsEnabled = allWalls;
@@ -2559,6 +2645,11 @@ public partial class MainWindow : Window
         RadioButton? tool = command switch
         {
             "Split" => SplitTool,
+            "SplitGap" => SplitGapTool,
+            "Rotate" => RotateTool,
+            "Scale" => ScaleTool,
+            "Paint" => PaintTool,
+            "SplitFace" => SplitFaceTool,
             "Trim" => TrimTool,
             "Offset" => OffsetTool,
             "Mirror" => MirrorTool,
@@ -2761,9 +2852,22 @@ public partial class MainWindow : Window
         StatusHint.Text = $"{type.Name}: edit its type parameters in the Properties panel. A change there applies to every one of this type.";
     }
 
-    private void ShowWallTypes(ElementType? start)
+    /// <summary>Edit Type for the selected wall, opened at its bands.</summary>
+    private void OnWallBands(object sender, RoutedEventArgs e)
     {
-        var dialog = new WallTypesWindow(_document, _history, start) { Owner = this };
+        var wall = Plan.SelectedElements.OfType<Wall>().FirstOrDefault();
+        if (wall is null || _document.FindType<ElementType>(wall.TypeId) is not WallType type)
+        {
+            StatusHint.Text = "Select a basic wall: stacked and curtain walls have no bands of their own.";
+            return;
+        }
+
+        ShowWallTypes(type, atBands: true);
+    }
+
+    private void ShowWallTypes(ElementType? start, bool atBands = false)
+    {
+        var dialog = new WallTypesWindow(_document, _history, start) { Owner = this, OpenAtBands = atBands };
 
         // Edits are applied to the model as they are made, so the drawing behind the dialog
         // follows each one rather than catching up when it closes.
@@ -3019,6 +3123,8 @@ public partial class MainWindow : Window
         Downpipe => "Icon.Downpipe",
         RoofDrain => "Icon.RoofDrain",
         Chimney => "Icon.Chimney",
+        Part => "Icon.Parts",
+        WallFraming => "Icon.Framing",
         _ => "Icon.Select"
     };
 
@@ -3172,6 +3278,19 @@ public partial class MainWindow : Window
             sections.Items.Add(item);
         }
 
+        // The four elevations, the building seen straight on from each side.
+        var elevations = new TreeViewItem { Header = "Elevations", IsExpanded = true };
+        foreach (var side in Elevations.All)
+        {
+            var item = new TreeViewItem { Header = Elevations.Name(side), Tag = side };
+            item.MouseLeftButtonUp += (_, args) =>
+            {
+                ShowElevation(side);
+                args.Handled = true;
+            };
+            elevations.Items.Add(item);
+        }
+
         // The drawing set. Clicking a sheet opens it, the way clicking a plan switches storey.
         var sheets = new TreeViewItem { Header = "Sheets", IsExpanded = true };
 
@@ -3219,6 +3338,7 @@ public partial class MainWindow : Window
             materials.Items.Add(new TreeViewItem { Header = material.Name });
 
         project.Items.Add(plans);
+        project.Items.Add(elevations);
 
         var view3D = new TreeViewItem { Header = "3D View" };
         view3D.MouseLeftButtonUp += (_, args) =>
@@ -3483,10 +3603,25 @@ public partial class MainWindow : Window
         else Show3D();
     }
 
-    private void Show3D()
+    private void Show3D() => ShowModel(null);
+
+    /// <summary>
+    /// Opens an elevation: the model straight on from one side, flat, with the levels and the
+    /// gridlines facing it drawn across it. It pans and zooms; it does not turn.
+    /// </summary>
+    private void ShowElevation(ElevationSide side) => ShowModel(side);
+
+    private void ShowModel(ElevationSide? elevation)
     {
         // The sheet and the 3D view both take over the drawing area; only one can.
         if (SheetPanel.Visibility == Visibility.Visible) OnCloseSheet(this, new RoutedEventArgs());
+
+        Model3D.Elevation = elevation;
+        ModelCaption.Text = elevation is { } side ? Elevations.Name(side) : "3D View";
+        ModelHelp.Text = elevation is null
+            ? "Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select"
+            : "Drag to pan  ·  scroll to zoom  ·  click to select";
+        Cube.Visibility = elevation is null ? Visibility.Visible : Visibility.Collapsed;
 
         ModelPanel.Visibility = Visibility.Visible;
         ModelMenuItem.IsChecked = true;
@@ -3501,7 +3636,9 @@ public partial class MainWindow : Window
             Model3D.Focus();
         });
 
-        StatusHint.Text = "3D view. Drag to orbit, right-drag to pan, scroll to zoom, click to select.";
+        StatusHint.Text = elevation is { } shown
+            ? $"{Elevations.Name(shown)}. Drag to pan, scroll to zoom, click to select."
+            : "3D view. Drag to orbit, right-drag to pan, scroll to zoom, click to select.";
         RefreshProperties();
     }
 
@@ -3532,7 +3669,7 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    private void OnSelectModify(object sender, RoutedEventArgs e) => SelectTool.IsChecked = true;
+    private void OnSelectModify(object sender, RoutedEventArgs e) => BackToModify();
 
     private void OnQuickDimension(object sender, RoutedEventArgs e) => DimensionTool.IsChecked = true;
 
@@ -3631,6 +3768,8 @@ public partial class MainWindow : Window
         Model3D.SetKindVisible(MeshKind.Roof, ShowRoofsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Ceiling, ShowCeilingsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Floor, ShowFloorsBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Wall, ShowWallsBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Framing, ShowFramingBox.IsChecked == true);
         Model3D.ShowGround = ShowGroundBox.IsChecked == true;
         Model3D.ShowEdges = ShowEdgesBox.IsChecked == true;
     }
@@ -3744,14 +3883,27 @@ public partial class MainWindow : Window
     {
         if (Plan is null) return;
 
-        var shape = (WallShape)Math.Max(0, WallShapePicker.SelectedIndex);
+        var shape = WallShapePicker.SelectedItem is ComboBoxItem { Tag: string name } && Enum.TryParse<WallShape>(name, out var picked)
+            ? picked
+            : WallShape.Line;
         Plan.DrawShape = shape;
         PolygonOptions.Visibility = shape == WallShape.Polygon ? Visibility.Visible : Visibility.Collapsed;
+        TrapezoidOptions.Visibility = shape == WallShape.Trapezoid ? Visibility.Visible : Visibility.Collapsed;
+        if (shape == WallShape.Trapezoid && TrapezoidSidePicker.ItemsSource is null)
+        {
+            TrapezoidSidePicker.ItemsSource = EnumText.Choices<TrapezoidSide>();
+            TrapezoidSidePicker.SelectedItem = EnumText.Humanise(Plan.TrapezoidSide);
+        }
         SyncWallShapeButtons();
 
         StatusHint.Text = shape switch
         {
             WallShape.Arc => "Arc: click the start, the end, then a point the arc passes through.",
+            WallShape.TangentArc => "Tangent arc: click the end of a wall, then where the arc ends. It carries on smoothly, and the next one from it.",
+            WallShape.CentreEndsArc => "Centre-ends arc: click the centre, then the start - which sets the radius - then where it ends.",
+            WallShape.FilletArc => "Fillet arc: click a wall, then the wall it meets: the corner is rounded off at the Radius on the bar.",
+            WallShape.Trapezoid => "Trapezoid wall: click its start, then its end. It is as thick as Start there and End here, one material through.",
+            WallShape.PolygonOutline => "Polygon wall: click its corners round, then the first again, a double click or Enter. One material through.",
             WallShape.Rectangle => "Rectangle: click one corner, then the opposite one. Hold Shift for a square.",
             WallShape.Polygon => "Polygon: click the centre, then a corner. Set the number of sides on the bar.",
             WallShape.Circle => "Circle: click the centre, then a point on the circle.",
@@ -3920,6 +4072,9 @@ public partial class MainWindow : Window
         foreach (var (header, icon, shape) in new[]
         {
             ("Line", "Icon.DrawLine", WallShape.Line), ("Arc", "Icon.DrawArc", WallShape.Arc),
+            ("Tangent Arc", "Icon.DrawTangentArc", WallShape.TangentArc), ("Centre-Ends Arc", "Icon.DrawCentreArc", WallShape.CentreEndsArc),
+            ("Fillet Arc", "Icon.DrawFilletArc", WallShape.FilletArc),
+            ("Trapezoid Wall", "Icon.DrawTrapezoid", WallShape.Trapezoid), ("Polygon Wall", "Icon.DrawPolygonWall", WallShape.PolygonOutline),
             ("Rectangle", "Icon.DrawRectangle", WallShape.Rectangle), ("Polygon", "Icon.DrawPolygon", WallShape.Polygon),
             ("Circle", "Icon.DrawCircle", WallShape.Circle), ("Oval", "Icon.DrawOval", WallShape.Oval),
             ("Ellipse", "Icon.DrawEllipse", WallShape.Ellipse), ("Partial Ellipse", "Icon.DrawHalfEllipse", WallShape.PartialEllipse),
@@ -3978,13 +4133,49 @@ public partial class MainWindow : Window
         if (!Enum.TryParse<WallShape>(tag, out var shape)) return;
 
         WallTool.IsChecked = true;
-        WallShapePicker.SelectedIndex = (int)shape;
+        SelectWallShape(shape);
         Plan.Focus();
+    }
+
+    /// <summary>Picks a shape in the options bar's list, which sets it for drawing.</summary>
+    private void SelectWallShape(WallShape shape) =>
+        WallShapePicker.SelectedItem = WallShapePicker.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag as string == shape.ToString());
+
+    private void OnTrapezoidOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (Plan is null) return;
+
+        static double? Read(string text) =>
+            ParameterFormatter.TryParse(ParameterDataType.Length, text, out var value) && value is double mm && mm >= 10 && mm <= 10000 ? mm : null;
+
+        if (Read(TrapezoidStartBox.Text) is { } start) Plan.TrapezoidStartThickness = start;
+        if (Read(TrapezoidEndBox.Text) is { } end) Plan.TrapezoidEndThickness = end;
+        if (TrapezoidSidePicker.SelectedItem is string side && EnumText.TryParse<TrapezoidSide>(side, out var straight)) Plan.TrapezoidSide = straight;
+        TrapezoidStartBox.Text = Units.FormatLength(Plan.TrapezoidStartThickness);
+        TrapezoidEndBox.Text = Units.FormatLength(Plan.TrapezoidEndThickness);
+    }
+
+    private void OnArcRadiusChanged(object sender, RoutedEventArgs e)
+    {
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, ArcRadiusBox.Text, out var value) && value is double radius && radius >= 10 && radius <= 1e6)
+            Plan.ArcRadius = radius;
+
+        ArcRadiusBox.Text = Units.FormatLength(Plan.ArcRadius);
+        Plan.ChainRadius = ChainRadiusBox.IsChecked == true;
+    }
+
+    private void OnArcRadiusKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnArcRadiusChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
     }
 
     private IEnumerable<RadioButton> WallShapeButtons() => new[]
     {
-        ShapeLine, ShapeArc, ShapePick, ShapeRectangle, ShapePolygon, ShapeCircle, ShapeOval, ShapeEllipse,
+        ShapeLine, ShapeArc, ShapeTangentArc, ShapeCentreEndsArc, ShapeFilletArc, ShapeTrapezoid, ShapePolygonOutline, ShapePick, ShapeRectangle, ShapePolygon, ShapeCircle, ShapeOval, ShapeEllipse,
         ShapePartialEllipse, ShapeSpline, ShapeFreehand, ShapeBySegment, ShapeByRoom
     };
 
@@ -3998,7 +4189,7 @@ public partial class MainWindow : Window
     private void OnPlaceWallShape(object sender, RoutedEventArgs e)
     {
         if (sender is RadioButton { CommandParameter: string name } && Enum.TryParse<WallShape>(name, out var shape))
-            WallShapePicker.SelectedIndex = (int)shape;
+            SelectWallShape(shape);
 
         Plan.Focus();
     }
@@ -4107,6 +4298,126 @@ public partial class MainWindow : Window
 
     private void OnMirrorKeepOriginalChanged(object sender, RoutedEventArgs e) =>
         Plan.MirrorKeepsOriginal = MirrorKeepOriginalBox.IsChecked == true;
+
+    /// <summary>What the Dimension tool can prefer on a wall, as the options bar shows it.</summary>
+    private static readonly Dictionary<string, DimensionPreference> DimensionPreferences = new()
+    {
+        ["Wall centrelines"] = DimensionPreference.WallCentrelines,
+        ["Wall faces"] = DimensionPreference.WallFaces,
+        ["Centre of core"] = DimensionPreference.CentreOfCore,
+        ["Faces of core"] = DimensionPreference.FacesOfCore
+    };
+
+    private void OnDimensionPreferChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (DimensionPreferPicker.SelectedItem is string name && DimensionPreferences.TryGetValue(name, out var prefer)) Plan.DimensionPrefer = prefer;
+    }
+
+    /// <summary>The materials Paint can put on, on the options bar.</summary>
+    private void ShowPaintOptions()
+    {
+        _loadingOptions = true;
+        var materials = _document.Materials.OrderBy(material => material.Name).ToList();
+        PaintMaterialPicker.ItemsSource = materials;
+        PaintMaterialPicker.SelectedItem = materials.FirstOrDefault(material => material.Id == Plan.PaintMaterialId)
+            ?? materials.FirstOrDefault(material => material.Name.Contains("Paint", StringComparison.OrdinalIgnoreCase))
+            ?? materials.FirstOrDefault();
+        Plan.PaintMaterialId = (PaintMaterialPicker.SelectedItem as Core.Materials.Material)?.Id;
+        RemovePaintBox.IsChecked = Plan.RemovingPaint;
+        _loadingOptions = false;
+    }
+
+    private void OnPaintOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        Plan.PaintMaterialId = (PaintMaterialPicker.SelectedItem as Core.Materials.Material)?.Id;
+        Plan.RemovingPaint = RemovePaintBox.IsChecked == true;
+    }
+
+    private void OnJointGapChanged(object sender, RoutedEventArgs e)
+    {
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, JointGapBox.Text, out var value) && value is double gap
+            && gap >= WallGaps.LeastGap - 1e-9 && gap <= WallGaps.MostGap + 1e-9)
+            Plan.JointGap = gap;
+
+        JointGapBox.Text = Units.FormatLength(Plan.JointGap);
+    }
+
+    private void OnJointGapKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnJointGapChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    private void OnRotateAngleKey(object sender, KeyEventArgs e)
+    {
+        if (LeaveToolFromOptions(e)) return;
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+
+        if (!ParameterFormatter.TryParse(ParameterDataType.Angle, RotateAngleBox.Text, out var value) || value is not double degrees)
+        {
+            StatusHint.Text = "Type the angle in degrees: 90, -45, 12.5.";
+            return;
+        }
+
+        Plan.RotateBy(degrees);
+        Plan.Focus();
+    }
+
+    private void OnPlaceRotateCentre(object sender, RoutedEventArgs e)
+    {
+        Plan.PlacingRotateCentre = RotateCentreButton.IsChecked == true;
+        Plan.Focus();
+    }
+
+    private void OnRotateCopyChanged(object sender, RoutedEventArgs e) => Plan.RotateCopies = RotateCopyBox.IsChecked == true;
+
+    private void OnScaleFactorChanged(object sender, RoutedEventArgs e)
+    {
+        if (double.TryParse(ScaleFactorBox.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var factor)
+            && factor > 0 && factor <= 1000 && Math.Abs(factor - 1) > 1e-9)
+            Plan.ScaleFactor = factor;
+
+        ScaleFactorBox.Text = Plan.ScaleFactor.ToString(System.Globalization.CultureInfo.CurrentCulture);
+    }
+
+    private void OnScaleFactorKey(object sender, KeyEventArgs e)
+    {
+        if (LeaveToolFromOptions(e)) return;
+        if (e.Key != Key.Enter) return;
+
+        OnScaleFactorChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    /// <summary>Esc typed in a box on the options bar leaves the tool too: the window never sees a key a text box takes.</summary>
+    private bool LeaveToolFromOptions(KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return false;
+
+        e.Handled = true;
+        Plan.Focus();
+        BackToModify();
+        return true;
+    }
+
+    private void OnPin(object sender, RoutedEventArgs e)
+    {
+        Plan.PinSelected(true);
+        RefreshContextTab(bringForward: false);
+    }
+
+    private void OnUnpin(object sender, RoutedEventArgs e)
+    {
+        Plan.PinSelected(false);
+        RefreshContextTab(bringForward: false);
+    }
 
     private void OnArrayCountChanged(object sender, RoutedEventArgs e)
     {

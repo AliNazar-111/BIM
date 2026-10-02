@@ -564,6 +564,12 @@
                                 <RadioButton x:Name="JoinGeometryTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.JoinGeometry}"
                                              Content="Join Geometry" Checked="OnToolChanged"
                                              ToolTip="Join two parallel walls up to 150 mm apart, so doors and windows in either cut through both"/>
+                                <RadioButton x:Name="PaintTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Paint}"
+                                             Content="Paint" Checked="OnToolChanged"
+                                             ToolTip="Put a material on a wall's face without changing its type: click the face in plan, an elevation or the 3D view - the part split off there, or the whole face"/>
+                                <RadioButton x:Name="SplitFaceTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SplitFace}"
+                                             Content="Split Face" Checked="OnToolChanged"
+                                             ToolTip="Split part of a wall's face off, to paint on its own - a tiled band, a feature panel: click two opposite corners on the face in an elevation or the 3D view"/>
                                 <RadioButton x:Name="JoinRoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
                                              Content="Join/Unjoin Roof" Checked="OnToolChanged"
                                              ToolTip="Click the edge of a roof - a dormer's back edge - then the roof it should run into: it is carried back until it meets it and trimmed there, in valleys. Click a joined roof's edge to unjoin it"/>
@@ -574,6 +580,9 @@
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="SplitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Split}"
                                              Content="Split" Checked="OnToolChanged" ToolTip="Split a wall in two where you click (X)"/>
+                                <RadioButton x:Name="SplitGapTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SplitGap}"
+                                             Content="Split with Gap" Checked="OnToolChanged"
+                                             ToolTip="Split a wall in two with a gap between them where you click - a movement joint. Set the Joint Gap on the options bar"/>
                                 <RadioButton x:Name="TrimTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Trim}"
                                              Content="Trim / Extend" Checked="OnToolChanged" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
                                 <RadioButton x:Name="OffsetTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Offset}"
@@ -582,8 +591,53 @@
                                              Content="Mirror" Checked="OnToolChanged" ToolTip="Reflect the selection about a line (I)"/>
                                 <RadioButton x:Name="ArrayTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Array}"
                                              Content="Array" Checked="OnToolChanged" ToolTip="Repeat the selection at a regular spacing (Y)"/>
+                                <RadioButton x:Name="RotateTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Rotate}"
+                                             Content="Rotate" Checked="OnToolChanged"
+                                             ToolTip="Turn the selection about its middle, or a centre you place: click where the angle starts and ends, or type the angle (Q)"/>
+                                <RadioButton x:Name="ScaleTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Scale}"
+                                             Content="Scale" Checked="OnToolChanged"
+                                             ToolTip="Make walls, floors and grids longer or shorter about a point you click; thicknesses and heights stay the same (K)"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pin}" Content="Pin" Click="OnPin"
+                                            ToolTip="Pin the selection where it is: it cannot be moved, rotated, scaled or deleted until unpinned (P)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Unpin}" Content="Unpin" Click="OnUnpin"
+                                            ToolTip="Let the selection be moved again (Shift+P)"/>
+                                </StackPanel>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Delete}"
                                         Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Framing" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Framing}" Content="Frame Walls"
+                                        Click="OnFrameWalls"
+                                        ToolTip="Frame the selected walls with studs - timber, or steel for a metal stud wall - laid out with their openings: plates, studs at the spacing, kings, jacks, headers, sills, cripples, corner studs and noggings"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="Cut List" Click="OnCutList"
+                                            ToolTip="List every member of the selected frames - or all of them - by section and length, with how many; export it as CSV"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Remove Framing" Click="OnRemoveFraming"
+                                            ToolTip="Take the frame out of the selected walls"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Parts" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Parts}" Content="Create Parts"
+                                        Click="OnCreateParts"
+                                        ToolTip="Make the selected walls into parts, one for each layer, to give their own materials, divide into panels and schedule"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.DivideParts}" Content="Divide Parts"
+                                        Click="OnDivideParts"
+                                        ToolTip="Divide the selected parts - or every part of the selected walls - into panels of a width and height, with joints between"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Exclude" Click="OnExcludeParts"
+                                            ToolTip="Leave the selected parts out: not built, shown or scheduled"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Parts}" Content="Restore" Click="OnRestoreParts"
+                                            ToolTip="Put back the parts left out of the selected walls"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Wall}" Content="Remove Parts" Click="OnRemoveParts"
+                                            ToolTip="Put the selected walls back together, as one wall again"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>
@@ -709,6 +763,12 @@
                 <!-- Shown only while something is selected, holding what can be done to it. -->
                 <TabItem x:Name="ContextTab" Header="Modify" Style="{StaticResource ContextRibbonTab}" Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Select" Style="{StaticResource ContextRibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Select}"
+                                    Content="Modify" Click="OnSelectModify"
+                                    ToolTip="Leave the tool you are in and go back to selecting, keeping the selection (S or Esc)"/>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl x:Name="ContextPropertiesPanel" Header="Properties" Style="{StaticResource ContextRibbonPanel}">
                             <Button x:Name="ContextEditType" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.EditType}"
                                     Content="Edit Type" Click="OnEditSelectedType"
@@ -730,6 +790,9 @@
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="ContextSplit" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Split}"
                                         Content="Split" Click="OnContextTool" CommandParameter="Split" ToolTip="Split a wall in two where you click (X)"/>
+                                <Button x:Name="ContextSplitGap" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.SplitGap}"
+                                        Content="Split with Gap" Click="OnContextTool" CommandParameter="SplitGap"
+                                        ToolTip="Split a wall in two with a gap between them where you click - a movement joint. Set the Joint Gap on the options bar"/>
                                 <Button x:Name="ContextTrim" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Trim}"
                                         Content="Trim / Extend" Click="OnContextTool" CommandParameter="Trim" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
                                 <Button x:Name="ContextOffset" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Offset}"
@@ -738,6 +801,18 @@
                                         Content="Mirror" Click="OnContextTool" CommandParameter="Mirror" ToolTip="Reflect the selection about a line (I)"/>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Array}"
                                         Content="Array" Click="OnContextTool" CommandParameter="Array" ToolTip="Repeat the selection at a regular spacing (Y)"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Rotate}"
+                                        Content="Rotate" Click="OnContextTool" CommandParameter="Rotate"
+                                        ToolTip="Turn the selection about its middle, or a centre you place: click where the angle starts and where it ends, or type the angle (Q)"/>
+                                <Button x:Name="ContextScale" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Scale}"
+                                        Content="Scale" Click="OnContextTool" CommandParameter="Scale"
+                                        ToolTip="Make walls, floors and grids longer or shorter about a point you click; thicknesses and heights stay the same (K)"/>
+                                <StackPanel>
+                                    <Button x:Name="ContextPin" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pin}" Content="Pin" Click="OnPin"
+                                            ToolTip="Pin the selection where it is: it cannot be moved, rotated, scaled or deleted until unpinned (P)"/>
+                                    <Button x:Name="ContextUnpin" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Unpin}" Content="Unpin" Click="OnUnpin"
+                                            ToolTip="Let the selection be moved again (Shift+P)"/>
+                                </StackPanel>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Delete}"
                                         Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
                             </StackPanel>
@@ -790,6 +865,17 @@
 
                         <HeaderedContentControl x:Name="ContextWallPanel" Header="Modify Wall" Style="{StaticResource ContextRibbonPanel}">
                             <StackPanel Orientation="Horizontal">
+                                <StackPanel Margin="0,0,2,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Paint}"
+                                            Content="Paint" Click="OnContextTool" CommandParameter="Paint"
+                                            ToolTip="Put a material on a wall's face without changing its type: pick it on the options bar, then click the face - in plan, an elevation or the 3D view"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SplitFace}"
+                                            Content="Split Face" Click="OnContextTool" CommandParameter="SplitFace"
+                                            ToolTip="Split part of a wall's face off to paint on its own: open an elevation or the 3D view and click two opposite corners on the face"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EditType}"
+                                            Content="Bands" Click="OnWallBands"
+                                            ToolTip="Bands of another material up a layer of the wall's type - a tiled band at the foot of the plaster, brick under render: opens Edit Type at its bands"/>
+                                </StackPanel>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Lock}"
                                         Content="Lock Ends" Click="OnLockCorners"
                                         ToolTip="Lock the corners where the selected walls meet others, so they stay joined when any of them moves. Click again to unlock"/>
@@ -917,6 +1003,16 @@
                                                  Content="Line" CommandParameter="Line" ToolTip="One straight wall at a time, chained click to click"/>
                                     <RadioButton x:Name="ShapeArc" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawArc}"
                                                  Content="Arc" CommandParameter="Arc" ToolTip="Start, end, then a point the arc passes through"/>
+                                    <RadioButton x:Name="ShapeTangentArc" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawTangentArc}"
+                                                 Content="Tangent Arc" CommandParameter="TangentArc" ToolTip="Carries on smoothly from the end of a wall: click the end, then where the arc ends"/>
+                                    <RadioButton x:Name="ShapeCentreEndsArc" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawCentreArc}"
+                                                 Content="Centre-Ends Arc" CommandParameter="CentreEndsArc" ToolTip="The centre, the start (which sets the radius), then where it ends"/>
+                                    <RadioButton x:Name="ShapeFilletArc" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawFilletArc}"
+                                                 Content="Fillet Arc" CommandParameter="FilletArc" ToolTip="Click two walls: their corner is rounded off at the radius on the options bar"/>
+                                    <RadioButton x:Name="ShapeTrapezoid" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawTrapezoid}"
+                                                 Content="Trapezoid Wall" CommandParameter="Trapezoid" ToolTip="A wall thicker at one end than the other: click its start and end; the thicknesses are on the options bar"/>
+                                    <RadioButton x:Name="ShapePolygonOutline" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawPolygonWall}"
+                                                 Content="Polygon Wall" CommandParameter="PolygonOutline" ToolTip="A wall of any shape in plan: click its corners, then the first, a double click or Enter"/>
                                     <RadioButton x:Name="ShapePick" Style="{StaticResource WallShapeRadio}" Tag="{StaticResource Icon.DrawPick}"
                                                  Content="Pick Lines" CommandParameter="Pick" ToolTip="Click a gridline to put a wall along it"/>
                                 </StackPanel>
@@ -1230,20 +1326,43 @@
                     <ComboBox x:Name="WallShapePicker" Style="{StaticResource OptionCombo}" MinWidth="90"
                               SelectedIndex="0" SelectionChanged="OnWallShapeChanged"
                               ToolTip="One wall at a time, straight or arc, or a whole shape of walls placed with two clicks">
-                        <ComboBoxItem Content="Line"/>
-                        <ComboBoxItem Content="Arc"/>
-                        <ComboBoxItem Content="Rectangle"/>
-                        <ComboBoxItem Content="Polygon"/>
-                        <ComboBoxItem Content="Circle"/>
-                        <ComboBoxItem Content="Oval"/>
-                        <ComboBoxItem Content="Ellipse"/>
-                        <ComboBoxItem Content="Partial ellipse"/>
-                        <ComboBoxItem Content="Pick lines"/>
-                        <ComboBoxItem Content="Spline"/>
-                        <ComboBoxItem Content="Freehand"/>
-                        <ComboBoxItem Content="By segment"/>
-                        <ComboBoxItem Content="By room"/>
+                        <ComboBoxItem Content="Line" Tag="Line"/>
+                        <ComboBoxItem Content="Arc" Tag="Arc"/>
+                        <ComboBoxItem Content="Tangent arc" Tag="TangentArc"/>
+                        <ComboBoxItem Content="Centre-ends arc" Tag="CentreEndsArc"/>
+                        <ComboBoxItem Content="Fillet arc" Tag="FilletArc"/>
+                        <ComboBoxItem Content="Trapezoid wall" Tag="Trapezoid"/>
+                        <ComboBoxItem Content="Polygon wall" Tag="PolygonOutline"/>
+                        <ComboBoxItem Content="Rectangle" Tag="Rectangle"/>
+                        <ComboBoxItem Content="Polygon" Tag="Polygon"/>
+                        <ComboBoxItem Content="Circle" Tag="Circle"/>
+                        <ComboBoxItem Content="Oval" Tag="Oval"/>
+                        <ComboBoxItem Content="Ellipse" Tag="Ellipse"/>
+                        <ComboBoxItem Content="Partial ellipse" Tag="PartialEllipse"/>
+                        <ComboBoxItem Content="Pick lines" Tag="Pick"/>
+                        <ComboBoxItem Content="Spline" Tag="Spline"/>
+                        <ComboBoxItem Content="Freehand" Tag="Freehand"/>
+                        <ComboBoxItem Content="By segment" Tag="BySegment"/>
+                        <ComboBoxItem Content="By room" Tag="ByRoom"/>
                     </ComboBox>
+                    <CheckBox x:Name="ChainRadiusBox" Content="Radius" VerticalAlignment="Center" Margin="0,0,6,0"
+                              Click="OnArcRadiusChanged"
+                              ToolTip="Round off every corner of a chain of straight walls at this radius. A fillet arc always uses it"/>
+                    <TextBox x:Name="ArcRadiusBox" Width="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,18,0"
+                             LostFocus="OnArcRadiusChanged" KeyDown="OnArcRadiusKey"
+                             ToolTip="The radius of a fillet arc, and of the rounded corners of a chain with Radius ticked"/>
+                    <StackPanel x:Name="TrapezoidOptions" Orientation="Horizontal" Visibility="Collapsed">
+                        <TextBlock Text="Start" Style="{StaticResource OptionLabel}"/>
+                        <TextBox x:Name="TrapezoidStartBox" Width="70" VerticalAlignment="Center" Text="300 mm"
+                                 LostFocus="OnTrapezoidOptionChanged" ToolTip="How thick it is where it starts"/>
+                        <TextBlock Text="End" Style="{StaticResource OptionLabel}"/>
+                        <TextBox x:Name="TrapezoidEndBox" Width="70" VerticalAlignment="Center" Text="150 mm"
+                                 LostFocus="OnTrapezoidOptionChanged" ToolTip="How thick it is where it ends"/>
+                        <TextBlock Text="Straight face" Style="{StaticResource OptionLabel}"/>
+                        <ComboBox x:Name="TrapezoidSidePicker" Style="{StaticResource OptionCombo}" MinWidth="80" Margin="0,0,18,0"
+                                  SelectionChanged="OnTrapezoidOptionChanged"
+                                  ToolTip="Which face runs straight along the line clicked - the other splays - or both splay evenly"/>
+                    </StackPanel>
                     <StackPanel x:Name="PolygonOptions" Orientation="Horizontal" Visibility="Collapsed">
                         <TextBlock Text="Sides" Style="{StaticResource OptionLabel}"/>
                         <TextBox x:Name="PolygonSidesBox" Width="44" VerticalAlignment="Center" Text="6"
@@ -1348,6 +1467,12 @@
                               ToolTip="What Pick New will take as the new host: only a face that stands up, any face, or the level the plan is on"/>
                 </StackPanel>
 
+                <StackPanel x:Name="DimensionOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Prefer" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="DimensionPreferPicker" Style="{StaticResource OptionCombo}" MinWidth="130" SelectionChanged="OnDimensionPreferChanged"
+                              ToolTip="What a click on a wall measures to: its centreline, the face nearer the click, the middle of its core, or the nearer face of its core"/>
+                </StackPanel>
+
                 <StackPanel x:Name="OffsetOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Distance" Style="{StaticResource OptionLabel}"/>
                     <TextBox x:Name="OffsetDistanceBox" Width="90" VerticalAlignment="Center"
@@ -1359,6 +1484,38 @@
                     <CheckBox x:Name="MirrorKeepOriginalBox" Content="Keep originals" IsChecked="True"
                               VerticalAlignment="Center" Click="OnMirrorKeepOriginalChanged"
                               ToolTip="Mirror copies and leave the selection where it is"/>
+                </StackPanel>
+
+                <StackPanel x:Name="PaintOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Material" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="PaintMaterialPicker" Style="{StaticResource OptionCombo}" MinWidth="220"
+                              DisplayMemberPath="Name" SelectionChanged="OnPaintOptionChanged"
+                              ToolTip="What is put on the face"/>
+                    <CheckBox x:Name="RemovePaintBox" Content="Remove Paint" Margin="12,0,0,0" VerticalAlignment="Center"
+                              Click="OnPaintOptionChanged" ToolTip="Take paint off where you click instead"/>
+                </StackPanel>
+
+                <StackPanel x:Name="SplitGapOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Joint Gap" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="JointGapBox" Width="80" VerticalAlignment="Center" Text="25 mm"
+                             LostFocus="OnJointGapChanged" KeyDown="OnJointGapKey"
+                             ToolTip="How wide the joint is: from 1.6 mm to 305 mm"/>
+                </StackPanel>
+
+                <StackPanel x:Name="RotateOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Angle" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="RotateAngleBox" Width="70" VerticalAlignment="Center" KeyDown="OnRotateAngleKey"
+                             ToolTip="Type an angle and press Enter to turn the selection by it about the centre: anticlockwise, or negative for clockwise"/>
+                    <ToggleButton x:Name="RotateCentreButton" Content="Place Centre" Margin="12,0,0,0" Padding="8,2" VerticalAlignment="Center"
+                                  Click="OnPlaceRotateCentre" ToolTip="Click where it turns about, instead of the middle of the selection"/>
+                    <CheckBox x:Name="RotateCopyBox" Content="Copy" Margin="12,0,0,0" VerticalAlignment="Center" Click="OnRotateCopyChanged"
+                              ToolTip="Turn copies and leave the selection where it is"/>
+                </StackPanel>
+
+                <StackPanel x:Name="ScaleOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Scale" Style="{StaticResource OptionLabel}"/>
+                    <TextBox x:Name="ScaleFactorBox" Width="60" VerticalAlignment="Center" Text="2" LostFocus="OnScaleFactorChanged"
+                             KeyDown="OnScaleFactorKey" ToolTip="How much bigger: 2 doubles it, 0.5 halves it"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ArrayOptions" Orientation="Horizontal" Visibility="Collapsed">
@@ -1723,6 +1880,14 @@
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="Hide the ground to see what is below ground level"/>
+                                        <CheckBox x:Name="ShowWallsBox" Content="Walls" IsChecked="True"
+                                                  VerticalAlignment="Center" Margin="0,0,12,0"
+                                                  Click="OnModelCategoryToggled"
+                                                  ToolTip="Take the walls away - to see their frames"/>
+                                        <CheckBox x:Name="ShowFramingBox" Content="Framing" IsChecked="True"
+                                                  VerticalAlignment="Center" Margin="0,0,12,0"
+                                                  Click="OnModelCategoryToggled"
+                                                  ToolTip="The studs inside framed walls"/>
                                         <CheckBox x:Name="ShowEdgesBox" Content="Edges" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,22,0"
                                                   Click="OnModelCategoryToggled"
@@ -1749,7 +1914,7 @@
                         <Border DockPanel.Dock="Bottom" Style="{StaticResource ViewControlBar}">
                             <DockPanel>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="3D View" Style="{StaticResource ViewControlCaption}"/>
+                                    <TextBlock x:Name="ModelCaption" Text="3D View" Style="{StaticResource ViewControlCaption}"/>
                                     <Image Source="{StaticResource Icon.View3D}" Width="14" Height="14" Margin="0,0,4,0"
                                            ToolTip="Visual style"/>
                                     <ComboBox x:Name="VisualStylePicker" Style="{StaticResource ViewControlCombo}"
@@ -1760,7 +1925,7 @@
                                     <Button Style="{StaticResource ViewControlButton}" Content="Reset" Click="OnReset3DView"
                                             ToolTip="Back to the three-quarter view (Home)"/>
                                 </StackPanel>
-                                <TextBlock Foreground="{StaticResource Text.Muted}" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                <TextBlock x:Name="ModelHelp" Foreground="{StaticResource Text.Muted}" VerticalAlignment="Center" HorizontalAlignment="Right"
                                            TextTrimming="CharacterEllipsis" Margin="12,0,0,0"
                                            Text="Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select"/>
                             </DockPanel>
