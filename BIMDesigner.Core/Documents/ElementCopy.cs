@@ -278,6 +278,13 @@ public static class ElementCopy
             Location = chimney.Location, Width = chimney.Width, Depth = chimney.Depth, Angle = chimney.Angle, BaseOffset = chimney.BaseOffset,
             Flues = chimney.Flues, Rule = chimney.Rule, ExtraHeight = chimney.ExtraHeight, Fireplace = chimney.Fireplace
         }, chimney), chimney),
+        Stair stair => CarryCommon(new Stair
+        {
+            Start = stair.Start, Angle = stair.Angle, Shape = stair.Shape, Corner = stair.Corner, TurnsLeft = stair.TurnsLeft,
+            Width = stair.Width, RisersBeforeTurn = stair.RisersBeforeTurn, Well = stair.Well, BaseOffset = stair.BaseOffset,
+            TopLevelId = stair.TopLevelId, TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight,
+            Railings = stair.Railings, CutsFloorAbove = stair.CutsFloorAbove
+        }, stair),
         ShaftOpening shaft => CarryCommon(new ShaftOpening
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,

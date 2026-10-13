@@ -25,7 +25,10 @@ public enum MeshKind
     Mullion,
 
     /// <summary>The studs, plates and headers framing inside a wall.</summary>
-    Framing
+    Framing,
+
+    /// <summary>A stair: its treads, risers, strings and landings, and its handrails.</summary>
+    Stair
 }
 
 /// <summary>
@@ -713,6 +716,12 @@ public sealed class Mesh3D
         _indices.AddRange(other._indices.Select(index => index + offset));
         _edges.AddRange(other._edges);
     }
+
+    /// <summary>
+    /// Takes away every edge it was drawn with: for parts so thin and many - a stair's balusters -
+    /// that their outlines would blacken them, read better as shading alone.
+    /// </summary>
+    public void DropEdges() => _edges.Clear();
 
     /// <summary>The smallest box around everything, or null for an empty mesh.</summary>
     public (Point3D Min, Point3D Max)? Bounds()

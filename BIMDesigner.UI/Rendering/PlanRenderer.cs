@@ -47,6 +47,9 @@ public sealed class PlanRenderer
     private readonly Pen _layerPen;
     private readonly Pen _membranePen;
     private readonly Pen _componentPen;
+
+    /// <summary>A stair that falls short of the regulations it is checked against.</summary>
+    private readonly Pen _stairShortPen;
     private readonly Pen _selectedPen;
     private readonly Pen _overheadPen;
     private readonly Pen _previewPen;
@@ -99,6 +102,7 @@ public sealed class PlanRenderer
         _membranePen = RenderPens.Dashed(ink.WallOutline, 1.0, 5, 3);
         _overheadPen = RenderPens.Dashed(ink.WallOutline, 0.9, 7, 4);
         _componentPen = RenderPens.Solid(ink.Component, 1.1);
+        _stairShortPen = RenderPens.Solid(Color.FromRgb(0xE0, 0x4B, 0x3A), 1.4);
         _selectedPen = RenderPens.Solid(ink.Selected, 2.2);
         _previewPen = RenderPens.Dashed(ink.Preview, 1.4, 4, 3);
         _locationLinePen = RenderPens.Dashed(ink.LocationLine, 1.2, 6, 4);
@@ -281,6 +285,11 @@ public sealed class PlanRenderer
 
         // Components sit in the rooms and against the walls, so they are drawn over both.
         foreach (var component in OnActiveLevel<Component>()) DrawComponent(dc, component);
+
+        // Stairs on their own storey, and seen down the stairwell from the one they come up to.
+        if (Document is not null)
+            foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => Filter(stair) && (stair.LevelId == ActiveLevelId || stair.TopLevelId == ActiveLevelId)))
+                DrawStair(dc, stair);
 
         if (underlay) return;
 
@@ -1526,6 +1535,67 @@ public sealed class PlanRenderer
         var text = Text(label, size, pen.Brush, bold: true);
         var centre = ModelToScreen(frame.Centre);
         dc.DrawText(text, new Point(centre.X - text.Width / 2, centre.Y - text.Height / 2));
+    }
+
+    /// <summary>
+    /// A stair in plan, as drawings show one. On its own storey: its treads up to where the plan
+    /// cuts through it - a break line slanting across there - the rest above it dashed, and the
+    /// line walked up it, from a dot at its foot, UP, to an arrow; its handrails. On the storey
+    /// it comes up to: all of it, seen down the stairwell, DN at its head, and the guarding round
+    /// the stairwell. Red where it falls short of the regulations it is checked against.
+    /// </summary>
+    private void DrawStair(DrawingContext dc, Stair stair)
+    {
+        if (Document is null) return;
+
+        var layout = Stairs.Layout(Document, stair);
+        if (layout.Steps.Count == 0 || layout.WalkingLine.Count < 2) return;
+
+        var own = stair.LevelId == ActiveLevelId;
+        var cut = (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight;
+        var pen = IsSelected(stair) ? _selectedPen : Stairs.Problems(Document, stair).Count > 0 ? _stairShortPen : _componentPen;
+
+        foreach (var step in layout.Steps)
+            dc.DrawGeometry(null, !own || step.Top <= cut ? pen : _overheadPen, BuildOutline(step.Outline));
+        if (layout.Newel is { } newel) dc.DrawGeometry(_componentBrush, pen, BuildOutline(newel));
+
+        // Where the plan cuts through it: a line slanting across the first step above the cut.
+        if (own && layout.Steps.FirstOrDefault(step => step.Top > cut) is { } first)
+        {
+            var reach = layout.Going * 0.6;
+            dc.DrawLine(pen, ModelToScreen(first.RiserFrom - first.Up * reach), ModelToScreen(first.RiserTo + first.Up * reach));
+        }
+
+        // The line walked up it - down it, from the floor above - a dot at one end, an arrow at the other.
+        var walk = own ? layout.WalkingLine : layout.WalkingLine.Reverse().ToList();
+        for (var i = 0; i + 1 < walk.Count; i++) dc.DrawLine(pen, ModelToScreen(walk[i]), ModelToScreen(walk[i + 1]));
+        dc.DrawEllipse(null, pen, ModelToScreen(walk[0]), Page(2.5), Page(2.5));
+
+        var head = walk[^1];
+        var way = (head - walk[^2]).NormalisedOrDefault(Vector2D.UnitX);
+        var barb = Math.Min(250, layout.Width * 0.25);
+        dc.DrawLine(pen, ModelToScreen(head), ModelToScreen(head - way * barb + way.PerpendicularLeft() * (barb / 2)));
+        dc.DrawLine(pen, ModelToScreen(head), ModelToScreen(head - way * barb - way.PerpendicularLeft() * (barb / 2)));
+
+        // UP on its first treads, beside the line walked; DN just off its head, on the floor above.
+        var into = (walk[1] - walk[0]).NormalisedOrDefault(Vector2D.UnitX);
+        var label = Text(own ? "UP" : "DN", Page(10), pen.Brush, bold: true);
+        var at = ModelToScreen(own
+            ? walk[0] + into * (layout.Going * 0.9) + into.PerpendicularLeft() * (layout.Width * 0.25)
+            : walk[0] - into * (layout.Going * 1.4));
+        dc.DrawText(label, new Point(at.X - label.Width / 2, at.Y - label.Height / 2));
+
+        // Its handrails on its own storey; the guarding round its stairwell on the floor above.
+        var railings = own ? StairModel.Railings(Document, stair, layout) : StairModel.Guarding(Document, stair, layout);
+        foreach (var railing in railings)
+            for (var i = 0; i + 1 < railing.Points.Count; i++)
+            {
+                var (a, b) = (railing.Points[i].At, railing.Points[i + 1].At);
+                if ((b - a).Length < 1) continue;
+                var inward = StairModel.Inward(b - a, railing.LeftSide);
+                var (near, far) = railing.OnWall ? (40.0, 90.0) : (0.0, 50.0);
+                dc.DrawGeometry(null, pen, BuildOutline(new[] { a + inward * near, b + inward * near, b + inward * far, a + inward * far }));
+            }
     }
 
     /// <summary>

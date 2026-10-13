@@ -162,6 +162,14 @@ public sealed class ScheduleDefinition
             }
             .WithoutTotals("Thickness", "Length", "Height"),
 
+        // Every stair: how it is set out, and whether it meets the regulations it is checked against.
+        new ScheduleDefinition("Stair Schedule", BuiltInCategory.Stairs,
+                "Mark", "Type Name", "Base Level", "Top Level", "Shape", "Width", "Risers", "Riser Height", "Actual Going", "Pitch", "Regulations")
+            {
+                SortBy = "Mark"
+            }
+            .WithoutTotals("Width", "Risers", "Riser Height", "Actual Going", "Pitch"),
+
         // What is in each room, room by room - how many of each, what each costs and what they
         // come to: the furniture, the kitchen units and appliances, and the sanitary fittings.
         RoomByRoom("Furniture Schedule", BuiltInCategory.Furniture),

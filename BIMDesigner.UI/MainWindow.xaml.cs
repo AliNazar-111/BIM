@@ -537,7 +537,8 @@ public partial class MainWindow : Window
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.Rotate or PlanTool.Scale or PlanTool.SplitGap
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
-            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney;
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
+            or PlanTool.Stair;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -546,6 +547,8 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Shaft) ShowShaftOptions();
         ChimneyOptions.Visibility = tool == PlanTool.Chimney ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Chimney) ShowChimneyOptions();
+        StairOptions.Visibility = tool == PlanTool.Stair ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Stair) ShowStairOptions();
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -1024,6 +1027,48 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The chimney the next click puts up, on the options bar.</summary>
+    /// <summary>The stair the next clicks put in, on the options bar.</summary>
+    private void ShowStairOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<StairType>().OrderBy(type => type.Name).ToList();
+        StairTypePicker.ItemsSource = types;
+        StairTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveStairTypeId)
+                                       ?? types.FirstOrDefault(type => type.Construction == StairConstruction.Timber && !type.OpenRisers)
+                                       ?? types.FirstOrDefault();
+        Plan.ActiveStairTypeId = (StairTypePicker.SelectedItem as StairType)?.Id ?? Guid.Empty;
+        StairShapePicker.ItemsSource ??= EnumText.Choices<StairShape>();
+        StairShapePicker.SelectedItem = EnumText.Humanise(Plan.NewStairShape);
+        StairCornerPicker.ItemsSource ??= new[] { "On a landing", "On winders" };
+        StairCornerPicker.SelectedIndex = Plan.NewStairCorner == StairCorner.Winders ? 1 : 0;
+        StairCornerPicker.Visibility = Plan.NewStairShape == StairShape.QuarterTurn ? Visibility.Visible : Visibility.Collapsed;
+        StairTurnPicker.ItemsSource ??= new[] { "Turns right", "Turns left" };
+        StairTurnPicker.SelectedIndex = Plan.NewStairTurnsLeft ? 1 : 0;
+        StairTurnPicker.Visibility = Plan.NewStairShape == StairShape.Straight ? Visibility.Collapsed : Visibility.Visible;
+        StairWidthBox.Text = Plan.NewStairWidth.ToString("0");
+        _loadingOptions = false;
+    }
+
+    private void OnStairOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (StairTypePicker.SelectedItem is StairType type) Plan.ActiveStairTypeId = type.Id;
+        if (StairShapePicker.SelectedItem is string shape && EnumText.TryParse<StairShape>(shape, out var picked)) Plan.NewStairShape = picked;
+        Plan.NewStairCorner = StairCornerPicker.SelectedIndex == 1 ? StairCorner.Winders : StairCorner.Landing;
+        Plan.NewStairTurnsLeft = StairTurnPicker.SelectedIndex == 1;
+        if (double.TryParse(StairWidthBox.Text, out var width) && width is >= 500 and <= 5000) Plan.NewStairWidth = width;
+        ShowStairOptions();
+        Plan.InvalidateVisual();
+    }
+
+    private void OnStairWidthKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnStairOptionChanged(sender, e);
+        e.Handled = true;
+    }
+
     private void ShowChimneyOptions()
     {
         _loadingOptions = true;
@@ -1596,7 +1641,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, GridTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
@@ -1670,6 +1715,7 @@ public partial class MainWindow : Window
             : DownpipeTool.IsChecked == true ? PlanTool.Downpipe
             : RoofDrainTool.IsChecked == true ? PlanTool.RoofDrain
             : ChimneyTool.IsChecked == true ? PlanTool.Chimney
+            : StairTool.IsChecked == true ? PlanTool.Stair
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -3971,6 +4017,7 @@ public partial class MainWindow : Window
         Model3D.SetKindVisible(MeshKind.Floor, ShowFloorsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Wall, ShowWallsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Framing, ShowFramingBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Stair, ShowStairsBox.IsChecked == true);
         Model3D.ShowGround = ShowGroundBox.IsChecked == true;
         Model3D.ShowEdges = ShowEdgesBox.IsChecked == true;
     }

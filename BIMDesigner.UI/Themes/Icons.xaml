@@ -141,6 +141,12 @@
         <GeometryDrawing Brush="{StaticResource Ink.Blue}" Pen="{StaticResource Stroke}" Geometry="M8,10 L12,10 L12,13 L18,18 L18,26 L20,29 L16,30 L14,27 L14,19.5 L8,14.5 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Stair"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M3,29 L3,24 L9,24 L9,19 L15,19 L15,14 L21,14 L21,9 L27,9 L27,4 L29,4 L29,29 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,20 L26,1"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Shaft"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,22 L16,15 L30,22 L16,29 Z"/>

@@ -43,6 +43,8 @@ internal sealed class ProjectFileDto
     public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
     public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
     public List<ChimneyTypeDto> ChimneyTypes { get; set; } = new();
+    public List<StairTypeDto> StairTypes { get; set; } = new();
+    public List<StairDto> Stairs { get; set; } = new();
 
     /// <summary>The elements pinned where they are.</summary>
     public List<Guid> PinnedIds { get; set; } = new();
@@ -1160,6 +1162,49 @@ internal sealed class PartDto
     public bool Excluded { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+}
+
+internal sealed class StairTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string TypeMark { get; set; } = string.Empty;
+    public string Construction { get; set; } = "Timber";
+    public double MaxRiser { get; set; }
+    public double Going { get; set; }
+    public double Nosing { get; set; }
+    public double TreadThickness { get; set; }
+    public bool OpenRisers { get; set; }
+    public double HandrailHeight { get; set; }
+    public double BalusterSpacing { get; set; }
+    public string Colour { get; set; } = string.Empty;
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class StairDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Angle { get; set; }
+    public string Shape { get; set; } = "Straight";
+    public string Corner { get; set; } = "Landing";
+    public bool TurnsLeft { get; set; }
+    public double Width { get; set; }
+    public int? RisersBeforeTurn { get; set; }
+    public double Well { get; set; }
+    public double BaseOffset { get; set; }
+    public Guid? TopLevelId { get; set; }
+    public double TopOffset { get; set; }
+    public double UnconnectedHeight { get; set; }
+    public string Railings { get; set; } = "Auto";
+    public bool CutsFloorAbove { get; set; } = true;
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class ChimneyDto

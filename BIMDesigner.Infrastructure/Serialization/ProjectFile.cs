@@ -199,6 +199,25 @@ public static class ProjectFile
                 ClearanceToCombustibles = type.ClearanceToCombustibles, FireRating = type.FireRating, Cost = type.Cost, Description = type.Description
             });
 
+        foreach (var type in document.TypesOf<StairType>())
+            dto.StairTypes.Add(new StairTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Construction = type.Construction.ToString(),
+                MaxRiser = type.MaxRiser, Going = type.Going, Nosing = type.Nosing, TreadThickness = type.TreadThickness,
+                OpenRisers = type.OpenRisers, HandrailHeight = type.HandrailHeight, BalusterSpacing = type.BalusterSpacing,
+                Colour = type.Colour.ToString(), MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description
+            });
+
+        foreach (var stair in document.Elements.OfType<Stair>())
+            dto.Stairs.Add(new StairDto
+            {
+                Id = stair.Id, TypeId = stair.TypeId, LevelId = stair.LevelId, X = stair.Start.X, Y = stair.Start.Y, Angle = stair.Angle,
+                Shape = stair.Shape.ToString(), Corner = stair.Corner.ToString(), TurnsLeft = stair.TurnsLeft, Width = stair.Width,
+                RisersBeforeTurn = stair.RisersBeforeTurn, Well = stair.Well, BaseOffset = stair.BaseOffset, TopLevelId = stair.TopLevelId,
+                TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight, Railings = stair.Railings.ToString(),
+                CutsFloorAbove = stair.CutsFloorAbove, Mark = stair.Mark, Comments = stair.Comments
+            });
+
         foreach (var pipe in document.Elements.OfType<Downpipe>())
             dto.Downpipes.Add(new DownpipeDto
             {
@@ -1142,6 +1161,21 @@ public static class ProjectFile
                 FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
             });
 
+        foreach (var type in dto.StairTypes)
+            document.AddType(new StairType(type.Name)
+            {
+                Id = type.Id, TypeMark = type.TypeMark, Construction = ParseEnum(type.Construction, StairConstruction.Timber),
+                MaxRiser = double.IsFinite(type.MaxRiser) && type.MaxRiser >= 100 ? type.MaxRiser : 200,
+                Going = double.IsFinite(type.Going) && type.Going >= 150 ? type.Going : 225,
+                Nosing = double.IsFinite(type.Nosing) && type.Nosing >= 0 ? type.Nosing : 20,
+                TreadThickness = double.IsFinite(type.TreadThickness) && type.TreadThickness >= 15 ? type.TreadThickness : 30,
+                OpenRisers = type.OpenRisers,
+                HandrailHeight = double.IsFinite(type.HandrailHeight) && type.HandrailHeight >= 700 ? type.HandrailHeight : 900,
+                BalusterSpacing = double.IsFinite(type.BalusterSpacing) && type.BalusterSpacing >= 60 ? type.BalusterSpacing : 120,
+                Colour = ParseColour(type.Colour, new ColourRgb(0xC8, 0xA8, 0x7A)), MaterialId = type.MaterialId,
+                Cost = type.Cost, Description = type.Description ?? string.Empty
+            });
+
         foreach (var type in dto.ChimneyTypes)
             document.AddType(new ChimneyType(type.Name)
             {
@@ -1655,6 +1689,24 @@ public static class ProjectFile
 
             document.Add(chimney);
         }
+
+        // A stair, from its foot and the way it goes up; one whose top level has gone stands to its own height.
+        foreach (var saved in dto.Stairs.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new Stair
+            {
+                Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Start = new Point2D(saved.X, saved.Y),
+                Angle = double.IsFinite(saved.Angle) ? saved.Angle : 90,
+                Shape = ParseEnum(saved.Shape, StairShape.Straight), Corner = ParseEnum(saved.Corner, StairCorner.Landing), TurnsLeft = saved.TurnsLeft,
+                Width = double.IsFinite(saved.Width) && saved.Width >= 500 ? saved.Width : 900,
+                RisersBeforeTurn = saved.RisersBeforeTurn is > 0 ? saved.RisersBeforeTurn : null,
+                Well = double.IsFinite(saved.Well) && saved.Well >= 0 ? saved.Well : 100,
+                BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0,
+                TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
+                TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
+                UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight >= 300 ? saved.UnconnectedHeight : 2600,
+                Railings = ParseEnum(saved.Railings, StairRailings.Auto), CutsFloorAbove = saved.CutsFloorAbove,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
 
         // A wall shaped in plan, from its outline; one with no outline left is nothing.
         foreach (var saved in dto.PolygonWalls.Where(saved => document.FindLevel(saved.LevelId) is not null))

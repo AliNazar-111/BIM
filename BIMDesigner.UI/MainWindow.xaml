@@ -474,8 +474,11 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl Header="Opening" Style="{StaticResource RibbonPanel}">
+                        <HeaderedContentControl Header="Stair &amp; Opening" Style="{StaticResource RibbonPanel}">
                             <StackPanel>
+                                <RadioButton x:Name="StairTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Stair}"
+                                             Content="Stair" Checked="OnToolChanged"
+                                             ToolTip="Stair: click where its first riser goes, then which way is up. It runs up to the level above - straight, or turning on a landing or winders - its risers worked out from the storey's height, checked against Approved Document K or the IRC, and cuts its opening in the floor over it"/>
                                 <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Shaft}"
                                              Content="Shaft" Checked="OnToolChanged"
                                              ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
@@ -1336,6 +1339,25 @@
                              ToolTip="How far the dormer's roof stands out past its walls"/>
                 </StackPanel>
 
+                <StackPanel x:Name="StairOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Stair" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="StairTypePicker" Style="{StaticResource OptionCombo}" MinWidth="210"
+                              DisplayMemberPath="Name" SelectionChanged="OnStairOptionChanged"
+                              ToolTip="How it is built and set out: timber with closed or open risers, or concrete"/>
+                    <ComboBox x:Name="StairShapePicker" Style="{StaticResource OptionCombo}" MinWidth="110" Margin="8,0,0,0"
+                              SelectionChanged="OnStairOptionChanged"
+                              ToolTip="Straight, or two flights turning a quarter or a half between them"/>
+                    <ComboBox x:Name="StairCornerPicker" Style="{StaticResource OptionCombo}" MinWidth="90" Margin="8,0,0,0"
+                              SelectionChanged="OnStairOptionChanged"
+                              ToolTip="What a quarter turn turns on: a landing, or three winders round a newel"/>
+                    <ComboBox x:Name="StairTurnPicker" Style="{StaticResource OptionCombo}" MinWidth="90" Margin="8,0,0,0"
+                              SelectionChanged="OnStairOptionChanged"
+                              ToolTip="Which way it turns, going up"/>
+                    <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="StairWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
+                             ToolTip="Its clear width between its strings"/>
+                </StackPanel>
+
                 <StackPanel x:Name="ChimneyOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Chimney" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox x:Name="ChimneyTypePicker" Style="{StaticResource OptionCombo}" MinWidth="300"
@@ -1959,6 +1981,10 @@
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="The studs inside framed walls"/>
+                                        <CheckBox x:Name="ShowStairsBox" Content="Stairs" IsChecked="True"
+                                                  VerticalAlignment="Center" Margin="0,0,12,0"
+                                                  Click="OnModelCategoryToggled"
+                                                  ToolTip="Stairs, their handrails and the guarding round their stairwells"/>
                                         <CheckBox x:Name="ShowEdgesBox" Content="Edges" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,22,0"
                                                   Click="OnModelCategoryToggled"

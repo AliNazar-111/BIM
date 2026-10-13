@@ -184,6 +184,7 @@ public static class RoofJoin
         openings.AddRange(RoofWindows.Holes(document, roof, exceptWindow));
         openings.AddRange(Shafts.Holes(document, roof));
         openings.AddRange(Chimneys.Holes(document, roof));
+        openings.AddRange(Stairs.Holes(document, roof));
 
         foreach (var id in roof.DormerOpenings)
         {

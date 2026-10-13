@@ -83,7 +83,7 @@ public static class SlabEdges
     /// <summary>Whether a floor is anything other than its sketched outline: cut back from a curtain wall, or with a shaft through it.</summary>
     public static bool IsCut(BimDocument document, Slab slab) =>
         Shafts.Through(document, slab).Any() || CurtainWallsAt(document, slab).Count > 0 || Chimneys.Holes(document, slab).Any() ||
-        RoofDrainage.PipeHoles(document, slab).Any();
+        RoofDrainage.PipeHoles(document, slab).Any() || Stairs.Holes(document, slab).Any();
 
     /// <summary>A floor's plan as built: its outline cut back from the curtain walls in front of it, less the shafts through it.</summary>
     public static IReadOnlyList<PolygonBoolean.Region> Regions(BimDocument document, Slab slab)
@@ -92,6 +92,7 @@ public static class SlabEdges
             .Concat(Shafts.Holes(document, slab))
             .Concat(Chimneys.Holes(document, slab))
             .Concat(RoofDrainage.PipeHoles(document, slab))
+            .Concat(Stairs.Holes(document, slab))
             .ToList();
 
         IReadOnlyList<PolygonBoolean.Region> regions = new[] { new PolygonBoolean.Region(slab.Boundary, Array.Empty<IReadOnlyList<Point2D>>()) };

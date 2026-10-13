@@ -168,6 +168,10 @@ public static class SectionProjection
             // Only those near enough the line to be cut are built: building a solid costs more than cutting it.
             foreach (var chimney in document.Elements.OfType<Chimney>().Where(chimney => shows(chimney) && Near(marker, chimney.Location, Math.Max(chimney.Width, chimney.Depth) + 2500)))
                 AddCut(marker, Chimneys.Meshes(document, chimney), pieces);
+
+            // Stairs, their flights and landings, strings and handrails, cut where the line crosses them.
+            foreach (var stair in document.Elements.OfType<Stair>().Where(stair => shows(stair) && Near(marker, stair.Start, 9000)))
+                AddCut(marker, StairModel.Meshes(document, stair), pieces);
             foreach (var component in document.Elements.OfType<Component>().Where(component => shows(component)))
                 if (document.FindType<ComponentType>(component.TypeId) is { } componentType && Near(marker, component.Location, Math.Max(componentType.Width, componentType.Depth)))
                     AddCut(marker, ModelMeshBuilder.BuildComponent(document, component), pieces);

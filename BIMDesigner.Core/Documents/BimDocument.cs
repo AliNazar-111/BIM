@@ -1357,6 +1357,7 @@ public sealed class BimDocument
 
         foreach (var component in components) document.AddType(component);
         foreach (var chimney in ChimneyType.Library()) document.AddType(chimney);
+        foreach (var stair in StairType.Library()) document.AddType(stair);
 
         // Log walls, as Archicad builds them: round logs, D-logs flat inside, squared logs.
         var logRound = new WallType("Log Wall - Round 220", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 220)))

@@ -44,6 +44,9 @@ public static class ElementTransforms
 
         // A chimney stands where it was put, and cuts whatever roof is there.
         Chimney => true,
+
+        // A stair stands where it was put, and cuts the floor over it wherever that is.
+        Stair => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -99,6 +102,10 @@ public static class ElementTransforms
 
             case Chimney chimney:
                 chimney.Location += delta;
+                break;
+
+            case Stair stair:
+                stair.Start += delta;
                 break;
 
             case Column column:
@@ -214,6 +221,17 @@ public static class ElementTransforms
                 chimney.Location = Reflect(chimney.Location);
                 var way = along - chimney.Location;
                 chimney.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
+                break;
+            }
+
+            case Stair stair:
+            {
+                // Its way up reflected, and - a mirror image turning the other way - its turn too.
+                var up = Reflect(stair.Start + stair.Up * 1000);
+                stair.Start = Reflect(stair.Start);
+                var way = up - stair.Start;
+                stair.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
+                stair.TurnsLeft = !stair.TurnsLeft;
                 break;
             }
 
@@ -373,6 +391,11 @@ public static class ElementTransforms
             case Chimney chimney:
                 chimney.Location = map(chimney.Location);
                 chimney.Angle += degrees;
+                break;
+
+            case Stair stair:
+                stair.Start = map(stair.Start);
+                stair.Angle += degrees;
                 break;
 
             case ShaftOpening shaft:

@@ -167,6 +167,7 @@ public static class IfcExport
             foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
             foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
             foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
+            foreach (var stair in _document.Elements.OfType<Stair>()) ExportStair(stair);
             foreach (var component in _document.Elements.OfType<Component>()) ExportComponent(component);
             foreach (var shaped in _document.Elements.OfType<PolygonWall>()) ExportPolygonWall(shaped);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
@@ -1153,6 +1154,76 @@ public static class IfcExport
         /// A chimney as an IfcChimney, all of it as one body, with the height its rule asks for,
         /// how many flues it draws, its fire rating and its EN 1443 designation.
         /// </summary>
+        /// <summary>
+        /// A stair as an IfcStair - straight, quarter-turn, quarter-winding or half-turn - with its
+        /// risers and goings; its handrails and balustrades as IfcRailings of their own.
+        /// </summary>
+        private void ExportStair(Stair stair)
+        {
+            var (steps, railings) = StairModel.Build(_document, stair);
+            if (steps.Count == 0) return;
+
+            var type = Stairs.TypeOf(_document, stair);
+            var layout = Stairs.Layout(_document, stair);
+            var storey = StoreyOf(stair);
+            var storeyElevation = _document.FindLevel(stair.LevelId)?.Elevation ?? 0;
+            IfcObjectPlacement OnStorey() => New<IfcLocalPlacement>(placement =>
+            {
+                placement.PlacementRelTo = storey?.ObjectPlacement;
+                placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+            });
+
+            var product = New<IfcStair>(s =>
+            {
+                s.GlobalId = stair.Id.ToIfc();
+                s.Name = type.Name;
+                s.Tag = stair.Mark;
+                s.PredefinedType = stair.Shape switch
+                {
+                    StairShape.QuarterTurn when stair.Corner == StairCorner.Winders => IfcStairTypeEnum.QUARTER_WINDING_STAIR,
+                    StairShape.QuarterTurn => IfcStairTypeEnum.QUARTER_TURN_STAIR,
+                    StairShape.HalfTurn => IfcStairTypeEnum.HALF_TURN_STAIR,
+                    _ => IfcStairTypeEnum.STRAIGHT_RUN_STAIR
+                };
+                s.ObjectPlacement = OnStorey();
+                s.Representation = TessellatedBody(steps, storeyElevation);
+            });
+            Contain(stair, product);
+
+            WriteSet(product, "Pset_StairCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["NumberOfRiser"] = new IfcCountMeasure(layout.Risers),
+                ["NumberOfTreads"] = new IfcCountMeasure(layout.Steps.Count(step => step.Kind != StairStepKind.Landing)),
+                ["RiserHeight"] = new IfcPositiveLengthMeasure(layout.Rise),
+                ["TreadLength"] = new IfcPositiveLengthMeasure(layout.Going),
+                ["NosingLength"] = new IfcLengthMeasure(type.Nosing),
+                ["RequiredHeadroom"] = new IfcPositiveLengthMeasure(Stairs.Headroom(_document.ProjectInformation.ClearanceStandard))
+            });
+            WriteSet(product, "Stair", new Dictionary<string, IfcValue?>
+            {
+                ["Construction"] = new IfcLabel(EnumText.Humanise(type.Construction)),
+                ["Width"] = new IfcPositiveLengthMeasure(layout.Width),
+                ["Pitch"] = new IfcReal(Math.Round(layout.Pitch, 2)),
+                ["Regulations"] = new IfcText(Stairs.Verdict(_document, stair))
+            });
+
+            if (railings.Count == 0) return;
+            var railing = New<IfcRailing>(r =>
+            {
+                r.GlobalId = Guid.NewGuid().ToIfc();
+                r.Name = $"{type.Name} - handrails";
+                r.PredefinedType = IfcRailingTypeEnum.BALUSTRADE;
+                r.ObjectPlacement = OnStorey();
+                r.Representation = TessellatedBody(railings, storeyElevation);
+            });
+            Contain(stair, railing);
+            WriteSet(railing, "Pset_RailingCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Height"] = new IfcPositiveLengthMeasure(type.HandrailHeight)
+            });
+        }
+
         private void ExportChimney(Chimney chimney)
         {
             var meshes = Chimneys.Meshes(_document, chimney);

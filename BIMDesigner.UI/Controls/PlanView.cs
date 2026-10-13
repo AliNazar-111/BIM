@@ -105,7 +105,10 @@ public enum PlanTool
     RoofDrain,
 
     /// <summary>Puts up a chimney stack where clicked, through the roof over it.</summary>
-    Chimney
+    Chimney,
+
+    /// <summary>A stair: its foot, then which way is up, to the level above.</summary>
+    Stair
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -1128,6 +1131,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Soffit => "Click a roof's eaves one after another: the soffit closes the overhang under them, back to the wall. Esc finishes it.",
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
         PlanTool.Chimney => "Click where the chimney stack goes: it rises from this storey up through the roof over it, as far above it as the height rule asks, capped with a pot on each flue. Size and flues on the option bar.",
+        PlanTool.Stair => "Click where the stair's first riser goes, then which way is up: it runs up to the level above, its risers worked out from the storey's height, and cuts its opening in the floor over it. Shape, turn and width are on the option bar.",
         PlanTool.RoofDrain => "Click on a flat roof where a drain goes: the roof's insulation is tapered to fall to it - at the roof's Drainage Fall, 1 in 40 to start - in valleys from its corners, with ridges between drains.",
         PlanTool.Downpipe => "Click on a gutter where the downpipe goes: an outlet in its bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. Its size and section come from the gutter's type.",
         PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
@@ -1226,7 +1230,8 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     public bool CancelPendingOperation()
     {
-        var changed = CancelExtrusion()
+        var changed = CancelStair()
+                      | CancelExtrusion()
                       | CancelRoofJoin()
                       | CancelRoofEdgePick()
                       | CancelSplitFace()
@@ -1488,6 +1493,12 @@ public partial class PlanView : FrameworkElement
             _cursorModel = SnapToGrid(raw);
             _cursorIsSnapped = false;
             ChimneyHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.Stair)
+        {
+            _cursorModel = SnapToGrid(raw);
+            _cursorIsSnapped = false;
+            StairHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.RoofDrain)
         {
@@ -1754,6 +1765,10 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.Chimney:
                 PlaceChimneyAt(SnapToGrid(raw));
+                return;
+
+            case PlanTool.Stair:
+                ClickStair(SnapToGrid(raw));
                 return;
         }
 
@@ -5409,6 +5424,9 @@ public partial class PlanView : FrameworkElement
         foreach (var drain in RoofDrainsAt(model)) yield return drain;
         foreach (var chimney in ChimneysAt(model)) yield return chimney;
 
+        // A stair stands on the floor, and is picked before it.
+        foreach (var stair in StairsAt(model)) yield return stair;
+
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
                      RoofWindows.Frame(Document, roofWindow) is { } frame && Polygon2D.Contains(frame.Corners, model)))
@@ -5511,6 +5529,7 @@ public partial class PlanView : FrameworkElement
         DrawDownpipePreview(dc);
         DrawRoofDrainPreview(dc);
         DrawChimneyPreview(dc);
+        DrawStairPreview(dc);
         DrawElevationMarkers(dc);
         DrawArcToolPreview(dc);
         DrawShapedWallPreview(dc);

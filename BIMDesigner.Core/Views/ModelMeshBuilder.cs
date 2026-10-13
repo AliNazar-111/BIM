@@ -65,6 +65,10 @@ public static class ModelMeshBuilder
         foreach (var chimney in document.Elements.OfType<Chimney>().Where(c => shows(c)))
             meshes.AddRange(Chimneys.Meshes(document, chimney));
 
+        // Stairs, up through the openings they cut.
+        foreach (var stair in document.Elements.OfType<Stair>().Where(s => shows(s)))
+            meshes.AddRange(StairModel.Meshes(document, stair));
+
         // Walls shaped in plan - trapezoids and polygons - stood up from their outlines.
         foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(w => shows(w)))
             if (PolygonWalls.Mesh(document, shaped) is { } shapedMesh) meshes.Add(shapedMesh);

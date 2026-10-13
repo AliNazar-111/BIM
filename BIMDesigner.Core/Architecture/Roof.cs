@@ -425,7 +425,7 @@ public sealed class Roof : Slab
     /// </summary>
     public double SlopingArea(BimDocument document) =>
         JoinedTo is null && DormerOpenings.Count == 0 && Openings.Count == 0 && !RoofWindows.On(document, this).Any() &&
-        !Shafts.Through(document, this).Any() && !Chimneys.Holes(document, this).Any()
+        !Shafts.Through(document, this).Any() && !Chimneys.Holes(document, this).Any() && !Stairs.Holes(document, this).Any()
             ? Surface(document).SlopingArea
             : RoofJoin.SlopingArea(document, this);
 
