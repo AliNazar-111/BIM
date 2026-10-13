@@ -81,7 +81,13 @@ public sealed class PolygonWall : Element
         if (PolygonWalls.Trapezoid(Start, End, StartThickness, EndThickness, StraightSide) is { } outline) Outline = outline;
     }
 
-    public double GetBaseElevation(BimDocument document) => (document.FindLevel(LevelId)?.Elevation ?? 0) + BaseOffset;
+    /// <summary>The floor or flat roof it stands on, its base on that slab's top wherever it is; null to stand at its level and offset.</summary>
+    public Guid? BaseAttachedTo { get; set; }
+
+    public double GetBaseElevation(BimDocument document) =>
+        BaseAttachedTo is { } id && document.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == id) is { } slab
+            ? FloorSurfaces.TopAt(document, slab, new Point2D(Outline.Average(point => point.X), Outline.Average(point => point.Y)))
+            : (document.FindLevel(LevelId)?.Elevation ?? 0) + BaseOffset;
 
     public double GetTopElevation(BimDocument document) =>
         TopLevelId is { } top && document.FindLevel(top) is { } level ? level.Elevation + TopOffset : GetBaseElevation(document) + UnconnectedHeight;

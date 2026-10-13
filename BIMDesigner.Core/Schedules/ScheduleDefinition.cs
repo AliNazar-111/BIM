@@ -73,6 +73,19 @@ public sealed class ScheduleDefinition
     public bool ShowTotals { get; set; } = true;
 
     /// <summary>
+    /// Whether every element is a row of its own, or those alike in every field but the counted
+    /// ones are one row with how many there are - "1 Kitchen, Chair - Dining, 4" - as Revit's
+    /// Itemize Every Instance, turned off, does. Rows that stand for several cannot be typed into.
+    /// </summary>
+    public bool Itemize { get; set; } = true;
+
+    /// <summary>A field every schedule can show: how many elements a row stands for.</summary>
+    public const string CountField = "Count";
+
+    /// <summary>A field every schedule can show: the cost of what a row stands for - the type's cost, times how many.</summary>
+    public const string TotalCostField = "Total Cost";
+
+    /// <summary>
     /// Numeric fields that must not be totalled, because their sum is not a quantity.
     ///
     /// Adding up five wall heights gives 15 m of nothing; adding up door widths gives a
@@ -147,6 +160,23 @@ public sealed class ScheduleDefinition
                 GroupBy = "Material",
                 Filters = { new ScheduleFilter("Excluded", ScheduleOperator.NotEquals, "Yes") }
             }
-            .WithoutTotals("Thickness", "Length", "Height")
+            .WithoutTotals("Thickness", "Length", "Height"),
+
+        // What is in each room, room by room - how many of each, what each costs and what they
+        // come to: the furniture, the kitchen units and appliances, and the sanitary fittings.
+        RoomByRoom("Furniture Schedule", BuiltInCategory.Furniture),
+        RoomByRoom("Casework Schedule", BuiltInCategory.Casework),
+        RoomByRoom("Appliance Schedule", BuiltInCategory.SpecialtyEquipment),
+        RoomByRoom("Plumbing Fixture Schedule", BuiltInCategory.PlumbingFixtures)
     };
+
+    /// <summary>A schedule counting each type in each room: its unit cost, and the cost of all of them.</summary>
+    private static ScheduleDefinition RoomByRoom(string name, BuiltInCategory category) =>
+        new ScheduleDefinition(name, category, "Room", "Type Name", "Width", "Depth", "Height", CountField, "Cost", TotalCostField)
+            {
+                SortBy = "Room",
+                GroupBy = "Room",
+                Itemize = false
+            }
+            .WithoutTotals("Width", "Depth", "Height", "Cost");
 }

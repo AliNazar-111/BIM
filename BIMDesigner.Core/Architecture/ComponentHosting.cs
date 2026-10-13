@@ -87,6 +87,10 @@ public static class ComponentHosting
                 : slab.GetTopElevation(document) + component.Elevation;
         }
 
+        // Standing on a floor built up above its level: from that floor's top, wherever it is.
+        if (component.StandsOn is { } floorId && document.Elements.OfType<Slab>().FirstOrDefault(candidate => candidate.Id == floorId) is { } floor)
+            return FloorSurfaces.TopAt(document, floor, component.Location) + component.Elevation;
+
         var level = document.Levels.FirstOrDefault(l => l.Id == component.LevelId);
         return (level?.Elevation ?? 0) + component.Elevation;
     }
@@ -177,6 +181,7 @@ public static class ComponentHosting
         Rotation = component.Rotation,
         Elevation = component.Elevation,
         HostId = component.HostId,
-        FlipFacing = component.FlipFacing
+        FlipFacing = component.FlipFacing,
+        FlipHand = component.FlipHand
     };
 }

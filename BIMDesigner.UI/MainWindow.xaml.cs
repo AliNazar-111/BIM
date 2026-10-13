@@ -63,6 +63,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         Cube.Model = Model3D;
+
+        // Another tab opens at its first panel, however far the last one was scrolled.
+        Ribbon.SelectionChanged += (_, e) =>
+        {
+            if (ReferenceEquals(e.OriginalSource, Ribbon)) (Ribbon.Template?.FindName("RibbonScroll", Ribbon) as RibbonScroller)?.ScrollToStart();
+        };
         PlanDetailPicker.SelectedIndex = (int)DetailLevel.Fine;
         DarkThemeToggle.IsChecked = !AppTheme.IsLight;
 
@@ -326,6 +332,9 @@ public partial class MainWindow : Window
         Height = Math.Min(Height, work.Height - margin);
         Left = work.Left + (work.Width - Width) / 2;
         Top = work.Top + (work.Height - Height) / 2;
+
+        // On a small screen - a laptop's 1366 x 768 - every pixel is wanted: it opens full screen.
+        if (work.Width < 1600 || work.Height < 900) WindowState = WindowState.Maximized;
     }
 
     // ---- document --------------------------------------------------------------
@@ -384,6 +393,9 @@ public partial class MainWindow : Window
             RefreshSection();
             SheetSurface.Refresh();
             Refresh3D();
+
+            // Something moved, placed or taken away may stand in the space a fitting needs.
+            RefreshClearances();
 
             // What the selection can have done to it may have changed with it: a wall given a
             // point can be straightened.
@@ -2051,6 +2063,25 @@ public partial class MainWindow : Window
         Plan.Focus();
     }
 
+    private void OnNewFamily(object sender, RoutedEventArgs e) => NewFamily(loadModel: false);
+
+    private void OnLoadFamilyModel(object sender, RoutedEventArgs e) => NewFamily(loadModel: true);
+
+    /// <summary>A family of your own made in the family editor, added as one step, and picked to be put down.</summary>
+    private void NewFamily(bool loadModel)
+    {
+        var editor = new FamilyEditorWindow(_document, null, loadModel) { Owner = this };
+        if (editor.ShowDialog() != true) return;
+
+        var type = editor.Family.NewType(_document);
+        _history.Execute(new AddTypeCommand(_document, type));
+        AfterTypesChanged();
+
+        ComponentTool.IsChecked = true;
+        ComponentTypePicker.SelectedItem = ComponentTypePicker.Items.OfType<ComponentFamilyChoice>().FirstOrDefault(choice => choice.Type == type);
+        StatusHint.Text = $"{type.Name} made and picked in the Component tool: click in the plan to put one down. Edit Type → Edit Family... changes it.";
+    }
+
     private void OnActiveComponentTypeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loadingOptions || Plan is null) return;
@@ -2081,6 +2112,66 @@ public partial class MainWindow : Window
         RefreshProjectBrowser();
         RefreshProperties();
         StatusHint.Text = $"Showing {level.Name} at {Units.FormatLength(level.Elevation)}.";
+
+        _blockedClearances.Clear();
+        RefreshClearances(announce: false);
+    }
+
+    // ---- clearances ------------------------------------------------------------
+
+    /// <summary>The blocked clearances last counted, so only one that has just become blocked is called out.</summary>
+    private HashSet<(Guid Fitting, string What)> _blockedClearances = new();
+
+    private void OnToggleClearances(object sender, RoutedEventArgs e) => ShowClearances(ClearancesMenuItem.IsChecked == true);
+
+    private void OnPlanClearancesToggled(object sender, RoutedEventArgs e) => ShowClearances(PlanClearancesToggle.IsChecked == true);
+
+    private void ShowClearances(bool show)
+    {
+        ClearancesMenuItem.IsChecked = PlanClearancesToggle.IsChecked = show;
+        Plan.ShowClearances = show;
+
+        _blockedClearances.Clear();
+        var blocked = RefreshClearances(announce: false);
+        var standard = Clearances.Label(_document.ProjectInformation.ClearanceStandard);
+        StatusHint.Text = !show
+            ? "Clearances hidden."
+            : blocked.Count == 0
+                ? $"Clearances shown as {standard} asks: nothing is in the way."
+                : $"Clearances shown as {standard} asks: {blocked.Count} with something in the way, in red. {blocked[0].Message}";
+    }
+
+    /// <summary>
+    /// Checks the clear space round the fittings on the plan's storey while it is shown: counts
+    /// those blocked on the status bar, and calls out one that has just become blocked.
+    /// </summary>
+    private IReadOnlyList<BlockedClearance> RefreshClearances(bool announce = true)
+    {
+        if (!Plan.ShowClearances)
+        {
+            StatusClearances.Visibility = Visibility.Collapsed;
+            return Array.Empty<BlockedClearance>();
+        }
+
+        var blocked = Clearances.Blocked(_document, Plan.ActiveLevelId, _document.ProjectInformation.ClearanceStandard);
+        StatusClearances.Content = $"⚠ {blocked.Count} {(blocked.Count == 1 ? "clearance" : "clearances")} blocked";
+        StatusClearances.Visibility = blocked.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (announce && blocked.FirstOrDefault(item => !_blockedClearances.Contains((item.Zone.Component.Id, item.Zone.What))) is { } fresh)
+            StatusHint.Text = "⚠ " + fresh.Message;
+
+        _blockedClearances = blocked.Select(item => (item.Zone.Component.Id, item.Zone.What)).ToHashSet();
+        return blocked;
+    }
+
+    private void OnClearanceWarnings(object sender, RoutedEventArgs e)
+    {
+        var blocked = RefreshClearances(announce: false);
+        if (blocked.Count == 0) return;
+
+        MessageBox.Show(this, string.Join("\n\n", blocked.Select(item => item.Message)),
+            $"Clearances - {Clearances.Label(_document.ProjectInformation.ClearanceStandard)}",
+            MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     private void OnActiveLocationLineChanged(object sender, SelectionChangedEventArgs e)
@@ -2116,7 +2207,50 @@ public partial class MainWindow : Window
 
     private void OnAttachBases(object sender, RoutedEventArgs e)
     {
+        if (SetSelectedStoreyOnItsFloor()) return;
+        if (PutSelectedFurnitureOnFloors()) return;
         if (!AttachSelectedColumns(top: false)) AttachSelectedWalls(top: false);
+    }
+
+    /// <summary>
+    /// Where the selected walls are on a storey whose floor is the slab laid on the storey below,
+    /// sets the storey itself on that slab: its level goes to the slab's top, and everything on
+    /// it - walls, the roof over them, furniture - rises with it, keeping its own height. Returns
+    /// whether it did.
+    /// </summary>
+    private bool SetSelectedStoreyOnItsFloor()
+    {
+        var found = SelectedWallsOrHosts().Select(wall => FloorSurfaces.StoreyFloor(_document, wall)).FirstOrDefault(pair => pair is not null);
+        if (found is not var (level, floor)) return false;
+
+        var before = level.Elevation;
+        _history.Execute(FloorSurfaces.SetOn(_document, new[] { level }, floor));
+        AfterHistoryChange();
+        StatusHint.Text = $"{level.Name} now stands on the top of {_document.FindType<ElementType>(floor.TypeId)?.Name ?? "the floor"}: " +
+                          $"up {level.Elevation - before:0} mm to {level.Elevation:0}, with everything on it - each storey keeps its own height, and follows the floor however thick it is made.";
+        return true;
+    }
+
+    /// <summary>
+    /// Puts the selected furniture down on the top of the floor under it, where that floor - or
+    /// the flat roof that is the storey's floor - is built up above its level. Returns whether
+    /// any furniture was selected to act on.
+    /// </summary>
+    private bool PutSelectedFurnitureOnFloors()
+    {
+        var furniture = Plan.SelectedElements.OfType<BIMDesigner.Core.Architecture.Component>().ToList();
+        if (furniture.Count == 0) return false;
+
+        if (FloorSurfaces.PutOnFloors(_document, furniture) is not { } command)
+        {
+            StatusHint.Text = "There is no floor built up above its level under it: it stands on its level already.";
+            return true;
+        }
+
+        _history.Execute(command);
+        AfterHistoryChange();
+        StatusHint.Text = "Put down on the floor under it - it follows the floor however thick it is made.";
+        return true;
     }
 
     /// <summary>
@@ -2140,10 +2274,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var changes = walls
+        // A wall hanging from the wall under its storey's floor is let go, to stand on that floor.
+        var hanging = top ? new List<Wall>() : walls.Where(wall => WallAttachments.BelowItsFloor(_document, wall)).ToList();
+
+        var changes = walls.Except(hanging)
             .Select(wall => (Wall: wall, Top: top, Target: AttachmentTarget(wall, top)))
             .Where(change => change.Target is not null)
             .Select(change => (change.Wall, change.Top, change.Target))
+            .Concat(hanging.Select(wall => (wall, false, (Guid?)null)))
             .ToList();
 
         if (changes.Count == 0)
@@ -2183,6 +2321,13 @@ public partial class MainWindow : Window
         var floor = WallAttachments.FloorBelow(_document, wall);
         var below = WallAttachments.WallBelow(_document, wall);
         if (below is not null && below.TopAttachedTo == wall.Id) below = null;
+
+        // On a storey standing on its floor, nothing under that floor is stood on.
+        if (_document.FindLevel(wall.LevelId) is { StandsOn: not null } storey)
+        {
+            if (below is not null && below.GetTopElevation(_document) < storey.Elevation - 1) below = null;
+            if (floor is not null && floor.GetTopElevation(_document) < storey.Elevation - 1) floor = null;
+        }
 
         if (below is null) return floor?.Id;
         if (floor is null) return below.Id;
@@ -2574,6 +2719,16 @@ public partial class MainWindow : Window
         var allWalls = selected.All(element => element is Wall);
         var wallsOnly = allWalls ? Visibility.Visible : Visibility.Collapsed;
         ContextSplit.Visibility = ContextSplitGap.Visibility = ContextTrim.Visibility = ContextOffset.Visibility = wallsOnly;
+
+        // Framing for walls and their frames; parts for walls and the parts made of them.
+        var framingOrWalls = selected.All(element => element is Wall or WallFraming);
+        ContextFramingPanel.Visibility = framingOrWalls ? Visibility.Visible : Visibility.Collapsed;
+        ContextFrameWalls.Content = selected.OfType<Wall>().Any() && selected.OfType<Wall>().All(wall => WallFramings.Of(_document, wall) is not null)
+            ? "Edit Frame" : "Frame Walls";
+        ContextFrameWalls.Visibility = selected.OfType<Wall>().Any() ? Visibility.Visible : Visibility.Collapsed;
+        ContextRemoveFraming.IsEnabled = selected.OfType<WallFraming>().Any() || selected.OfType<Wall>().Any(wall => WallFramings.Of(_document, wall) is not null);
+        ContextPartsPanel.Visibility = selected.All(element => element is Wall or Part) ? Visibility.Visible : Visibility.Collapsed;
+        ContextCreateParts.Visibility = selected.OfType<Wall>().Any() ? Visibility.Visible : Visibility.Collapsed;
         ContextScale.IsEnabled = selected.Any(ElementTransforms.CanScale);
         ContextPin.Visibility = selected.Any(element => !element.Pinned) ? Visibility.Visible : Visibility.Collapsed;
         ContextUnpin.Visibility = selected.Any(element => element.Pinned) ? Visibility.Visible : Visibility.Collapsed;
@@ -2847,6 +3002,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        // A component, door, window, chimney, gutter and the like: Type Properties, with Duplicate.
+        if (TypeDuplicates.CanDuplicate(type))
+        {
+            ShowTypeProperties(type);
+            return;
+        }
+
         // Other types have no dialog of their own: their type parameters are edited in place.
         TypeParameterList.BringIntoView();
         StatusHint.Text = $"{type.Name}: edit its type parameters in the Properties panel. A change there applies to every one of this type.";
@@ -2863,6 +3025,19 @@ public partial class MainWindow : Window
         }
 
         ShowWallTypes(type, atBands: true);
+    }
+
+    /// <summary>
+    /// Type Properties for the selection's type: the type's parameters, and Duplicate to make one
+    /// of the selection's own - given to it, and to nothing else.
+    /// </summary>
+    private void ShowTypeProperties(ElementType type)
+    {
+        var dialog = new TypePropertiesWindow(_document, _history, type, Plan.SelectedElements.ToList()) { Owner = this };
+        dialog.Changed += (_, _) => AfterTypesChanged();
+        dialog.ShowDialog();
+        AfterTypesChanged();
+        RefreshProperties();
     }
 
     private void ShowWallTypes(ElementType? start, bool atBands = false)
@@ -2886,6 +3061,20 @@ public partial class MainWindow : Window
         WallTypePicker.ItemsSource = wallTypes;
         WallTypePicker.SelectedItem = wallTypes.FirstOrDefault(t => t.Id == Plan.ActiveWallTypeId) ?? wallTypes.FirstOrDefault();
         Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as ElementType)?.Id ?? Guid.Empty;
+
+        // The other tools' type lists take in a type duplicated or renamed, keeping what each has picked.
+        static void Keep<T>(ComboBox picker, IReadOnlyList<T> items, Func<T, Guid> id)
+        {
+            var picked = picker.SelectedItem is T current ? id(current) : Guid.Empty;
+            picker.ItemsSource = items;
+            picker.SelectedItem = items.FirstOrDefault(item => id(item) == picked) ?? items.FirstOrDefault();
+        }
+
+        Keep(DoorTypePicker, _document.TypesOf<DoorType>().OrderBy(t => t.Name).ToList(), t => t.Id);
+        Keep(WindowTypePicker, _document.TypesOf<WindowType>().OrderBy(t => t.Name).ToList(), t => t.Id);
+        Keep(RoofWindowTypePicker, _document.TypesOf<RoofWindowType>().OrderBy(t => t.Name).ToList(), t => t.Id);
+        Keep(ComponentTypePicker, _document.TypesOf<ComponentType>().OrderBy(t => t.Kind.ToString()).ThenBy(t => t.Name)
+            .Select(t => new ComponentFamilyChoice(t)).ToList(), choice => choice.Type.Id);
 
         _loadingOptions = false;
 
@@ -3042,6 +3231,8 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition DetailLevelParameter = new("Detail Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition JoinDisplayParameter = new("Wall Join Display", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition UnderlayParameter = new("Show Storey Below", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition ClearancesParameter = new("Show Clearances", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition ClearanceStandardParameter = new("Clearance Standard", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition VisualStyleParameter = new("Visual Style", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition EdgesParameter = new("Show Edges", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition LevelParameter = new("Associated Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
@@ -3072,6 +3263,16 @@ public partial class MainWindow : Window
                 UnderlayMenuItem.IsChecked = PlanUnderlayToggle.IsChecked = show;
                 Plan.ShowUnderlay = show;
             }),
+            ParameterValue.Bind(ClearancesParameter, () => Plan.ShowClearances, ShowClearances),
+            ParameterValue.BindChoice(ClearanceStandardParameter,
+                () => Clearances.Label(_document.ProjectInformation.ClearanceStandard),
+                text =>
+                {
+                    _document.ProjectInformation.ClearanceStandard = Enum.GetValues<ClearanceStandard>().FirstOrDefault(standard => Clearances.Label(standard) == text);
+                    Plan.InvalidateVisual();
+                    if (Plan.ShowClearances) ShowClearances(true);
+                },
+                Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
             ParameterValue.ReadOnly(LevelParameter, () => levelName),
             ParameterValue.ReadOnly(ViewNameParameter, () => $"Floor Plan: {levelName}")
         };
@@ -4891,10 +5092,24 @@ public partial class MainWindow : Window
             });
         }
 
+        // Each group headed with what its rows add up to: "1 Kitchen  —  Count: 6     Total Cost: £1,020".
+        var headings = result.Groups.ToDictionary(group => group.Heading, group =>
+        {
+            var subtotals = result.Columns
+                .Where(column => column.IsTotalled && group.Subtotals.ContainsKey(column.Field))
+                .Select(column => $"{column.Field}: {ScheduleCsv.ParameterTotalText(column, group.Subtotals[column.Field])}")
+                .ToList();
+            var label = string.IsNullOrWhiteSpace(group.Heading) ? "(none)" : group.Heading;
+            return subtotals.Count == 0
+                ? $"{label}  —  {group.Rows.Count} {(group.Rows.Count == 1 ? "row" : "rows")}"
+                : $"{label}  —  {string.Join("     ", subtotals)}";
+        });
+        string Heading(string key) => headings.TryGetValue(string.IsNullOrWhiteSpace(key) ? "(none)" : key, out var heading) ? heading : key;
+
         var rows = result.Rows
             .Select(row =>
             {
-                var view = new ScheduleRowView(row, definition.GroupBy);
+                var view = new ScheduleRowView(row, definition.GroupBy, Heading);
                 view.CellEdited += OnScheduleCellCommitted;
                 return view;
             })

@@ -505,6 +505,18 @@ internal sealed class ComponentTypeDto
     public double Height { get; set; }
     public double DefaultElevation { get; set; }
 
+    /// <summary>Whether one put down near a wall backs onto it; none in a file from before, to go by its form.</summary>
+    public bool? AgainstWall { get; set; }
+
+    /// <summary>A shower's glass: none, alcove, corner or walk-in.</summary>
+    public string? Enclosure { get; set; }
+
+    /// <summary>A family of your own's solids, in its box.</summary>
+    public List<ComponentSolidDto>? Solids { get; set; }
+
+    /// <summary>A family of your own's 3D model, in its box.</summary>
+    public ComponentMeshDto? Mesh { get; set; }
+
     public Guid MaterialId { get; set; }
     public string Colour { get; set; } = string.Empty;
 
@@ -536,6 +548,12 @@ internal sealed class ComponentDto
     public Guid HostWallId { get; set; }
 
     public bool FlipFacing { get; set; }
+
+    /// <summary>Whether it is the mirror image of its family.</summary>
+    public bool FlipHand { get; set; }
+
+    /// <summary>The floor or flat roof it stands on, its elevation from that slab's top.</summary>
+    public Guid? StandsOn { get; set; }
 
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
@@ -575,6 +593,28 @@ internal sealed class RoomDto
     public string PhaseCreated { get; set; } = "New";
 }
 
+internal sealed class ComponentSolidDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Shape { get; set; } = "Box";
+    public string Finish { get; set; } = "Body";
+    public double From { get; set; }
+    public double To { get; set; }
+    public double Back { get; set; }
+    public double Front { get; set; }
+    public double Bottom { get; set; }
+    public double Top { get; set; }
+}
+
+/// <summary>A family's 3D model, packed: its corners as 32-bit floats and its triangles and edges as 32-bit indices, each in base 64.</summary>
+internal sealed class ComponentMeshDto
+{
+    public string Source { get; set; } = string.Empty;
+    public string Positions { get; set; } = string.Empty;
+    public string Triangles { get; set; } = string.Empty;
+    public string Edges { get; set; } = string.Empty;
+}
+
 internal sealed class ProjectInformationDto
 {
     public string Name { get; set; } = "Untitled Project";
@@ -582,6 +622,9 @@ internal sealed class ProjectInformationDto
     public string Client { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string BuildingType { get; set; } = string.Empty;
+
+    /// <summary>Whose rules clearances are checked against; none in a file from before, for Approved Document M.</summary>
+    public string? ClearanceStandard { get; set; }
 }
 
 internal sealed class LevelDto
@@ -589,6 +632,9 @@ internal sealed class LevelDto
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public double Elevation { get; set; }
+
+    /// <summary>The floor whose top the level is at, where its storey is built on the one below.</summary>
+    public Guid? StandsOn { get; set; }
 }
 
 internal sealed class MaterialDto
@@ -1079,6 +1125,7 @@ internal sealed class PolygonWallDto
     public Guid? TopLevelId { get; set; }
     public double TopOffset { get; set; }
     public double UnconnectedHeight { get; set; } = 3000;
+    public Guid? BaseAttachedTo { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }
@@ -1130,8 +1177,16 @@ internal sealed class ChimneyDto
     public string? Rule { get; set; }
     public double ExtraHeight { get; set; }
     public string? Fireplace { get; set; }
+    public List<ChimneyFireplaceDto> FireplacesAbove { get; set; } = new();
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+}
+
+/// <summary>A chimney's fireplace on a floor above its foot.</summary>
+internal sealed class ChimneyFireplaceDto
+{
+    public Guid LevelId { get; set; }
+    public string? Fireplace { get; set; }
 }
 
 internal sealed class ChimneyTypeDto

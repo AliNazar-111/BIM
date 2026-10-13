@@ -50,11 +50,25 @@ public static class WallAttachments
             .Select(roof => (Slab: (Slab)roof, Top: roof.TopAt(document, middle)))
             .Where(roof => roof.Top < top - 1 && roof.Top > wall.GetBaseElevation(document) - 1);
 
-        return floors.Concat(roofs)
+        // A flat roof it would otherwise stand buried in: the floor of the storey it is on.
+        var stoodOn = FloorSurfaces.Burying(document, FloorSurfaces.OwnFoot(document, wall), middle) is { } flat && flat is Roof
+            ? new[] { (Slab: flat, Top: FloorSurfaces.TopAt(document, flat, middle)) }
+            : Array.Empty<(Slab Slab, double Top)>();
+
+        return floors.Concat(roofs).Concat(stoodOn)
             .OrderByDescending(candidate => candidate.Top)
             .Select(candidate => candidate.Slab)
             .FirstOrDefault();
     }
+
+    /// <summary>
+    /// Whether a wall hangs below its storey's floor: its base on the wall under it, which stops
+    /// under the floor its storey stands on - so it starts inside that slab, not on it.
+    /// </summary>
+    public static bool BelowItsFloor(BimDocument document, Wall wall) =>
+        document.FindLevel(wall.LevelId) is { StandsOn: not null } level &&
+        wall.BaseAttachedTo is { } id && document.FindElement(id) is Wall below &&
+        below.GetTopElevation(document) < level.Elevation - 1;
 
     /// <summary>
     /// The wall directly over this one that its top can reach up to: the lowest whose base is
@@ -137,6 +151,10 @@ public static class ColumnAttachments
     public static Slab? FloorBelow(BimDocument document, Column column)
     {
         var top = column.GetTopElevation(document);
+
+        // A flat roof it would otherwise stand buried in: the floor of the storey it is on.
+        var foot = (document.FindLevel(column.LevelId)?.Elevation ?? 0) + column.BaseOffset;
+        if (FloorSurfaces.Burying(document, foot, column.Location) is Roof flat) return flat;
 
         return document.Elements.OfType<Floor>()
             .Where(floor => floor.GetTopElevation(document) < top - 1 && floor.Contains(column.Location))

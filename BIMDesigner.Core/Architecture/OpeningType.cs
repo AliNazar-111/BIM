@@ -99,6 +99,17 @@ public abstract class OpeningType : ElementType
     /// <summary>Area of the opening, in mm² - the quantity a schedule reports.</summary>
     public double Area => Width * Height;
 
+    /// <summary>Gives a copy of this type what every door and window has: its frame's depth and material, and its ratings.</summary>
+    protected T WithOpeningOf<T>(T copy) where T : OpeningType
+    {
+        copy.Thickness = Thickness;
+        copy.FrameMaterial = FrameMaterial;
+        copy.FireRating = FireRating;
+        copy.AcousticRating = AcousticRating;
+        copy.HeatTransferCoefficient = HeatTransferCoefficient;
+        return copy;
+    }
+
     protected IEnumerable<ParameterValue> GetOpeningTypeParameters()
     {
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
@@ -119,6 +130,14 @@ public abstract class OpeningType : ElementType
 public sealed class DoorType : OpeningType
 {
     public DoorType(string name, double width, double height) : base(name, width, height) { }
+
+    /// <summary>A new door type starting as this one is: its size, swing, leaves, glazing and trim.</summary>
+    public DoorType Duplicate(string name) => WithCommonOf(WithOpeningOf(new DoorType(name, Width, Height)
+    {
+        Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign,
+        GlazingRows = GlazingRows, GlazingColumns = GlazingColumns, Function = Function, CurtainPanel = CurtainPanel,
+        TrimWidth = TrimWidth, TrimProjectionExterior = TrimProjectionExterior, TrimProjectionInterior = TrimProjectionInterior
+    }));
 
     public override BuiltInCategory Category => BuiltInCategory.Doors;
 
@@ -195,6 +214,13 @@ public sealed class DoorType : OpeningType
 public sealed class WindowType : OpeningType
 {
     public WindowType(string name, double width, double height) : base(name, width, height) { }
+
+    /// <summary>A new window type starting as this one is: its size, opening, glazing and ratings.</summary>
+    public WindowType Duplicate(string name) => WithCommonOf(WithOpeningOf(new WindowType(name, Width, Height)
+    {
+        Operation = Operation, GlazingType = GlazingType, GlazingRows = GlazingRows, GlazingColumns = GlazingColumns,
+        SolarHeatGainCoefficient = SolarHeatGainCoefficient
+    }));
 
     public override BuiltInCategory Category => BuiltInCategory.Windows;
 

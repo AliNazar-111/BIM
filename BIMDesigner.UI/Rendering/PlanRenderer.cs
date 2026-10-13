@@ -1205,9 +1205,10 @@ public sealed class PlanRenderer
     }
 
     /// <summary>
-    /// A chimney in plan: its stack, and each flue in it - on its own storey and on every one it
-    /// rises through. On its own storey, a breast shows its fireplace opening and the hearth
-    /// before it; a guyed stack, the anchors of its wires.
+    /// A chimney in plan: its stack, and each flue in it where the plan cuts it - on its own
+    /// storey and on every one it rises through. On a floor with a fireplace, a breast shows the
+    /// opening and the hearth before it, the flues from the fireplaces below rising beside it; a
+    /// guyed stack, the anchors of its wires.
     /// </summary>
     private void DrawChimney(DrawingContext dc, Chimney chimney)
     {
@@ -1215,7 +1216,7 @@ public sealed class PlanRenderer
 
         var pen = IsSelected(chimney) ? _selectedPen : _wallOutlinePen;
         var type = Chimneys.TypeOf(Document, chimney);
-        var breast = chimney.LevelId == ActiveLevelId ? Chimneys.Breast(Document, chimney) : null;
+        var breast = Chimneys.BreastOn(Document, chimney, ActiveLevelId);
 
         if (breast is not null)
         {
@@ -1235,20 +1236,21 @@ public sealed class PlanRenderer
             return;
         }
 
-        // Above a fireplace the flues have not begun: the breast is solid there in plan.
-        if (breast is null)
+        // The flues where the plan cuts the stack - a masonry or block one's as far as they have
+        // risen and leaned by then; none yet in the solid over a fireplace's opening.
+        var round = type.IsRound || type.Construction != ChimneyConstruction.Masonry;
+        var size = round
+            ? Math.Max(20, type.FlueDiameter / 2)
+            : Chimneys.LinerWidth(Document, chimney) / 2;
+        var flues = Chimneys.BuildsBreasts(Document, chimney)
+            ? Chimneys.FluesAt(Document, chimney, (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight)
+            : Chimneys.Flues(Document, chimney);
+        foreach (var flue in flues)
         {
-            var round = type.IsRound || type.Construction != ChimneyConstruction.Masonry;
-            var size = round
-                ? Math.Max(20, type.FlueDiameter / 2)
-                : Chimneys.LinerWidth(chimney) / 2;
-            foreach (var flue in Chimneys.Flues(Document, chimney))
-            {
-                var centre = ModelToScreen(flue);
-                var r = size * PixelsPerMm;
-                if (round) dc.DrawEllipse(_labelBackdrop, pen, centre, r, r);
-                else dc.DrawGeometry(_labelBackdrop, pen, BuildOutline(Chimneys.Rectangle(chimney, 2 * size, 2 * size, flue)));
-            }
+            var centre = ModelToScreen(flue);
+            var r = size * PixelsPerMm;
+            if (round) dc.DrawEllipse(_labelBackdrop, pen, centre, r, r);
+            else dc.DrawGeometry(_labelBackdrop, pen, BuildOutline(Chimneys.Rectangle(chimney, 2 * size, 2 * size, flue)));
         }
 
         if (type.Construction == ChimneyConstruction.GuyedStack && chimney.LevelId == ActiveLevelId)
@@ -1512,6 +1514,18 @@ public sealed class PlanRenderer
         // The footprint is filled; what is inside it is drawn in line only, over the top.
         dc.DrawGeometry(_componentBrush, pen, BuildOutline(outlines[0]));
         foreach (var outline in outlines.Skip(1)) dc.DrawGeometry(null, pen, BuildOutline(outline));
+
+        // An appliance lettered as drawings letter them - FF, DW, WM - where there is room for it.
+        if (ComponentModel.PlanLabel(type) is not { } label) return;
+
+        var corners = outlines[0].Select(ModelToScreen).ToList();
+        var shortest = Math.Min((corners[1] - corners[0]).Length, (corners[2] - corners[1]).Length);
+        var size = Math.Min(Page(10), shortest * 0.32);
+        if (size < 5) return;
+
+        var text = Text(label, size, pen.Brush, bold: true);
+        var centre = ModelToScreen(frame.Centre);
+        dc.DrawText(text, new Point(centre.X - text.Width / 2, centre.Y - text.Height / 2));
     }
 
     /// <summary>

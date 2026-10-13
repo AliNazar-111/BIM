@@ -41,6 +41,28 @@ public abstract class ElementType
     public decimal Cost { get; set; }
 
     /// <summary>
+    /// Gives a copy of this type the identity every type carries - its mark, classification,
+    /// keynote, maker, link, description and cost - so a duplicate starts as this one is.
+    /// </summary>
+    protected T WithCommonOf<T>(T copy) where T : ElementType
+    {
+        copy.TakeIdentityFrom(this);
+        return copy;
+    }
+
+    /// <summary>Takes another type's mark, classification, keynote, maker, link, description and cost.</summary>
+    public void TakeIdentityFrom(ElementType other)
+    {
+        TypeMark = other.TypeMark;
+        AssemblyCode = other.AssemblyCode;
+        Keynote = other.Keynote;
+        Manufacturer = other.Manufacturer;
+        Url = other.Url;
+        Description = other.Description;
+        Cost = other.Cost;
+    }
+
+    /// <summary>
     /// The parameters shared by every element of this type. The document is passed so a type
     /// can offer the project.s materials by name; a type that needs none ignores it.
     /// </summary>

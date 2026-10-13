@@ -26,17 +26,28 @@ public partial class MainWindow
             return;
         }
 
+        // Walls framed already have their frames picked out instead, to change.
+        var existing = walls.Select(wall => WallFramings.Of(_document, wall)).OfType<WallFraming>().ToList();
         var frames = walls.Where(wall => WallFramings.WhyNot(_document, wall) is null).Select(wall => (Element)WallFramings.New(_document, wall)).ToList();
-        if (frames.Count == 0)
+        if (frames.Count == 0 && existing.Count == 0)
         {
             StatusHint.Text = WallFramings.WhyNot(_document, walls[0]) ?? "Those walls cannot be framed.";
             return;
         }
 
-        _history.Execute(new AddElementsCommand(_document, frames, "Frame Walls"));
-        AfterHistoryChange();
-        var studs = frames.OfType<WallFraming>().Sum(frame => WallFramings.Layout(_document, frame).Count(member => member.IsUpright));
-        StatusHint.Text = $"{frames.Count} {(frames.Count == 1 ? "wall" : "walls")} framed: {studs} studs. Untick Walls in the 3D view to see the frame; Cut List lists what to cut.";
+        if (frames.Count > 0)
+        {
+            _history.Execute(new AddElementsCommand(_document, frames, "Frame Walls"));
+            AfterHistoryChange();
+        }
+
+        // The frames selected, so what they are made of - Spacing, Section, plates, noggings -
+        // is there in Properties to change.
+        Plan.SelectMany(frames.Concat(existing).ToList());
+        var studs = frames.Concat(existing).OfType<WallFraming>().Sum(frame => WallFramings.Layout(_document, frame).Count(member => member.IsUpright));
+        StatusHint.Text = frames.Count > 0
+            ? $"{frames.Count} {(frames.Count == 1 ? "wall" : "walls")} framed: {studs} studs, selected - change Spacing, Section and the rest in Properties. In 3D, untick Walls to see the frame; Cut List lists what to cut."
+            : "Framed already: the frame is selected - change its Spacing, Section and the rest in Properties.";
     }
 
     private void OnRemoveFraming(object sender, RoutedEventArgs e)

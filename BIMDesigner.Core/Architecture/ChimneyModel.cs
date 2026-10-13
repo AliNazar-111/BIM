@@ -31,10 +31,6 @@ public static partial class Chimneys
     /// <summary>How far above its foot a stack without a fireplace is solid, before its flues open: nothing open underneath.</summary>
     public const double SolidFoot = 600;
 
-    /// <summary>The flue liners' outside in a masonry stack, kept inside the brickwork: a half brick at least each side.</summary>
-    public static double LinerWidth(Chimney chimney) =>
-        Math.Max(100, Math.Min(LinerSize, Math.Min(chimney.Width / Math.Max(1, chimney.Flues), chimney.Depth) - 2 * 100));
-
     /// <summary>Where a guyed stack's three wires are anchored in the ground, in plan: well out from it, a third of the way round from each other.</summary>
     public static IReadOnlyList<Point2D> Anchors(BimDocument document, Chimney chimney)
     {
@@ -51,6 +47,7 @@ public static partial class Chimneys
     /// <summary>A chimney as the 3D view draws it, built as its type is built.</summary>
     public static IReadOnlyList<Mesh3D> Meshes(BimDocument document, Chimney chimney)
     {
+        using var heights = new Heights();
         var (foot, top) = (Foot(document, chimney), Top(document, chimney));
         if (top - foot < 300) return Array.Empty<Mesh3D>();
 
@@ -73,10 +70,11 @@ public static partial class Chimneys
         new(chimney.Id, chimney.LevelId, kind, colour, name);
 
     /// <summary>
-    /// A masonry stack - or a block system chimney - as it is built: a breast in the room with the
-    /// fireplace opening in its front, the flues starting above it; the brickwork open down each
-    /// lined flue; an oversailing course; the cap with the flues through it; the flaunching and
-    /// hollow pots - or a block chimney's steel terminals; and lead flashing at the roof.
+    /// A masonry stack - or a block system chimney - as it is built: a breast in the room on each
+    /// floor with a fireplace, the opening in its front; a flue for each fireplace, gathered over
+    /// it and leaning across to its place, rising past the fireplaces above beside their openings;
+    /// an oversailing course; the cap with the flues through it; the flaunching and hollow pots -
+    /// or a block chimney's steel terminals; and lead flashing at the roof.
     /// </summary>
     private static List<Mesh3D> Stack(BimDocument document, Chimney chimney, ChimneyType type, double foot, double top)
     {
@@ -86,55 +84,77 @@ public static partial class Chimneys
         var stack = New(chimney, MeshKind.Wall, brick?.SurfaceColour ?? (masonry ? Brick : Pumice), brick?.Name ?? (masonry ? "Brick" : "Pumice Block"));
         var meshes = new List<Mesh3D> { stack };
 
-        var breast = Breast(document, chimney);
-        var flues = Flues(document, chimney);
-        var liner = masonry ? LinerWidth(chimney) : Math.Min(type.FlueDiameter + 40, Math.Min(chimney.Width / Math.Max(1, chimney.Flues), chimney.Depth) - 120);
-        var holes = flues.Select(flue => masonry ? Rectangle(chimney, liner, liner, flue) : Circle(flue, liner / 2)).ToList();
+        var liner = LinerWidth(document, chimney);
+        IReadOnlyList<Point2D> Section(Point2D at, double size) => masonry ? Rectangle(chimney, size, size, at) : Circle(at, size / 2);
 
-        // Solid up to where the flues open: over the fireplace, or above a solid foot.
-        var opens = breast?.Top ?? Math.Min(foot + SolidFoot, top - 300);
-        if (breast is not null)
-        {
-            foreach (var part in PolygonBoolean.Combine(breast.Outline, breast.Opening, BooleanOperation.Difference))
-                stack.AddExtrusion(part.Outer, foot, foot + breast.OpeningHeight);
-            stack.AddExtrusion(breast.Outline, foot + breast.OpeningHeight, breast.Top);
-            meshes.AddRange(Fireplace(document, chimney, breast, foot));
-        }
-        else
-        {
-            stack.AddExtrusion(Outline(document, chimney), foot, opens);
-        }
+        var breasts = Hearths(document, chimney)
+            .Select(hearth => (Hearth: hearth, Breast: BreastFor(document, chimney, hearth)))
+            .Where(pair => pair.Breast is not null)
+            .Select(pair => (pair.Hearth, Breast: pair.Breast!))
+            .ToList();
+        var runs = FlueRuns(document, chimney);
 
-        // Up to the cap, open down the flues: brick with an oversailing course near the top.
+        // Built in bands, cut wherever something changes: a breast starts, its opening stops, a
+        // flue starts or takes a step across, the oversailing course comes.
         var course = top - CourseBelowCap;
-        if (masonry && course - CourseDepth > opens)
+        var oversails = masonry && course - CourseDepth > foot + SolidFoot;
+        var cuts = new SortedSet<double> { foot, top };
+        foreach (var (hearth, breast) in breasts)
+            foreach (var z in new[] { hearth.Floor, hearth.Floor + breast.OpeningHeight, breast.Top }) cuts.Add(z);
+        foreach (var run in runs)
+            foreach (var (z, _) in run.Path) cuts.Add(z);
+        if (oversails)
         {
-            stack.AddExtrusion(Outline(document, chimney), holes, opens, course - CourseDepth);
-            stack.AddExtrusion(Rectangle(chimney, chimney.Width + 2 * Oversail, chimney.Depth + 2 * Oversail), holes, course - CourseDepth, course);
-            stack.AddExtrusion(Outline(document, chimney), holes, course, top);
-        }
-        else
-        {
-            stack.AddExtrusion(Outline(document, chimney), holes, opens, top);
+            cuts.Add(course - CourseDepth);
+            cuts.Add(course);
         }
 
-        // The liners, blackened by the smoke, down each flue to where it goes dark.
+        var heights = cuts.Where(z => z >= foot - 1e-6 && z <= top + 1e-6).ToList();
+        for (var i = 0; i + 1 < heights.Count; i++)
+        {
+            var (from, to) = (heights[i], heights[i + 1]);
+            if (to - from < 0.5) continue;
+
+            var middle = (from + to) / 2;
+            var (hearthHere, breastHere) = breasts.FirstOrDefault(pair => middle > pair.Hearth.Floor && middle < pair.Breast.Top);
+            var outline = breastHere?.Outline
+                          ?? (oversails && middle > course - CourseDepth && middle < course
+                              ? Rectangle(chimney, chimney.Width + 2 * Oversail, chimney.Depth + 2 * Oversail)
+                              : Outline(document, chimney));
+
+            // The fireplace's opening in the front of its breast, open to the room.
+            var parts = breastHere is not null && middle < hearthHere!.Floor + breastHere.OpeningHeight
+                ? PolygonBoolean.Combine(outline, breastHere.Opening, BooleanOperation.Difference).Select(part => part.Outer).ToList()
+                : new List<IReadOnlyList<Point2D>> { outline };
+
+            var holes = runs.Select(run => run.At(middle)).Where(at => at.HasValue).Select(at => Section(at!.Value, liner)).ToList();
+            foreach (var part in parts)
+            {
+                var inside = holes.Where(hole => Polygon2D.Contains(part, new Point2D(hole.Average(p => p.X), hole.Average(p => p.Y)))).ToList();
+                stack.AddExtrusion(part, inside, from, to);
+            }
+        }
+
+        if (breasts.Count > 0) meshes.AddRange(Fireplaces(document, chimney, breasts, runs, liner, Section));
+
+        // The liners, blackened by the smoke, down each flue from the top to where it goes dark.
         var liners = New(chimney, MeshKind.Wall, Sooted, "Flue Liner");
         var soot = New(chimney, MeshKind.Wall, Soot, "Flue");
-        var linerFoot = Math.Max(opens, top - LinerDepth);
-        foreach (var flue in flues)
+        foreach (var run in runs)
         {
-            var outside = masonry ? Rectangle(chimney, liner, liner, flue) : Circle(flue, liner / 2);
-            var inside = masonry ? Rectangle(chimney, liner - 2 * LinerWall, liner - 2 * LinerWall, flue) : Circle(flue, liner / 2 - LinerWall);
-            liners.AddExtrusion(outside, new[] { inside }, linerFoot, top + CapThickness);
-            soot.AddExtrusion(inside, linerFoot, linerFoot + 5);
+            var place = run.Path[^1].At;
+            var linerFoot = Math.Max(run.Upright, top - LinerDepth);
+            liners.AddExtrusion(Section(place, liner), new[] { Section(place, liner - 2 * LinerWall) }, linerFoot, top + CapThickness);
+            soot.AddExtrusion(Section(place, liner - 2 * LinerWall), linerFoot, linerFoot + 5);
         }
 
         meshes.AddRange(new[] { liners, soot });
 
         // The cap, the flues through it.
+        var flues = Flues(document, chimney);
+        var holesAtTop = flues.Select(flue => Section(flue, liner)).ToList();
         var cap = New(chimney, MeshKind.Wall, concrete?.SurfaceColour ?? Cap, concrete?.Name ?? "Chimney Cap");
-        cap.AddExtrusion(Rectangle(chimney, chimney.Width + 2 * CapOversail, chimney.Depth + 2 * CapOversail), holes, top, top + CapThickness);
+        cap.AddExtrusion(Rectangle(chimney, chimney.Width + 2 * CapOversail, chimney.Depth + 2 * CapOversail), holesAtTop, top, top + CapThickness);
         meshes.Add(cap);
 
         var capTop = top + CapThickness;
@@ -144,7 +164,6 @@ public static partial class Chimneys
         meshes.AddRange(Flashing(document, chimney, margin => Grown(document, chimney, margin)));
         return meshes;
     }
-
     /// <summary>Hollow clay pots in their flaunching, blackened inside a hand's breadth down from the rim.</summary>
     private static IEnumerable<Mesh3D> Pots(Chimney chimney, IReadOnlyList<Point2D> flues, double liner, double capTop)
     {
@@ -208,59 +227,65 @@ public static partial class Chimneys
     }
 
     /// <summary>
-    /// The fireplace in a breast's front: the opening blackened inside, a hearth before it, a
-    /// timber mantel beam over it, and an open fire on its grate - or a stove standing in it.
+    /// The fireplace in the front of each breast: the opening blackened inside, a hearth before
+    /// it, a timber mantel beam over it, a steel damper across its throat, and an open fire on
+    /// its grate - or a stove standing in it.
     /// </summary>
-    private static IEnumerable<Mesh3D> Fireplace(BimDocument document, Chimney chimney, ChimneyBreast breast, double foot)
+    private static IEnumerable<Mesh3D> Fireplaces(BimDocument document, Chimney chimney, IReadOnlyList<(ChimneyHearth Hearth, ChimneyBreast Breast)> breasts,
+        IReadOnlyList<FlueRun> runs, double liner, Func<Point2D, double, IReadOnlyList<Point2D>> section)
     {
         var front = Front(chimney);
         var along = new Vector2D(chimney.Along.X, chimney.Along.Y);
-        var width = breast.Opening[0].DistanceTo(breast.Opening[1]);
-        var depth = breast.Opening[1].DistanceTo(breast.Opening[2]) - 2;
-        var face = new Point2D(breast.Opening.Average(p => p.X), breast.Opening.Average(p => p.Y)) + front * (depth / 2 - 1);
-        var height = breast.OpeningHeight;
-
-        // Blackened inside: its back, its sides and its throat.
         var soot = New(chimney, MeshKind.Wall, Soot, "Firebox");
-        soot.AddExtrusion(Rectangle(chimney, width, 8, face - front * (depth - 4)), foot, foot + height);
-        foreach (var side in new[] { -1, 1 })
-            soot.AddExtrusion(Rectangle(chimney, 8, depth - 8, face - front * (depth / 2 + 4) + along * (side * (width / 2 - 4))), foot, foot + height);
-        soot.AddExtrusion(Rectangle(chimney, width, depth, face - front * (depth / 2)), foot + height - 4, foot + height);
-
-        var hearth = New(chimney, MeshKind.Floor, Slate, "Hearth");
-        hearth.AddExtrusion(breast.Hearth, foot, foot + 50);
-
+        var hearths = New(chimney, MeshKind.Floor, Slate, "Hearth");
         var mantel = New(chimney, MeshKind.Wall, Timber, "Mantel Beam");
-        mantel.AddExtrusion(Rectangle(chimney, width + 400, 160, face + front * 70), foot + height + 30, foot + height + 210);
+        var damper = New(chimney, MeshKind.Wall, Iron, "Damper");
+        var grate = New(chimney, MeshKind.Wall, Iron, "Fire Grate");
+        var fire = New(chimney, MeshKind.Wall, Fire, "Fire");
+        var stove = New(chimney, MeshKind.Wall, Iron, "Stove");
 
-        var meshes = new List<Mesh3D> { soot, hearth, mantel };
-        var middle = face - front * (depth / 2);
-
-        if (chimney.Fireplace == ChimneyFireplace.Stove)
+        foreach (var (hearth, breast) in breasts)
         {
-            // A stove on the hearth, its glass glowing, its pipe up into the throat.
-            var stove = New(chimney, MeshKind.Wall, Iron, "Stove");
-            stove.AddExtrusion(Rectangle(chimney, 520, 400, middle + front * 30), foot + 50, foot + 650);
-            stove.AddExtrusion(Circle(middle + front * 30, 65, 16), foot + 650, foot + height);
-            var glass = New(chimney, MeshKind.Wall, Fire, "Fire");
-            glass.AddExtrusion(Rectangle(chimney, 330, 6, middle + front * 233), foot + 260, foot + 530);
-            meshes.AddRange(new[] { stove, glass });
-        }
-        else
-        {
-            // An open fire: logs on a grate, glowing.
-            var grate = New(chimney, MeshKind.Wall, Iron, "Fire Grate");
-            grate.AddExtrusion(Rectangle(chimney, 440, 240, middle), foot + 50, foot + 90);
-            var fire = New(chimney, MeshKind.Wall, Fire, "Fire");
-            fire.AddExtrusion(Rectangle(chimney, 380, 190, middle), foot + 90, foot + 120);
-            foreach (var shift in new[] { -60.0, 60.0 })
-                Tube(fire, middle + front * shift - along * 180, middle + front * shift + along * 180, foot + 150, 45);
-            meshes.AddRange(new[] { grate, fire });
+            var foot = hearth.Floor;
+            var width = breast.Opening[0].DistanceTo(breast.Opening[1]);
+            var depth = breast.Opening[1].DistanceTo(breast.Opening[2]) - 2;
+            var face = new Point2D(breast.Opening.Average(p => p.X), breast.Opening.Average(p => p.Y)) + front * (depth / 2 - 1);
+            var height = breast.OpeningHeight;
+
+            // Blackened inside: its back, its sides and its throat.
+            soot.AddExtrusion(Rectangle(chimney, width, 8, face - front * (depth - 4)), foot, foot + height);
+            foreach (var side in new[] { -1, 1 })
+                soot.AddExtrusion(Rectangle(chimney, 8, depth - 8, face - front * (depth / 2 + 4) + along * (side * (width / 2 - 4))), foot, foot + height);
+            soot.AddExtrusion(Rectangle(chimney, width, depth, face - front * (depth / 2)), foot + height - 4, foot + height);
+
+            hearths.AddExtrusion(breast.Hearth, foot, foot + 50);
+            mantel.AddExtrusion(Rectangle(chimney, width + 400, 160, face + front * 70), foot + height + 30, foot + height + 210);
+
+            // The damper: a steel plate across the flue, 8 in over the opening, worked from the room.
+            var throat = foot + height + DamperAbove;
+            if (runs.FirstOrDefault(run => run.Hearth == hearth)?.At(throat) is { } at)
+                damper.AddExtrusion(section(at, liner - 2 * LinerWall - 4), throat, throat + 6);
+
+            var middle = face - front * (depth / 2);
+            if (hearth.Kind == ChimneyFireplace.Stove)
+            {
+                // A stove on the hearth, its glass glowing, its pipe up into the throat.
+                stove.AddExtrusion(Rectangle(chimney, 520, 400, middle + front * 30), foot + 50, foot + 650);
+                stove.AddExtrusion(Circle(middle + front * 30, 65, 16), foot + 650, foot + height);
+                fire.AddExtrusion(Rectangle(chimney, 330, 6, middle + front * 233), foot + 260, foot + 530);
+            }
+            else
+            {
+                // An open fire: logs on a grate, glowing.
+                grate.AddExtrusion(Rectangle(chimney, 440, 240, middle), foot + 50, foot + 90);
+                fire.AddExtrusion(Rectangle(chimney, 380, 190, middle), foot + 90, foot + 120);
+                foreach (var shift in new[] { -60.0, 60.0 })
+                    Tube(fire, middle + front * shift - along * 180, middle + front * shift + along * 180, foot + 150, 45);
+            }
         }
 
-        return meshes;
+        return new[] { soot, hearths, mantel, damper, grate, fire, stove };
     }
-
     /// <summary>A round bar lying level between two points, at a height.</summary>
     private static void Tube(Mesh3D mesh, Point2D from, Point2D to, double height, double radius) =>
         Strut(mesh, new Vector3(from.X, from.Y, height), new Vector3(to.X, to.Y, height), radius);

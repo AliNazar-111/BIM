@@ -20,6 +20,9 @@ public sealed class AddElementCommand : IUndoableCommand
 
     public void Redo() => _document.Add(_element);
 
+    /// <summary>What it adds.</summary>
+    public Element Element => _element;
+
     public void Undo() => _document.Remove(_element);
 }
 

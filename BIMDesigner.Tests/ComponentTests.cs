@@ -448,13 +448,15 @@ public class ComponentTests
                 Assert.True(part.Bottom >= -1e-6, $"{form}: a part is below the floor");
             });
 
-            var mesh = ModelMeshBuilder.BuildComponent(document, component).Single();
-            Assert.False(mesh.IsEmpty, $"{form} builds nothing");
+            // A solid in its own colour, and one for each finish an appliance adds - white enamel, black glass, stainless steel.
+            var meshes = ModelMeshBuilder.BuildComponent(document, component);
+            Assert.Equal(family.Name, meshes[0].Description);
+            Assert.All(meshes, mesh => Assert.False(mesh.IsEmpty, $"{form} builds nothing"));
 
             // In plan it is its footprint, and all but the plainest have something drawn inside it.
             var outlines = ComponentModel.PlanOutlines(family, ComponentModel.FrameOf(component, 0));
-            Assert.Equal(4, outlines[0].Count);
-            if (form is not (ComponentForm.Box or ComponentForm.Table or ComponentForm.WallLight))
+            Assert.True(outlines[0].Count >= 4, $"{form} has no footprint in plan");
+            if (form is not (ComponentForm.Box or ComponentForm.Table or ComponentForm.WallLight or ComponentForm.Custom))
                 Assert.True(outlines.Count > 1, $"{form} is drawn as a plain rectangle in plan");
         }
     }

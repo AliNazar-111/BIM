@@ -49,7 +49,54 @@ public enum ComponentForm
     Toilet,
     Bath,
     Tree,
-    WallLight
+    WallLight,
+
+    // The kitchen: a fridge or fridge-freezer, a cooker - an oven under a hob - a dishwasher and
+    // a washing machine under the worktop, and a sink set into a unit's worktop.
+    Fridge,
+    Cooker,
+    Dishwasher,
+    WashingMachine,
+    Sink,
+
+    // The bedroom and the living room: a wardrobe with hinged doors, an armchair, a coffee table
+    // with a shelf under it, and a television unit with the television on it.
+    Wardrobe,
+    Armchair,
+    CoffeeTable,
+    TelevisionUnit,
+
+    // The bathroom: a shower tray, with or without a glass enclosure round it.
+    Shower,
+
+    // The services: a panel radiator on its valves, a ceiling light - flush, or a pendant on
+    // its flex - and a socket and a light switch on the wall.
+    Radiator,
+    CeilingLight,
+    Socket,
+    Switch,
+
+    // Outside: a car, a person, a conifer and a shrub - and the broadleaf tree above.
+    Car,
+    Person,
+    Conifer,
+    Shrub,
+
+    // A family of your own: drawn in the family editor from simple solids, or loaded from a 3D model.
+    Custom
+}
+
+/// <summary>
+/// Where a shower has glass round its tray: none - a tray on its own, or a wet room's - a sliding
+/// door across the front of an alcove, the front and one side in a corner, or a fixed panel
+/// part way along the front for a walk-in.
+/// </summary>
+public enum ShowerEnclosure
+{
+    None,
+    Alcove,
+    Corner,
+    WalkIn
 }
 
 /// <summary>
@@ -70,7 +117,23 @@ public sealed class ComponentType : ElementType
         Width = width;
         Depth = depth;
         Height = height;
+
+        AgainstWall = BacksOntoWallByDefault(form);
     }
+
+    /// <summary>Whether a shape stands against a wall in a room: a bed's head, a sofa's back, a unit, a WC, a bath.</summary>
+    public static bool BacksOntoWallByDefault(ComponentForm form) =>
+        form is ComponentForm.Counter or ComponentForm.Shelving or ComponentForm.Basin or ComponentForm.Toilet
+            or ComponentForm.Bath or ComponentForm.Bed or ComponentForm.Sofa or ComponentForm.Desk
+            or ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine or ComponentForm.Sink
+            or ComponentForm.Wardrobe or ComponentForm.TelevisionUnit or ComponentForm.Shower;
+
+    /// <summary>
+    /// Whether one put down near a wall backs onto it and faces the room: a bed, a wardrobe, a
+    /// WC, a kitchen unit. Off for a table or a chair, which stand where they are put - and for a
+    /// kitchen island, made from a unit type with it turned off.
+    /// </summary>
+    public bool AgainstWall { get; set; }
 
     public override BuiltInCategory Category => Kind;
 
@@ -78,6 +141,15 @@ public sealed class ComponentType : ElementType
     public BuiltInCategory Kind { get; set; }
 
     public ComponentForm Form { get; set; }
+
+    /// <summary>For a shower, where its glass is: none, a door across an alcove, a corner, a walk-in panel.</summary>
+    public ShowerEnclosure Enclosure { get; set; }
+
+    /// <summary>For a family of your own, the solids it is drawn with, in its box - so it stretches with its size.</summary>
+    public List<ComponentSolid> Solids { get; } = new();
+
+    /// <summary>For a family of your own, the 3D model loaded into it, in its box likewise; or none.</summary>
+    public ComponentMesh? Mesh { get; set; }
 
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
@@ -103,6 +175,23 @@ public sealed class ComponentType : ElementType
 
     /// <summary>Whether it can be hosted by a wall, which is what Pick New Host needs.</summary>
     public bool IsHosted => Placement is ComponentPlacement.FaceBased or ComponentPlacement.WorkPlaneBased;
+
+    /// <summary>A new type starting as this one is - to be made another size or material without touching the pieces of this one.</summary>
+    public ComponentType Duplicate(string name) => WithCommonOf(new ComponentType(name, Kind, Form, Width, Depth, Height)
+    {
+        Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
+        Enclosure = Enclosure, Mesh = Mesh
+    }.WithSolids(Solids));
+
+    /// <summary>This type, drawn with these solids as well as any it has.</summary>
+    public ComponentType WithSolids(IEnumerable<ComponentSolid> solids)
+    {
+        Solids.AddRange(solids.Select(solid => solid.Copy()));
+        return this;
+    }
+
+    /// <summary>What a component type is made of when it has no material: its own colour.</summary>
+    public const string ByColour = "<by its colour>";
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
@@ -133,6 +222,32 @@ public sealed class ComponentType : ElementType
             () => DefaultElevation,
             v => { if (v >= 0) { DefaultElevation = v; return true; } return false; });
 
+        yield return ParameterValue.Bind(ComponentTypeParameters.AgainstWall, () => AgainstWall, v => AgainstWall = v);
+
+        // What a family of your own is drawn with - changed in the family editor.
+        if (Form == ComponentForm.Custom)
+            yield return ParameterValue.ReadOnly(ComponentTypeParameters.DrawnWith, () =>
+                string.Join(" and ", new[]
+                {
+                    Solids.Count switch { 0 => null, 1 => "1 solid", var n => $"{n} solids" },
+                    Mesh is null ? null : $"{Mesh.Source} ({Mesh.TriangleCount:N0} triangles)"
+                }.Where(said => said is not null)) is { Length: > 0 } said ? said : "Nothing yet");
+
+        if (Form == ComponentForm.Shower)
+            yield return ParameterValue.BindChoice(
+                ComponentTypeParameters.Enclosure,
+                () => EnumText.Humanise(Enclosure),
+                v => { if (EnumText.TryParse<ShowerEnclosure>(v, out var e)) Enclosure = e; },
+                EnumText.Choices<ShowerEnclosure>());
+
+        // What it is made of: one of the project's materials - its colour in 3D - or its own colour.
+        if (document is not null)
+            yield return ParameterValue.BindChoice(
+                ComponentTypeParameters.Material,
+                () => document.FindMaterial(MaterialId)?.Name ?? ByColour,
+                v => MaterialId = document.Materials.FirstOrDefault(material => material.Name == v)?.Id ?? Guid.Empty,
+                new[] { ByColour }.Concat(document.Materials.Select(material => material.Name).OrderBy(name => name)).ToArray());
+
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
     }
 
@@ -153,7 +268,10 @@ public static class ComponentCategories
         BuiltInCategory.Casework,
         BuiltInCategory.PlumbingFixtures,
         BuiltInCategory.SpecialtyEquipment,
+        BuiltInCategory.MechanicalEquipment,
         BuiltInCategory.LightingFixtures,
+        BuiltInCategory.ElectricalFixtures,
+        BuiltInCategory.LightingDevices,
         BuiltInCategory.Planting,
         BuiltInCategory.Entourage,
         BuiltInCategory.GenericModels
@@ -189,8 +307,18 @@ public sealed class Component : Element, IHostedElement
     /// </summary>
     public double Rotation { get; set; }
 
-    /// <summary>Millimetres above its level: the underside of a freestanding one, the fixing height of a hosted one.</summary>
+    /// <summary>
+    /// Millimetres above its level - or above the top of the floor it stands on, where it stands
+    /// on one: the underside of a freestanding one, the fixing height of a hosted one.
+    /// </summary>
     public double Elevation { get; set; }
+
+    /// <summary>
+    /// The floor or flat roof it stands on, where its storey's floor is built up above the level:
+    /// its elevation is then measured from that slab's top, wherever the top is - so it follows
+    /// the slab however thick it is made, or wherever it is moved. Null for one measured from its level.
+    /// </summary>
+    public Guid? StandsOn { get; set; }
 
     /// <summary>
     /// The face it is fixed to: a wall, or a floor, ceiling or roof. Empty for one standing on
@@ -203,6 +331,12 @@ public sealed class Component : Element, IHostedElement
     /// slab rather than the top of it.
     /// </summary>
     public bool FlipFacing { get; set; }
+
+    /// <summary>
+    /// Whether it is the mirror image of its family, left for right: a corner shower with its
+    /// glass on the other side, a sink with its bowl on the right. Mirroring one turns it over.
+    /// </summary>
+    public bool FlipHand { get; set; }
 
     /// <summary>Whether a face is carrying it at the moment.</summary>
     public bool IsHosted => HostId != Guid.Empty;
@@ -299,7 +433,11 @@ public sealed class Component : Element, IHostedElement
             () => document.Levels.FirstOrDefault(l => l.Id == LevelId)?.Name ?? "<none>",
             v =>
             {
-                if (document.Levels.FirstOrDefault(l => l.Name == v) is { } level && !IsHosted) LevelId = level.Id;
+                if (document.Levels.FirstOrDefault(l => l.Name == v) is not { } level || IsHosted || level.Id == LevelId) return;
+
+                // On another storey it stands on that storey's floor, if that is built up.
+                LevelId = level.Id;
+                StandsOn = FloorSurfaces.FloorUnder(document, level.Id, Location)?.Id;
             },
             document.Levels.Select(l => l.Name).ToArray());
 
@@ -308,10 +446,22 @@ public sealed class Component : Element, IHostedElement
             () => Elevation,
             v => { Elevation = v; return true; });
 
+        // The room it is in - what a schedule lists it under.
+        yield return ParameterValue.ReadOnly(ComponentParameters.Room,
+            () => RoomsOf.Containing(document, LevelId, Location) is { } room ? RoomsOf.Label(room) : string.Empty);
+
+        // What its elevation is measured from: the top of the floor it stands on, or its level.
+        yield return ParameterValue.ReadOnly(ComponentParameters.StandsOn, () =>
+            StandsOn is { } floor && document.Elements.FirstOrDefault(element => element.Id == floor) is { } slab
+                ? $"Top of {document.FindType<ElementType>(slab.TypeId)?.Name ?? "the floor"}"
+                : "Its level");
+
         yield return ParameterValue.BindValidated(
             ComponentParameters.Rotation,
             () => Rotation,
             v => { Rotation = ((v % 360) + 360) % 360; return true; });
+
+        yield return ParameterValue.Bind(ComponentParameters.FlipHand, () => FlipHand, v => FlipHand = v);
 
         yield return ParameterValue.ReadOnly(
             ComponentParameters.Host,
@@ -356,6 +506,18 @@ public static class ComponentTypeParameters
     public static readonly ParameterDefinition Placement =
         new("Placement", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 
+    public static readonly ParameterDefinition Material =
+        new("Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+
+    public static readonly ParameterDefinition AgainstWall =
+        new("Backs Onto a Wall", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition Enclosure =
+        new("Enclosure", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition DrawnWith =
+        new("Drawn With", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition DefaultElevation =
         new("Default Elevation", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Constraints);
 }
@@ -371,6 +533,12 @@ public static class ComponentParameters
     public static readonly ParameterDefinition Elevation =
         new("Elevation", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
 
+    public static readonly ParameterDefinition Room =
+        new("Room", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition StandsOn =
+        new("Elevation From", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
     public static readonly ParameterDefinition Rotation =
         new("Rotation", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
 
@@ -379,6 +547,9 @@ public static class ComponentParameters
 
     public static readonly ParameterDefinition FlipFacing =
         new("Flip Facing", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition FlipHand =
+        new("Flip Hand", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition Width =
         new("Width", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);

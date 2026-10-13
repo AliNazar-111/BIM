@@ -34,10 +34,12 @@ public sealed class ScheduleRowView : INotifyPropertyChanged
 {
     private readonly ScheduleRow _row;
 
-    public ScheduleRowView(ScheduleRow row, string? groupField)
+    /// <param name="heading">How the row's group is headed, given its value in the grouped field - with its subtotals, say.</param>
+    public ScheduleRowView(ScheduleRow row, string? groupField, Func<string, string>? heading = null)
     {
         _row = row;
-        GroupKey = string.IsNullOrWhiteSpace(groupField) ? string.Empty : row.Text(groupField);
+        var key = string.IsNullOrWhiteSpace(groupField) ? string.Empty : row.Text(groupField);
+        GroupKey = heading is null ? key : heading(key);
     }
 
     public Element Element => _row.Element;

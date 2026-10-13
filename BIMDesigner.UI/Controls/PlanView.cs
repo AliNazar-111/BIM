@@ -1212,6 +1212,10 @@ public partial class PlanView : FrameworkElement
     /// <summary>Runs a change through the history, or directly when there is none.</summary>
     private void Apply(IUndoableCommand command)
     {
+        // What is put on a storey stands on its floor's top, not in it; and a floor or flat roof
+        // put in under what is there already lifts it onto its top - in the same step.
+        if (Document is not null) command = FloorSurfaces.Standing(Document, command);
+
         if (History is not null) History.Execute(command);
         else command.Redo();
     }
@@ -2413,16 +2417,21 @@ public partial class PlanView : FrameworkElement
                 return;
             }
 
-            // A chimney dragged into a wall comes back out into the room, against the wall's face.
+            // A chimney dragged into a wall comes back out into the room, against the wall's face;
+            // a bed or a kitchen unit dragged up to a wall backs onto it.
             var command = new MoveElementsCommand(_moveSet.ToList(), _dragTotal, document: Document);
             var fitted = Document is null ? null : FitChimneysCommand.For(Document, _moveSet.OfType<Chimney>());
             if (fitted is not null)
                 HintChanged?.Invoke(this, "A chimney stands in the room: it is set against the wall's face, its fireplace to the room.");
+            var against = Document is null || _moveSet.OfType<Wall>().Any() ? null : FitComponentsCommand.For(Document, _moveSet.OfType<Core.Architecture.Component>());
+            if (against is not null)
+                HintChanged?.Invoke(this, "Set against the wall, facing the room.");
 
-            if (_followers.Count > 0 || fitted is not null)
+            if (_followers.Count > 0 || fitted is not null || against is not null)
             {
                 var steps = FollowerMoves().Prepend(command).ToList();
                 if (fitted is not null) steps.Add(fitted);
+                if (against is not null) steps.Add(against);
                 History?.Record(new CompositeCommand("Move", steps));
             }
             else if (!command.IsEmpty)
@@ -4471,10 +4480,37 @@ public partial class PlanView : FrameworkElement
             Rotation = ComponentRotation
         };
 
+        // A ceiling light hangs from the ceiling over where it is put - or, with no ceiling over
+        // it, at its height under the storey above. Never on a wall.
+        if (ComponentModel.HangsFromCeiling(type))
+        {
+            var ceiling = Document.Elements.OfType<Ceiling>()
+                .Where(candidate => candidate.LevelId == ActiveLevelId && candidate.Contains(component.Location))
+                .OrderBy(candidate => candidate.GetBottomElevation(Document))
+                .FirstOrDefault();
+            if (ceiling is not null) component.HostOn(Document, ceiling, component.Location, underneath: true);
+            else component.Elevation = type.DefaultElevation;
+
+            Apply(new AddElementCommand(Document, component, "Place Component"));
+            Select(component);
+            HintChanged?.Invoke(this, ceiling is not null
+                ? $"{type.Name} hung from the ceiling. Click for the next one."
+                : $"{type.Name} hung with its top {type.DefaultElevation + type.Height:0} above the floor - there's no ceiling over it to hang from.");
+            InvalidateVisual();
+            return;
+        }
+
         var host = type.IsHosted ? HitTestWall(raw) : null;
         if (host is not null && component.HostOn(Document, host, raw))
         {
+            // Its height above the floor - measured from the floor's top, where the floor is built up above the level.
             component.Elevation = type.DefaultElevation;
+            component.StandsOn = FloorSurfaces.FloorUnder(Document, ActiveLevelId, component.Location)?.Id;
+
+            // A wall unit closes up to the one beside it, and hangs its height above the worktop under it.
+            ComponentPlacing.CloseUp(Document, component, type);
+            if (type.Kind == BuiltInCategory.Casework && ComponentPlacing.OverWorktop(Document, component, type) is { } over)
+                component.Elevation = over;
         }
         else if (type.Placement == ComponentPlacement.FaceBased)
         {
@@ -4482,12 +4518,17 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
+        // A bed, a wardrobe, a WC, a kitchen unit put down near a wall backs onto it, facing the room.
+        var fitted = !component.IsHosted && ComponentPlacing.FitToWalls(Document, component);
+
         Apply(new AddElementCommand(Document, component, "Place Component"));
         Select(component);
 
         HintChanged?.Invoke(this, component.IsHosted
             ? $"{type.Name} placed on the wall. Space turns the next one; Pick New Host moves this one."
-            : $"{type.Name} placed. Space turns the next one a quarter turn.");
+            : fitted
+                ? $"{type.Name} set against the wall, facing the room. Click beside it for the next of a run; Space turns one put down away from a wall."
+                : $"{type.Name} placed. Space turns the next one a quarter turn.");
 
         InvalidateVisual();
     }
@@ -4953,6 +4994,7 @@ public partial class PlanView : FrameworkElement
                 items.Add((family is null ? "Component" : $"{EnumText.Humanise(family.Kind)}: {family.Name}", null));
                 items.Add((string.Empty, null));
                 items.Add(("Turn 90°", () => TurnPlacedComponent(component)));
+                items.Add(("Flip Hand", () => Apply(new FlipHandCommand(new[] { component }))));
 
                 if (family?.IsHosted == true) items.Add(("Pick New Host", BeginPickNewHost));
 
@@ -5455,6 +5497,7 @@ public partial class PlanView : FrameworkElement
         // plan inside a viewport on a sheet are the same drawing produced by the same code.
         PrepareRenderer();
         _renderer.DrawContent(dc);
+        DrawClearances(dc);
 
         // Editing affordances go on top, and only here. Grips, snap rings and half-finished
         // walls belong to the editor rather than to the drawing, so none of them may ever

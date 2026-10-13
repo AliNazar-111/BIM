@@ -21,7 +21,11 @@ using Xbim.Ifc4.ProductExtension;
 using Xbim.Ifc4.ProfileResource;
 using Xbim.Ifc4.PropertyResource;
 using Xbim.Ifc4.RepresentationResource;
+using Xbim.Ifc4.ElectricalDomain;
+using Xbim.Ifc4.HvacDomain;
+using Xbim.Ifc4.PlumbingFireProtectionDomain;
 using Xbim.Ifc4.SharedBldgElements;
+using Xbim.Ifc4.SharedFacilitiesElements;
 using Xbim.Ifc4.UtilityResource;
 using Xbim.IO;
 
@@ -148,6 +152,10 @@ public static class IfcExport
 
         public void Run()
         {
+            // Rooms traced and chimneys measured once for the whole export, nothing changing under it.
+            using var rooms = new RoomsOf.Outlines();
+            using var heights = new Chimneys.Heights();
+
             var project = CreateProject();
             var building = CreateSpatialStructure(project);
 
@@ -159,6 +167,7 @@ public static class IfcExport
             foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
             foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
             foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
+            foreach (var component in _document.Elements.OfType<Component>()) ExportComponent(component);
             foreach (var shaped in _document.Elements.OfType<PolygonWall>()) ExportPolygonWall(shaped);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
@@ -1185,6 +1194,144 @@ public static class IfcExport
                 ["HeightRule"] = new IfcLabel(chimney.Rule == ChimneyRule.ThreeTwoTen ? "US 3-2-10" : "Approved Document J"),
                 ["Height"] = new IfcLengthMeasure(Chimneys.Top(_document, chimney) - Chimneys.Foot(_document, chimney))
             });
+        }
+
+        /// <summary>What a component goes out of IFC as.</summary>
+        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Proxy }
+
+        /// <summary>
+        /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
+        /// appliance and a sink a sanitary fitting, whatever category they were put in; otherwise
+        /// as its category says.
+        /// </summary>
+        private static ComponentClass ClassOf(ComponentType type) => type.Form switch
+        {
+            ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine => ComponentClass.Appliance,
+            ComponentForm.Sink or ComponentForm.Shower => ComponentClass.Sanitary,
+            ComponentForm.Radiator => ComponentClass.Heater,
+            ComponentForm.Socket => ComponentClass.Outlet,
+            ComponentForm.Switch => ComponentClass.Switch,
+            _ => type.Kind switch
+            {
+                BuiltInCategory.Furniture or BuiltInCategory.Casework => ComponentClass.Furniture,
+                BuiltInCategory.PlumbingFixtures => ComponentClass.Sanitary,
+                BuiltInCategory.LightingFixtures => ComponentClass.Light,
+                _ => ComponentClass.Proxy
+            }
+        };
+
+        /// <summary>
+        /// A component as what it is: furniture and kitchen units as IfcFurniture - a chair, a
+        /// table, a desk, a bed, a sofa, shelving - sanitary fittings as IfcSanitaryTerminal - a WC
+        /// pan, a wash-hand basin, a bath, a sink - kitchen appliances as IfcElectricAppliance - a
+        /// fridge or fridge-freezer, a cooker, a dishwasher, a washing machine - and lights as
+        /// IfcLightFixture; a tree or anything else as a proxy. Its body as the 3D view builds it,
+        /// its size, and the room it is in.
+        /// </summary>
+        private void ExportComponent(Component component)
+        {
+            if (_document.FindType<ComponentType>(component.TypeId) is not { } type) return;
+
+            var meshes = ModelMeshBuilder.BuildComponent(_document, component);
+            if (meshes.Count == 0) return;
+
+            var exported = ClassOf(type);
+            IfcElement product = exported switch
+            {
+                ComponentClass.Furniture => ComponentProduct<IfcFurniture>(component, type, meshes, furniture =>
+                    furniture.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.Chair or ComponentForm.Armchair => IfcFurnitureTypeEnum.CHAIR,
+                        ComponentForm.Table or ComponentForm.CoffeeTable => IfcFurnitureTypeEnum.TABLE,
+                        ComponentForm.Desk => IfcFurnitureTypeEnum.DESK,
+                        ComponentForm.Bed => IfcFurnitureTypeEnum.BED,
+                        ComponentForm.Sofa => IfcFurnitureTypeEnum.SOFA,
+                        ComponentForm.Shelving => IfcFurnitureTypeEnum.SHELF,
+                        _ => IfcFurnitureTypeEnum.USERDEFINED
+                    }),
+                ComponentClass.Sanitary => ComponentProduct<IfcSanitaryTerminal>(component, type, meshes, sanitary =>
+                    sanitary.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.Toilet => IfcSanitaryTerminalTypeEnum.TOILETPAN,
+                        ComponentForm.Basin => IfcSanitaryTerminalTypeEnum.WASHHANDBASIN,
+                        ComponentForm.Bath => IfcSanitaryTerminalTypeEnum.BATH,
+                        ComponentForm.Sink => IfcSanitaryTerminalTypeEnum.SINK,
+                        ComponentForm.Shower => IfcSanitaryTerminalTypeEnum.SHOWER,
+                        _ => IfcSanitaryTerminalTypeEnum.USERDEFINED
+                    }),
+                ComponentClass.Appliance => ComponentProduct<IfcElectricAppliance>(component, type, meshes, appliance =>
+                    appliance.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.Fridge => type.Height > 1200 ? IfcElectricApplianceTypeEnum.FRIDGE_FREEZER : IfcElectricApplianceTypeEnum.REFRIGERATOR,
+                        ComponentForm.Cooker => IfcElectricApplianceTypeEnum.ELECTRICCOOKER,
+                        ComponentForm.Dishwasher => IfcElectricApplianceTypeEnum.DISHWASHER,
+                        ComponentForm.WashingMachine => IfcElectricApplianceTypeEnum.WASHINGMACHINE,
+                        _ => IfcElectricApplianceTypeEnum.USERDEFINED
+                    }),
+                ComponentClass.Light => ComponentProduct<IfcLightFixture>(component, type, meshes, light =>
+                    light.PredefinedType = IfcLightFixtureTypeEnum.POINTSOURCE),
+                ComponentClass.Heater => ComponentProduct<IfcSpaceHeater>(component, type, meshes, heater =>
+                    heater.PredefinedType = IfcSpaceHeaterTypeEnum.RADIATOR),
+                ComponentClass.Outlet => ComponentProduct<IfcOutlet>(component, type, meshes, outlet =>
+                    outlet.PredefinedType = IfcOutletTypeEnum.POWEROUTLET),
+                ComponentClass.Switch => ComponentProduct<IfcSwitchingDevice>(component, type, meshes, device =>
+                    device.PredefinedType = IfcSwitchingDeviceTypeEnum.TOGGLESWITCH),
+                _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
+            };
+
+            // The type's common set, as the IFC property set for its kind names it.
+            var common = exported switch
+            {
+                ComponentClass.Furniture => "Pset_FurnitureTypeCommon",
+                ComponentClass.Sanitary => "Pset_SanitaryTerminalTypeCommon",
+                ComponentClass.Appliance => "Pset_ElectricApplianceTypeCommon",
+                ComponentClass.Light => "Pset_LightFixtureTypeCommon",
+                ComponentClass.Heater => "Pset_SpaceHeaterTypeCommon",
+                ComponentClass.Outlet => "Pset_OutletTypeCommon",
+                ComponentClass.Switch => "Pset_SwitchingDeviceTypeCommon",
+                _ => "Pset_BuildingElementProxyCommon"
+            };
+            WriteSet((IfcObject)product, common, new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["NominalLength"] = new IfcPositiveLengthMeasure(type.Width),
+                ["NominalDepth"] = new IfcPositiveLengthMeasure(type.Depth),
+                ["NominalHeight"] = new IfcPositiveLengthMeasure(type.Height),
+                ["IsBuiltIn"] = exported == ComponentClass.Furniture && type.Kind == BuiltInCategory.Casework ? new IfcBoolean(true) : null
+            });
+
+            WriteSet((IfcObject)product, "Component", new Dictionary<string, IfcValue?>
+            {
+                ["Category"] = new IfcLabel(EnumText.Humanise(type.Kind)),
+                ["Room"] = RoomsOf.Containing(_document, component.LevelId, component.Location) is { } room ? new IfcLabel(RoomsOf.Label(room)) : null,
+                ["Material"] = _document.FindMaterial(type.MaterialId) is { } material ? new IfcLabel(material.Name) : null,
+                ["Cost"] = type.Cost > 0 ? new IfcMonetaryMeasure((double)type.Cost) : null
+            });
+        }
+
+        /// <summary>One component as a product of a kind, placed on its storey with its body - what its kind adds set by the caller.</summary>
+        private T ComponentProduct<T>(Component component, ComponentType type, IReadOnlyList<Mesh3D> meshes, Action<T> kind)
+            where T : IfcElement, IInstantiableEntity
+        {
+            var storey = StoreyOf(component);
+            var storeyElevation = _document.FindLevel(component.LevelId)?.Elevation ?? 0;
+            var product = New<T>(element =>
+            {
+                element.GlobalId = component.Id.ToIfc();
+                element.Name = type.Name;
+                element.ObjectType = EnumText.Humanise(type.Form);
+                element.Tag = component.Mark;
+                element.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                element.Representation = TessellatedBody(meshes, storeyElevation);
+                kind(element);
+            });
+
+            Contain(component, product);
+            return product;
         }
 
         /// <summary>A wall shaped in plan as an IfcWall, its body stood up from its outline, with what it is made of.</summary>

@@ -80,8 +80,33 @@ public sealed class SectionRenderer
     public void DrawContent(DrawingContext dc, SectionDrawing drawing, bool labelLevels = true)
     {
         DrawLevels(dc, drawing, labelLevels);
+        DrawGrids(dc, drawing);
 
         foreach (var piece in drawing.Pieces) DrawPiece(dc, piece);
+    }
+
+    /// <summary>
+    /// The grid lines the cut crosses: each upright through the whole height of the section,
+    /// its name in a bubble over the top - the same setting-out the plan shows, seen from the side.
+    /// </summary>
+    private void DrawGrids(DrawingContext dc, SectionDrawing drawing)
+    {
+        if (drawing.Grids.Count == 0) return;
+
+        var bottom = drawing.MinElevation - 600;
+        var top = drawing.MaxElevation + 900;
+        var radius = Page(9);
+        foreach (var grid in drawing.Grids)
+        {
+            var low = _toScreen(grid.Along, bottom);
+            var high = _toScreen(grid.Along, top);
+            dc.DrawLine(_levelPen, low, high);
+
+            var centre = new Point(high.X, high.Y - radius);
+            dc.DrawEllipse(null, _groundPen, centre, radius, radius);
+            var text = Text(grid.Name, Page(10), _levelTextBrush);
+            dc.DrawText(text, new Point(centre.X - text.Width / 2, centre.Y - text.Height / 2));
+        }
     }
 
     private void DrawLevels(DrawingContext dc, SectionDrawing drawing, bool labelLevels)

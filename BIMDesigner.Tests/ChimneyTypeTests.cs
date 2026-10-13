@@ -100,7 +100,10 @@ public class ChimneyTypeTests
         Assert.True(OnFace(stack, new Point3D(breast.Outline.Min(point => point.X) + 100, face, foot + breast.OpeningHeight / 2)));
         Assert.True(OnFace(stack, new Point3D(middle, face, foot + breast.OpeningHeight + 200)), "Nothing over the fireplace.");
 
-        // Underneath, it is solid all over but for the fireplace - whose top is the breast over it.
+        // Underneath, it is solid all over but for the fireplace - whose top is the breast over
+        // it, but for the flue going up from over its middle.
+        var throat = Chimneys.FlueRuns(document, chimney).Single().At(foot + breast.OpeningHeight + 1)!.Value;
+        var flueHole = Chimneys.Rectangle(chimney, Chimneys.LinerWidth(document, chimney) + 2, Chimneys.LinerWidth(document, chimney) + 2, throat);
         var (minX, maxX) = (breast.Outline.Min(point => point.X), breast.Outline.Max(point => point.X));
         var (minY, maxY) = (breast.Outline.Min(point => point.Y), face);
         for (var x = minX + 20; x < maxX; x += 97)
@@ -108,6 +111,12 @@ public class ChimneyTypeTests
         {
             var at = new Point2D(x, y);
             var inOpening = Polygon2D.Contains(breast.Opening, at);
+            if (inOpening && Polygon2D.Contains(flueHole, at))
+            {
+                Assert.False(ChimneyAndDrainPipeTests.Covers(stack, at, foot + breast.OpeningHeight + 1), "The throat is bricked up.");
+                continue;
+            }
+
             Assert.True(LevelAt(stack, at, inOpening ? foot + breast.OpeningHeight : foot), $"Open underneath at {x:0}, {y:0}.");
         }
 

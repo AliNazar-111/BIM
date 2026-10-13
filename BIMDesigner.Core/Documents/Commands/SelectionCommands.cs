@@ -127,6 +127,14 @@ public sealed class DeleteElementsCommand : IUndoableCommand
     /// </summary>
     private void Detach(HashSet<Guid> gone)
     {
+        // A storey standing on a floor that is going stays where it is, at a height of its own.
+        foreach (var level in _document.Levels.Where(level => level.StandsOn is { } floor && gone.Contains(floor)))
+        {
+            var (floor, at) = (level.StandsOn, level.Elevation);
+            level.StandAlone();
+            _reattach.Add(() => (level.Elevation, level.StandsOn) = (at, floor));
+        }
+
         foreach (var element in _document.Elements.Where(element => !gone.Contains(element.Id)))
         {
             switch (element)
@@ -139,6 +147,14 @@ public sealed class DeleteElementsCommand : IUndoableCommand
                 case Column column:
                     if (column.TopAttachedTo is { } columnTop && gone.Contains(columnTop)) { column.TopAttachedTo = null; _reattach.Add(() => column.TopAttachedTo = columnTop); }
                     if (column.BaseAttachedTo is { } columnFoot && gone.Contains(columnFoot)) { column.BaseAttachedTo = null; _reattach.Add(() => column.BaseAttachedTo = columnFoot); }
+                    break;
+
+                case PolygonWall shaped:
+                    if (shaped.BaseAttachedTo is { } shapedFoot && gone.Contains(shapedFoot)) { shaped.BaseAttachedTo = null; _reattach.Add(() => shaped.BaseAttachedTo = shapedFoot); }
+                    break;
+
+                case Component component:
+                    if (component.StandsOn is { } floor && gone.Contains(floor)) { component.StandsOn = null; _reattach.Add(() => component.StandsOn = floor); }
                     break;
 
                 case Roof roof:

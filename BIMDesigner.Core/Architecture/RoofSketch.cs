@@ -292,8 +292,8 @@ public static class RoofSketch
     /// Turns a sketch into a roof outline, or says why it cannot be one.
     ///
     /// A roof needs one closed loop: every line end meeting exactly one other, no line
-    /// crossing another. Revit also takes loops inside the outline as openings; those are
-    /// refused for now, with a message saying so rather than a roof that quietly ignores them.
+    /// crossing another. A loop inside the outline is an opening through the roof, as in Revit;
+    /// one outside it, or inside an opening, is refused with a message saying which.
     /// </summary>
     public static RoofSketchCheck Check(IReadOnlyList<RoofSketchLine> sketch, IReadOnlyList<RoofSlopeArrow>? arrows = null)
     {

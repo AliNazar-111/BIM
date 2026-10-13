@@ -69,12 +69,13 @@ public static class ProjectFile
                 Number = document.ProjectInformation.Number,
                 Client = document.ProjectInformation.Client,
                 Address = document.ProjectInformation.Address,
-                BuildingType = document.ProjectInformation.BuildingType
+                BuildingType = document.ProjectInformation.BuildingType,
+                ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString()
             }
         };
 
         foreach (var level in document.Levels)
-            dto.Levels.Add(new LevelDto { Id = level.Id, Name = level.Name, Elevation = level.Elevation });
+            dto.Levels.Add(new LevelDto { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn });
 
         foreach (var material in document.Materials)
             dto.Materials.Add(new MaterialDto
@@ -159,7 +160,7 @@ public static class ProjectFile
                 StartX = shaped.Start.X, StartY = shaped.Start.Y, EndX = shaped.End.X, EndY = shaped.End.Y,
                 StartThickness = shaped.StartThickness, EndThickness = shaped.EndThickness, StraightSide = shaped.StraightSide.ToString(),
                 MaterialId = shaped.MaterialId, BaseOffset = shaped.BaseOffset, TopLevelId = shaped.TopLevelId, TopOffset = shaped.TopOffset,
-                UnconnectedHeight = shaped.UnconnectedHeight, Mark = shaped.Mark, Comments = shaped.Comments
+                UnconnectedHeight = shaped.UnconnectedHeight, BaseAttachedTo = shaped.BaseAttachedTo, Mark = shaped.Mark, Comments = shaped.Comments
             });
 
         foreach (var framing in document.Elements.OfType<WallFraming>())
@@ -184,6 +185,7 @@ public static class ProjectFile
                 Id = chimney.Id, TypeId = chimney.TypeId, LevelId = chimney.LevelId, X = chimney.Location.X, Y = chimney.Location.Y, Width = chimney.Width,
                 Depth = chimney.Depth, Angle = chimney.Angle, BaseOffset = chimney.BaseOffset, Flues = chimney.Flues,
                 Rule = chimney.Rule.ToString(), ExtraHeight = chimney.ExtraHeight, Fireplace = chimney.Fireplace.ToString(),
+                FireplacesAbove = chimney.FireplacesAbove.Select(pair => new ChimneyFireplaceDto { LevelId = pair.Key, Fireplace = pair.Value.ToString() }).ToList(),
                 Mark = chimney.Mark, Comments = chimney.Comments
             });
 
@@ -717,6 +719,20 @@ public static class ProjectFile
                 Category = type.Kind.ToString(),
                 Form = type.Form.ToString(),
                 Placement = type.Placement.ToString(),
+                AgainstWall = type.AgainstWall,
+                Enclosure = type.Form == ComponentForm.Shower ? type.Enclosure.ToString() : null,
+                Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
+                {
+                    Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
+                    From = solid.From, To = solid.To, Back = solid.Back, Front = solid.Front, Bottom = solid.Bottom, Top = solid.Top
+                }).ToList(),
+                Mesh = type.Mesh is not { } model ? null : new ComponentMeshDto
+                {
+                    Source = model.Source,
+                    Positions = Packed(model.Positions.SelectMany(p => new[] { (float)p.X, (float)p.Y, (float)p.Z }).ToArray()),
+                    Triangles = Packed(model.Triangles.ToArray()),
+                    Edges = Packed(model.Edges.ToArray())
+                },
                 Width = type.Width,
                 Depth = type.Depth,
                 Height = type.Height,
@@ -743,7 +759,9 @@ public static class ProjectFile
                 Rotation = component.Rotation,
                 Elevation = component.Elevation,
                 HostId = component.HostId,
+                StandsOn = component.StandsOn,
                 FlipFacing = component.FlipFacing,
+                FlipHand = component.FlipHand,
                 Mark = component.Mark,
                 Comments = component.Comments,
                 Workset = component.Workset,
@@ -977,9 +995,11 @@ public static class ProjectFile
         document.ProjectInformation.Client = dto.Project.Client;
         document.ProjectInformation.Address = dto.Project.Address;
         document.ProjectInformation.BuildingType = dto.Project.BuildingType;
+        document.ProjectInformation.ClearanceStandard = ParseEnum(dto.Project.ClearanceStandard, ClearanceStandard.ApprovedDocumentM);
 
+        // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
-            document.AddLevel(new Level { Id = level.Id, Name = level.Name, Elevation = level.Elevation });
+            document.AddLevel(new Level { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn });
 
         foreach (var material in dto.Materials)
             document.AddMaterial(new Material(material.Name)
@@ -1611,7 +1631,8 @@ public static class ProjectFile
             });
 
         foreach (var saved in dto.Chimneys.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
-            document.Add(new Chimney
+        {
+            var chimney = new Chimney
             {
                 Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y),
                 Width = double.IsFinite(saved.Width) && saved.Width >= 60 ? saved.Width : 450,
@@ -1625,7 +1646,15 @@ public static class ProjectFile
                 // A chimney saved before there were fireplaces had none.
                 Fireplace = ParseEnum(saved.Fireplace, ChimneyFireplace.None),
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
-            });
+            };
+
+            // Its fireplaces on the floors above - one on a floor since deleted is gone with it.
+            foreach (var above in saved.FireplacesAbove.Where(above => document.FindLevel(above.LevelId) is not null))
+                if (ParseEnum(above.Fireplace, ChimneyFireplace.None) is var kind and not ChimneyFireplace.None)
+                    chimney.FireplacesAbove[above.LevelId] = kind;
+
+            document.Add(chimney);
+        }
 
         // A wall shaped in plan, from its outline; one with no outline left is nothing.
         foreach (var saved in dto.PolygonWalls.Where(saved => document.FindLevel(saved.LevelId) is not null))
@@ -1644,6 +1673,7 @@ public static class ProjectFile
                 TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
                 TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
                 UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight > 0 ? saved.UnconnectedHeight : 3000,
+                BaseAttachedTo = saved.BaseAttachedTo,
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
         }
@@ -1780,6 +1810,9 @@ public static class ProjectFile
                 Id = type.Id,
                 Placement = ParseEnum(type.Placement, ComponentPlacement.Freestanding),
                 DefaultElevation = Math.Max(0, type.DefaultElevation),
+                AgainstWall = type.AgainstWall ?? ComponentType.BacksOntoWallByDefault(ParseEnum(type.Form, ComponentForm.Box)),
+                Enclosure = ParseEnum(type.Enclosure, ShowerEnclosure.None),
+                Mesh = MeshFrom(type.Mesh),
                 MaterialId = type.MaterialId,
                 Colour = ParseColour(type.Colour, new ColourRgb(0xB4, 0x9A, 0x74)),
                 TypeMark = type.TypeMark,
@@ -1789,7 +1822,13 @@ public static class ProjectFile
                 Url = type.Url,
                 Description = type.Description,
                 Cost = type.Cost
-            });
+            }.WithSolids((type.Solids ?? new List<ComponentSolidDto>()).Select(solid => new ComponentSolid
+            {
+                Name = solid.Name,
+                Shape = ParseEnum(solid.Shape, SolidShape.Box),
+                Finish = ParseEnum(solid.Finish, Core.Views.ComponentModel.PartFinish.Body),
+                From = solid.From, To = solid.To, Back = solid.Back, Front = solid.Front, Bottom = solid.Bottom, Top = solid.Top
+            })));
 
         foreach (var component in dto.Components)
         {
@@ -1815,7 +1854,9 @@ public static class ProjectFile
                 Rotation = double.IsFinite(component.Rotation) ? component.Rotation : 0,
                 Elevation = double.IsFinite(component.Elevation) ? component.Elevation : 0,
                 HostId = host,
+                StandsOn = component.StandsOn,
                 FlipFacing = component.FlipFacing,
+                FlipHand = component.FlipHand,
                 Mark = component.Mark,
                 Comments = component.Comments,
                 Workset = component.Workset,
@@ -2070,6 +2111,41 @@ public static class ProjectFile
     /// <summary>Unknown enum text falls back rather than failing the whole load.</summary>
     /// <summary>A saved number, or nothing where it was not one.</summary>
     private static double? Finite(double? value) => value is { } number && double.IsFinite(number) ? number : null;
+
+    /// <summary>Numbers packed as their bytes, in base 64: a model's corners would be megabytes written out one by one.</summary>
+    private static string Packed<T>(T[] values) where T : struct
+    {
+        var bytes = new byte[Buffer.ByteLength(values)];
+        Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static T[] Unpacked<T>(string text, int size) where T : struct
+    {
+        var bytes = Convert.FromBase64String(text);
+        var values = new T[bytes.Length / size];
+        Buffer.BlockCopy(bytes, 0, values, 0, values.Length * size);
+        return values;
+    }
+
+    /// <summary>A family's 3D model as it was saved, or none where it cannot be read back.</summary>
+    private static ComponentMesh? MeshFrom(ComponentMeshDto? dto)
+    {
+        if (dto is null) return null;
+        try
+        {
+            var corners = Unpacked<float>(dto.Positions, sizeof(float));
+            var positions = Enumerable.Range(0, corners.Length / 3).Select(i => new Point3D(corners[3 * i], corners[3 * i + 1], corners[3 * i + 2])).ToList();
+            var triangles = Unpacked<int>(dto.Triangles, sizeof(int));
+            var edges = Unpacked<int>(dto.Edges, sizeof(int));
+            if (triangles.Any(index => index < 0 || index >= positions.Count) || edges.Any(index => index < 0 || index >= positions.Count)) return null;
+            return new ComponentMesh(positions, triangles, edges, dto.Source);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
 
     private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(text, ignoreCase: true, out var value) ? value : fallback;

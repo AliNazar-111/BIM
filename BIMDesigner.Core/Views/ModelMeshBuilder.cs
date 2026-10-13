@@ -26,6 +26,7 @@ public static class ModelMeshBuilder
     public static IReadOnlyList<Mesh3D> Build(BimDocument document, Func<Element, bool>? shows = null)
     {
         shows ??= _ => true;
+        using var heights = new Chimneys.Heights();
 
         var meshes = new List<Mesh3D>();
 
@@ -116,6 +117,9 @@ public static class ModelMeshBuilder
         meshes.Add(mesh);
     }
 
+    /// <summary>The sides a round part of a component is built with: each turning less than a crease does, so its side is one curve.</summary>
+    private const int RoundSides = 32;
+
     /// <summary>One component's solids on their own: what its family is shaped like, where it stands.</summary>
     public static IReadOnlyList<Mesh3D> BuildComponent(BimDocument document, Component component)
     {
@@ -125,8 +129,10 @@ public static class ModelMeshBuilder
     }
 
     /// <summary>
-    /// A component as the boxes its form is made of, turned to face the way it faces and stood
-    /// on its level - or at its fixing height on the wall carrying it.
+    /// A component as the parts its form is made of, turned to face the way it faces and stood
+    /// on its level - or at its fixing height on the wall carrying it. The parts in its type's
+    /// own colour or material are one solid; an appliance's white enamel, black glass and
+    /// stainless steel are a solid each, in their own colours.
     /// </summary>
     private static void AddComponent(BimDocument document, Component component, List<Mesh3D> meshes)
     {
@@ -136,15 +142,149 @@ public static class ModelMeshBuilder
         var frame = ComponentModel.FrameOf(component, ComponentHosting.BaseElevation(document, component, type));
 
         var material = document.FindMaterial(type.MaterialId);
-        var mesh = new Mesh3D(component.Id, component.LevelId, MeshKind.Wall,
-            material?.SurfaceColour ?? type.Colour, material?.Name ?? type.Name);
+        var finishes = new Dictionary<ComponentModel.PartFinish, Mesh3D>();
+        Mesh3D In(ComponentModel.PartFinish finish)
+        {
+            if (finishes.TryGetValue(finish, out var known)) return known;
+
+            var (colour, name) = finish == ComponentModel.PartFinish.Body
+                ? (material?.SurfaceColour ?? type.Colour, material?.Name ?? type.Name)
+                : ComponentModel.Look(finish);
+            // A shower's glass is glass: seen through, and cut as glazing in a section.
+            var kind = finish == ComponentModel.PartFinish.Glass ? MeshKind.Glazing : MeshKind.Wall;
+            var mesh = new Mesh3D(component.Id, component.LevelId, kind, colour, name);
+            finishes[finish] = mesh;
+            meshes.Add(mesh);
+            return mesh;
+        }
+
+        // Its own colour first: the solid a picked component is known by.
+        In(ComponentModel.PartFinish.Body);
 
         foreach (var part in ComponentModel.Parts(type))
-            mesh.AddExtrusion(
-                frame.Outline(part.From, part.To, part.Back, part.Front),
-                frame.Base + part.Bottom, frame.Base + part.Top);
+        {
+            var mesh = In(part.Finish);
+            switch (part.Shape)
+            {
+                case ComponentModel.PartShape.Upright:
+                    // Fine enough that its side reads as one curve, with no line up every facet.
+                    mesh.AddExtrusion(frame.Ellipse(part.From, part.To, part.Back, part.Front, RoundSides), frame.Base + part.Bottom, frame.Base + part.Top);
+                    break;
 
-        meshes.Add(mesh);
+                case ComponentModel.PartShape.Facing:
+                {
+                    // Built lying down - across and up as if they were a plan, front to back as
+                    // its height - then stood up facing the way the component faces. A mirrored
+                    // one has its disc on the other hand, built there and stood up unmirrored, so
+                    // its faces stay facing out.
+                    var disc = new Mesh3D(component.Id, component.LevelId, MeshKind.Wall, mesh.Colour, mesh.Description);
+                    var across = (part.From + part.To) / 2 * (frame.Mirrored ? -1 : 1);
+                    var up = (part.Bottom + part.Top) / 2;
+                    var upright = frame.Unmirrored;
+                    var (radiusAcross, radiusUp) = ((part.To - part.From) / 2, (part.Top - part.Bottom) / 2);
+                    var ring = Enumerable.Range(0, RoundSides)
+                        .Select(i => 2 * Math.PI * i / RoundSides)
+                        .Select(angle => new Point2D(across + radiusAcross * Math.Cos(angle), up + radiusUp * Math.Sin(angle)))
+                        .ToList();
+                    disc.AddExtrusion(ring, part.Back, part.Front);
+                    disc.Transform(point => Point3D.On(upright.Plan(point.X, point.Z), upright.Base + point.Y));
+                    mesh.Append(disc);
+                    break;
+                }
+
+                case ComponentModel.PartShape.Sphere:
+                    AddTurned(mesh, frame, part, Enumerable.Range(0, 13)
+                        .Select(k => ((1 - Math.Cos(Math.PI * k / 12)) / 2, Math.Sin(Math.PI * k / 12)))
+                        .ToList());
+                    break;
+
+                case ComponentModel.PartShape.Cone:
+                    AddTurned(mesh, frame, part, new[] { (0.0, 1.0), (1.0, 0.0) });
+                    break;
+
+                case ComponentModel.PartShape.Wedge:
+                {
+                    // Its full height at the back, sloping down to nothing at the front.
+                    double Forward(Point2D point) => (point - frame.Centre).Dot(frame.Facing);
+                    var rise = part.Top - part.Bottom;
+                    mesh.AddExtrusion(frame.Outline(part.From, part.To, part.Back, part.Front),
+                        _ => frame.Base + part.Bottom,
+                        point => frame.Base + part.Bottom + Math.Max(0.5, rise * Math.Clamp((part.Front - Forward(point)) / (part.Front - part.Back), 0, 1)));
+                    break;
+                }
+
+                default:
+                    mesh.AddExtrusion(frame.Outline(part.From, part.To, part.Back, part.Front), frame.Base + part.Bottom, frame.Base + part.Top);
+                    break;
+            }
+        }
+
+        // A 3D model loaded into it: its triangles at the family's size, the way it faces -
+        // wound the other way round for a mirrored one, so its faces still face out - with the
+        // creases a drawing shows.
+        if (type.Mesh is { } model)
+        {
+            var mesh = In(ComponentModel.PartFinish.Body);
+            var placed = model.Positions
+                .Select(p => Point3D.On(frame.Plan(p.X * type.Width, p.Y * type.Depth), frame.Base + p.Z * type.Height))
+                .ToArray();
+
+            var triangles = model.Triangles;
+            for (var t = 0; t + 2 < triangles.Count; t += 3)
+            {
+                var (a, b, c) = (placed[triangles[t]], placed[triangles[t + 1]], placed[triangles[t + 2]]);
+                if (frame.Mirrored) mesh.AddTriangle(a, c, b);
+                else mesh.AddTriangle(a, b, c);
+            }
+
+            for (var e = 0; e + 1 < model.Edges.Count; e += 2)
+                mesh.AddEdge(placed[model.Edges[e]], placed[model.Edges[e + 1]]);
+        }
+    }
+
+    /// <summary>
+    /// A solid turned about the upright through the middle of a part's box - a ball, a cone - as
+    /// rings up its height, each a share of the box's spread: closed flat where an end ring has
+    /// any size, coming to a point where it has none.
+    /// </summary>
+    private static void AddTurned(Mesh3D mesh, ComponentModel.Frame frame, ComponentModel.Part part, IReadOnlyList<(double Up, double Spread)> profile)
+    {
+        var (across, forward) = ((part.From + part.To) / 2, (part.Back + part.Front) / 2);
+        var (radiusAcross, radiusForward) = ((part.To - part.From) / 2, (part.Front - part.Back) / 2);
+        var height = part.Top - part.Bottom;
+        var middle = Point3D.On(frame.Plan(across, forward), frame.Base + part.Bottom + height / 2);
+
+        Point3D At(int ring, int side)
+        {
+            var angle = 2 * Math.PI * side / RoundSides;
+            var (up, spread) = profile[ring];
+            return Point3D.On(
+                frame.Plan(across + radiusAcross * spread * Math.Cos(angle), forward + radiusForward * spread * Math.Sin(angle)),
+                frame.Base + part.Bottom + height * up);
+        }
+
+        // Out from its middle, through the middle of a face.
+        Point3D Outward(params Point3D[] corners) => new(
+            corners.Average(p => p.X) - middle.X, corners.Average(p => p.Y) - middle.Y, corners.Average(p => p.Z) - middle.Z);
+
+        for (var ring = 0; ring + 1 < profile.Count; ring++)
+        for (var side = 0; side < RoundSides; side++)
+        {
+            var next = (side + 1) % RoundSides;
+            var (a, b, c, d) = (At(ring, side), At(ring, next), At(ring + 1, next), At(ring + 1, side));
+            if (profile[ring].Spread <= 1e-9) mesh.AddFace(new[] { a, c, d }, new[] { (0, 1, 2) }, Outward(a, c, d));
+            else if (profile[ring + 1].Spread <= 1e-9) mesh.AddFace(new[] { a, b, c }, new[] { (0, 1, 2) }, Outward(a, b, c));
+            else mesh.AddFace(a, b, c, d, Outward(a, b, c, d));
+        }
+
+        foreach (var (ring, down) in new[] { (0, true), (profile.Count - 1, false) })
+        {
+            if (profile[ring].Spread <= 1e-9) continue;
+
+            var rim = Enumerable.Range(0, RoundSides).Select(side => At(ring, side)).ToList();
+            mesh.AddFace(rim, Enumerable.Range(1, RoundSides - 2).Select(i => (0, i, i + 1)).ToList(), new Point3D(0, 0, down ? -1 : 1));
+            for (var side = 0; side < RoundSides; side++) mesh.AddEdge(rim[side], rim[(side + 1) % RoundSides]);
+        }
     }
 
     /// <summary>The meshes worth drawing, with the seams between their blocks taken out.</summary>

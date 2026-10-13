@@ -419,13 +419,17 @@
                                 <RadioButton x:Name="ComponentTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Room}"
                                              Content="Component" Checked="OnToolChanged"
                                              ToolTip="Place a component: furniture, casework, a fixture. Space turns it before you click"/>
-                                <RadioButton x:Name="ColumnTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Column}"
-                                             Content="Column" Checked="OnToolChanged"
-                                             ToolTip="Stand an architectural column: the box-out round a structural column, a pier or a pilaster. Space turns it"/>
-                                <RadioButton x:Name="FloorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Floor}"
-                                             Content="Floor" Checked="OnToolChanged" ToolTip="Lay a floor over an enclosed space (F2)"/>
-                                <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Ceiling}"
-                                             Content="Ceiling" Checked="OnToolChanged" ToolTip="Put a ceiling over an enclosed space (F3)"/>
+                                <!-- Three high, so the tab fits a 1366-wide screen. -->
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="ColumnTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Column}"
+                                                 Content="Column" Checked="OnToolChanged"
+                                                 ToolTip="Stand an architectural column: the box-out round a structural column, a pier or a pilaster. Space turns it"/>
+                                    <RadioButton x:Name="FloorTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Floor}"
+                                                 Content="Floor" Checked="OnToolChanged" ToolTip="Lay a floor over an enclosed space (F2)"/>
+                                    <RadioButton x:Name="CeilingTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Ceiling}"
+                                                 Content="Ceiling" Checked="OnToolChanged" ToolTip="Put a ceiling over an enclosed space (F3)"/>
+                                </StackPanel>
+
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -471,11 +475,11 @@
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Opening" Style="{StaticResource RibbonPanel}">
-                            <StackPanel Orientation="Horizontal">
-                                <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Shaft}"
+                            <StackPanel>
+                                <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Shaft}"
                                              Content="Shaft" Checked="OnToolChanged"
                                              ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
-                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallOpening}"
+                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.WallOpening}"
                                              Content="Wall Opening" Checked="OnToolChanged"
                                              ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
                             </StackPanel>
@@ -494,15 +498,17 @@
 
                         <HeaderedContentControl Header="Wall" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
-                                <RadioButton x:Name="SweepTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Sweep}"
-                                             Content="Sweep" Checked="OnToolChanged"
-                                             ToolTip="Place a skirting, cornice or other profile along a wall, or upright on it"/>
-                                <RadioButton x:Name="RevealTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Reveal}"
-                                             Content="Reveal" Checked="OnToolChanged"
-                                             ToolTip="Cut a groove along a wall, or up it"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
-                                        Content="Edit Profile" Click="OnEditProfile"
-                                        ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
+                                <StackPanel>
+                                    <RadioButton x:Name="SweepTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Sweep}"
+                                                 Content="Sweep" Checked="OnToolChanged"
+                                                 ToolTip="Place a skirting, cornice or other profile along a wall, or upright on it"/>
+                                    <RadioButton x:Name="RevealTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Reveal}"
+                                                 Content="Reveal" Checked="OnToolChanged"
+                                                 ToolTip="Cut a groove along a wall, or up it"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Profile}"
+                                            Content="Edit Profile" Click="OnEditProfile"
+                                            ToolTip="Change the outline of the selected straight wall seen square-on: a gable, steps, a notch"/>
+                                </StackPanel>
                                 <StackPanel Margin="2,0,0,0">
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
                                             Content="Attach Top" Click="OnAttachTops"
@@ -517,16 +523,13 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl Header="Room &amp; Area" Style="{StaticResource RibbonPanel}">
-                            <RadioButton x:Name="RoomTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Room}"
-                                         Content="Room" Checked="OnToolChanged" ToolTip="Place a room in an enclosed space (R)"/>
-                        </HeaderedContentControl>
-
-                        <HeaderedContentControl Header="Datum" Style="{StaticResource RibbonPanel}">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Level}"
+                        <HeaderedContentControl Header="Room &amp; Datum" Style="{StaticResource RibbonPanel}">
+                            <StackPanel>
+                                <RadioButton x:Name="RoomTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Room}"
+                                             Content="Room" Checked="OnToolChanged" ToolTip="Place a room in an enclosed space (R)"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Level}"
                                         Content="Level" Click="OnManageLevels" ToolTip="Add, rename, move and delete storeys"/>
-                                <RadioButton x:Name="GridTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Grid}"
+                                <RadioButton x:Name="GridTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Grid}"
                                              Content="Grid" Checked="OnToolChanged" ToolTip="Draw a setting-out gridline (G)"/>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -556,55 +559,66 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <!-- Small tools three high, as Revit lays these panels out, so the whole tab fits a 1366-wide screen. -->
                         <HeaderedContentControl Header="Geometry" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
-                                <RadioButton x:Name="WallJoinsTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallJoins}"
-                                             Content="Wall Joins" Checked="OnToolChanged"
-                                             ToolTip="Pick where walls meet, then make it a butt, mitre or square-off join, change which wall carries on, clean it up or not, or keep the walls from joining"/>
-                                <RadioButton x:Name="JoinGeometryTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.JoinGeometry}"
-                                             Content="Join Geometry" Checked="OnToolChanged"
-                                             ToolTip="Join two parallel walls up to 150 mm apart, so doors and windows in either cut through both"/>
-                                <RadioButton x:Name="PaintTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Paint}"
-                                             Content="Paint" Checked="OnToolChanged"
-                                             ToolTip="Put a material on a wall's face without changing its type: click the face in plan, an elevation or the 3D view - the part split off there, or the whole face"/>
-                                <RadioButton x:Name="SplitFaceTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SplitFace}"
-                                             Content="Split Face" Checked="OnToolChanged"
-                                             ToolTip="Split part of a wall's face off, to paint on its own - a tiled band, a feature panel: click two opposite corners on the face in an elevation or the 3D view"/>
-                                <RadioButton x:Name="JoinRoofTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Roof}"
-                                             Content="Join/Unjoin Roof" Checked="OnToolChanged"
-                                             ToolTip="Click the edge of a roof - a dormer's back edge - then the roof it should run into: it is carried back until it meets it and trimmed there, in valleys. Click a joined roof's edge to unjoin it"/>
+                                <StackPanel>
+                                    <RadioButton x:Name="WallJoinsTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.WallJoins}"
+                                                 Content="Wall Joins" Checked="OnToolChanged"
+                                                 ToolTip="Pick where walls meet, then make it a butt, mitre or square-off join, change which wall carries on, clean it up or not, or keep the walls from joining"/>
+                                    <RadioButton x:Name="JoinGeometryTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.JoinGeometry}"
+                                                 Content="Join Geometry" Checked="OnToolChanged"
+                                                 ToolTip="Join two parallel walls up to 150 mm apart, so doors and windows in either cut through both"/>
+                                    <RadioButton x:Name="JoinRoofTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Roof}"
+                                                 Content="Join/Unjoin Roof" Checked="OnToolChanged"
+                                                 ToolTip="Click the edge of a roof - a dormer's back edge - then the roof it should run into: it is carried back until it meets it and trimmed there, in valleys. Click a joined roof's edge to unjoin it"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="PaintTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Paint}"
+                                                 Content="Paint" Checked="OnToolChanged"
+                                                 ToolTip="Put a material on a wall's face without changing its type: click the face in plan, an elevation or the 3D view - the part split off there, or the whole face"/>
+                                    <RadioButton x:Name="SplitFaceTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.SplitFace}"
+                                                 Content="Split Face" Checked="OnToolChanged"
+                                                 ToolTip="Split part of a wall's face off, to paint on its own - a tiled band, a feature panel: click two opposite corners on the face in an elevation or the 3D view"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Modify" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
-                                <RadioButton x:Name="SplitTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Split}"
-                                             Content="Split" Checked="OnToolChanged" ToolTip="Split a wall in two where you click (X)"/>
-                                <RadioButton x:Name="SplitGapTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SplitGap}"
-                                             Content="Split with Gap" Checked="OnToolChanged"
-                                             ToolTip="Split a wall in two with a gap between them where you click - a movement joint. Set the Joint Gap on the options bar"/>
-                                <RadioButton x:Name="TrimTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Trim}"
-                                             Content="Trim / Extend" Checked="OnToolChanged" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
-                                <RadioButton x:Name="OffsetTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Offset}"
-                                             Content="Offset" Checked="OnToolChanged" ToolTip="Make a parallel copy of a wall a set distance away (O)"/>
-                                <RadioButton x:Name="MirrorTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Mirror}"
-                                             Content="Mirror" Checked="OnToolChanged" ToolTip="Reflect the selection about a line (I)"/>
-                                <RadioButton x:Name="ArrayTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Array}"
-                                             Content="Array" Checked="OnToolChanged" ToolTip="Repeat the selection at a regular spacing (Y)"/>
-                                <RadioButton x:Name="RotateTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Rotate}"
-                                             Content="Rotate" Checked="OnToolChanged"
-                                             ToolTip="Turn the selection about its middle, or a centre you place: click where the angle starts and ends, or type the angle (Q)"/>
-                                <RadioButton x:Name="ScaleTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Scale}"
-                                             Content="Scale" Checked="OnToolChanged"
-                                             ToolTip="Make walls, floors and grids longer or shorter about a point you click; thicknesses and heights stay the same (K)"/>
                                 <StackPanel>
+                                    <RadioButton x:Name="SplitTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Split}"
+                                                 Content="Split" Checked="OnToolChanged" ToolTip="Split a wall in two where you click (X)"/>
+                                    <RadioButton x:Name="SplitGapTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.SplitGap}"
+                                                 Content="Split with Gap" Checked="OnToolChanged"
+                                                 ToolTip="Split a wall in two with a gap between them where you click - a movement joint. Set the Joint Gap on the options bar"/>
+                                    <RadioButton x:Name="TrimTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Trim}"
+                                                 Content="Trim / Extend" Checked="OnToolChanged" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="OffsetTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Offset}"
+                                                 Content="Offset" Checked="OnToolChanged" ToolTip="Make a parallel copy of a wall a set distance away (O)"/>
+                                    <RadioButton x:Name="MirrorTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Mirror}"
+                                                 Content="Mirror" Checked="OnToolChanged" ToolTip="Reflect the selection about a line (I)"/>
+                                    <RadioButton x:Name="ArrayTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Array}"
+                                                 Content="Array" Checked="OnToolChanged" ToolTip="Repeat the selection at a regular spacing (Y)"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="RotateTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Rotate}"
+                                                 Content="Rotate" Checked="OnToolChanged"
+                                                 ToolTip="Turn the selection about its middle, or a centre you place: click where the angle starts and ends, or type the angle (Q)"/>
+                                    <RadioButton x:Name="ScaleTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Scale}"
+                                                 Content="Scale" Checked="OnToolChanged"
+                                                 ToolTip="Make walls, floors and grids longer or shorter about a point you click; thicknesses and heights stay the same (K)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
+                                            Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pin}" Content="Pin" Click="OnPin"
                                             ToolTip="Pin the selection where it is: it cannot be moved, rotated, scaled or deleted until unpinned (P)"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Unpin}" Content="Unpin" Click="OnUnpin"
                                             ToolTip="Let the selection be moved again (Shift+P)"/>
                                 </StackPanel>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Delete}"
-                                        Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -677,6 +691,9 @@
                                 <ToggleButton x:Name="UnderlayMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Underlay}"
                                               Content="Storey Below" IsChecked="True" Click="OnToggleUnderlay"
                                               ToolTip="Show the storey below faintly under the plan"/>
+                                <ToggleButton x:Name="ClearancesMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Room}"
+                                              Content="Clearances" Click="OnToggleClearances"
+                                              ToolTip="Show the clear space a WC, basin, bath, shower, bed or kitchen needs, as Approved Document M or the ADA asks - red where something is in it. Pick the standard in the plan's Properties"/>
                                 <Button x:Name="WallFunctionsButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Filter}"
                                         Content="Wall Functions" Click="OnWallFunctionsButton"
                                         ToolTip="Show or hide walls by function, separately in each view">
@@ -746,6 +763,17 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Families" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.AddShapes}"
+                                        Content="New Family" Click="OnNewFamily"
+                                        ToolTip="Draw a component of your own from simple solids - boxes, cylinders, discs, spheres, cones, wedges - in the family editor"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Open}"
+                                        Content="Load 3D Model" Click="OnLoadFamilyModel"
+                                        ToolTip="Make a component from a 3D model: an OBJ or STL file"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Export" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Export}"
@@ -788,33 +816,112 @@
 
                         <HeaderedContentControl Header="Modify" Style="{StaticResource ContextRibbonPanel}">
                             <StackPanel Orientation="Horizontal">
-                                <Button x:Name="ContextSplit" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Split}"
-                                        Content="Split" Click="OnContextTool" CommandParameter="Split" ToolTip="Split a wall in two where you click (X)"/>
-                                <Button x:Name="ContextSplitGap" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.SplitGap}"
-                                        Content="Split with Gap" Click="OnContextTool" CommandParameter="SplitGap"
-                                        ToolTip="Split a wall in two with a gap between them where you click - a movement joint. Set the Joint Gap on the options bar"/>
-                                <Button x:Name="ContextTrim" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Trim}"
-                                        Content="Trim / Extend" Click="OnContextTool" CommandParameter="Trim" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
-                                <Button x:Name="ContextOffset" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Offset}"
-                                        Content="Offset" Click="OnContextTool" CommandParameter="Offset" ToolTip="Make a parallel copy of a wall a set distance away (O)"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Mirror}"
-                                        Content="Mirror" Click="OnContextTool" CommandParameter="Mirror" ToolTip="Reflect the selection about a line (I)"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Array}"
-                                        Content="Array" Click="OnContextTool" CommandParameter="Array" ToolTip="Repeat the selection at a regular spacing (Y)"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Rotate}"
-                                        Content="Rotate" Click="OnContextTool" CommandParameter="Rotate"
-                                        ToolTip="Turn the selection about its middle, or a centre you place: click where the angle starts and where it ends, or type the angle (Q)"/>
-                                <Button x:Name="ContextScale" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Scale}"
-                                        Content="Scale" Click="OnContextTool" CommandParameter="Scale"
-                                        ToolTip="Make walls, floors and grids longer or shorter about a point you click; thicknesses and heights stay the same (K)"/>
+                                <!-- Small buttons three high, as Revit lays its Modify panel out, so the panels after it fit a small screen. -->
                                 <StackPanel>
+                                    <Button x:Name="ContextSplit" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Split}"
+                                            Content="Split" Click="OnContextTool" CommandParameter="Split" ToolTip="Split a wall in two where you click (X)"/>
+                                    <Button x:Name="ContextSplitGap" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SplitGap}"
+                                            Content="Split with Gap" Click="OnContextTool" CommandParameter="SplitGap"
+                                            ToolTip="Split a wall in two with a gap between them where you click - a movement joint. Set the Joint Gap on the options bar"/>
+                                    <Button x:Name="ContextTrim" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Trim}"
+                                            Content="Trim / Extend" Click="OnContextTool" CommandParameter="Trim" ToolTip="Click a wall, then the wall to trim or extend it to (T)"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button x:Name="ContextOffset" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Offset}"
+                                            Content="Offset" Click="OnContextTool" CommandParameter="Offset" ToolTip="Make a parallel copy of a wall a set distance away (O)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Mirror}"
+                                            Content="Mirror" Click="OnContextTool" CommandParameter="Mirror" ToolTip="Reflect the selection about a line (I)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Array}"
+                                            Content="Array" Click="OnContextTool" CommandParameter="Array" ToolTip="Repeat the selection at a regular spacing (Y)"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Rotate}"
+                                            Content="Rotate" Click="OnContextTool" CommandParameter="Rotate"
+                                            ToolTip="Turn the selection about its middle, or a centre you place: click where the angle starts and where it ends, or type the angle (Q)"/>
+                                    <Button x:Name="ContextScale" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Scale}"
+                                            Content="Scale" Click="OnContextTool" CommandParameter="Scale"
+                                            ToolTip="Make walls, floors and grids longer or shorter about a point you click; thicknesses and heights stay the same (K)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
+                                            Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
                                     <Button x:Name="ContextPin" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pin}" Content="Pin" Click="OnPin"
                                             ToolTip="Pin the selection where it is: it cannot be moved, rotated, scaled or deleted until unpinned (P)"/>
                                     <Button x:Name="ContextUnpin" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Unpin}" Content="Unpin" Click="OnUnpin"
                                             ToolTip="Let the selection be moved again (Shift+P)"/>
                                 </StackPanel>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Delete}"
-                                        Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextWallPanel" Header="Modify Wall" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel Margin="0,0,2,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Paint}"
+                                            Content="Paint" Click="OnContextTool" CommandParameter="Paint"
+                                            ToolTip="Put a material on a wall's face without changing its type: pick it on the options bar, then click the face - in plan, an elevation or the 3D view"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SplitFace}"
+                                            Content="Split Face" Click="OnContextTool" CommandParameter="SplitFace"
+                                            ToolTip="Split part of a wall's face off to paint on its own: open an elevation or the 3D view and click two opposite corners on the face"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EditType}"
+                                            Content="Bands" Click="OnWallBands"
+                                            ToolTip="Bands of another material up a layer of the wall's type - a tiled band at the foot of the plaster, brick under render: opens Edit Type at its bands"/>
+                                </StackPanel>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Lock}"
+                                        Content="Lock Ends" Click="OnLockCorners"
+                                        ToolTip="Lock the corners where the selected walls meet others, so they stay joined when any of them moves. Click again to unlock"/>
+                                <Button x:Name="ContextCurtainGrid" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
+                                        Content="Curtain Grid" Click="OnEditCurtainGrid"
+                                        ToolTip="Add, move or delete the grid lines of the selected curtain wall"/>
+                                <Button x:Name="ContextSpandrels" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Spandrel}"
+                                        Content="Spandrels at Floors" Click="OnSpandrelsAtFloors"
+                                        ToolTip="Where a floor runs behind the selected curtain walls: a transom at the floor's top and another at its underside - or the ceiling's - with opaque spandrel panels between, hiding the slab edge, the fire-stopped gap and the ceiling void. Clear glass is left from floor to ceiling"/>
+                                <StackPanel Margin="2,0,0,0">
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
+                                            Content="Attach Top" Click="OnAttachTops"
+                                            ToolTip="Take the selected walls up to the floor, ceiling or roof over each - a gable end up to the ridge, glass and all"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachBase}"
+                                            Content="Attach Base" Click="OnAttachBases"
+                                            ToolTip="Stand the selected walls on the floor under each"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Detach}"
+                                            Content="Detach Top/Base" Click="OnDetachWalls"
+                                            ToolTip="Detach the tops and bases of the selected walls"/>
+                                    <Button x:Name="ContextAlignFaces" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Wall}"
+                                            Content="Align Faces" Click="OnAlignWallFaces"
+                                            ToolTip="Run the selected wall flush with the face of the wall it meets end to end, instead of standing in the middle of a thicker one. Click again for the other face"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextFramingPanel" Header="Framing" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="ContextFrameWalls" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Framing}" Content="Frame Walls"
+                                        Click="OnFrameWalls"
+                                        ToolTip="Frame the selected walls with studs - timber, or steel for a metal stud wall - laid out with their openings. The frames are selected after, so their Spacing, Section and plates are in Properties"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="Cut List" Click="OnCutList"
+                                            ToolTip="List every member of the selected frames by section and length, with how many; export it as CSV"/>
+                                    <Button x:Name="ContextRemoveFraming" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Remove Framing" Click="OnRemoveFraming"
+                                            ToolTip="Take the frame out of the selected walls"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextPartsPanel" Header="Parts" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="ContextCreateParts" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Parts}" Content="Create Parts"
+                                        Click="OnCreateParts"
+                                        ToolTip="Make the selected walls into parts, one for each layer, to give their own materials, divide into panels and schedule"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.DivideParts}" Content="Divide Parts"
+                                        Click="OnDivideParts"
+                                        ToolTip="Divide the selected parts - or every part of the selected walls - into panels of a width and height, with joints between"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Exclude" Click="OnExcludeParts"
+                                            ToolTip="Leave the selected parts out: not built, shown or scheduled"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Parts}" Content="Restore" Click="OnRestoreParts"
+                                            ToolTip="Put back the parts left out of the selected walls"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Wall}" Content="Remove Parts" Click="OnRemoveParts"
+                                            ToolTip="Put the selected walls back together, as one wall again"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -860,45 +967,6 @@
                                 <Button x:Name="ContextResetProfile" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.ResetProfile}"
                                         Content="Reset Profile" Click="OnResetProfile"
                                         ToolTip="Take the edited outline off the selected walls, back to the plain rectangle"/>
-                            </StackPanel>
-                        </HeaderedContentControl>
-
-                        <HeaderedContentControl x:Name="ContextWallPanel" Header="Modify Wall" Style="{StaticResource ContextRibbonPanel}">
-                            <StackPanel Orientation="Horizontal">
-                                <StackPanel Margin="0,0,2,0">
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Paint}"
-                                            Content="Paint" Click="OnContextTool" CommandParameter="Paint"
-                                            ToolTip="Put a material on a wall's face without changing its type: pick it on the options bar, then click the face - in plan, an elevation or the 3D view"/>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SplitFace}"
-                                            Content="Split Face" Click="OnContextTool" CommandParameter="SplitFace"
-                                            ToolTip="Split part of a wall's face off to paint on its own: open an elevation or the 3D view and click two opposite corners on the face"/>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EditType}"
-                                            Content="Bands" Click="OnWallBands"
-                                            ToolTip="Bands of another material up a layer of the wall's type - a tiled band at the foot of the plaster, brick under render: opens Edit Type at its bands"/>
-                                </StackPanel>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Lock}"
-                                        Content="Lock Ends" Click="OnLockCorners"
-                                        ToolTip="Lock the corners where the selected walls meet others, so they stay joined when any of them moves. Click again to unlock"/>
-                                <Button x:Name="ContextCurtainGrid" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CurtainGrid}"
-                                        Content="Curtain Grid" Click="OnEditCurtainGrid"
-                                        ToolTip="Add, move or delete the grid lines of the selected curtain wall"/>
-                                <Button x:Name="ContextSpandrels" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Spandrel}"
-                                        Content="Spandrels at Floors" Click="OnSpandrelsAtFloors"
-                                        ToolTip="Where a floor runs behind the selected curtain walls: a transom at the floor's top and another at its underside - or the ceiling's - with opaque spandrel panels between, hiding the slab edge, the fire-stopped gap and the ceiling void. Clear glass is left from floor to ceiling"/>
-                                <StackPanel Margin="2,0,0,0">
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachTop}"
-                                            Content="Attach Top" Click="OnAttachTops"
-                                            ToolTip="Take the selected walls up to the floor, ceiling or roof over each - a gable end up to the ridge, glass and all"/>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.AttachBase}"
-                                            Content="Attach Base" Click="OnAttachBases"
-                                            ToolTip="Stand the selected walls on the floor under each"/>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Detach}"
-                                            Content="Detach Top/Base" Click="OnDetachWalls"
-                                            ToolTip="Detach the tops and bases of the selected walls"/>
-                                    <Button x:Name="ContextAlignFaces" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Wall}"
-                                            Content="Align Faces" Click="OnAlignWallFaces"
-                                            ToolTip="Run the selected wall flush with the face of the wall it meets end to end, instead of standing in the middle of a thicker one. Click again for the other face"/>
-                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -1734,6 +1802,9 @@
                                 <ToggleButton x:Name="PlanUnderlayToggle" Style="{StaticResource ViewControlToggle}" IsChecked="True"
                                               Content="Storey Below" Click="OnPlanUnderlayToggled"
                                               ToolTip="Show the storey below faintly under the plan"/>
+                                <ToggleButton x:Name="PlanClearancesToggle" Style="{StaticResource ViewControlToggle}"
+                                              Content="Clearances" Click="OnPlanClearancesToggled"
+                                              ToolTip="Show the clear space fittings need - red where something is in it"/>
                                 <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnPlanZoomToFit"
                                         ToolTip="Frame the whole plan (F)"/>
                             </StackPanel>
@@ -2010,13 +2081,8 @@
                             <GroupStyle.HeaderTemplate>
                                 <DataTemplate>
                                     <Border Background="{StaticResource Bg.Elevated}" Padding="10,5" Margin="0,4,0,0">
-                                        <TextBlock FontWeight="SemiBold"
-                                                   Foreground="{StaticResource Accent}">
-                                            <Run Text="{Binding Name, Mode=OneWay}"/>
-                                            <Run Text=" — " Foreground="{StaticResource Text.Muted}"/>
-                                            <Run Text="{Binding ItemCount, Mode=OneWay}"
-                                                 Foreground="{StaticResource Text.Muted}"/>
-                                        </TextBlock>
+                                        <TextBlock FontWeight="SemiBold" Text="{Binding Name, Mode=OneWay}"
+                                                   Foreground="{StaticResource Accent}"/>
                                     </Border>
                                 </DataTemplate>
                             </GroupStyle.HeaderTemplate>
@@ -2043,6 +2109,9 @@
                     <TextBlock x:Name="StatusZoom" Text="Zoom 100%" MinWidth="86" Style="{StaticResource StatusText}"/>
                     <TextBlock x:Name="StatusDetail" Text="Detail: Fine" Style="{StaticResource StatusText}"/>
                     <TextBlock x:Name="StatusSaved" Text="Unsaved project" Style="{StaticResource StatusText}"/>
+                    <Button x:Name="StatusClearances" Style="{StaticResource ViewControlButton}" Visibility="Collapsed"
+                            Margin="0,0,26,0" Click="OnClearanceWarnings"
+                            ToolTip="Fittings with something in the clear space they need - click to list them"/>
                 </StackPanel>
 
                 <TextBlock x:Name="StatusHint" Grid.Column="2" Text="Ready"

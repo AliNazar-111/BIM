@@ -264,7 +264,6 @@ public class RotateScalePinTests
             foreach (var name in new[] { "ContextSplitGap", "ContextScale", "ContextPin" })
                 Assert.Equal(Visibility.Visible, Field<System.Windows.Controls.Button>(name).Visibility);
             Assert.Equal(Visibility.Collapsed, Field<System.Windows.Controls.Button>("ContextUnpin").Visibility);
-            window.Close();
         });
     }
 }

@@ -58,6 +58,16 @@ public sealed class Chimney : Element
     /// <summary>What there is at its foot, in the room: an open fireplace, a stove, or nothing.</summary>
     public ChimneyFireplace Fireplace { get; set; } = ChimneyFireplace.None;
 
+    /// <summary>
+    /// The fireplaces in its breast on the floors above its foot, by level: one on the first
+    /// floor over the one in the sitting room, as in a house's stack. Each has a flue of its own.
+    /// </summary>
+    public Dictionary<Guid, ChimneyFireplace> FireplacesAbove { get; } = new();
+
+    /// <summary>The fireplace on a floor above its foot, or none.</summary>
+    public ChimneyFireplace FireplaceOn(Guid levelId) =>
+        FireplacesAbove.TryGetValue(levelId, out var fireplace) ? fireplace : ChimneyFireplace.None;
+
     public Point2D Along => new Point2D(0, 0) + new Vector2D(Math.Cos(Angle * Math.PI / 180), Math.Sin(Angle * Math.PI / 180));
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
@@ -83,10 +93,18 @@ public sealed class Chimney : Element
         yield return ParameterValue.ReadOnly(ChimneyParameters.Height, () => Chimneys.Top(document, this) - Chimneys.Foot(document, this));
         yield return ParameterValue.ReadOnly(ChimneyParameters.AboveRoof, () => Chimneys.Top(document, this) - Chimneys.HighestContact(document, this) ?? 0);
 
-        yield return ParameterValue.BindChoice(ChimneyParameters.Fireplace,
+        yield return ParameterValue.BindChoiceCommand(ChimneyParameters.Fireplace,
             () => EnumText.Humanise(Fireplace),
-            value => { if (EnumText.TryParse<ChimneyFireplace>(value, out var fireplace)) Fireplace = fireplace; },
+            (string value, out string? message) =>
+            {
+                message = null;
+                return EnumText.TryParse<ChimneyFireplace>(value, out var fireplace) ? SetChimneyFireplaceCommand.For(document, this, null, fireplace, out message) : null;
+            },
             EnumText.Choices<ChimneyFireplace>());
+
+        // A fireplace on each floor its stack rises through, each with a flue of its own.
+        foreach (var level in Chimneys.UpperFloors(document, this))
+            yield return SetChimneyFireplaceCommand.Parameter(document, this, level);
 
         if (type.IsRound)
         {
@@ -100,10 +118,11 @@ public sealed class Chimney : Element
 
         yield return ParameterValue.BindCommand(ChimneyParameters.Rotation, () => Angle,
             (double value, out string? message) => FitChimneysCommand.Turn(document, this, value, out message));
+        // A flue for each fireplace at least: fewer is refused.
         if (type.HasFlue)
-            yield return ParameterValue.BindValidated(ChimneyParameters.Flues, () => Flues, (int value) =>
+            yield return ParameterValue.BindValidated(ChimneyParameters.Flues, () => Chimneys.FlueCount(document, this), (int value) =>
             {
-                if (value < 1 || value > 8) return false;
+                if (value < 1 || value > 8 || value < Chimneys.Hearths(document, this).Count) return false;
                 Flues = value;
                 return true;
             });
@@ -199,7 +218,42 @@ public static partial class Chimneys
     }
 
     /// <summary>The highest point where a chimney meets a roof it rises through, or null where it meets none.</summary>
+    /// <summary>
+    /// The heights worked out for chimneys while one is being built, kept so they are worked
+    /// out once: building a stack asks where it meets the roof and how tall it is many times
+    /// over, and each answer means going round the roofs.
+    /// </summary>
+    [ThreadStatic] private static Dictionary<Chimney, (double? Contact, double? LeastTop)>? _heights;
+
+    /// <summary>
+    /// Keeps the chimneys' heights worked out while it lasts: for building a 3D view, a section
+    /// or one chimney, with nothing changing under it.
+    /// </summary>
+    public sealed class Heights : IDisposable
+    {
+        private readonly bool _outer;
+
+        public Heights()
+        {
+            _outer = _heights is null;
+            _heights ??= new Dictionary<Chimney, (double?, double?)>(ReferenceEqualityComparer.Instance);
+        }
+
+        public void Dispose()
+        {
+            if (_outer) _heights = null;
+        }
+    }
+
     public static double? HighestContact(BimDocument document, Chimney chimney)
+    {
+        if (_heights is not null && _heights.TryGetValue(chimney, out var known) && known.Contact is { } contact) return contact;
+        var found = HighestContactUncached(document, chimney);
+        if (_heights is not null && found is { } at) _heights[chimney] = (at, _heights.GetValueOrDefault(chimney).LeastTop);
+        return found;
+    }
+
+    private static double? HighestContactUncached(BimDocument document, Chimney chimney)
     {
         var outline = Outline(document, chimney);
         var contacts = Roofs(document, chimney).SelectMany(roof => Contacts(document, roof, outline)).ToList();
@@ -212,6 +266,14 @@ public static partial class Chimneys
     /// type's own least height, which is what sets an industrial stack's.
     /// </summary>
     public static double LeastTop(BimDocument document, Chimney chimney)
+    {
+        if (_heights is not null && _heights.TryGetValue(chimney, out var known) && known.LeastTop is { } least) return least;
+        var found = LeastTopUncached(document, chimney);
+        if (_heights is not null) _heights[chimney] = (_heights.GetValueOrDefault(chimney).Contact, found);
+        return found;
+    }
+
+    private static double LeastTopUncached(BimDocument document, Chimney chimney)
     {
         var foot = Foot(document, chimney);
         var own = foot + TypeOf(document, chimney).MinimumHeight;
@@ -314,61 +376,32 @@ public static partial class Chimneys
 
         if (type.IsRound || !type.HasFlue) return new[] { chimney.Location };
 
+        // In a row along the stack, a withe of brick between each: one for each fireplace at least.
         var along = new Vector2D(chimney.Along.X, chimney.Along.Y);
-        return Enumerable.Range(0, count)
-            .Select(i => chimney.Location + along * (chimney.Width * ((i + 0.5) / count - 0.5)))
-            .ToList();
+        return FlueOffsets(document, chimney).Select(offset => chimney.Location + along * offset).ToList();
     }
 
     /// <summary>A chimney breast: its outline, its top, the fireplace opening in its front and how high, and the hearth before it, in plan.</summary>
     public sealed record ChimneyBreast(IReadOnlyList<Point2D> Outline, double Top, IReadOnlyList<Point2D> Opening, double OpeningHeight, IReadOnlyList<Point2D> Hearth);
 
-    /// <summary>How far up the breast goes before it narrows to the stack: up to near the ceiling, below the roof.</summary>
-    private static double BreastTop(BimDocument document, Chimney chimney)
-    {
-        var foot = Foot(document, chimney);
-        var under = HighestContact(document, chimney) is { } contact ? contact - 600 : foot + 2400;
-        return Math.Min(foot + 2400, under);
-    }
-
     /// <summary>Whether a chimney has a breast in the room with a fireplace opening in its front: a masonry or block one with a fire at its foot.</summary>
-    public static bool HasBreast(BimDocument document, Chimney chimney) =>
-        chimney.Fireplace != ChimneyFireplace.None &&
-        TypeOf(document, chimney).Construction is ChimneyConstruction.Masonry or ChimneyConstruction.PrecastBlock &&
-        BreastTop(document, chimney) - Foot(document, chimney) >= 1500;
+    public static bool HasBreast(BimDocument document, Chimney chimney) => Breast(document, chimney) is not null;
 
     /// <summary>
     /// The breast of a chimney with a fire at its foot: wider and deeper than the stack, its back
     /// on the stack's back, with the fireplace opening in its front at the floor and a hearth
     /// before it - the opening the room sees, not a hole underneath.
     /// </summary>
-    public static ChimneyBreast? Breast(BimDocument document, Chimney chimney)
-    {
-        if (!HasBreast(document, chimney)) return null;
-
-        var front = Front(chimney);
-        var width = Math.Max(chimney.Width, 1200);
-        var depth = Math.Max(chimney.Depth + 150, 600);
-        var centre = chimney.Location + front * ((depth - chimney.Depth) / 2);
-        var outline = Rectangle(chimney, width, depth, centre);
-
-        var stove = chimney.Fireplace == ChimneyFireplace.Stove;
-        var openingWidth = Math.Max(500, Math.Min(width - 450, stove ? 900 : 800));
-        var openingDepth = Math.Min(depth - 115, stove ? 500 : 400);
-        var face = centre + front * (depth / 2);
-        var opening = Rectangle(chimney, openingWidth, openingDepth + 2, face - front * (openingDepth / 2 - 1));
-        var hearth = Rectangle(chimney, openingWidth + 300, openingDepth + 500, face + front * ((500 - openingDepth) / 2));
-
-        return new ChimneyBreast(outline, BreastTop(document, chimney), opening, stove ? 750 : 650, hearth);
-    }
+    public static ChimneyBreast? Breast(BimDocument document, Chimney chimney) =>
+        chimney.Fireplace == ChimneyFireplace.None ? null : BreastOn(document, chimney, chimney.LevelId);
 
     /// <summary>
-    /// What a chimney covers in plan on a level: on its own, its breast where it has one, or the
-    /// hearth plate a metal flue's stove stands on; its stack elsewhere.
+    /// What a chimney covers in plan on a level: its breast on a floor it has a fireplace on, or
+    /// the hearth plate a metal flue's stove stands on at its foot; its stack elsewhere.
     /// </summary>
     public static IReadOnlyList<Point2D> Footprint(BimDocument document, Chimney chimney, Guid levelId)
     {
-        if (levelId != chimney.LevelId) return Outline(document, chimney);
+        if (levelId != chimney.LevelId) return BreastOn(document, chimney, levelId)?.Outline ?? Outline(document, chimney);
         if (Breast(document, chimney) is { } breast) return breast.Outline;
         return TypeOf(document, chimney).IsRound && chimney.Fireplace == ChimneyFireplace.Stove
             ? Rectangle(chimney, Math.Max(StovePlate, chimney.Width), StovePlate, chimney.Location + Front(chimney) * StovePlateForward)

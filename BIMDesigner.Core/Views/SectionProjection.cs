@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
@@ -61,6 +62,9 @@ public sealed record SectionPiece(
 
 public sealed record SectionLevelLine(string Name, double Elevation);
 
+/// <summary>A grid line the cut crosses: its name, and how far along the cut it stands.</summary>
+public sealed record SectionGridLine(string Name, double Along);
+
 /// <summary>
 /// The result of cutting the model along a marker. It holds no reference back to the
 /// document: it is produced fresh whenever the section is drawn, so it cannot go stale.
@@ -88,6 +92,9 @@ public sealed class SectionDrawing
     public IReadOnlyList<SectionPiece> Pieces { get; }
 
     public IReadOnlyList<SectionLevelLine> Levels { get; }
+
+    /// <summary>The grid lines the cut crosses, drawn upright through the section with their bubbles.</summary>
+    public IReadOnlyList<SectionGridLine> Grids { get; init; } = Array.Empty<SectionGridLine>();
 
     public bool IsEmpty => Pieces.Count == 0;
 
@@ -134,6 +141,7 @@ public static class SectionProjection
     public static SectionDrawing Build(BimDocument document, SectionMarker marker, Func<Element, bool>? shows = null)
     {
         shows ??= _ => true;
+        using var heights = new Chimneys.Heights();
 
         var pieces = new List<SectionPiece>();
 
@@ -154,6 +162,20 @@ public static class SectionProjection
 
             foreach (var column in document.Elements.OfType<Column>().Where(column => shows(column)))
                 AddColumn(document, marker, column, pieces);
+
+            // What is built only as a solid - a chimney with its breasts, flues, damper, cap and
+            // pots; a piece of furniture; a downpipe; a roof drain's pipe - is cut as it is built.
+            // Only those near enough the line to be cut are built: building a solid costs more than cutting it.
+            foreach (var chimney in document.Elements.OfType<Chimney>().Where(chimney => shows(chimney) && Near(marker, chimney.Location, Math.Max(chimney.Width, chimney.Depth) + 2500)))
+                AddCut(marker, Chimneys.Meshes(document, chimney), pieces);
+            foreach (var component in document.Elements.OfType<Component>().Where(component => shows(component)))
+                if (document.FindType<ComponentType>(component.TypeId) is { } componentType && Near(marker, component.Location, Math.Max(componentType.Width, componentType.Depth)))
+                    AddCut(marker, ModelMeshBuilder.BuildComponent(document, component), pieces);
+            foreach (var pipe in document.Elements.OfType<Downpipe>().Where(pipe => shows(pipe)))
+                if (Downpipes.Path(document, pipe) is { } path && path.Points.Any(point => Near(marker, point.Plan, 300)) && Downpipes.Mesh(document, pipe) is { } mesh)
+                    AddCut(marker, new[] { mesh }, pieces);
+            foreach (var drain in document.Elements.OfType<RoofDrain>().Where(drain => shows(drain)))
+                if (RoofDrainage.Mesh(document, drain) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
 
             // Roof windows the cut goes through: the frame each side, the pane between.
             foreach (var window in document.Elements.OfType<RoofWindow>().Where(window => shows(window)))
@@ -192,6 +214,21 @@ public static class SectionProjection
             .Select(level => new SectionLevelLine(level.Name, level.Elevation))
             .ToList();
 
+        // The grid lines the cut crosses, where it crosses them.
+        var grids = new List<SectionGridLine>();
+        foreach (var grid in document.Elements.OfType<Grid>().Where(grid => shows(grid)))
+        {
+            var run = grid.End - grid.Start;
+            var denominator = marker.Direction.Cross(run);
+            if (Math.Abs(denominator) < Epsilon) continue;
+
+            var offset = grid.Start - marker.Start;
+            var alongGrid = offset.Cross(marker.Direction) / denominator;
+            var alongCut = offset.Cross(run) / denominator;
+            if (alongGrid is >= 0 and <= 1 && alongCut >= 0 && alongCut <= marker.Length)
+                grids.Add(new SectionGridLine(grid.Name, alongCut));
+        }
+
         // Everything beyond the cut plane is drawn before the cut itself, so the cut always
         // reads as the front of the drawing - and what is beyond, farthest first, so a nearer
         // wall hides what is behind it rather than a window in a far wall showing through it.
@@ -225,7 +262,28 @@ public static class SectionProjection
             .ThenByDescending(piece => piece.Depth == SectionDepth.Seen ? piece.Distance ?? Distance(piece.ElementId) : 0)
             .ToList();
 
-        return new SectionDrawing(marker.Name, marker.Length, ordered, levels);
+        return new SectionDrawing(marker.Name, marker.Length, ordered, levels) { Grids = grids.OrderBy(grid => grid.Along).ToList() };
+    }
+
+    /// <summary>Whether a point is within a reach of the cut line, either side of it and past neither end by more.</summary>
+    private static bool Near(SectionMarker marker, Point2D at, double reach) =>
+        Math.Abs(marker.DepthOf(at)) <= reach && marker.DistanceAlong(at) >= -reach && marker.DistanceAlong(at) <= marker.Length + reach;
+
+    /// <summary>A solid cut where the section passes through it, as it is built in 3D: each piece of the cut in its own colour.</summary>
+    private static void AddCut(SectionMarker marker, IEnumerable<Mesh3D> meshes, List<SectionPiece> pieces)
+    {
+        foreach (var mesh in meshes)
+        foreach (var shape in MeshSections.Cut(mesh, marker))
+            pieces.Add(new SectionPiece(
+                new SectionRect(shape.Min(point => point.X), shape.Min(point => point.Y), shape.Max(point => point.X), shape.Max(point => point.Y)),
+                mesh.Kind == MeshKind.Glazing ? SectionPart.Glazing : SectionPart.WallLayer,
+                SectionDepth.Cut,
+                mesh.Colour,
+                mesh.Description,
+                mesh.ElementId)
+            {
+                Shape = shape
+            });
     }
 
     // ---- walls -----------------------------------------------------------------
@@ -562,6 +620,9 @@ public static class SectionProjection
                 .ToList();
         }
 
+        // A framed wall's core is its frame: cut through its studs, plates and noggings instead.
+        var framing = WallFramings.Of(document, wall);
+
         var layerIndex = -1;
         foreach (var (layer, start, end) in structure.GetLayerOffsets())
         {
@@ -569,6 +630,7 @@ public static class SectionProjection
 
             // A membrane is a line with no volume: nothing to build or cut.
             if (layer.Thickness <= 0) continue;
+            if (framing is not null && (structure.CoreStartIndex < 0 || layerIndex >= structure.CoreStartIndex && layerIndex <= structure.CoreEndIndex)) continue;
 
             // Layers are measured from the exterior face inward; the band's signed offsets
             // from the centreline therefore run the other way.
@@ -592,6 +654,8 @@ public static class SectionProjection
                     wall.Id));
             }
         }
+
+        if (framing is not null && WallFramings.Mesh(document, framing) is { } frame) AddCut(marker, new[] { frame }, pieces);
 
         foreach (var (opening, openingType) in openings)
         {

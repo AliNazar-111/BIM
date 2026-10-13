@@ -49,7 +49,16 @@ public enum BuiltInCategory
     Downpipes,
     RoofDrains,
     Chimneys,
-    Parts
+    Parts,
+
+    /// <summary>Radiators and the like: the heating.</summary>
+    MechanicalEquipment,
+
+    /// <summary>Sockets.</summary>
+    ElectricalFixtures,
+
+    /// <summary>Light switches.</summary>
+    LightingDevices
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

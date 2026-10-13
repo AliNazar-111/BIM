@@ -700,6 +700,20 @@ public sealed class Mesh3D
         _edges.AddRange(kept);
     }
 
+    /// <summary>
+    /// Adds another mesh's faces and edges to this one: a piece built in a frame of its own -
+    /// a disc standing up, made as a prism lying down - then turned into place and joined on.
+    /// </summary>
+    public void Append(Mesh3D other)
+    {
+        _normals = null;
+
+        var offset = _positions.Count;
+        _positions.AddRange(other._positions);
+        _indices.AddRange(other._indices.Select(index => index + offset));
+        _edges.AddRange(other._edges);
+    }
+
     /// <summary>The smallest box around everything, or null for an empty mesh.</summary>
     public (Point3D Min, Point3D Max)? Bounds()
     {

@@ -236,6 +236,9 @@ public static class ElementTransforms
 
                 component.Location = Reflect(component.Location);
                 component.FaceToward(reflected - component.Location);
+
+                // And it is the mirror image of what it was: left is right.
+                component.FlipHand = !component.FlipHand;
                 break;
             }
 

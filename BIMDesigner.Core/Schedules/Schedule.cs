@@ -89,15 +89,29 @@ public static class Schedule
 {
     public static ScheduleResult Run(BimDocument document, ScheduleDefinition definition)
     {
+        // Each room traced once for the whole schedule, however many rows ask which room they are in.
+        using var rooms = new Architecture.RoomsOf.Outlines();
+
         var rows = document.Elements
             .Where(element => element.Category == definition.Category)
-            .Select(element => new ScheduleRow { Element = element, Cells = ParametersOf(document, element) })
+            .Select(element =>
+            {
+                var cells = ParametersOf(document, element);
+                return new ScheduleRow { Element = element, Cells = Counted(cells, 1, Cost(cells)) };
+            })
             .Where(row => definition.Filters.All(filter => Passes(row, filter)))
             .ToList();
+
+        // Not itemised: those alike in every field but the counted ones made one row, counted.
+        if (!definition.Itemize) rows = Combined(rows, definition);
 
         rows = Sort(rows, definition);
 
         var columns = BuildColumns(rows, definition);
+        if (!definition.Itemize) columns = columns.Select(column => new ScheduleColumn
+        {
+            Field = column.Field, DataType = column.DataType, Totalled = column.Totalled, IsReadOnly = true
+        }).ToList();
         var groups = Group(rows, columns, definition);
 
 
@@ -109,6 +123,48 @@ public static class Schedule
             Groups = groups,
             Totals = Total(rows, columns)
         };
+    }
+
+    private static readonly ParameterDefinition CountDefinition =
+        new(ScheduleDefinition.CountField, ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Other);
+
+    private static readonly ParameterDefinition TotalCostDefinition =
+        new(ScheduleDefinition.TotalCostField, ParameterDataType.Currency, ParameterBinding.Instance, ParameterGroup.Other);
+
+    /// <summary>The cost a row's element carries - its type's - or nothing.</summary>
+    private static decimal Cost(IReadOnlyDictionary<string, ParameterValue> cells) =>
+        cells.TryGetValue("Cost", out var cost) && Numeric(cost) is { } value ? (decimal)value : 0m;
+
+    /// <summary>A row's cells with how many it stands for and what they cost added.</summary>
+    private static IReadOnlyDictionary<string, ParameterValue> Counted(IReadOnlyDictionary<string, ParameterValue> cells, int count, decimal cost)
+    {
+        var counted = new Dictionary<string, ParameterValue>(cells, StringComparer.OrdinalIgnoreCase)
+        {
+            [ScheduleDefinition.CountField] = ParameterValue.ReadOnly(CountDefinition, () => count),
+            [ScheduleDefinition.TotalCostField] = ParameterValue.ReadOnly(TotalCostDefinition, () => cost)
+        };
+        return counted;
+    }
+
+    /// <summary>
+    /// Rows alike in every field the schedule shows but the counted ones made one: the first of
+    /// them, with how many there are and what they all cost.
+    /// </summary>
+    private static List<ScheduleRow> Combined(List<ScheduleRow> rows, ScheduleDefinition definition)
+    {
+        var alike = definition.Fields
+            .Where(field => field is not (ScheduleDefinition.CountField or ScheduleDefinition.TotalCostField))
+            .ToList();
+
+        return rows
+            .GroupBy(row => string.Join("\u001F", alike.Select(row.Text)))
+            .Select(group =>
+            {
+                var first = group.First();
+                var cost = group.Sum(row => Numeric(row[ScheduleDefinition.TotalCostField]) is { } each ? (decimal)each : 0m);
+                return new ScheduleRow { Element = first.Element, Cells = Counted(first.Cells, group.Count(), cost) };
+            })
+            .ToList();
     }
 
     /// <summary>

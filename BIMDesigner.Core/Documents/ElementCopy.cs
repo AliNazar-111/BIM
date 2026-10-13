@@ -187,7 +187,9 @@ public static class ElementCopy
             Rotation = component.Rotation,
             Elevation = component.Elevation,
             HostId = component.HostId,
-            FlipFacing = component.FlipFacing
+            FlipFacing = component.FlipFacing,
+            FlipHand = component.FlipHand,
+            StandsOn = component.StandsOn
         }, component),
 
         Room room => CarryCommon(new Room
@@ -259,7 +261,7 @@ public static class ElementCopy
             Kind = shaped.Kind, Outline = shaped.Outline.ToList(), Start = shaped.Start, End = shaped.End,
             StartThickness = shaped.StartThickness, EndThickness = shaped.EndThickness, StraightSide = shaped.StraightSide,
             MaterialId = shaped.MaterialId, BaseOffset = shaped.BaseOffset, TopLevelId = shaped.TopLevelId, TopOffset = shaped.TopOffset,
-            UnconnectedHeight = shaped.UnconnectedHeight
+            UnconnectedHeight = shaped.UnconnectedHeight, BaseAttachedTo = shaped.BaseAttachedTo
         }, shaped),
         WallFraming framing => CarryCommon(new WallFraming
         {
@@ -271,11 +273,11 @@ public static class ElementCopy
             HostId = part.HostId, Layer = part.Layer, From = part.From, To = part.To, Bottom = part.Bottom, Top = part.Top,
             Gap = part.Gap, MaterialId = part.MaterialId, Excluded = part.Excluded
         }, part),
-        Chimney chimney => CarryCommon(new Chimney
+        Chimney chimney => CarryCommon(WithFireplacesAbove(new Chimney
         {
             Location = chimney.Location, Width = chimney.Width, Depth = chimney.Depth, Angle = chimney.Angle, BaseOffset = chimney.BaseOffset,
             Flues = chimney.Flues, Rule = chimney.Rule, ExtraHeight = chimney.ExtraHeight, Fireplace = chimney.Fireplace
-        }, chimney),
+        }, chimney), chimney),
         ShaftOpening shaft => CarryCommon(new ShaftOpening
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
@@ -360,6 +362,13 @@ public static class ElementCopy
         };
         copy.HostWallIds.AddRange(placed.HostWallIds);
         return CarryCommon(copy, placed);
+    }
+
+    /// <summary>A copied chimney given the original's fireplaces on the floors above its foot.</summary>
+    private static Chimney WithFireplacesAbove(Chimney copy, Chimney original)
+    {
+        foreach (var (level, fireplace) in original.FireplacesAbove) copy.FireplacesAbove[level] = fireplace;
+        return copy;
     }
 
     private static Element CarryCommon(Element copy, Element original)

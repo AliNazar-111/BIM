@@ -78,12 +78,14 @@ public static class WallProfile
     /// under the ridge, as Revit's Attach Top takes one. A curtain wall is not given an outline
     /// as a wall of masonry is: its grid is set out to the full height and cut off at this line,
     /// its panes shaped to it and a mullion run up the rake. Null for any other wall, and where
-    /// the roof over it is level or it stands on a roof as well.
+    /// the roof over it is level or it stands on a sloping roof as well. One standing on a flat
+    /// roof - the floor of its storey, laid on the storey below - is on a floor like any other.
     /// </summary>
     public static IReadOnlyList<Point2D>? CurtainTop(BimDocument document, Wall wall)
     {
         if (wall.IsCurved || wall.CrossSection != WallCrossSection.Vertical) return null;
-        if (document.FindType<CurtainWallType>(wall.TypeId) is null || wall.RoofUnder(document) is not null) return null;
+        if (document.FindType<CurtainWallType>(wall.TypeId) is null) return null;
+        if (wall.RoofUnder(document) is { } under && !under.Surface(document).IsFlat) return null;
         if (UnderRoof(document, wall) is not { } outline) return null;
 
         // The outline runs along its bottom, at no height, then back along its top: the top is

@@ -26,6 +26,55 @@ public static class TypeNames
     }
 }
 
+/// <summary>
+/// Making a new type from one there is - Revit's Duplicate in Type Properties - to be given
+/// another size or material without touching anything built of the first: a 2400 table from the
+/// 1800 one, a sofa in leather.
+/// </summary>
+public static class TypeDuplicates
+{
+    /// <summary>A copy of a type under a new name, not yet in the project; null for a type that cannot be copied here.</summary>
+    public static ElementType? Duplicate(ElementType type, string name)
+    {
+        var copy = Copied(type, name);
+        copy?.TakeIdentityFrom(type);
+        return copy;
+    }
+
+    private static ElementType? Copied(ElementType type, string name) => type switch
+    {
+        ComponentType component => component.Duplicate(name),
+        DoorType door => door.Duplicate(name),
+        WindowType window => window.Duplicate(name),
+        ChimneyType chimney => chimney.Duplicate(name),
+        FasciaType fascia => fascia.Duplicate(name),
+        GutterType gutter => gutter.Duplicate(name),
+        SoffitType soffit => soffit.Duplicate(name),
+        RoofWindowType roofWindow => roofWindow.Duplicate(name),
+        WallSweepType sweep => sweep.Duplicate(name),
+        _ => null
+    };
+
+    /// <summary>Whether a type can be duplicated here, rather than in the wall types window.</summary>
+    public static bool CanDuplicate(ElementType type) =>
+        type is ComponentType or DoorType or WindowType or ChimneyType or FasciaType or GutterType or SoffitType or RoofWindowType or WallSweepType;
+
+    /// <summary>
+    /// A type duplicated under a name - made unique if it is taken - added to the project, and
+    /// the given elements of its category given the copy, the rest left on the original: one
+    /// step to undo. Null for a type that cannot be copied here.
+    /// </summary>
+    public static (IUndoableCommand Command, ElementType Copy)? For(BimDocument document, ElementType type, string name, IEnumerable<Element> retype)
+    {
+        if (Duplicate(type, TypeNames.Unique(document, string.IsNullOrWhiteSpace(name) ? type.Name : name.Trim())) is not { } copy) return null;
+
+        var steps = new List<IUndoableCommand> { new AddTypeCommand(document, copy) };
+        var given = retype.Where(element => element.TypeId == type.Id).ToList();
+        if (given.Count > 0) steps.Add(new SetElementsTypeCommand(given, copy));
+        return (new CompositeCommand($"Duplicate Type {copy.Name}", steps), copy);
+    }
+}
+
 /// <summary>Adds a type to the project - a duplicate made to be edited, usually.</summary>
 public sealed class AddTypeCommand : IUndoableCommand
 {

@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:controls="clr-namespace:BIMDesigner.UI.Controls">
 
     <!--
         The ribbon: tabs of panels, each panel a row of large buttons with an icon over a
@@ -116,6 +117,11 @@
         <Setter Property="Template" Value="{StaticResource RibbonSmallTemplate}"/>
     </Style>
 
+    <!-- A tool as a small button, three to a column: one of the tools, only one on at a time. -->
+    <Style x:Key="RibbonSmallTool" TargetType="RadioButton" BasedOn="{StaticResource RibbonSmallRadio}">
+        <Setter Property="GroupName" Value="Tools"/>
+    </Style>
+
     <!-- A panel: its buttons, its name along the bottom, a rule on its right. -->
     <Style x:Key="RibbonPanel" TargetType="HeaderedContentControl">
         <Setter Property="Focusable" Value="False"/>
@@ -136,6 +142,53 @@
     </Style>
 
     <!-- The tab strip over the panels. -->
+    <!-- The arrow at either end of a ribbon too wide for the window: there is more this way. -->
+    <Style x:Key="RibbonScrollArrow" TargetType="RepeatButton">
+        <Setter Property="Width" Value="22"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Delay" Value="300"/>
+        <Setter Property="Interval" Value="60"/>
+        <Setter Property="Visibility" Value="Collapsed"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RepeatButton">
+                    <Border x:Name="Chrome" Background="{StaticResource Bg.Hover}" BorderBrush="{StaticResource Line}" BorderThickness="1,0,1,0">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Bg.Elevated}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="RibbonScroller" TargetType="controls:RibbonScroller">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:RibbonScroller">
+                    <Grid>
+                        <ScrollViewer x:Name="PART_Scroll" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                                      Focusable="False">
+                            <ContentPresenter/>
+                        </ScrollViewer>
+                        <RepeatButton x:Name="PART_Left" Style="{StaticResource RibbonScrollArrow}" HorizontalAlignment="Left"
+                                      ToolTip="More tools this way (or scroll the mouse wheel over the ribbon)">
+                            <Path Data="M6,0 L0,7 L6,14" Stroke="{StaticResource Text}" StrokeThickness="1.8"/>
+                        </RepeatButton>
+                        <RepeatButton x:Name="PART_Right" Style="{StaticResource RibbonScrollArrow}" HorizontalAlignment="Right"
+                                      ToolTip="More tools this way (or scroll the mouse wheel over the ribbon)">
+                            <Path Data="M0,0 L6,7 L0,14" Stroke="{StaticResource Text}" StrokeThickness="1.8"/>
+                        </RepeatButton>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="RibbonTabs" TargetType="TabControl">
         <Setter Property="Background" Value="{StaticResource Bg.Elevated}"/>
         <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
@@ -149,7 +202,10 @@
                         </Border>
                         <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="0,1,0,1" Height="96">
-                            <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
+                            <!-- Wider than the window, the panels scroll rather than being cut off. -->
+                            <controls:RibbonScroller x:Name="RibbonScroll" Style="{StaticResource RibbonScroller}">
+                                <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent"/>
+                            </controls:RibbonScroller>
                         </Border>
                     </DockPanel>
                 </ControlTemplate>

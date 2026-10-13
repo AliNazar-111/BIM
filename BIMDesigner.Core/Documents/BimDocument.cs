@@ -15,6 +15,9 @@ public sealed class ProjectInformation
     public string Client { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string BuildingType { get; set; } = string.Empty;
+
+    /// <summary>Whose rules the clear space round fittings is checked against: Approved Document M, or the ADA.</summary>
+    public ClearanceStandard ClearanceStandard { get; set; } = ClearanceStandard.ApprovedDocumentM;
 }
 
 /// <summary>
@@ -29,6 +32,37 @@ public sealed class BimDocument
     private readonly Dictionary<Guid, ElementType> _types = new();
     private readonly Dictionary<Guid, Material> _materials = new();
     private readonly ObservableCollection<Level> _levels = new();
+
+    /// <summary>Every element by its id, kept in step with <see cref="Elements"/>: a level asks where its floor is far too often to search.</summary>
+    private readonly Dictionary<Guid, Element> _byId = new();
+
+    public BimDocument()
+    {
+        Elements.CollectionChanged += (_, change) =>
+        {
+            if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+            {
+                _byId.Clear();
+                foreach (var element in Elements) _byId[element.Id] = element;
+                return;
+            }
+
+            foreach (Element gone in change.OldItems ?? Array.Empty<Element>()) _byId.Remove(gone.Id);
+            foreach (Element added in change.NewItems ?? Array.Empty<Element>()) _byId[added.Id] = added;
+        };
+
+        // A level standing on a floor is told where that floor's top is.
+        _levels.CollectionChanged += (_, change) =>
+        {
+            foreach (Level added in change.NewItems ?? Array.Empty<Level>()) added.FloorTop = FloorTop;
+        };
+    }
+
+    /// <summary>The top of a floor or flat roof a level stands on, or null where it is gone.</summary>
+    private double? FloorTop(Guid id) => _byId.GetValueOrDefault(id) is Slab slab ? slab.GetTopElevation(this) : null;
+
+    /// <summary>An element by its id, or null.</summary>
+    public Element? FindElement(Guid id) => _byId.GetValueOrDefault(id);
 
     public ProjectInformation ProjectInformation { get; } = new();
 
@@ -207,6 +241,12 @@ public sealed class BimDocument
 
             AddType(type);
         }
+
+        // A library family saved while it was still a plain box - the wardrobe was one - takes the
+        // shape the library has given it since, keeping its size, material and everything else.
+        foreach (var own in _types.Values.OfType<ComponentType>().Where(type => type.Form == ComponentForm.Box))
+            if (template.TypesOf<ComponentType>().FirstOrDefault(type => string.Equals(type.Name, own.Name, StringComparison.OrdinalIgnoreCase)) is { Form: not ComponentForm.Box } shaped)
+                own.Form = shaped.Form;
 
         // Finishes to paint with: a project made before Paint gains them, by name.
         foreach (var finish in FinishMaterials())
@@ -1154,6 +1194,9 @@ public sealed class BimDocument
         var fabric = new ColourRgb(0x7F, 0x86, 0x92);
         var white = new ColourRgb(0xEC, 0xEE, 0xF0);
         var foliage = new ColourRgb(0x5E, 0x8C, 0x4E);
+        var stainless = new ColourRgb(0xB8, 0xBC, 0xC0);
+        var linen = new ColourRgb(0xE8, 0xDC, 0xC4);
+        var enamel = new ColourRgb(0x3A, 0x3D, 0x42);
 
         var components = new[]
         {
@@ -1171,8 +1214,21 @@ public sealed class BimDocument
                 { TypeMark = "F6", Colour = fabric, Cost = 540m },
             new ComponentType("Bed - Single", BuiltInCategory.Furniture, ComponentForm.Bed, 900, 1900, 900)
                 { TypeMark = "F7", Colour = fabric, Cost = 380m },
+            new ComponentType("Wardrobe - 1000 x 600", BuiltInCategory.Furniture, ComponentForm.Wardrobe, 1000, 600, 2100)
+                { TypeMark = "F9", Colour = timber, Cost = 420m },
             new ComponentType("Bookcase - 900 x 1800", BuiltInCategory.Furniture, ComponentForm.Shelving, 900, 300, 1800)
                 { TypeMark = "F8", Colour = timber, Cost = 210m },
+
+            // The bedroom and the living room: a triple wardrobe, 600 deep for hanging; an armchair
+            // with its seat at 450; a coffee table at 420, a little under the seat; a TV unit.
+            new ComponentType("Wardrobe - 1500 x 600", BuiltInCategory.Furniture, ComponentForm.Wardrobe, 1500, 600, 2100)
+                { TypeMark = "F10", Colour = timber, Cost = 560m },
+            new ComponentType("Armchair", BuiltInCategory.Furniture, ComponentForm.Armchair, 850, 850, 950)
+                { TypeMark = "F11", Colour = fabric, Cost = 420m },
+            new ComponentType("Coffee Table - 1100 x 600", BuiltInCategory.Furniture, ComponentForm.CoffeeTable, 1100, 600, 420)
+                { TypeMark = "F12", Colour = timber, Cost = 180m },
+            new ComponentType("TV Unit - 1600", BuiltInCategory.Furniture, ComponentForm.TelevisionUnit, 1600, 450, 500)
+                { TypeMark = "F13", Colour = timber, Cost = 280m },
 
             new ComponentType("Counter - Kitchen 1800", BuiltInCategory.Casework, ComponentForm.Counter, 1800, 650, 900)
                 { TypeMark = "C1", Colour = timber, Cost = 460m },
@@ -1183,6 +1239,27 @@ public sealed class BimDocument
                 TypeMark = "C3", Colour = timber, Cost = 160m,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1400
             },
+
+            // The kitchen's appliances at the sizes UK ones come in: 600 wide to take the place of
+            // a 600 unit in a run, the dishwasher, washing machine and under-counter fridge under
+            // the 900 worktop - its colour or material is the worktop's - and a fridge-freezer
+            // standing tall at the end of the run.
+            new ComponentType("Fridge Freezer - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Fridge, 600, 650, 1850)
+                { TypeMark = "A1", Colour = white, Cost = 450m },
+            new ComponentType("Fridge Freezer - American 910", BuiltInCategory.SpecialtyEquipment, ComponentForm.Fridge, 910, 740, 1790)
+                { TypeMark = "A2", Colour = stainless, Cost = 1100m },
+            new ComponentType("Fridge - Under Counter 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Fridge, 600, 600, 900)
+                { TypeMark = "A3", Colour = timber, Cost = 260m },
+            new ComponentType("Oven and Hob - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Cooker, 600, 600, 900)
+                { TypeMark = "A4", Colour = timber, Cost = 650m },
+            new ComponentType("Range Cooker - 1000", BuiltInCategory.SpecialtyEquipment, ComponentForm.Cooker, 1000, 600, 900)
+                { TypeMark = "A5", Colour = enamel, Cost = 1200m },
+            new ComponentType("Dishwasher - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Dishwasher, 600, 600, 900)
+                { TypeMark = "A6", Colour = timber, Cost = 380m },
+            new ComponentType("Dishwasher - Slimline 450", BuiltInCategory.SpecialtyEquipment, ComponentForm.Dishwasher, 450, 600, 900)
+                { TypeMark = "A7", Colour = timber, Cost = 330m },
+            new ComponentType("Washing Machine - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.WashingMachine, 600, 600, 900)
+                { TypeMark = "A8", Colour = timber, Cost = 400m },
 
             new ComponentType("Basin - Pedestal", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 450, 850)
                 { TypeMark = "P1", Colour = white, Cost = 190m },
@@ -1196,14 +1273,83 @@ public sealed class BimDocument
             new ComponentType("Bath - 1700 x 700", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1700, 700, 550)
                 { TypeMark = "P4", Colour = white, Cost = 340m },
 
+            // Sinks set into the worktop of their unit: a bowl and drainer in a 1000 unit, a bowl in a 600.
+            new ComponentType("Sink Unit - 1000", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 1000, 600, 900)
+                { TypeMark = "P5", Colour = timber, Cost = 320m },
+            new ComponentType("Sink Unit - 600", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 600, 600, 900)
+                { TypeMark = "P6", Colour = timber, Cost = 240m },
+
+            // Showers on a low 45 tray, an enclosure's 8 mm glass 1900 high on it: a tray on its
+            // own, a corner one, a sliding door across an alcove, and a walk-in's fixed panel.
+            new ComponentType("Shower Tray - 900 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 45)
+                { TypeMark = "P7", Colour = white, Cost = 180m },
+            new ComponentType("Shower Enclosure - Corner 900 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 1945)
+                { TypeMark = "P8", Colour = white, Cost = 520m, Enclosure = ShowerEnclosure.Corner },
+            new ComponentType("Shower Enclosure - Alcove 1200 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1200, 800, 1945)
+                { TypeMark = "P9", Colour = white, Cost = 480m, Enclosure = ShowerEnclosure.Alcove },
+            new ComponentType("Walk-in Shower - 1400 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1400, 900, 1945)
+                { TypeMark = "P10", Colour = white, Cost = 560m, Enclosure = ShowerEnclosure.WalkIn },
+
             new ComponentType("Wall Light", BuiltInCategory.LightingFixtures, ComponentForm.WallLight, 300, 140, 320)
             {
                 TypeMark = "L1", Colour = white, Cost = 75m,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 2000
             },
 
+            // Ceiling lights hang from the ceiling over where they are put; with no ceiling, their
+            // top at 2400 - the height given is their underside's.
+            new ComponentType("Ceiling Light - Flush", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 350, 350, 100)
+            {
+                TypeMark = "L2", Colour = white, Cost = 45m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2300
+            },
+            new ComponentType("Ceiling Light - Pendant", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 400, 400, 700)
+            {
+                TypeMark = "L3", Colour = linen, Cost = 60m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1700
+            },
+
+            // Radiators on the wall, 150 off the floor on their valves; sockets and switches on it
+            // at the heights Approved Document M sets out - between 450 and 1200 above the floor.
+            new ComponentType("Radiator - 600 x 1000", BuiltInCategory.MechanicalEquipment, ComponentForm.Radiator, 1000, 100, 650)
+            {
+                TypeMark = "M1", Colour = white, Cost = 120m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 100
+            },
+            new ComponentType("Radiator - 600 x 1600", BuiltInCategory.MechanicalEquipment, ComponentForm.Radiator, 1600, 100, 650)
+            {
+                TypeMark = "M2", Colour = white, Cost = 170m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 100
+            },
+            new ComponentType("Socket - Double", BuiltInCategory.ElectricalFixtures, ComponentForm.Socket, 146, 12, 86)
+            {
+                TypeMark = "E1", Colour = white, Cost = 18m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 450
+            },
+            new ComponentType("Switch - One Gang", BuiltInCategory.LightingDevices, ComponentForm.Switch, 86, 12, 86)
+            {
+                TypeMark = "E2", Colour = white, Cost = 8m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1050
+            },
+
             new ComponentType("Tree - Small", BuiltInCategory.Planting, ComponentForm.Tree, 2400, 2400, 4000)
                 { TypeMark = "T1", Colour = foliage, Cost = 260m },
+            new ComponentType("Tree - Large", BuiltInCategory.Planting, ComponentForm.Tree, 6000, 6000, 9000)
+                { TypeMark = "T2", Colour = foliage, Cost = 650m },
+            new ComponentType("Conifer - 7 m", BuiltInCategory.Planting, ComponentForm.Conifer, 2500, 2500, 7000)
+                { TypeMark = "T3", Colour = new ColourRgb(0x3F, 0x6B, 0x3A), Cost = 300m },
+            new ComponentType("Shrub - 1200", BuiltInCategory.Planting, ComponentForm.Shrub, 1200, 1200, 1000)
+                { TypeMark = "T4", Colour = new ColourRgb(0x6B, 0x8F, 0x4E), Cost = 40m },
+
+            // Outside: cars a parking bay's length - 2400 x 4800 - takes, and people to give a sense of scale.
+            new ComponentType("Car - Hatchback", BuiltInCategory.Entourage, ComponentForm.Car, 4100, 1800, 1500)
+                { TypeMark = "V1", Colour = new ColourRgb(0x9E, 0x2B, 0x25), Cost = 0m },
+            new ComponentType("Car - Estate", BuiltInCategory.Entourage, ComponentForm.Car, 4700, 1850, 1500)
+                { TypeMark = "V2", Colour = new ColourRgb(0x3E, 0x52, 0x66), Cost = 0m },
+            new ComponentType("Person - Adult", BuiltInCategory.Entourage, ComponentForm.Person, 500, 300, 1750)
+                { TypeMark = "H1", Colour = new ColourRgb(0x4A, 0x6F, 0xA5), Cost = 0m },
+            new ComponentType("Person - Child", BuiltInCategory.Entourage, ComponentForm.Person, 380, 230, 1200)
+                { TypeMark = "H2", Colour = new ColourRgb(0xC0, 0x50, 0x3A), Cost = 0m },
 
             new ComponentType("Generic - 600 Cube", BuiltInCategory.GenericModels, ComponentForm.Box, 600, 600, 600)
                 { TypeMark = "G1", Cost = 0m }
