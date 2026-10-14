@@ -84,6 +84,10 @@ public abstract class Slab : Element
         yield return ParameterValue.ReadOnly(SlabParameters.Volume, () => GetVolume(document));
         yield return ParameterValue.ReadOnly(SlabParameters.Vertices, () => Boundary.Count);
 
+        // A floor or a flat roof walked on: whether its edges are guarded where they drop too far.
+        if (FloorSurfaces.IsStoodOn(document, this))
+            yield return ParameterValue.ReadOnly(SlabParameters.EdgeGuarding, () => Railings.EdgeVerdict(document, this));
+
         foreach (var parameter in ExtraParameters(document)) yield return parameter;
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -128,4 +132,7 @@ public static class SlabParameters
 
     public static readonly ParameterDefinition Vertices =
         new("Boundary Points", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition EdgeGuarding =
+        new("Edge Guarding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

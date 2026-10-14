@@ -47,6 +47,13 @@ public static class ElementTransforms
 
         // A stair stands where it was put, and cuts the floor over it wherever that is.
         Stair => true,
+
+        // A railing runs where it was drawn, on whatever floor is under it; a beam spans where it was drawn.
+        Railing => true,
+        Beam => true,
+
+        // The ground, with its spot levels.
+        Toposurface => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -106,6 +113,18 @@ public static class ElementTransforms
 
             case Stair stair:
                 stair.Start += delta;
+                break;
+
+            case Railing railing:
+                railing.SetPath(railing.Path.Select(point => point + delta).ToList());
+                break;
+
+            case Beam beam:
+                (beam.Start, beam.End) = (beam.Start + delta, beam.End + delta);
+                break;
+
+            case Toposurface ground:
+                ground.SetPoints(ground.Points.Select(point => new Point3D(point.X + delta.X, point.Y + delta.Y, point.Z)).ToList());
                 break;
 
             case Column column:
@@ -235,6 +254,18 @@ public static class ElementTransforms
                 Stairs.SwapSides(stair);
                 break;
             }
+
+            case Railing railing:
+                railing.SetPath(railing.Path.Select(Reflect).ToList());
+                break;
+
+            case Beam beam:
+                (beam.Start, beam.End) = (Reflect(beam.Start), Reflect(beam.End));
+                break;
+
+            case Toposurface ground:
+                ground.SetPoints(ground.Points.Select(point => Reflect(new Point2D(point.X, point.Y)) is var at ? new Point3D(at.X, at.Y, point.Z) : point).ToList());
+                break;
 
             case ShaftOpening shaft:
             {
@@ -397,6 +428,18 @@ public static class ElementTransforms
             case Stair stair:
                 stair.Start = map(stair.Start);
                 stair.Angle += degrees;
+                break;
+
+            case Railing railing:
+                railing.SetPath(railing.Path.Select(map).ToList());
+                break;
+
+            case Beam beam:
+                (beam.Start, beam.End) = (map(beam.Start), map(beam.End));
+                break;
+
+            case Toposurface ground:
+                ground.SetPoints(ground.Points.Select(point => map(new Point2D(point.X, point.Y)) is var at ? new Point3D(at.X, at.Y, point.Z) : point).ToList());
                 break;
 
             case ShaftOpening shaft:

@@ -1595,7 +1595,11 @@ public static class Stairs
     /// </summary>
     private static StairLayout LaidOut(BimDocument document, Stair stair, StairType type, Guid baseLevelId, Guid? topLevelId)
     {
-        var bottom = (SurfaceAt(document, baseLevelId, stair.Start - stair.Up * 150) ?? FloorTop(document, baseLevelId, stair.Start)) + stair.BaseOffset;
+        // In front of its first riser: a floor, a patio, a deck - or, outside, the ground, as it slopes there.
+        var approach = stair.Start - stair.Up * 150;
+        var bottom = (SurfaceAt(document, baseLevelId, approach)
+                      ?? Terrains.GroundNear(document, document.FindLevel(baseLevelId)?.Elevation ?? 0, approach)
+                      ?? FloorTop(document, baseLevelId, stair.Start)) + stair.BaseOffset;
         if (topLevelId is not { } topId || document.FindLevel(topId) is null)
             return StairLayout.Of(stair, type, bottom, bottom + stair.UnconnectedHeight);
 
@@ -1660,19 +1664,8 @@ public static class Stairs
     private static double? SurfaceAt(BimDocument document, Guid levelId, Point2D at) => StoodOnAt(document, levelId, at)?.Top;
 
     /// <summary>The floor or flat roof stood on at a point within <see cref="FloorReach"/> of a level, and its top there - the highest, where one lies on another.</summary>
-    private static (Slab Slab, double Top)? StoodOnAt(BimDocument document, Guid levelId, Point2D at)
-    {
-        var level = document.FindLevel(levelId)?.Elevation ?? 0;
-        (Slab Slab, double Top)? highest = null;
-        foreach (var slab in document.Elements.OfType<Slab>())
-        {
-            if (slab.Boundary.Count < 3 || !slab.Contains(at) || !FloorSurfaces.IsStoodOn(document, slab)) continue;
-            var top = FloorSurfaces.TopAt(document, slab, at);
-            if (Math.Abs(top - level) <= FloorReach && (highest is null || top > highest.Value.Top)) highest = (slab, top);
-        }
-
-        return highest;
-    }
+    private static (Slab Slab, double Top)? StoodOnAt(BimDocument document, Guid levelId, Point2D at) =>
+        FloorSurfaces.StoodOnNear(document, document.FindLevel(levelId)?.Elevation ?? 0, at, FloorReach);
 
     /// <summary>
     /// How far a stair coming up from outside a floor, balcony or deck runs in past its edge - its
@@ -1850,9 +1843,9 @@ public static class Stairs
     /// over it, as over a stair to an attic or one outside under the eaves - and over which
     /// step; none where nothing is over it.
     /// </summary>
-    public static (double Clear, int Step, Slab By)? LeastHeadroom(BimDocument document, Stair stair, StairLayout layout, bool middleOnly = false)
+    public static (double Clear, int Step, Element By)? LeastHeadroom(BimDocument document, Stair stair, StairLayout layout, bool middleOnly = false)
     {
-        (double Clear, int Step, Slab By)? least = null;
+        (double Clear, int Step, Element By)? least = null;
 
         // The middle half of a step across the stair, where a loft conversion's headroom is measured at its highest.
         static IReadOnlyList<Point2D> Middle(StairStep step) =>
@@ -1876,6 +1869,15 @@ public static class Stairs
                 var clear = underside - step.Top;
                 if (least is not { } known || clear < known.Clear) least = (clear, step.Number, slab);
             }
+        }
+
+        // A beam over it: measured to its underside where it passes over each step - where it crosses the stair, or runs along over it.
+        foreach (var beam in document.Elements.OfType<Beam>())
+        foreach (var step in layout.Steps)
+        {
+            if (Beams.LowestOver(document, beam, middleOnly ? Middle(step) : step.Outline) is not { } underside || underside <= step.Top) continue;
+            var clear = underside - step.Top;
+            if (least is not { } known || clear < known.Clear) least = (clear, step.Number, beam);
         }
 
         // A pitched roof is not cut for it: measured round the edge of each step - where a roof's underside comes lowest - wherever the roof is over it and not opened.
@@ -2052,8 +2054,18 @@ public static class Stairs
             problems.Add($"Its headroom over step {least.Step} is {least.Clear:0}{Under(least.By)}: {Label(standard)} asks for {needed:0}{Remedy(least.By)}.");
 
         // A pitched roof is not cut for a stair as a floor is: said, with what would give it the height.
-        string Under(Slab by) => by is Roof && !IsFloorLike(document, by) ? " under the roof" : "";
-        string Remedy(Slab by) => by is Roof && !IsFloorLike(document, by) ? " - a dormer over it, or the stair where the roof is higher" : "";
+        string Under(Element by) => by switch
+        {
+            Roof roof when !IsFloorLike(document, roof) => " under the roof",
+            Beam => " under a beam",
+            _ => ""
+        };
+        string Remedy(Element by) => by switch
+        {
+            Roof roof when !IsFloorLike(document, roof) => " - a dormer over it, or the stair where the roof is higher",
+            Beam => " - the beam raised, or the stair moved clear of it",
+            _ => ""
+        };
 
         // Going right round, a step comes over the one a turn below it: as clear over it as under a floor.
         if (layout.TreadsPerTurn is { } perTurn && perTurn < layout.Risers - 1)

@@ -170,6 +170,21 @@ public sealed class ScheduleDefinition
             }
             .WithoutTotals("Width", "Risers", "Riser Height", "Actual Going", "Pitch"),
 
+        // Every railing: how long and high it is, whether it is outside, and whether it meets its regulations there.
+        new ScheduleDefinition("Railing Schedule", BuiltInCategory.Railings,
+                "Mark", "Type Name", "Base Level", "Length", "Height", "Outside", "Regulations")
+            {
+                SortBy = "Base Level"
+            }
+            .WithoutTotals("Height"),
+
+        // Every beam: its section, how long it is and what it weighs, and whether it clears the doors under it.
+        new ScheduleDefinition("Structural Framing Schedule", BuiltInCategory.StructuralFraming,
+                "Mark", "Type Name", "Reference Level", "Structural Usage", "Length", "Mass", "Clearances")
+            {
+                SortBy = "Type Name"
+            },
+
         // What is in each room, room by room - how many of each, what each costs and what they
         // come to: the furniture, the kitchen units and appliances, and the sanitary fittings.
         RoomByRoom("Furniture Schedule", BuiltInCategory.Furniture),

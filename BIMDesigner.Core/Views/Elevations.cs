@@ -61,6 +61,18 @@ public static class Elevations
                 case Architecture.Component component:
                     points.Add(component.Location);
                     break;
+
+                // A stair outside, the railing round a balcony and a beam carrying it stand out from the walls too; the ground round the building does not count.
+                case Architecture.Stair stair:
+                    points.AddRange(Architecture.Stairs.Footprint(Architecture.Stairs.Layout(document, stair)));
+                    break;
+                case Architecture.Railing railing:
+                    points.AddRange(railing.Path);
+                    break;
+                case Architecture.Beam beam:
+                    points.Add(beam.Start);
+                    points.Add(beam.End);
+                    break;
             }
         }
 

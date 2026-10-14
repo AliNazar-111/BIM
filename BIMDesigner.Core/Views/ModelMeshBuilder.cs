@@ -69,6 +69,18 @@ public static class ModelMeshBuilder
         foreach (var stair in document.Elements.OfType<Stair>().Where(s => shows(s)))
             meshes.AddRange(StairModel.Meshes(document, stair));
 
+        // Railings round balconies, terraces and floors' edges.
+        foreach (var railing in document.Elements.OfType<Railing>().Where(r => shows(r)))
+            meshes.AddRange(RailingModel.Meshes(document, railing));
+
+        // The ground, cut away under the building.
+        foreach (var ground in document.Elements.OfType<Toposurface>().Where(g => shows(g)))
+            if (Terrains.Mesh(document, ground) is { } groundMesh) meshes.Add(groundMesh);
+
+        // Beams, under the floors and roofs they carry.
+        foreach (var beam in document.Elements.OfType<Beam>().Where(b => shows(b)))
+            if (Beams.Mesh(document, beam) is { } beamMesh) meshes.Add(beamMesh);
+
         // Walls shaped in plan - trapezoids and polygons - stood up from their outlines.
         foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(w => shows(w)))
             if (PolygonWalls.Mesh(document, shaped) is { } shapedMesh) meshes.Add(shapedMesh);

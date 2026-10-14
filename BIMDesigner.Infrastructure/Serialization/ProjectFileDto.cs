@@ -45,6 +45,11 @@ internal sealed class ProjectFileDto
     public List<ChimneyTypeDto> ChimneyTypes { get; set; } = new();
     public List<StairTypeDto> StairTypes { get; set; } = new();
     public List<StairDto> Stairs { get; set; } = new();
+    public List<RailingTypeDto> RailingTypes { get; set; } = new();
+    public List<RailingDto> Railings { get; set; } = new();
+    public List<BeamTypeDto> BeamTypes { get; set; } = new();
+    public List<BeamDto> Beams { get; set; } = new();
+    public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
 
     /// <summary>The elements pinned where they are.</summary>
     public List<Guid> PinnedIds { get; set; } = new();
@@ -1229,6 +1234,87 @@ internal sealed class StairDto
     public double UnconnectedHeight { get; set; }
     public string Railings { get; set; } = "Auto";
     public bool CutsFloorAbove { get; set; } = true;
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class RailingTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string TypeMark { get; set; } = string.Empty;
+    public double Height { get; set; }
+    public string Infill { get; set; } = "Balusters";
+    public string TopRailProfile { get; set; } = "Rectangular";
+    public double TopRailWidth { get; set; }
+    public double TopRailDepth { get; set; }
+    public double PostSize { get; set; }
+    public double PostSpacing { get; set; }
+    public double BalusterSize { get; set; }
+    public double BalusterSpacing { get; set; }
+    public double BottomGap { get; set; }
+    public double GlassThickness { get; set; }
+    public string Colour { get; set; } = string.Empty;
+    public Guid MaterialId { get; set; }
+    public Guid InfillMaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class ToposurfaceDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Points { get; set; }
+    public Guid MaterialId { get; set; }
+    public double ContourInterval { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class BeamTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string TypeMark { get; set; } = string.Empty;
+    public string Section { get; set; } = "Rectangular";
+    public string Material { get; set; } = "Timber";
+    public double Depth { get; set; }
+    public double Width { get; set; }
+    public double WebThickness { get; set; }
+    public double FlangeThickness { get; set; }
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class BeamDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public double StartOffset { get; set; }
+    public double EndOffset { get; set; }
+    public string Justification { get; set; } = "Top";
+    public string Usage { get; set; } = "Beam";
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class RailingDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Path { get; set; }
+    public bool Closed { get; set; }
+    public double BaseOffset { get; set; }
+    public string Building { get; set; } = "Dwelling";
+    public bool Outside { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }

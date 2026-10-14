@@ -108,7 +108,16 @@ public enum PlanTool
     Chimney,
 
     /// <summary>A stair: its foot, then which way is up, to the level above.</summary>
-    Stair
+    Stair,
+
+    /// <summary>A railing along the corners clicked, guarding a balcony, a terrace or a floor's edge.</summary>
+    Railing,
+
+    /// <summary>A beam from one click to the next, hung from this level; then the next on from it.</summary>
+    Beam,
+
+    /// <summary>A spot level on the ground at each click, at the height the option bar says.</summary>
+    Terrain
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -1135,6 +1144,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
         PlanTool.Chimney => "Click where the chimney stack goes: it rises from this storey up through the roof over it, as far above it as the height rule asks, capped with a pot on each flue. Size and flues on the option bar.",
         PlanTool.Stair => "Click where the stair's first riser goes, then which way is up: it runs up to the level above, its risers worked out from the storey's height, and cuts its opening in the floor over it. Shape, turn and width are on the option bar.",
+        PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
+        PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
+        PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
         PlanTool.RoofDrain => "Click on a flat roof where a drain goes: the roof's insulation is tapered to fall to it - at the roof's Drainage Fall, 1 in 40 to start - in valleys from its corners, with ridges between drains.",
         PlanTool.Downpipe => "Click on a gutter where the downpipe goes: an outlet in its bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. Its size and section come from the gutter's type.",
         PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
@@ -1234,6 +1246,9 @@ public partial class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = CancelStair()
+                      | CancelRailing()
+                      | CancelBeam()
+                      | CancelGround()
                       | CancelExtrusion()
                       | CancelRoofJoin()
                       | CancelRoofEdgePick()
@@ -1502,6 +1517,22 @@ public partial class PlanView : FrameworkElement
             _cursorModel = SnapToGrid(raw);
             _cursorIsSnapped = false;
             StairHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.Railing)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            RailingHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.Beam)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            BeamHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.Terrain)
+        {
+            _cursorModel = SnapToGrid(raw);
+            _cursorIsSnapped = false;
+            GroundHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.RoofDrain)
         {
@@ -1774,6 +1805,20 @@ public partial class PlanView : FrameworkElement
                 // A custom stair is finished with a double-click where it ends.
                 if (e.ClickCount == 2 && FinishStair()) return;
                 ClickStair(SnapToGrid(raw));
+                return;
+
+            case PlanTool.Railing:
+                // Finished with a double-click where it ends.
+                if (e.ClickCount == 2 && FinishRailing()) return;
+                ClickRailing(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Beam:
+                ClickBeam(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Terrain:
+                ClickGround(SnapToGrid(raw));
                 return;
         }
 
@@ -5466,8 +5511,10 @@ public partial class PlanView : FrameworkElement
         foreach (var drain in RoofDrainsAt(model)) yield return drain;
         foreach (var chimney in ChimneysAt(model)) yield return chimney;
 
-        // A stair stands on the floor, and is picked before it.
+        // A stair stands on the floor, and is picked before it; a railing along a floor's edge, the same.
         foreach (var stair in StairsAt(model)) yield return stair;
+        foreach (var railing in RailingsAt(model)) yield return railing;
+        foreach (var beam in BeamsAt(model)) yield return beam;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
@@ -5493,9 +5540,10 @@ public partial class PlanView : FrameworkElement
         foreach (var grid in OnActiveLevel<Grid>().Where(grid => DistanceToSegment(model, grid.Start, grid.End) <= gridTolerance))
             yield return grid;
 
-        // Slabs last: they are under everything, so anything above them wins the click.
+        // Slabs last: they are under everything, so anything above them wins the click - but for the ground, under them too.
         foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
             yield return slab;
+        foreach (var ground in GroundsAt(model)) yield return ground;
     }
 
     /// <summary>Picks the wall whose body the point falls in, nearest first.</summary>
@@ -5572,6 +5620,9 @@ public partial class PlanView : FrameworkElement
         DrawRoofDrainPreview(dc);
         DrawChimneyPreview(dc);
         DrawStairPreview(dc);
+        DrawRailingPreview(dc);
+        DrawBeamPreview(dc);
+        DrawGroundPreview(dc);
         DrawElevationMarkers(dc);
         DrawArcToolPreview(dc);
         DrawShapedWallPreview(dc);

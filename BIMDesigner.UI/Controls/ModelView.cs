@@ -537,6 +537,9 @@ public partial class ModelView : Border
         if (!_showGround) return;
         if (ModelMeshBuilder.Bounds(_meshes) is not { } bounds) return;
 
+        // Where the model has ground of its own, shown, that is the ground: a flat plane would hide it where it falls below.
+        if (!IsHiddenKind(MeshKind.Terrain) && _meshes.Any(mesh => mesh.Kind == MeshKind.Terrain)) return;
+
         var margin = Math.Max(bounds.Max.X - bounds.Min.X, bounds.Max.Y - bounds.Min.Y) * 0.4 + 2000;
         var z = GroundElevation / MillimetresPerUnit;
 

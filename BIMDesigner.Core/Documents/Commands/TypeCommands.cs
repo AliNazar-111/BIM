@@ -48,6 +48,8 @@ public static class TypeDuplicates
         WindowType window => window.Duplicate(name),
         ChimneyType chimney => chimney.Duplicate(name),
         StairType stair => stair.Duplicate(name),
+        RailingType railing => railing.Duplicate(name),
+        BeamType beam => beam.Duplicate(name),
         FasciaType fascia => fascia.Duplicate(name),
         GutterType gutter => gutter.Duplicate(name),
         SoffitType soffit => soffit.Duplicate(name),
@@ -58,7 +60,7 @@ public static class TypeDuplicates
 
     /// <summary>Whether a type can be duplicated here, rather than in the wall types window.</summary>
     public static bool CanDuplicate(ElementType type) =>
-        type is ComponentType or DoorType or WindowType or ChimneyType or StairType or FasciaType or GutterType or SoffitType or RoofWindowType or WallSweepType;
+        type is ComponentType or DoorType or WindowType or ChimneyType or StairType or RailingType or BeamType or FasciaType or GutterType or SoffitType or RoofWindowType or WallSweepType;
 
     /// <summary>
     /// A type duplicated under a name - made unique if it is taken - added to the project, and

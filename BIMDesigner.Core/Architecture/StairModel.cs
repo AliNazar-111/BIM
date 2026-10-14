@@ -194,13 +194,13 @@ public static class StairModel
     /// A wall as the stair looks for it beside its sides: its footprint, with a box round it to
     /// rule it out quickly, and how high it stands - worked out once, not for every probe.
     /// </summary>
-    private sealed record WallBand(IReadOnlyList<Point2D> Band, double Base, double Top, Point2D Min, Point2D Max, Wall Wall)
+    internal sealed record WallBand(IReadOnlyList<Point2D> Band, double Base, double Top, Point2D Min, Point2D Max, Wall Wall)
     {
         public bool Holds(Point2D point) =>
             point.X >= Min.X && point.X <= Max.X && point.Y >= Min.Y && point.Y <= Max.Y && Polygon2D.Contains(Band, point);
     }
 
-    private static List<WallBand> WallBands(BimDocument document) =>
+    internal static List<WallBand> WallBands(BimDocument document) =>
         document.Walls
             .Where(wall => document.GetWallType(wall) is { } type && type.Structure.TotalWidth > 0 && wall.Length > 1)
             .Select(wall =>

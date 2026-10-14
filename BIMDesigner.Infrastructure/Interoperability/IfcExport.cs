@@ -168,6 +168,9 @@ public static class IfcExport
             foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
             foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
             foreach (var stair in _document.Elements.OfType<Stair>()) ExportStair(stair);
+            foreach (var railing in _document.Elements.OfType<Railing>()) ExportRailing(railing);
+            foreach (var beam in _document.Elements.OfType<Beam>()) ExportBeam(beam);
+            foreach (var ground in _document.Elements.OfType<Toposurface>()) ExportGround(ground);
             foreach (var component in _document.Elements.OfType<Component>()) ExportComponent(component);
             foreach (var shaped in _document.Elements.OfType<PolygonWall>()) ExportPolygonWall(shaped);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
@@ -1151,14 +1154,6 @@ public static class IfcExport
         }
 
         /// <summary>
-        /// A chimney as an IfcChimney, all of it as one body, with the height its rule asks for,
-        /// how many flues it draws, its fire rating and its EN 1443 designation.
-        /// </summary>
-        /// <summary>
-        /// A stair as an IfcStair - straight, quarter-turn, quarter-winding or half-turn - with its
-        /// risers and goings; its handrails and balustrades as IfcRailings of their own.
-        /// </summary>
-        /// <summary>
         /// What a drawn stair is in IFC, by its turns: none, a straight run; a landing straight on,
         /// two straight runs; one, two or three right angles one way, a quarter, half or
         /// three-quarter turn - winding, on winders; two opposite ways, two quarter turns.
@@ -1334,6 +1329,136 @@ public static class IfcExport
             }
         }
 
+        /// <summary>
+        /// A railing as an IfcRailing guarding a balcony, a terrace or a floor's edge - IFC's
+        /// BALUSTRADE, at the edge of a floor, a balcony or a roof - with its height, whether it is
+        /// outside, and whether it meets its rules.
+        /// </summary>
+        private void ExportRailing(Railing railing)
+        {
+            var meshes = RailingModel.Meshes(_document, railing);
+            if (meshes.Count == 0) return;
+
+            var type = Railings.TypeOf(_document, railing);
+            var storey = StoreyOf(railing);
+            var storeyElevation = _document.FindLevel(railing.LevelId)?.Elevation ?? 0;
+            var product = New<IfcRailing>(r =>
+            {
+                r.GlobalId = railing.Id.ToIfc();
+                r.Name = type.Name;
+                r.Tag = railing.Mark;
+                r.PredefinedType = IfcRailingTypeEnum.BALUSTRADE;
+                r.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                r.Representation = TessellatedBody(meshes, storeyElevation);
+            });
+            Contain(railing, product);
+
+            WriteSet(product, "Pset_RailingCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["Height"] = new IfcPositiveLengthMeasure(type.Height),
+                ["Diameter"] = type.TopRailProfile == HandrailProfile.Round ? new IfcPositiveLengthMeasure(type.TopRailWidth) : null,
+                ["IsExternal"] = new IfcBoolean(railing.Outside)
+            });
+            WriteSet(product, "Railing", new Dictionary<string, IfcValue?>
+            {
+                ["Length"] = new IfcLengthMeasure(Railings.Length(railing)),
+                ["Infill"] = new IfcLabel(EnumText.Humanise(type.Infill)),
+                ["Building"] = new IfcLabel(EnumText.Humanise(railing.Building)),
+                ["Regulations"] = new IfcText(Railings.Verdict(_document, railing))
+            });
+        }
+
+        /// <summary>The ground as an IfcGeographicElement - TERRAIN - its surface and sides as its body.</summary>
+        private void ExportGround(Toposurface ground)
+        {
+            if (Terrains.Mesh(_document, ground) is not { } mesh) return;
+
+            var storey = StoreyOf(ground);
+            var storeyElevation = _document.FindLevel(ground.LevelId)?.Elevation ?? 0;
+            var product = New<Xbim.Ifc4.ProductExtension.IfcGeographicElement>(g =>
+            {
+                g.GlobalId = ground.Id.ToIfc();
+                g.Name = "Terrain";
+                g.Tag = ground.Mark;
+                g.PredefinedType = Xbim.Ifc4.Interfaces.IfcGeographicElementTypeEnum.TERRAIN;
+                g.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                g.Representation = TessellatedBody(new[] { mesh }, storeyElevation);
+            });
+            Contain(ground, product);
+            WriteSet(product, "Terrain", new Dictionary<string, IfcValue?>
+            {
+                ["Points"] = new IfcInteger(ground.Points.Count),
+                ["ProjectedArea"] = new IfcAreaMeasure(Terrains.Area(ground) / 1e6),
+                ["GroundAtTheWalls"] = new IfcText(Terrains.Verdict(_document, ground))
+            });
+        }
+
+        /// <summary>
+        /// A beam as an IfcBeam - a BEAM, a JOIST or a LINTEL, a purlin as one of its own - with its
+        /// span and slope, load-bearing, and its section, material and weight.
+        /// </summary>
+        private void ExportBeam(Beam beam)
+        {
+            if (Beams.Mesh(_document, beam) is not { } mesh) return;
+
+            var type = Beams.TypeOf(_document, beam);
+            var storey = StoreyOf(beam);
+            var storeyElevation = _document.FindLevel(beam.LevelId)?.Elevation ?? 0;
+            var product = New<IfcBeam>(b =>
+            {
+                b.GlobalId = beam.Id.ToIfc();
+                b.Name = type.Name;
+                b.Tag = beam.Mark;
+                b.PredefinedType = beam.Usage switch
+                {
+                    BeamUsage.Joist => IfcBeamTypeEnum.JOIST,
+                    BeamUsage.Lintel => IfcBeamTypeEnum.LINTEL,
+                    BeamUsage.Purlin => IfcBeamTypeEnum.USERDEFINED,
+                    _ => IfcBeamTypeEnum.BEAM
+                };
+                if (beam.Usage == BeamUsage.Purlin) b.ObjectType = "PURLIN";
+                b.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                b.Representation = TessellatedBody(new[] { mesh }, storeyElevation);
+            });
+            Contain(beam, product);
+
+            var rise = Beams.Top(_document, beam, 1) - Beams.Top(_document, beam, 0);
+            WriteSet(product, "Pset_BeamCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = new IfcIdentifier(type.Name),
+                ["Span"] = new IfcPositiveLengthMeasure(Math.Max(1, beam.Length)),
+                ["Slope"] = new IfcPlaneAngleMeasure(Math.Round(Math.Atan2(rise, Math.Max(1, beam.Length)) * 180 / Math.PI, 3)),
+                ["LoadBearing"] = new IfcBoolean(true),
+                ["IsExternal"] = new IfcBoolean(false)
+            });
+            WriteSet(product, "Beam", new Dictionary<string, IfcValue?>
+            {
+                ["Section"] = new IfcLabel(EnumText.Humanise(type.Section)),
+                ["Material"] = new IfcLabel(EnumText.Humanise(type.Material)),
+                ["Depth"] = new IfcPositiveLengthMeasure(type.Depth),
+                ["Width"] = new IfcPositiveLengthMeasure(type.Width),
+                ["MassPerMetre"] = new IfcReal(Math.Round(type.MassPerMetre, 1)),
+                ["Clearances"] = new IfcText(Beams.Verdict(_document, beam))
+            });
+        }
+
+        /// <summary>
+        /// A chimney as an IfcChimney, all of it as one body, with the height its rule asks for,
+        /// how many flues it draws, its fire rating and its EN 1443 designation.
+        /// </summary>
         private void ExportChimney(Chimney chimney)
         {
             var meshes = Chimneys.Meshes(_document, chimney);

@@ -147,6 +147,25 @@
         <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,20 L26,1"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Railing"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,25 L30,25 L30,29 L2,29 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M9,9 L9,25 M13.5,9 L13.5,25 M18.5,9 L18.5,25 M23,9 L23,25"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Blue}" Pen="{StaticResource Stroke}" Geometry="M3,9 L6,9 L6,25 L3,25 Z M26,9 L29,9 L29,25 L26,25 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Blue}" Pen="{StaticResource Stroke}" Geometry="M2,6 L30,6 L30,9 L2,9 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Beam"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Blue}" Pen="{StaticResource Stroke}" Geometry="M2,8 L30,8 L30,11 L17.5,11 L17.5,21 L30,21 L30,24 L2,24 L2,21 L14.5,21 L14.5,11 L2,11 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Terrain"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M2,29 L2,20 C7,15 11,13 16,15 C21,17 25,12 30,10 L30,29 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M6,24 C10,20 14,20 18,21 C22,22 25,18 28,17"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Shaft"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,22 L16,15 L30,22 L16,29 Z"/>

@@ -100,6 +100,24 @@ public static class FloorSurfaces
             .FirstOrDefault();
     }
 
+    /// <summary>
+    /// The floor or flat roof stood on at a point within reach of a height - set down below it or
+    /// raised above it, as a balcony, deck or terrace often is; the highest, where one lies on
+    /// another - and its top there. Null where none is.
+    /// </summary>
+    public static (Slab Slab, double Top)? StoodOnNear(BimDocument document, double height, Point2D at, double reach)
+    {
+        (Slab Slab, double Top)? highest = null;
+        foreach (var slab in document.Elements.OfType<Slab>())
+        {
+            if (slab.Boundary.Count < 3 || !slab.Contains(at) || !IsStoodOn(document, slab)) continue;
+            var top = TopAt(document, slab, at);
+            if (Math.Abs(top - height) <= reach && (highest is null || top > highest.Value.Top)) highest = (slab, top);
+        }
+
+        return highest;
+    }
+
     /// <summary>The floor something put on a level at a point stands on, where that floor is built up above the level; null where the level is the floor.</summary>
     public static Slab? FloorUnder(BimDocument document, Guid levelId, Point2D at) =>
         Burying(document, document.FindLevel(levelId)?.Elevation ?? 0, at);

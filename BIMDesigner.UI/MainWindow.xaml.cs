@@ -562,7 +562,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair;
+            or PlanTool.Stair or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -573,6 +573,12 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Chimney) ShowChimneyOptions();
         StairOptions.Visibility = tool == PlanTool.Stair ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Stair) ShowStairOptions();
+        RailingOptions.Visibility = tool == PlanTool.Railing ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Railing) ShowRailingOptions();
+        BeamOptions.Visibility = tool == PlanTool.Beam ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Beam) ShowBeamOptions();
+        TerrainOptions.Visibility = tool == PlanTool.Terrain ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Terrain) ShowGroundOptions();
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -1076,6 +1082,89 @@ public partial class MainWindow : Window
         (StairRadiusLabel.Visibility, StairRadiusBox.Visibility) = (round, round);
         StairRadiusBox.Text = Plan.NewStairInnerRadius.ToString("0");
         _loadingOptions = false;
+    }
+
+    private void ShowRailingOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<RailingType>().OrderBy(type => type.Name).ToList();
+        RailingTypePicker.ItemsSource = types;
+        RailingTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveRailingTypeId) ?? types.FirstOrDefault();
+        Plan.ActiveRailingTypeId = (RailingTypePicker.SelectedItem as RailingType)?.Id ?? Guid.Empty;
+        RailingBuildingPicker.ItemsSource ??= EnumText.Choices<RailingBuilding>();
+        RailingBuildingPicker.SelectedItem = EnumText.Humanise(Plan.ActiveRailingBuilding);
+        _loadingOptions = false;
+    }
+
+    private void OnRailingOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (RailingTypePicker.SelectedItem is RailingType type) Plan.ActiveRailingTypeId = type.Id;
+        if (RailingBuildingPicker.SelectedItem is string building && EnumText.TryParse<RailingBuilding>(building, out var picked)) Plan.ActiveRailingBuilding = picked;
+        ShowRailingOptions();
+    }
+
+    private void ShowBeamOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<BeamType>().ToList();
+        BeamTypePicker.ItemsSource = types;
+        BeamTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveBeamTypeId) ?? types.FirstOrDefault();
+        Plan.ActiveBeamTypeId = (BeamTypePicker.SelectedItem as BeamType)?.Id ?? Guid.Empty;
+        BeamOffsetBox.Text = Plan.ActiveBeamOffset.ToString("0");
+        _loadingOptions = false;
+    }
+
+    private void OnBeamOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (BeamTypePicker.SelectedItem is BeamType type) Plan.ActiveBeamTypeId = type.Id;
+        if (double.TryParse(BeamOffsetBox.Text, out var offset) && Math.Abs(offset) <= 20000) Plan.ActiveBeamOffset = offset;
+        ShowBeamOptions();
+    }
+
+    private void ShowGroundOptions()
+    {
+        _loadingOptions = true;
+        GroundElevationBox.Text = Plan.ActiveGroundElevation.ToString("0");
+        GroundUnitsPicker.ItemsSource ??= new[] { "In millimetres", "In metres" };
+        if (GroundUnitsPicker.SelectedIndex < 0) GroundUnitsPicker.SelectedIndex = 1;
+        _loadingOptions = false;
+    }
+
+    private void OnGroundOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (double.TryParse(GroundElevationBox.Text, out var elevation) && Math.Abs(elevation) <= 100000) Plan.ActiveGroundElevation = elevation;
+        ShowGroundOptions();
+    }
+
+    /// <summary>Import Points: spot levels read from a file the user picks, onto the ground on this level.</summary>
+    private void OnImportGroundPoints(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import ground points",
+            Filter = "Points files (*.csv;*.txt;*.xyz)|*.csv;*.txt;*.xyz|All files (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        try
+        {
+            Plan.ImportGround(System.IO.File.ReadAllText(dialog.FileName), GroundUnitsPicker.SelectedIndex == 1 ? 1000 : 1);
+        }
+        catch (System.IO.IOException failure)
+        {
+            MessageBox.Show(this, $"The points file could not be read: {failure.Message}", "Import Points", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>Guard Edges, on the floor, balcony or roof terrace picked: railings round what drops too far.</summary>
+    private void OnGuardEdges(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements is [Slab slab]) Plan.GuardEdges(slab);
     }
 
     private void OnStairOptionChanged(object sender, RoutedEventArgs e)
@@ -1671,7 +1760,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, GridTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RailingTool, BeamTool, TerrainTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
@@ -1746,6 +1835,9 @@ public partial class MainWindow : Window
             : RoofDrainTool.IsChecked == true ? PlanTool.RoofDrain
             : ChimneyTool.IsChecked == true ? PlanTool.Chimney
             : StairTool.IsChecked == true ? PlanTool.Stair
+            : RailingTool.IsChecked == true ? PlanTool.Railing
+            : BeamTool.IsChecked == true ? PlanTool.Beam
+            : TerrainTool.IsChecked == true ? PlanTool.Terrain
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -2835,6 +2927,8 @@ public partial class MainWindow : Window
         ContextAddRoofDrain.Visibility = selected is [Roof flatRoof] && RoofDrainage.CanDrain(_document, flatRoof) ? Visibility.Visible : Visibility.Collapsed;
         ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
             ? Visibility.Visible : Visibility.Collapsed;
+        ContextGuardPanel.Visibility = selected is [Slab walkedOn] && walkedOn is not Ceiling && FloorSurfaces.IsStoodOn(_document, walkedOn)
+            ? Visibility.Visible : Visibility.Collapsed;
         // Pick New belongs to anything that is carried by something else: a door or window in
         // its wall, and a component on a face it could be moved off.
         var rehostable = selected is [Opening]
@@ -3397,6 +3491,9 @@ public partial class MainWindow : Window
         Soffit => "Icon.Soffit",
         RoofWindow => "Icon.RoofWindow",
         ShaftOpening => "Icon.Shaft",
+        Railing => "Icon.Railing",
+        Beam => "Icon.Beam",
+        Toposurface => "Icon.Terrain",
         Downpipe => "Icon.Downpipe",
         RoofDrain => "Icon.RoofDrain",
         Chimney => "Icon.Chimney",
@@ -4060,6 +4157,9 @@ public partial class MainWindow : Window
         Model3D.SetKindVisible(MeshKind.Wall, ShowWallsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Framing, ShowFramingBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Stair, ShowStairsBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Railing, ShowRailingsBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Beam, ShowBeamsBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Terrain, ShowTerrainBox.IsChecked == true);
         Model3D.ShowGround = ShowGroundBox.IsChecked == true;
         Model3D.ShowEdges = ShowEdgesBox.IsChecked == true;
     }

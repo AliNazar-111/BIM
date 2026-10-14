@@ -288,6 +288,16 @@ public static class ElementCopy
             TopLevelId = stair.TopLevelId, TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight,
             Railings = stair.Railings, CutsFloorAbove = stair.CutsFloorAbove
         }, stair),
+        Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points), ground),
+        Beam beam => CarryCommon(new Beam
+        {
+            Start = beam.Start, End = beam.End, StartOffset = beam.StartOffset, EndOffset = beam.EndOffset,
+            Justification = beam.Justification, Usage = beam.Usage
+        }, beam),
+        Railing railing => CarryCommon(Path(new Railing
+        {
+            Closed = railing.Closed, BaseOffset = railing.BaseOffset, Building = railing.Building, Outside = railing.Outside
+        }, railing.Path), railing),
         ShaftOpening shaft => CarryCommon(new ShaftOpening
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
@@ -378,6 +388,20 @@ public static class ElementCopy
     private static Chimney WithFireplacesAbove(Chimney copy, Chimney original)
     {
         foreach (var (level, fireplace) in original.FireplacesAbove) copy.FireplacesAbove[level] = fireplace;
+        return copy;
+    }
+
+    /// <summary>A copied ground given the original's spot levels.</summary>
+    private static Toposurface Points(Toposurface copy, IReadOnlyList<Geometry.Point3D> points)
+    {
+        copy.SetPoints(points);
+        return copy;
+    }
+
+    /// <summary>A copied railing given the original's path.</summary>
+    private static Railing Path(Railing copy, IReadOnlyList<Geometry.Point2D> path)
+    {
+        copy.SetPath(path);
         return copy;
     }
 

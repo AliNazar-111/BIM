@@ -272,6 +272,34 @@ public class StairConnectionTests
     }
 
     [Fact]
+    public void TheLevelItGoesUpToDeletedItKeepsItsHeight()
+    {
+        var (document, _) = House();
+        var (ground, first) = (document.Levels[0], document.Levels[1]);
+        var second = new Level { Name = "Second Floor", Elevation = 6000 };
+        var third = new Level { Name = "Third Floor", Elevation = 9000 };
+        document.AddLevel(second);
+        document.AddLevel(third);
+        var stair = Put(document, 1000, 600);
+        stair.LevelId = first.Id;
+        stair.TopLevelId = second.Id;
+        var low = Put(document, 3000, 600);
+        low.RepeatToLevelId = third.Id;
+
+        // Up to the second floor, deleted: 3000 high, unconnected; repeated up to the third, deleted: as far as the second.
+        var history = new UndoStack();
+        history.Execute(new DeleteLevelCommand(document, second));
+        Assert.Null(stair.TopLevelId);
+        Assert.Equal(3000, stair.UnconnectedHeight, 6);
+        history.Execute(new DeleteLevelCommand(document, third));
+        Assert.Equal((first.Id, (Guid?)null), (low.TopLevelId!.Value, low.RepeatToLevelId));
+
+        history.Undo();
+        history.Undo();
+        Assert.Equal((second.Id, third.Id), (stair.TopLevelId!.Value, low.RepeatToLevelId!.Value));
+    }
+
+    [Fact]
     public void PastedUpAStoreyItGoesUpToTheNextAsItDid()
     {
         Exception? failure = null;

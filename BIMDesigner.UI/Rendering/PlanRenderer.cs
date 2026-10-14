@@ -84,6 +84,9 @@ public sealed class PlanRenderer
     private readonly Brush _chimneyBrush;
     private readonly Brush _roomSelectedBrush;
     private readonly Brush _roomTagBrush;
+    private readonly Pen _contourPen;
+    private readonly Pen _majorContourPen;
+    private readonly Brush _contourBrush;
     private readonly Brush _unenclosedBrush;
     private readonly Brush _wallLabelBrush;
 
@@ -113,6 +116,12 @@ public sealed class PlanRenderer
 
         _roomPen = RenderPens.Dashed(ink.RoomOutline, 1.0, 3, 3);
         _slabPen = RenderPens.Dashed(ink.SlabOutline, 1.0, 8, 4);
+
+        // Contours in an earth brown: the minor ones fine, every fifth heavier and labelled.
+        var earth = Color.FromRgb(0x9A, 0x7A, 0x52);
+        _contourPen = RenderPens.Solid(earth, 0.6);
+        _majorContourPen = RenderPens.Solid(earth, 1.2);
+        _contourBrush = RenderPens.Fill(earth);
 
         // Ridges, hips and valleys are built lines, not the edge of a sketch, so they are
         // drawn solid and a little heavier than the roof outline they sit inside.
@@ -230,6 +239,13 @@ public sealed class PlanRenderer
     // ---- the drawing -----------------------------------------------------------
 
     /// <summary>
+    /// Whether each wall's length is written along it. A help while drawing, not part of the
+    /// drawing: a sheet, and so a print or a PDF, leaves it off, as Revit's temporary
+    /// dimensions never print.
+    /// </summary>
+    public bool ShowWallLabels { get; set; } = true;
+
+    /// <summary>
     /// Everything a floor plan contains, in the order it reads: construction under
     /// annotation, and annotation on top of whatever it describes.
     ///
@@ -237,16 +253,12 @@ public sealed class PlanRenderer
     /// one being worked on is there to set out against; repeating its grid bubbles, room tags
     /// and dimensions would double every label on the drawing.
     /// </summary>
-    /// <summary>
-    /// Whether each wall's length is written along it. A help while drawing, not part of the
-    /// drawing: a sheet, and so a print or a PDF, leaves it off, as Revit's temporary
-    /// dimensions never print.
-    /// </summary>
-    public bool ShowWallLabels { get; set; } = true;
-
     public void DrawContent(DrawingContext dc, bool underlay = false)
     {
         if (Document is null) return;
+
+        // The ground first, under everything built on it: its contours, and its edge.
+        foreach (var ground in OnActiveLevel<Toposurface>()) DrawTerrain(dc, ground, underlay);
 
         // Grids come through on every level: they are datums of the whole building, and
         // lining storeys up against them is the point of having them. An underlay leaves them
@@ -285,6 +297,17 @@ public sealed class PlanRenderer
 
         // Components sit in the rooms and against the walls, so they are drawn over both.
         foreach (var component in OnActiveLevel<Component>()) DrawComponent(dc, component);
+
+        // Railings along balconies, terraces and floors' edges.
+        foreach (var railing in OnActiveLevel<Railing>()) DrawRailing(dc, railing);
+
+        // Beams hung from this level, under its floor - and those over this storey, hung from the level above: both dashed, as hidden and overhead.
+        if (Document is not null)
+        {
+            var above = Levels.Above(Document, ActiveLevelId)?.Id;
+            foreach (var beam in Document.Elements.OfType<Beam>().Where(beam => (beam.LevelId == ActiveLevelId || beam.LevelId == above) && Filter(beam)))
+                DrawBeam(dc, beam, own: beam.LevelId == ActiveLevelId);
+        }
 
         // Stairs on their own storey, and seen down the stairwell from the one they come up to -
         // storey by storey for one repeated up a stairwell. Where one storey's flight goes on up
@@ -1682,6 +1705,90 @@ public sealed class PlanRenderer
     }
 
     /// <summary>Handrails and guarding in plan: each run one outline along it - round a curve as much as along a straight - as wide as its rail, a handrail on a wall clear of it.</summary>
+    /// <summary>
+    /// The ground in plan: its contours - every fifth heavier, labelled with its height on the
+    /// longest of its lengths - its edge dashed, and its spot levels where it is picked.
+    /// </summary>
+    private void DrawTerrain(DrawingContext dc, Toposurface ground, bool underlay)
+    {
+        if (Document is null) return;
+
+        var contours = Terrains.Contours(Document, ground);
+        foreach (var (_, from, to, major) in contours) dc.DrawLine(major ? _majorContourPen : _contourPen, ModelToScreen(from), ModelToScreen(to));
+
+        var selected = IsSelected(ground);
+        var points = ground.Points;
+        var edges = new Dictionary<(int, int), int>();
+        foreach (var (a, b, c) in Terrains.Triangles(ground))
+            foreach (var (from, to) in new[] { (a, b), (b, c), (c, a) })
+            {
+                var key = from < to ? (from, to) : (to, from);
+                edges[key] = edges.TryGetValue(key, out var seen) ? seen + 1 : 1;
+            }
+
+        var edgePen = selected ? _selectedPen : _slabPen;
+        foreach (var ((from, to), times) in edges)
+            if (times == 1) dc.DrawLine(edgePen, ModelToScreen(new Point2D(points[from].X, points[from].Y)), ModelToScreen(new Point2D(points[to].X, points[to].Y)));
+
+        if (underlay) return;
+
+        foreach (var height in contours.Where(contour => contour.Major).Select(contour => contour.Height).Distinct())
+        {
+            var (_, from, to, _) = contours.Where(contour => contour.Major && contour.Height == height).MaxBy(contour => contour.From.DistanceTo(contour.To));
+            var label = Text(Units.FormatLength(height), Page(9), _contourBrush);
+            var at = ModelToScreen(from.MidpointTo(to));
+            dc.DrawRectangle(_labelBackdrop, null, new Rect(at.X - label.Width / 2 - 1, at.Y - label.Height / 2, label.Width + 2, label.Height));
+            dc.DrawText(label, new Point(at.X - label.Width / 2, at.Y - label.Height / 2));
+        }
+
+        if (!selected) return;
+        foreach (var point in points)
+        {
+            var at = ModelToScreen(new Point2D(point.X, point.Y));
+            dc.DrawLine(_selectedPen, new Point(at.X - 4, at.Y), new Point(at.X + 4, at.Y));
+            dc.DrawLine(_selectedPen, new Point(at.X, at.Y - 4), new Point(at.X, at.Y + 4));
+        }
+    }
+
+    /// <summary>
+    /// A beam in plan: its outline dashed - under this level's floor, or overhead from the level
+    /// above - and its line, as a beam is drawn on a framing plan.
+    /// </summary>
+    private void DrawBeam(DrawingContext dc, Beam beam, bool own)
+    {
+        if (Document is null) return;
+
+        var pen = own && IsSelected(beam) ? _selectedPen : _overheadPen;
+        dc.DrawGeometry(null, pen, BuildOutline(Beams.Footprint(Document, beam)));
+        if (own) dc.DrawLine(pen, ModelToScreen(beam.Start), ModelToScreen(beam.End));
+    }
+
+    /// <summary>
+    /// A railing in plan: its top rail as a band along the line it runs, its posts at its ends,
+    /// corners and between.
+    /// </summary>
+    private void DrawRailing(DrawingContext dc, Railing railing)
+    {
+        if (Document is null) return;
+
+        var type = Railings.TypeOf(Document, railing);
+        var pen = IsSelected(railing) ? _selectedPen : _componentPen;
+        var half = Math.Max(type.TopRailWidth, 20) / 2;
+        foreach (var (from, to) in Railings.Lengths(railing))
+        {
+            var across = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * half;
+            dc.DrawGeometry(null, pen, BuildOutline(new[] { from - across, to - across, to + across, from + across }));
+        }
+
+        var post = type.PostSize / 2;
+        foreach (var at in Railings.Posts(railing, type))
+            dc.DrawGeometry(pen.Brush, pen, BuildOutline(new[]
+            {
+                new Point2D(at.X - post, at.Y - post), new Point2D(at.X + post, at.Y - post),
+                new Point2D(at.X + post, at.Y + post), new Point2D(at.X - post, at.Y + post)
+            }));
+    }
+
     private void DrawRailings(DrawingContext dc, IReadOnlyList<StairRailing> railings, StairType type, Pen pen)
     {
         foreach (var railing in railings)
@@ -2007,6 +2114,10 @@ public sealed class PlanRenderer
             Slab slab => slab.Centroid,
             Grid grid => grid.Start.MidpointTo(grid.End),
             Stair stair => stair.Start + stair.Up * 300,
+            Beam beam => beam.Start.MidpointTo(beam.End),
+            Toposurface ground when ground.Points.Count > 0 => new Point2D(ground.Points.Average(point => point.X), ground.Points.Average(point => point.Y)),
+            Railing railing when Railings.Lengths(railing).Count > 0
+                => Railings.Lengths(railing).OrderByDescending(length => (length.To - length.From).Length).Select(length => length.From.MidpointTo(length.To)).First(),
             SectionMarker section => section.Start.MidpointTo(section.End),
             _ => null
         };

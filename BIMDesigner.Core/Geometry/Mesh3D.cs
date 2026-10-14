@@ -28,7 +28,16 @@ public enum MeshKind
     Framing,
 
     /// <summary>A stair: its treads, risers, strings and landings, and its handrails.</summary>
-    Stair
+    Stair,
+
+    /// <summary>A railing guarding a balcony, a terrace or a floor's edge.</summary>
+    Railing,
+
+    /// <summary>A beam: steel, timber, glulam or concrete.</summary>
+    Beam,
+
+    /// <summary>The ground.</summary>
+    Terrain
 }
 
 /// <summary>

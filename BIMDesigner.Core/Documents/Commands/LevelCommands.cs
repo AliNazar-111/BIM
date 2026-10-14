@@ -105,6 +105,8 @@ public sealed class DeleteLevelCommand : IUndoableCommand
     private readonly List<Element> _hosted;
     private readonly List<(Wall Wall, double Height)> _released;
     private readonly List<(ShaftOpening Shaft, double Height, double WasHeight)> _releasedShafts;
+    private readonly List<(Column Column, double Height, double WasHeight)> _releasedColumns;
+    private readonly List<(Stair Stair, Guid? Top, Guid? Repeat, double Height, Guid? WasTop, Guid? WasRepeat, double WasHeight)> _releasedStairs;
 
     public DeleteLevelCommand(BimDocument document, Level level)
     {
@@ -123,6 +125,28 @@ public sealed class DeleteLevelCommand : IUndoableCommand
         _releasedShafts = document.Elements.OfType<ShaftOpening>()
             .Where(shaft => shaft.TopLevelId == level.Id && !_hosted.Contains(shaft))
             .Select(shaft => (shaft, shaft.TopElevation(document) - shaft.BaseElevation(document), shaft.UnconnectedHeight))
+            .ToList();
+
+        // A column up to it the same.
+        _releasedColumns = document.Elements.OfType<Column>()
+            .Where(column => column.TopLevelId == level.Id && !_hosted.Contains(column))
+            .Select(column => (column, column.GetHeight(document), column.UnconnectedHeight))
+            .ToList();
+
+        // A stair up to it keeps the height it climbs; one repeated up to it stops at the highest level left above its own top.
+        _releasedStairs = document.Elements.OfType<Stair>()
+            .Where(stair => !_hosted.Contains(stair) && (stair.TopLevelId == level.Id || stair.RepeatToLevelId == level.Id))
+            .Select(stair =>
+            {
+                var layout = Stairs.Layout(document, stair);
+                var top = stair.TopLevelId == level.Id ? null : stair.TopLevelId;
+                var reached = top is { } topId ? document.FindLevel(topId)?.Elevation : null;
+                var repeat = top is null ? null
+                    : stair.RepeatToLevelId != level.Id ? stair.RepeatToLevelId
+                    : document.Levels.Where(candidate => candidate.Elevation > reached && candidate.Elevation < level.Elevation)
+                        .OrderByDescending(candidate => candidate.Elevation).Select(candidate => (Guid?)candidate.Id).FirstOrDefault();
+                return (stair, top, repeat, top is null ? layout.Top - layout.Bottom : stair.UnconnectedHeight, stair.TopLevelId, stair.RepeatToLevelId, stair.UnconnectedHeight);
+            })
             .ToList();
     }
 
@@ -147,6 +171,18 @@ public sealed class DeleteLevelCommand : IUndoableCommand
             if (height > 0) shaft.UnconnectedHeight = height;
         }
 
+        foreach (var (column, height, _) in _releasedColumns)
+        {
+            column.TopLevelId = null;
+            if (height > 0) column.UnconnectedHeight = height;
+        }
+
+        foreach (var (stair, top, repeat, height, _, _, _) in _releasedStairs)
+        {
+            (stair.TopLevelId, stair.RepeatToLevelId) = (top, repeat);
+            if (height > 0) stair.UnconnectedHeight = Math.Max(Stairs.MinimumRise, height);
+        }
+
         foreach (var element in _hosted) _document.Remove(element);
 
         _document.RemoveLevel(_level);
@@ -165,5 +201,14 @@ public sealed class DeleteLevelCommand : IUndoableCommand
             shaft.TopLevelId = _level.Id;
             shaft.UnconnectedHeight = wasHeight;
         }
+
+        foreach (var (column, _, wasHeight) in _releasedColumns)
+        {
+            column.TopLevelId = _level.Id;
+            column.UnconnectedHeight = wasHeight;
+        }
+
+        foreach (var (stair, _, _, _, wasTop, wasRepeat, wasHeight) in _releasedStairs)
+            (stair.TopLevelId, stair.RepeatToLevelId, stair.UnconnectedHeight) = (wasTop, wasRepeat, wasHeight);
     }
 }

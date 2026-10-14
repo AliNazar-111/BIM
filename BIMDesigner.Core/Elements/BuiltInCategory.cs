@@ -58,7 +58,10 @@ public enum BuiltInCategory
     ElectricalFixtures,
 
     /// <summary>Light switches.</summary>
-    LightingDevices
+    LightingDevices,
+
+    /// <summary>The ground: a toposurface.</summary>
+    Topography
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>
