@@ -50,6 +50,10 @@ public partial class MainWindow : Window
     /// <summary>A 3D rebuild asked for by a drag and not yet done, so a fast drag asks once.</summary>
     private bool _dragRebuildPending;
 
+    /// <summary>Where a handle being dragged in 3D has got to, not yet followed.</summary>
+    private ModelGripDrag? _gripDrag;
+    private bool _gripDragPending;
+
     /// <summary>Guards the section picker while it is being repopulated.</summary>
     private bool _loadingSections;
 
@@ -126,6 +130,26 @@ public partial class MainWindow : Window
             });
         };
         Model3D.ElementDragEnded += (_, _) => Plan.EndRoofWindowDrag();
+
+        // A selected stair's handles, dragged in 3D as in plan. The mouse can move many times a
+        // frame: only where it has got to is followed, once the moves so far are in, and only
+        // the stair is built again as it goes - the whole model once, when it is let go.
+        Model3D.Grips = Plan.StairGrips3D;
+        Model3D.GripDragged += (_, drag) =>
+        {
+            _gripDrag = drag;
+            if (_gripDragPending) return;
+
+            _gripDragPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, FollowGripDrag);
+        };
+        Model3D.GripDragEnded += (_, _) =>
+        {
+            FollowGripDrag();
+            _gripDrag = null;
+            Plan.EndStairGripIn3D();
+        };
+        Model3D.GripClicked += (_, key) => Plan.ClickStairGripIn3D(key);
 
         Model3D.ElementClicked += (_, hit) =>
         {
@@ -1039,13 +1063,18 @@ public partial class MainWindow : Window
         Plan.ActiveStairTypeId = (StairTypePicker.SelectedItem as StairType)?.Id ?? Guid.Empty;
         StairShapePicker.ItemsSource ??= EnumText.Choices<StairShape>();
         StairShapePicker.SelectedItem = EnumText.Humanise(Plan.NewStairShape);
-        StairCornerPicker.ItemsSource ??= new[] { "On a landing", "On winders" };
-        StairCornerPicker.SelectedIndex = Plan.NewStairCorner == StairCorner.Winders ? 1 : 0;
-        StairCornerPicker.Visibility = Plan.NewStairShape == StairShape.QuarterTurn ? Visibility.Visible : Visibility.Collapsed;
+        StairCornerPicker.ItemsSource ??= new[] { "On a landing", "On winders", "On balanced winders" };
+        StairCornerPicker.SelectedIndex = (int)Plan.NewStairCorner;
+        StairCornerPicker.Visibility = Plan.NewStairShape is StairShape.QuarterTurn or StairShape.HalfTurn or StairShape.ThreeQuarterTurn or StairShape.Custom
+            ? Visibility.Visible : Visibility.Collapsed;
         StairTurnPicker.ItemsSource ??= new[] { "Turns right", "Turns left" };
         StairTurnPicker.SelectedIndex = Plan.NewStairTurnsLeft ? 1 : 0;
-        StairTurnPicker.Visibility = Plan.NewStairShape == StairShape.Straight ? Visibility.Collapsed : Visibility.Visible;
+        StairTurnPicker.Visibility = Plan.NewStairShape is StairShape.Straight or StairShape.Bifurcated or StairShape.Custom or StairShape.AlternatingTread or StairShape.Ladder
+            ? Visibility.Collapsed : Visibility.Visible;
         StairWidthBox.Text = Plan.NewStairWidth.ToString("0");
+        var round = Plan.NewStairShape is StairShape.Spiral or StairShape.Curved ? Visibility.Visible : Visibility.Collapsed;
+        (StairRadiusLabel.Visibility, StairRadiusBox.Visibility) = (round, round);
+        StairRadiusBox.Text = Plan.NewStairInnerRadius.ToString("0");
         _loadingOptions = false;
     }
 
@@ -1055,9 +1084,10 @@ public partial class MainWindow : Window
 
         if (StairTypePicker.SelectedItem is StairType type) Plan.ActiveStairTypeId = type.Id;
         if (StairShapePicker.SelectedItem is string shape && EnumText.TryParse<StairShape>(shape, out var picked)) Plan.NewStairShape = picked;
-        Plan.NewStairCorner = StairCornerPicker.SelectedIndex == 1 ? StairCorner.Winders : StairCorner.Landing;
+        Plan.NewStairCorner = StairCornerPicker.SelectedIndex switch { 1 => StairCorner.Winders, 2 => StairCorner.BalancedWinders, _ => StairCorner.Landing };
         Plan.NewStairTurnsLeft = StairTurnPicker.SelectedIndex == 1;
         if (double.TryParse(StairWidthBox.Text, out var width) && width is >= 500 and <= 5000) Plan.NewStairWidth = width;
+        if (double.TryParse(StairRadiusBox.Text, out var radius) && radius is >= 0 and <= 10000) Plan.NewStairInnerRadius = radius;
         ShowStairOptions();
         Plan.InvalidateVisual();
     }
@@ -3964,6 +3994,18 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Rebuilds the 3D meshes, but only while anyone can see them.</summary>
+    /// <summary>A 3D handle's drag followed to where the mouse has got to: the stair moved, and shown as it now is.</summary>
+    private void FollowGripDrag()
+    {
+        _gripDragPending = false;
+        if (_gripDrag is not { } drag) return;
+        _gripDrag = null;
+
+        if (!Plan.DragStairGripIn3D(drag.Key, drag.From, drag.Through)) return;
+        if (Plan.SelectedElements.OfType<Stair>().FirstOrDefault() is { } stair)
+            Model3D.PreviewElement(stair.Id, StairModel.Meshes(_document, stair));
+    }
+
     private void Refresh3D()
     {
         if (ModelPanel.Visibility != Visibility.Visible) return;

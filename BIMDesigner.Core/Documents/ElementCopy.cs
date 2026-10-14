@@ -281,7 +281,10 @@ public static class ElementCopy
         Stair stair => CarryCommon(new Stair
         {
             Start = stair.Start, Angle = stair.Angle, Shape = stair.Shape, Corner = stair.Corner, TurnsLeft = stair.TurnsLeft,
-            Width = stair.Width, RisersBeforeTurn = stair.RisersBeforeTurn, Well = stair.Well, BaseOffset = stair.BaseOffset,
+            Width = stair.Width, RisersBeforeTurn = stair.RisersBeforeTurn, Well = stair.Well, InnerRadius = stair.InnerRadius, BaseOffset = stair.BaseOffset,
+            PathLengths = stair.PathLengths.ToList(), PathTurns = stair.PathTurns.ToList(), RepeatToLevelId = stair.RepeatToLevelId,
+            ShowRiserNumbers = stair.ShowRiserNumbers, ShowFlightDimensions = stair.ShowFlightDimensions,
+            Use = stair.Use, LoftConversion = stair.LoftConversion, Outside = stair.Outside, BottomStep = stair.BottomStep,
             TopLevelId = stair.TopLevelId, TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight,
             Railings = stair.Railings, CutsFloorAbove = stair.CutsFloorAbove
         }, stair),

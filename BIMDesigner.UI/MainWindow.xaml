@@ -478,7 +478,7 @@
                             <StackPanel>
                                 <RadioButton x:Name="StairTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Stair}"
                                              Content="Stair" Checked="OnToolChanged"
-                                             ToolTip="Stair: click where its first riser goes, then which way is up. It runs up to the level above - straight, or turning on a landing or winders - its risers worked out from the storey's height, checked against Approved Document K or the IRC, and cuts its opening in the floor over it"/>
+                                             ToolTip="Stair: click where its first riser goes, then which way is up. It runs up to the level above - straight, turning on a landing or winders, spiral, curved or split in two - its risers worked out from the storey's height, checked against Approved Document K or the IRC, and cuts its opening in the floor over it"/>
                                 <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Shaft}"
                                              Content="Shaft" Checked="OnToolChanged"
                                              ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
@@ -1343,19 +1343,22 @@
                     <TextBlock Text="Stair" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox x:Name="StairTypePicker" Style="{StaticResource OptionCombo}" MinWidth="210"
                               DisplayMemberPath="Name" SelectionChanged="OnStairOptionChanged"
-                              ToolTip="How it is built and set out: timber with closed or open risers, or concrete"/>
+                              ToolTip="How it is built and set out: timber with closed or open risers or a cut string, concrete, or oak treads on a steel spine, on steel stringers or floating from a wall"/>
                     <ComboBox x:Name="StairShapePicker" Style="{StaticResource OptionCombo}" MinWidth="110" Margin="8,0,0,0"
                               SelectionChanged="OnStairOptionChanged"
-                              ToolTip="Straight, or two flights turning a quarter or a half between them"/>
+                              ToolTip="Straight; two flights turning a quarter or a half between them; a spiral round a column; a curve; one wide flight up to a landing that splits two ways; three flights turning a quarter twice; Custom - click along its walking line, each place it turns, and double-click where it ends; or for a loft conversion, alternating treads or a ladder"/>
                     <ComboBox x:Name="StairCornerPicker" Style="{StaticResource OptionCombo}" MinWidth="90" Margin="8,0,0,0"
                               SelectionChanged="OnStairOptionChanged"
-                              ToolTip="What a quarter turn turns on: a landing, or three winders round a newel"/>
+                              ToolTip="What the turn turns on: a landing; winders round a newel - three for a quarter turn, six round two newels for a half; or balanced winders, with no newel, the turn shared among the treads either side"/>
                     <ComboBox x:Name="StairTurnPicker" Style="{StaticResource OptionCombo}" MinWidth="90" Margin="8,0,0,0"
                               SelectionChanged="OnStairOptionChanged"
                               ToolTip="Which way it turns, going up"/>
                     <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <TextBox x:Name="StairWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
                              ToolTip="Its clear width between its strings"/>
+                    <TextBlock x:Name="StairRadiusLabel" Text="Inside radius" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="StairRadiusBox" Width="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
+                             ToolTip="How far its inside edge is from its centre: a spiral's column, a curve's well. 0 for the usual - a 120 column, or 1500"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ChimneyOptions" Orientation="Horizontal" Visibility="Collapsed">

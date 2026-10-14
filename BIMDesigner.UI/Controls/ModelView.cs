@@ -81,7 +81,7 @@ public partial class ModelView : Border
     private double _pitch = 28;
     private double _distance = 30;
 
-    private enum Gesture { None, Orbit, Pan, Drag }
+    private enum Gesture { None, Orbit, Pan, Drag, Grip }
 
     private Gesture _gesture = Gesture.None;
 
@@ -108,9 +108,11 @@ public partial class ModelView : Border
 
         // The levels and gridlines of an elevation are drawn over the model, not in it.
         _overlay = new ElevationOverlay(this);
+        _gripOverlay = new GripOverlay(this);
         var layers = new Grid();
         layers.Children.Add(_viewport);
         layers.Children.Add(_overlay);
+        layers.Children.Add(_gripOverlay);
         Child = layers;
 
         UpdateCamera();
@@ -165,6 +167,8 @@ public partial class ModelView : Border
     /// <summary>Rebuilds every mesh from the model. Cheap enough to do after every edit.</summary>
     public void Rebuild()
     {
+        // Built again from the model: whatever a drag was showing in its place is the model now.
+        (_previewId, _previewMeshes) = (null, Array.Empty<Mesh3D>());
         _meshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document, _document.ViewSettings.FilterFor(_document, ViewReference.Model3D));
 
         // Converted once per rebuild. Selecting something or changing the style only swaps
@@ -262,12 +266,15 @@ public partial class ModelView : Border
     private void Compose()
     {
         _meshOf.Clear();
+        RefreshGrips();
 
         var solid = new Model3DGroup();
         var clear = new Model3DGroup();
+        (_solidGroup, _clearGroup) = (solid, clear);
 
         foreach (var mesh in _meshes)
         {
+            if (mesh.ElementId == _previewId) continue;
             if (_hiddenLevels.Contains(mesh.LevelId)) continue;
             if (IsHiddenKind(mesh.Kind)) continue;
 
@@ -281,10 +288,13 @@ public partial class ModelView : Border
             (seeThrough ? clear : solid).Children.Add(model);
         }
 
+        ShowPreview();
+
         var root = new Model3DGroup();
         AddLights(root);
         AddGround(root);
         root.Children.Add(solid);
+        root.Children.Add(_previewGroup);
         root.Children.Add(_edgeGroup);
         root.Children.Add(clear);
 
@@ -306,39 +316,50 @@ public partial class ModelView : Border
     private void BuildEdges()
     {
         _edgeGroup.Children.Clear();
+        _selectedEdges = null;
         _edgeDistance = _distance;
 
         if (!_showEdges) return;
 
         // Scaled with distance so the lines stay about a pixel wide however far out you are.
         // Fixed world thickness would be hairline across a site and a fence post up close.
-        var half = Math.Max(_distance * 0.0009, 0.0015);
+        var half = EdgeHalfWidth;
 
         var plain = new EdgeMesh();
-        var selected = new EdgeMesh();
-
         foreach (var mesh in _meshes)
         {
-            if (_hiddenLevels.Contains(mesh.LevelId)) continue;
-            if (IsHiddenKind(mesh.Kind)) continue;
-
-            // Glass has no edges worth drawing: outlining every pane makes a window read as a
-            // solid panel, which is the opposite of what it is.
-            if (mesh.Kind == MeshKind.Glazing) continue;
-
-            var target = _selected.Contains(mesh.ElementId) || _selected.Contains(mesh.OwnerId) ? selected : plain;
-            var width = ReferenceEquals(target, selected) ? half * 2.2 : half;
-
-            foreach (var (from, to) in mesh.Edges) target.Add(ToUnits(from), ToUnits(to), width);
+            if (!HasEdges(mesh) || IsSelectedMesh(mesh)) continue;
+            foreach (var (from, to) in mesh.Edges) plain.Add(ToUnits(from), ToUnits(to), half);
         }
 
         AddEdgeModel(plain, AppTheme.Pick(Color.FromRgb(0x3A, 0x3E, 0x44), Color.FromRgb(0x14, 0x17, 0x1C)));
-        AddEdgeModel(selected, Color.FromRgb(0x4A, 0x9B, 0xFF));
+        _selectedEdges = AddEdgeModel(SelectedEdges(), Color.FromRgb(0x4A, 0x9B, 0xFF));
     }
 
-    private void AddEdgeModel(EdgeMesh edges, Color colour)
+    private double EdgeHalfWidth => Math.Max(_distance * 0.0009, 0.0015);
+
+    private bool IsSelectedMesh(Mesh3D mesh) => _selected.Contains(mesh.ElementId) || _selected.Contains(mesh.OwnerId);
+
+    /// <summary>
+    /// Whether a mesh's edges are drawn: one shown, and not glass - outlining every pane makes a
+    /// window read as a solid panel, which is the opposite of what it is.
+    /// </summary>
+    private bool HasEdges(Mesh3D mesh) =>
+        mesh.ElementId != _previewId && !_hiddenLevels.Contains(mesh.LevelId) && !IsHiddenKind(mesh.Kind) && mesh.Kind != MeshKind.Glazing;
+
+    /// <summary>The selection's edges, drawn wider: what is selected, and whatever a drag is showing in its place.</summary>
+    private EdgeMesh SelectedEdges()
     {
-        if (edges.IsEmpty) return;
+        var selected = new EdgeMesh();
+        var width = EdgeHalfWidth * 2.2;
+        foreach (var mesh in _meshes.Where(mesh => HasEdges(mesh) && IsSelectedMesh(mesh)).Concat(_previewMeshes.Where(mesh => !IsHiddenKind(mesh.Kind) && mesh.Kind != MeshKind.Glazing)))
+            foreach (var (from, to) in mesh.Edges) selected.Add(ToUnits(from), ToUnits(to), width);
+        return selected;
+    }
+
+    private GeometryModel3D? AddEdgeModel(EdgeMesh edges, Color colour)
+    {
+        if (edges.IsEmpty) return null;
 
         // Unlit: a black diffuse base with the colour emitted over it, so a line is the same
         // weight on a face turned towards the light as on one turned away.
@@ -351,7 +372,9 @@ public partial class ModelView : Border
         };
         material.Freeze();
 
-        _edgeGroup.Children.Add(new GeometryModel3D(edges.ToGeometry(), material) { BackMaterial = material });
+        var model = new GeometryModel3D(edges.ToGeometry(), material) { BackMaterial = material };
+        _edgeGroup.Children.Add(model);
+        return model;
     }
 
     private static MediaPoint3D ToUnits(CorePoint3D point) =>
@@ -660,6 +683,8 @@ public partial class ModelView : Border
 
     private void UpdateCamera()
     {
+        // The handles stay where they are in the model: only drawn again where they now are on the screen.
+        _gripOverlay?.InvalidateVisual();
         var yaw = _yaw * Math.PI / 180;
         var pitch = _pitch * Math.PI / 180;
 
@@ -696,11 +721,16 @@ public partial class ModelView : Border
 
         _gesture = e.ChangedButton == MouseButton.Left ? Gesture.Orbit : Gesture.Pan;
 
-        // A left press on something selected that can be dragged picks it up rather than
-        // turning the view.
-        if (_gesture == Gesture.Orbit && CanDrag is not null &&
-            HitTest(e.GetPosition(_viewport)) is { } pressed &&
-            _selected.Contains(pressed.Id) && CanDrag(pressed.Id))
+        // A left press on a handle picks it up; on something selected that can be dragged, picks
+        // that up - rather than turning the view.
+        if (_gesture == Gesture.Orbit && GripNear(e.GetPosition(_viewport)) is { } grip)
+        {
+            _gesture = Gesture.Grip;
+            _grip = grip.Key;
+        }
+        else if (_gesture == Gesture.Orbit && CanDrag is not null &&
+                 HitTest(e.GetPosition(_viewport)) is { } pressed &&
+                 _selected.Contains(pressed.Id) && CanDrag(pressed.Id))
         {
             _gesture = Gesture.Drag;
             _dragged = pressed.Id;
@@ -730,6 +760,14 @@ public partial class ModelView : Border
         {
             var (from, through) = RayThrough(e.GetPosition(_viewport));
             ElementDragged?.Invoke(this, new ModelDrag(_dragged, from, through));
+            Cursor = Cursors.SizeAll;
+            return;
+        }
+
+        if (_gesture == Gesture.Grip && _grip is { } held)
+        {
+            var (from, through) = RayThrough(e.GetPosition(_viewport));
+            GripDragged?.Invoke(this, new ModelGripDrag(held, from, through));
             Cursor = Cursors.SizeAll;
             return;
         }
@@ -789,10 +827,19 @@ public partial class ModelView : Border
         // A press on something draggable that never moved is still a click on it.
         var wasClick = _gesture is Gesture.Orbit or Gesture.Drag && !_movedBeyondClick;
         var wasDrag = _gesture == Gesture.Drag && _movedBeyondClick;
+        var grip = _gesture == Gesture.Grip ? _grip : null;
 
         _gesture = Gesture.None;
+        _grip = null;
         ReleaseMouseCapture();
         Cursor = Cursors.Arrow;
+
+        if (grip is not null)
+        {
+            if (_movedBeyondClick) GripDragEnded?.Invoke(this, grip);
+            else GripClicked?.Invoke(this, grip);
+            return;
+        }
 
         if (wasClick) ElementClicked?.Invoke(this, HitTest(e.GetPosition(_viewport)));
         if (wasDrag) ElementDragEnded?.Invoke(this, _dragged);
@@ -804,10 +851,13 @@ public partial class ModelView : Border
 
         // Capture lost mid-drag - another window, Alt+Tab - ends it where it got to.
         var wasDrag = _gesture == Gesture.Drag && _movedBeyondClick;
+        var grip = _gesture == Gesture.Grip && _movedBeyondClick ? _grip : null;
         _gesture = Gesture.None;
+        _grip = null;
         Cursor = Cursors.Arrow;
 
         if (wasDrag) ElementDragEnded?.Invoke(this, _dragged);
+        if (grip is not null) GripDragEnded?.Invoke(this, grip);
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)

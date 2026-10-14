@@ -86,14 +86,14 @@ public partial class WallShapeWindow : System.Windows.Window
     /// <summary>What was made, in words, for the status bar.</summary>
     public string Made { get; private set; } = string.Empty;
 
-    private RectangleMeasure Measure => MeasurePicker.SelectedIndex switch
+    private RectangleMeasure MeasuredBy => MeasurePicker.SelectedIndex switch
     {
         1 => RectangleMeasure.InsideFaces,
         2 => RectangleMeasure.OutsideFaces,
         _ => RectangleMeasure.WallCentres
     };
 
-    private string MeasureWords => Measure switch
+    private string MeasureWords => MeasuredBy switch
     {
         RectangleMeasure.InsideFaces => "between their inside faces",
         RectangleMeasure.OutsideFaces => "between their outside faces",
@@ -107,14 +107,14 @@ public partial class WallShapeWindow : System.Windows.Window
     {
         if (_polygon is not null)
         {
-            var side = Round(_polygon.Measure(Measure));
+            var side = Round(_polygon.Measure(MeasuredBy));
             WidthBox.Text = Units.FormatLength(side);
             NowText.Text = $"The {_polygon.Count} walls' sides are now {Units.FormatLength(side)} long {MeasureWords}, on average. " +
                            "Type the length every side should be.";
             return;
         }
 
-        var (width, depth) = _rectangle!.Measure(Measure);
+        var (width, depth) = _rectangle!.Measure(MeasuredBy);
         (width, depth) = (Round(width), Round(depth));
 
         if (_kind == WallShapeKind.Square)
@@ -154,12 +154,12 @@ public partial class WallShapeWindow : System.Windows.Window
         switch (_kind)
         {
             case WallShapeKind.Polygon:
-                command = _polygon!.Make(first, Measure, out problem);
+                command = _polygon!.Make(first, MeasuredBy, out problem);
                 Made = $"A {_polygon.Name.ToLowerInvariant()}, every side {Units.FormatLength(first)}.";
                 break;
 
             case WallShapeKind.Square:
-                command = _rectangle!.Make(first, first, Measure, out problem);
+                command = _rectangle!.Make(first, first, MeasuredBy, out problem);
                 Made = $"A square, {Units.FormatLength(first)} each way.";
                 break;
 
@@ -170,7 +170,7 @@ public partial class WallShapeWindow : System.Windows.Window
                     return;
                 }
 
-                command = _rectangle!.Make(first, depth, Measure, out problem);
+                command = _rectangle!.Make(first, depth, MeasuredBy, out problem);
                 Made = $"A rectangle, {Units.FormatLength(first)} by {Units.FormatLength(depth)}.";
                 break;
         }

@@ -703,7 +703,7 @@ public static class RoofShape
                     var union = PolygonBoolean.Combine(region, pending, BooleanOperation.Union);
 
                     // Touching or overlapping: one region now, carried on to the next.
-                    if (union.Count == 1 && pending is not null)
+                    if (union.Count == 1)
                     {
                         pending = union[0].Outer;
                         continue;
@@ -712,7 +712,7 @@ public static class RoofShape
                     joined.Add(region);
                 }
 
-                joined.Add(pending!);
+                joined.Add(pending);
                 regions = joined;
             }
 

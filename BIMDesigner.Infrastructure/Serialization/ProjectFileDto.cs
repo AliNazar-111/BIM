@@ -1175,6 +1175,22 @@ internal sealed class StairTypeDto
     public double Nosing { get; set; }
     public double TreadThickness { get; set; }
     public bool OpenRisers { get; set; }
+    public bool RiserBars { get; set; }
+    public string Support { get; set; } = "ClosedStrings";
+    public string Balustrade { get; set; } = "Balusters";
+    public string HandrailProfile { get; set; } = "Round";
+    public double? HandrailWidth { get; set; }
+    public double? HandrailDepth { get; set; }
+    public double? WallClearance { get; set; }
+    public double HandrailExtension { get; set; }
+    public string HandrailEnds { get; set; } = "ReturnToWall";
+    public double? GuardHeight { get; set; }
+    public bool LowerRail { get; set; }
+    public string NosingProfile { get; set; } = "Square";
+    public Guid RiserMaterialId { get; set; }
+    public Guid StringMaterialId { get; set; }
+    public Guid RailMaterialId { get; set; }
+    public Guid BalusterMaterialId { get; set; }
     public double HandrailHeight { get; set; }
     public double BalusterSpacing { get; set; }
     public string Colour { get; set; } = string.Empty;
@@ -1197,6 +1213,16 @@ internal sealed class StairDto
     public double Width { get; set; }
     public int? RisersBeforeTurn { get; set; }
     public double Well { get; set; }
+    public double InnerRadius { get; set; }
+    public List<double>? PathLengths { get; set; }
+    public List<double>? PathTurns { get; set; }
+    public Guid? RepeatToLevelId { get; set; }
+    public bool ShowRiserNumbers { get; set; }
+    public string Use { get; set; } = "Private";
+    public bool LoftConversion { get; set; }
+    public bool Outside { get; set; }
+    public string BottomStep { get; set; } = "Plain";
+    public bool ShowFlightDimensions { get; set; }
     public double BaseOffset { get; set; }
     public Guid? TopLevelId { get; set; }
     public double TopOffset { get; set; }

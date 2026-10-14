@@ -274,6 +274,124 @@ public sealed class Mesh3D
         }
     }
 
+    /// <summary>
+    /// A round bar along a line of points - a handrail - its section kept square to each length
+    /// and turned with it, mitred where two lengths meet so it bends round a corner or follows a
+    /// curve in one piece. Its sides share their corners, so they shade as one curve; its ends
+    /// are closed flat. Points closer than half a millimetre to the one before are the same point.
+    /// </summary>
+    public void AddTube(IReadOnlyList<Point3D> path, double radius, int sides = 12)
+    {
+        var points = new List<Point3D>();
+        foreach (var point in path)
+            if (points.Count == 0 || Length(Minus(point, points[^1])) > 0.5) points.Add(point);
+        if (points.Count < 2 || radius <= 0) return;
+
+        static (double X, double Y, double Z) Minus(Point3D a, Point3D b) => (a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+        static double Length((double X, double Y, double Z) v) => Math.Sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z);
+        static (double X, double Y, double Z) Unit((double X, double Y, double Z) v) { var l = Length(v); return l < 1e-12 ? (0, 0, 0) : (v.X / l, v.Y / l, v.Z / l); }
+        static double Dot((double X, double Y, double Z) a, (double X, double Y, double Z) b) => a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+        static (double X, double Y, double Z) Cross((double X, double Y, double Z) a, (double X, double Y, double Z) b) =>
+            (a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X);
+        static (double X, double Y, double Z) Plus((double X, double Y, double Z) a, (double X, double Y, double Z) b, double s) => (a.X + b.X * s, a.Y + b.Y * s, a.Z + b.Z * s);
+
+        var ways = points.Zip(points.Skip(1), (a, b) => Unit(Minus(b, a))).ToList();
+
+        // A first way across the bar, carried along it from length to length so the section does not twist.
+        var reference = Math.Abs(ways[0].Z) > 0.95 ? (1.0, 0.0, 0.0) : (0.0, 0.0, 1.0);
+        var across = Unit(Cross(ways[0], reference));
+        var rings = new List<int[]>();
+        var offsets = new List<(double X, double Y, double Z)[]>();
+        for (var i = 0; i < points.Count; i++)
+        {
+            var into = ways[Math.Max(0, i - 1)];
+            var onward = ways[Math.Min(ways.Count - 1, i)];
+            if (i > 0)
+            {
+                var carried = Plus(across, into, -Dot(across, into));
+                across = Length(carried) > 1e-9 ? Unit(carried) : Unit(Cross(into, Math.Abs(into.Z) > 0.95 ? (1.0, 0.0, 0.0) : (0.0, 0.0, 1.0)));
+            }
+
+            var up = Cross(across, into);
+            var mitre = Unit(Plus(into, onward, 1));
+            if (Length(mitre) < 1e-9) mitre = into;
+
+            var ring = new int[sides];
+            var spokes = new (double X, double Y, double Z)[sides];
+            for (var k = 0; k < sides; k++)
+            {
+                var angle = 2 * Math.PI * k / sides;
+                var spoke = Plus(Plus((0.0, 0.0, 0.0), across, radius * Math.Cos(angle)), up, radius * Math.Sin(angle));
+
+                // Pressed along the length onto the plane halfway between the lengths either side.
+                var slide = Dot(spoke, mitre) / Dot(into, mitre);
+                spoke = Plus(spoke, into, -slide);
+                spokes[k] = spoke;
+                ring[k] = AddPosition(new Point3D(points[i].X + spoke.X, points[i].Y + spoke.Y, points[i].Z + spoke.Z));
+            }
+
+            rings.Add(ring);
+            offsets.Add(spokes);
+            if (i < ways.Count) across = Unit(Plus(across, onward, -Dot(across, onward)));
+        }
+
+        for (var i = 0; i + 1 < rings.Count; i++)
+        for (var k = 0; k < sides; k++)
+        {
+            var next = (k + 1) % sides;
+            var outward = offsets[i][k];
+            AddFacing(rings[i][k], rings[i][next], rings[i + 1][next], new Point3D(outward.X, outward.Y, outward.Z));
+            AddFacing(rings[i][k], rings[i + 1][next], rings[i + 1][k], new Point3D(outward.X, outward.Y, outward.Z));
+        }
+
+        // The ends closed flat, on corners of their own so they shade flat.
+        foreach (var (end, way) in new[] { (0, ways[0]), (points.Count - 1, ways[^1]) })
+        {
+            var facing = end == 0 ? new Point3D(-way.X, -way.Y, -way.Z) : new Point3D(way.X, way.Y, way.Z);
+            var centre = AddPosition(points[end]);
+            var rim = rings[end].Select(index => AddPosition(_positions[index])).ToArray();
+            for (var k = 0; k < sides; k++) AddFacing(centre, rim[k], rim[(k + 1) % sides], facing);
+        }
+    }
+
+    /// <summary>
+    /// A solid swept straight along from a section: the section drawn in a vertical plane - so
+    /// far along a way in plan, and so high - carried along another way in plan for a length. A
+    /// tread with its nosing shaped, carried across the stair, is this. Its ends are closed; its
+    /// long edges are drawn where the section turns a corner, not along a curve it rounds.
+    /// </summary>
+    public void AddProfile(IReadOnlyList<(double Along, double Z)> section, Point2D origin, Vector2D along, Vector2D across, double length, IReadOnlyCollection<int>? smooth = null)
+    {
+        var count = section.Count;
+        if (count < 3 || length <= 0) return;
+
+        Point3D At(int i, double s)
+        {
+            var plan = origin + along * section[i].Along + across * s;
+            return new Point3D(plan.X, plan.Y, section[i].Z);
+        }
+
+        var flat = section.Select(point => new Point2D(point.Along, point.Z)).ToList();
+        var triangles = Polygon2D.Triangulate(flat);
+        AddFace(Enumerable.Range(0, count).Select(i => At(i, 0)).ToList(), triangles, new Point3D(-across.X, -across.Y, 0));
+        AddFace(Enumerable.Range(0, count).Select(i => At(i, length)).ToList(), triangles, new Point3D(across.X, across.Y, 0));
+
+        var middle = (Along: section.Average(point => point.Along), Z: section.Average(point => point.Z));
+        for (var i = 0; i < count; i++)
+        {
+            var j = (i + 1) % count;
+            var (da, dz) = (section[j].Along - section[i].Along, section[j].Z - section[i].Z);
+            var (na, nz) = (dz, -da);
+            if (na * (section[i].Along - middle.Along) + nz * (section[i].Z - middle.Z) < 0) (na, nz) = (-na, -nz);
+            var outward = along * na;
+            AddFace(At(i, 0), At(j, 0), At(j, length), At(i, length), new Point3D(outward.X, outward.Y, nz));
+
+            AddEdge(At(i, 0), At(j, 0));
+            AddEdge(At(i, length), At(j, length));
+            if (smooth is null || !smooth.Contains(i)) AddEdge(At(i, 0), At(i, length));
+        }
+    }
+
     /// <summary>A flat face given as a polygon and its triangles, wound to face <paramref name="outward"/>.</summary>
     public void AddFace(IReadOnlyList<Point3D> polygon, IReadOnlyList<(int A, int B, int C)> triangles, Point3D outward)
     {

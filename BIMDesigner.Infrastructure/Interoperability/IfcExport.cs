@@ -1158,10 +1158,39 @@ public static class IfcExport
         /// A stair as an IfcStair - straight, quarter-turn, quarter-winding or half-turn - with its
         /// risers and goings; its handrails and balustrades as IfcRailings of their own.
         /// </summary>
+        /// <summary>
+        /// What a drawn stair is in IFC, by its turns: none, a straight run; a landing straight on,
+        /// two straight runs; one, two or three right angles one way, a quarter, half or
+        /// three-quarter turn - winding, on winders; two opposite ways, two quarter turns.
+        /// </summary>
+        private static IfcStairTypeEnum DrawnStairType(Stair stair)
+        {
+            var turns = stair.PathTurns.Take(Math.Max(0, stair.PathLengths.Count - 1)).ToList();
+            var winding = stair.Corner != StairCorner.Landing;
+            if (turns.Count == 0) return IfcStairTypeEnum.STRAIGHT_RUN_STAIR;
+            if (turns.All(turn => Math.Abs(turn) < 0.5)) return turns.Count == 1 ? IfcStairTypeEnum.TWO_STRAIGHT_RUN_STAIR : IfcStairTypeEnum.NOTDEFINED;
+            if (!turns.All(turn => Math.Abs(Math.Abs(turn) - 90) < 0.5)) return IfcStairTypeEnum.NOTDEFINED;
+            if (turns.All(turn => turn > 0) || turns.All(turn => turn < 0))
+                return turns.Count switch
+                {
+                    1 => winding ? IfcStairTypeEnum.QUARTER_WINDING_STAIR : IfcStairTypeEnum.QUARTER_TURN_STAIR,
+                    2 => winding ? IfcStairTypeEnum.HALF_WINDING_STAIR : IfcStairTypeEnum.HALF_TURN_STAIR,
+                    3 => winding ? IfcStairTypeEnum.THREE_QUARTER_WINDING_STAIR : IfcStairTypeEnum.THREE_QUARTER_TURN_STAIR,
+                    _ => IfcStairTypeEnum.NOTDEFINED
+                };
+            return turns.Count == 2 ? winding ? IfcStairTypeEnum.TWO_QUARTER_WINDING_STAIR : IfcStairTypeEnum.TWO_QUARTER_TURN_STAIR : IfcStairTypeEnum.NOTDEFINED;
+        }
+
+        /// <summary>
+        /// A stair as IFC has it: an IfcStair made up of its flights - IfcStairFlights, each with
+        /// its risers, treads and going - its landings as IfcSlabs, the strings or spine that
+        /// carry them as an IfcMember, and its handrails, balustrades and guarding as IfcRailings.
+        /// The stair itself is drawn by the line walked up it, its axis; its pieces are its body.
+        /// </summary>
         private void ExportStair(Stair stair)
         {
-            var (steps, railings) = StairModel.Build(_document, stair);
-            if (steps.Count == 0) return;
+            var parts = StairModel.Parts(_document, stair);
+            if (parts.Stair.Count == 0) return;
 
             var type = Stairs.TypeOf(_document, stair);
             var layout = Stairs.Layout(_document, stair);
@@ -1180,15 +1209,80 @@ public static class IfcExport
                 s.Tag = stair.Mark;
                 s.PredefinedType = stair.Shape switch
                 {
-                    StairShape.QuarterTurn when stair.Corner == StairCorner.Winders => IfcStairTypeEnum.QUARTER_WINDING_STAIR,
+                    StairShape.QuarterTurn when stair.Corner != StairCorner.Landing => IfcStairTypeEnum.QUARTER_WINDING_STAIR,
                     StairShape.QuarterTurn => IfcStairTypeEnum.QUARTER_TURN_STAIR,
+                    StairShape.HalfTurn when stair.Corner != StairCorner.Landing => IfcStairTypeEnum.HALF_WINDING_STAIR,
                     StairShape.HalfTurn => IfcStairTypeEnum.HALF_TURN_STAIR,
+                    StairShape.Spiral => IfcStairTypeEnum.SPIRAL_STAIR,
+                    StairShape.Curved => IfcStairTypeEnum.CURVED_RUN_STAIR,
+                    StairShape.Bifurcated => IfcStairTypeEnum.DOUBLE_RETURN_STAIR,
+                    StairShape.ThreeQuarterTurn when stair.Corner != StairCorner.Landing => IfcStairTypeEnum.THREE_QUARTER_WINDING_STAIR,
+                    StairShape.ThreeQuarterTurn => IfcStairTypeEnum.THREE_QUARTER_TURN_STAIR,
+                    StairShape.Custom => DrawnStairType(stair),
+                    StairShape.AlternatingTread or StairShape.Ladder => IfcStairTypeEnum.USERDEFINED,
                     _ => IfcStairTypeEnum.STRAIGHT_RUN_STAIR
                 };
+                if (stair.Shape is StairShape.AlternatingTread or StairShape.Ladder) s.ObjectType = stair.Shape == StairShape.Ladder ? "LADDER" : "ALTERNATING_TREAD_STAIR";
                 s.ObjectPlacement = OnStorey();
-                s.Representation = TessellatedBody(steps, storeyElevation);
+                s.Representation = AxisShape(StairModel.Axis(layout), storeyElevation);
             });
             Contain(stair, product);
+
+            // Its flights and landings, one after another up it, and what carries them.
+            var flights = 0;
+            foreach (var piece in parts.Pieces.Where(piece => piece.Meshes.Count > 0))
+            {
+                if (piece.Kind == StairPieceKind.Landing)
+                {
+                    Aggregate(product, New<IfcSlab>(slab =>
+                    {
+                        slab.GlobalId = Guid.NewGuid().ToIfc();
+                        slab.Name = $"{type.Name} - landing at step {piece.Steps[0].Number}";
+                        slab.PredefinedType = IfcSlabTypeEnum.LANDING;
+                        slab.ObjectPlacement = OnStorey();
+                        slab.Representation = TessellatedBody(piece.Meshes, storeyElevation);
+                    }));
+                    continue;
+                }
+
+                var number = ++flights;
+                var flight = New<IfcStairFlight>(f =>
+                {
+                    f.GlobalId = Guid.NewGuid().ToIfc();
+                    f.Name = $"{type.Name} - flight {number}";
+                    f.PredefinedType = layout.Shape switch
+                    {
+                        StairShape.Spiral => IfcStairFlightTypeEnum.SPIRAL,
+                        StairShape.Curved => IfcStairFlightTypeEnum.CURVED,
+                        _ when piece.Steps.Any(step => step.Kind == StairStepKind.Winder) => IfcStairFlightTypeEnum.WINDER,
+                        _ => IfcStairFlightTypeEnum.STRAIGHT
+                    };
+                    f.ObjectPlacement = OnStorey();
+                    f.Representation = TessellatedBody(piece.Meshes, storeyElevation);
+                });
+                Aggregate(product, flight);
+                WriteSet(flight, "Pset_StairFlightCommon", new Dictionary<string, IfcValue?>
+                {
+                    ["NumberOfRiser"] = new IfcCountMeasure(piece.Steps.Count + 1),
+                    ["NumberOfTreads"] = new IfcCountMeasure(piece.Steps.Count),
+                    ["RiserHeight"] = new IfcPositiveLengthMeasure(layout.Rise),
+                    ["TreadLength"] = new IfcPositiveLengthMeasure(layout.Going),
+                    ["NosingLength"] = new IfcLengthMeasure(type.Nosing),
+                    ["WalkingLineOffset"] = new IfcPositiveLengthMeasure(layout.Width / 2),
+                    ["TreadLengthAtInnerSide"] = layout.GoingAt is { } going && going(0) > 0 ? new IfcPositiveLengthMeasure(going(0)) : null,
+                    ["WaistThickness"] = type.Construction == StairConstruction.Concrete ? new IfcPositiveLengthMeasure(150) : null
+                });
+            }
+
+            if (parts.Stringers.Count > 0)
+                Aggregate(product, New<IfcMember>(member =>
+                {
+                    member.GlobalId = Guid.NewGuid().ToIfc();
+                    member.Name = $"{type.Name} - {(type.Support == StairSupport.MonoStringer ? "spine" : "strings")}";
+                    member.PredefinedType = IfcMemberTypeEnum.STRINGER;
+                    member.ObjectPlacement = OnStorey();
+                    member.Representation = TessellatedBody(parts.Stringers, storeyElevation);
+                }));
 
             WriteSet(product, "Pset_StairCommon", new Dictionary<string, IfcValue?>
             {
@@ -1198,30 +1292,46 @@ public static class IfcExport
                 ["RiserHeight"] = new IfcPositiveLengthMeasure(layout.Rise),
                 ["TreadLength"] = new IfcPositiveLengthMeasure(layout.Going),
                 ["NosingLength"] = new IfcLengthMeasure(type.Nosing),
-                ["RequiredHeadroom"] = new IfcPositiveLengthMeasure(Stairs.Headroom(_document.ProjectInformation.ClearanceStandard))
+                ["RequiredHeadroom"] = new IfcPositiveLengthMeasure(Stairs.Headroom(_document.ProjectInformation.ClearanceStandard, stair.Shape)),
+                ["IsExternal"] = new IfcBoolean(stair.Outside)
             });
             WriteSet(product, "Stair", new Dictionary<string, IfcValue?>
             {
                 ["Construction"] = new IfcLabel(EnumText.Humanise(type.Construction)),
+                ["Support"] = type.Construction == StairConstruction.Timber ? new IfcLabel(EnumText.Humanise(type.Support)) : null,
+                ["Balustrade"] = new IfcLabel(EnumText.Humanise(type.Balustrade)),
+                ["Corner"] = stair.Shape is StairShape.QuarterTurn or StairShape.HalfTurn ? new IfcLabel(EnumText.Humanise(stair.Corner)) : null,
+                ["Use"] = new IfcLabel(EnumText.Humanise(stair.Use)),
+                ["LoftConversion"] = new IfcBoolean(stair.LoftConversion),
                 ["Width"] = new IfcPositiveLengthMeasure(layout.Width),
                 ["Pitch"] = new IfcReal(Math.Round(layout.Pitch, 2)),
                 ["Regulations"] = new IfcText(Stairs.Verdict(_document, stair))
             });
 
-            if (railings.Count == 0) return;
-            var railing = New<IfcRailing>(r =>
+            // Its railings as IFC has them: its handrails on walls, its balustrades, and the guarding round its stairwell.
+            foreach (var (meshes, kind, name, height) in new[]
+                     {
+                         (parts.Handrails, IfcRailingTypeEnum.HANDRAIL, "handrails", type.HandrailHeight),
+                         (parts.Balustrades, IfcRailingTypeEnum.BALUSTRADE, "balustrades", type.HandrailHeight),
+                         (parts.Guarding, IfcRailingTypeEnum.GUARDRAIL, "guarding", type.GuardHeight)
+                     })
             {
-                r.GlobalId = Guid.NewGuid().ToIfc();
-                r.Name = $"{type.Name} - handrails";
-                r.PredefinedType = IfcRailingTypeEnum.BALUSTRADE;
-                r.ObjectPlacement = OnStorey();
-                r.Representation = TessellatedBody(railings, storeyElevation);
-            });
-            Contain(stair, railing);
-            WriteSet(railing, "Pset_RailingCommon", new Dictionary<string, IfcValue?>
-            {
-                ["Height"] = new IfcPositiveLengthMeasure(type.HandrailHeight)
-            });
+                if (meshes.Count == 0) continue;
+                var railing = New<IfcRailing>(r =>
+                {
+                    r.GlobalId = Guid.NewGuid().ToIfc();
+                    r.Name = $"{type.Name} - {name}";
+                    r.PredefinedType = kind;
+                    r.ObjectPlacement = OnStorey();
+                    r.Representation = TessellatedBody(meshes, storeyElevation);
+                });
+                Aggregate(product, railing);
+                WriteSet(railing, "Pset_RailingCommon", new Dictionary<string, IfcValue?>
+                {
+                    ["Height"] = new IfcPositiveLengthMeasure(height),
+                    ["Diameter"] = type.HandrailProfile == HandrailProfile.Round ? new IfcPositiveLengthMeasure(type.HandrailWidth) : null
+                });
+            }
         }
 
         private void ExportChimney(Chimney chimney)
@@ -1441,6 +1551,23 @@ public static class IfcExport
         }
 
         /// <summary>Meshes as one triangulated body, their heights taken from the storey.</summary>
+        /// <summary>A line through points, as an element's axis: its 'Axis' representation, a 3D curve.</summary>
+        private IfcProductDefinitionShape AxisShape(IEnumerable<BIMDesigner.Core.Geometry.Point3D> points, double storeyElevation)
+        {
+            var line = New<IfcPolyline>(polyline =>
+            {
+                foreach (var point in points) polyline.Points.Add(Point3D(point.X, point.Y, point.Z - storeyElevation));
+            });
+            var representation = New<IfcShapeRepresentation>(r =>
+            {
+                r.ContextOfItems = _context;
+                r.RepresentationIdentifier = "Axis";
+                r.RepresentationType = "Curve3D";
+                r.Items.Add(line);
+            });
+            return New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+        }
+
         private IfcProductDefinitionShape TessellatedBody(IReadOnlyList<Mesh3D> meshes, double storeyElevation)
         {
             var representation = New<IfcShapeRepresentation>(r =>

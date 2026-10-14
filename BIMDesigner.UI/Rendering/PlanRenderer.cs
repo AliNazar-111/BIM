@@ -286,10 +286,20 @@ public sealed class PlanRenderer
         // Components sit in the rooms and against the walls, so they are drawn over both.
         foreach (var component in OnActiveLevel<Component>()) DrawComponent(dc, component);
 
-        // Stairs on their own storey, and seen down the stairwell from the one they come up to.
+        // Stairs on their own storey, and seen down the stairwell from the one they come up to -
+        // storey by storey for one repeated up a stairwell. Where one storey's flight goes on up
+        // from the floor another comes up to, that one's guarding round the stairwell is drawn with it.
         if (Document is not null)
-            foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => Filter(stair) && (stair.LevelId == ActiveLevelId || stair.TopLevelId == ActiveLevelId)))
-                DrawStair(dc, stair);
+            foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => Filter(stair)))
+            {
+                var flights = Stairs.Flights(Document, stair);
+                var goingOn = flights.FirstOrDefault(flight => flight.LevelId == ActiveLevelId)?.Layout.Steps;
+                foreach (var flight in flights)
+                {
+                    if (flight.LevelId == ActiveLevelId) DrawStair(dc, stair, flight.Layout, own: true);
+                    else if (flight.TopLevelId == ActiveLevelId) DrawStair(dc, stair, flight.Layout, own: false, goingOn);
+                }
+            }
 
         if (underlay) return;
 
@@ -1544,20 +1554,26 @@ public sealed class PlanRenderer
     /// it comes up to: all of it, seen down the stairwell, DN at its head, and the guarding round
     /// the stairwell. Red where it falls short of the regulations it is checked against.
     /// </summary>
-    private void DrawStair(DrawingContext dc, Stair stair)
+    private void DrawStair(DrawingContext dc, Stair stair, StairLayout layout, bool own, IReadOnlyList<StairStep>? goingOn = null)
     {
         if (Document is null) return;
-
-        var layout = Stairs.Layout(Document, stair);
         if (layout.Steps.Count == 0 || layout.WalkingLine.Count < 2) return;
 
-        var own = stair.LevelId == ActiveLevelId;
         var cut = (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight;
         var pen = IsSelected(stair) ? _selectedPen : Stairs.Problems(Document, stair).Count > 0 ? _stairShortPen : _componentPen;
 
+        // A storey a repeated stair comes up to and goes on up from: that storey's own flight is
+        // drawn, and with it only the guarding round where this one comes up.
+        var type = Stairs.TypeOf(Document, stair);
+        if (goingOn is not null)
+        {
+            DrawRailings(dc, StairModel.Guarding(Document, stair, layout, goingOn), type, pen);
+            return;
+        }
+
         foreach (var step in layout.Steps)
             dc.DrawGeometry(null, !own || step.Top <= cut ? pen : _overheadPen, BuildOutline(step.Outline));
-        if (layout.Newel is { } newel) dc.DrawGeometry(_componentBrush, pen, BuildOutline(newel));
+        foreach (var newel in layout.Newels) dc.DrawGeometry(_componentBrush, pen, BuildOutline(newel.Outline));
 
         // Where the plan cuts through it: a line slanting across the first step above the cut.
         if (own && layout.Steps.FirstOrDefault(step => step.Top > cut) is { } first)
@@ -1566,18 +1582,28 @@ public sealed class PlanRenderer
             dc.DrawLine(pen, ModelToScreen(first.RiserFrom - first.Up * reach), ModelToScreen(first.RiserTo + first.Up * reach));
         }
 
-        // The line walked up it - down it, from the floor above - a dot at one end, an arrow at the other.
-        var walk = own ? layout.WalkingLine : layout.WalkingLine.Reverse().ToList();
-        for (var i = 0; i + 1 < walk.Count; i++) dc.DrawLine(pen, ModelToScreen(walk[i]), ModelToScreen(walk[i + 1]));
-        dc.DrawEllipse(null, pen, ModelToScreen(walk[0]), Page(2.5), Page(2.5));
-
-        var head = walk[^1];
-        var way = (head - walk[^2]).NormalisedOrDefault(Vector2D.UnitX);
+        // The lines walked up it - down it, from the floor above - a dot at one end, an arrow at the
+        // other: a split stair's second line goes on from its first at the landing, so it has its
+        // own arrow going up, and its own dot coming down.
+        var walks = own ? layout.Walks : layout.Walks.Select(line => (IReadOnlyList<Point2D>)line.Reverse().ToList()).ToList();
         var barb = Math.Min(250, layout.Width * 0.25);
-        dc.DrawLine(pen, ModelToScreen(head), ModelToScreen(head - way * barb + way.PerpendicularLeft() * (barb / 2)));
-        dc.DrawLine(pen, ModelToScreen(head), ModelToScreen(head - way * barb - way.PerpendicularLeft() * (barb / 2)));
+        for (var k = 0; k < walks.Count; k++)
+        {
+            var line = walks[k];
+            if (line.Count < 2) continue;
+            for (var i = 0; i + 1 < line.Count; i++) dc.DrawLine(pen, ModelToScreen(line[i]), ModelToScreen(line[i + 1]));
+            if (!own || k == 0) dc.DrawEllipse(null, pen, ModelToScreen(line[0]), Page(2.5), Page(2.5));
+            if (own || k == 0)
+            {
+                var head = line[^1];
+                var way = (head - line[^2]).NormalisedOrDefault(Vector2D.UnitX);
+                dc.DrawLine(pen, ModelToScreen(head), ModelToScreen(head - way * barb + way.PerpendicularLeft() * (barb / 2)));
+                dc.DrawLine(pen, ModelToScreen(head), ModelToScreen(head - way * barb - way.PerpendicularLeft() * (barb / 2)));
+            }
+        }
 
         // UP on its first treads, beside the line walked; DN just off its head, on the floor above.
+        var walk = walks[0];
         var into = (walk[1] - walk[0]).NormalisedOrDefault(Vector2D.UnitX);
         var label = Text(own ? "UP" : "DN", Page(10), pen.Brush, bold: true);
         var at = ModelToScreen(own
@@ -1585,17 +1611,107 @@ public sealed class PlanRenderer
             : walk[0] - into * (layout.Going * 1.4));
         dc.DrawText(label, new Point(at.X - label.Width / 2, at.Y - label.Height / 2));
 
+        // Its risers numbered from its foot - the last onto the floor at its head - and its flights dimensioned, if it says so.
+        if (own && stair.ShowRiserNumbers) DrawRiserNumbers(dc, layout, pen);
+        if (own && stair.ShowFlightDimensions) DrawFlightDimensions(dc, layout);
+
         // Its handrails on its own storey; the guarding round its stairwell on the floor above.
-        var railings = own ? StairModel.Railings(Document, stair, layout) : StairModel.Guarding(Document, stair, layout);
+        DrawRailings(dc, own ? StairModel.Railings(Document, stair, layout) : StairModel.Guarding(Document, stair, layout), type, pen);
+    }
+
+    /// <summary>
+    /// A stair's risers numbered from its foot, each number just up from its riser on the step
+    /// it rises to, to one side of the line walked - the last just past where it comes up, on the floor.
+    /// </summary>
+    private void DrawRiserNumbers(DrawingContext dc, StairLayout layout, Pen pen)
+    {
+        void Number(int number, Point2D at)
+        {
+            var text = Text(number.ToString(CultureInfo.InvariantCulture), Page(8), pen.Brush);
+            var screen = ModelToScreen(at);
+            dc.DrawText(text, new Point(screen.X - text.Width / 2, screen.Y - text.Height / 2));
+        }
+
+        foreach (var step in layout.Steps)
+        {
+            var middle = step.RiserFrom.MidpointTo(step.RiserTo);
+            Number(step.Number, middle + (step.RiserTo - middle) * 0.45 + step.Up * (Math.Min(layout.Going, 250) * 0.35));
+        }
+
+        foreach (var (from, to) in layout.Arrivals)
+        {
+            var away = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+            var middle = from.MidpointTo(to);
+            if (layout.Steps.Any(step => Polygon2D.Contains(step.Outline, middle + away * 20))) away *= -1;
+            Number(layout.Risers, middle + away * (Math.Min(layout.Going, 250) * 0.35));
+        }
+    }
+
+    /// <summary>
+    /// Each straight flight of a stair dimensioned along its side, a little off it - the side on
+    /// the outside of any turn, so the flights' dimensions keep clear of each other: so many
+    /// treads at its going, and how far that comes to - "12 @ 225 = 2700". Winders and a
+    /// curve's treads, tapering, are not.
+    /// </summary>
+    private void DrawFlightDimensions(DrawingContext dc, StairLayout layout)
+    {
+        var runs = new List<List<StairStep>>();
+        foreach (var step in layout.Steps)
+        {
+            var run = runs.Count > 0 ? runs[^1] : null;
+            var straight = step.Kind == StairStepKind.Tread && layout.Centre is null;
+            if (!straight) { runs.Add(new List<StairStep>()); continue; }
+            if (run is null || run.Count == 0 || run[^1].Number + 1 != step.Number || run[^1].Up.Dot(step.Up) < 0.999) runs.Add(new List<StairStep> { step });
+            else run.Add(step);
+        }
+
+        // The middle of the stair, which the outside of a turn is away from.
+        var corners = layout.Steps.SelectMany(step => step.Outline).ToList();
+        var centre = new Point2D(corners.Average(point => point.X), corners.Average(point => point.Y));
+
+        foreach (var run in runs.Where(run => run.Count >= 2))
+        {
+            var (first, length) = (run[0], run.Count * layout.Going);
+            var right = (first.RiserFrom - first.RiserTo).NormalisedOrDefault(Vector2D.UnitX);
+            var leftSide = (first.RiserTo + first.Up * (length / 2) - right * 400).DistanceTo(centre) > (first.RiserFrom + first.Up * (length / 2) + right * 400).DistanceTo(centre) + 1;
+            var (edge, outward) = leftSide ? (first.RiserTo, right * -1) : (first.RiserFrom, right);
+            var (from, to) = (edge, edge + first.Up * length);
+            DrawDimensionGeometry(dc, from, to, from + outward * 400, to + outward * 400, _dimensionPen, _dimensionTextBrush,
+                $"{run.Count} @ {layout.Going:0} = {length:0}");
+        }
+    }
+
+    /// <summary>Handrails and guarding in plan: each run one outline along it - round a curve as much as along a straight - as wide as its rail, a handrail on a wall clear of it.</summary>
+    private void DrawRailings(DrawingContext dc, IReadOnlyList<StairRailing> railings, StairType type, Pen pen)
+    {
         foreach (var railing in railings)
+        {
+            // Round a curve, one outline along the whole run rather than one for each short length.
+            var (near, far) = StairModel.PlanOffsets(type, railing);
+            var pieces = new List<List<Point2D>>();
+            var (inner, outer) = (new List<Point2D>(), new List<Point2D>());
+            Vector2D? last = null;
             for (var i = 0; i + 1 < railing.Points.Count; i++)
             {
                 var (a, b) = (railing.Points[i].At, railing.Points[i + 1].At);
                 if ((b - a).Length < 1) continue;
                 var inward = StairModel.Inward(b - a, railing.LeftSide);
-                var (near, far) = railing.OnWall ? (40.0, 90.0) : (0.0, 50.0);
-                dc.DrawGeometry(null, pen, BuildOutline(new[] { a + inward * near, b + inward * near, b + inward * far, a + inward * far }));
+                var turns = last is { } before && (before.Dot(inward) < Math.Cos(Math.PI / 6) || (inner[^1] - a).Length > 1 + near);
+                last = inward;
+                if (turns)
+                {
+                    pieces.Add(inner.Concat(Enumerable.Reverse(outer)).ToList());
+                    (inner, outer) = (new List<Point2D>(), new List<Point2D>());
+                }
+
+                if (inner.Count == 0) { inner.Add(a + inward * near); outer.Add(a + inward * far); }
+                inner.Add(b + inward * near);
+                outer.Add(b + inward * far);
             }
+
+            if (inner.Count > 0) pieces.Add(inner.Concat(Enumerable.Reverse(outer)).ToList());
+            foreach (var piece in pieces) dc.DrawGeometry(null, pen, BuildOutline(piece));
+        }
     }
 
     /// <summary>
@@ -1890,6 +2006,7 @@ public sealed class PlanRenderer
                 : room.Location,
             Slab slab => slab.Centroid,
             Grid grid => grid.Start.MidpointTo(grid.End),
+            Stair stair => stair.Start + stair.Up * 300,
             SectionMarker section => section.Start.MidpointTo(section.End),
             _ => null
         };

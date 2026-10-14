@@ -204,7 +204,12 @@ public static class ProjectFile
             {
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Construction = type.Construction.ToString(),
                 MaxRiser = type.MaxRiser, Going = type.Going, Nosing = type.Nosing, TreadThickness = type.TreadThickness,
-                OpenRisers = type.OpenRisers, HandrailHeight = type.HandrailHeight, BalusterSpacing = type.BalusterSpacing,
+                OpenRisers = type.OpenRisers, RiserBars = type.RiserBars, Support = type.Support.ToString(), Balustrade = type.Balustrade.ToString(),
+                HandrailProfile = type.HandrailProfile.ToString(), HandrailWidth = type.HandrailWidth, HandrailDepth = type.HandrailDepth,
+                WallClearance = type.WallClearance, HandrailExtension = type.HandrailExtension, HandrailEnds = type.HandrailEnds.ToString(),
+                GuardHeight = type.GuardHeight, LowerRail = type.LowerRail, NosingProfile = type.NosingProfile.ToString(),
+                RiserMaterialId = type.RiserMaterialId, StringMaterialId = type.StringMaterialId, RailMaterialId = type.RailMaterialId, BalusterMaterialId = type.BalusterMaterialId,
+                HandrailHeight = type.HandrailHeight, BalusterSpacing = type.BalusterSpacing,
                 Colour = type.Colour.ToString(), MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description
             });
 
@@ -213,7 +218,10 @@ public static class ProjectFile
             {
                 Id = stair.Id, TypeId = stair.TypeId, LevelId = stair.LevelId, X = stair.Start.X, Y = stair.Start.Y, Angle = stair.Angle,
                 Shape = stair.Shape.ToString(), Corner = stair.Corner.ToString(), TurnsLeft = stair.TurnsLeft, Width = stair.Width,
-                RisersBeforeTurn = stair.RisersBeforeTurn, Well = stair.Well, BaseOffset = stair.BaseOffset, TopLevelId = stair.TopLevelId,
+                RisersBeforeTurn = stair.RisersBeforeTurn, Well = stair.Well, InnerRadius = stair.InnerRadius, BaseOffset = stair.BaseOffset, TopLevelId = stair.TopLevelId,
+                PathLengths = stair.PathLengths.Count > 0 ? stair.PathLengths.ToList() : null, PathTurns = stair.PathTurns.Count > 0 ? stair.PathTurns.ToList() : null,
+                RepeatToLevelId = stair.RepeatToLevelId, ShowRiserNumbers = stair.ShowRiserNumbers, ShowFlightDimensions = stair.ShowFlightDimensions,
+                Use = stair.Use.ToString(), LoftConversion = stair.LoftConversion, Outside = stair.Outside, BottomStep = stair.BottomStep.ToString(),
                 TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight, Railings = stair.Railings.ToString(),
                 CutsFloorAbove = stair.CutsFloorAbove, Mark = stair.Mark, Comments = stair.Comments
             });
@@ -1169,7 +1177,17 @@ public static class ProjectFile
                 Going = double.IsFinite(type.Going) && type.Going >= 150 ? type.Going : 225,
                 Nosing = double.IsFinite(type.Nosing) && type.Nosing >= 0 ? type.Nosing : 20,
                 TreadThickness = double.IsFinite(type.TreadThickness) && type.TreadThickness >= 15 ? type.TreadThickness : 30,
-                OpenRisers = type.OpenRisers,
+                OpenRisers = type.OpenRisers, RiserBars = type.RiserBars,
+                Support = ParseEnum(type.Support, StairSupport.ClosedStrings), Balustrade = ParseEnum(type.Balustrade, StairBalustrade.Balusters),
+                HandrailProfile = ParseEnum(type.HandrailProfile, HandrailProfile.Round),
+                HandrailWidth = type.HandrailWidth is >= 20 and <= 150 ? type.HandrailWidth.Value : 44,
+                HandrailDepth = type.HandrailDepth is >= 20 and <= 150 ? type.HandrailDepth.Value : 39,
+                WallClearance = type.WallClearance is >= 20 and <= 150 ? type.WallClearance.Value : 60,
+                HandrailExtension = double.IsFinite(type.HandrailExtension) ? Math.Clamp(type.HandrailExtension, 0, 1000) : 0,
+                HandrailEnds = ParseEnum(type.HandrailEnds, HandrailEnds.ReturnToWall),
+                GuardHeight = type.GuardHeight is >= 700 and <= 1500 ? type.GuardHeight.Value : 920,
+                LowerRail = type.LowerRail, NosingProfile = ParseEnum(type.NosingProfile, NosingProfile.Square),
+                RiserMaterialId = type.RiserMaterialId, StringMaterialId = type.StringMaterialId, RailMaterialId = type.RailMaterialId, BalusterMaterialId = type.BalusterMaterialId,
                 HandrailHeight = double.IsFinite(type.HandrailHeight) && type.HandrailHeight >= 700 ? type.HandrailHeight : 900,
                 BalusterSpacing = double.IsFinite(type.BalusterSpacing) && type.BalusterSpacing >= 60 ? type.BalusterSpacing : 120,
                 Colour = ParseColour(type.Colour, new ColourRgb(0xC8, 0xA8, 0x7A)), MaterialId = type.MaterialId,
@@ -1700,6 +1718,12 @@ public static class ProjectFile
                 Width = double.IsFinite(saved.Width) && saved.Width >= 500 ? saved.Width : 900,
                 RisersBeforeTurn = saved.RisersBeforeTurn is > 0 ? saved.RisersBeforeTurn : null,
                 Well = double.IsFinite(saved.Well) && saved.Well >= 0 ? saved.Well : 100,
+                InnerRadius = double.IsFinite(saved.InnerRadius) && saved.InnerRadius >= 0 ? saved.InnerRadius : 0,
+                PathLengths = saved.PathLengths?.Where(double.IsFinite).Select(length => Math.Max(0, length)).ToList() ?? new List<double>(),
+                PathTurns = saved.PathTurns?.Select(turn => double.IsFinite(turn) ? Math.Clamp(turn, -90, 90) : 0).ToList() ?? new List<double>(),
+                RepeatToLevelId = saved.RepeatToLevelId is { } repeat && document.FindLevel(repeat) is not null ? repeat : null,
+                ShowRiserNumbers = saved.ShowRiserNumbers, ShowFlightDimensions = saved.ShowFlightDimensions,
+                Use = ParseEnum(saved.Use, StairUse.Private), LoftConversion = saved.LoftConversion, Outside = saved.Outside, BottomStep = ParseEnum(saved.BottomStep, BottomStep.Plain),
                 BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0,
                 TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
                 TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,

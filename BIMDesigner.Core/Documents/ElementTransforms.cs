@@ -232,6 +232,7 @@ public static class ElementTransforms
                 var way = up - stair.Start;
                 stair.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
                 stair.TurnsLeft = !stair.TurnsLeft;
+                Stairs.SwapSides(stair);
                 break;
             }
 

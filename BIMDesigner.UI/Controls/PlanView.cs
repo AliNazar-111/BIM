@@ -230,7 +230,10 @@ public partial class PlanView : FrameworkElement
         Corner,
 
         /// <summary>Moving whatever is selected, however much of it there is.</summary>
-        Move
+        Move,
+
+        /// <summary>Reshaping one selected stair by one of its handles.</summary>
+        Stair
     }
 
     /// <summary>The last snapped point a move drag was applied at, and the total so far.</summary>
@@ -1572,7 +1575,7 @@ public partial class PlanView : FrameworkElement
     {
         if (ActiveTool != PlanTool.Select) return;
 
-        var overGrip = SelectedWall is not null && GripAt(SelectedWall, raw) != GripKind.None;
+        var overGrip = SelectedWall is not null && GripAt(SelectedWall, raw) != GripKind.None || StairGripAt(raw) is not null;
         var overSelection = HitTest(raw) is { } hit && IsSelected(hit);
 
         Cursor = overGrip || overSelection ? Cursors.SizeAll : Cursors.Arrow;
@@ -1768,6 +1771,8 @@ public partial class PlanView : FrameworkElement
                 return;
 
             case PlanTool.Stair:
+                // A custom stair is finished with a double-click where it ends.
+                if (e.ClickCount == 2 && FinishStair()) return;
                 ClickStair(SnapToGrid(raw));
                 return;
         }
@@ -1812,6 +1817,9 @@ public partial class PlanView : FrameworkElement
             ToggleLock(padlock.Partner);
             return;
         }
+
+        // A handle on a selected stair: widens it, moves its turn, turns or flips it.
+        if (BeginStairGrip(raw)) return;
 
         // A corner between selected walls, dragged: every wall meeting there follows.
         if (CornerAt(raw) is { } dragged)
@@ -2304,6 +2312,12 @@ public partial class PlanView : FrameworkElement
 
     private void DragTo(Point2D raw)
     {
+        if (_dragging == GripKind.Stair)
+        {
+            DragStairGrip(raw);
+            return;
+        }
+
         if (_dragging == GripKind.Move)
         {
             var target = SnapToGrid(raw);
@@ -2413,6 +2427,12 @@ public partial class PlanView : FrameworkElement
         _dragging = GripKind.None;
         ReleaseMouseCapture();
         Cursor = Cursors.Arrow;
+
+        if (grip == GripKind.Stair)
+        {
+            EndStairGrip();
+            return;
+        }
 
         if (grip == GripKind.Move)
         {
@@ -3361,6 +3381,7 @@ public partial class PlanView : FrameworkElement
             BuiltInCategory.Rooms => "Name",
             BuiltInCategory.Walls => "Type Name",
             BuiltInCategory.Grids => "Name",
+            BuiltInCategory.Stairs => StairParameters.Summary.Name,
             _ => "Mark"
         };
 
@@ -3664,12 +3685,13 @@ public partial class PlanView : FrameworkElement
     }
 
     /// <summary>
-    /// Re-hosts a pasted element on another storey, carrying a wall's top constraint up or down
-    /// with it.
+    /// Re-hosts a pasted element on another storey, carrying a wall's, a column's or a stair's
+    /// top constraint up or down with it.
     ///
     /// A ground-floor wall that reached up to the first floor, pasted onto the first floor,
     /// should reach up to the second - not keep pointing at the level it is now standing on,
-    /// which would give it no height at all.
+    /// which would give it no height at all. A stair the same: from the first floor to the
+    /// second, repeating as many storeys further as it did.
     /// </summary>
     private void MoveToLevel(Element element, Guid levelId)
     {
@@ -3679,21 +3701,41 @@ public partial class PlanView : FrameworkElement
         var from = ordered.FindIndex(level => level.Id == element.LevelId);
         var to = ordered.FindIndex(level => level.Id == levelId);
 
-        if (element is Wall { TopLevelId: { } top } wall && from >= 0 && to >= 0)
+        // The level as many storeys up or down as the element moved, where there is one above where it now stands.
+        Guid? Shifted(Guid top)
         {
-            var height = wall.GetHeight(Document);
             var topIndex = ordered.FindIndex(level => level.Id == top);
             var shifted = topIndex < 0 ? -1 : topIndex + (to - from);
+            return shifted >= 0 && shifted < ordered.Count && shifted > to ? ordered[shifted].Id : null;
+        }
 
-            if (shifted >= 0 && shifted < ordered.Count && shifted > to)
+        // Where there is no storey that far up, each keeps the height it was.
+        if (from >= 0 && to >= 0)
+        {
+            switch (element)
             {
-                wall.TopLevelId = ordered[shifted].Id;
-            }
-            else
-            {
-                // There is no storey that far up; keep the wall the height it was.
-                wall.TopLevelId = null;
-                if (height > 0) wall.UnconnectedHeight = height;
+                case Wall { TopLevelId: { } top } wall:
+                {
+                    var height = wall.GetHeight(Document);
+                    wall.TopLevelId = Shifted(top);
+                    if (wall.TopLevelId is null && height > 0) wall.UnconnectedHeight = height;
+                    break;
+                }
+                case Column { TopLevelId: { } top } column:
+                {
+                    var height = column.GetHeight(Document);
+                    column.TopLevelId = Shifted(top);
+                    if (column.TopLevelId is null && height > 0) column.UnconnectedHeight = height;
+                    break;
+                }
+                case Stair { TopLevelId: { } top } stair:
+                {
+                    var layout = Stairs.Layout(Document, stair);
+                    stair.TopLevelId = Shifted(top);
+                    if (stair.TopLevelId is null) stair.UnconnectedHeight = Math.Max(Stairs.MinimumRise, layout.Top - layout.Bottom);
+                    stair.RepeatToLevelId = stair.TopLevelId is not null && stair.RepeatToLevelId is { } repeat ? Shifted(repeat) : null;
+                    break;
+                }
             }
         }
 
@@ -5638,6 +5680,8 @@ public partial class PlanView : FrameworkElement
     /// <summary>Square handles at each end and a ring at the middle for moving the wall.</summary>
     private void DrawGrips(DrawingContext dc)
     {
+        DrawStairGrips(dc);
+
         // Corners between selected walls: round grips that pull the corner anywhere.
         if (!_isPanning)
             foreach (var corner in Corners())

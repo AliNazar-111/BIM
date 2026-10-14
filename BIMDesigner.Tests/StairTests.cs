@@ -28,7 +28,7 @@ namespace BIMDesigner.Tests;
 public class StairTests
 {
     /// <summary>A storey 3000 high: a room 6 m by 5 m, its first floor over the whole of it.</summary>
-    private static (BimDocument Document, Floor Floor) House()
+    internal static (BimDocument Document, Floor Floor) House()
     {
         var document = BimDocument.CreateDefault();
         var (ground, first) = (document.Levels[0], document.Levels[1]);
@@ -42,7 +42,7 @@ public class StairTests
         return (document, floor);
     }
 
-    private static Stair Put(BimDocument document, double x, double y, double angle = 90, StairShape shape = StairShape.Straight,
+    internal static Stair Put(BimDocument document, double x, double y, double angle = 90, StairShape shape = StairShape.Straight,
         StairCorner corner = StairCorner.Landing, bool left = false, double width = 900)
     {
         var stair = new Stair
@@ -327,7 +327,7 @@ public class StairTests
         var loaded = ProjectFile.FromJson(ProjectFile.ToJson(document));
         var back = loaded.Elements.OfType<Stair>().Single();
         Assert.Equal((StairShape.QuarterTurn, StairCorner.Winders, "S1", stair.TopLevelId), (back.Shape, back.Corner, back.Mark, back.TopLevelId));
-        Assert.Equal(3, loaded.TypesOf<StairType>().Count());
+        Assert.Equal(7, loaded.TypesOf<StairType>().Count());
 
         // Mirrored, it turns the other way; turned, its way up turns with it.
         new MirrorElementsCommand(new[] { stair }, new Line2D(new Point2D(3000, 0), new Vector2D(0, 1))).Redo();
