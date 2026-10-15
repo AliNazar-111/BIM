@@ -488,6 +488,12 @@
                                 <RadioButton x:Name="TerrainTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Terrain}"
                                              Content="Toposurface" Checked="OnToolChanged"
                                              ToolTip="Toposurface: click where each spot level goes, at the elevation on the option bar - three make the ground, each after adds to it - or read in a points file (x, y, height). Contoured in plan, cut away under the floors of its storey; an outside stair stands on it, a railing follows it, and it is checked against the walls: 150 below the floor for the damp-proof course, and under the IRC falling 6 in in the first 10 ft"/>
+                                <RadioButton x:Name="RegionTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Region}"
+                                             Content="Region" Checked="OnToolChanged"
+                                             ToolTip="Region of the ground: click its corners - a lawn, paving, gravel, planting - or, ticking Path, click along a path's middle. It lies on the ground, following it, in its own colour; a path that is the approach to a door is checked for its gradient: 1:20 gently sloping, 1:15 and 1:12 ramps (Approved Document M)"/>
+                                <RadioButton x:Name="JoistsTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Joists}"
+                                             Content="Joists" Checked="OnToolChanged"
+                                             ToolTip="Joist layout: click the corners of the outline the joists fill. They run across the short way at the spacing on the option bar - 400 is usual - and stop short of a stairwell or shaft in the floor they carry, trimmers across its ends. Joist Direction in Properties turns them"/>
                                 <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Shaft}"
                                              Content="Shaft" Checked="OnToolChanged"
                                              ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
@@ -1031,10 +1037,38 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl x:Name="ContextGroundPanel" Header="Grading" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="ContextRecordGround" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Terrain}"
+                                        Content="Record Existing" Click="OnRecordExistingGround"
+                                        ToolTip="Record the ground as it is now as the existing ground: grade it after - drag its points in plan, raise them in 3D - and its Cut and Fill are measured from this, its old contours shown dashed"/>
+                                <Button x:Name="ContextForgetGround" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Terrain}"
+                                        Content="Let Go" Click="OnForgetExistingGround"
+                                        ToolTip="Let go of the recorded existing ground: Cut and Fill are measured from the ground as it is, the building's dig only"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl x:Name="ContextGuardPanel" Header="Guarding" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Railing}"
+                                        Content="Guard Edges" Click="OnGuardEdges"
+                                        ToolTip="A railing along every edge of the selected floor, balcony or roof terrace that drops too far with nothing there - more than 600 in a home - as high as its rules ask: 1100 round a balcony or a roof, 900 at a floor's edge inside. The edges against walls, those a floor carries on from, and where a stair comes up are left open"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Railing}"
+                                        Content="All Round" Click="OnGuardAllRound"
+                                        ToolTip="One railing all the way round the selected floor, balcony or terrace - every side, the side against the house too - open only where a stair comes up through it"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextStoreyPanel" Header="Storey" Style="{StaticResource ContextRibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Level}"
+                                    Content="Make Storey" Click="OnMakeStorey"
+                                    ToolTip="The walls running up through the selected floor or flat roof split at it - the part under it stopping at its underside, the part over it standing on its top, its edge showing between - and, where it has a room over it at a height no level is at, a level made on its top that moves with it. Done by itself when a floor is put in across walls, a wall is put up through a floor, or either is moved through the other"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextJulietPanel" Header="Guarding" Style="{StaticResource ContextRibbonPanel}">
                             <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Railing}"
-                                    Content="Guard Edges" Click="OnGuardEdges"
-                                    ToolTip="A railing along every edge of the selected floor, balcony or roof terrace that drops too far with nothing there - more than 600 in a home - as high as its rules ask: 1100 round a balcony or a roof, 900 at a floor's edge inside. The edges against walls, those a floor carries on from, and where a stair comes up are left open"/>
+                                    Content="Juliet Balcony" Click="OnJulietBalcony"
+                                    ToolTip="A railing across the selected doors and windows, in front of the wall, from the sill: guarding where a door or a low window on an upper floor opens onto a drop - 1100 high from the floor across a door, 800 across a window (Approved Document K). Their Guarding in Properties says which want one"/>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl x:Name="ContextHostPanel" Header="Work Plane" Style="{StaticResource ContextRibbonPanel}">
@@ -1356,6 +1390,9 @@
 
                 <StackPanel x:Name="StairOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Stair" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="StairDirectionPicker" Style="{StaticResource OptionCombo}" MinWidth="120" Margin="0,0,8,0"
+                              SelectionChanged="OnStairOptionChanged"
+                              ToolTip="Auto: click where it starts, then the way it runs - out over open space off the edge of a floor, deck or terrace it goes down to the level below, its head where you clicked; otherwise up to the level above. Up from here: its foot where you click. Down from here: its head where you click"/>
                     <ComboBox x:Name="StairTypePicker" Style="{StaticResource OptionCombo}" MinWidth="210"
                               DisplayMemberPath="Name" SelectionChanged="OnStairOptionChanged"
                               ToolTip="How it is built and set out: timber with closed or open risers or a cut string, concrete, or oak treads on a steel spine, on steel stringers or floating from a wall"/>
@@ -1378,6 +1415,9 @@
 
                 <StackPanel x:Name="RailingOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Railing" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="RailingDrawPicker" Style="{StaticResource OptionCombo}" MinWidth="110" Margin="0,0,8,0"
+                              SelectionChanged="OnRailingOptionChanged"
+                              ToolTip="By points: click along where it runs. Arcs: each length an arc - click its end, then a point it bows through. Pick edges: click the edges of a floor, balcony or terrace - each next to one already railed joins it at the corner, all round makes one railing all the way round"/>
                     <ComboBox x:Name="RailingTypePicker" Style="{StaticResource OptionCombo}" MinWidth="230"
                               DisplayMemberPath="Name" SelectionChanged="OnRailingOptionChanged"
                               ToolTip="How high it stands and what fills it: balusters, glass, or rails along"/>
@@ -1405,6 +1445,27 @@
                             ToolTip="Read spot levels from a points file: x, y and height on each line, comma, semicolon, tab or space between them. Where two fall on the same place, the higher is kept"/>
                     <ComboBox x:Name="GroundUnitsPicker" Style="{StaticResource OptionCombo}" MinWidth="110" Margin="8,0,0,0"
                               ToolTip="What the points file is measured in"/>
+                </StackPanel>
+
+                <StackPanel x:Name="RegionOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Region" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="RegionSurfacePicker" Style="{StaticResource OptionCombo}" MinWidth="100" SelectionChanged="OnRegionOptionChanged"
+                              ToolTip="What it is laid as"/>
+                    <CheckBox x:Name="RegionPathBox" Content="Path" VerticalAlignment="Center" Margin="12,0,0,0" Click="OnRegionOptionChanged"
+                              ToolTip="Draw a path along its middle, so wide, rather than an outline"/>
+                    <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="PathWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnRegionOptionChanged"
+                             ToolTip="How wide the path is: 900 at least for an approach to a door (Approved Document M)"/>
+                </StackPanel>
+
+                <StackPanel x:Name="JoistOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Joists" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="JoistTypePicker" Style="{StaticResource OptionCombo}" MinWidth="200"
+                              DisplayMemberPath="Name" SelectionChanged="OnJoistOptionChanged"
+                              ToolTip="The joists' section: C24 timber, glulam, steel"/>
+                    <TextBlock Text="Spacing" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="JoistSpacingBox" Width="60" VerticalAlignment="Center" LostFocus="OnJoistOptionChanged"
+                             ToolTip="Centre to centre: 400 is usual for a floor, 600 for a roof; 16 in (406) in the US"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ChimneyOptions" Orientation="Horizontal" Visibility="Collapsed">

@@ -286,9 +286,11 @@ public static class ElementCopy
             ShowRiserNumbers = stair.ShowRiserNumbers, ShowFlightDimensions = stair.ShowFlightDimensions,
             Use = stair.Use, LoftConversion = stair.LoftConversion, Outside = stair.Outside, BottomStep = stair.BottomStep,
             TopLevelId = stair.TopLevelId, TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight,
-            Railings = stair.Railings, CutsFloorAbove = stair.CutsFloorAbove
+            Railings = stair.Railings, CutsFloorAbove = stair.CutsFloorAbove, CutsRoof = stair.CutsRoof
         }, stair),
-        Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points), ground),
+        Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points, ground.ExistingPoints), ground),
+        GroundRegion region => CarryCommon(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach }, region.Boundary), region),
+        BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         Beam beam => CarryCommon(new Beam
         {
             Start = beam.Start, End = beam.End, StartOffset = beam.StartOffset, EndOffset = beam.EndOffset,
@@ -296,8 +298,9 @@ public static class ElementCopy
         }, beam),
         Railing railing => CarryCommon(Path(new Railing
         {
-            Closed = railing.Closed, BaseOffset = railing.BaseOffset, Building = railing.Building, Outside = railing.Outside
-        }, railing.Path), railing),
+            Closed = railing.Closed, BaseOffset = railing.BaseOffset, Building = railing.Building, Outside = railing.Outside,
+            HostOpeningId = railing.HostOpeningId
+        }, railing.Path, railing.Bulges), railing),
         ShaftOpening shaft => CarryCommon(new ShaftOpening
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
@@ -391,17 +394,30 @@ public static class ElementCopy
         return copy;
     }
 
-    /// <summary>A copied ground given the original's spot levels.</summary>
-    private static Toposurface Points(Toposurface copy, IReadOnlyList<Geometry.Point3D> points)
+    /// <summary>A copied ground given the original's spot levels, and the existing ground it recorded.</summary>
+    private static Toposurface Points(Toposurface copy, IReadOnlyList<Geometry.Point3D> points, IReadOnlyList<Geometry.Point3D> existing)
     {
         copy.SetPoints(points);
+        copy.SetExistingPoints(existing);
+        return copy;
+    }
+
+    /// <summary>A copied region or joist layout given the original's outline.</summary>
+    private static T Outline<T>(T copy, IReadOnlyList<Geometry.Point2D> outline) where T : Element
+    {
+        switch (copy)
+        {
+            case GroundRegion region: region.SetBoundary(outline); break;
+            case BeamSystem system: system.SetBoundary(outline); break;
+        }
+
         return copy;
     }
 
     /// <summary>A copied railing given the original's path.</summary>
-    private static Railing Path(Railing copy, IReadOnlyList<Geometry.Point2D> path)
+    private static Railing Path(Railing copy, IReadOnlyList<Geometry.Point2D> path, IReadOnlyList<double> bulges)
     {
-        copy.SetPath(path);
+        copy.SetPath(path, bulges);
         return copy;
     }
 
@@ -448,6 +464,10 @@ public static class ElementCopy
 
             if (dormer.DormerWalls.Count == 0) dormer.Dormer = null;
         }
+
+        // A Juliet balcony copied with its door guards the copy; copied without it, it is a railing.
+        if (copy is Railing { HostOpeningId: { } guarded } juliet)
+            juliet.HostOpeningId = replacements.TryGetValue(guarded, out var opened) ? opened : null;
 
         switch (copy)
         {

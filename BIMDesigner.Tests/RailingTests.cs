@@ -184,19 +184,24 @@ public class RailingTests
         var railing = Along(document, "Guard 1100 - Glass Panel", (8450, 1050), (8450, 3950), (6050, 3950));
         (railing.Mark, railing.Building) = ("R1", RailingBuilding.Other);
 
+        // In a building other than a home: made for the 1.5 kN/m asked where people gather.
+        var type = Railings.TypeOf(document, railing);
+        (type.LineLoad, type.PointLoad) = (1.5, 1.5);
+
         var back = ProjectFile.FromJson(ProjectFile.ToJson(document));
         var saved = back.Elements.OfType<Railing>().Single();
         Assert.Equal(railing.Path, saved.Path);
         Assert.Equal((railing.TypeId, true, RailingBuilding.Other, "R1"), (saved.TypeId, saved.Outside, saved.Building, saved.Mark));
-        Assert.Equal(6, back.TypesOf<RailingType>().Count());
+        Assert.Equal(RailingType.Library().Count, back.TypesOf<RailingType>().Count());
 
         var copy = (Railing)ElementCopy.Clone(railing)!;
         Assert.Equal(railing.Path, copy.Path);
         Assert.Equal(railing.Building, copy.Building);
         new MoveElementsCommand(new[] { copy }, new Vector2D(100, 0)).Redo();
         Assert.Equal(new Point2D(8550, 1050), copy.Path[0]);
+        // Mirrored, it runs the other way round, so what was on its left is on its left still.
         new MirrorElementsCommand(new[] { copy }, new Line2D(new Point2D(0, 0), new Vector2D(0, 1))).Redo();
-        Assert.Equal(new Point2D(-8550, 1050), copy.Path[0]);
+        Assert.Equal(new Point2D(-8550, 1050), copy.Path[^1]);
 
         var schedule = Schedule.Run(document, ScheduleDefinition.Defaults().Single(definition => definition.Name == "Railing Schedule"));
         var row = Assert.Single(schedule.Rows);
@@ -219,7 +224,7 @@ public class RailingTests
     {
         var document = BimDocument.CreateDefault();
         foreach (var type in document.TypesOf<RailingType>().ToList()) document.RemoveType(type);
-        Assert.Equal(6, ProjectFile.FromJson(ProjectFile.ToJson(document)).TypesOf<RailingType>().Count());
+        Assert.Equal(RailingType.Library().Count, ProjectFile.FromJson(ProjectFile.ToJson(document)).TypesOf<RailingType>().Count());
     }
 
     [Fact]

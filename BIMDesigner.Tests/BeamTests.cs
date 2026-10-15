@@ -91,8 +91,8 @@ public class BeamTests
         var door = new Door { TypeId = document.TypesOf<DoorType>().First(type => type.Name.StartsWith("Single")).Id, LevelId = wall.LevelId, HostWallId = wall.Id, DistanceAlongWall = 3000, Mark = "D1" };
         document.Add(door);
 
-        // Hung from the ground floor at 2200: its underside at 1996, across the doorway.
-        var beam = Hang(document, "UB 203x133x25", (3000, -1000), (3000, 1000), level: 0);
+        // Hung from the ground floor at 2200, in the wall over the doorway: its underside at 1997.
+        var beam = Hang(document, "UB 203x133x25", (2000, 0), (4000, 0), level: 0);
         beam.StartOffset = beam.EndOffset = 2200;
         Assert.Contains("comes down to 1997 across the doorway of door D1, below the door's head at 2100", Beams.Verdict(document, beam));
 

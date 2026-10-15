@@ -52,8 +52,8 @@ public static class ElementTransforms
         Railing => true,
         Beam => true,
 
-        // The ground, with its spot levels.
-        Toposurface => true,
+        // The ground, with its spot levels; a region of it, and a joist layout, with their outlines.
+        Toposurface or GroundRegion or BeamSystem => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -125,6 +125,15 @@ public static class ElementTransforms
 
             case Toposurface ground:
                 ground.SetPoints(ground.Points.Select(point => new Point3D(point.X + delta.X, point.Y + delta.Y, point.Z)).ToList());
+                ground.SetExistingPoints(ground.ExistingPoints.Select(point => new Point3D(point.X + delta.X, point.Y + delta.Y, point.Z)).ToList());
+                break;
+
+            case GroundRegion region:
+                region.SetBoundary(region.Boundary.Select(point => point + delta).ToList());
+                break;
+
+            case BeamSystem system:
+                system.SetBoundary(system.Boundary.Select(point => point + delta).ToList());
                 break;
 
             case Column column:
@@ -256,8 +265,18 @@ public static class ElementTransforms
             }
 
             case Railing railing:
-                railing.SetPath(railing.Path.Select(Reflect).ToList());
+            {
+                // Mirrored and run the other way round, so what was on its left - a handrail on its
+                // inside - is on its left still; its arcs turn as they did, reflected and reversed.
+                var (path, bulges, count) = (railing.Path, railing.Bulges, railing.Path.Count);
+                var closed = railing.Closed && count >= 3;
+                var points = Enumerable.Range(0, count).Select(j => Reflect(path[closed ? (count - j) % count : count - 1 - j])).ToList();
+                var bows = Enumerable.Range(0, count)
+                    .Select(j => closed ? bulges[(count - 1 - j + count) % count] : j <= count - 2 ? bulges[count - 2 - j] : 0)
+                    .ToList();
+                railing.SetPath(points, bows);
                 break;
+            }
 
             case Beam beam:
                 (beam.Start, beam.End) = (Reflect(beam.Start), Reflect(beam.End));
@@ -265,7 +284,25 @@ public static class ElementTransforms
 
             case Toposurface ground:
                 ground.SetPoints(ground.Points.Select(point => Reflect(new Point2D(point.X, point.Y)) is var at ? new Point3D(at.X, at.Y, point.Z) : point).ToList());
+                ground.SetExistingPoints(ground.ExistingPoints.Select(point => Reflect(new Point2D(point.X, point.Y)) is var at ? new Point3D(at.X, at.Y, point.Z) : point).ToList());
                 break;
+
+            case GroundRegion region:
+                region.SetBoundary(region.Boundary.Select(Reflect).ToList());
+                break;
+
+            case BeamSystem system:
+            {
+                // Its joists' way reflected with it.
+                var way = Reflect(new Point2D(Math.Cos(BeamSystems.Angle(system) * Math.PI / 180), Math.Sin(BeamSystems.Angle(system) * Math.PI / 180))) - Reflect(new Point2D(0, 0));
+
+                // Run round the other way, as a reflection must be, starting from the image of its first side - which the short way is worked out from.
+                var reflected = system.Boundary.Select(Reflect).ToList();
+                var count = reflected.Count;
+                system.SetBoundary(Enumerable.Range(0, count).Select(j => reflected[(1 - j + count) % count]).ToList());
+                if (system.Direction is not null) system.Direction = ((Math.Atan2(way.Y, way.X) * 180 / Math.PI) % 180 + 180) % 180;
+                break;
+            }
 
             case ShaftOpening shaft:
             {
@@ -440,6 +477,16 @@ public static class ElementTransforms
 
             case Toposurface ground:
                 ground.SetPoints(ground.Points.Select(point => map(new Point2D(point.X, point.Y)) is var at ? new Point3D(at.X, at.Y, point.Z) : point).ToList());
+                ground.SetExistingPoints(ground.ExistingPoints.Select(point => map(new Point2D(point.X, point.Y)) is var at ? new Point3D(at.X, at.Y, point.Z) : point).ToList());
+                break;
+
+            case GroundRegion region:
+                region.SetBoundary(region.Boundary.Select(map).ToList());
+                break;
+
+            case BeamSystem system:
+                system.SetBoundary(system.Boundary.Select(map).ToList());
+                if (system.Direction is { } angle) system.Direction = ((angle + degrees) % 180 + 180) % 180;
                 break;
 
             case ShaftOpening shaft:

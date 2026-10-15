@@ -1,0 +1,372 @@
+using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Documents.Commands;
+using BIMDesigner.Core.Elements;
+using BIMDesigner.Core.Geometry;
+
+namespace BIMDesigner.Core.Architecture;
+
+/// <summary>How a handle is drawn: a corner or a point to move, a "+" midway along to add one, an end, or an arrow up to raise it.</summary>
+public enum HandleShape
+{
+    Corner,
+    Insert,
+    End,
+    Raise,
+
+    /// <summary>The middle of an arc, dragged to bow it more or less.</summary>
+    Bend
+}
+
+/// <summary>
+/// A handle on a selected railing, beam or piece of ground: what it is ("corner:2"), where it
+/// is in plan and how high, whether it is dragged up and down rather than across, and how it
+/// is drawn. Those dragged up and down are shown in 3D only.
+/// </summary>
+public sealed record ElementHandle(string Key, Point2D At, double Height, bool Vertical, HandleShape Shape);
+
+/// <summary>
+/// The handles on what is set out by points - a railing's corners, a beam's ends, the ground's
+/// spot levels, a region's or a joist layout's corners - and what dragging each does: in plan
+/// across, in 3D up and down too. Each drag is one step to undo, as a snapshot of what it moved.
+/// </summary>
+public static class ElementHandles
+{
+    /// <summary>Whether an element has handles of this kind.</summary>
+    public static bool Has(Element element) => element is Railing or Beam or Toposurface or GroundRegion or BeamSystem;
+
+    /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
+    public const int MostPoints = 2000;
+
+    public static IReadOnlyList<ElementHandle> Of(BimDocument document, Element element)
+    {
+        var handles = new List<ElementHandle>();
+        switch (element)
+        {
+            case Railing railing:
+            {
+                var type = Railings.TypeOf(document, railing);
+                double Top(Point2D at) => Railings.Base(document, railing, at) + type.Height;
+                for (var i = 0; i < railing.Path.Count; i++)
+                    handles.Add(new ElementHandle($"corner:{i}", railing.Path[i], Top(railing.Path[i]), false, HandleShape.Corner));
+                // Midway along each length: a "+" to add a corner to a straight one, the middle of an arc to bow it.
+                var count = railing.Path.Count - (railing.Closed && railing.Path.Count >= 3 ? 0 : 1);
+                for (var i = 0; i < count; i++)
+                {
+                    var curve = WallCurve.Of(railing.Path[i], railing.Path[(i + 1) % railing.Path.Count], railing.BulgeAt(i));
+                    if (curve.Length < 1) continue;
+                    var middle = curve.PointAt(curve.Length / 2);
+                    handles.Add(curve.IsArc
+                        ? new ElementHandle($"bend:{i}", middle, Top(middle), false, HandleShape.Bend)
+                        : new ElementHandle($"insert:{i}", middle, Top(middle), false, HandleShape.Insert));
+                }
+
+                break;
+            }
+
+            case Beam beam:
+                handles.Add(new ElementHandle("start", beam.Start, Beams.Top(document, beam, 0), false, HandleShape.End));
+                handles.Add(new ElementHandle("end", beam.End, Beams.Top(document, beam, 1), false, HandleShape.End));
+                handles.Add(new ElementHandle("raise:start", beam.Start, Beams.Top(document, beam, 0) + 300, true, HandleShape.Raise));
+                handles.Add(new ElementHandle("raise:end", beam.End, Beams.Top(document, beam, 1) + 300, true, HandleShape.Raise));
+                break;
+
+            case Toposurface ground when ground.Points.Count <= MostPoints:
+                for (var i = 0; i < ground.Points.Count; i++)
+                {
+                    var point = ground.Points[i];
+                    // The arrow raising it over it, as a beam's is, so it is not lost under the point.
+                    handles.Add(new ElementHandle($"point:{i}", new Point2D(point.X, point.Y), point.Z, false, HandleShape.Corner));
+                    handles.Add(new ElementHandle($"raise:{i}", new Point2D(point.X, point.Y), point.Z + RaiseOver, true, HandleShape.Raise));
+                }
+
+                break;
+
+            case GroundRegion region:
+                Outline(handles, region.Boundary, at => GroundRegions.HeightAt(document, region, at));
+                break;
+
+            case BeamSystem system:
+                Outline(handles, system.Boundary, _ => BeamSystems.Top(document, system));
+                break;
+        }
+
+        return handles;
+    }
+
+    /// <summary>A closed outline's handles: a corner at each point, a "+" midway along each side.</summary>
+    private static void Outline(List<ElementHandle> handles, IReadOnlyList<Point2D> outline, Func<Point2D, double> height)
+    {
+        for (var i = 0; i < outline.Count; i++)
+        {
+            handles.Add(new ElementHandle($"corner:{i}", outline[i], height(outline[i]), false, HandleShape.Corner));
+            var middle = outline[i].MidpointTo(outline[(i + 1) % outline.Count]);
+            handles.Add(new ElementHandle($"insert:{i}", middle, height(middle), false, HandleShape.Insert));
+        }
+    }
+
+    /// <summary>
+    /// A handle dragged to a point in plan - or, one dragged up and down, to a height. What it did,
+    /// in words, and the handle to follow from now on: a "+" dragged becomes the corner it adds.
+    /// </summary>
+    public static (string Said, string Key) Drag(BimDocument document, Element element, ElementHandle handle, Point2D to, double height)
+    {
+        var (kind, index) = Parse(handle.Key);
+        switch (element)
+        {
+            case Railing railing:
+            {
+                var path = railing.Path.ToList();
+                if (kind == "insert" && index < path.Count)
+                {
+                    // The straight length split at the new corner: the others keep how they bow.
+                    var at = index + 1 < path.Count ? index + 1 : path.Count;
+                    var bulges = Enumerable.Range(0, path.Count).Select(railing.BulgeAt).ToList();
+                    path.Insert(at, to);
+                    bulges.Insert(at, 0);
+                    railing.SetPath(path, bulges);
+                    return ($"A corner added: {Railings.Length(railing) / 1000:0.00} m.", $"corner:{at}");
+                }
+
+                if (kind == "bend" && index < path.Count)
+                {
+                    // Dragged straight, it keeps the least of a bow while the drag lasts, so its handle stays a bend: straight once let go.
+                    var (start, end) = (path[index], path[(index + 1) % path.Count]);
+                    var bulge = WallCurve.BulgeThrough(start, end, to);
+                    railing.SetBulge(index, Math.Abs(bulge) >= Bowed ? bulge : railing.BulgeAt(index) < 0 ? -Bowed : Bowed);
+                    var curve = WallCurve.Of(start, end, railing.BulgeAt(index));
+                    return (curve.IsArc ? $"An arc {curve.Length / 1000:0.00} m round, radius {Math.Abs(curve.Length / curve.Sweep) / 1000:0.00} m." : "Straight.", handle.Key);
+                }
+
+                if (kind == "corner" && index < path.Count)
+                {
+                    path[index] = to;
+                    railing.SetPath(path);
+                    return ($"{Railings.Length(railing) / 1000:0.00} m.", handle.Key);
+                }
+
+                break;
+            }
+
+            case Beam beam:
+            {
+                var level = document.FindLevel(beam.LevelId)?.Elevation ?? 0;
+                var justification = Beams.Top(document, beam, 0) - Beams.Line(document, beam, 0);
+                switch (handle.Key)
+                {
+                    case "start": beam.Start = to; break;
+                    case "end": beam.End = to; break;
+                    case "raise:start": beam.StartOffset = Math.Round(height - 300 - justification - level); break;
+                    case "raise:end": beam.EndOffset = Math.Round(height - 300 - justification - level); break;
+                    default: return (string.Empty, handle.Key);
+                }
+
+                return ($"{beam.Length / 1000:0.00} m, its underside at {Beams.Bottom(document, beam, 0):0} and {Beams.Bottom(document, beam, 1):0}.", handle.Key);
+            }
+
+            case Toposurface ground when index < ground.Points.Count:
+            {
+                var points = ground.Points.ToList();
+                var point = points[index];
+                points[index] = kind == "raise" ? point with { Z = Math.Round(height - RaiseOver) } : new Point3D(to.X, to.Y, point.Z);
+                ground.SetPoints(points);
+                return ($"Spot level at {Units.FormatLength(points[index].Z)}.", handle.Key);
+            }
+
+            case GroundRegion region:
+            {
+                region.SetBoundary(Moved(region.Boundary, kind, index, to, out _));
+                return ($"{Polygon2D.Area(region.Boundary) / 1e6:0.0} m².", Following(region.Boundary, to, handle.Key));
+            }
+
+            case BeamSystem system:
+            {
+                system.SetBoundary(Moved(system.Boundary, kind, index, to, out _));
+                return ($"{BeamSystems.Joists(document, system).Count} joists.", Following(system.Boundary, to, handle.Key));
+            }
+        }
+
+        return (string.Empty, handle.Key);
+    }
+
+    /// <summary>How far over a spot level its arrow raising it is, mm.</summary>
+    private const double RaiseOver = 300;
+
+    /// <summary>The least an arc is bowed while its handle drags it: straight, as near as makes no odds, but still an arc.</summary>
+    private const double Bowed = 1e-6;
+
+    /// <summary>
+    /// The corner of an outline a drag goes on with: the one just put where the drag is - wherever
+    /// it is in the outline now, turned round as an outline is when it is dragged inside out.
+    /// </summary>
+    private static string Following(IReadOnlyList<Point2D> outline, Point2D to, string key)
+    {
+        for (var i = 0; i < outline.Count; i++)
+            if (outline[i].DistanceTo(to) < 1e-6) return $"corner:{i}";
+        return key;
+    }
+
+    /// <summary>A closed outline with a corner moved, or one added midway along a side - and, added, the key of the corner it is.</summary>
+    private static List<Point2D> Moved(IReadOnlyList<Point2D> outline, string kind, int index, Point2D to, out string? key)
+    {
+        var points = outline.ToList();
+        key = null;
+        if (kind == "insert" && index < points.Count)
+        {
+            points.Insert(index + 1, to);
+            key = $"corner:{index + 1}";
+        }
+        else if (kind == "corner" && index < points.Count) points[index] = to;
+        return points;
+    }
+
+    /// <summary>
+    /// After a drag, what it left tidied: a corner dropped on the next taken out - a railing
+    /// keeps two, an outline three - and a spot level dropped on another taken out, the ground
+    /// keeping three.
+    /// </summary>
+    public static void Settle(Element element, string? key = null)
+    {
+        switch (element)
+        {
+            case Railing railing:
+            {
+                // An arc dragged all but straight: straight.
+                if (key is not null && Parse(key) is ("bend", var bent) && Math.Abs(railing.BulgeAt(bent)) < 1e-4) railing.SetBulge(bent, 0);
+
+                // A corner dropped on the next taken out, merged into the one before it: the length on
+                // from it bows as the last length on from those merged into it did.
+                var (path, count) = (railing.Path, railing.Path.Count);
+                var (kept, last) = (new List<int>(), new List<int>());
+                for (var i = 0; i < count; i++)
+                {
+                    if (kept.Count == 0 || path[kept[^1]].DistanceTo(path[i]) >= 50)
+                    {
+                        kept.Add(i);
+                        last.Add(i);
+                    }
+                    else last[^1] = i;
+                }
+
+                // Round to its first again, the last dropped on the first: the length on to it bows as it did.
+                if (railing.Closed && kept.Count > 1 && path[kept[^1]].DistanceTo(path[kept[0]]) < 50)
+                {
+                    kept.RemoveAt(kept.Count - 1);
+                    last.RemoveAt(last.Count - 1);
+                }
+
+                if (kept.Count >= 2 && kept.Count != count)
+                    railing.SetPath(kept.Select(i => path[i]).ToList(), last.Select(railing.BulgeAt).ToList());
+                if (railing.Path.Count < 3) railing.Closed = false;
+                break;
+            }
+
+            case GroundRegion region:
+                region.SetBoundary(Merged(region.Boundary, closed: true, least: 3));
+                break;
+
+            case BeamSystem system:
+                system.SetBoundary(Merged(system.Boundary, closed: true, least: 3));
+                break;
+
+            case Toposurface ground when key is not null && Parse(key) is ("point", var moved) && moved < ground.Points.Count:
+            {
+                // The spot level dragged, dropped on another, taken out - and no other: points close together in a survey stay.
+                var dropped = ground.Points[moved];
+                if (ground.Points.Count > 3 && ground.Points.Where((_, i) => i != moved).Any(other => Math.Abs(other.X - dropped.X) < 50 && Math.Abs(other.Y - dropped.Y) < 50))
+                    ground.SetPoints(ground.Points.Where((_, i) => i != moved).ToList());
+                break;
+            }
+        }
+    }
+
+    /// <summary>Points with any within 50 of the one before taken out, so long as as many as are wanted are left.</summary>
+    private static List<Point2D> Merged(IReadOnlyList<Point2D> points, bool closed, int least)
+    {
+        var kept = new List<Point2D>();
+        foreach (var point in points)
+            if (kept.Count == 0 || kept[^1].DistanceTo(point) >= 50) kept.Add(point);
+        if (closed && kept.Count > 1 && kept[^1].DistanceTo(kept[0]) < 50) kept.RemoveAt(kept.Count - 1);
+        return kept.Count >= least ? kept : points.ToList();
+    }
+
+    private static (string Kind, int Index) Parse(string key)
+    {
+        var parts = key.Split(':');
+        return (parts[0], parts.Length > 1 && int.TryParse(parts[1], out var index) ? index : 0);
+    }
+
+    /// <summary>What a drag of a handle is called, for the undo list.</summary>
+    public static string Name(Element element, string key) => element switch
+    {
+        Railing => key.StartsWith("insert", StringComparison.Ordinal) ? "Add Railing Corner" : key.StartsWith("bend", StringComparison.Ordinal) ? "Bend Railing" : "Move Railing Corner",
+        Beam => key.StartsWith("raise", StringComparison.Ordinal) ? "Slope Beam" : "Move Beam End",
+        Toposurface => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Ground Point" : "Move Ground Point",
+        GroundRegion => "Reshape Region",
+        BeamSystem => "Reshape Joist Layout",
+        _ => "Move Handle"
+    };
+
+    /// <summary>What a handle moves, as it is now: to put back if the drag is undone.</summary>
+    public static object Snapshot(Element element) => element switch
+    {
+        Railing railing => (railing.Path.ToList(), railing.Closed, railing.Bulges.ToList()),
+        Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
+        Toposurface ground => ground.Points.ToList(),
+        GroundRegion region => region.Boundary.ToList(),
+        BeamSystem system => system.Boundary.ToList(),
+        _ => new object()
+    };
+
+    public static void Restore(Element element, object snapshot)
+    {
+        switch (element, snapshot)
+        {
+            case (Railing railing, ValueTuple<List<Point2D>, bool, List<double>> state):
+                railing.SetPath(state.Item1, state.Item3);
+                railing.Closed = state.Item2;
+                break;
+            case (Beam beam, ValueTuple<Point2D, Point2D, double, double> state):
+                (beam.Start, beam.End, beam.StartOffset, beam.EndOffset) = state;
+                break;
+            case (Toposurface ground, List<Point3D> points):
+                ground.SetPoints(points);
+                break;
+            case (GroundRegion region, List<Point2D> boundary):
+                region.SetBoundary(boundary);
+                break;
+            case (BeamSystem system, List<Point2D> boundary):
+                system.SetBoundary(boundary);
+                break;
+        }
+    }
+
+    /// <summary>Whether two snapshots of the same element are the same.</summary>
+    public static bool Same(object a, object b) => (a, b) switch
+    {
+        (ValueTuple<List<Point2D>, bool, List<double>> x, ValueTuple<List<Point2D>, bool, List<double>> y) =>
+            x.Item2 == y.Item2 && x.Item1.SequenceEqual(y.Item1) && x.Item3.SequenceEqual(y.Item3),
+        (List<Point3D> x, List<Point3D> y) => x.SequenceEqual(y),
+        (List<Point2D> x, List<Point2D> y) => x.SequenceEqual(y),
+        _ => Equals(a, b)
+    };
+}
+
+/// <summary>A drag of a handle on a railing, a beam, the ground, a region or a joist layout - done, and undone.</summary>
+public sealed class HandleEditCommand : IUndoableCommand
+{
+    private readonly Element _element;
+    private readonly object _before;
+    private readonly object _after;
+
+    public HandleEditCommand(Element element, object before, object after, string name)
+    {
+        (_element, _before, _after) = (element, before, after);
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public void Redo() => ElementHandles.Restore(_element, _after);
+
+    public void Undo() => ElementHandles.Restore(_element, _before);
+}

@@ -34,14 +34,17 @@ public readonly record struct Line2D(Point2D Origin, Vector2D Direction)
     /// Distance from a point to a finite segment, as opposed to the infinite line through
     /// it. Used to tell whether one wall ends against another's side rather than its end.
     /// </summary>
-    public static double DistanceFromSegment(Point2D point, Point2D a, Point2D b)
+    public static double DistanceFromSegment(Point2D point, Point2D a, Point2D b) => point.DistanceTo(ClosestPointOnSegment(point, a, b));
+
+    /// <summary>The point of a finite segment nearest to a point.</summary>
+    public static Point2D ClosestPointOnSegment(Point2D point, Point2D a, Point2D b)
     {
         var ab = b - a;
         var lengthSquared = ab.Dot(ab);
-        if (lengthSquared <= 0) return point.DistanceTo(a);
+        if (lengthSquared <= 0) return a;
 
         var t = Math.Clamp((point - a).Dot(ab) / lengthSquared, 0, 1);
-        return point.DistanceTo(a + ab * t);
+        return a + ab * t;
     }
 
     /// <summary>The point on this line nearest to <paramref name="point"/>.</summary>

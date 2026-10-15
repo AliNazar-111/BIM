@@ -176,7 +176,16 @@ public static class RoofJoin
     /// The holes cut in a roof for its dormers: under each dormer's roof, where its underside is
     /// above this roof's top, and between the inside faces of the walls whose tops carry it.
     /// </summary>
-    public static IReadOnlyList<IReadOnlyList<Point2D>> Openings(BimDocument document, Roof roof, RoofWindow? exceptWindow = null)
+    public static IReadOnlyList<IReadOnlyList<Point2D>> Openings(BimDocument document, Roof roof, RoofWindow? exceptWindow = null) =>
+        Openings(document, roof, exceptWindow, trimmed: false);
+
+    /// <summary>
+    /// Its holes, as <see cref="Openings(BimDocument, Roof, RoofWindow?)"/> - and, trimmed, what is
+    /// cut off it besides as it is built: back from the curtain walls in front of it, its lips past
+    /// the walls rising over it, what is beyond the walls dividing it. Those are no holes in it, to
+    /// be drawn or measured as holes, but they are not built.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<Point2D>> Openings(BimDocument document, Roof roof, RoofWindow? exceptWindow, bool trimmed)
     {
         // The holes drawn in its sketch, those its roof windows and the shafts through it cut,
         // then those cut for its dormers.
@@ -185,6 +194,15 @@ public static class RoofJoin
         openings.AddRange(Shafts.Holes(document, roof));
         openings.AddRange(Chimneys.Holes(document, roof));
         openings.AddRange(Stairs.Holes(document, roof));
+
+        // A flat roof walked on as a floor: cut back from the curtain walls in front of it. Any roof: its lips past the walls rising above it cut off.
+        if (trimmed)
+        {
+            if (FloorSurfaces.IsStoodOn(document, roof))
+                openings.AddRange(SlabEdges.CurtainWallsAt(document, roof).Select(entry => SlabEdges.Slot(entry.Wall, entry.Body, SlabEdges.SafingGap)));
+            openings.AddRange(SlabEdges.Lips(document, roof));
+            openings.AddRange(SlabEdges.Beyond(document, roof));
+        }
 
         foreach (var id in roof.DormerOpenings)
         {
@@ -258,7 +276,7 @@ public static class RoofJoin
     /// <summary>A roof's pieces with its dormer openings cut out of them.</summary>
     public static IReadOnlyList<RoofPiece> Open(BimDocument document, Roof roof, IReadOnlyList<RoofPiece> pieces)
     {
-        var openings = Openings(document, roof);
+        var openings = Openings(document, roof, null, trimmed: true);
         if (openings.Count == 0) return pieces;
 
         var cut = new List<RoofPiece>();
@@ -290,7 +308,7 @@ public static class RoofJoin
     {
         var surface = roof.Surface(document);
         var shown = JoinedTarget(document, roof) is null ? null : Visible(document, roof);
-        var openings = Openings(document, roof);
+        var openings = Openings(document, roof, null, trimmed: true);
         if (shown is null && openings.Count == 0) return surface.Facets;
 
         var cut = new List<RoofFacet>();

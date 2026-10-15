@@ -171,6 +171,7 @@ public static class IfcExport
             foreach (var railing in _document.Elements.OfType<Railing>()) ExportRailing(railing);
             foreach (var beam in _document.Elements.OfType<Beam>()) ExportBeam(beam);
             foreach (var ground in _document.Elements.OfType<Toposurface>()) ExportGround(ground);
+            foreach (var system in _document.Elements.OfType<BeamSystem>()) ExportBeamSystem(system);
             foreach (var component in _document.Elements.OfType<Component>()) ExportComponent(component);
             foreach (var shaped in _document.Elements.OfType<PolygonWall>()) ExportPolygonWall(shaped);
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
@@ -1331,8 +1332,9 @@ public static class IfcExport
 
         /// <summary>
         /// A railing as an IfcRailing guarding a balcony, a terrace or a floor's edge - IFC's
-        /// BALUSTRADE, at the edge of a floor, a balcony or a roof - with its height, whether it is
-        /// outside, and whether it meets its rules.
+        /// BALUSTRADE, at the edge of a floor, a balcony or a roof; a Juliet balcony across a door
+        /// or window, a GUARDRAIL; a fence, user defined as one - with its height, its handrail's
+        /// diameter, whether it is outside, the loads it is made for, and whether it meets its rules.
         /// </summary>
         private void ExportRailing(Railing railing)
         {
@@ -1347,7 +1349,9 @@ public static class IfcExport
                 r.GlobalId = railing.Id.ToIfc();
                 r.Name = type.Name;
                 r.Tag = railing.Mark;
-                r.PredefinedType = IfcRailingTypeEnum.BALUSTRADE;
+                r.PredefinedType = type.Use == RailingUse.Fence ? IfcRailingTypeEnum.USERDEFINED
+                    : railing.HostOpeningId is not null ? IfcRailingTypeEnum.GUARDRAIL : IfcRailingTypeEnum.BALUSTRADE;
+                if (type.Use == RailingUse.Fence) r.ObjectType = "FENCE";
                 r.ObjectPlacement = New<IfcLocalPlacement>(placement =>
                 {
                     placement.PlacementRelTo = storey?.ObjectPlacement;
@@ -1361,21 +1365,90 @@ public static class IfcExport
             {
                 ["Reference"] = string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
                 ["Height"] = new IfcPositiveLengthMeasure(type.Height),
-                ["Diameter"] = type.TopRailProfile == HandrailProfile.Round ? new IfcPositiveLengthMeasure(type.TopRailWidth) : null,
+                ["Diameter"] = type.Handrail != RailingHandrail.None ? new IfcPositiveLengthMeasure(type.HandrailDiameter)
+                    : type.TopRailProfile == HandrailProfile.Round && Railings.RailDepth(type) > 0 ? new IfcPositiveLengthMeasure(type.TopRailWidth) : null,
                 ["IsExternal"] = new IfcBoolean(railing.Outside)
             });
             WriteSet(product, "Railing", new Dictionary<string, IfcValue?>
             {
                 ["Length"] = new IfcLengthMeasure(Railings.Length(railing)),
                 ["Infill"] = new IfcLabel(EnumText.Humanise(type.Infill)),
+                ["Use"] = new IfcLabel(EnumText.Humanise(type.Use)),
                 ["Building"] = new IfcLabel(EnumText.Humanise(railing.Building)),
+                ["HeightAboveFloorGuarded"] = new IfcLengthMeasure(Railings.EffectiveHeight(_document, railing)),
+                ["LineLoad"] = new IfcReal(type.LineLoad),
+                ["PointLoad"] = new IfcReal(type.PointLoad),
+                ["LaminatedGlass"] = type.Infill is RailingInfill.Glass or RailingInfill.FramelessGlass ? new IfcBoolean(type.GlassLaminated) : null,
                 ["Regulations"] = new IfcText(Railings.Verdict(_document, railing))
             });
         }
 
-        /// <summary>The ground as an IfcGeographicElement - TERRAIN - its surface and sides as its body.</summary>
+        /// <summary>
+        /// A joist layout as an IfcElementAssembly - a BEAM_GRID - made up of its joists and
+        /// trimmers, each an IfcBeam: a JOIST.
+        /// </summary>
+        private void ExportBeamSystem(BeamSystem system)
+        {
+            var members = BeamSystems.Members(_document, system);
+            if (members.Count == 0) return;
+
+            var type = BeamSystems.TypeOf(_document, system);
+            var storey = StoreyOf(system);
+            var storeyElevation = _document.FindLevel(system.LevelId)?.Elevation ?? 0;
+            IfcObjectPlacement OnStorey() => New<IfcLocalPlacement>(placement =>
+            {
+                placement.PlacementRelTo = storey?.ObjectPlacement;
+                placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+            });
+
+            var assembly = New<Xbim.Ifc4.ProductExtension.IfcElementAssembly>(a =>
+            {
+                a.GlobalId = system.Id.ToIfc();
+                a.Name = $"{type.Name} @ {system.Spacing:0}";
+                a.Tag = system.Mark;
+                a.PredefinedType = Xbim.Ifc4.Interfaces.IfcElementAssemblyTypeEnum.BEAM_GRID;
+                a.ObjectPlacement = OnStorey();
+            });
+            Contain(system, assembly);
+
+            foreach (var member in members)
+            {
+                if (Beams.Mesh(_document, member, system.Id) is not { } mesh) continue;
+                Aggregate(assembly, New<IfcBeam>(b =>
+                {
+                    b.GlobalId = Guid.NewGuid().ToIfc();
+                    b.Name = type.Name;
+                    b.PredefinedType = IfcBeamTypeEnum.JOIST;
+                    b.ObjectPlacement = OnStorey();
+                    b.Representation = TessellatedBody(new[] { mesh }, storeyElevation);
+                }));
+            }
+        }
+
+        /// <summary>The ground as an IfcGeographicElement - TERRAIN - its surface and sides as its body; each region on it as one of its own.</summary>
         private void ExportGround(Toposurface ground)
         {
+            foreach (var regionMesh in Terrains.Meshes(_document, ground).Where(mesh => mesh.ElementId != ground.Id))
+            {
+                if (_document.Elements.OfType<GroundRegion>().FirstOrDefault(region => region.Id == regionMesh.ElementId) is not { } region) continue;
+                var regionStorey = StoreyOf(region);
+                var regionElement = New<Xbim.Ifc4.ProductExtension.IfcGeographicElement>(g =>
+                {
+                    g.GlobalId = region.Id.ToIfc();
+                    g.Name = EnumText.Humanise(region.Surface);
+                    g.Tag = region.Mark;
+                    g.PredefinedType = Xbim.Ifc4.Interfaces.IfcGeographicElementTypeEnum.USERDEFINED;
+                    g.ObjectType = region.Surface.ToString().ToUpperInvariant();
+                    g.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                    {
+                        placement.PlacementRelTo = regionStorey?.ObjectPlacement;
+                        placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                    });
+                    g.Representation = TessellatedBody(new[] { regionMesh }, _document.FindLevel(region.LevelId)?.Elevation ?? 0);
+                });
+                Contain(region, regionElement);
+            }
+
             if (Terrains.Mesh(_document, ground) is not { } mesh) return;
 
             var storey = StoreyOf(ground);

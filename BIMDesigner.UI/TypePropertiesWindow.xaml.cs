@@ -103,7 +103,7 @@ public partial class TypePropertiesWindow : Window
         var given = _selection.Where(element => element.TypeId != picked.Id).ToList();
         if (given.Count > 0)
         {
-            _history.Execute(new SetElementsTypeCommand(given, picked));
+            _history.Execute(new Core.Architecture.StairRelaidCommand(_document, given.OfType<Core.Architecture.Stair>(), new SetElementsTypeCommand(given, picked)));
             Changed?.Invoke(this, EventArgs.Empty);
         }
 

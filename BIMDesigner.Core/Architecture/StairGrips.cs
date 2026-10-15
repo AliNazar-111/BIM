@@ -80,6 +80,55 @@ public sealed class StairEditCommand : IUndoableCommand
 }
 
 /// <summary>
+/// A change to how stairs are laid out - their shape, their width, their base or their type -
+/// as one step to undo: each hung by its head from a terrace, a balcony or a deck stays hung
+/// there, laid out back from its head and coming up onto it the way it did; the rest keep
+/// their feet.
+/// </summary>
+public sealed class StairRelaidCommand : IUndoableCommand
+{
+    private readonly BimDocument _document;
+    private readonly IUndoableCommand _change;
+    private readonly List<(Stair Stair, Point2D Head, Vector2D Up, Point2D Start, double Angle)> _hung = new();
+
+    /// <summary>Made before the change is: where each stair hangs from is taken as it is now.</summary>
+    public StairRelaidCommand(BimDocument document, IEnumerable<Stair> stairs, IUndoableCommand change)
+    {
+        (_document, _change) = (document, change);
+        foreach (var stair in stairs.Distinct())
+            if (Stairs.HungFrom(document, stair) is { } hung) _hung.Add((stair, hung.Head, hung.Up, stair.Start, stair.Angle));
+    }
+
+    public string Name => _change.Name;
+
+    public void Redo()
+    {
+        _change.Redo();
+        foreach (var (stair, head, up, _, _) in _hung) Stairs.HangFrom(_document, stair, head, up);
+    }
+
+    public void Undo()
+    {
+        foreach (var (stair, _, _, start, angle) in _hung) (stair.Start, stair.Angle) = (start, angle);
+        _change.Undo();
+    }
+}
+
+/// <summary>A setting changed - of a stair, its type, a joist layout - as one step to undo, put back exactly as it was.</summary>
+public sealed class SettingCommand : IUndoableCommand
+{
+    private readonly Action _redo, _undo;
+
+    public SettingCommand(string name, Action redo, Action undo) => (Name, _redo, _undo) = (name, redo, undo);
+
+    public string Name { get; }
+
+    public void Redo() => _redo();
+
+    public void Undo() => _undo();
+}
+
+/// <summary>
 /// A stair reshaped by dragging its handles, as Revit's, Archicad's and Vectorworks' are: a
 /// side pulled out to widen it, the other side staying put; the end of its first flight
 /// dragged up or down it to turn a riser sooner or later; a half turn's second flight pulled

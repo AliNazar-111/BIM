@@ -213,4 +213,35 @@ public static class Polygon2D
 
         return inside;
     }
+
+    /// <summary>
+    /// The pieces of a line inside a polygon - or, told so, outside it: cut where it crosses the
+    /// polygon's edges, each piece kept by whether its middle is in.
+    /// </summary>
+    public static IReadOnlyList<(Point2D From, Point2D To)> Clip(Point2D from, Point2D to, IReadOnlyList<Point2D> polygon, bool inside)
+    {
+        var way = to - from;
+        var cuts = new List<double> { 0, 1 };
+        for (var i = 0; i < polygon.Count; i++)
+        {
+            var (a, b) = (polygon[i], polygon[(i + 1) % polygon.Count]);
+            var edge = b - a;
+            var denominator = way.Cross(edge);
+            if (Math.Abs(denominator) < 1e-12) continue;
+            var t = (a - from).Cross(edge) / denominator;
+            var u = (a - from).Cross(way) / denominator;
+            if (t > 0 && t < 1 && u >= -1e-9 && u <= 1 + 1e-9) cuts.Add(t);
+        }
+
+        cuts.Sort();
+        var pieces = new List<(Point2D, Point2D)>();
+        for (var i = 0; i + 1 < cuts.Count; i++)
+        {
+            if (cuts[i + 1] - cuts[i] < 1e-9) continue;
+            var (a, b) = (from + way * cuts[i], from + way * cuts[i + 1]);
+            if (Contains(polygon, a.MidpointTo(b)) == inside) pieces.Add((a, b));
+        }
+
+        return pieces;
+    }
 }

@@ -117,7 +117,13 @@ public enum PlanTool
     Beam,
 
     /// <summary>A spot level on the ground at each click, at the height the option bar says.</summary>
-    Terrain
+    Terrain,
+
+    /// <summary>A region of the ground - a lawn, a path, paving - by its corners, or along a path's middle.</summary>
+    Region,
+
+    /// <summary>A joist layout, by the outline its joists fill.</summary>
+    Joists
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -242,7 +248,10 @@ public partial class PlanView : FrameworkElement
         Move,
 
         /// <summary>Reshaping one selected stair by one of its handles.</summary>
-        Stair
+        Stair,
+
+        /// <summary>Moving a handle on one selected railing, beam, piece of ground, region or joist layout.</summary>
+        Handle
     }
 
     /// <summary>The last snapped point a move drag was applied at, and the total so far.</summary>
@@ -1147,6 +1156,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
+        PlanTool.Region => "Click the corners of the region of ground - a lawn, paving, gravel, planting - and its first again to close it; or, drawing a path, click along its middle and double-click where it ends. It lies on the ground, following it.",
+        PlanTool.Joists => "Click the corners of the outline the joists fill - the faces of what carries their ends - and its first again to close it. They run across the short way, at the spacing on the option bar, and stop short of a stairwell, with trimmers across its ends.",
         PlanTool.RoofDrain => "Click on a flat roof where a drain goes: the roof's insulation is tapered to fall to it - at the roof's Drainage Fall, 1 in 40 to start - in valleys from its corners, with ridges between drains.",
         PlanTool.Downpipe => "Click on a gutter where the downpipe goes: an outlet in its bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. Its size and section come from the gutter's type.",
         PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
@@ -1231,12 +1242,35 @@ public partial class PlanView : FrameworkElement
     /// <summary>Runs a change through the history, or directly when there is none.</summary>
     private void Apply(IUndoableCommand command)
     {
-        // What is put on a storey stands on its floor's top, not in it; and a floor or flat roof
-        // put in under what is there already lifts it onto its top - in the same step.
-        if (Document is not null) command = FloorSurfaces.Standing(Document, command);
+        FollowedCommand? divided = null;
+        if (Document is not null)
+        {
+            // What it adds - in a step of its own, or among others, as the wall tool's corner and offset steps are.
+            static IEnumerable<Element> Adds(IUndoableCommand step) => step switch
+            {
+                AddElementCommand one => new[] { one.Element },
+                AddElementsCommand many => many.Elements,
+                CompositeCommand steps => steps.Commands.SelectMany(Adds),
+                _ => Array.Empty<Element>()
+            };
+            IReadOnlyList<Element> added = Adds(command).ToList();
+
+            // What is put on a storey stands on its floor's top, not in it; and a floor or flat roof
+            // put in under what is there already lifts it onto its top - in the same step.
+            command = FloorSurfaces.Standing(Document, command);
+
+            // A floor put in across walls, or a wall put up through a floor, divides the wall
+            // there - and a floor with a room over it is made a storey - in the same step too.
+            if (added.Any(element => element is Slab or Wall))
+            {
+                var document = Document;
+                command = divided = new FollowedCommand(command, () => Storeys.Divide(document, added));
+            }
+        }
 
         if (History is not null) History.Execute(command);
         else command.Redo();
+        if (divided?.Said is { } said) HintChanged?.Invoke(this, said);
     }
 
     /// <summary>
@@ -1249,6 +1283,7 @@ public partial class PlanView : FrameworkElement
                       | CancelRailing()
                       | CancelBeam()
                       | CancelGround()
+                      | CancelOutline()
                       | CancelExtrusion()
                       | CancelRoofJoin()
                       | CancelRoofEdgePick()
@@ -1431,6 +1466,50 @@ public partial class PlanView : FrameworkElement
 
         foreach (var crossing in Grids.Intersections(Document)) Consider(crossing);
 
+        // The corners of floors, balconies, terraces and roofs on this level and the one above - a
+        // stair set out under a balcony's edge - railings' corners, beams' ends, columns, stairs' heads.
+        // A terrace that is the roof of the storey below, or a balcony set down, is at this level's height whatever level it is on.
+        var above = Levels.Above(Document, ActiveLevelId)?.Id;
+        var height = Document.FindLevel(ActiveLevelId)?.Elevation ?? 0;
+        var slabs = Document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3
+            && (slab.LevelId == ActiveLevelId || slab.LevelId == above || Math.Abs(slab.GetTopElevation(Document) - height) <= Stairs.FloorReach)).ToList();
+        foreach (var slab in slabs)
+            foreach (var corner in slab.Boundary) Consider(corner);
+        // Not the points of what is being dragged by its handles: its corner would land back where it was.
+        foreach (var railing in OnActiveLevel<Railing>().Where(railing => !ReferenceEquals(railing, _snapIgnore)))
+            foreach (var corner in railing.Path) Consider(corner);
+        foreach (var beam in OnActiveLevel<Beam>().Where(beam => !ReferenceEquals(beam, _snapIgnore)))
+        {
+            Consider(beam.Start);
+            Consider(beam.End);
+        }
+
+        foreach (var column in OnActiveLevel<Column>()) Consider(column.Location);
+        foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => stair.LevelId == ActiveLevelId || stair.TopLevelId == ActiveLevelId))
+            foreach (var (from, to) in Stairs.Layout(Document, stair).Arrivals)
+            {
+                Consider(from);
+                Consider(to);
+            }
+
+        // Nothing to land on there, putting a stair, a railing or an outline down: onto the nearest
+        // edge of a floor or a balcony, or a wall's line - round it, where it curves.
+        if (!found && ActiveTool is PlanTool.Stair or PlanTool.Railing or PlanTool.Region or PlanTool.Joists)
+        {
+            void Along(Point2D a, Point2D b)
+            {
+                var way = b - a;
+                var length = way.Dot(way);
+                if (length < 1) return;
+                Consider(a + way * Math.Clamp((model - a).Dot(way) / length, 0, 1));
+            }
+
+            foreach (var slab in slabs)
+                for (var i = 0; i < slab.Boundary.Count; i++) Along(slab.Boundary[i], slab.Boundary[(i + 1) % slab.Boundary.Count]);
+            foreach (var wall in OnActiveLevel<Wall>().Where(wall => !ReferenceEquals(wall, ignore) && wall.Length > 1))
+                Consider(wall.LocationCurve.PointAt(Math.Clamp(wall.LocationCurve.Locate(model).Along, 0, wall.LocationCurve.Length)));
+        }
+
         snappedToFeature = found;
         return found ? best : SnapToGrid(model);
     }
@@ -1514,8 +1593,7 @@ public partial class PlanView : FrameworkElement
         }
         else if (ActiveTool == PlanTool.Stair)
         {
-            _cursorModel = SnapToGrid(raw);
-            _cursorIsSnapped = false;
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             StairHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.Railing)
@@ -1533,6 +1611,11 @@ public partial class PlanView : FrameworkElement
             _cursorModel = SnapToGrid(raw);
             _cursorIsSnapped = false;
             GroundHover(_cursorModel);
+        }
+        else if (ActiveTool is PlanTool.Region or PlanTool.Joists)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            OutlineHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.RoofDrain)
         {
@@ -1606,7 +1689,7 @@ public partial class PlanView : FrameworkElement
     {
         if (ActiveTool != PlanTool.Select) return;
 
-        var overGrip = SelectedWall is not null && GripAt(SelectedWall, raw) != GripKind.None || StairGripAt(raw) is not null;
+        var overGrip = SelectedWall is not null && GripAt(SelectedWall, raw) != GripKind.None || StairGripAt(raw) is not null || HandleAt(raw) is not null;
         var overSelection = HitTest(raw) is { } hit && IsSelected(hit);
 
         Cursor = overGrip || overSelection ? Cursors.SizeAll : Cursors.Arrow;
@@ -1804,11 +1887,19 @@ public partial class PlanView : FrameworkElement
             case PlanTool.Stair:
                 // A custom stair is finished with a double-click where it ends.
                 if (e.ClickCount == 2 && FinishStair()) return;
-                ClickStair(SnapToGrid(raw));
+                ClickStair(SnapPoint(raw, null, out _));
                 return;
 
             case PlanTool.Railing:
-                // Finished with a double-click where it ends.
+                // Along an edge clicked; or finished with a double-click where it ends.
+                if (PickingEdges)
+                {
+                    // A double-click: all the way round.
+                    if (e.ClickCount == 2) PickRailingOutline(raw);
+                    else PickRailingEdge(raw);
+                    return;
+                }
+
                 if (e.ClickCount == 2 && FinishRailing()) return;
                 ClickRailing(SnapPoint(raw, null, out _));
                 return;
@@ -1819,6 +1910,11 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.Terrain:
                 ClickGround(SnapToGrid(raw));
+                return;
+
+            case PlanTool.Region or PlanTool.Joists:
+                if (e.ClickCount == 2 && FinishOutline()) return;
+                ClickOutline(SnapPoint(raw, null, out _));
                 return;
         }
 
@@ -1865,6 +1961,9 @@ public partial class PlanView : FrameworkElement
 
         // A handle on a selected stair: widens it, moves its turn, turns or flips it.
         if (BeginStairGrip(raw)) return;
+
+        // A handle on a selected railing, beam, piece of ground, region or joist layout: moves a corner, an end, a spot level.
+        if (BeginHandle(raw)) return;
 
         // A corner between selected walls, dragged: every wall meeting there follows.
         if (CornerAt(raw) is { } dragged)
@@ -2363,6 +2462,12 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
+        if (_dragging == GripKind.Handle)
+        {
+            FollowHandle(raw);
+            return;
+        }
+
         if (_dragging == GripKind.Move)
         {
             var target = SnapToGrid(raw);
@@ -2476,6 +2581,12 @@ public partial class PlanView : FrameworkElement
         if (grip == GripKind.Stair)
         {
             EndStairGrip();
+            return;
+        }
+
+        if (grip == GripKind.Handle)
+        {
+            EndHandle();
             return;
         }
 
@@ -5529,8 +5640,10 @@ public partial class PlanView : FrameworkElement
                           footprint.Select((corner, i) => DistanceToSegment(model, corner, footprint[(i + 1) % footprint.Count])).Min() <= edgeReach))))
             yield return edgeSweep;
 
-        // Walls before rooms: a room covers the whole floor, so it would swallow every click.
+        // Walls before rooms: a room covers the whole floor, so it would swallow every click. A
+        // joist layout under the floor is picked by its joists, before the room and the floor over it.
         foreach (var wall in WallsAt(model)) yield return wall;
+        foreach (var system in JoistLayoutsAt(model)) yield return system;
 
         foreach (var room in OnActiveLevel<Room>().Where(room => ContainsPoint(room.GetBoundary(Document), model)))
             yield return room;
@@ -5543,6 +5656,7 @@ public partial class PlanView : FrameworkElement
         // Slabs last: they are under everything, so anything above them wins the click - but for the ground, under them too.
         foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
             yield return slab;
+        foreach (var region in RegionsAt(model)) yield return region;
         foreach (var ground in GroundsAt(model)) yield return ground;
     }
 
@@ -5623,6 +5737,7 @@ public partial class PlanView : FrameworkElement
         DrawRailingPreview(dc);
         DrawBeamPreview(dc);
         DrawGroundPreview(dc);
+        DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);
         DrawArcToolPreview(dc);
         DrawShapedWallPreview(dc);
@@ -5732,6 +5847,7 @@ public partial class PlanView : FrameworkElement
     private void DrawGrips(DrawingContext dc)
     {
         DrawStairGrips(dc);
+        DrawHandles(dc);
 
         // Corners between selected walls: round grips that pull the corner anywhere.
         if (!_isPanning)

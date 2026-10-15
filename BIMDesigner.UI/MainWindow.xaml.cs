@@ -134,7 +134,7 @@ public partial class MainWindow : Window
         // A selected stair's handles, dragged in 3D as in plan. The mouse can move many times a
         // frame: only where it has got to is followed, once the moves so far are in, and only
         // the stair is built again as it goes - the whole model once, when it is let go.
-        Model3D.Grips = Plan.StairGrips3D;
+        Model3D.Grips = Plan.Grips3D;
         Model3D.GripDragged += (_, drag) =>
         {
             _gripDrag = drag;
@@ -143,11 +143,12 @@ public partial class MainWindow : Window
             _gripDragPending = true;
             Dispatcher.BeginInvoke(DispatcherPriority.Background, FollowGripDrag);
         };
-        Model3D.GripDragEnded += (_, _) =>
+        Model3D.GripDragEnded += (_, key) =>
         {
             FollowGripDrag();
             _gripDrag = null;
-            Plan.EndStairGripIn3D();
+            if (key.StartsWith("handle:", StringComparison.Ordinal)) Plan.EndHandleIn3D();
+            else Plan.EndStairGripIn3D();
         };
         Model3D.GripClicked += (_, key) => Plan.ClickStairGripIn3D(key);
 
@@ -202,6 +203,13 @@ public partial class MainWindow : Window
             // The downpipe tool: a click on a gutter puts one on it there.
             if (hit is { } onGutter && Plan.ActiveTool == PlanTool.Downpipe &&
                 Plan.PlaceDownpipeIn3D(onGutter.Id, onGutter.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            // The stair tool: a click on a floor, a terrace or the ground puts a straight stair there.
+            if (hit is { } onFloor && Plan.ActiveTool == PlanTool.Stair && Plan.PlaceStairIn3D(onFloor.Id, onFloor.At))
             {
                 Model3D.Focus();
                 return;
@@ -562,7 +570,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain;
+            or PlanTool.Stair or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -579,6 +587,10 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Beam) ShowBeamOptions();
         TerrainOptions.Visibility = tool == PlanTool.Terrain ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Terrain) ShowGroundOptions();
+        RegionOptions.Visibility = tool == PlanTool.Region ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Region) ShowRegionOptions();
+        JoistOptions.Visibility = tool == PlanTool.Joists ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Joists) ShowJoistOptions();
 
         JunctionOptions.Visibility = tool == PlanTool.WallJoins ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.WallJoins) RefreshJunctionOptions();
@@ -1067,6 +1079,8 @@ public partial class MainWindow : Window
                                        ?? types.FirstOrDefault(type => type.Construction == StairConstruction.Timber && !type.OpenRisers)
                                        ?? types.FirstOrDefault();
         Plan.ActiveStairTypeId = (StairTypePicker.SelectedItem as StairType)?.Id ?? Guid.Empty;
+        StairDirectionPicker.ItemsSource ??= new[] { "Auto: down off an edge", "Up from here", "Down from here" };
+        StairDirectionPicker.SelectedIndex = (int)Plan.NewStairDirection;
         StairShapePicker.ItemsSource ??= EnumText.Choices<StairShape>();
         StairShapePicker.SelectedItem = EnumText.Humanise(Plan.NewStairShape);
         StairCornerPicker.ItemsSource ??= new[] { "On a landing", "On winders", "On balanced winders" };
@@ -1089,10 +1103,14 @@ public partial class MainWindow : Window
         _loadingOptions = true;
         var types = _document.TypesOf<RailingType>().OrderBy(type => type.Name).ToList();
         RailingTypePicker.ItemsSource = types;
-        RailingTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveRailingTypeId) ?? types.FirstOrDefault();
+
+        // The type picked last - or, to begin with, guarding as high as a balcony asks, not a fence.
+        RailingTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveRailingTypeId) ?? Railings.TypeFor(_document, 1100) ?? types.FirstOrDefault();
         Plan.ActiveRailingTypeId = (RailingTypePicker.SelectedItem as RailingType)?.Id ?? Guid.Empty;
         RailingBuildingPicker.ItemsSource ??= EnumText.Choices<RailingBuilding>();
         RailingBuildingPicker.SelectedItem = EnumText.Humanise(Plan.ActiveRailingBuilding);
+        RailingDrawPicker.ItemsSource ??= new[] { "By points", "Arcs", "Pick edges" };
+        RailingDrawPicker.SelectedIndex = Plan.PickingEdges ? 2 : Plan.RailingArc ? 1 : 0;
         _loadingOptions = false;
     }
 
@@ -1102,6 +1120,8 @@ public partial class MainWindow : Window
 
         if (RailingTypePicker.SelectedItem is RailingType type) Plan.ActiveRailingTypeId = type.Id;
         if (RailingBuildingPicker.SelectedItem is string building && EnumText.TryParse<RailingBuilding>(building, out var picked)) Plan.ActiveRailingBuilding = picked;
+        Plan.PickingEdges = RailingDrawPicker.SelectedIndex == 2;
+        Plan.RailingArc = RailingDrawPicker.SelectedIndex == 1;
         ShowRailingOptions();
     }
 
@@ -1161,6 +1181,109 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ShowRegionOptions()
+    {
+        _loadingOptions = true;
+        RegionSurfacePicker.ItemsSource ??= EnumText.Choices<GroundSurface>();
+        RegionSurfacePicker.SelectedItem = EnumText.Humanise(Plan.ActiveGroundSurface);
+        RegionPathBox.IsChecked = Plan.DrawingPath;
+        PathWidthBox.Text = Plan.ActivePathWidth.ToString("0");
+        PathWidthBox.IsEnabled = Plan.DrawingPath;
+        _loadingOptions = false;
+    }
+
+    private void OnRegionOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (RegionSurfacePicker.SelectedItem is string surface && EnumText.TryParse<GroundSurface>(surface, out var picked)) Plan.ActiveGroundSurface = picked;
+        Plan.DrawingPath = RegionPathBox.IsChecked == true;
+        if (double.TryParse(PathWidthBox.Text, out var width) && width is >= 300 and <= 20000) Plan.ActivePathWidth = width;
+        ShowRegionOptions();
+    }
+
+    private void ShowJoistOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<BeamType>().ToList();
+        JoistTypePicker.ItemsSource = types;
+        JoistTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveJoistTypeId)
+                                       ?? types.FirstOrDefault(type => type.Name.Contains("47x200", StringComparison.Ordinal)) ?? types.FirstOrDefault();
+        Plan.ActiveJoistTypeId = (JoistTypePicker.SelectedItem as BeamType)?.Id ?? Guid.Empty;
+        JoistSpacingBox.Text = Plan.ActiveJoistSpacing.ToString("0");
+        _loadingOptions = false;
+    }
+
+    private void OnJoistOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (JoistTypePicker.SelectedItem is BeamType type) Plan.ActiveJoistTypeId = type.Id;
+        if (double.TryParse(JoistSpacingBox.Text, out var spacing) && spacing is >= 100 and <= 3000) Plan.ActiveJoistSpacing = spacing;
+        ShowJoistOptions();
+    }
+
+    /// <summary>Record Existing, on the ground picked: the ground as it is now, what its grading is measured from.</summary>
+    private void OnRecordExistingGround(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements is not [Toposurface ground]) return;
+        Plan.SetExistingGround(ground, record: true);
+    }
+
+    /// <summary>Let Go, on the ground picked: no existing ground recorded any more.</summary>
+    private void OnForgetExistingGround(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements is not [Toposurface ground]) return;
+        Plan.SetExistingGround(ground, record: false);
+    }
+
+    /// <summary>
+    /// Make Storey, on the floor or flat roof picked: the walls running up through it split at it -
+    /// the part under it stopping at its underside, the part over it standing on its top - and,
+    /// where it has a room over it at a height no level is at, a level made on it.
+    /// </summary>
+    private void OnMakeStorey(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements is not [Slab slab]) return;
+        if (Storeys.Divide(_document, new[] { slab }) is not { } divided)
+        {
+            StatusHint.Text = "No wall runs up through it: nothing to split at it. A wall it stops short of - a curtain wall hung in front of it - runs on past it.";
+            return;
+        }
+
+        _history.Record(divided.Done);
+        AfterHistoryChange();
+        StatusHint.Text = divided.Said;
+    }
+
+    /// <summary>
+    /// Juliet Balcony, on the doors and windows picked: a railing across each in front of its
+    /// wall, from its sill, measured from the floor inside - those guarded already left as they are.
+    /// </summary>
+    private void OnJulietBalcony(object sender, RoutedEventArgs e)
+    {
+        var openings = Plan.SelectedElements.OfType<Opening>().ToList();
+        var made = openings
+            .Where(opening => !_document.Elements.OfType<Railing>().Any(railing => railing.HostOpeningId == opening.Id))
+            .Select(opening => Railings.Juliet(_document, opening))
+            .OfType<Railing>()
+            .ToList();
+        if (made.Count == 0)
+        {
+            StatusHint.Text = openings.Count == 0 ? "Pick a door or a window to put a Juliet balcony across." : "Each has a Juliet balcony already.";
+            return;
+        }
+
+        _history.Execute(new CompositeCommand(made.Count == 1 ? "Juliet Balcony" : $"{made.Count} Juliet Balconies",
+            made.Select(railing => (IUndoableCommand)new AddElementCommand(_document, railing, "Juliet Balcony")).ToList()));
+        AfterHistoryChange();
+        StatusHint.Text = $"{(made.Count == 1 ? "A Juliet balcony" : $"{made.Count} Juliet balconies")} across {(made.Count == 1 ? "it" : "them")}, {Railings.TypeOf(_document, made[0]).Height:0} high from the sill: {Railings.Verdict(_document, made[0])}.";
+    }
+
+    /// <summary>All Round, on the floor, balcony or roof terrace picked: one railing round every side of it.</summary>
+    private void OnGuardAllRound(object sender, RoutedEventArgs e)
+    {
+        if (Plan.SelectedElements is [Slab slab]) Plan.GuardAllRound(slab);
+    }
+
     /// <summary>Guard Edges, on the floor, balcony or roof terrace picked: railings round what drops too far.</summary>
     private void OnGuardEdges(object sender, RoutedEventArgs e)
     {
@@ -1172,6 +1295,7 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
 
         if (StairTypePicker.SelectedItem is StairType type) Plan.ActiveStairTypeId = type.Id;
+        if (StairDirectionPicker.SelectedIndex >= 0) Plan.NewStairDirection = (StairDirection)StairDirectionPicker.SelectedIndex;
         if (StairShapePicker.SelectedItem is string shape && EnumText.TryParse<StairShape>(shape, out var picked)) Plan.NewStairShape = picked;
         Plan.NewStairCorner = StairCornerPicker.SelectedIndex switch { 1 => StairCorner.Winders, 2 => StairCorner.BalancedWinders, _ => StairCorner.Landing };
         Plan.NewStairTurnsLeft = StairTurnPicker.SelectedIndex == 1;
@@ -1760,7 +1884,8 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RailingTool, BeamTool, TerrainTool, GridTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RailingTool, BeamTool, TerrainTool,
+        RegionTool, JoistsTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
@@ -1838,6 +1963,8 @@ public partial class MainWindow : Window
             : RailingTool.IsChecked == true ? PlanTool.Railing
             : BeamTool.IsChecked == true ? PlanTool.Beam
             : TerrainTool.IsChecked == true ? PlanTool.Terrain
+            : RegionTool.IsChecked == true ? PlanTool.Region
+            : JoistsTool.IsChecked == true ? PlanTool.Joists
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -2362,7 +2489,8 @@ public partial class MainWindow : Window
         var targets = Plan.SelectedElements.Where(selected => selected.Category == type.Category).ToList();
         if (targets.All(target => target.TypeId == type.Id)) return;
 
-        _history.Execute(new SetElementsTypeCommand(targets, type));
+        // A stair hung by its head from a terrace or a balcony stays hung there, laid out back from it in its new type.
+        _history.Execute(new StairRelaidCommand(_document, targets.OfType<Stair>(), new SetElementsTypeCommand(targets, type)));
         AfterHistoryChange();
     }
 
@@ -2929,6 +3057,9 @@ public partial class MainWindow : Window
             ? Visibility.Visible : Visibility.Collapsed;
         ContextGuardPanel.Visibility = selected is [Slab walkedOn] && walkedOn is not Ceiling && FloorSurfaces.IsStoodOn(_document, walkedOn)
             ? Visibility.Visible : Visibility.Collapsed;
+        ContextStoreyPanel.Visibility = ContextGuardPanel.Visibility;
+        ContextGroundPanel.Visibility = selected is [Toposurface] ? Visibility.Visible : Visibility.Collapsed;
+        ContextForgetGround.IsEnabled = selected is [Toposurface { ExistingPoints.Count: >= 3 }];
         // Pick New belongs to anything that is carried by something else: a door or window in
         // its wall, and a component on a face it could be moved off.
         var rehostable = selected is [Opening]
@@ -2936,6 +3067,7 @@ public partial class MainWindow : Window
                              && _document.FindType<ComponentType>(component.TypeId) is { IsHosted: true });
 
         ContextHostPanel.Visibility = rehostable ? Visibility.Visible : Visibility.Collapsed;
+        ContextJulietPanel.Visibility = selected.Count > 0 && selected.All(element => element is Opening) ? Visibility.Visible : Visibility.Collapsed;
         ContextPropertiesPanel.Visibility = selected.Any(element => element.TypeId != Guid.Empty) ? Visibility.Visible : Visibility.Collapsed;
         SyncSweepEditControls();
 
@@ -3494,6 +3626,8 @@ public partial class MainWindow : Window
         Railing => "Icon.Railing",
         Beam => "Icon.Beam",
         Toposurface => "Icon.Terrain",
+        GroundRegion => "Icon.Region",
+        BeamSystem => "Icon.Joists",
         Downpipe => "Icon.Downpipe",
         RoofDrain => "Icon.RoofDrain",
         Chimney => "Icon.Chimney",
@@ -3557,7 +3691,22 @@ public partial class MainWindow : Window
     private void OnParameterCommitted(object? sender, ParameterCommittedEventArgs e)
     {
         var commands = e.Changes.Select(change => new ParameterChangeCommand(change.Parameter, change.OldValue, change.NewValue)).ToList();
-        _history.Record(commands.Count == 1 ? commands[0] : new CompositeCommand(commands[0].Name, commands));
+        IUndoableCommand change = commands.Count == 1 ? commands[0] : new CompositeCommand(commands[0].Name, commands);
+
+        // A floor moved, or a wall raised, through one another - its height or its level changed,
+        // nothing else: the wall split at the floor, and a floor with a room over it made a storey,
+        // in the same step.
+        var heights = new[]
+        {
+            WallParameters.BaseConstraint.Name, WallParameters.BaseOffset.Name, WallParameters.TopConstraint.Name, WallParameters.TopOffset.Name,
+            WallParameters.UnconnectedHeight.Name, SlabParameters.Level.Name, SlabParameters.HeightOffset.Name
+        };
+        var divided = e.Changes.Any(edit => heights.Contains(edit.Parameter.Name))
+            ? Storeys.Divide(_document, Plan.SelectedElements.Where(element => element is Wall or Slab))
+            : null;
+        if (divided is { } split) change = new CompositeCommand(change.Name, new[] { change, split.Done });
+        _history.Record(change);
+        if (divided is { } done) Dispatcher.BeginInvoke(DispatcherPriority.Background, () => StatusHint.Text = done.Said);
 
         Plan.RefreshModel();
         RefreshProjectBrowser();
@@ -4090,19 +4239,35 @@ public partial class MainWindow : Window
             "Theme", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    /// <summary>Rebuilds the 3D meshes, but only while anyone can see them.</summary>
-    /// <summary>A 3D handle's drag followed to where the mouse has got to: the stair moved, and shown as it now is.</summary>
+    /// <summary>A 3D handle's drag followed to where the mouse has got to: what it is on moved, and shown as it now is.</summary>
     private void FollowGripDrag()
     {
         _gripDragPending = false;
         if (_gripDrag is not { } drag) return;
         _gripDrag = null;
 
+        if (drag.Key.StartsWith("handle:", StringComparison.Ordinal))
+        {
+            if (!Plan.DragHandleIn3D(drag.Key, drag.From, drag.Through) || Plan.SelectedElements is not [var moved]) return;
+            IReadOnlyList<Core.Geometry.Mesh3D> meshes = moved switch
+            {
+                Railing railing => RailingModel.Meshes(_document, railing),
+                Beam beam => Beams.Mesh(_document, beam) is { } mesh ? new[] { mesh } : Array.Empty<Core.Geometry.Mesh3D>(),
+                Toposurface ground => Terrains.Meshes(_document, ground).Where(mesh => mesh.ElementId == ground.Id).ToList(),
+                GroundRegion region when GroundRegions.Host(_document, region) is { } host => Terrains.Meshes(_document, host).Where(mesh => mesh.ElementId == region.Id).ToList(),
+                BeamSystem system => BeamSystems.Meshes(_document, system),
+                _ => Array.Empty<Core.Geometry.Mesh3D>()
+            };
+            Model3D.PreviewElement(moved.Id, meshes);
+            return;
+        }
+
         if (!Plan.DragStairGripIn3D(drag.Key, drag.From, drag.Through)) return;
         if (Plan.SelectedElements.OfType<Stair>().FirstOrDefault() is { } stair)
             Model3D.PreviewElement(stair.Id, StairModel.Meshes(_document, stair));
     }
 
+    /// <summary>Rebuilds the 3D meshes, but only while anyone can see them.</summary>
     private void Refresh3D()
     {
         if (ModelPanel.Visibility != Visibility.Visible) return;

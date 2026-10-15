@@ -50,6 +50,8 @@ internal sealed class ProjectFileDto
     public List<BeamTypeDto> BeamTypes { get; set; } = new();
     public List<BeamDto> Beams { get; set; } = new();
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
+    public List<GroundRegionDto> GroundRegions { get; set; } = new();
+    public List<BeamSystemDto> BeamSystems { get; set; } = new();
 
     /// <summary>The elements pinned where they are.</summary>
     public List<Guid> PinnedIds { get; set; } = new();
@@ -1234,6 +1236,7 @@ internal sealed class StairDto
     public double UnconnectedHeight { get; set; }
     public string Railings { get; set; } = "Auto";
     public bool CutsFloorAbove { get; set; } = true;
+    public bool CutsRoof { get; set; } = true;
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }
@@ -1259,6 +1262,46 @@ internal sealed class RailingTypeDto
     public Guid InfillMaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+    public string? Use { get; set; }
+    public bool? HasTopRail { get; set; }
+    public bool? GlassLaminated { get; set; }
+    public double? GlassJoint { get; set; }
+    public double? ChannelHeight { get; set; }
+    public double? PanelThickness { get; set; }
+    public int? IntermediateRails { get; set; }
+    public string? Handrail { get; set; }
+    public double? HandrailHeight { get; set; }
+    public double? HandrailDiameter { get; set; }
+    public double? HandrailClearance { get; set; }
+    public double? HandrailExtension { get; set; }
+    public string? HandrailEnds { get; set; }
+    public double? LineLoad { get; set; }
+    public double? PointLoad { get; set; }
+}
+
+internal sealed class GroundRegionDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Boundary { get; set; }
+    public string Surface { get; set; } = "Lawn";
+    public Guid MaterialId { get; set; }
+    public bool Approach { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class BeamSystemDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Boundary { get; set; }
+    public double? Direction { get; set; }
+    public double Spacing { get; set; }
+    public double Offset { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class ToposurfaceDto
@@ -1266,6 +1309,7 @@ internal sealed class ToposurfaceDto
     public Guid Id { get; set; }
     public Guid LevelId { get; set; }
     public List<double>? Points { get; set; }
+    public List<double>? ExistingPoints { get; set; }
     public Guid MaterialId { get; set; }
     public double ContourInterval { get; set; }
     public string Mark { get; set; } = string.Empty;
@@ -1311,6 +1355,8 @@ internal sealed class RailingDto
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }
     public List<double>? Path { get; set; }
+    public List<double>? Bulges { get; set; }
+    public Guid? HostOpeningId { get; set; }
     public bool Closed { get; set; }
     public double BaseOffset { get; set; }
     public string Building { get; set; } = "Dwelling";

@@ -122,6 +122,22 @@ public partial class PlanView
         }
     }
 
+    /// <summary>
+    /// The ground recorded as it is now as the existing ground - its grading measured from it,
+    /// its old contours shown dashed - or the record let go. Public so it can be driven from tests.
+    /// </summary>
+    public void SetExistingGround(Toposurface ground, bool record)
+    {
+        if (Document is null) return;
+        Apply(new SetExistingGroundCommand(ground, record));
+        var (cut, fill) = Terrains.CutAndFill(Document, ground);
+        HintChanged?.Invoke(this, record
+            ? "Existing ground recorded: drag its points in plan, raise them in 3D, and its Cut and Fill are measured from this."
+            : $"Existing ground let go: cut {cut / 1e9:0.0} m³, fill {fill / 1e9:0.0} m³ - the building's dig only.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
+
     /// <summary>The ground under a point of this plan.</summary>
     private IEnumerable<Toposurface> GroundsAt(Point2D model) =>
         OnActiveLevel<Toposurface>().Where(ground => Terrains.HeightAt(ground, model) is not null);

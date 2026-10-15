@@ -175,9 +175,11 @@ public static class SectionProjection
             foreach (var railing in document.Elements.OfType<Railing>().Where(railing => shows(railing) && railing.Path.Any(point => Near(marker, point, Railings.Length(railing) + 500))))
                 AddCut(marker, RailingModel.Meshes(document, railing), pieces);
             foreach (var ground in document.Elements.OfType<Toposurface>().Where(ground => shows(ground)))
-                if (Terrains.Mesh(document, ground) is { } groundMesh) AddCut(marker, new[] { groundMesh }, pieces);
+                AddCut(marker, Terrains.Meshes(document, ground), pieces);
             foreach (var beam in document.Elements.OfType<Beam>().Where(beam => shows(beam) && Near(marker, beam.Start, beam.Length + 500)))
                 if (Beams.Mesh(document, beam) is { } beamMesh) AddCut(marker, new[] { beamMesh }, pieces);
+            foreach (var system in document.Elements.OfType<BeamSystem>().Where(system => shows(system) && system.Boundary.Any(point => Near(marker, point, 20000))))
+                AddCut(marker, BeamSystems.Meshes(document, system), pieces);
             foreach (var component in document.Elements.OfType<Component>().Where(component => shows(component)))
                 if (document.FindType<ComponentType>(component.TypeId) is { } componentType && Near(marker, component.Location, Math.Max(componentType.Width, componentType.Depth)))
                     AddCut(marker, ModelMeshBuilder.BuildComponent(document, component), pieces);

@@ -1,0 +1,186 @@
+using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Elements;
+using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Parameters;
+
+namespace BIMDesigner.Core.Architecture;
+
+/// <summary>What a region of the ground is laid as.</summary>
+public enum GroundSurface
+{
+    Lawn,
+    Path,
+    Paving,
+    Gravel,
+    Planting
+}
+
+/// <summary>
+/// A region of the ground laid as something of its own - a lawn, a path, paving, gravel, a
+/// planting bed: Revit's subregion. It lies on the ground, following it; a path to a door is
+/// checked for how steep it is.
+/// </summary>
+public sealed class GroundRegion : Element
+{
+    private readonly List<Point2D> _boundary = new();
+
+    public override BuiltInCategory Category => BuiltInCategory.Topography;
+
+    /// <summary>Its outline in plan, anticlockwise.</summary>
+    public IReadOnlyList<Point2D> Boundary => _boundary;
+
+    public void SetBoundary(IEnumerable<Point2D> points)
+    {
+        var replacement = points.ToList();
+        _boundary.Clear();
+        _boundary.AddRange(replacement);
+        if (Polygon2D.SignedArea(_boundary) < 0) _boundary.Reverse();
+    }
+
+    public GroundSurface Surface { get; set; } = GroundSurface.Lawn;
+
+    /// <summary>A material of the project's for it; none for how its surface usually reads.</summary>
+    public Guid MaterialId { get; set; }
+
+    /// <summary>
+    /// Whether it is the way up to a door of the building - its approach - which Approved
+    /// Document M holds to 1:20, or a ramp no steeper than 1:12; the ADA, an accessible route.
+    /// </summary>
+    public bool Approach { get; set; }
+
+    public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
+    {
+        yield return ParameterValue.BindChoice(GroundRegionParameters.Surface,
+            () => EnumText.Humanise(Surface),
+            v => { if (EnumText.TryParse<GroundSurface>(v, out var surface)) Surface = surface; },
+            EnumText.Choices<GroundSurface>());
+        var names = document.Materials.Select(material => material.Name).OrderBy(name => name).ToArray();
+        yield return ParameterValue.BindChoice(GroundRegionParameters.Material,
+            () => document.FindMaterial(MaterialId)?.Name ?? "As its surface",
+            v => MaterialId = document.Materials.FirstOrDefault(material => material.Name == v)?.Id ?? Guid.Empty,
+            names.Prepend("As its surface").ToArray());
+        yield return ParameterValue.Bind(GroundRegionParameters.Approach, () => Approach, v => Approach = v);
+        yield return ParameterValue.ReadOnly(GroundRegionParameters.Area, () => Polygon2D.Area(Boundary));
+        yield return ParameterValue.ReadOnly(GroundRegionParameters.Gradient, () => GroundRegions.Steepest(document, this) is { } steepest && steepest > 1e-6 ? $"1:{1 / steepest:0.#}" : "Level");
+        yield return ParameterValue.ReadOnly(GroundRegionParameters.Rule, () => GroundRegions.Verdict(document, this));
+
+        foreach (var parameter in GetCommonParameters(document)) yield return parameter;
+    }
+}
+
+public static class GroundRegionParameters
+{
+    public static readonly ParameterDefinition Surface = new("Surface", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
+    public static readonly ParameterDefinition Approach = new("Approach to Entrance", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Area = new("Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition Gradient = new("Steepest Gradient", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition Rule = new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+}
+
+/// <summary>A region's surface, where it lies on the ground, how steep it is, and whether a path to a door is gentle enough.</summary>
+public static class GroundRegions
+{
+    public static ColourRgb Colour(GroundSurface surface) => surface switch
+    {
+        GroundSurface.Path => new ColourRgb(0xC9, 0xB9, 0x9A),
+        GroundSurface.Paving => new ColourRgb(0xA8, 0xA4, 0x9E),
+        GroundSurface.Gravel => new ColourRgb(0xB8, 0xAE, 0x98),
+        GroundSurface.Planting => new ColourRgb(0x6B, 0x52, 0x38),
+        _ => new ColourRgb(0x6E, 0x9B, 0x48)
+    };
+
+    /// <summary>The ground it lies on: the surface its middle is over, on its level.</summary>
+    public static Toposurface? Host(BimDocument document, GroundRegion region)
+    {
+        if (region.Boundary.Count < 3) return null;
+        var middle = Polygon2D.Centroid(region.Boundary, region.Boundary[0]);
+        return document.Elements.OfType<Toposurface>().Where(ground => ground.LevelId == region.LevelId)
+            .FirstOrDefault(ground => Terrains.HeightAt(document, ground, middle) is not null);
+    }
+
+    /// <summary>Its height at a point: the ground's there, or its level's.</summary>
+    public static double HeightAt(BimDocument document, GroundRegion region, Point2D at) =>
+        Host(document, region) is { } ground && Terrains.HeightAt(document, ground, at) is { } height
+            ? height
+            : document.FindLevel(region.LevelId)?.Elevation ?? 0;
+
+    /// <summary>
+    /// How steep it is at its steepest, as a rise over a run: the steepest of the ground's
+    /// triangles it lies over. None off the ground.
+    /// </summary>
+    public static double? Steepest(BimDocument document, GroundRegion region)
+    {
+        if (Host(document, region) is not { } ground) return null;
+        var outline = region.Boundary;
+        var (minX, maxX, minY, maxY) = (outline.Min(point => point.X), outline.Max(point => point.X), outline.Min(point => point.Y), outline.Max(point => point.Y));
+        double? steepest = null;
+        foreach (var (a, b, c) in Terrains.Faces(document, ground))
+        {
+            // Each of the ground's triangles it lies over, however little of it.
+            if (Math.Max(a.X, Math.Max(b.X, c.X)) < minX || Math.Min(a.X, Math.Min(b.X, c.X)) > maxX
+                || Math.Max(a.Y, Math.Max(b.Y, c.Y)) < minY || Math.Min(a.Y, Math.Min(b.Y, c.Y)) > maxY) continue;
+            var triangle = new[] { new Point2D(a.X, a.Y), new Point2D(b.X, b.Y), new Point2D(c.X, c.Y) };
+            if (PolygonBoolean.Combine(triangle, outline, BooleanOperation.Intersection).Sum(piece => piece.Area) < 1) continue;
+
+            // The plane through the three: its fall, as its normal leans.
+            var (ux, uy, uz) = (b.X - a.X, b.Y - a.Y, b.Z - a.Z);
+            var (vx, vy, vz) = (c.X - a.X, c.Y - a.Y, c.Z - a.Z);
+            var (nx, ny, nz) = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+            if (Math.Abs(nz) < 1e-9) continue;
+            var slope = Math.Sqrt(nx * nx + ny * ny) / Math.Abs(nz);
+            if (steepest is not { } known || slope > known) steepest = slope;
+        }
+
+        return steepest;
+    }
+
+    /// <summary>
+    /// What about a region falls short. A path, or paving, that is the approach to a door:
+    /// Approved Document M takes 1:20 or gentler as gently sloping; steeper is a ramp - 1:15
+    /// over 10 m at most, 1:12 over 5 m - and steeper than 1:12 is no approach without steps.
+    /// The ADA: an accessible route at 1:20, a ramp at 1:12 at most.
+    /// </summary>
+    public static IReadOnlyList<string> Problems(BimDocument document, GroundRegion region)
+    {
+        var problems = new List<string>();
+        if (!region.Approach || region.Surface is not (GroundSurface.Path or GroundSurface.Paving)) return problems;
+        if (Steepest(document, region) is not { } steepest || steepest <= 1 / 20.0 + 1e-6) return problems;
+
+        var said = $"1:{1 / steepest:0.#}";
+        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada)
+        {
+            if (steepest > 1 / 12.0 + 1e-6)
+                problems.Add($"It falls {said} at its steepest: the ADA allows a ramp no steeper than 1:12 on an accessible route.");
+            else problems.Add($"It falls {said} at its steepest: steeper than 1:20, the ADA takes it as a ramp - landings and handrails asked.");
+            return problems;
+        }
+
+        problems.Add(steepest > 1 / 12.0 + 1e-6
+            ? $"It falls {said} at its steepest: Approved Document M allows an approach no steeper than 1:12 - steps, or a ramp."
+            : steepest > 1 / 15.0 + 1e-6
+                ? $"It falls {said} at its steepest: Approved Document M takes it as a ramp of up to 1:12, its flights 5 m long at most, with landings."
+                : $"It falls {said} at its steepest: Approved Document M takes it as a ramp of up to 1:15, its flights 10 m long at most, with landings.");
+        return problems;
+    }
+
+    public static string Verdict(BimDocument document, GroundRegion region)
+    {
+        var problems = Problems(document, region);
+        if (problems.Count > 0) return string.Join(" ", problems);
+        return region.Approach ? "Gently sloping enough for an approach" : "Not an approach to a door: not checked";
+    }
+
+    /// <summary>
+    /// A path drawn along a line, so wide: the outline of a band that wide either side of it,
+    /// its corners mitred.
+    /// </summary>
+    public static IReadOnlyList<Point2D> Band(IReadOnlyList<Point2D> line, double width)
+    {
+        if (line.Count < 2) return Array.Empty<Point2D>();
+        var left = Railings.SetIn(line, false, width / 2);
+        var right = Railings.SetIn(line, false, -width / 2);
+        return left.Concat(right.Reverse()).ToList();
+    }
+}

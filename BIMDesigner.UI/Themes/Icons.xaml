@@ -166,6 +166,18 @@
         <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M6,24 C10,20 14,20 18,21 C22,22 25,18 28,17"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Region"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M2,26 L10,6 L30,6 L22,26 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M12,26 L17,6 L21,6 L16,26 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Joists"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M3,4 L29,4 L29,28 L3,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M7,4 L9,4 L9,28 L7,28 Z M13,4 L15,4 L15,28 L13,28 Z M19,4 L21,4 L21,28 L19,28 Z M25,4 L27,4 L27,28 L25,28 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Shaft"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,22 L16,15 L30,22 L16,29 Z"/>

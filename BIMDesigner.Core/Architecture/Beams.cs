@@ -298,12 +298,115 @@ public static class Beams
     /// <summary>Its underside over a point in plan.</summary>
     public static double UndersideAt(BimDocument document, Beam beam, Point2D at) => Bottom(document, beam, Along(beam, at));
 
-    /// <summary>Its footprint in plan: as wide as it is, from end to end.</summary>
+    /// <summary>Its footprint in plan: as wide as it is, from end to end - each end cut back to the face of a column, or of a beam it frames into.</summary>
     public static IReadOnlyList<Point2D> Footprint(BimDocument document, Beam beam)
     {
-        var half = TypeOf(document, beam).Width / 2;
-        var across = (beam.End - beam.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * half;
-        return new[] { beam.Start - across, beam.End - across, beam.End + across, beam.Start + across };
+        var (start, end) = Ends(document, beam);
+        return Band(start, end, TypeOf(document, beam).Width / 2);
+    }
+
+    private static IReadOnlyList<Point2D> Band(Point2D start, Point2D end, double half)
+    {
+        var across = (end - start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * half;
+        return new[] { start - across, end - across, end + across, start + across };
+    }
+
+    /// <summary>
+    /// Its ends as it is built: each cut back to the face of the column it lands on, or to the
+    /// side of the beam it frames into - a joist into a beam, a beam into a girder - where its
+    /// heights meet. Its line runs on to where it was drawn; what is built stops at the face.
+    /// </summary>
+    public static (Point2D Start, Point2D End) Ends(BimDocument document, Beam beam)
+    {
+        if (beam.Length < 1) return (beam.Start, beam.End);
+        var (top, bottom) = (Math.Max(Top(document, beam, 0), Top(document, beam, 1)), Math.Min(Bottom(document, beam, 0), Bottom(document, beam, 1)));
+        return (Trimmed(document, beam, beam.Start, beam.End, top, bottom), Trimmed(document, beam, beam.End, beam.Start, top, bottom));
+    }
+
+    private static Point2D Trimmed(BimDocument document, Beam beam, Point2D end, Point2D other, double top, double bottom)
+    {
+        foreach (var column in document.Elements.OfType<Column>())
+        {
+            if (document.FindType<ColumnType>(column.TypeId) is not { } type) continue;
+            if (column.GetBaseElevation(document) >= top || column.GetTopElevation(document) <= bottom) continue;
+            var outline = column.Outline(type);
+            if (outline.Count >= 3 && Polygon2D.Contains(outline, end)) return Exit(outline, end, other) ?? end;
+        }
+
+        foreach (var carrier in document.Elements.OfType<Beam>())
+        {
+            if (ReferenceEquals(carrier, beam) || FramesInto(document, end, other, carrier, top, bottom) is not { } face) continue;
+            return Exit(face, end, other) ?? end;
+        }
+
+        return end;
+    }
+
+    /// <summary>
+    /// The footprint of a beam another's end frames into: where the end lies in it, along its
+    /// side - not at its own end, where two beams meet at a corner, nor running along it, as one
+    /// laid over another in line does - and their heights meet.
+    /// </summary>
+    private static IReadOnlyList<Point2D>? FramesInto(BimDocument document, Point2D end, Point2D other, Beam carrier, double top, double bottom)
+    {
+        if (carrier.Length < 1 || Top(document, carrier, 0.5) <= bottom || Bottom(document, carrier, 0.5) >= top) return null;
+        var half = TypeOf(document, carrier).Width / 2;
+        var way = carrier.End - carrier.Start;
+        if (Math.Abs((end - other).NormalisedOrDefault(Vector2D.UnitX).Cross(way.NormalisedOrDefault(Vector2D.UnitX))) < Math.Sin(Math.PI / 18)) return null;
+        var along = (end - carrier.Start).Dot(way) / way.Dot(way);
+        var margin = (half + 1) / carrier.Length;
+        if (along <= margin || along >= 1 - margin) return null;
+        var footprint = Band(carrier.Start, carrier.End, half);
+        return Polygon2D.Contains(footprint, end) ? footprint : null;
+    }
+
+    /// <summary>Where a line from inside an outline toward a point leaves it: its first crossing of the outline's edges.</summary>
+    private static Point2D? Exit(IReadOnlyList<Point2D> outline, Point2D from, Point2D toward)
+    {
+        var way = toward - from;
+        double? nearest = null;
+        for (var i = 0; i < outline.Count; i++)
+        {
+            var (a, b) = (outline[i], outline[(i + 1) % outline.Count]);
+            var edge = b - a;
+            var denominator = way.Cross(edge);
+            if (Math.Abs(denominator) < 1e-12) continue;
+            var t = (a - from).Cross(edge) / denominator;
+            var u = (a - from).Cross(way) / denominator;
+            if (t <= 1e-9 || t > 1 || u < -1e-9 || u > 1 + 1e-9) continue;
+            if (nearest is not { } known || t < known) nearest = t;
+        }
+
+        return nearest is { } at ? from + way * at : null;
+    }
+
+    /// <summary>
+    /// What carries an end of a beam: a column it lands on, a wall it bears on or is built into, a
+    /// beam it frames into - whichever stands under it, up to its underside. None where nothing is.
+    /// </summary>
+    public static string? CarriedBy(BimDocument document, Beam beam, Point2D end)
+    {
+        var bottom = Bottom(document, beam, Along(beam, end));
+        foreach (var column in document.Elements.OfType<Column>())
+        {
+            if (document.FindType<ColumnType>(column.TypeId) is not { } type) continue;
+            var outline = column.Outline(type);
+            if (outline.Count >= 3 && Polygon2D.Contains(outline, end) && column.GetTopElevation(document) >= bottom - 50 && column.GetBaseElevation(document) < bottom) return "a column";
+        }
+
+        // On a wall - its end on the wall's end or face counted, as a beam snapped to a corner is.
+        bool On(StairModel.WallBand wall) => wall.Holds(end)
+            || Enumerable.Range(0, wall.Band.Count).Any(i => Line2D.DistanceFromSegment(end, wall.Band[i], wall.Band[(i + 1) % wall.Band.Count]) <= 5);
+        if (StairModel.WallBands(document).Any(wall => On(wall) && wall.Top >= bottom - 50 && wall.Base < bottom)) return "a wall";
+
+        // On a beam under it - up to its underside, not one far below in another storey.
+        foreach (var carrier in document.Elements.OfType<Beam>().Where(other => !ReferenceEquals(other, beam) && other.Length >= 1))
+            if (Polygon2D.Contains(Band(carrier.Start, carrier.End, TypeOf(document, carrier).Width / 2 + 1), end)
+                && UndersideAt(document, carrier, end) < bottom + TypeOf(document, beam).Depth
+                && Top(document, carrier, Along(carrier, end)) >= bottom - 50)
+                return "a beam";
+
+        return null;
     }
 
     /// <summary>
@@ -330,6 +433,10 @@ public static class Beams
             return problems;
         }
 
+        // Each end carried by something: a column, a wall, a beam.
+        if (CarriedBy(document, beam, beam.Start) is null) problems.Add("Its start rests on nothing: no column, wall or beam carries it there.");
+        if (CarriedBy(document, beam, beam.End) is null) problems.Add("Its end rests on nothing: no column, wall or beam carries it there.");
+
         foreach (var door in document.Elements.OfType<Door>())
         {
             if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) continue;
@@ -355,25 +462,29 @@ public static class Beams
     /// A beam in 3D: its section carried from end to end - an I's flanges and web, or a
     /// rectangle - its top stopping under the floor or flat roof it is set into, where it is.
     /// </summary>
-    public static Mesh3D? Mesh(BimDocument document, Beam beam)
+    public static Mesh3D? Mesh(BimDocument document, Beam beam) => Mesh(document, beam, beam.Id);
+
+    /// <summary>A beam in 3D as another element's - a joist of a joist layout, picked as the layout.</summary>
+    public static Mesh3D? Mesh(BimDocument document, Beam beam, Guid elementId)
     {
         if (beam.Length < 1) return null;
         var type = TypeOf(document, beam);
         var material = document.FindMaterial(type.MaterialId);
-        var mesh = new Mesh3D(beam.Id, beam.LevelId, MeshKind.Beam, material?.SurfaceColour ?? BeamType.Colour(type.Material), material?.Name ?? EnumText.Humanise(type.Material));
+        var mesh = new Mesh3D(elementId, beam.LevelId, MeshKind.Beam, material?.SurfaceColour ?? BeamType.Colour(type.Material), material?.Name ?? EnumText.Humanise(type.Material));
+        var (start, end) = Ends(document, beam);
 
         var along = (beam.End - beam.Start).NormalisedOrDefault(Vector2D.UnitX);
         var across = along.PerpendicularLeft();
         double Top(Point2D at) => Beams.Top(document, beam, Along(beam, at));
         double Bottom(Point2D at) => Beams.Bottom(document, beam, Along(beam, at));
         double Clip(Point2D at) => Embedding(document, beam, at);
-        IReadOnlyList<Point2D> Strip(double half) => new[] { beam.Start - across * half, beam.End - across * half, beam.End + across * half, beam.Start + across * half };
+        IReadOnlyList<Point2D> Strip(double half) => Band(start, end, half);
 
         // Each part of its section from so low to so high, cut off where the slab it is set into is: nothing of a part wholly in it.
         void Part(double half, Func<Point2D, double> low, Func<Point2D, double> high)
         {
             double High(Point2D at) => Math.Min(high(at), Clip(at));
-            if (High(beam.Start) <= low(beam.Start) + 0.5 && High(beam.End) <= low(beam.End) + 0.5) return;
+            if (High(start) <= low(start) + 0.5 && High(end) <= low(end) + 0.5) return;
             mesh.AddExtrusion(Strip(half), low, at => Math.Max(low(at), High(at)));
         }
 

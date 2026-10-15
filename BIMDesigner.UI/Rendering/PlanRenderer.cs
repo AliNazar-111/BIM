@@ -86,6 +86,7 @@ public sealed class PlanRenderer
     private readonly Brush _roomTagBrush;
     private readonly Pen _contourPen;
     private readonly Pen _majorContourPen;
+    private readonly Pen _existingContourPen;
     private readonly Brush _contourBrush;
     private readonly Brush _unenclosedBrush;
     private readonly Brush _wallLabelBrush;
@@ -121,6 +122,7 @@ public sealed class PlanRenderer
         var earth = Color.FromRgb(0x9A, 0x7A, 0x52);
         _contourPen = RenderPens.Solid(earth, 0.6);
         _majorContourPen = RenderPens.Solid(earth, 1.2);
+        _existingContourPen = RenderPens.Dashed(Color.FromRgb(0x9A, 0x9A, 0x9A), 0.6, 4, 3);
         _contourBrush = RenderPens.Fill(earth);
 
         // Ridges, hips and valleys are built lines, not the edge of a sketch, so they are
@@ -257,8 +259,9 @@ public sealed class PlanRenderer
     {
         if (Document is null) return;
 
-        // The ground first, under everything built on it: its contours, and its edge.
+        // The ground first, under everything built on it: its contours, and its edge; then the regions laid on it.
         foreach (var ground in OnActiveLevel<Toposurface>()) DrawTerrain(dc, ground, underlay);
+        foreach (var region in OnActiveLevel<GroundRegion>()) DrawGroundRegion(dc, region);
 
         // Grids come through on every level: they are datums of the whole building, and
         // lining storeys up against them is the point of having them. An underlay leaves them
@@ -307,6 +310,8 @@ public sealed class PlanRenderer
             var above = Levels.Above(Document, ActiveLevelId)?.Id;
             foreach (var beam in Document.Elements.OfType<Beam>().Where(beam => (beam.LevelId == ActiveLevelId || beam.LevelId == above) && Filter(beam)))
                 DrawBeam(dc, beam, own: beam.LevelId == ActiveLevelId);
+            foreach (var system in Document.Elements.OfType<BeamSystem>().Where(system => (system.LevelId == ActiveLevelId || system.LevelId == above) && Filter(system)))
+                DrawBeamSystem(dc, system, own: system.LevelId == ActiveLevelId);
         }
 
         // Stairs on their own storey, and seen down the stairwell from the one they come up to -
@@ -1713,6 +1718,9 @@ public sealed class PlanRenderer
     {
         if (Document is null) return;
 
+        // The ground as it was, where it was recorded before it was graded: its contours dashed, under the new.
+        foreach (var (_, from, to, _) in Terrains.Contours(Document, ground, existing: true)) dc.DrawLine(_existingContourPen, ModelToScreen(from), ModelToScreen(to));
+
         var contours = Terrains.Contours(Document, ground);
         foreach (var (_, from, to, major) in contours) dc.DrawLine(major ? _majorContourPen : _contourPen, ModelToScreen(from), ModelToScreen(to));
 
@@ -1750,6 +1758,36 @@ public sealed class PlanRenderer
         }
     }
 
+    /// <summary>A region of the ground in plan: its outline, filled pale in the colour of what it is laid as.</summary>
+    private void DrawGroundRegion(DrawingContext dc, GroundRegion region)
+    {
+        if (Document is null || region.Boundary.Count < 3) return;
+
+        var made = Document.FindMaterial(region.MaterialId)?.SurfaceColour ?? GroundRegions.Colour(region.Surface);
+        var fill = new SolidColorBrush(Color.FromArgb(0x70, made.R, made.G, made.B));
+        fill.Freeze();
+        dc.DrawGeometry(fill, IsSelected(region) ? _selectedPen : _contourPen, BuildOutline(region.Boundary));
+    }
+
+    /// <summary>
+    /// A joist layout in plan, as a framing plan draws it: its outline, each joist and trimmer a
+    /// line - dashed overhead from the storey below - and what it is in the middle: "C24 47x200 @ 400".
+    /// </summary>
+    private void DrawBeamSystem(DrawingContext dc, BeamSystem system, bool own)
+    {
+        if (Document is null || system.Boundary.Count < 3) return;
+
+        var pen = own && IsSelected(system) ? _selectedPen : _overheadPen;
+        dc.DrawGeometry(null, own ? (IsSelected(system) ? _selectedPen : _layerPen) : _overheadPen, BuildOutline(system.Boundary));
+        foreach (var (from, to) in BeamSystems.Joists(Document, system)) dc.DrawLine(pen, ModelToScreen(from), ModelToScreen(to));
+        if (!own) return;
+
+        var label = Text($"{BeamSystems.TypeOf(Document, system).Name} @ {system.Spacing:0}", Page(9), _roomTagBrush);
+        var at = ModelToScreen(Polygon2D.Centroid(system.Boundary, system.Boundary[0]));
+        dc.DrawRectangle(_labelBackdrop, null, new Rect(at.X - label.Width / 2 - 2, at.Y - label.Height / 2, label.Width + 4, label.Height));
+        dc.DrawText(label, new Point(at.X - label.Width / 2, at.Y - label.Height / 2));
+    }
+
     /// <summary>
     /// A beam in plan: its outline dashed - under this level's floor, or overhead from the level
     /// above - and its line, as a beam is drawn on a framing plan.
@@ -1764,8 +1802,8 @@ public sealed class PlanRenderer
     }
 
     /// <summary>
-    /// A railing in plan: its top rail as a band along the line it runs, its posts at its ends,
-    /// corners and between.
+    /// A railing in plan: its top rail as a band along the line it runs - frameless glass, its
+    /// channel - its posts at its ends, corners and between, and a line for each handrail.
     /// </summary>
     private void DrawRailing(DrawingContext dc, Railing railing)
     {
@@ -1773,20 +1811,36 @@ public sealed class PlanRenderer
 
         var type = Railings.TypeOf(Document, railing);
         var pen = IsSelected(railing) ? _selectedPen : _componentPen;
-        var half = Math.Max(type.TopRailWidth, 20) / 2;
-        foreach (var (from, to) in Railings.Lengths(railing))
+        var half = type.Infill == RailingInfill.FramelessGlass
+            ? type.GlassThickness / 2 + 20
+            : Math.Max(Math.Max(type.TopRailWidth, 20), type.Infill is RailingInfill.Panels or RailingInfill.Mesh ? type.PanelThickness : 0) / 2;
+        foreach (var (from, to) in Railings.Segments(Document, railing))
         {
             var across = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * half;
             dc.DrawGeometry(null, pen, BuildOutline(new[] { from - across, to - across, to + across, from + across }));
         }
 
         var post = type.PostSize / 2;
-        foreach (var at in Railings.Posts(railing, type))
+        foreach (var at in Railings.Posts(Document, railing, type))
             dc.DrawGeometry(pen.Brush, pen, BuildOutline(new[]
             {
                 new Point2D(at.X - post, at.Y - post), new Point2D(at.X + post, at.Y - post),
                 new Point2D(at.X + post, at.Y + post), new Point2D(at.X - post, at.Y + post)
             }));
+
+        // Its handrails: a line along each side it has one, clear of its posts or its glass.
+        if (type.Handrail == RailingHandrail.None) return;
+        var face = type.Infill == RailingInfill.FramelessGlass ? type.GlassThickness / 2 : Math.Max(type.PostSize / 2, type.PanelThickness / 2);
+        var off = face + type.HandrailClearance + type.HandrailDiameter / 2;
+        var sides = type.Handrail switch { RailingHandrail.Left => new[] { 1.0 }, RailingHandrail.Right => new[] { -1.0 }, _ => new[] { 1.0, -1.0 } };
+        foreach (var (points, closed) in RailingModel.Runs(Document, railing))
+        foreach (var side in sides)
+        {
+            var line = Railings.SetIn(points, closed, side * off);
+            var pieces = line.Zip(line.Skip(1)).ToList();
+            if (closed) pieces.Add((line[^1], line[0]));
+            foreach (var (a, b) in pieces) dc.DrawLine(pen, ModelToScreen(a), ModelToScreen(b));
+        }
     }
 
     private void DrawRailings(DrawingContext dc, IReadOnlyList<StairRailing> railings, StairType type, Pen pen)
@@ -2115,6 +2169,8 @@ public sealed class PlanRenderer
             Grid grid => grid.Start.MidpointTo(grid.End),
             Stair stair => stair.Start + stair.Up * 300,
             Beam beam => beam.Start.MidpointTo(beam.End),
+            GroundRegion region when region.Boundary.Count >= 3 => Polygon2D.Centroid(region.Boundary, region.Boundary[0]),
+            BeamSystem system when system.Boundary.Count >= 3 => Polygon2D.Centroid(system.Boundary, system.Boundary[0]),
             Toposurface ground when ground.Points.Count > 0 => new Point2D(ground.Points.Average(point => point.X), ground.Points.Average(point => point.Y)),
             Railing railing when Railings.Lengths(railing).Count > 0
                 => Railings.Lengths(railing).OrderByDescending(length => (length.To - length.From).Length).Select(length => length.From.MidpointTo(length.To)).First(),

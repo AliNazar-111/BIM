@@ -249,6 +249,9 @@ public abstract class Opening : Element, IHostedElement
                 EnumText.Choices<OpeningOrientation>())
             : ParameterValue.ReadOnly(OpeningParameters.Orientation, () => EnumText.Humanise(OpeningOrientation.Vertical));
 
+        // Over a drop: whether it is guarded as its rules ask - a Juliet balcony, a rail, laminated glass.
+        yield return ParameterValue.ReadOnly(OpeningParameters.Guarding, () => OpeningGuarding.Verdict(document, this));
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 }
@@ -340,6 +343,9 @@ public static class OpeningParameters
 
     public static readonly ParameterDefinition Orientation =
         new("Orientation", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition Guarding =
+        new("Guarding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }
 
 public static class DoorParameters

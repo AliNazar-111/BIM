@@ -114,10 +114,24 @@ public class StairConnectionTests
         document.Add(roof);
 
         var stair = Put(document, 5000, 6000 - 14 * 225 - 300);
+
+        // It cuts the roof where the roof comes down into its headroom, as it does a floor: the roof opened over its top steps.
+        var hole = Assert.Single(Stairs.Holes(document, roof));
+        Assert.Contains(RoofJoin.Openings(document, roof), opening => opening.SequenceEqual(hole));
+        Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("under the roof"));
+
+        // Told not to: its headroom under the roof, said.
+        stair.CutsRoof = false;
+        Assert.Empty(Stairs.Holes(document, roof));
         var least = Stairs.LeastHeadroom(document, stair, Stairs.Layout(document, stair));
         Assert.NotNull(least);
         Assert.IsType<Roof>(least!.Value.By);
         Assert.Contains(Stairs.Problems(document, stair), problem => problem.Contains("under the roof") && problem.Contains("a dormer over it"));
+
+        // Made to pass: the roof cut.
+        StairFixes.MakeItPass(document, stair, out var message)!.Redo();
+        Assert.True(stair.CutsRoof);
+        Assert.Contains("the roof over it cut", message);
 
         // Turned to climb along under the ridge, it has the height.
         (stair.Start, stair.Angle) = (new Point2D(2000, 3000), 0);

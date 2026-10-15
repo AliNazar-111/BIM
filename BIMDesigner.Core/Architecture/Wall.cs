@@ -749,12 +749,19 @@ public sealed class Wall : Element
             v => { if (EnumText.TryParse<StructuralUsage>(v, out var u)) StructuralUsage = u; },
             EnumText.Choices<StructuralUsage>());
 
+        // A curtain wall over a drop: whether its glass low down, its empty bays and its doors are guarded.
+        if (document.IsCurtainWall(this))
+            yield return ParameterValue.ReadOnly(WallParameters.Guarding, () => OpeningGuarding.CurtainVerdict(document, this));
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 }
 
 public static class WallParameters
 {
+    public static readonly ParameterDefinition Guarding =
+        new("Guarding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
     public static readonly ParameterDefinition BaseConstraint =
         new("Base Constraint", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
 

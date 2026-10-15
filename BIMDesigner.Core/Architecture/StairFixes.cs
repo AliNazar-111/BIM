@@ -16,13 +16,13 @@ namespace BIMDesigner.Core.Architecture;
 public static class StairFixes
 {
     /// <summary>Everything about a stair the fixes may change on the stair itself.</summary>
-    private sealed record Settings(StairRailings Railings, StairCorner Corner, bool CutsFloorAbove, StairState Geometry)
+    private sealed record Settings(StairRailings Railings, StairCorner Corner, bool CutsFloorAbove, bool CutsRoof, StairState Geometry)
     {
-        public static Settings Of(Stair stair) => new(stair.Railings, stair.Corner, stair.CutsFloorAbove, StairState.Of(stair));
+        public static Settings Of(Stair stair) => new(stair.Railings, stair.Corner, stair.CutsFloorAbove, stair.CutsRoof, StairState.Of(stair));
 
         public void ApplyTo(Stair stair)
         {
-            (stair.Railings, stair.Corner, stair.CutsFloorAbove) = (Railings, Corner, CutsFloorAbove);
+            (stair.Railings, stair.Corner, stair.CutsFloorAbove, stair.CutsRoof) = (Railings, Corner, CutsFloorAbove, CutsRoof);
             Geometry.ApplyTo(stair);
         }
     }
@@ -62,13 +62,23 @@ public static class StairFixes
         Settings after;
         IReadOnlyList<string> left;
 
+        // Hung by its head from a terrace or a balcony, it stays hung there as it changes.
+        var hung = Stairs.HungFrom(document, stair);
         document.AddType(copy);
         stair.TypeId = copy.Id;
         try
         {
             // A few rounds: widening it can mend its winders, more risers its pitch.
             for (var round = 0; round < 3 && Stairs.Problems(document, stair).Count > 0; round++)
+            {
+                var start = stair.Start;
                 if (!Fix(document, stair, copy, changes)) break;
+                if (hung is not { } head) continue;
+
+                // Moved by the fix itself - set back to come up at the edge - it hangs from there from now on; otherwise back where it hung.
+                if (stair.Start.DistanceTo(start) > 0.5) hung = Stairs.HungFrom(document, stair) ?? hung;
+                else Stairs.HangFrom(document, stair, head.Head, head.Up);
+            }
             after = Settings.Of(stair);
             left = Stairs.Problems(document, stair);
         }
@@ -179,6 +189,7 @@ public static class StairFixes
 
         // Its floor cut where it wants headroom.
         if (Has("headroom over step")) Set(stair.CutsFloorAbove, true, v => stair.CutsFloorAbove = v, "the floor over it cut");
+        if (Has("under the roof")) Set(stair.CutsRoof, true, v => stair.CutsRoof = v, "the roof over it cut");
 
         // A spiral or curve that comes round over itself too low: wider, so it takes more treads to go round.
         if (Has("comes round over itself") && layout.TreadsPerTurn is not null)

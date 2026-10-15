@@ -223,7 +223,7 @@ public static class ProjectFile
                 RepeatToLevelId = stair.RepeatToLevelId, ShowRiserNumbers = stair.ShowRiserNumbers, ShowFlightDimensions = stair.ShowFlightDimensions,
                 Use = stair.Use.ToString(), LoftConversion = stair.LoftConversion, Outside = stair.Outside, BottomStep = stair.BottomStep.ToString(),
                 TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight, Railings = stair.Railings.ToString(),
-                CutsFloorAbove = stair.CutsFloorAbove, Mark = stair.Mark, Comments = stair.Comments
+                CutsFloorAbove = stair.CutsFloorAbove, CutsRoof = stair.CutsRoof, Mark = stair.Mark, Comments = stair.Comments
             });
 
         foreach (var type in document.TypesOf<RailingType>())
@@ -233,14 +233,34 @@ public static class ProjectFile
                 TopRailProfile = type.TopRailProfile.ToString(), TopRailWidth = type.TopRailWidth, TopRailDepth = type.TopRailDepth,
                 PostSize = type.PostSize, PostSpacing = type.PostSpacing, BalusterSize = type.BalusterSize, BalusterSpacing = type.BalusterSpacing,
                 BottomGap = type.BottomGap, GlassThickness = type.GlassThickness, Colour = type.Colour.ToString(),
-                MaterialId = type.MaterialId, InfillMaterialId = type.InfillMaterialId, Cost = type.Cost, Description = type.Description
+                MaterialId = type.MaterialId, InfillMaterialId = type.InfillMaterialId, Cost = type.Cost, Description = type.Description,
+                Use = type.Use.ToString(), HasTopRail = type.HasTopRail, GlassLaminated = type.GlassLaminated, GlassJoint = type.GlassJoint,
+                ChannelHeight = type.ChannelHeight, PanelThickness = type.PanelThickness, IntermediateRails = type.IntermediateRails,
+                Handrail = type.Handrail.ToString(), HandrailHeight = type.HandrailHeight, HandrailDiameter = type.HandrailDiameter,
+                HandrailClearance = type.HandrailClearance, HandrailExtension = type.HandrailExtension, HandrailEnds = type.HandrailEnds.ToString(),
+                LineLoad = type.LineLoad, PointLoad = type.PointLoad
             });
 
         foreach (var ground in document.Elements.OfType<Toposurface>())
             dto.Toposurfaces.Add(new ToposurfaceDto
             {
                 Id = ground.Id, LevelId = ground.LevelId, Points = ground.Points.SelectMany(point => new[] { point.X, point.Y, point.Z }).ToList(),
+                ExistingPoints = ground.ExistingPoints.Count > 0 ? ground.ExistingPoints.SelectMany(point => new[] { point.X, point.Y, point.Z }).ToList() : null,
                 MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval, Mark = ground.Mark, Comments = ground.Comments
+            });
+
+        foreach (var region in document.Elements.OfType<GroundRegion>())
+            dto.GroundRegions.Add(new GroundRegionDto
+            {
+                Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Mark = region.Mark, Comments = region.Comments
+            });
+
+        foreach (var system in document.Elements.OfType<BeamSystem>())
+            dto.BeamSystems.Add(new BeamSystemDto
+            {
+                Id = system.Id, TypeId = system.TypeId, LevelId = system.LevelId, Boundary = system.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset, Mark = system.Mark, Comments = system.Comments
             });
 
         foreach (var type in document.TypesOf<BeamType>())
@@ -264,6 +284,7 @@ public static class ProjectFile
             {
                 Id = railing.Id, TypeId = railing.TypeId, LevelId = railing.LevelId,
                 Path = railing.Path.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Bulges = railing.Bulges.Any(bulge => bulge != 0) ? railing.Bulges.ToList() : null, HostOpeningId = railing.HostOpeningId,
                 Closed = railing.Closed, BaseOffset = railing.BaseOffset, Building = railing.Building.ToString(), Outside = railing.Outside,
                 Mark = railing.Mark, Comments = railing.Comments
             });
@@ -1259,14 +1280,31 @@ public static class ProjectFile
             double Size(double value, double least, double most, double usual) => double.IsFinite(value) && value >= least && value <= most ? value : usual;
             document.AddType(new RailingType(type.Name)
             {
-                Id = type.Id, TypeMark = type.TypeMark, Height = Size(type.Height, 300, 2000, 1100), Infill = ParseEnum(type.Infill, RailingInfill.Balusters),
+                Id = type.Id, TypeMark = type.TypeMark, Height = Size(type.Height, 300, 2500, 1100), Infill = ParseEnum(type.Infill, RailingInfill.Balusters),
                 TopRailProfile = ParseEnum(type.TopRailProfile, HandrailProfile.Rectangular), TopRailWidth = Size(type.TopRailWidth, 20, 200, 60),
                 TopRailDepth = Size(type.TopRailDepth, 15, 200, 40), PostSize = Size(type.PostSize, 20, 200, 50), PostSpacing = Size(type.PostSpacing, 300, 3000, 1500),
                 BalusterSize = Size(type.BalusterSize, 8, 100, 16), BalusterSpacing = Size(type.BalusterSpacing, 40, 400, 110),
                 BottomGap = Size(type.BottomGap, 0, 300, 50), GlassThickness = Size(type.GlassThickness, 6, 60, 17.5),
                 Colour = ParseColour(type.Colour, new ColourRgb(0x3C, 0x3F, 0x44)), MaterialId = type.MaterialId, InfillMaterialId = type.InfillMaterialId,
-                Cost = type.Cost, Description = type.Description ?? string.Empty
+                Cost = type.Cost, Description = type.Description ?? string.Empty,
+                Use = ParseEnum(type.Use, RailingUse.Guarding), HasTopRail = type.HasTopRail ?? true, GlassLaminated = type.GlassLaminated ?? true,
+                GlassJoint = Size(type.GlassJoint ?? 10, 0, 200, 10), ChannelHeight = Size(type.ChannelHeight ?? 100, 0, 300, 100),
+                PanelThickness = Size(type.PanelThickness ?? 20, 2, 100, 20), IntermediateRails = Math.Clamp(type.IntermediateRails ?? 0, 0, 10),
+                Handrail = ParseEnum(type.Handrail, RailingHandrail.None), HandrailHeight = Size(type.HandrailHeight ?? 900, 300, 1500, 900),
+                HandrailDiameter = Size(type.HandrailDiameter ?? 42, 20, 100, 42), HandrailClearance = Size(type.HandrailClearance ?? 50, 0, 200, 50),
+                HandrailExtension = Size(type.HandrailExtension ?? 300, 0, 1000, 300), HandrailEnds = ParseEnum(type.HandrailEnds, HandrailEnds.Post),
+                // Saved before types said their loads: as the library's type of the name says, or a balcony's.
+                LineLoad = Size(type.LineLoad ?? Usual(type.Name)?.LineLoad ?? 0.74, 0, 10, 0.74),
+                PointLoad = Size(type.PointLoad ?? Usual(type.Name)?.PointLoad ?? 0.5, 0, 10, 0.5)
             });
+        }
+
+        // A project saved before the library had them is given the railings added since - once:
+        // one saved with any of them has had them, and those taken out stay out.
+        if (dto.RailingTypes.Count > 0 && !dto.RailingTypes.Any(type => RailingType.Added.Contains(type.Name)))
+        {
+            var names = document.TypesOf<RailingType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var type in RailingType.Library().Where(type => RailingType.Added.Contains(type.Name) && !names.Contains(type.Name))) document.AddType(type);
         }
 
         foreach (var type in dto.ChimneyTypes)
@@ -1803,16 +1841,21 @@ public static class ProjectFile
                 TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
                 TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
                 UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight >= 300 ? saved.UnconnectedHeight : 2600,
-                Railings = ParseEnum(saved.Railings, StairRailings.Auto), CutsFloorAbove = saved.CutsFloorAbove,
+                Railings = ParseEnum(saved.Railings, StairRailings.Auto), CutsFloorAbove = saved.CutsFloorAbove, CutsRoof = saved.CutsRoof,
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
         // The ground through its spot levels.
         foreach (var saved in dto.Toposurfaces.Where(saved => document.FindLevel(saved.LevelId) is not null))
         {
-            var numbers = (saved.Points ?? new List<double>()).ToList();
-            var points = Enumerable.Range(0, numbers.Count / 3).Select(i => new Point3D(numbers[3 * i], numbers[3 * i + 1], numbers[3 * i + 2]))
-                .Where(point => double.IsFinite(point.X) && double.IsFinite(point.Y) && double.IsFinite(point.Z)).ToList();
+            static List<Point3D> Read(List<double>? saved)
+            {
+                var numbers = saved ?? new List<double>();
+                return Enumerable.Range(0, numbers.Count / 3).Select(i => new Point3D(numbers[3 * i], numbers[3 * i + 1], numbers[3 * i + 2]))
+                    .Where(point => double.IsFinite(point.X) && double.IsFinite(point.Y) && double.IsFinite(point.Z)).ToList();
+            }
+
+            var points = Read(saved.Points);
             var ground = new Toposurface
             {
                 Id = saved.Id, LevelId = saved.LevelId, MaterialId = saved.MaterialId,
@@ -1820,7 +1863,43 @@ public static class ProjectFile
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             };
             ground.SetPoints(points);
+            ground.SetExistingPoints(Read(saved.ExistingPoints));
             document.Add(ground);
+        }
+
+        // Regions of the ground, and joist layouts, by their outlines; one with fewer than three corners is nothing.
+        static List<Point2D> Outline(List<double>? saved)
+        {
+            var numbers = (saved ?? new List<double>()).Where(double.IsFinite).ToList();
+            return Enumerable.Range(0, numbers.Count / 2).Select(i => new Point2D(numbers[2 * i], numbers[2 * i + 1])).ToList();
+        }
+
+        foreach (var saved in dto.GroundRegions.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var outline = Outline(saved.Boundary);
+            if (outline.Count < 3) continue;
+            var region = new GroundRegion
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Surface = ParseEnum(saved.Surface, GroundSurface.Lawn), MaterialId = saved.MaterialId,
+                Approach = saved.Approach, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            region.SetBoundary(outline);
+            document.Add(region);
+        }
+
+        foreach (var saved in dto.BeamSystems.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var outline = Outline(saved.Boundary);
+            if (outline.Count < 3) continue;
+            var system = new BeamSystem
+            {
+                Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId,
+                Direction = saved.Direction is { } way && double.IsFinite(way) ? way : null,
+                Spacing = double.IsFinite(saved.Spacing) && saved.Spacing >= 100 ? saved.Spacing : 400,
+                Offset = double.IsFinite(saved.Offset) ? saved.Offset : 0, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            system.SetBoundary(outline);
+            document.Add(system);
         }
 
         // A beam between its ends; one with no length is nothing.
@@ -1848,9 +1927,9 @@ public static class ProjectFile
             {
                 Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Closed = saved.Closed && path.Count >= 3,
                 BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0, Building = ParseEnum(saved.Building, RailingBuilding.Dwelling),
-                Outside = saved.Outside, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Outside = saved.Outside, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, HostOpeningId = saved.HostOpeningId
             };
-            railing.SetPath(path);
+            railing.SetPath(path, saved.Bulges ?? new List<double>());
             document.Add(railing);
         }
 
@@ -2344,6 +2423,9 @@ public static class ProjectFile
             return null;
         }
     }
+
+    /// <summary>The railing type of a name in the library, for what an older project did not save of it.</summary>
+    private static RailingType? Usual(string name) => RailingType.Library().FirstOrDefault(type => type.Name == name);
 
     private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(text, ignoreCase: true, out var value) ? value : fallback;

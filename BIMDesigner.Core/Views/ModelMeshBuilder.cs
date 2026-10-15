@@ -75,11 +75,15 @@ public static class ModelMeshBuilder
 
         // The ground, cut away under the building.
         foreach (var ground in document.Elements.OfType<Toposurface>().Where(g => shows(g)))
-            if (Terrains.Mesh(document, ground) is { } groundMesh) meshes.Add(groundMesh);
+            meshes.AddRange(Terrains.Meshes(document, ground).Where(mesh => mesh.ElementId == ground.Id || document.Elements.OfType<GroundRegion>().Any(region => region.Id == mesh.ElementId && shows(region))));
 
         // Beams, under the floors and roofs they carry.
         foreach (var beam in document.Elements.OfType<Beam>().Where(b => shows(b)))
             if (Beams.Mesh(document, beam) is { } beamMesh) meshes.Add(beamMesh);
+
+        // Joist layouts: their joists and trimmers.
+        foreach (var system in document.Elements.OfType<BeamSystem>().Where(s => shows(s)))
+            meshes.AddRange(BeamSystems.Meshes(document, system));
 
         // Walls shaped in plan - trapezoids and polygons - stood up from their outlines.
         foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(w => shows(w)))

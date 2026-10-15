@@ -788,6 +788,9 @@ public sealed class CompositeCommand : IUndoableCommand
 
     public string Name { get; }
 
+    /// <summary>The steps it is made of, in the order they are made.</summary>
+    public IReadOnlyList<IUndoableCommand> Commands => _commands;
+
     public void Redo()
     {
         foreach (var command in _commands) command.Redo();

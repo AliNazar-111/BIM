@@ -16,7 +16,38 @@ public enum RailingInfill
     Glass,
 
     /// <summary>Rails running along between the posts - a ladder a child can climb.</summary>
-    HorizontalBars
+    HorizontalBars,
+
+    /// <summary>
+    /// Glass alone, standing in a channel fixed to the floor - no posts - its panes side by side
+    /// with a joint between, with or without a rail along their tops.
+    /// </summary>
+    FramelessGlass,
+
+    /// <summary>Solid panels between the posts: boards, sheet metal, a close-boarded fence.</summary>
+    Panels,
+
+    /// <summary>Panels of mesh or perforated sheet between the posts, too fine to climb.</summary>
+    Mesh,
+
+    /// <summary>Taut wires running along between the posts - as climbable as rails along.</summary>
+    Cables
+}
+
+/// <summary>What a railing is for: guarding a drop, or a fence round a garden, which guards nothing.</summary>
+public enum RailingUse
+{
+    Guarding,
+    Fence
+}
+
+/// <summary>Which side of a railing a handrail runs along, going along it from its first point: its left - the inside of one Guard Edges puts up - its right, or both.</summary>
+public enum RailingHandrail
+{
+    None,
+    Left,
+    Right,
+    Both
 }
 
 /// <summary>The building a railing guards in: a dwelling, or any other - which asks more of it.</summary>
@@ -79,20 +110,77 @@ public sealed class RailingType : ElementType
     /// <summary>What its balusters or rails along are made of; none for as its posts.</summary>
     public Guid InfillMaterialId { get; set; }
 
+    /// <summary>Guarding a drop, or a fence: a fence is held to none of guarding's rules.</summary>
+    public RailingUse Use { get; set; } = RailingUse.Guarding;
+
+    /// <summary>Whether it has a rail along its top: frameless glass may stand without one.</summary>
+    public bool HasTopRail { get; set; } = true;
+
+    /// <summary>
+    /// Whether its glass is toughened and laminated - two sheets with an interlayer that holds them
+    /// in place when one breaks - rather than one toughened sheet, which falls out when it does.
+    /// </summary>
+    public bool GlassLaminated { get; set; } = true;
+
+    /// <summary>The joint between panes of frameless glass, mm.</summary>
+    public double GlassJoint { get; set; } = 10;
+
+    /// <summary>How high the channel frameless glass stands in is above the floor, mm: none, where it is let into the floor.</summary>
+    public double ChannelHeight { get; set; } = 100;
+
+    /// <summary>How thick its panels or mesh are, mm.</summary>
+    public double PanelThickness { get; set; } = 20;
+
+    /// <summary>Rails along across its balusters or panels, between its bottom rail and its top - Revit's rail structure.</summary>
+    public int IntermediateRails { get; set; }
+
+    /// <summary>Which side a handrail runs along it, if one does.</summary>
+    public RailingHandrail Handrail { get; set; } = RailingHandrail.None;
+
+    /// <summary>The top of its handrail above what it stands on, mm.</summary>
+    public double HandrailHeight { get; set; } = 900;
+
+    /// <summary>Its handrail's diameter, mm: 32 to 50 is what a hand can grip.</summary>
+    public double HandrailDiameter { get; set; } = 42;
+
+    /// <summary>The clear gap between its handrail and the face it is fixed to, mm: room for a hand.</summary>
+    public double HandrailClearance { get; set; } = 50;
+
+    /// <summary>How far its handrail runs on, level, past each end, mm - where its ends are not stopped on a post.</summary>
+    public double HandrailExtension { get; set; } = 300;
+
+    /// <summary>How its handrail finishes at each end: turned into the wall there, down to the floor, stopped on its end post, or cut off.</summary>
+    public HandrailEnds HandrailEnds { get; set; } = HandrailEnds.Post;
+
+    /// <summary>The line load, along its top, it is made to take, kN/m.</summary>
+    public double LineLoad { get; set; } = 0.74;
+
+    /// <summary>The load at a point on its top it is made to take, kN.</summary>
+    public double PointLoad { get; set; } = 0.5;
+
     public RailingType Duplicate(string name) => WithCommonOf(new RailingType(name)
     {
         Height = Height, Infill = Infill, TopRailProfile = TopRailProfile, TopRailWidth = TopRailWidth, TopRailDepth = TopRailDepth,
         PostSize = PostSize, PostSpacing = PostSpacing, BalusterSize = BalusterSize, BalusterSpacing = BalusterSpacing,
-        BottomGap = BottomGap, GlassThickness = GlassThickness, Colour = Colour, MaterialId = MaterialId, InfillMaterialId = InfillMaterialId
+        BottomGap = BottomGap, GlassThickness = GlassThickness, Colour = Colour, MaterialId = MaterialId, InfillMaterialId = InfillMaterialId,
+        Use = Use, HasTopRail = HasTopRail, GlassLaminated = GlassLaminated, GlassJoint = GlassJoint, ChannelHeight = ChannelHeight,
+        PanelThickness = PanelThickness, IntermediateRails = IntermediateRails, Handrail = Handrail, HandrailHeight = HandrailHeight,
+        HandrailDiameter = HandrailDiameter, HandrailClearance = HandrailClearance, HandrailExtension = HandrailExtension, HandrailEnds = HandrailEnds,
+        LineLoad = LineLoad, PointLoad = PointLoad
     });
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
-        yield return Size(RailingTypeParameters.Height, () => Height, v => Height = v, 300, 2000);
+        yield return ParameterValue.BindChoice(RailingTypeParameters.Use,
+            () => EnumText.Humanise(Use),
+            v => { if (EnumText.TryParse<RailingUse>(v, out var use)) Use = use; },
+            EnumText.Choices<RailingUse>());
+        yield return Size(RailingTypeParameters.Height, () => Height, v => Height = v, 300, 2500);
         yield return ParameterValue.BindChoice(RailingTypeParameters.Infill,
             () => EnumText.Humanise(Infill),
             v => { if (EnumText.TryParse<RailingInfill>(v, out var infill)) Infill = infill; },
             EnumText.Choices<RailingInfill>());
+        yield return ParameterValue.Bind(RailingTypeParameters.HasTopRail, () => HasTopRail, v => HasTopRail = v);
         yield return ParameterValue.BindChoice(RailingTypeParameters.TopRailProfile,
             () => EnumText.Humanise(TopRailProfile),
             v => { if (EnumText.TryParse<HandrailProfile>(v, out var profile)) TopRailProfile = profile; },
@@ -105,6 +193,30 @@ public sealed class RailingType : ElementType
         yield return Size(RailingTypeParameters.BalusterSpacing, () => BalusterSpacing, v => BalusterSpacing = v, 40, 400);
         yield return Size(RailingTypeParameters.BottomGap, () => BottomGap, v => BottomGap = v, 0, 300);
         yield return Size(RailingTypeParameters.GlassThickness, () => GlassThickness, v => GlassThickness = v, 6, 60);
+        yield return ParameterValue.Bind(RailingTypeParameters.GlassLaminated, () => GlassLaminated, v => GlassLaminated = v);
+        yield return Size(RailingTypeParameters.GlassJoint, () => GlassJoint, v => GlassJoint = v, 0, 200);
+        yield return Size(RailingTypeParameters.ChannelHeight, () => ChannelHeight, v => ChannelHeight = v, 0, 300);
+        yield return Size(RailingTypeParameters.PanelThickness, () => PanelThickness, v => PanelThickness = v, 2, 100);
+        yield return ParameterValue.BindValidated(RailingTypeParameters.IntermediateRails, () => IntermediateRails, (int v) =>
+        {
+            if (v < 0 || v > 10) return false;
+            IntermediateRails = v;
+            return true;
+        });
+        yield return ParameterValue.BindChoice(RailingTypeParameters.Handrail,
+            () => EnumText.Humanise(Handrail),
+            v => { if (EnumText.TryParse<RailingHandrail>(v, out var handrail)) Handrail = handrail; },
+            EnumText.Choices<RailingHandrail>());
+        yield return Size(RailingTypeParameters.HandrailHeight, () => HandrailHeight, v => HandrailHeight = v, 300, 1500);
+        yield return Size(RailingTypeParameters.HandrailDiameter, () => HandrailDiameter, v => HandrailDiameter = v, 20, 100);
+        yield return Size(RailingTypeParameters.HandrailClearance, () => HandrailClearance, v => HandrailClearance = v, 0, 200);
+        yield return Size(RailingTypeParameters.HandrailExtension, () => HandrailExtension, v => HandrailExtension = v, 0, 1000);
+        yield return ParameterValue.BindChoice(RailingTypeParameters.HandrailEnds,
+            () => EnumText.Humanise(HandrailEnds),
+            v => { if (EnumText.TryParse<HandrailEnds>(v, out var ends)) HandrailEnds = ends; },
+            EnumText.Choices<HandrailEnds>());
+        yield return Size(RailingTypeParameters.LineLoad, () => LineLoad, v => LineLoad = v, 0, 10);
+        yield return Size(RailingTypeParameters.PointLoad, () => PointLoad, v => PointLoad = v, 0, 10);
 
         if (document is not null)
         {
@@ -132,9 +244,11 @@ public sealed class RailingType : ElementType
 
     /// <summary>
     /// The railings a project starts with: 1100 guarding for a balcony or a roof terrace, and 900
-    /// for a floor's edge inside a house, with balusters; 1100 of glass; 1100 of rails along; and
-    /// the IRC's 36 in and the IBC's 42 in. Their balusters are close enough that a 100 mm
-    /// sphere - 4 in under the IRC - does not pass.
+    /// for a floor's edge inside a house, with balusters; 1100 of glass between posts, and of
+    /// frameless glass in a channel; 1100 of rails along, of mesh and of cables; a glass Juliet
+    /// balcony; glass with a handrail; the IRC's 36 in and the IBC's 42 in; and three fences.
+    /// Their balusters are close enough that a 100 mm sphere - 4 in under the IRC - does not
+    /// pass, and each is made for the loads its kind of place asks.
     /// </summary>
     public static IReadOnlyList<RailingType> Library() => new[]
     {
@@ -142,7 +256,7 @@ public sealed class RailingType : ElementType
         new RailingType("Guard 900 - Timber Balusters")
         {
             Height = 900, PostSize = 90, PostSpacing = 1800, TopRailDepth = 50, TopRailWidth = 70, BalusterSize = 32, BalusterSpacing = 120,
-            Colour = new ColourRgb(0xC8, 0xA8, 0x7A), TypeMark = "GR2", Cost = 160m
+            Colour = new ColourRgb(0xC8, 0xA8, 0x7A), LineLoad = 0.36, PointLoad = 0.25, TypeMark = "GR2", Cost = 160m
         },
         new RailingType("Guard 1100 - Glass Panel")
         {
@@ -153,13 +267,60 @@ public sealed class RailingType : ElementType
         new RailingType("Guard 36 in - Wood Balusters")
         {
             Height = 914, PostSize = 89, PostSpacing = 1830, TopRailWidth = 89, TopRailDepth = 38, BalusterSize = 38, BalusterSpacing = 135,
-            BottomGap = 75, Colour = new ColourRgb(0xA8, 0x86, 0x5C), TypeMark = "GR5", Cost = 150m
+            BottomGap = 75, Colour = new ColourRgb(0xA8, 0x86, 0x5C), LineLoad = 0.73, PointLoad = 0.89, TypeMark = "GR5", Cost = 150m
         },
         new RailingType("Guard 42 in - Glass Panel")
         {
             Height = 1067, Infill = RailingInfill.Glass, TopRailProfile = HandrailProfile.Round, TopRailWidth = 42, PostSpacing = 1200,
-            BottomGap = 60, Colour = new ColourRgb(0xBF, 0xC4, 0xC9), TypeMark = "GR6", Cost = 450m
+            BottomGap = 60, Colour = new ColourRgb(0xBF, 0xC4, 0xC9), LineLoad = 0.73, PointLoad = 0.89, TypeMark = "GR6", Cost = 450m
+        },
+        new RailingType("Guard 1100 - Frameless Glass")
+        {
+            Infill = RailingInfill.FramelessGlass, HasTopRail = false, GlassThickness = 21.5, PostSpacing = 1200, BottomGap = 0,
+            Colour = new ColourRgb(0xBF, 0xC4, 0xC9), LineLoad = 1.5, PointLoad = 1.5, TypeMark = "GR7", Cost = 520m
+        },
+        new RailingType("Guard 1100 - Glass with Handrail")
+        {
+            Infill = RailingInfill.Glass, TopRailProfile = HandrailProfile.Round, TopRailWidth = 42, PostSpacing = 1200, BottomGap = 60,
+            Handrail = RailingHandrail.Left, HandrailHeight = 900, Colour = new ColourRgb(0xBF, 0xC4, 0xC9), TypeMark = "GR8", Cost = 480m
+        },
+        new RailingType("Guard 1100 - Steel Mesh")
+        {
+            Infill = RailingInfill.Mesh, PanelThickness = 4, PostSpacing = 1500, TypeMark = "GR9", Cost = 200m
+        },
+        new RailingType("Guard 1100 - Stainless Cables")
+        {
+            Infill = RailingInfill.Cables, TopRailProfile = HandrailProfile.Round, TopRailWidth = 42, BalusterSpacing = 80, PostSpacing = 1200,
+            Colour = new ColourRgb(0xBF, 0xC4, 0xC9), TypeMark = "GR10", Cost = 260m
+        },
+        new RailingType("Juliet 1100 - Glass")
+        {
+            Infill = RailingInfill.Glass, TopRailProfile = HandrailProfile.Round, TopRailWidth = 42, PostSize = 40, PostSpacing = 2400,
+            BottomGap = 60, Colour = new ColourRgb(0xBF, 0xC4, 0xC9), TypeMark = "JB1", Cost = 380m
+        },
+        new RailingType("Fence 1800 - Close Board Timber")
+        {
+            Use = RailingUse.Fence, Height = 1800, Infill = RailingInfill.Panels, PostSize = 100, PostSpacing = 1800, BottomGap = 150,
+            TopRailWidth = 100, TopRailDepth = 25, PanelThickness = 22, Colour = new ColourRgb(0x9C, 0x7A, 0x52), LineLoad = 0, PointLoad = 0,
+            TypeMark = "F1", Cost = 70m
+        },
+        new RailingType("Fence 1200 - Timber Picket")
+        {
+            Use = RailingUse.Fence, Height = 1200, PostSize = 90, PostSpacing = 1800, BalusterSize = 70, BalusterSpacing = 140, BottomGap = 50,
+            TopRailWidth = 70, TopRailDepth = 20, Colour = new ColourRgb(0xEE, 0xEA, 0xE0), LineLoad = 0, PointLoad = 0, TypeMark = "F2", Cost = 55m
+        },
+        new RailingType("Fence 1800 - Steel Mesh")
+        {
+            Use = RailingUse.Fence, Height = 1800, Infill = RailingInfill.Mesh, PostSize = 60, PostSpacing = 2500, BottomGap = 50, PanelThickness = 5,
+            Colour = new ColourRgb(0x2F, 0x4F, 0x3A), LineLoad = 0, PointLoad = 0, TypeMark = "F3", Cost = 45m
         }
+    };
+
+    /// <summary>The types added to the library since projects were first saved with railings: given to a project that has none of the same name.</summary>
+    public static readonly IReadOnlySet<string> Added = new HashSet<string>
+    {
+        "Guard 1100 - Frameless Glass", "Guard 1100 - Glass with Handrail", "Guard 1100 - Steel Mesh", "Guard 1100 - Stainless Cables",
+        "Juliet 1100 - Glass", "Fence 1800 - Close Board Timber", "Fence 1200 - Timber Picket", "Fence 1800 - Steel Mesh"
     };
 }
 
@@ -178,6 +339,21 @@ public static class RailingTypeParameters
     public static readonly ParameterDefinition GlassThickness = new("Glass Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition InfillMaterial = new("Infill Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+    public static readonly ParameterDefinition Use = new("Use", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition HasTopRail = new("Top Rail", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition GlassLaminated = new("Laminated Glass", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition GlassJoint = new("Gap Between Panes", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition ChannelHeight = new("Base Channel Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition PanelThickness = new("Panel Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition IntermediateRails = new("Intermediate Rails", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Handrail = new("Handrail", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition HandrailHeight = new("Handrail Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition HandrailDiameter = new("Handrail Diameter", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition HandrailClearance = new("Handrail Clearance", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition HandrailExtension = new("Handrail Extension at Ends", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition HandrailEnds = new("Handrail Ends", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition LineLoad = new("Line Load (kN/m)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition PointLoad = new("Point Load (kN)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
 }
 
 /// <summary>
@@ -189,18 +365,57 @@ public static class RailingTypeParameters
 public sealed class Railing : Element
 {
     private readonly List<Point2D> _path = new();
+    private readonly List<double> _bulges = new();
 
     public override BuiltInCategory Category => BuiltInCategory.Railings;
 
     /// <summary>The line it runs along, its rail's middle, in plan: two points at least.</summary>
     public IReadOnlyList<Point2D> Path => _path;
 
+    /// <summary>
+    /// How far each length of it bows - from each point to the next, and round from its last to
+    /// its first where it is closed: zero for a straight length, otherwise the tangent of a
+    /// quarter of the angle its arc turns through, positive turning left, as a wall's.
+    /// </summary>
+    public IReadOnlyList<double> Bulges => _bulges;
+
+    /// <summary>Its path, every length of it straight - or, given as many points as before, keeping how each bows.</summary>
     public void SetPath(IEnumerable<Point2D> points)
     {
         var replacement = points.ToList();
+        var kept = replacement.Count == _path.Count ? _bulges.ToList() : new List<double>();
+        SetPath(replacement, kept);
+    }
+
+    /// <summary>Its path, and how far each length of it bows: none given, or too few, straight.</summary>
+    public void SetPath(IEnumerable<Point2D> points, IEnumerable<double> bulges)
+    {
+        var replacement = points.ToList();
+        var bows = bulges.ToList();
         _path.Clear();
         _path.AddRange(replacement);
+        _bulges.Clear();
+        _bulges.AddRange(Enumerable.Range(0, replacement.Count).Select(i => i < bows.Count ? Bounded(bows[i]) : 0));
     }
+
+    /// <summary>How far the length from a point of it to the next bows.</summary>
+    public double BulgeAt(int index) => index >= 0 && index < _bulges.Count ? _bulges[index] : 0;
+
+    /// <summary>Makes the length from a point of it to the next bow so far.</summary>
+    public void SetBulge(int index, double bulge)
+    {
+        while (_bulges.Count < _path.Count) _bulges.Add(0);
+        if (index >= 0 && index < _bulges.Count) _bulges[index] = Bounded(bulge);
+    }
+
+    /// <summary>A bulge as one can be: none for one that is not a number, and no more than all but a degree of a circle.</summary>
+    private static double Bounded(double bulge) => double.IsFinite(bulge) ? Math.Clamp(bulge, -WallCurve.MostBulge, WallCurve.MostBulge) : 0;
+
+    /// <summary>
+    /// The door or window it guards, as a Juliet balcony across its opening, if it is one: it
+    /// stands from the floor inside, and is measured from it.
+    /// </summary>
+    public Guid? HostOpeningId { get; set; }
 
     /// <summary>Whether it runs on from its last point back to its first, all the way round.</summary>
     public bool Closed { get; set; }
@@ -231,6 +446,14 @@ public sealed class Railing : Element
         });
         yield return ParameterValue.ReadOnly(RailingParameters.Length, () => Railings.Length(this));
         yield return ParameterValue.ReadOnly(RailingParameters.Height, () => Railings.TypeOf(document, this).Height);
+        yield return ParameterValue.ReadOnly(RailingParameters.GuardingHeight, () => Math.Round(Railings.EffectiveHeight(document, this)));
+        if (HostOpeningId is { } host)
+            yield return ParameterValue.ReadOnly(RailingParameters.Guards, () => document.FindElement(host) switch
+            {
+                Door => "A door, as a Juliet balcony",
+                Window => "A window, as a Juliet balcony",
+                _ => "<none>"
+            });
         yield return ParameterValue.BindChoice(RailingParameters.Building,
             () => EnumText.Humanise(Building),
             v => { if (EnumText.TryParse<RailingBuilding>(v, out var building)) Building = building; },
@@ -250,6 +473,8 @@ public static class RailingParameters
     public static readonly ParameterDefinition Building = new("Building", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition Length = new("Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Height = new("Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition GuardingHeight = new("Height Above the Floor Guarded", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition Guards = new("Guards", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Rule = new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }
 
@@ -267,13 +492,40 @@ public static class Railings
 
     public static RailingType TypeOf(BimDocument document, Railing railing) => document.FindType<RailingType>(railing.TypeId) ?? Fallback;
 
-    /// <summary>Its lengths, end to end - round to its first point again, closed.</summary>
-    public static IReadOnlyList<(Point2D From, Point2D To)> Lengths(Railing railing)
+    /// <summary>The most an arc of a railing turns through between two posts, and the longest straight piece of one, as it is built: in facets, each a bay.</summary>
+    private const double FacetTurn = Math.PI / 12, FacetLength = 1200;
+
+    /// <summary>Each length of its path, from a point to the next - round to its first again, closed - as the line or arc it is.</summary>
+    public static IReadOnlyList<WallCurve> Curves(Railing railing)
     {
         var path = railing.Path;
+        var curves = new List<WallCurve>();
+        for (var i = 0; i + 1 < path.Count; i++) curves.Add(WallCurve.Of(path[i], path[i + 1], railing.BulgeAt(i)));
+        if (railing.Closed && path.Count >= 3) curves.Add(WallCurve.Of(path[^1], path[0], railing.BulgeAt(path.Count - 1)));
+        return curves.Where(curve => curve.Length >= 1).ToList();
+    }
+
+    /// <summary>
+    /// Its lengths, end to end - round to its first point again, closed - each straight: an arc
+    /// in the straight facets it is built in, a post at each, as a curved balustrade of glass
+    /// panes or straight rails is.
+    /// </summary>
+    public static IReadOnlyList<(Point2D From, Point2D To)> Lengths(Railing railing)
+    {
         var lengths = new List<(Point2D, Point2D)>();
-        for (var i = 0; i + 1 < path.Count; i++) lengths.Add((path[i], path[i + 1]));
-        if (railing.Closed && path.Count >= 3) lengths.Add((path[^1], path[0]));
+        foreach (var curve in Curves(railing))
+        {
+            if (!curve.IsArc)
+            {
+                lengths.Add((curve.Start, curve.End));
+                continue;
+            }
+
+            var pieces = (int)Math.Clamp(Math.Max(Math.Ceiling(Math.Abs(curve.Sweep) / FacetTurn - 1e-9), Math.Ceiling(curve.Length / FacetLength - 1e-9)), 2, 1000);
+            var points = Enumerable.Range(0, pieces + 1).Select(k => curve.PointAt(curve.Length * k / pieces)).ToList();
+            lengths.AddRange(points.Zip(points.Skip(1)));
+        }
+
         return lengths.Where(length => (length.Item2 - length.Item1).Length >= 1).ToList();
     }
 
@@ -296,10 +548,12 @@ public static class Railings
     }
 
     /// <summary>Where its posts stand: at the ends of its bays, once each.</summary>
-    public static IReadOnlyList<Point2D> Posts(Railing railing, RailingType type)
+    public static IReadOnlyList<Point2D> Posts(Railing railing, RailingType type) => PostsOf(Bays(railing, type));
+
+    private static IReadOnlyList<Point2D> PostsOf(IEnumerable<(Point2D From, Point2D To)> bays)
     {
         var posts = new List<Point2D>();
-        foreach (var (from, to) in Bays(railing, type))
+        foreach (var (from, to) in bays)
         {
             if (!posts.Any(post => post.DistanceTo(from) < 1)) posts.Add(from);
             if (!posts.Any(post => post.DistanceTo(to) < 1)) posts.Add(to);
@@ -309,13 +563,150 @@ public static class Railings
     }
 
     /// <summary>
+    /// Where a stair comes up through the line a railing runs along: across each place one comes
+    /// up at its height, as wide as the stair, from over its top steps out onto the floor - left
+    /// open, so the railing stops either side of it.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<Point2D>> StairGaps(BimDocument document, Railing railing)
+    {
+        var gaps = new List<IReadOnlyList<Point2D>>();
+        var lengths = Lengths(railing);
+        if (lengths.Count == 0) return gaps;
+        foreach (var stair in document.Elements.OfType<Stair>())
+        foreach (var flight in Stairs.Flights(document, stair))
+        foreach (var (from, to, off) in SteppedOffAt(flight.Layout))
+        {
+            var middle = from.MidpointTo(to);
+            if (!lengths.Any(length => Line2D.DistanceFromSegment(middle, length.From, length.To) < 600)) continue;
+
+            // As high as the floor it is stepped off onto - just past its edge, not on it, where a floor's own edge may be taken as outside it.
+            if (Math.Abs(Base(document, railing, middle + off * 150) - railing.BaseOffset - flight.Layout.Top) > 300) continue;
+            var across = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * 600;
+            gaps.Add(new[] { from - across, to - across, to + across, from + across });
+        }
+
+        return gaps;
+    }
+
+    /// <summary>
+    /// Where a stair is stepped off at its head: the edges it comes up at - or, for a spiral, as
+    /// wide as the stair, where the middle of its landing's outside edge is, square to the way off.
+    /// </summary>
+    private static IReadOnlyList<(Point2D From, Point2D To, Vector2D Off)> SteppedOffAt(StairLayout layout)
+    {
+        if (layout.Shape != StairShape.Spiral || Stairs.HeadOf(layout) is not { } head)
+            return layout.Arrivals.Select(arrival => (arrival.From, arrival.To, Stairs.Off(layout, arrival))).ToList();
+        var across = head.Up.PerpendicularLeft() * (layout.Width / 2);
+        return new[] { (head.At - across, head.At + across, head.Up) };
+    }
+
+    /// <summary>The lengths it is built along: its own, less where a stair comes up through it.</summary>
+    public static IReadOnlyList<(Point2D From, Point2D To)> Segments(BimDocument document, Railing railing)
+    {
+        IReadOnlyList<(Point2D From, Point2D To)> pieces = Lengths(railing);
+        foreach (var gap in StairGaps(document, railing))
+            pieces = pieces.SelectMany(piece => Polygon2D.Clip(piece.From, piece.To, gap, inside: false)).ToList();
+        return pieces.Where(piece => piece.From.DistanceTo(piece.To) >= 1).ToList();
+    }
+
+    /// <summary>Its bays as it is built: each length it is built along shared among as few as keep within its post spacing.</summary>
+    public static IReadOnlyList<(Point2D From, Point2D To)> Bays(BimDocument document, Railing railing, RailingType type) =>
+        Segments(document, railing).SelectMany(length => Divided(length.From, length.To, type)).ToList();
+
+    /// <summary>Where its posts stand as it is built: none for frameless glass, which stands in its channel.</summary>
+    public static IReadOnlyList<Point2D> Posts(BimDocument document, Railing railing, RailingType type) =>
+        type.Infill == RailingInfill.FramelessGlass ? Array.Empty<Point2D>() : PostsOf(Bays(document, railing, type));
+
+    private static IEnumerable<(Point2D From, Point2D To)> Divided(Point2D from, Point2D to, RailingType type)
+    {
+        var count = Math.Max(1, (int)Math.Ceiling((to - from).Length / Math.Max(300, type.PostSpacing) - 1e-9));
+        for (var k = 0; k < count; k++) yield return (from + (to - from) * ((double)k / count), from + (to - from) * ((double)(k + 1) / count));
+    }
+
+    /// <summary>
     /// What it stands on at a point: the top of the floor or flat roof there near its level - a
-    /// balcony set down, a terrace with its falls - or its level; and its offset.
+    /// balcony set down, a terrace with its falls - the top of a low wall it runs along, as a
+    /// retaining wall's, the ground there, or its level; and its offset.
     /// </summary>
     public static double Base(BimDocument document, Railing railing, Point2D at)
     {
+        // A Juliet balcony: from the floor inside the opening it guards.
+        if (Host(document, railing) is { } host) return host.Floor + railing.BaseOffset;
+
         var level = document.FindLevel(railing.LevelId)?.Elevation ?? 0;
-        return (FloorSurfaces.StoodOnNear(document, level, at, Stairs.FloorReach)?.Top ?? Terrains.GroundNear(document, level, at) ?? level) + railing.BaseOffset;
+        var floor = FloorSurfaces.StoodOnNear(document, level, at, Stairs.FloorReach)?.Top;
+
+        // On a parapet, a dwarf wall or a retaining wall along its line: on its top, over the floor under it.
+        if (WallTopNear(document, level, at) is { } wall && (floor is null || wall > floor.Value + 1)) return wall + railing.BaseOffset;
+        return (floor ?? Terrains.GroundNear(document, level, at) ?? level) + railing.BaseOffset;
+    }
+
+    /// <summary>The opening a Juliet balcony guards, its wall, and the floor inside it - the wall's foot.</summary>
+    public static (Opening Opening, Wall Wall, double Floor)? Host(BimDocument document, Railing railing) =>
+        railing.HostOpeningId is { } id && document.FindElement(id) is Opening opening && document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is { } wall
+            ? (opening, wall, wall.GetBaseElevation(document))
+            : null;
+
+    /// <summary>
+    /// The floor a railing guards at a point, that its height is measured from: the floor, deck,
+    /// terrace or ground it stands on - and, standing on a wall, the higher of what is either
+    /// side of it, as a parapet's height counts with the railing on it, but a retaining wall's
+    /// does not, the ground it holds back being level with its top. Approved Document K
+    /// measures guarding from the floor it guards.
+    /// </summary>
+    public static double GuardedFrom(BimDocument document, Railing railing, Point2D at)
+    {
+        if (Host(document, railing) is { } host) return host.Floor;
+
+        var level = document.FindLevel(railing.LevelId)?.Elevation ?? 0;
+        if (FloorSurfaces.StoodOnNear(document, level, at, Stairs.FloorReach) is { } floor) return floor.Top;
+        if (WallTopNear(document, level, at) is not { } top) return Terrains.GroundNear(document, level, at) ?? level;
+
+        // Either side of the wall it is on: the higher, floor or ground.
+        var lengths = Lengths(railing);
+        if (lengths.Count == 0) return top;
+        var nearest = lengths.MinBy(length => Line2D.DistanceFromSegment(at, length.From, length.To));
+        var across = (nearest.To - nearest.From).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+        var sides = new[] { at + across * 400, at - across * 400 }
+            .Select(side => FloorSurfaces.StoodOnNear(document, level, side, Stairs.FloorReach)?.Top ?? Terrains.GroundAt(document, side))
+            .OfType<double>()
+            .ToList();
+        return sides.Count == 0 ? top : Math.Min(top, sides.Max());
+    }
+
+    /// <summary>
+    /// How high it stands over the floor it guards, at its lowest: from each post - or each
+    /// pane's end, frameless - its top over the floor, deck, terrace or ground there, a parapet
+    /// under it counted in.
+    /// </summary>
+    public static double EffectiveHeight(BimDocument document, Railing railing)
+    {
+        var type = TypeOf(document, railing);
+        var points = Bays(document, railing, type).SelectMany(bay => new[] { bay.From, bay.To }).ToList();
+        if (points.Count == 0) points = railing.Path.ToList();
+        return points.Count == 0 ? type.Height : points.Min(point => Base(document, railing, point) + type.Height - GuardedFrom(document, railing, point));
+    }
+
+    /// <summary>The top of a wall a point is on, where it is low enough to stand a railing on - within reach of a level: a retaining wall, a parapet, a dwarf wall.</summary>
+    private static double? WallTopNear(BimDocument document, double level, Point2D at)
+    {
+        double? highest = null;
+        foreach (var wall in document.Walls)
+        {
+            // Walls nowhere near the point, or too high to stand on, passed over before their outline is worked out.
+            if (wall.Length <= 1 || document.GetWallType(wall) is not { } type || type.Structure.TotalWidth <= 0) continue;
+            var reach = type.Structure.TotalWidth + (wall.IsCurved ? wall.Length / 2 : 0);
+            if (at.X < Math.Min(wall.Start.X, wall.End.X) - reach || at.X > Math.Max(wall.Start.X, wall.End.X) + reach
+                || at.Y < Math.Min(wall.Start.Y, wall.End.Y) - reach || at.Y > Math.Max(wall.Start.Y, wall.End.Y) + reach) continue;
+            var top = wall.GetTopElevation(document);
+            if (top <= level || top - level > Terrains.Reach || top <= (highest ?? double.NegativeInfinity)) continue;
+
+            var half = type.Structure.TotalWidth / 2;
+            var band = CurtainGeometry.Band(wall, type, 0, wall.Length, half, -half);
+            if (band.Count >= 3 && Polygon2D.Contains(band, at)) highest = top;
+        }
+
+        return highest;
     }
 
     /// <summary>
@@ -325,7 +716,13 @@ public static class Railings
     /// </summary>
     public static (double Height, string Rule) Required(BimDocument document, Railing railing)
     {
-        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada)
+        var us = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+
+        // Across a window: Approved Document K's 800 from the floor; under the IRC, the 24 in a window's own sill would give.
+        if (Host(document, railing) is { Opening: Window })
+            return us ? (610, "the IRC asks for 610 (24 in) across a window from the floor") : (800, "Approved Document K asks for 800 across a window from the floor");
+
+        if (us)
             return railing.Building == RailingBuilding.Dwelling
                 ? (914, "the IRC asks for 914 (36 in) round a home")
                 : (1067, "the IBC asks for 1067 (42 in) in a building other than a home");
@@ -336,7 +733,29 @@ public static class Railings
             : (900, "Approved Document K asks for 900 at the edge of a floor inside a home");
     }
 
-    /// <summary>What about a railing falls short of its rules - each said, with what is asked - or nothing.</summary>
+    /// <summary>
+    /// The loads its rules ask it to take along its top and at any point on it, and why. The UK
+    /// National Annex to BS EN 1991-1-1 (Table NA.8), which Approved Document K points to: 0.36
+    /// kN/m and 0.25 kN inside a home, 0.74 kN/m and 0.5 kN round its balconies and roofs, and
+    /// 1.5 kN/m and 1.5 kN where people gather, in other buildings. The IRC asks a home's guard
+    /// for 200 lb at a point; the IBC 50 lb/ft along it as well. A fence is asked for none.
+    /// </summary>
+    public static (double Line, double Point, string Rule) RequiredLoad(BimDocument document, Railing railing)
+    {
+        if (TypeOf(document, railing).Use == RailingUse.Fence) return (0, 0, "a fence guards no drop");
+        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada)
+            return railing.Building == RailingBuilding.Dwelling
+                ? (0, 0.89, "the IRC asks a guard round a home to take 200 lb (0.89 kN) at any point on its top")
+                : (0.73, 0.89, "the IBC asks a guard to take 50 lb/ft (0.73 kN/m) along its top and 200 lb (0.89 kN) at any point on it");
+
+        const string annex = "BS EN 1991-1-1's UK National Annex asks";
+        if (railing.Building == RailingBuilding.Other) return (1.5, 1.5, $"{annex} 1.5 kN/m along its top and 1.5 kN at a point where people gather");
+        return railing.Outside || Host(document, railing) is not null
+            ? (0.74, 0.5, $"{annex} 0.74 kN/m along its top and 0.5 kN at a point round a home's balcony or roof")
+            : (0.36, 0.25, $"{annex} 0.36 kN/m along its top and 0.25 kN at a point inside a home");
+    }
+
+    /// <summary>What about a railing falls short of its rules - each said, with what is asked - or nothing. A fence is held to none of guarding's.</summary>
     public static IReadOnlyList<string> Problems(BimDocument document, Railing railing)
     {
         var problems = new List<string>();
@@ -348,20 +767,49 @@ public static class Railings
             return problems;
         }
 
-        var (height, rule) = Required(document, railing);
-        if (type.Height < height - 0.5) problems.Add($"It is {type.Height:0} high: {rule}.");
+        if (type.Use == RailingUse.Fence) return problems;
 
-        // Nothing a child's head goes through: 100 mm, the IRC's 4 in (102) - between balusters, and under it.
+        // As high as asked, over the floor it guards - a parapet it stands on counted in.
+        var (height, rule) = Required(document, railing);
+        var stands = EffectiveHeight(document, railing);
+        if (stands < height - 0.5)
+            problems.Add(Math.Abs(stands - type.Height) < 1
+                ? $"It is {type.Height:0} high: {rule}."
+                : $"It stands {stands:0} over the floor it guards, at its lowest: {rule}.");
+
+        // Nothing a child's head goes through: 100 mm, the IRC's 4 in (102) - between balusters, rails, panes, under it and at its ends.
         var (sphere, said) = us ? (102.0, "the IRC asks for less than 102 (4 in)") : (100.0, "Approved Document K asks for less than 100");
         if (type.Infill == RailingInfill.Balusters && Clear(type) >= sphere)
             problems.Add($"Its balusters are {Clear(type):0} apart: {said}, so a child's head cannot pass.");
-        if (type.Infill == RailingInfill.HorizontalBars && BarGap(type) >= sphere)
-            problems.Add($"Its rails are {BarGap(type):0} apart: {said}, so a child's head cannot pass.");
-        if (type.BottomGap >= sphere) problems.Add($"It stands {type.BottomGap:0} clear of the floor: {said} under it.");
+        if (type.Infill is RailingInfill.HorizontalBars or RailingInfill.Cables && BarGap(type) >= sphere)
+            problems.Add($"Its {(type.Infill == RailingInfill.Cables ? "cables" : "rails")} are {BarGap(type):0} apart: {said}, so a child's head cannot pass.");
+        if (type.Infill == RailingInfill.FramelessGlass && type.GlassJoint >= sphere)
+            problems.Add($"Its panes are {type.GlassJoint:0} apart: {said}, so a child's head cannot pass.");
+        if (type.Infill != RailingInfill.FramelessGlass && type.BottomGap >= sphere) problems.Add($"It stands {type.BottomGap:0} clear of the floor: {said} under it.");
+        foreach (var (_, gap, what) in EndGaps(document, railing))
+            problems.Add($"Its end stands {gap:0} clear of {what}: {said} there too.");
 
         // Rails along are a ladder: not for a home, where children are.
-        if (!us && type.Infill == RailingInfill.HorizontalBars && railing.Building == RailingBuilding.Dwelling)
-            problems.Add("Its rails run along, which a child can climb: Approved Document K asks for guarding in a home not to be easily climbable.");
+        if (!us && railing.Building == RailingBuilding.Dwelling)
+        {
+            if (type.Infill is RailingInfill.HorizontalBars or RailingInfill.Cables)
+                problems.Add($"Its {(type.Infill == RailingInfill.Cables ? "cables" : "rails")} run along, which a child can climb: Approved Document K asks for guarding in a home not to be easily climbable.");
+            else if (type.IntermediateRails > 0 && type.Infill != RailingInfill.FramelessGlass)
+                problems.Add("Its intermediate rails are footholds a child can climb by: Approved Document K asks for guarding in a home not to be easily climbable.");
+        }
+
+        // Glass: laminated in a guard (IBC 2407.1, IRC R308.4.4.1); frameless, without a rail on top, only where it stays in place broken (BS 6180, 8.5.2).
+        if (type.Infill is RailingInfill.Glass or RailingInfill.FramelessGlass && !type.GlassLaminated)
+        {
+            if (us) problems.Add("Its glass is toughened, not laminated: the IBC asks for laminated glass in a guard.");
+            else if (type.Infill == RailingInfill.FramelessGlass && !type.HasTopRail)
+                problems.Add("Its glass stands frameless with no rail along its top, and is toughened, not laminated: BS 6180 asks for a rail linking the panes unless the glass is laminated, so the guarding stays when a pane breaks.");
+        }
+
+        // Made for the loads its place asks.
+        var (line, point, loads) = RequiredLoad(document, railing);
+        if (type.LineLoad < line - 0.005 || type.PointLoad < point - 0.005)
+            problems.Add($"It is made for {type.LineLoad:0.##} kN/m along its top and {type.PointLoad:0.##} kN at a point: {loads}.");
 
         return problems;
     }
@@ -369,33 +817,152 @@ public static class Railings
     /// <summary>Whether it meets its rules, as the property panel says it.</summary>
     public static string Verdict(BimDocument document, Railing railing)
     {
+        if (TypeOf(document, railing).Use == RailingUse.Fence && Length(railing) >= 100) return "A fence: it guards no drop";
         var problems = Problems(document, railing);
         var rules = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada ? "the IRC" : "Approved Document K";
         return problems.Count == 0 ? $"Meets {rules}" : $"{problems.Count} short of {rules}: {string.Join(" ", problems)}";
     }
 
+    /// <summary>
+    /// The gaps at its open ends: between each end - its end post, or the edge of its glass - and
+    /// the wall or the railing it stops short of, close ahead of it, where a child's head would go
+    /// through. Each with how wide it is and what it is against.
+    /// </summary>
+    public static IReadOnlyList<(Point2D At, double Gap, string Against)> EndGaps(BimDocument document, Railing railing)
+    {
+        var gaps = new List<(Point2D, double, string)>();
+        var lengths = Lengths(railing);
+        if (railing.Closed || lengths.Count == 0) return gaps;
+
+        var type = TypeOf(document, railing);
+        var sphere = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada ? 102.0 : 100.0;
+        var end = type.Infill == RailingInfill.FramelessGlass ? type.GlassJoint / 2 : type.PostSize / 2;
+        var walls = StairModel.WallBands(document);
+
+        // The other railings close enough to either end to be what it stops at.
+        var ends = new[] { lengths[0].From, lengths[^1].To };
+        var near = document.Elements.OfType<Railing>()
+            .Where(other => !ReferenceEquals(other, railing))
+            .Select(other => (Railing: other, Lengths: Lengths(other), Type: TypeOf(document, other)))
+            .Where(other => other.Lengths.Any(length => ends.Any(end => Line2D.DistanceFromSegment(end, length.From, length.To) < 400)))
+            .ToList();
+        foreach (var (at, from) in new[] { (lengths[0].From, lengths[0].To), (lengths[^1].To, lengths[^1].From) })
+        {
+            var way = (at - from).NormalisedOrDefault(Vector2D.UnitX);
+            var bottom = Base(document, railing, at);
+            var top = bottom + type.Height;
+            string? Against(double ahead)
+            {
+                // Near it in plan first, its height only then: working out what a railing stands on is the costly part.
+                var point = at + way * ahead;
+                return walls.Any(wall => wall.Holds(point) && wall.Base < top && wall.Top > bottom + 100) ? "the wall"
+                    : near.Any(other => other.Lengths.Any(length => Line2D.DistanceFromSegment(point, length.From, length.To) <= other.Type.PostSize / 2)
+                                        && Base(document, other.Railing, point) is var foot && foot < top && foot + other.Type.Height > bottom + 100)
+                        ? "the railing there" : null;
+            }
+
+            for (var ahead = 0.0; ahead <= 300; ahead += 5)
+            {
+                if (Against(ahead) is not { } against) continue;
+
+                // The face it meets, found to within a millimetre.
+                var (clear, met) = (Math.Max(0, ahead - 5), ahead);
+                while (met - clear > 0.5)
+                {
+                    var middle = (clear + met) / 2;
+                    if (Against(middle) is null) clear = middle;
+                    else met = middle;
+                }
+
+                if (met - end >= sphere) gaps.Add((at, met - end, against));
+                break;
+            }
+        }
+
+        return gaps;
+    }
+
+    /// <summary>
+    /// A run's open ends brought up to the face of a wall close by ahead of either, so its end post
+    /// stands 10 clear of it, as guarding is fixed tight to the wall it meets - not short of it.
+    /// </summary>
+    public static IReadOnlyList<Point2D> Tight(BimDocument document, IReadOnlyList<Point2D> points, double half, double height)
+    {
+        if (points.Count < 2) return points;
+        var walls = StairModel.WallBands(document).Where(wall => wall.Base <= height + 100 && wall.Top >= height + 900).ToList();
+        var tight = points.ToList();
+        foreach (var (at, next) in new[] { (0, 1), (tight.Count - 1, tight.Count - 2) })
+        {
+            var way = (tight[at] - tight[next]).NormalisedOrDefault(Vector2D.UnitX);
+            var room = (tight[at] - tight[next]).Length - 2 * half;
+            double? best = null;
+            for (var by = -300.0; by <= 300; by += 5)
+            {
+                var point = tight[at] + way * by;
+                if (by < -room || walls.Any(wall => wall.Holds(point))) continue;
+                if (!walls.Any(wall => wall.Holds(point + way * (half + 10)))) continue;
+                if (best is null || Math.Abs(by) < Math.Abs(best.Value)) best = by;
+            }
+
+            if (best is { } move) tight[at] += way * move;
+        }
+
+        return tight;
+    }
+
     /// <summary>The clear gap between its balusters, mm.</summary>
     public static double Clear(RailingType type) => type.BalusterSpacing - type.BalusterSize;
 
-    /// <summary>How many rails along it has between its bottom rail and its top: as few as leave them no further apart than its baluster spacing says.</summary>
+    /// <summary>How many rails or cables along it has between its bottom rail and its top: as few as leave them no further apart than its baluster spacing says.</summary>
     public static int Bars(RailingType type)
     {
         var (bottom, top) = (type.BottomGap + BottomRail, type.Height - RailDepth(type));
         return Math.Max(0, (int)Math.Ceiling((top - bottom) / Math.Max(40, type.BalusterSpacing) - 1e-9) - 1);
     }
 
-    /// <summary>The clear gap between its rails along, mm.</summary>
+    /// <summary>The clear gap between its rails or cables along, mm.</summary>
     public static double BarGap(RailingType type)
     {
         var (bottom, top) = (type.BottomGap + BottomRail, type.Height - RailDepth(type));
-        return (top - bottom - Bars(type) * BarSize) / (Bars(type) + 1);
+        return (top - bottom - Bars(type) * BarSizeOf(type)) / (Bars(type) + 1);
     }
 
     /// <summary>Its bottom rail's depth, and a rail along's, mm.</summary>
     public const double BottomRail = 40, BarSize = 20;
 
-    /// <summary>How deep its top rail is: a round one as deep as it is wide.</summary>
-    public static double RailDepth(RailingType type) => type.TopRailProfile == HandrailProfile.Round ? type.TopRailWidth : type.TopRailDepth;
+    /// <summary>A cable's diameter, mm.</summary>
+    public const double CableSize = 6;
+
+    /// <summary>How deep one of its rails or cables along is.</summary>
+    public static double BarSizeOf(RailingType type) => type.Infill == RailingInfill.Cables ? CableSize : BarSize;
+
+    /// <summary>How deep its top rail is: a round one as deep as it is wide; none where it has none.</summary>
+    public static double RailDepth(RailingType type) =>
+        !type.HasTopRail && type.Infill == RailingInfill.FramelessGlass ? 0 : type.TopRailProfile == HandrailProfile.Round ? type.TopRailWidth : type.TopRailDepth;
+
+    /// <summary>
+    /// A Juliet balcony across a door or window in an outside wall: a railing across its opening
+    /// in front of the wall, from jamb to jamb, standing from its sill and measured from the
+    /// floor inside - in the type given, or the first Juliet type, or one as high as asked. Not
+    /// added: the caller adds it. Null for an opening in no wall.
+    /// </summary>
+    public static Railing? Juliet(BimDocument document, Opening opening, Guid? typeId = null)
+    {
+        if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } wall || document.GetWallType(wall) is not { } body) return null;
+        var size = document.FindType<OpeningType>(opening.TypeId);
+        var (from, to) = (opening.DistanceAlongWall - opening.WidthOf(size) / 2, opening.DistanceAlongWall + opening.WidthOf(size) / 2);
+
+        // On the side it drops: outside, whichever way round the wall was drawn.
+        var across = OpeningGuarding.DropSide(document, wall, opening.DistanceAlongWall).Side * (body.Structure.TotalWidth / 2 + 60);
+
+        var railing = new Railing { LevelId = wall.LevelId, HostOpeningId = opening.Id, Outside = true, BaseOffset = Math.Max(0, opening.SillHeight) };
+        railing.SetPath(new[] { wall.PointAt(body.Structure, from, across), wall.PointAt(body.Structure, to, across) });
+        var type = typeId is { } given && document.FindType<RailingType>(given) is { } chosen ? chosen
+            : document.TypesOf<RailingType>().FirstOrDefault(candidate => candidate.Name.StartsWith("Juliet", StringComparison.OrdinalIgnoreCase))
+              ?? TypeFor(document, Required(document, railing).Height);
+        railing.TypeId = type?.Id ?? Guid.Empty;
+        return railing;
+    }
 
     /// <summary>
     /// Whether a railing is outside: on a roof, or not within the walls of its level - round a
@@ -477,8 +1044,9 @@ public static class Railings
 
                 bool Wall() => walls.Any(wall => wall.Base <= top + 100 && wall.Top >= top + 900 && (wall.Holds(middle) || wall.Holds(beyond) || wall.Holds(middle - outward * 30)));
                 bool Stair() => arrivals.Any(arrival => Math.Abs(arrival.Top - top) < Stairs.FloorReach && Across(middle, arrival.From, arrival.To));
-                bool Railed() => railings.Any(railing => Math.Abs(Base(document, railing, middle) - top) < Stairs.FloorReach
-                    && Lengths(railing).Any(run => Line2D.DistanceFromSegment(middle, run.From, run.To) < 300));
+                bool Railed() => railings.Any(railing => TypeOf(document, railing).Use == RailingUse.Guarding
+                    && Lengths(railing).Any(run => Line2D.DistanceFromSegment(middle, run.From, run.To) < 300)
+                    && Math.Abs(Base(document, railing, middle) - top) < Stairs.FloorReach);
 
                 var wanted = false;
                 if (drop <= 0) joined += length;
@@ -583,8 +1151,11 @@ public static class Railings
     /// or glass - not rails a child can climb - or the highest there is.
     /// </summary>
     public static RailingType? TypeFor(BimDocument document, double height) =>
-        document.TypesOf<RailingType>().Where(type => type.Height >= height - 0.5 && type.Infill != RailingInfill.HorizontalBars).OrderBy(type => type.Height).FirstOrDefault()
-        ?? document.TypesOf<RailingType>().OrderByDescending(type => type.Height).FirstOrDefault();
+        document.TypesOf<RailingType>()
+            .Where(type => type.Use == RailingUse.Guarding && type.Height >= height - 0.5 && type.Infill is not (RailingInfill.HorizontalBars or RailingInfill.Cables)
+                           && type.IntermediateRails == 0 && !type.Name.StartsWith("Juliet", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(type => type.Height).FirstOrDefault()
+        ?? document.TypesOf<RailingType>().Where(type => type.Use == RailingUse.Guarding).OrderByDescending(type => type.Height).FirstOrDefault();
 
     /// <summary>
     /// Railings along the open edges of a floor, balcony or flat roof, set in from its edge, each
@@ -603,6 +1174,10 @@ public static class Railings
             railing.Outside = StandsOutside(document, railing);
             var asked = Required(document, railing).Height;
             railing.TypeId = (typeId is { } chosen && document.FindType<RailingType>(chosen) is { } given ? given : TypeFor(document, asked))?.Id ?? Guid.Empty;
+
+            // Its ends tight to the walls they stop at: no gap there a child's head goes through.
+            if (!edge.Closed)
+                railing.SetPath(Tight(document, railing.Path, TypeOf(document, railing).PostSize / 2, slab.GetTopElevation(document)));
             made.Add(railing);
         }
 

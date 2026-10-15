@@ -23,6 +23,12 @@ public sealed class WallCurve
     /// <summary>Below this a bulge is a straight line.</summary>
     public const double StraightBulge = 1e-9;
 
+    /// <summary>The most an arc drawn through three points turns: all but a degree of a circle.</summary>
+    public const double MostSweep = 2 * Math.PI * 359 / 360;
+
+    /// <summary>The bulge of the most an arc turns.</summary>
+    public static readonly double MostBulge = Math.Tan(MostSweep / 4);
+
     /// <summary>The most a tessellated arc may stray from the true one, in millimetres.</summary>
     public const double ChordTolerance = 0.5;
 
@@ -136,11 +142,13 @@ public sealed class WallCurve
         // sweep directly: the inscribed angle theorem.
         var a = start - through;
         var b = end - through;
+        if (a.Length < 1e-6 || b.Length < 1e-6) return 0;
         var cross = a.Cross(b);
         if (Math.Abs(cross) < 1e-9 * a.Length * b.Length) return 0;
 
+        // No more than all but a degree of a circle: a point all but on an end would otherwise bow it without end.
         var inscribed = Math.Atan2(Math.Abs(cross), a.Dot(b));
-        var sweep = 2 * (Math.PI - inscribed);
+        var sweep = Math.Min(2 * (Math.PI - inscribed), MostSweep);
 
         // Which way it turns: the third point on the right of the chord means anticlockwise.
         var side = chord.Cross(through - start);

@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
@@ -116,6 +117,15 @@ public enum HandrailEnds
     Cut
 }
 
+/// <summary>Which way the Stair tool draws a stair from where it is clicked.</summary>
+public enum StairDirection
+{
+    /// <summary>Down off the edge of a floor, deck or terrace over open space; up otherwise.</summary>
+    Auto,
+    Up,
+    Down
+}
+
 /// <summary>Which sides of a stair have a handrail - worked out from the walls beside it, or said.</summary>
 public enum StairRailings
 {
@@ -226,8 +236,8 @@ public sealed class StairType : ElementType
             () => EnumText.Humanise(Construction),
             v => { if (EnumText.TryParse<StairConstruction>(v, out var construction)) Construction = construction; },
             EnumText.Choices<StairConstruction>());
-        yield return Size(StairTypeParameters.MaxRiser, () => MaxRiser, v => MaxRiser = v, 100, 300);
-        yield return Size(StairTypeParameters.Going, () => Going, v => Going = v, 150, 500);
+        yield return Relaying(document, StairTypeParameters.MaxRiser, () => MaxRiser, v => MaxRiser = v, 100, 300);
+        yield return Relaying(document, StairTypeParameters.Going, () => Going, v => Going = v, 150, 500);
         yield return Size(StairTypeParameters.Nosing, () => Nosing, v => Nosing = v, 0, 60);
         yield return Size(StairTypeParameters.TreadThickness, () => TreadThickness, v => TreadThickness = v, 15, 100);
         yield return ParameterValue.BindChoice(StairTypeParameters.Support,
@@ -288,6 +298,24 @@ public sealed class StairType : ElementType
             set(v);
             return true;
         });
+
+    /// <summary>
+    /// A size that lays out every stair of the type afresh, as one step to undo: those hung by
+    /// their heads from a terrace or a balcony stay hung there.
+    /// </summary>
+    private ParameterValue Relaying(BimDocument? document, ParameterDefinition definition, Func<double> get, Action<double> set, double least, double most)
+    {
+        if (document is null) return Size(definition, get, set, least, most);
+
+        Func<double, IUndoableCommand?> change = v =>
+        {
+            if (v < least || v > most) return null;
+            var before = get();
+            return new StairRelaidCommand(document, document.Elements.OfType<Stair>().Where(stair => stair.TypeId == Id),
+                new SettingCommand($"Change {definition.Name}", () => set(v), () => set(before)));
+        };
+        return ParameterValue.BindCommand(definition, get, change);
+    }
 
     /// <summary>
     /// The stair types a project starts with: timber with closed or open risers, or a cut string;
@@ -447,6 +475,12 @@ public sealed class Stair : Element
     /// <summary>Whether it cuts the floor over it for headroom.</summary>
     public bool CutsFloorAbove { get; set; } = true;
 
+    /// <summary>
+    /// Whether it cuts a pitched roof it comes up into - under the eaves outside, up to an attic -
+    /// for headroom, as it does a floor; told not to, its headroom under the roof is said instead.
+    /// </summary>
+    public bool CutsRoof { get; set; } = true;
+
     /// <summary>Which way is up its first flight.</summary>
     public Vector2D Up => new(Math.Cos(Angle * Math.PI / 180), Math.Sin(Angle * Math.PI / 180));
 
@@ -461,21 +495,18 @@ public sealed class Stair : Element
             || upper.Elevation + topOffset - (lower.Elevation + baseOffset) >= Stairs.MinimumRise - 0.5;
         var baseElevation = document.FindLevel(LevelId)?.Elevation ?? double.NegativeInfinity;
 
-        yield return ParameterValue.BindChoiceValidated(StairParameters.BaseLevel,
+        // Laid out afresh, as one step to undo: hung by its head from a terrace or a balcony, it stays hung there.
+        IUndoableCommand Relaid<T>(ParameterDefinition definition, T before, T after, Action<T> set) =>
+            new StairRelaidCommand(document, new[] { this }, new SettingCommand($"Change {definition.Name}", () => set(after), () => set(before)));
+
+        yield return ParameterValue.BindChoiceCommand(StairParameters.BaseLevel,
             () => document.FindLevel(LevelId)?.Name ?? "<none>",
-            v =>
-            {
-                if (document.Levels.FirstOrDefault(level => level.Name == v) is not { } level || !Rises(level.Id, BaseOffset, TopLevelId, TopOffset)) return false;
-                LevelId = level.Id;
-                return true;
-            },
+            v => document.Levels.FirstOrDefault(level => level.Name == v) is { } level && Rises(level.Id, BaseOffset, TopLevelId, TopOffset)
+                ? Relaid(StairParameters.BaseLevel, LevelId, level.Id, id => LevelId = id)
+                : null,
             levels);
-        yield return ParameterValue.BindValidated(StairParameters.BaseOffset, () => BaseOffset, (double v) =>
-        {
-            if (!Rises(LevelId, v, TopLevelId, TopOffset)) return false;
-            BaseOffset = v;
-            return true;
-        });
+        yield return ParameterValue.BindCommand(StairParameters.BaseOffset, () => BaseOffset, (double v) =>
+            Rises(LevelId, v, TopLevelId, TopOffset) ? Relaid(StairParameters.BaseOffset, BaseOffset, v, offset => BaseOffset = offset) : null);
         yield return ParameterValue.BindChoiceValidated(StairParameters.TopLevel,
             () => TopLevelId is { } top ? document.FindLevel(top)?.Name ?? unconnected : unconnected,
             v =>
@@ -508,48 +539,34 @@ public sealed class Stair : Element
             v => RepeatToLevelId = higher.Contains(v) ? document.Levels.FirstOrDefault(level => level.Name == v)?.Id : null,
             higher.Prepend(once).ToArray());
 
-        yield return ParameterValue.BindChoice(StairParameters.Shape,
+        yield return ParameterValue.BindChoiceCommand(StairParameters.Shape,
             () => EnumText.Humanise(Shape),
-            v => { if (EnumText.TryParse<StairShape>(v, out var shape)) Shape = shape; },
+            v => EnumText.TryParse<StairShape>(v, out var shape) ? Relaid(StairParameters.Shape, Shape, shape, s => Shape = s) : null,
             EnumText.Choices<StairShape>());
-        yield return ParameterValue.BindChoice(StairParameters.Corner,
+        yield return ParameterValue.BindChoiceCommand(StairParameters.Corner,
             () => EnumText.Humanise(Corner),
-            v => { if (EnumText.TryParse<StairCorner>(v, out var corner)) Corner = corner; },
+            v => EnumText.TryParse<StairCorner>(v, out var corner) ? Relaid(StairParameters.Corner, Corner, corner, c => Corner = c) : null,
             EnumText.Choices<StairCorner>());
-        yield return ParameterValue.BindChoice(StairParameters.Turns,
+        yield return ParameterValue.BindChoiceCommand(StairParameters.Turns,
             () => TurnsLeft ? "Left" : "Right",
-            v => TurnsLeft = v == "Left",
+            v => Relaid(StairParameters.Turns, TurnsLeft, v == "Left", left => TurnsLeft = left),
             new[] { "Left", "Right" });
-        yield return ParameterValue.BindValidated(StairParameters.Width, () => Width, (double v) =>
-        {
-            if (v < 500 || v > 5000) return false;
-            Width = v;
-            return true;
-        });
-        yield return ParameterValue.BindValidated(StairParameters.RisersBeforeTurn, () => RisersBeforeTurn ?? 0, (int v) =>
-        {
-            if (v < 0) return false;
-            RisersBeforeTurn = v == 0 ? null : v;
-            return true;
-        });
-        yield return ParameterValue.BindValidated(StairParameters.Well, () => Well, (double v) =>
-        {
-            if (v < 0 || v > 3000) return false;
-            Well = v;
-            return true;
-        });
-        yield return ParameterValue.BindValidated(StairParameters.InnerRadius, () => InnerRadius, (double v) =>
-        {
-            if (v < 0 || v > 10000) return false;
-            InnerRadius = v;
-            return true;
-        });
+        yield return ParameterValue.BindCommand(StairParameters.Width, () => Width, (double v) =>
+            v < 500 || v > 5000 ? null : Relaid(StairParameters.Width, Width, v, width => Width = width));
+        yield return ParameterValue.BindCommand(StairParameters.RisersBeforeTurn, () => RisersBeforeTurn ?? 0, (int v) =>
+            v < 0 ? null : Relaid(StairParameters.RisersBeforeTurn, RisersBeforeTurn, v == 0 ? null : v, risers => RisersBeforeTurn = risers));
+        yield return ParameterValue.BindCommand(StairParameters.Well, () => Well, (double v) =>
+            v < 0 || v > 3000 ? null : Relaid(StairParameters.Well, Well, v, well => Well = well));
+        yield return ParameterValue.BindCommand(StairParameters.InnerRadius, () => InnerRadius, (double v) =>
+            v < 0 || v > 10000 ? null : Relaid(StairParameters.InnerRadius, InnerRadius, v, radius => InnerRadius = radius));
         yield return ParameterValue.BindValidated(StairParameters.Angle, () => Angle, (double v) => { Angle = ((v % 360) + 360) % 360; return true; });
         yield return ParameterValue.BindChoice(StairParameters.Railings,
             () => EnumText.Humanise(Railings),
             v => { if (EnumText.TryParse<StairRailings>(v, out var railings)) Railings = railings; },
             EnumText.Choices<StairRailings>());
         yield return ParameterValue.Bind(StairParameters.CutsFloorAbove, () => CutsFloorAbove, v => CutsFloorAbove = v);
+        yield return ParameterValue.Bind(StairParameters.CutsRoof, () => CutsRoof, v => CutsRoof = v);
+        yield return ParameterValue.ReadOnly(StairParameters.Cuts, () => Stairs.CutsThrough(document, this));
         yield return ParameterValue.BindChoice(StairParameters.Use,
             () => EnumText.Humanise(Use),
             v => { if (EnumText.TryParse<StairUse>(v, out var use)) Use = use; },
@@ -608,6 +625,8 @@ public static class StairParameters
     public static readonly ParameterDefinition Angle = new("Direction", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Railings = new("Handrails", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition CutsFloorAbove = new("Cut the Floor Above", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition CutsRoof = new("Cut the Roof", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Cuts = new("Cuts Through", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Risers = new("Risers", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition RiserHeight = new("Riser Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition ActualGoing = new("Actual Going", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
@@ -1679,10 +1698,11 @@ public static class Stairs
         if (first is null || first.Outline.Any(point => arrived.Slab.Contains(point))) return null;
         if (Openings(document, stair, arrived.Slab, layout).Count == 0) return null;
 
-        var middle = layout.Arrivals[0].From.MidpointTo(layout.Arrivals[0].To);
+        // From where it is stepped off - a spiral's landing's outside edge - back the way it came up.
+        if (HeadOf(layout) is not { } head) return null;
         var boundary = arrived.Slab.Boundary;
-        var by = Enumerable.Range(0, boundary.Count).Min(i => Line2D.DistanceFromSegment(middle, boundary[i], boundary[(i + 1) % boundary.Count]));
-        return by < 20 ? null : (by, Away(layout, layout.Arrivals[0]) * -1);
+        var by = Enumerable.Range(0, boundary.Count).Min(i => Line2D.DistanceFromSegment(head.At, boundary[i], boundary[(i + 1) % boundary.Count]));
+        return by < 20 ? null : (by, head.Up * -1);
     }
 
     /// <summary>
@@ -1710,7 +1730,9 @@ public static class Stairs
 
     /// <summary>Where a stair is stepped off at its head: just past the middle of where it comes up, away from its steps.</summary>
     public static Point2D? SteppedOff(StairLayout layout) =>
-        layout.Arrivals.Count == 0 ? null : layout.Arrivals[0].From.MidpointTo(layout.Arrivals[0].To) + Away(layout, layout.Arrivals[0]) * 150;
+        layout.Arrivals.Count == 0 ? null
+        : layout.Shape == StairShape.Spiral && HeadOf(layout) is { } head ? head.At + head.Up * 150
+        : layout.Arrivals[0].From.MidpointTo(layout.Arrivals[0].To) + Away(layout, layout.Arrivals[0]) * 150;
 
     /// <summary>The way off a stair at an edge where it comes up: square to it, away from its steps.</summary>
     private static Vector2D Away(StairLayout layout, (Point2D From, Point2D To) arrival)
@@ -1773,11 +1795,18 @@ public static class Stairs
     /// <summary>The holes one stair cuts in one slab over it: usually one, none where it passes clear.</summary>
     public static IReadOnlyList<IReadOnlyList<Point2D>> Openings(BimDocument document, Stair stair, Slab slab, StairLayout layout)
     {
-        if (!stair.CutsFloorAbove || slab.Boundary.Count < 3 || !IsFloorLike(document, slab)) return Array.Empty<IReadOnlyList<Point2D>>();
+        if (slab.Boundary.Count < 3) return Array.Empty<IReadOnlyList<Point2D>>();
 
         // A loft conversion's stair cuts as far as 1900 over the middle of it asks.
         var headroom = stair.LoftConversion && document.ProjectInformation.ClearanceStandard != ClearanceStandard.Ada
             ? 1900 : Headroom(document.ProjectInformation.ClearanceStandard, layout.Shape);
+
+        // A pitched roof it comes up into: cut over each step it comes down into the headroom of, under the eaves or in an attic.
+        // Not a roof by extrusion - a vault - which is not cut for anything: its headroom is said instead.
+        if (slab is Roof { IsExtrusion: false } pitched && !IsFloorLike(document, pitched))
+            return stair.CutsRoof ? RoofOpenings(document, pitched, layout, headroom) : Array.Empty<IReadOnlyList<Point2D>>();
+
+        if (!stair.CutsFloorAbove || !IsFloorLike(document, slab)) return Array.Empty<IReadOnlyList<Point2D>>();
         var (underside, top) = (slab.GetBottomElevation(document), slab.GetTopElevation(document));
         if (top <= layout.Bottom + 1 || underside >= layout.Top + headroom) return Array.Empty<IReadOnlyList<Point2D>>();
 
@@ -1800,6 +1829,103 @@ public static class Stairs
 
         return Regions(opened)
             .Where(hole => hole.Count >= 3 && PolygonBoolean.Combine(slab.Boundary, hole, BooleanOperation.Intersection).Sum(region => region.Area) > 1000)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Where a stair hangs from by its head, if it does: the middle of its top edge, and the way
+    /// it comes up onto what it reaches - the edge of a floor, a terrace, a balcony or a deck at
+    /// its head's height, come up to from outside it, as a stair up to a terrace comes, or one
+    /// down from it to the garden goes. Null for a stair coming up through a floor into its
+    /// opening: that one keeps its foot.
+    /// </summary>
+    public static (Point2D Head, Vector2D Up)? HungFrom(BimDocument document, Stair stair)
+    {
+        var layout = Layout(document, stair);
+        if (HeadOf(layout) is not { } head) return null;
+        if (FloorSurfaces.StoodOnNear(document, layout.Top, head.At + head.Up * 150, FloorReach) is not { } onto) return null;
+        return onto.Slab.Contains(head.At - head.Up * 300) ? null : (head.At, head.Up);
+    }
+
+    /// <summary>
+    /// A stair turned and moved, as it is laid out now, until its head is at a point and it is
+    /// come up off that way: laid out back from its head, as one drawn down from a terrace is.
+    /// </summary>
+    public static void HangFrom(BimDocument document, Stair stair, Point2D head, Vector2D up)
+    {
+        for (var pass = 0; pass < 3; pass++)
+        {
+            // Turned to be come up off that way...
+            if (HeadOf(Layout(document, stair)) is not { } now) return;
+            stair.Angle = ((stair.Angle + Math.Atan2(now.Up.Cross(up), now.Up.Dot(up)) * 180 / Math.PI) % 360 + 360) % 360;
+
+            // ...and moved till its head is there.
+            if (HeadOf(Layout(document, stair)) is not { } turned || turned.At.DistanceTo(head) < 0.5) return;
+            stair.Start += head - turned.At;
+        }
+    }
+
+    /// <summary>
+    /// Where a stair is come up off at its head, and which way: the middle of its top edge, the
+    /// way up its last flight - or, for a spiral, the middle of its landing's outside edge,
+    /// stepped off across outwards, as a spiral beside a deck is.
+    /// </summary>
+    public static (Point2D At, Vector2D Up)? HeadOf(StairLayout layout)
+    {
+        if (layout.Arrivals.Count == 0) return null;
+        if (layout.Shape == StairShape.Spiral && layout.Centre is { } centre && layout.Arrivals.Count > 1)
+        {
+            var (first, last) = ((layout.Arrivals[1].From - centre).NormalisedOrDefault(Vector2D.UnitX), (layout.Arrivals[^1].To - centre).NormalisedOrDefault(Vector2D.UnitX));
+            var outward = (first + last).NormalisedOrDefault(first);
+            return (centre + outward * layout.OuterRadius, outward);
+        }
+
+        // Square off the edge it comes up at, away from its steps - not the way up its top step,
+        // which a curve's turns from, and a landing's or a winder's runs across.
+        return layout.Steps.Count > 0 ? (layout.TopEdge.From.MidpointTo(layout.TopEdge.To), Away(layout, layout.TopEdge)) : null;
+    }
+
+    /// <summary>The way off a stair at an edge where it comes up: square to it, away from its steps.</summary>
+    public static Vector2D Off(StairLayout layout, (Point2D From, Point2D To) arrival) => Away(layout, arrival);
+
+    /// <summary>
+    /// What a stair cuts its openings in, as its Properties say: each floor, flat roof and pitched
+    /// roof it comes up through, with the level it is on - or nothing, and why.
+    /// </summary>
+    public static string CutsThrough(BimDocument document, Stair stair)
+    {
+        var flights = Flights(document, stair);
+        var cut = document.Elements.OfType<Slab>()
+            .Where(slab => flights.Any(flight => Openings(document, stair, slab, flight.Layout).Count > 0))
+            .Select(slab => $"{(slab is Roof && !IsFloorLike(document, slab) ? "Roof" : slab is Roof ? "Flat roof" : slab.Category == BuiltInCategory.Ceilings ? "Ceiling" : "Floor")} on {document.FindLevel(slab.LevelId)?.Name}")
+            .ToList();
+        if (cut.Count > 0) return string.Join(", ", cut);
+        if (!stair.CutsFloorAbove && !stair.CutsRoof) return "Nothing: told not to cut";
+
+        // Told not to cut the one that does come down into its headroom: said so.
+        var floorOver = !stair.CutsFloorAbove && LeastHeadroom(document, stair, Layout(document, stair)) is { By: Slab over } && IsFloorLike(document, over);
+        var roofOver = !stair.CutsRoof && LeastHeadroom(document, stair, Layout(document, stair)) is { By: Roof roof } && !IsFloorLike(document, roof);
+        return floorOver ? "Nothing: Cut the Floor Above is off" : roofOver ? "Nothing: Cut the Roof is off" : "Nothing: nothing over it comes down into its headroom";
+    }
+
+    /// <summary>
+    /// The holes a stair cuts in a pitched roof: over the steps whose headroom the roof's underside
+    /// comes down into, where it is over them - one outline round those that meet.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<Point2D>> RoofOpenings(BimDocument document, Roof roof, StairLayout layout, double headroom)
+    {
+        if (roof.GetBottomElevation(document) >= layout.Top + headroom) return Array.Empty<IReadOnlyList<Point2D>>();
+
+        var surface = roof.Surface(document);
+        var opened = layout.Steps.Where(step =>
+        {
+            // Over the step - its top above the step's own depth under its tread - and come down into its headroom; not a roof the stair passes over.
+            var under = Round(step.Outline).Where(roof.Contains).Select(point => surface.HeightAt(point)).DefaultIfEmpty(double.PositiveInfinity).Min();
+            return under < step.Top + headroom && roof.TopAt(document, Polygon2D.Centroid(step.Outline, step.Outline[0])) > step.Top - 250;
+        }).Select(step => step.Outline).ToList();
+
+        return Regions(opened)
+            .Where(hole => hole.Count >= 3 && PolygonBoolean.Combine(roof.Boundary, hole, BooleanOperation.Intersection).Sum(region => region.Area) > 1000)
             .ToList();
     }
 
@@ -1855,14 +1981,26 @@ public static class Stairs
                 step.Outline[1] + (step.Outline[2] - step.Outline[1]) * 0.75, step.Outline[0] + (step.Outline[3] - step.Outline[0]) * 0.75
             };
 
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3 && IsFloorLike(document, slab)))
+        // Only what is over it in plan: the floors, beams, joist layouts and roofs anywhere else not worked out at all.
+        var points = layout.Steps.SelectMany(step => step.Outline).ToList();
+        var (low, high) = points.Count == 0 ? (default(Point2D), default(Point2D))
+            : (new Point2D(points.Min(point => point.X) - 500, points.Min(point => point.Y) - 500), new Point2D(points.Max(point => point.X) + 500, points.Max(point => point.Y) + 500));
+        bool Over(IEnumerable<Point2D> outline) => points.Count > 0 && outline.Any() && outline.Max(point => point.X) >= low.X && outline.Min(point => point.X) <= high.X
+                                                   && outline.Max(point => point.Y) >= low.Y && outline.Min(point => point.Y) <= high.Y;
+
+        // The steps a slab's outline is over at all, under its underside: the slab as built - cut and opened - worked out only for those.
+        bool Under(Slab slab, StairStep step) =>
+            PolygonBoolean.Combine(slab.Boundary, step.Outline, BooleanOperation.Intersection).Sum(piece => piece.Area) >= 1000;
+
+        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3 && Over(slab.Boundary) && IsFloorLike(document, slab)))
         {
             if (slab.GetTopElevation(document) <= layout.Bottom + 1) continue;
             var underside = slab.GetBottomElevation(document);
+            var under = layout.Steps.Where(step => underside > step.Top && Under(slab, step)).ToList();
+            if (under.Count == 0) continue;
             var regions = SlabEdges.Regions(document, slab);
-            foreach (var step in layout.Steps)
+            foreach (var step in under)
             {
-                if (underside <= step.Top) continue;
                 var outline = middleOnly ? Middle(step) : step.Outline;
                 var over = regions.Sum(region => PolygonBoolean.Combine(Shafts.Loops(region), new[] { outline }, BooleanOperation.Intersection).Sum(piece => piece.Area));
                 if (over < 1000) continue;
@@ -1871,22 +2009,29 @@ public static class Stairs
             }
         }
 
-        // A beam over it: measured to its underside where it passes over each step - where it crosses the stair, or runs along over it.
-        foreach (var beam in document.Elements.OfType<Beam>())
+        // A beam over it - or a joist of a layout - measured to its underside where it passes over each step, where it crosses the stair, or runs along over it.
+        var framing = document.Elements.OfType<Beam>().Where(beam => Over(new[] { beam.Start, beam.End })).Select(beam => (Beam: beam, By: (Element)beam))
+            .Concat(document.Elements.OfType<BeamSystem>().Where(system => Over(system.Boundary))
+                .SelectMany(system => BeamSystems.Members(document, system).Select(joist => (Beam: joist, By: (Element)system))));
+        foreach (var (beam, by) in framing)
         foreach (var step in layout.Steps)
         {
             if (Beams.LowestOver(document, beam, middleOnly ? Middle(step) : step.Outline) is not { } underside || underside <= step.Top) continue;
             var clear = underside - step.Top;
-            if (least is not { } known || clear < known.Clear) least = (clear, step.Number, beam);
+            if (least is not { } known || clear < known.Clear) least = (clear, step.Number, by);
         }
 
         // A pitched roof is not cut for it: measured round the edge of each step - where a roof's underside comes lowest - wherever the roof is over it and not opened.
-        foreach (var roof in document.Elements.OfType<Roof>().Where(roof => roof.Boundary.Count >= 3 && !roof.IsExtrusion && !IsFloorLike(document, roof)))
+        foreach (var roof in document.Elements.OfType<Roof>().Where(roof => roof.Boundary.Count >= 3 && Over(roof.Boundary) && !IsFloorLike(document, roof)))
         {
+            if (!layout.Steps.Any(step => Under(roof, step))) continue;
             var surface = roof.Surface(document);
             var openings = RoofJoin.Openings(document, roof);
+            var own = Openings(document, stair, roof, layout);
             foreach (var step in layout.Steps)
             {
+                // A step under the hole cut in the roof for it has none over it there; under any other, only where the hole is.
+                if (own.Any(opening => Polygon2D.Contains(opening, Polygon2D.Centroid(step.Outline, step.Outline[0])))) continue;
                 var outline = middleOnly ? Middle(step) : step.Outline;
                 foreach (var point in Round(outline))
                 {
@@ -2058,12 +2203,14 @@ public static class Stairs
         {
             Roof roof when !IsFloorLike(document, roof) => " under the roof",
             Beam => " under a beam",
+            BeamSystem => " under a joist",
             _ => ""
         };
         string Remedy(Element by) => by switch
         {
             Roof roof when !IsFloorLike(document, roof) => " - a dormer over it, or the stair where the roof is higher",
             Beam => " - the beam raised, or the stair moved clear of it",
+            BeamSystem => " - its joists trimmed round the stairwell, or the stair moved clear of them",
             _ => ""
         };
 
@@ -2080,7 +2227,7 @@ public static class Stairs
 
         // Its head meeting nothing: a floor, deck or terrace at the level it goes up to close by, but not reached.
         if (flight.TopLevelId is { } topLevel && Math.Abs(stair.TopOffset) < FloorReach && SteppedOff(layout) is { } off
-            && SurfaceAt(document, topLevel, off) is null && Nearest(document, topLevel, layout.TopEdge.From.MidpointTo(layout.TopEdge.To)) is { } near)
+            && SurfaceAt(document, topLevel, off) is null && Nearest(document, topLevel, HeadOf(layout)?.At ?? layout.TopEdge.From.MidpointTo(layout.TopEdge.To)) is { } near)
             problems.Add($"It comes up {near.Gap:0} short of the floor on {document.FindLevel(topLevel)?.Name}: nothing to step off onto at its head - move it, or the floor, to meet it.");
 
         problems.AddRange(LandingProblems(document, stair, layout, flight, standard));

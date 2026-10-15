@@ -73,6 +73,9 @@ public static class Elevations
                     points.Add(beam.Start);
                     points.Add(beam.End);
                     break;
+                case Architecture.BeamSystem system:
+                    points.AddRange(system.Boundary);
+                    break;
             }
         }
 
