@@ -1358,6 +1358,7 @@ public sealed class BimDocument
         foreach (var component in components) document.AddType(component);
         foreach (var chimney in ChimneyType.Library()) document.AddType(chimney);
         foreach (var stair in StairType.Library()) document.AddType(stair);
+        foreach (var ramp in RampType.Library()) document.AddType(ramp);
         foreach (var railing in RailingType.Library()) document.AddType(railing);
         foreach (var beam in BeamType.Library()) document.AddType(beam);
 

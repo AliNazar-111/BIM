@@ -45,6 +45,8 @@ internal sealed class ProjectFileDto
     public List<ChimneyTypeDto> ChimneyTypes { get; set; } = new();
     public List<StairTypeDto> StairTypes { get; set; } = new();
     public List<StairDto> Stairs { get; set; } = new();
+    public List<RampTypeDto> RampTypes { get; set; } = new();
+    public List<RampDto> Ramps { get; set; } = new();
     public List<RailingTypeDto> RailingTypes { get; set; } = new();
     public List<RailingDto> Railings { get; set; } = new();
     public List<BeamTypeDto> BeamTypes { get; set; } = new();
@@ -1237,6 +1239,57 @@ internal sealed class StairDto
     public string Railings { get; set; } = "Auto";
     public bool CutsFloorAbove { get; set; } = true;
     public bool CutsRoof { get; set; } = true;
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class RampTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string TypeMark { get; set; } = string.Empty;
+    public string Construction { get; set; } = "Solid";
+    public double Thickness { get; set; }
+    public double KerbHeight { get; set; }
+    public double KerbWidth { get; set; }
+    public double HandrailHeight { get; set; }
+    public double HandrailDiameter { get; set; }
+    public double HandrailExtension { get; set; }
+    public bool LowerRail { get; set; }
+    public string Guarding { get; set; } = "Balusters";
+    public double PostSpacing { get; set; }
+    public string Colour { get; set; } = string.Empty;
+    public Guid MaterialId { get; set; }
+    public Guid RailMaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class RampDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Angle { get; set; }
+    public string Anchor { get; set; } = "Foot";
+    public string Shape { get; set; } = "Straight";
+    public bool TurnsLeft { get; set; }
+    public double Width { get; set; }
+    public double Gap { get; set; }
+    public List<double>? PathLengths { get; set; }
+    public List<double>? PathTurns { get; set; }
+    public double Gradient { get; set; }
+    public double BaseOffset { get; set; }
+    public Guid? TopLevelId { get; set; }
+    public double TopOffset { get; set; }
+    public double UnconnectedHeight { get; set; }
+    public double TopLanding { get; set; }
+    public double BottomLanding { get; set; }
+    public string Building { get; set; } = "Dwelling";
+    public bool Outside { get; set; } = true;
+    public string Railings { get; set; } = "Auto";
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }

@@ -1016,6 +1016,7 @@ public static class Railings
         var arrivals = document.Elements.OfType<Stair>()
             .SelectMany(stair => Stairs.Flights(document, stair))
             .SelectMany(flight => flight.Layout.Arrivals.Select(arrival => (arrival.From, arrival.To, flight.Layout.Top)))
+            .Concat(document.Elements.OfType<Ramp>().Select(ramp => Ramps.Layout(document, ramp)).Select(layout => (layout.HeadEdge.From, layout.HeadEdge.To, layout.Top)))
             .ToList();
         var railings = document.Elements.OfType<Railing>().ToList();
         var others = document.Elements.OfType<Slab>().Where(other => !ReferenceEquals(other, slab) && other.Boundary.Count >= 3 && FloorSurfaces.IsStoodOn(document, other)).ToList();
@@ -1185,7 +1186,7 @@ public static class Railings
         var left = new List<string>();
         if (walled > 0) left.Add($"{Metres(walled)} against walls");
         if (joined > 0) left.Add($"{Metres(joined)} where a floor carries on");
-        if (atStairs > 0) left.Add($"{Metres(atStairs)} where a stair comes up");
+        if (atStairs > 0) left.Add($"{Metres(atStairs)} where a stair or a ramp comes up");
         if (guarded > 0) left.Add($"{Metres(guarded)} guarded already");
         if (low > 0) left.Add($"{Metres(low)} dropping {GuardedDrop(document, building):0} or less");
         var lengths = made.Sum(Length);

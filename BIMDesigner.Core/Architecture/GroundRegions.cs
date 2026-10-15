@@ -148,6 +148,9 @@ public static class GroundRegions
         if (!region.Approach || region.Surface is not (GroundSurface.Path or GroundSurface.Paving)) return problems;
         if (Steepest(document, region) is not { } steepest || steepest <= 1 / 20.0 + 1e-6) return problems;
 
+        // A ramp built over it takes the slope, and is checked as a ramp.
+        if (RampOver(document, region) is not null) return problems;
+
         var said = $"1:{1 / steepest:0.#}";
         if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada)
         {
@@ -169,7 +172,23 @@ public static class GroundRegions
     {
         var problems = Problems(document, region);
         if (problems.Count > 0) return string.Join(" ", problems);
+        if (region.Approach && RampOver(document, region) is not null && Steepest(document, region) is > 1 / 20.0 + 1e-6) return "Too steep for an approach alone: ramped, the ramp checked as one";
         return region.Approach ? "Gently sloping enough for an approach" : "Not an approach to a door: not checked";
+    }
+
+    /// <summary>A ramp built over a region - a fair part of it under the ramp - if there is one.</summary>
+    public static Ramp? RampOver(BimDocument document, GroundRegion region)
+    {
+        if (region.Boundary.Count < 3) return null;
+        foreach (var ramp in document.Elements.OfType<Ramp>())
+        {
+            var footprint = Ramps.Layout(document, ramp).Footprint;
+            if (footprint.Count < 3) continue;
+            var shared = PolygonBoolean.Combine(footprint, region.Boundary, BooleanOperation.Intersection).Sum(piece => piece.Area);
+            if (shared > 0.25 * Math.Min(Polygon2D.Area(footprint), Polygon2D.Area(region.Boundary))) return ramp;
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -66,6 +66,9 @@ public static class Elevations
                 case Architecture.Stair stair:
                     points.AddRange(Architecture.Stairs.Footprint(Architecture.Stairs.Layout(document, stair)));
                     break;
+                case Architecture.Ramp ramp:
+                    points.AddRange(Architecture.Ramps.Layout(document, ramp).Footprint);
+                    break;
                 case Architecture.Railing railing:
                     points.AddRange(railing.Path);
                     break;

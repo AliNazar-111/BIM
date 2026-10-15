@@ -27,8 +27,12 @@ public sealed class ViewSettings
     public WallJoinDisplay JoinDisplayOf(ViewReference view) =>
         _joinDisplays.TryGetValue(view, out var display) ? display : WallJoinDisplay.CleanAllWallJoins;
 
+    /// <summary>Counted up each time anything here is changed: what a drawing kept of a view is checked against.</summary>
+    public int Version { get; private set; }
+
     public void SetJoinDisplay(ViewReference view, WallJoinDisplay display)
     {
+        Version++;
         if (display == WallJoinDisplay.CleanAllWallJoins) _joinDisplays.Remove(view);
         else _joinDisplays[view] = display;
     }
@@ -47,6 +51,7 @@ public sealed class ViewSettings
 
     public void SetScale(ViewReference view, double denominator)
     {
+        Version++;
         if (!double.IsFinite(denominator) || denominator <= 0 || denominator == DefaultScale) _scales.Remove(view);
         else _scales[view] = denominator;
     }
@@ -63,6 +68,7 @@ public sealed class ViewSettings
 
     public void SetWallFunctionVisible(ViewReference view, WallFunction function, bool visible)
     {
+        Version++;
         if (!_hiddenWallFunctions.TryGetValue(view, out var hidden))
         {
             if (visible) return;

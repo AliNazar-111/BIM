@@ -45,8 +45,9 @@ public static class ElementTransforms
         // A chimney stands where it was put, and cuts whatever roof is there.
         Chimney => true,
 
-        // A stair stands where it was put, and cuts the floor over it wherever that is.
+        // A stair stands where it was put, and cuts the floor over it wherever that is; a ramp the same.
         Stair => true,
+        Ramp => true,
 
         // A railing runs where it was drawn, on whatever floor is under it; a beam spans where it was drawn.
         Railing => true,
@@ -113,6 +114,10 @@ public static class ElementTransforms
 
             case Stair stair:
                 stair.Start += delta;
+                break;
+
+            case Ramp ramp:
+                ramp.Start += delta;
                 break;
 
             case Railing railing:
@@ -261,6 +266,17 @@ public static class ElementTransforms
                 stair.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
                 stair.TurnsLeft = !stair.TurnsLeft;
                 Stairs.SwapSides(stair);
+                break;
+            }
+
+            case Ramp ramp:
+            {
+                // Its way up reflected, and - a mirror image turning the other way - its turns too.
+                var up = Reflect(ramp.Start + ramp.Up * 1000);
+                ramp.Start = Reflect(ramp.Start);
+                var way = up - ramp.Start;
+                ramp.Angle = Math.Atan2(way.Y, way.X) * 180 / Math.PI;
+                ramp.TurnsLeft = !ramp.TurnsLeft;
                 break;
             }
 
@@ -465,6 +481,11 @@ public static class ElementTransforms
             case Stair stair:
                 stair.Start = map(stair.Start);
                 stair.Angle += degrees;
+                break;
+
+            case Ramp ramp:
+                ramp.Start = map(ramp.Start);
+                ramp.Angle += degrees;
                 break;
 
             case Railing railing:

@@ -82,6 +82,7 @@ public sealed class PlanRenderer
     private readonly Brush _componentBrush;
     private readonly Brush _roomBrush;
     private readonly Brush _chimneyBrush;
+    private readonly Brush _rampBrush = RenderPens.Fill(Color.FromArgb(0x48, 0xB5, 0xB3, 0xAE));
     private readonly Brush _roomSelectedBrush;
     private readonly Brush _roomTagBrush;
     private readonly Pen _contourPen;
@@ -190,6 +191,15 @@ public sealed class PlanRenderer
 
     /// <summary>Which storey is drawn. A plan is a cut through one level.</summary>
     public Guid ActiveLevelId { get; set; }
+
+    /// <summary>
+    /// Where what is worked out of the model is kept between drawings while it has not changed -
+    /// a plan's, shared with the storey under it - or none, to work it all out each time.
+    /// </summary>
+    public ModelMemo? Memo { get; set; }
+
+    /// <summary>Something worked out of the model, kept in the memo there is under its name.</summary>
+    private T Kept<T>(string name, Func<T> work) => Memo is null ? work() : Memo.Get(name, work);
 
     /// <summary>Screen pixels to one model millimetre, under the current transform.</summary>
     public double PixelsPerMm { get; private set; } = 1;
@@ -320,13 +330,21 @@ public sealed class PlanRenderer
         if (Document is not null)
             foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => Filter(stair)))
             {
-                var flights = Stairs.Flights(Document, stair);
+                var flights = Kept($"flights {stair.Id}", () => Stairs.Flights(Document, stair));
                 var goingOn = flights.FirstOrDefault(flight => flight.LevelId == ActiveLevelId)?.Layout.Steps;
                 foreach (var flight in flights)
                 {
                     if (flight.LevelId == ActiveLevelId) DrawStair(dc, stair, flight.Layout, own: true);
                     else if (flight.TopLevelId == ActiveLevelId) DrawStair(dc, stair, flight.Layout, own: false, goingOn);
                 }
+            }
+
+        // Ramps on their own storey, and seen from the one their head comes up to.
+        if (Document is not null)
+            foreach (var ramp in Document.Elements.OfType<Ramp>().Where(ramp => Filter(ramp)))
+            {
+                if (ramp.LevelId == ActiveLevelId) DrawRamp(dc, ramp, own: true);
+                else if (ramp.TopLevelId == ActiveLevelId) DrawRamp(dc, ramp, own: false);
             }
 
         if (underlay) return;
@@ -1209,7 +1227,7 @@ public sealed class PlanRenderer
     /// </summary>
     private void DrawDownpipe(DrawingContext dc, Downpipe pipe)
     {
-        if (Document is null || Downpipes.Path(Document, pipe) is not { } path) return;
+        if (Document is null || Kept($"downpipe {pipe.Id}", () => Downpipes.Path(Document, pipe)) is not { } path) return;
 
         var pen = IsSelected(pipe) ? _selectedPen : _roofLinePen;
         dc.DrawGeometry(null, pen, BuildOutline(path.Footprint));
@@ -1263,7 +1281,7 @@ public sealed class PlanRenderer
 
         var pen = IsSelected(chimney) ? _selectedPen : _wallOutlinePen;
         var type = Chimneys.TypeOf(Document, chimney);
-        var breast = Chimneys.BreastOn(Document, chimney, ActiveLevelId);
+        var breast = Kept($"breast {chimney.Id} {ActiveLevelId}", () => Chimneys.BreastOn(Document, chimney, ActiveLevelId));
 
         if (breast is not null)
         {
@@ -1273,7 +1291,7 @@ public sealed class PlanRenderer
         }
         else
         {
-            dc.DrawGeometry(_chimneyBrush, pen, BuildOutline(Chimneys.Outline(Document, chimney)));
+            dc.DrawGeometry(_chimneyBrush, pen, BuildOutline(Kept($"stack {chimney.Id}", () => Chimneys.Outline(Document, chimney))));
         }
 
         if (!type.HasFlue)
@@ -1288,10 +1306,10 @@ public sealed class PlanRenderer
         var round = type.IsRound || type.Construction != ChimneyConstruction.Masonry;
         var size = round
             ? Math.Max(20, type.FlueDiameter / 2)
-            : Chimneys.LinerWidth(Document, chimney) / 2;
-        var flues = Chimneys.BuildsBreasts(Document, chimney)
+            : Kept($"liner {chimney.Id}", () => Chimneys.LinerWidth(Document, chimney)) / 2;
+        var flues = Kept($"flues {chimney.Id} {ActiveLevelId}", () => Chimneys.BuildsBreasts(Document, chimney)
             ? Chimneys.FluesAt(Document, chimney, (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight)
-            : Chimneys.Flues(Document, chimney);
+            : Chimneys.Flues(Document, chimney));
         foreach (var flue in flues)
         {
             var centre = ModelToScreen(flue);
@@ -1301,7 +1319,7 @@ public sealed class PlanRenderer
         }
 
         if (type.Construction == ChimneyConstruction.GuyedStack && chimney.LevelId == ActiveLevelId)
-            foreach (var anchor in Chimneys.Anchors(Document, chimney))
+            foreach (var anchor in Kept($"anchors {chimney.Id}", () => Chimneys.Anchors(Document, chimney).ToList()))
             {
                 dc.DrawLine(_overheadPen, ModelToScreen(chimney.Location), ModelToScreen(anchor));
                 dc.DrawGeometry(null, pen, BuildOutline(Chimneys.Rectangle(chimney, 600, 600, anchor)));
@@ -1345,7 +1363,7 @@ public sealed class PlanRenderer
             ? Enumerable.Empty<Downpipe>()
             : Document.Elements.OfType<Downpipe>().Where(pipe => Filter(pipe) &&
                 (pipe.LevelId == ActiveLevelId ||
-                 (Document.FindLevel(ActiveLevelId) is { } level && Downpipes.Path(Document, pipe) is { } path &&
+                 (Document.FindLevel(ActiveLevelId) is { } level && Kept($"downpipe {pipe.Id}", () => Downpipes.Path(Document, pipe)) is { } path &&
                   level.Elevation >= path.Bottom - 1 && level.Elevation < path.Points[0].Z)));
 
     /// <summary>The shafts drawn on this plan: those on its level, and those passing up through it.</summary>
@@ -1359,7 +1377,7 @@ public sealed class PlanRenderer
         if (Document is null) return;
 
         var pen = IsSelected(sweep) ? _selectedPen : _roofLinePen;
-        foreach (var footprint in RoofEdgeSweeps.Footprints(Document, sweep))
+        foreach (var footprint in Kept($"edge {sweep.Id}", () => RoofEdgeSweeps.Footprints(Document, sweep).ToList()))
             if (footprint.Count >= 3) dc.DrawGeometry(null, pen, BuildOutline(footprint));
     }
 
@@ -1380,9 +1398,9 @@ public sealed class PlanRenderer
         var isSelected = IsSelected(slab);
 
         // A floor or ceiling with shafts through it, or cut back from a curtain wall: drawn as built.
-        if (slab is not Roof && SlabEdges.IsCut(Document, slab))
+        if (slab is not Roof && Kept($"cut {slab.Id}", () => SlabEdges.IsCut(Document, slab) ? SlabEdges.Regions(Document, slab) : null) is { } built)
         {
-            foreach (var region in SlabEdges.Regions(Document, slab))
+            foreach (var region in built)
                 dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildLoops(Shafts.Loops(region)));
             return;
         }
@@ -1390,7 +1408,7 @@ public sealed class PlanRenderer
         // A roof joined to another shows only where it is above it: its edge there is the
         // valley where the two meet, not the footprint carried back under the other roof.
         var outlines = slab is Roof { JoinedTo: not null } joined
-            ? RoofJoin.Visible(Document, joined)
+            ? Kept($"visible {joined.Id}", () => RoofJoin.Visible(Document, joined))
             : new[] { slab.Boundary };
 
         foreach (var outline in outlines)
@@ -1402,7 +1420,7 @@ public sealed class PlanRenderer
             DrawFalls(dc, roof);
 
             // Where the roof is cut away for a dormer, the hole's outline.
-            foreach (var opening in RoofJoin.Openings(Document, roof))
+            foreach (var opening in Kept($"openings {roof.Id}", () => RoofJoin.Openings(Document, roof)))
                 dc.DrawGeometry(null, isSelected ? _selectedPen : _slabPen, BuildOutline(opening));
         }
     }
@@ -1588,14 +1606,14 @@ public sealed class PlanRenderer
         if (layout.Steps.Count == 0 || layout.WalkingLine.Count < 2) return;
 
         var cut = (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight;
-        var pen = IsSelected(stair) ? _selectedPen : Stairs.Problems(Document, stair).Count > 0 ? _stairShortPen : _componentPen;
+        var pen = IsSelected(stair) ? _selectedPen : Kept($"short {stair.Id}", () => Stairs.Problems(Document, stair).Count > 0) ? _stairShortPen : _componentPen;
 
         // A storey a repeated stair comes up to and goes on up from: that storey's own flight is
         // drawn, and with it only the guarding round where this one comes up.
         var type = Stairs.TypeOf(Document, stair);
         if (goingOn is not null)
         {
-            DrawRailings(dc, StairModel.Guarding(Document, stair, layout, goingOn), type, pen);
+            DrawRailings(dc, Kept($"guarding {stair.Id} {layout.Bottom} {layout.Top} {ActiveLevelId} {goingOn is not null}", () => StairModel.Guarding(Document, stair, layout, goingOn)), type, pen);
             return;
         }
 
@@ -1644,7 +1662,60 @@ public sealed class PlanRenderer
         if (own && stair.ShowFlightDimensions) DrawFlightDimensions(dc, layout);
 
         // Its handrails on its own storey; the guarding round its stairwell on the floor above.
-        DrawRailings(dc, own ? StairModel.Railings(Document, stair, layout) : StairModel.Guarding(Document, stair, layout), type, pen);
+        DrawRailings(dc, Kept($"railings {stair.Id} {layout.Bottom} {layout.Top} {own}",
+            () => own ? StairModel.Railings(Document, stair, layout) : StairModel.Guarding(Document, stair, layout)), type, pen);
+    }
+
+    /// <summary>
+    /// A ramp in plan: its flights and landings, its kerbs, its handrails running on past its
+    /// ends and its guarding; the line walked up it, a dot at its foot and an arrow at its head,
+    /// UP by its foot - DN by its head, seen from the floor it comes up to - and how steep each
+    /// flight is along it.
+    /// </summary>
+    private void DrawRamp(DrawingContext dc, Ramp ramp, bool own)
+    {
+        if (Document is null) return;
+        var layout = Kept($"ramp {ramp.Id}", () => Ramps.Layout(Document, ramp));
+        if (layout.Pieces.Count == 0 || layout.Walk.Count < 2) return;
+
+        var type = Ramps.TypeOf(Document, ramp);
+        var pen = IsSelected(ramp) ? _selectedPen : Kept($"ramp short {ramp.Id}", () => Ramps.Problems(Document, ramp).Count > 0) ? _stairShortPen : _componentPen;
+        foreach (var piece in layout.Pieces) dc.DrawGeometry(own ? _rampBrush : null, pen, BuildOutline(piece.Outline));
+
+        // Its kerbs, outside its clear width.
+        foreach (var (side, outward) in new[] { (layout.Left, 1.0), (layout.Right, -1.0) })
+            if (side.Count >= 2) DrawPolyline(dc, _layerPen, Railings.SetIn(side.Select(point => point.At).ToList(), false, outward * type.KerbWidth));
+
+        // Its handrails and its guarding.
+        foreach (var run in Kept($"ramp rails {ramp.Id}", () => RampModel.HandrailRuns(Document, ramp, layout)))
+            DrawPolyline(dc, pen, run.Select(point => new Point2D(point.X, point.Y)).ToList());
+        foreach (var guard in Kept($"ramp guards {ramp.Id}", () => RampModel.Guards(Document, ramp, layout)))
+            DrawPolyline(dc, _overheadPen, guard.Points.Select(point => point.At).ToList());
+
+        // The line walked up it - down it, from the floor it comes up to.
+        var walk = own ? layout.Walk : layout.Walk.Reverse().ToList();
+        for (var i = 0; i + 1 < walk.Count; i++) dc.DrawLine(pen, ModelToScreen(walk[i]), ModelToScreen(walk[i + 1]));
+        dc.DrawEllipse(null, pen, ModelToScreen(walk[0]), Page(2.5), Page(2.5));
+        var barb = Math.Min(250, layout.Width * 0.25);
+        var way = (walk[^1] - walk[^2]).NormalisedOrDefault(Vector2D.UnitX);
+        dc.DrawLine(pen, ModelToScreen(walk[^1]), ModelToScreen(walk[^1] - way * barb + way.PerpendicularLeft() * (barb / 2)));
+        dc.DrawLine(pen, ModelToScreen(walk[^1]), ModelToScreen(walk[^1] - way * barb - way.PerpendicularLeft() * (barb / 2)));
+
+        var into = (walk[1] - walk[0]).NormalisedOrDefault(Vector2D.UnitX);
+        var label = Text(own ? "UP" : "DN", Page(10), pen.Brush, bold: true);
+        var at = ModelToScreen(walk[0] + into * Math.Min(600, layout.Length / 4) + into.PerpendicularLeft() * (layout.Width * 0.25));
+        dc.DrawText(label, new Point(at.X - label.Width / 2, at.Y - label.Height / 2));
+        if (!own) return;
+
+        // How steep each flight is, beside the line walked up its middle.
+        foreach (var flight in layout.Flights)
+        {
+            var along = (flight.End - flight.Start).NormalisedOrDefault(Vector2D.UnitX);
+            var middle = flight.Start.MidpointTo(flight.End) - along.PerpendicularLeft() * (layout.Width * 0.25);
+            var steep = Text($"1:{layout.Gradient:0.#}", Page(8), pen.Brush);
+            var spot = ModelToScreen(middle);
+            dc.DrawText(steep, new Point(spot.X - steep.Width / 2, spot.Y - steep.Height / 2));
+        }
     }
 
     /// <summary>

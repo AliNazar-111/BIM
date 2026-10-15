@@ -110,6 +110,9 @@ public enum PlanTool
     /// <summary>A stair: its foot, then which way is up, to the level above.</summary>
     Stair,
 
+    /// <summary>A ramp: where it starts, then which way it runs - up from the ground, or down from a floor's edge.</summary>
+    Ramp,
+
     /// <summary>A railing along the corners clicked, guarding a balcony, a terrace or a floor's edge.</summary>
     Railing,
 
@@ -292,6 +295,7 @@ public partial class PlanView : FrameworkElement
                 _document.Elements.CollectionChanged -= OnElementsChanged;
 
             _document = value;
+            ModelMayHaveChanged();
             _selection.Clear();
             _pendingWallStart = null;
             _trimSubject = null;
@@ -312,7 +316,20 @@ public partial class PlanView : FrameworkElement
     /// The project's edit history. Every change the canvas makes goes through it, so
     /// drawing, dragging and splitting are undoable like any other edit.
     /// </summary>
-    public UndoStack? History { get; set; }
+    public UndoStack? History
+    {
+        get => _history;
+        set
+        {
+            if (ReferenceEquals(_history, value)) return;
+            _historyListener?.Stop();
+            _history = value;
+            _historyListener = value is null ? null : new UndoStackListener(value, ModelMayHaveChanged);
+            ModelMayHaveChanged();
+        }
+    }
+
+    private UndoStack? _history;
 
     public PlanTool ActiveTool { get; private set; } = PlanTool.Select;
 
@@ -1153,6 +1170,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
         PlanTool.Chimney => "Click where the chimney stack goes: it rises from this storey up through the roof over it, as far above it as the height rule asks, capped with a pot on each flue. Size and flues on the option bar.",
         PlanTool.Stair => "Click where the stair's first riser goes, then which way is up: it runs up to the level above, its risers worked out from the storey's height, and cuts its opening in the floor over it. Shape, turn and width are on the option bar.",
+        PlanTool.Ramp => "Click where the ramp starts, then which way it runs: up from the ground to this storey's floor, or - from the edge of a floor, a doorway or a terrace - down to the ground. Its flights and landings it lays out itself, as Approved Document M or the ADA asks at the gradient on the option bar.",
         PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
@@ -1280,6 +1298,7 @@ public partial class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = CancelStair()
+                      | CancelRamp()
                       | CancelRailing()
                       | CancelBeam()
                       | CancelGround()
@@ -1337,7 +1356,11 @@ public partial class PlanView : FrameworkElement
     }
 
     /// <summary>Repaints after the model was edited from outside, e.g. the property panel.</summary>
-    public void RefreshModel() => InvalidateVisual();
+    public void RefreshModel()
+    {
+        ModelMayHaveChanged();
+        InvalidateVisual();
+    }
 
     public void ZoomToFit()
     {
@@ -1394,6 +1417,9 @@ public partial class PlanView : FrameworkElement
                 case Room room: yield return room.Location; break;
                 case Column column: yield return column.Location; break;
                 case Component component: yield return component.Location; break;
+                case Ramp ramp:
+                    foreach (var point in Ramps.Layout(document, ramp).Footprint) yield return point;
+                    break;
                 case Grid grid:
                     yield return grid.Start;
                     yield return grid.End;
@@ -1408,6 +1434,7 @@ public partial class PlanView : FrameworkElement
 
     private void OnElementsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        ModelMayHaveChanged();
         _hoverCandidates.Clear();
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -1494,7 +1521,7 @@ public partial class PlanView : FrameworkElement
 
         // Nothing to land on there, putting a stair, a railing or an outline down: onto the nearest
         // edge of a floor or a balcony, or a wall's line - round it, where it curves.
-        if (!found && ActiveTool is PlanTool.Stair or PlanTool.Railing or PlanTool.Region or PlanTool.Joists)
+        if (!found && ActiveTool is PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Region or PlanTool.Joists)
         {
             void Along(Point2D a, Point2D b)
             {
@@ -1595,6 +1622,11 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             StairHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.Ramp)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            RampHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.Railing)
         {
@@ -1888,6 +1920,12 @@ public partial class PlanView : FrameworkElement
                 // A custom stair is finished with a double-click where it ends.
                 if (e.ClickCount == 2 && FinishStair()) return;
                 ClickStair(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Ramp:
+                // A drawn ramp is finished with a double-click.
+                if (e.ClickCount == 2 && FinishRamp()) return;
+                ClickRamp(SnapPoint(raw, null, out _));
                 return;
 
             case PlanTool.Railing:
@@ -3538,6 +3576,7 @@ public partial class PlanView : FrameworkElement
             BuiltInCategory.Walls => "Type Name",
             BuiltInCategory.Grids => "Name",
             BuiltInCategory.Stairs => StairParameters.Summary.Name,
+            BuiltInCategory.Ramps => RampParameters.Summary.Name,
             _ => "Mark"
         };
 
@@ -3882,6 +3921,14 @@ public partial class PlanView : FrameworkElement
                     var height = column.GetHeight(Document);
                     column.TopLevelId = Shifted(top);
                     if (column.TopLevelId is null && height > 0) column.UnconnectedHeight = height;
+                    break;
+                }
+                case Ramp { TopLevelId: { } top } ramp:
+                {
+                    // Up to the level matching its own, or rising as far as it did.
+                    var rise = Ramps.Top(Document, ramp) - Ramps.Bottom(Document, ramp);
+                    ramp.TopLevelId = top == element.LevelId ? levelId : Shifted(top);
+                    if (ramp.TopLevelId is null) ramp.UnconnectedHeight = Math.Max(Ramps.MinimumRise, rise);
                     break;
                 }
                 case Stair { TopLevelId: { } top } stair:
@@ -5624,6 +5671,7 @@ public partial class PlanView : FrameworkElement
 
         // A stair stands on the floor, and is picked before it; a railing along a floor's edge, the same.
         foreach (var stair in StairsAt(model)) yield return stair;
+        foreach (var ramp in RampsAt(model)) yield return ramp;
         foreach (var railing in RailingsAt(model)) yield return railing;
         foreach (var beam in BeamsAt(model)) yield return beam;
 
@@ -5712,13 +5760,11 @@ public partial class PlanView : FrameworkElement
 
         if (Document is null) return;
 
-        // The storey below first, so the drawing sits on top of what it is set out against.
-        DrawUnderlay(dc);
-
-        // The drawing itself comes from the shared renderer, so the plan on screen and the
-        // plan inside a viewport on a sheet are the same drawing produced by the same code.
-        PrepareRenderer();
-        _renderer.DrawContent(dc);
+        // The storey below first, so the drawing sits on top of what it is set out against. The
+        // drawing itself comes from the shared renderer, so the plan on screen and the plan
+        // inside a viewport on a sheet are the same drawing produced by the same code - kept
+        // between repaints, where nothing it shows has changed.
+        DrawModel(dc);
         DrawClearances(dc);
 
         // Editing affordances go on top, and only here. Grips, snap rings and half-finished
@@ -5734,6 +5780,7 @@ public partial class PlanView : FrameworkElement
         DrawRoofDrainPreview(dc);
         DrawChimneyPreview(dc);
         DrawStairPreview(dc);
+        DrawRampPreview(dc);
         DrawRailingPreview(dc);
         DrawBeamPreview(dc);
         DrawGroundPreview(dc);

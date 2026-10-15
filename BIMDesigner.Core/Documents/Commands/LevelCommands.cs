@@ -107,6 +107,7 @@ public sealed class DeleteLevelCommand : IUndoableCommand
     private readonly List<(ShaftOpening Shaft, double Height, double WasHeight)> _releasedShafts;
     private readonly List<(Column Column, double Height, double WasHeight)> _releasedColumns;
     private readonly List<(Stair Stair, Guid? Top, Guid? Repeat, double Height, Guid? WasTop, Guid? WasRepeat, double WasHeight)> _releasedStairs;
+    private readonly List<(Ramp Ramp, double Height, double WasHeight)> _releasedRamps;
 
     public DeleteLevelCommand(BimDocument document, Level level)
     {
@@ -148,6 +149,12 @@ public sealed class DeleteLevelCommand : IUndoableCommand
                 return (stair, top, repeat, top is null ? layout.Top - layout.Bottom : stair.UnconnectedHeight, stair.TopLevelId, stair.RepeatToLevelId, stair.UnconnectedHeight);
             })
             .ToList();
+
+        // A ramp up to it keeps the height it rises.
+        _releasedRamps = document.Elements.OfType<Ramp>()
+            .Where(ramp => !_hosted.Contains(ramp) && ramp.TopLevelId == level.Id)
+            .Select(ramp => (ramp, Ramps.Top(document, ramp) - Ramps.Bottom(document, ramp), ramp.UnconnectedHeight))
+            .ToList();
     }
 
     public string Name => $"Delete {_level.Name}";
@@ -183,6 +190,12 @@ public sealed class DeleteLevelCommand : IUndoableCommand
             if (height > 0) stair.UnconnectedHeight = Math.Max(Stairs.MinimumRise, height);
         }
 
+        foreach (var (ramp, height, _) in _releasedRamps)
+        {
+            ramp.TopLevelId = null;
+            ramp.UnconnectedHeight = Math.Max(Ramps.MinimumRise, height);
+        }
+
         foreach (var element in _hosted) _document.Remove(element);
 
         _document.RemoveLevel(_level);
@@ -210,5 +223,8 @@ public sealed class DeleteLevelCommand : IUndoableCommand
 
         foreach (var (stair, _, _, _, wasTop, wasRepeat, wasHeight) in _releasedStairs)
             (stair.TopLevelId, stair.RepeatToLevelId, stair.UnconnectedHeight) = (wasTop, wasRepeat, wasHeight);
+
+        foreach (var (ramp, _, wasHeight) in _releasedRamps)
+            (ramp.TopLevelId, ramp.UnconnectedHeight) = (_level.Id, wasHeight);
     }
 }

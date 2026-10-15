@@ -37,7 +37,10 @@ public enum MeshKind
     Beam,
 
     /// <summary>The ground.</summary>
-    Terrain
+    Terrain,
+
+    /// <summary>A ramp: its flights and landings, kerbs, handrails and guarding.</summary>
+    Ramp
 }
 
 /// <summary>

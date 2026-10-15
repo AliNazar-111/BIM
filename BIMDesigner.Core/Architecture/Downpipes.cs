@@ -108,10 +108,17 @@ public static class Downpipes
     /// The place along a gutter nearest a point in plan: the stretch of it, and how far along it -
     /// kept clear of the ends of each stretch, where its cap or a corner is.
     /// </summary>
-    public static (RoofEdgeSegment Segment, double Along, double Distance)? Nearest(BimDocument document, RoofEdgeSweep gutter, Point2D near)
+    public static (RoofEdgeSegment Segment, double Along, double Distance)? Nearest(BimDocument document, RoofEdgeSweep gutter, Point2D near) =>
+        Nearest(Segments(document, gutter), near);
+
+    /// <summary>A gutter's stretches, run by run: worked out once for all that is asked of them in finding where a downpipe comes down.</summary>
+    private static IReadOnlyList<RoofEdgeSegment> Segments(BimDocument document, RoofEdgeSweep gutter) =>
+        RoofEdgeSweeps.Runs(document, gutter).SelectMany(run => run.Segments).ToList();
+
+    private static (RoofEdgeSegment Segment, double Along, double Distance)? Nearest(IReadOnlyList<RoofEdgeSegment> segments, Point2D near)
     {
         (RoofEdgeSegment, double, double)? best = null;
-        foreach (var segment in RoofEdgeSweeps.Runs(document, gutter).SelectMany(run => run.Segments))
+        foreach (var segment in segments)
         {
             var (from, to) = (segment.From.Plan, segment.To.Plan);
             var length = segment.Length;
@@ -135,20 +142,42 @@ public static class Downpipes
         if (document.Elements.OfType<Gutter>().FirstOrDefault(candidate => candidate.Id == pipe.GutterId) is not { } gutter) return null;
         if (document.FindType<GutterType>(gutter.TypeId) is not { } type) return null;
         if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == gutter.RoofId) is not { } roof) return null;
-        if (Nearest(document, gutter, pipe.Location) is not var (segment, along, _)) return null;
+        var segments = Segments(document, gutter);
+        if (Nearest(segments, pipe.Location) is not var (segment, along, _)) return null;
 
         // Where a dormer's gutter runs back into the main roof, a downpipe would come out of it
         // inside that roof and down into the room under it: it goes along the gutter to the
         // nearest place that is out over the roof.
-        return At(document, gutter, type, roof, segment, along) ??
-               Places(document, gutter, pipe.Location).Select(place => At(document, gutter, type, roof, place.Segment, place.Along)).FirstOrDefault(path => path is not null);
+        if (At(document, gutter, type, roof, segment, along) is { } here) return here;
+
+        // Tried a step at a time away from it - every so far first, then, short of the first
+        // place it can come down, closely back toward where it was put: as near it as can be.
+        var places = Places(segments, pipe.Location);
+        double? tried = null;
+        foreach (var place in places)
+        {
+            if (tried is { } last && place.Distance < last + SearchStep) continue;
+            tried = place.Distance;
+            if (At(document, gutter, type, roof, place.Segment, place.Along) is not { } found) continue;
+
+            return places
+                       .Where(nearer => nearer.Distance > place.Distance - SearchStep && nearer.Distance < place.Distance)
+                       .Select(nearer => At(document, gutter, type, roof, nearer.Segment, nearer.Along))
+                       .FirstOrDefault(path => path is not null)
+                   ?? found;
+        }
+
+        return null;
     }
 
-    /// <summary>Places along a gutter, kept clear of the ends of each stretch, the nearest a point first.</summary>
-    private static IEnumerable<(RoofEdgeSegment Segment, double Along)> Places(BimDocument document, RoofEdgeSweep gutter, Point2D near)
+    /// <summary>How far apart along its gutter the places a downpipe is first tried at are, mm, before it is tried closely between.</summary>
+    private const double SearchStep = 250;
+
+    /// <summary>Places along a gutter, kept clear of the ends of each stretch, the nearest a point first, with how far each is from it.</summary>
+    private static IReadOnlyList<(RoofEdgeSegment Segment, double Along, double Distance)> Places(IReadOnlyList<RoofEdgeSegment> segments, Point2D near)
     {
         var places = new List<(RoofEdgeSegment Segment, double Along, double Distance)>();
-        foreach (var segment in RoofEdgeSweeps.Runs(document, gutter).SelectMany(run => run.Segments))
+        foreach (var segment in segments)
         {
             var (from, to) = (segment.From.Plan, segment.To.Plan);
             var planLength = from.DistanceTo(to);
@@ -159,7 +188,7 @@ public static class Downpipes
                 places.Add((segment, s / planLength * segment.Length, near.DistanceTo(from + (to - from) * (s / planLength))));
         }
 
-        return places.OrderBy(place => place.Distance).Select(place => (place.Segment, place.Along));
+        return places.OrderBy(place => place.Distance).ToList();
     }
 
     /// <summary>

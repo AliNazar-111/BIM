@@ -288,6 +288,13 @@ public static class ElementCopy
             TopLevelId = stair.TopLevelId, TopOffset = stair.TopOffset, UnconnectedHeight = stair.UnconnectedHeight,
             Railings = stair.Railings, CutsFloorAbove = stair.CutsFloorAbove, CutsRoof = stair.CutsRoof
         }, stair),
+        Ramp ramp => CarryCommon(new Ramp
+        {
+            Start = ramp.Start, Angle = ramp.Angle, Anchor = ramp.Anchor, Shape = ramp.Shape, TurnsLeft = ramp.TurnsLeft, Width = ramp.Width,
+            Gap = ramp.Gap, PathLengths = ramp.PathLengths.ToList(), PathTurns = ramp.PathTurns.ToList(), Gradient = ramp.Gradient,
+            BaseOffset = ramp.BaseOffset, TopLevelId = ramp.TopLevelId, TopOffset = ramp.TopOffset, UnconnectedHeight = ramp.UnconnectedHeight,
+            TopLanding = ramp.TopLanding, BottomLanding = ramp.BottomLanding, Building = ramp.Building, Outside = ramp.Outside, Railings = ramp.Railings
+        }, ramp),
         Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points, ground.ExistingPoints), ground),
         GroundRegion region => CarryCommon(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach }, region.Boundary), region),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),

@@ -479,6 +479,9 @@
                                 <RadioButton x:Name="StairTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Stair}"
                                              Content="Stair" Checked="OnToolChanged"
                                              ToolTip="Stair: click where its first riser goes, then which way is up. It runs up to the level above - straight, turning on a landing or winders, spiral, curved or split in two - its risers worked out from the storey's height, checked against Approved Document K or the IRC, and cuts its opening in the floor over it"/>
+                                <RadioButton x:Name="RampTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Ramp}"
+                                             Content="Ramp" Checked="OnToolChanged"
+                                             ToolTip="Ramp: click where it starts, then which way it runs - up from the ground to this storey's floor, or down from the edge of a floor, a doorway or a terrace to the ground. It lays out its own flights and landings at the gradient you give it - no flight longer than Approved Document M allows (2 m at 1:12, 5 m at 1:15, 10 m at 1:20) or rising more than the ADA's 30 in - with landings at its turns and its head, kerbs, handrails both sides where asked, and guarding where it stands high. Shape Custom: click along its walking line and double-click"/>
                                 <RadioButton x:Name="RailingTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Railing}"
                                              Content="Railing" Checked="OnToolChanged"
                                              ToolTip="Railing: click along where it runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the balcony, terrace or floor under it and is checked for its height there - 1100 round a balcony or a roof, 900 at a floor's edge inside a home (Approved Document K), 36 in under the IRC - and for gaps a child's head goes through. To guard a whole balcony or terrace, pick it and use Guard Edges"/>
@@ -1413,6 +1416,34 @@
                              ToolTip="How far its inside edge is from its centre: a spiral's column, a curve's well. 0 for the usual - a 120 column, or 1500"/>
                 </StackPanel>
 
+                <StackPanel x:Name="RampOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Ramp" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="RampDirectionPicker" Style="{StaticResource OptionCombo}" MinWidth="120" Margin="0,0,8,0"
+                              SelectionChanged="OnRampOptionChanged"
+                              ToolTip="Auto: click where it starts, then the way it runs - off the edge of a floor, a doorway or a terrace it goes down to the ground, its head where you clicked; otherwise up from the ground to this storey's floor. Up from here: its foot where you click. Down from here: its head where you click"/>
+                    <ComboBox x:Name="RampTypePicker" Style="{StaticResource OptionCombo}" MinWidth="190"
+                              DisplayMemberPath="Name" SelectionChanged="OnRampOptionChanged"
+                              ToolTip="How it is built: solid concrete, a concrete slab, a timber deck, or concrete with glass guarding"/>
+                    <ComboBox x:Name="RampShapePicker" Style="{StaticResource OptionCombo}" MinWidth="110" Margin="8,0,0,0"
+                              SelectionChanged="OnRampOptionChanged"
+                              ToolTip="Straight; two runs at a quarter turn on a landing; a switchback, doubling back on a landing; or Custom - click along its walking line, each place it turns, and double-click"/>
+                    <ComboBox x:Name="RampTurnPicker" Style="{StaticResource OptionCombo}" MinWidth="90" Margin="8,0,0,0"
+                              SelectionChanged="OnRampOptionChanged"
+                              ToolTip="Which way it turns, going up"/>
+                    <ComboBox x:Name="RampBuildingPicker" Style="{StaticResource OptionCombo}" MinWidth="120" Margin="8,0,0,0"
+                              SelectionChanged="OnRampOptionChanged"
+                              ToolTip="A dwelling's ramp is held to Approved Document M Volume 1 - 900 wide, landings 1200; any other building's to Volume 2 - 1500 between kerbs, landings 1500, handrails both sides and a kerb. Under the ADA, the same rules for both"/>
+                    <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="RampWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
+                             ToolTip="Its clear width between its kerbs or handrails"/>
+                    <TextBlock Text="Gradient 1 :" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="RampGradientBox" Width="40" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
+                             ToolTip="How steep it is, as one in so many: 12 is the steepest a ramp may be; 15 and 20 are gentler, with longer flights between landings. 20 or more is a sloping path, not a ramp"/>
+                    <TextBlock Text="Rise" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="RampRiseBox" Width="60" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
+                             ToolTip="How high it rises. Auto: from the ground up to this storey's floor - or, going down from a floor's edge, down to the ground; 450 where there is no ground to measure to"/>
+                </StackPanel>
+
                 <StackPanel x:Name="RailingOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Railing" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox x:Name="RailingDrawPicker" Style="{StaticResource OptionCombo}" MinWidth="110" Margin="0,0,8,0"
@@ -2095,6 +2126,10 @@
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="Stairs, their handrails and the guarding round their stairwells"/>
+                                        <CheckBox x:Name="ShowRampsBox" Content="Ramps" IsChecked="True"
+                                                  VerticalAlignment="Center" Margin="0,0,12,0"
+                                                  Click="OnModelCategoryToggled"
+                                                  ToolTip="Ramps, their kerbs, handrails and guarding"/>
                                         <CheckBox x:Name="ShowRailingsBox" Content="Railings" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"

@@ -61,7 +61,10 @@ public enum BuiltInCategory
     LightingDevices,
 
     /// <summary>The ground: a toposurface.</summary>
-    Topography
+    Topography,
+
+    /// <summary>Ramps: their flights and landings, kerbs and handrails.</summary>
+    Ramps
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

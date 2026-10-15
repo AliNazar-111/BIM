@@ -56,7 +56,7 @@ public class RailingTests
         Assert.Contains("of its edge drops 2850 with no guarding", Railings.EdgeVerdict(document, balcony));
 
         var made = Railings.GuardEdges(document, balcony, RailingBuilding.Dwelling, null, out var message);
-        Assert.Contains("left open 3.0 m where a floor carries on, 0.9 m where a stair comes up", message);
+        Assert.Contains("left open 3.0 m where a floor carries on, 0.9 m where a stair or a ramp comes up", message);
 
         // Its east side, and its south side either side of the stair: 1100 high, outside, on the balcony.
         Assert.Equal(2, made.Count);

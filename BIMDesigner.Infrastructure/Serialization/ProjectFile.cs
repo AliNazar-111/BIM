@@ -226,6 +226,26 @@ public static class ProjectFile
                 CutsFloorAbove = stair.CutsFloorAbove, CutsRoof = stair.CutsRoof, Mark = stair.Mark, Comments = stair.Comments
             });
 
+        foreach (var type in document.TypesOf<RampType>())
+            dto.RampTypes.Add(new RampTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Construction = type.Construction.ToString(), Thickness = type.Thickness,
+                KerbHeight = type.KerbHeight, KerbWidth = type.KerbWidth, HandrailHeight = type.HandrailHeight, HandrailDiameter = type.HandrailDiameter,
+                HandrailExtension = type.HandrailExtension, LowerRail = type.LowerRail, Guarding = type.Guarding.ToString(), PostSpacing = type.PostSpacing,
+                Colour = type.Colour.ToString(), MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description
+            });
+
+        foreach (var ramp in document.Elements.OfType<Ramp>())
+            dto.Ramps.Add(new RampDto
+            {
+                Id = ramp.Id, TypeId = ramp.TypeId, LevelId = ramp.LevelId, X = ramp.Start.X, Y = ramp.Start.Y, Angle = ramp.Angle,
+                Anchor = ramp.Anchor.ToString(), Shape = ramp.Shape.ToString(), TurnsLeft = ramp.TurnsLeft, Width = ramp.Width, Gap = ramp.Gap,
+                PathLengths = ramp.PathLengths.Count > 0 ? ramp.PathLengths.ToList() : null, PathTurns = ramp.PathTurns.Count > 0 ? ramp.PathTurns.ToList() : null,
+                Gradient = ramp.Gradient, BaseOffset = ramp.BaseOffset, TopLevelId = ramp.TopLevelId, TopOffset = ramp.TopOffset,
+                UnconnectedHeight = ramp.UnconnectedHeight, TopLanding = ramp.TopLanding, BottomLanding = ramp.BottomLanding,
+                Building = ramp.Building.ToString(), Outside = ramp.Outside, Railings = ramp.Railings.ToString(), Mark = ramp.Mark, Comments = ramp.Comments
+            });
+
         foreach (var type in document.TypesOf<RailingType>())
             dto.RailingTypes.Add(new RailingTypeDto
             {
@@ -1257,6 +1277,20 @@ public static class ProjectFile
                 Cost = type.Cost, Description = type.Description ?? string.Empty
             });
 
+        // A project saved before it had ramps is given the usual ones.
+        if (dto.RampTypes.Count == 0)
+            foreach (var type in RampType.Library()) document.AddType(type);
+        foreach (var type in dto.RampTypes)
+            document.AddType(new RampType(type.Name)
+            {
+                Id = type.Id, TypeMark = type.TypeMark, Construction = ParseEnum(type.Construction, RampConstruction.Solid),
+                Thickness = Within(type.Thickness, 50, 1000, 150), KerbHeight = Within(type.KerbHeight, 0, 300, 100), KerbWidth = Within(type.KerbWidth, 50, 500, 100),
+                HandrailHeight = Within(type.HandrailHeight, 600, 1200, 900), HandrailDiameter = Within(type.HandrailDiameter, 20, 80, 42),
+                HandrailExtension = Within(type.HandrailExtension, 0, 1000, 300), LowerRail = type.LowerRail, Guarding = ParseEnum(type.Guarding, RampGuarding.Balusters),
+                PostSpacing = Within(type.PostSpacing, 300, 3000, 1500), Colour = ParseColour(type.Colour, new ColourRgb(0xB5, 0xB3, 0xAE)),
+                MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description ?? string.Empty
+            });
+
         // A project saved before it had beams is given the usual ones.
         if (dto.BeamTypes.Count == 0)
             foreach (var type in BeamType.Library()) document.AddType(type);
@@ -1842,6 +1876,25 @@ public static class ProjectFile
                 TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
                 UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight >= 300 ? saved.UnconnectedHeight : 2600,
                 Railings = ParseEnum(saved.Railings, StairRailings.Auto), CutsFloorAbove = saved.CutsFloorAbove, CutsRoof = saved.CutsRoof,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
+        // A ramp, from its anchored end and the way it goes up there; one whose top level has gone rises its own height.
+        foreach (var saved in dto.Ramps.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new Ramp
+            {
+                Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Start = new Point2D(saved.X, saved.Y),
+                Angle = double.IsFinite(saved.Angle) ? saved.Angle : 90, Anchor = ParseEnum(saved.Anchor, RampAnchor.Foot),
+                Shape = ParseEnum(saved.Shape, RampShape.Straight), TurnsLeft = saved.TurnsLeft,
+                Width = Within(saved.Width, 600, 6000, 1200), Gap = Within(saved.Gap, 0, 5000, 300),
+                PathLengths = saved.PathLengths?.Where(double.IsFinite).Select(length => Math.Max(0, length)).ToList() ?? new List<double>(),
+                PathTurns = saved.PathTurns?.Select(turn => double.IsFinite(turn) ? Math.Clamp(turn, -90, 90) : 0).ToList() ?? new List<double>(),
+                Gradient = Within(saved.Gradient, 4, 100, 15), BaseOffset = double.IsFinite(saved.BaseOffset) ? saved.BaseOffset : 0,
+                TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
+                TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
+                UnconnectedHeight = Within(saved.UnconnectedHeight, Ramps.MinimumRise, 10000, 450),
+                TopLanding = Within(saved.TopLanding, 0, 10000, 1200), BottomLanding = Within(saved.BottomLanding, 0, 10000, 0),
+                Building = ParseEnum(saved.Building, RailingBuilding.Dwelling), Outside = saved.Outside, Railings = ParseEnum(saved.Railings, StairRailings.Auto),
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
@@ -2455,6 +2508,10 @@ public static class ProjectFile
     /// <summary>A saved dimension, or a workable one where the file had none or nonsense.</summary>
     private static double Size(double saved, double fallback) =>
         double.IsFinite(saved) && saved > 0 ? saved : fallback;
+
+    /// <summary>A saved size as it was, if it is one it could be; otherwise the usual.</summary>
+    private static double Within(double saved, double least, double most, double usual) =>
+        double.IsFinite(saved) && saved >= least && saved <= most ? saved : usual;
 
     private static ColourRgb ParseColour(string? text, ColourRgb fallback)
     {

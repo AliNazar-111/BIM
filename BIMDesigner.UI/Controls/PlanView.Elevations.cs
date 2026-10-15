@@ -29,7 +29,7 @@ public partial class PlanView
 
         foreach (var side in Elevations.All)
         {
-            if (Elevations.MarkerAt(Document, side) is not { } at) continue;
+            if (_memo.Get($"elevation {side}", () => Elevations.MarkerAt(Document, side)) is not { } at) continue;
             if ((ModelToScreen(at) - screen).Length <= ElevationMarkerRadius + 3) return side;
         }
 
@@ -43,7 +43,7 @@ public partial class PlanView
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         foreach (var side in Elevations.All)
         {
-            if (Elevations.MarkerAt(Document, side) is not { } at) continue;
+            if (_memo.Get($"elevation {side}", () => Elevations.MarkerAt(Document, side)) is not { } at) continue;
 
             var centre = ModelToScreen(at);
             var outward = Elevations.Outward(side);

@@ -32,7 +32,7 @@ public sealed record ElementHandle(string Key, Point2D At, double Height, bool V
 public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
-    public static bool Has(Element element) => element is Railing or Beam or Toposurface or GroundRegion or BeamSystem;
+    public static bool Has(Element element) => element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp;
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -88,6 +88,28 @@ public static class ElementHandles
             case BeamSystem system:
                 Outline(handles, system.Boundary, _ => BeamSystems.Top(document, system));
                 break;
+
+            case Ramp ramp:
+            {
+                // Its anchored end, to move it; a point up it from there - or down it, from its head -
+                // to turn it round that end; its side by that end, to widen it; a drawn ramp's
+                // turns; and, in 3D, its head and its foot raised and lowered.
+                var layout = Ramps.Layout(document, ramp);
+                var foot = ramp.Anchor == RampAnchor.Foot;
+                var (end, up, height) = foot ? (layout.Foot, layout.FootUp, layout.Bottom) : (layout.Head, layout.HeadUp * -1, layout.Top);
+                var reach = Math.Min(1500, layout.Length / 2);
+                double On(Point2D at) => layout.PieceAt(at)?.HeightAt(at) ?? height;
+                handles.Add(new ElementHandle("start", end, height, false, HandleShape.Corner));
+                handles.Add(new ElementHandle("turn", end + up * reach, On(end + up * reach), false, HandleShape.End));
+                var side = end + up * Math.Min(300, reach / 2) + up.PerpendicularLeft() * (layout.Width / 2);
+                handles.Add(new ElementHandle("width", side, On(side), false, HandleShape.End));
+                if (ramp.Shape == RampShape.Custom)
+                    for (var i = 1; i + 1 < layout.Walk.Count; i++)
+                        handles.Add(new ElementHandle($"corner:{i}", layout.Walk[i], On(layout.Walk[i]), false, HandleShape.Corner));
+                handles.Add(new ElementHandle("raise:head", layout.Head, layout.Top + RaiseOver, true, HandleShape.Raise));
+                handles.Add(new ElementHandle("raise:foot", layout.Foot, layout.Bottom + RaiseOver, true, HandleShape.Raise));
+                break;
+            }
         }
 
         return handles;
@@ -183,9 +205,63 @@ public static class ElementHandles
                 system.SetBoundary(Moved(system.Boundary, kind, index, to, out _));
                 return ($"{BeamSystems.Joists(document, system).Count} joists.", Following(system.Boundary, to, handle.Key));
             }
+
+            case Ramp ramp:
+            {
+                var level = document.FindLevel(ramp.LevelId)?.Elevation ?? 0;
+                switch (handle.Key)
+                {
+                    case "start":
+                        ramp.Start = to;
+                        break;
+                    case "turn":
+                    {
+                        // Up it from its foot; down it from its head.
+                        var way = ramp.Anchor == RampAnchor.Foot ? to - ramp.Start : ramp.Start - to;
+                        if (way.Length < 50) break;
+                        ramp.Angle = (Math.Round(Math.Atan2(way.Y, way.X) * 180 / Math.PI, 1) % 360 + 360) % 360;
+                        break;
+                    }
+                    case "width":
+                        ramp.Width = Math.Clamp(Math.Round(2 * Math.Abs((to - ramp.Start).Cross(ramp.Up)) / 10) * 10, 600, 6000);
+                        break;
+                    case "raise:head":
+                    {
+                        var top = Math.Max(Ramps.Bottom(document, ramp) + Ramps.MinimumRise, Math.Round(height - RaiseOver));
+                        if (ramp.TopLevelId is { } topId && document.FindLevel(topId) is { } upper) ramp.TopOffset = top - upper.Elevation;
+                        else ramp.UnconnectedHeight = top - Ramps.Bottom(document, ramp);
+                        break;
+                    }
+                    case "raise:foot":
+                    {
+                        var top = Ramps.Top(document, ramp);
+                        var bottom = Math.Min(top - Ramps.MinimumRise, Math.Round(height - RaiseOver));
+                        if (ramp.TopLevelId is null) ramp.UnconnectedHeight = top - bottom;
+                        ramp.BaseOffset = bottom - level;
+                        break;
+                    }
+                    default:
+                        if (kind != "corner" || ramp.Shape != RampShape.Custom) return (string.Empty, handle.Key);
+                        var points = Ramps.Layout(document, ramp).Walk.ToList();
+                        if (index <= 0 || index >= points.Count - 1) return (string.Empty, handle.Key);
+                        points[index] = to;
+                        Ramps.SetPath(ramp, points);
+                        break;
+                }
+
+                return ($"{Ramps.Summary(document, ramp)}. {Ramps.Verdict(document, ramp)}.", handle.Key);
+            }
         }
 
         return (string.Empty, handle.Key);
+    }
+
+    /// <summary>What a ramp's handles move, as it is now: where and which way it runs, how wide, how it turns, how high it starts and ends.</summary>
+    private sealed record RampState(Point2D Start, double Angle, double Width, double[] Lengths, double[] Turns, double BaseOffset, double TopOffset, double UnconnectedHeight)
+    {
+        public bool Same(RampState other) =>
+            Start == other.Start && Angle == other.Angle && Width == other.Width && Lengths.SequenceEqual(other.Lengths) && Turns.SequenceEqual(other.Turns)
+            && BaseOffset == other.BaseOffset && TopOffset == other.TopOffset && UnconnectedHeight == other.UnconnectedHeight;
     }
 
     /// <summary>How far over a spot level its arrow raising it is, mm.</summary>
@@ -303,6 +379,14 @@ public static class ElementHandles
         Toposurface => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Ground Point" : "Move Ground Point",
         GroundRegion => "Reshape Region",
         BeamSystem => "Reshape Joist Layout",
+        Ramp => key switch
+        {
+            "start" => "Move Ramp",
+            "turn" => "Turn Ramp",
+            "width" => "Widen Ramp",
+            "raise:head" or "raise:foot" => "Raise Ramp",
+            _ => "Move Ramp Turn"
+        },
         _ => "Move Handle"
     };
 
@@ -314,6 +398,7 @@ public static class ElementHandles
         Toposurface ground => ground.Points.ToList(),
         GroundRegion region => region.Boundary.ToList(),
         BeamSystem system => system.Boundary.ToList(),
+        Ramp ramp => new RampState(ramp.Start, ramp.Angle, ramp.Width, ramp.PathLengths.ToArray(), ramp.PathTurns.ToArray(), ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight),
         _ => new object()
     };
 
@@ -337,6 +422,11 @@ public static class ElementHandles
             case (BeamSystem system, List<Point2D> boundary):
                 system.SetBoundary(boundary);
                 break;
+            case (Ramp ramp, RampState state):
+                (ramp.Start, ramp.Angle, ramp.Width, ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight) =
+                    (state.Start, state.Angle, state.Width, state.BaseOffset, state.TopOffset, state.UnconnectedHeight);
+                (ramp.PathLengths, ramp.PathTurns) = (state.Lengths.ToList(), state.Turns.ToList());
+                break;
         }
     }
 
@@ -347,6 +437,7 @@ public static class ElementHandles
             x.Item2 == y.Item2 && x.Item1.SequenceEqual(y.Item1) && x.Item3.SequenceEqual(y.Item3),
         (List<Point3D> x, List<Point3D> y) => x.SequenceEqual(y),
         (List<Point2D> x, List<Point2D> y) => x.SequenceEqual(y),
+        (RampState x, RampState y) => x.Same(y),
         _ => Equals(a, b)
     };
 }

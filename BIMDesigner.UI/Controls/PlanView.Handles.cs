@@ -151,6 +151,7 @@ public partial class PlanView
     /// </summary>
     public bool DragHandleIn3D(string key, CorePoint3D from, CorePoint3D through)
     {
+        ModelMayHaveChanged();
         if (Document is null || OnlyHandled is not { } element || !key.StartsWith("handle:", StringComparison.Ordinal)) return false;
         var own = key["handle:".Length..];
         if (ElementHandles.Of(Document, element).FirstOrDefault(handle => handle.Key == (_handleElement == element && _handleKey is { } following ? following : own)) is not { } handle) return false;

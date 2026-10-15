@@ -215,6 +215,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // The ramp tool, the same: a straight ramp there.
+            if (hit is { } onGround && Plan.ActiveTool == PlanTool.Ramp && Plan.PlaceRampIn3D(onGround.Id, onGround.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
             // The shaft tool: a click on a roof, floor or ceiling cuts a shaft through it there.
             if (hit is { } onSlab && Plan.ActiveTool == PlanTool.Shaft &&
                 Plan.PlaceShaftIn3D(onSlab.Id, onSlab.At))
@@ -570,7 +577,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists;
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -581,6 +588,8 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Chimney) ShowChimneyOptions();
         StairOptions.Visibility = tool == PlanTool.Stair ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Stair) ShowStairOptions();
+        RampOptions.Visibility = tool == PlanTool.Ramp ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Ramp) ShowRampOptions();
         RailingOptions.Visibility = tool == PlanTool.Railing ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Railing) ShowRailingOptions();
         BeamOptions.Visibility = tool == PlanTool.Beam ? Visibility.Visible : Visibility.Collapsed;
@@ -1312,6 +1321,57 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    /// <summary>The ramp the next clicks put in, on the options bar.</summary>
+    private void ShowRampOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<RampType>().OrderBy(type => type.Name).ToList();
+        RampTypePicker.ItemsSource = types;
+        RampTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveRampTypeId) ?? types.FirstOrDefault();
+        Plan.ActiveRampTypeId = (RampTypePicker.SelectedItem as RampType)?.Id ?? Guid.Empty;
+        RampDirectionPicker.ItemsSource ??= new[] { "Auto: down off an edge", "Up from here", "Down from here" };
+        RampDirectionPicker.SelectedIndex = (int)Plan.NewRampDirection;
+        RampShapePicker.ItemsSource ??= EnumText.Choices<RampShape>();
+        RampShapePicker.SelectedItem = EnumText.Humanise(Plan.NewRampShape);
+        RampTurnPicker.ItemsSource ??= new[] { "Turns right", "Turns left" };
+        RampTurnPicker.SelectedIndex = Plan.NewRampTurnsLeft ? 1 : 0;
+        RampTurnPicker.Visibility = Plan.NewRampShape is RampShape.QuarterTurn or RampShape.HalfTurn ? Visibility.Visible : Visibility.Collapsed;
+        RampBuildingPicker.ItemsSource ??= new[] { "In a dwelling", "In another building" };
+        RampBuildingPicker.SelectedIndex = Plan.NewRampBuilding == RailingBuilding.Other ? 1 : 0;
+        RampWidthBox.Text = Plan.NewRampWidth.ToString("0");
+        RampGradientBox.Text = Plan.NewRampGradient.ToString("0.#");
+        RampRiseBox.Text = Plan.NewRampRise is { } rise ? rise.ToString("0") : "Auto";
+        _loadingOptions = false;
+    }
+
+    private void OnRampOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (RampTypePicker.SelectedItem is RampType type) Plan.ActiveRampTypeId = type.Id;
+        if (RampDirectionPicker.SelectedIndex >= 0) Plan.NewRampDirection = (StairDirection)RampDirectionPicker.SelectedIndex;
+        if (RampShapePicker.SelectedItem is string shape && EnumText.TryParse<RampShape>(shape, out var picked)) Plan.NewRampShape = picked;
+        Plan.NewRampTurnsLeft = RampTurnPicker.SelectedIndex == 1;
+
+        // Another building asks 1.5 m between its kerbs: a ramp for one starts that wide.
+        var building = RampBuildingPicker.SelectedIndex == 1 ? RailingBuilding.Other : RailingBuilding.Dwelling;
+        if (building != Plan.NewRampBuilding && ReferenceEquals(sender, RampBuildingPicker))
+            Plan.NewRampWidth = building == RailingBuilding.Other ? Math.Max(Plan.NewRampWidth, 1500) : Plan.NewRampWidth;
+        Plan.NewRampBuilding = building;
+        if (double.TryParse(RampWidthBox.Text, out var width) && width is >= 600 and <= 6000 && !ReferenceEquals(sender, RampBuildingPicker)) Plan.NewRampWidth = width;
+        if (double.TryParse(RampGradientBox.Text, out var gradient) && gradient is >= 4 and <= 100) Plan.NewRampGradient = gradient;
+        Plan.NewRampRise = double.TryParse(RampRiseBox.Text, out var rise) && rise >= Ramps.MinimumRise && rise <= 10000 ? rise : null;
+        ShowRampOptions();
+        Plan.InvalidateVisual();
+    }
+
+    private void OnRampOptionKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnRampOptionChanged(sender, e);
+        e.Handled = true;
+    }
+
     private void ShowChimneyOptions()
     {
         _loadingOptions = true;
@@ -1884,7 +1944,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RailingTool, BeamTool, TerrainTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, TerrainTool,
         RegionTool, JoistsTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
@@ -1960,6 +2020,7 @@ public partial class MainWindow : Window
             : RoofDrainTool.IsChecked == true ? PlanTool.RoofDrain
             : ChimneyTool.IsChecked == true ? PlanTool.Chimney
             : StairTool.IsChecked == true ? PlanTool.Stair
+            : RampTool.IsChecked == true ? PlanTool.Ramp
             : RailingTool.IsChecked == true ? PlanTool.Railing
             : BeamTool.IsChecked == true ? PlanTool.Beam
             : TerrainTool.IsChecked == true ? PlanTool.Terrain
@@ -3550,7 +3611,7 @@ public partial class MainWindow : Window
         {
             ParameterValue.BindChoice(ViewScaleParameter,
                 () => new ViewScale(_document.ViewSettings.ScaleOf(view)).ToString(),
-                text => _document.ViewSettings.SetScale(view, ViewScale.Common[scales.IndexOf(text)]),
+                text => { _document.ViewSettings.SetScale(view, ViewScale.Common[scales.IndexOf(text)]); Plan.RefreshModel(); },
                 scales),
             ParameterValue.BindChoice(DetailLevelParameter,
                 () => EnumText.Humanise(Plan.DetailLevel),
@@ -3571,7 +3632,7 @@ public partial class MainWindow : Window
                 text =>
                 {
                     _document.ProjectInformation.ClearanceStandard = Enum.GetValues<ClearanceStandard>().FirstOrDefault(standard => Clearances.Label(standard) == text);
-                    Plan.InvalidateVisual();
+                    Plan.RefreshModel();
                     if (Plan.ShowClearances) ShowClearances(true);
                 },
                 Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
@@ -4323,6 +4384,7 @@ public partial class MainWindow : Window
         Model3D.SetKindVisible(MeshKind.Framing, ShowFramingBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Stair, ShowStairsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Railing, ShowRailingsBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Ramp, ShowRampsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Beam, ShowBeamsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Terrain, ShowTerrainBox.IsChecked == true);
         Model3D.ShowGround = ShowGroundBox.IsChecked == true;

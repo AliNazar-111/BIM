@@ -198,6 +198,7 @@ public partial class PlanView
     /// </summary>
     public bool DragStairGripIn3D(string key, CorePoint3D from, CorePoint3D through)
     {
+        ModelMayHaveChanged();
         if (Document is null || OnlySelectedStair is not { } stair || !key.StartsWith("stair:", StringComparison.Ordinal)) return false;
         var parts = key.Split(':');
         if (!Enum.TryParse<StairGripKind>(parts[1], out var kind)) return false;

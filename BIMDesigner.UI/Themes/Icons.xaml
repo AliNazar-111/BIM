@@ -147,6 +147,12 @@
         <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,20 L26,1"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Ramp"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,29 L30,29 L30,17 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M2,20 L30,8 M9,17 L9,26 M18,13 L18,22 M27,9 L27,18"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Railing"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,25 L30,25 L30,29 L2,29 Z"/>

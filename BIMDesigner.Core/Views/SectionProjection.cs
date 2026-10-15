@@ -172,6 +172,8 @@ public static class SectionProjection
             // Stairs, their flights and landings, strings and handrails, cut where the line crosses them.
             foreach (var stair in document.Elements.OfType<Stair>().Where(stair => shows(stair) && Near(marker, stair.Start, 9000)))
                 AddCut(marker, StairModel.Meshes(document, stair), pieces);
+            foreach (var ramp in document.Elements.OfType<Ramp>().Where(ramp => shows(ramp) && Ramps.Layout(document, ramp).Footprint.Any(point => Near(marker, point, 3000))))
+                AddCut(marker, RampModel.Meshes(document, ramp), pieces);
             foreach (var railing in document.Elements.OfType<Railing>().Where(railing => shows(railing) && railing.Path.Any(point => Near(marker, point, Railings.Length(railing) + 500))))
                 AddCut(marker, RailingModel.Meshes(document, railing), pieces);
             foreach (var ground in document.Elements.OfType<Toposurface>().Where(ground => shows(ground)))

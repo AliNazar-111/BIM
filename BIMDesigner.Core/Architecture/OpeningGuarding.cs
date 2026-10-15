@@ -42,6 +42,9 @@ public static class OpeningGuarding
                 .Where(top => top <= floor + Stairs.FloorReach)
                 .Select(top => (double?)top)
                 .Max();
+
+            // A ramp's landing outside a door is stood on as a floor is.
+            if (Ramps.SurfaceAt(document, beside, floor, Stairs.FloorReach) is { } ramp && (below is null || ramp > below)) below = ramp;
             return floor - (below ?? Terrains.GroundAt(document, beside) ?? lowest);
         }
 

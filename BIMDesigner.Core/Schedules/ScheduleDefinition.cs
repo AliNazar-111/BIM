@@ -170,6 +170,14 @@ public sealed class ScheduleDefinition
             }
             .WithoutTotals("Width", "Risers", "Riser Height", "Actual Going", "Pitch"),
 
+        // Every ramp: how steep and wide, how high it rises and in how many flights, and whether it meets the regulations.
+        new ScheduleDefinition("Ramp Schedule", BuiltInCategory.Ramps,
+                "Mark", "Type Name", "Base Level", "Width", "Gradient (1 in)", "Rise", "Flights", "Length", "Outside", "Regulations")
+            {
+                SortBy = "Mark"
+            }
+            .WithoutTotals("Width", "Gradient (1 in)", "Rise", "Flights"),
+
         // Every railing: how long and high it is, whether it is outside, and whether it meets its regulations there.
         new ScheduleDefinition("Railing Schedule", BuiltInCategory.Railings,
                 "Mark", "Type Name", "Base Level", "Length", "Height", "Outside", "Regulations")

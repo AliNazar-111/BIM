@@ -168,6 +168,7 @@ public static class IfcExport
             foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
             foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
             foreach (var stair in _document.Elements.OfType<Stair>()) ExportStair(stair);
+            foreach (var ramp in _document.Elements.OfType<Ramp>()) ExportRamp(ramp);
             foreach (var railing in _document.Elements.OfType<Railing>()) ExportRailing(railing);
             foreach (var beam in _document.Elements.OfType<Beam>()) ExportBeam(beam);
             foreach (var ground in _document.Elements.OfType<Toposurface>()) ExportGround(ground);
@@ -1326,6 +1327,134 @@ public static class IfcExport
                 {
                     ["Height"] = new IfcPositiveLengthMeasure(height),
                     ["Diameter"] = type.HandrailProfile == HandrailProfile.Round ? new IfcPositiveLengthMeasure(type.HandrailWidth) : null
+                });
+            }
+        }
+
+        /// <summary>
+        /// A ramp as IFC has it: an IfcRamp made up of its flights - IfcRampFlights, each with its
+        /// slope and clear width - its landings as IfcSlabs, its kerbs as a member, and its handrails
+        /// and guarding as IfcRailings. The ramp itself is drawn by the line walked up it.
+        /// </summary>
+        private void ExportRamp(Ramp ramp)
+        {
+            var parts = RampModel.Parts(_document, ramp);
+            if (parts.All.Count == 0) return;
+
+            var type = Ramps.TypeOf(_document, ramp);
+            var layout = Ramps.Layout(_document, ramp);
+            var storey = StoreyOf(ramp);
+            var storeyElevation = _document.FindLevel(ramp.LevelId)?.Elevation ?? 0;
+            IfcObjectPlacement OnStorey() => New<IfcLocalPlacement>(placement =>
+            {
+                placement.PlacementRelTo = storey?.ObjectPlacement;
+                placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+            });
+
+            var flights = layout.FlightCount;
+            var product = New<IfcRamp>(r =>
+            {
+                r.GlobalId = ramp.Id.ToIfc();
+                r.Name = type.Name;
+                r.Tag = ramp.Mark;
+                r.PredefinedType = ramp.Shape switch
+                {
+                    RampShape.QuarterTurn => IfcRampTypeEnum.QUARTER_TURN_RAMP,
+                    RampShape.HalfTurn => IfcRampTypeEnum.HALF_TURN_RAMP,
+                    RampShape.Custom => IfcRampTypeEnum.NOTDEFINED,
+                    _ when flights >= 2 => IfcRampTypeEnum.TWO_STRAIGHT_RUN_RAMP,
+                    _ => IfcRampTypeEnum.STRAIGHT_RUN_RAMP
+                };
+                r.ObjectPlacement = OnStorey();
+                r.Representation = AxisShape(RampModel.Axis(layout), storeyElevation);
+            });
+            Contain(ramp, product);
+
+            // Its flights and landings, one after another up it.
+            var number = 0;
+            foreach (var (piece, body) in parts.Pieces.Where(piece => !piece.Body.IsEmpty))
+            {
+                if (piece.Kind == RampPieceKind.Landing)
+                {
+                    Aggregate(product, New<IfcSlab>(slab =>
+                    {
+                        slab.GlobalId = Guid.NewGuid().ToIfc();
+                        slab.Name = $"{type.Name} - landing at {piece.Low:0}";
+                        slab.PredefinedType = IfcSlabTypeEnum.LANDING;
+                        slab.ObjectPlacement = OnStorey();
+                        slab.Representation = TessellatedBody(new[] { body }, storeyElevation);
+                    }));
+                    continue;
+                }
+
+                var count = ++number;
+                var flight = New<IfcRampFlight>(f =>
+                {
+                    f.GlobalId = Guid.NewGuid().ToIfc();
+                    f.Name = $"{type.Name} - flight {count}";
+                    f.PredefinedType = IfcRampFlightTypeEnum.STRAIGHT;
+                    f.ObjectPlacement = OnStorey();
+                    f.Representation = TessellatedBody(new[] { body }, storeyElevation);
+                });
+                Aggregate(product, flight);
+                WriteSet(flight, "Pset_RampFlightCommon", new Dictionary<string, IfcValue?>
+                {
+                    ["ClearWidth"] = new IfcPositiveLengthMeasure(layout.Width),
+                    ["Slope"] = new IfcPlaneAngleMeasure(Math.Atan2(piece.Rise, piece.Going))
+                });
+            }
+
+            if (parts.Kerbs.Any(kerb => !kerb.IsEmpty))
+                Aggregate(product, New<IfcMember>(member =>
+                {
+                    member.GlobalId = Guid.NewGuid().ToIfc();
+                    member.Name = $"{type.Name} - kerbs";
+                    member.PredefinedType = IfcMemberTypeEnum.USERDEFINED;
+                    member.ObjectType = "KERB";
+                    member.ObjectPlacement = OnStorey();
+                    member.Representation = TessellatedBody(parts.Kerbs.Where(kerb => !kerb.IsEmpty).ToList(), storeyElevation);
+                }));
+
+            WriteSet(product, "Pset_RampCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["RequiredSlope"] = new IfcPlaneAngleMeasure(Math.Atan(1 / Math.Max(1, ramp.Gradient))),
+                ["HandicapAccessible"] = new IfcBoolean(Ramps.Problems(_document, ramp).Count == 0),
+                ["IsExternal"] = new IfcBoolean(ramp.Outside)
+            });
+            WriteSet(product, "Ramp", new Dictionary<string, IfcValue?>
+            {
+                ["Construction"] = new IfcLabel(EnumText.Humanise(type.Construction)),
+                ["Gradient"] = new IfcLabel($"1:{ramp.Gradient:0.#}"),
+                ["Rise"] = new IfcLengthMeasure(layout.Rise),
+                ["Flights"] = new IfcCountMeasure(flights),
+                ["Width"] = new IfcPositiveLengthMeasure(layout.Width),
+                ["Building"] = new IfcLabel(EnumText.Humanise(ramp.Building)),
+                ["Regulations"] = new IfcText(Ramps.Verdict(_document, ramp))
+            });
+
+            // Its handrails and its guarding, as IFC has them.
+            foreach (var (meshes, kind, name, height) in new[]
+                     {
+                         (parts.Handrails, IfcRailingTypeEnum.HANDRAIL, "handrails", type.HandrailHeight),
+                         (parts.Guarding, IfcRailingTypeEnum.GUARDRAIL, "guarding", Ramps.GuardHeight(_document, ramp, true).Height)
+                     })
+            {
+                var solid = meshes.Where(mesh => !mesh.IsEmpty).ToList();
+                if (solid.Count == 0) continue;
+                var railing = New<IfcRailing>(r =>
+                {
+                    r.GlobalId = Guid.NewGuid().ToIfc();
+                    r.Name = $"{type.Name} - {name}";
+                    r.PredefinedType = kind;
+                    r.ObjectPlacement = OnStorey();
+                    r.Representation = TessellatedBody(solid, storeyElevation);
+                });
+                Aggregate(product, railing);
+                WriteSet(railing, "Pset_RailingCommon", new Dictionary<string, IfcValue?>
+                {
+                    ["Height"] = new IfcPositiveLengthMeasure(height),
+                    ["Diameter"] = kind == IfcRailingTypeEnum.HANDRAIL ? new IfcPositiveLengthMeasure(type.HandrailDiameter) : null
                 });
             }
         }

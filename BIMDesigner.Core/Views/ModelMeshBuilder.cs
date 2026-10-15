@@ -69,6 +69,10 @@ public static class ModelMeshBuilder
         foreach (var stair in document.Elements.OfType<Stair>().Where(s => shows(s)))
             meshes.AddRange(StairModel.Meshes(document, stair));
 
+        // Ramps, up to the doors and terraces they serve.
+        foreach (var ramp in document.Elements.OfType<Ramp>().Where(r => shows(r)))
+            meshes.AddRange(RampModel.Meshes(document, ramp));
+
         // Railings round balconies, terraces and floors' edges.
         foreach (var railing in document.Elements.OfType<Railing>().Where(r => shows(r)))
             meshes.AddRange(RailingModel.Meshes(document, railing));
