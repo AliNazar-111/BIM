@@ -177,7 +177,13 @@ public static partial class Chimneys
         var along = new Vector2D(chimney.Along.X, chimney.Along.Y);
         var depth = Math.Max(chimney.Depth + 150, 600);
         var stove = hearth.Kind == ChimneyFireplace.Stove;
-        var openingWidth = Math.Max(500, Math.Min(Math.Max(chimney.Width, 1200) - 450, stove ? 900 : 800));
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+
+        // A stove's recess as wide as the breast allows; an open fire's opening the size its flue is
+        // sized for - 500 by 550, the largest Approved Document J's Table 2 gives a 200 flue for; 24 in square in the US.
+        var (openingWidth, openingHeight) = stove
+            ? (Math.Max(500, Math.Min(Math.Max(chimney.Width, 1200) - 450, 900)), 750.0)
+            : us ? (610.0, 610.0) : (500.0, 550.0);
 
         // Past the flues rising from below, a jamb of brick between them and the opening.
         var offsets = FlueOffsets(document, chimney);
@@ -196,9 +202,13 @@ public static partial class Chimneys
         var openingDepth = Math.Min(depth - 115, stove ? 500 : 400);
         var face = chimney.Location + along * middle + front * (depth - chimney.Depth / 2);
         var opening = Rectangle(chimney, openingWidth, openingDepth + 2, face - front * (openingDepth / 2 - 1));
-        var before = Rectangle(chimney, openingWidth + 300, openingDepth + 500, face + front * ((500 - openingDepth) / 2));
+        // Its hearth: Approved Document J's 150 past each side of the opening and 500 out in front
+        // (Diagram 24); the IRC's 8 in past each side and 16 in out - 12 in and 20 in before an
+        // opening of 6 sq ft or more (R1001.10).
+        var (side, ahead) = !us ? (150.0, 500.0) : openingWidth * openingHeight >= Chimneys.LargeOpening ? (305.0, 508.0) : (203.0, 500.0);
+        var before = Rectangle(chimney, openingWidth + 2 * side, openingDepth + ahead, face + front * ((ahead - openingDepth) / 2));
 
-        return new ChimneyBreast(outline, hearth.Ceiling, opening, stove ? 750 : 650, before);
+        return new ChimneyBreast(outline, hearth.Ceiling, opening, openingHeight, before);
     }
 
     /// <summary>The fireplace's breast on a floor of a chimney, or null where it has none there.</summary>

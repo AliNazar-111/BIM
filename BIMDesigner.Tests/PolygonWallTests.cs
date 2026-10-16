@@ -123,8 +123,8 @@ public class PolygonWallTests
                 Assert.Equal(PolygonWallKind.Trapezoid, trapezoid.Kind);
                 Assert.Equal(5000 * 375, Polygon2D.Area(trapezoid.Outline), 3);
 
-                // Its material is the core of the wall type chosen: the blockwork.
-                Assert.Equal("Concrete Block", document.FindMaterial(trapezoid.MaterialId)!.Name);
+                // Its material is the core of the wall type chosen: the aircrete blockwork.
+                Assert.Equal("Aircrete Block", document.FindMaterial(trapezoid.MaterialId)!.Name);
 
                 plan.DrawShape = WallShape.PolygonOutline;
                 foreach (var corner in new[] { new Point2D(0, 2000), new Point2D(3000, 2000), new Point2D(3500, 3500), new Point2D(0, 3000) })

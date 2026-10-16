@@ -43,7 +43,7 @@ public partial class PlanView
         return string.Join("|",
             _modelVersion, document.Elements.Count, document.Levels.Count, ActiveLevelId, PixelsPerMm.ToString("R"), DetailLevel, ShowUnderlay,
             _renderer.ShowWallLabels, _sketchRoof?.Id, VisualTreeHelper.GetDpi(this).PixelsPerDip, document.ViewSettings.Version,
-            document.ProjectInformation.ClearanceStandard, string.Join(",", _selection.Select(element => element.Id)));
+            document.ProjectInformation.ClearanceStandard, GroundColouring, string.Join(",", _selection.Select(element => element.Id)));
     }
 
     /// <summary>

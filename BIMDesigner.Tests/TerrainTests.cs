@@ -133,6 +133,13 @@ public class TerrainTests
         Assert.Empty(Railings.Edges(document, deck, RailingBuilding.Dwelling).Open);
         deck.HeightOffset = 2000;
         Assert.NotEmpty(Railings.Edges(document, deck, RailingBuilding.Dwelling).Open);
+
+        // Under the IRC: 1450 up, it drops 753 just past its north edge, but the ground falls on to 796 below it 36 in out - a guard is asked.
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
+        deck.HeightOffset = 1450;
+        var open = Assert.Single(Railings.Edges(document, deck, RailingBuilding.Dwelling).Open);
+        Assert.All(open.Points, point => Assert.Equal(-1000, point.Y, 1));
+        Assert.InRange(open.Drop, 790, 800);
     }
 
     [Fact]

@@ -107,8 +107,8 @@ public class RampTests
     {
         var document = BimDocument.CreateDefault();
         document.ProjectInformation.ClearanceStandard = ClearanceStandard.Ada;
-        var ramp = Put(document, rise: 1000, gradient: 12, width: 1000);
-        ramp.TopLanding = Ramps.EndLanding(document);
+        var ramp = Put(document, rise: 1000, gradient: 12, width: 1000, building: RailingBuilding.Other);
+        ramp.TopLanding = Ramps.EndLanding(document, ramp);
         Ramps.TypeOf(document, ramp).HandrailExtension = 305;
         var layout = Ramps.Layout(document, ramp);
 
@@ -243,7 +243,7 @@ public class RampTests
         var ground = new Toposurface { LevelId = document.Levels[0].Id };
         ground.SetPoints(new[] { new Point3D(-5000, -5000, -300), new Point3D(5000, -5000, -300), new Point3D(5000, 5000, -300), new Point3D(-5000, 5000, -300) });
         document.Add(ground);
-        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("Its foot starts from no landing, off the floor or ground"));
+        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("Its foot starts from no landing, 300 off the floor or ground"));
         ramp.BaseOffset = -300;
         ramp.UnconnectedHeight = 600;
         Assert.DoesNotContain(Ramps.Problems(document, ramp), problem => problem.Contains("Its foot"));
@@ -397,6 +397,26 @@ public class RampTests
     }
 
     [Fact]
+    public void GroundModelledLevelWithTheFloorBuriesItAndMovedDownAsAWholeItStandsOnIt()
+    {
+        // The ground put in at the floor's height - the Toposurface tool left at 0 - over a ramp down 450 from a door.
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0];
+        var ground = new Toposurface { LevelId = level.Id };
+        ground.SetPoints(new[] { new Point3D(-15000, -15000, 0), new Point3D(15000, -15000, 0), new Point3D(15000, 15000, 0), new Point3D(-15000, 15000, 0) });
+        document.Add(ground);
+        var ramp = Put(document, rise: 450);
+        (ramp.Anchor, ramp.Start, ramp.Angle, ramp.TopLevelId, ramp.TopOffset, ramp.BaseOffset) = (RampAnchor.Head, new Point2D(0, 0), 270, level.Id, 0, -450);
+        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("starts underground"));
+
+        // Its lowest point set to 450 below: the whole of it moved down, its shape kept - the ramp on it.
+        var lowest = ground.GetInstanceParameters(document).Single(parameter => parameter.Name == TerrainParameters.Lowest.Name);
+        Assert.True(lowest.TrySet(-450.0));
+        Assert.All(ground.Points, point => Assert.Equal(-450, point.Z, 6));
+        Assert.Equal("Meets Approved Document M, Volume 1", Ramps.Verdict(document, ramp));
+    }
+
+    [Fact]
     public void AnApproachTooSteepForAPathAloneIsRampedOver()
     {
         var document = BimDocument.CreateDefault();
@@ -456,5 +476,266 @@ public class RampTests
         Assert.True(plan.ClickRamp(new Point2D(-8000, 14000)));
         Assert.True(plan.FinishRamp());
         Assert.Contains(document.Elements.OfType<Ramp>(), ramp => ramp.Shape == RampShape.Custom && ramp.PathTurns.Count == 1);
+    });
+
+    [Fact]
+    public void ItsLandingsAreAsLongAsItIsWideAndATurningOneInAnotherBuildingHasPassingPlaces()
+    {
+        var document = BimDocument.CreateDefault();
+
+        // A dwelling's ramp 1500 wide: Approved Document K's landings as long as it is wide, not 1200.
+        var wide = Put(document, rise: 600, width: 1500);
+        var layout = Ramps.Layout(document, wide);
+        Assert.Equal(1500, layout.Pieces[1].Going, 6);
+        Assert.Equal(1500, Ramps.EndLanding(document, wide), 6);
+        Assert.Contains(Ramps.Problems(document, wide), problem => problem.Contains("as long as the ramp is wide, 1500"));
+
+        // Turning in a building other than a dwelling, one end out of sight of the other: its landings are passing places, 1800 square, even with two flights.
+        var turning = Put(document, rise: 450, width: 1500, building: RailingBuilding.Other, shape: RampShape.QuarterTurn);
+        layout = Ramps.Layout(document, turning);
+        Assert.Equal(2, layout.FlightCount);
+        Assert.Equal(1800, layout.TurnSize, 6);
+    }
+
+    [Fact]
+    public void AHomesRampInTheUsIsHeldToTheIrc()
+    {
+        var document = BimDocument.CreateDefault();
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Ada;
+        var ramp = Put(document, rise: 1000, gradient: 12, width: 900);
+        ramp.TopLanding = Ramps.EndLanding(document, ramp);
+        var layout = Ramps.Layout(document, ramp);
+
+        // No limit to a run's rise; landings 36 in; no width asked; at 1:12 no handrail.
+        Assert.Equal(915, ramp.TopLanding, 6);
+        Assert.Single(layout.Flights);
+        Assert.Equal((false, false), Ramps.Handrails(document, ramp, layout));
+        Assert.Empty(Ramps.Problems(document, ramp));
+
+        // Steeper than 1:12: up to 1:8 it may be, a handrail on one side - but not up to the door a home is left by; steeper than 1:8, never.
+        ramp.Gradient = 10;
+        Assert.DoesNotContain(Ramps.Problems(document, ramp), problem => problem.Contains("1:"));
+        Assert.Equal((true, false), Ramps.Handrails(document, ramp, Ramps.Layout(document, ramp)));
+        var head = Ramps.Layout(document, ramp).Head;
+        var outside = document.TypesOf<WallType>().First(type => type.Function == WallFunction.Exterior);
+        var wall = new Wall { Start = new Point2D(-3000, head.Y + 200), End = new Point2D(3000, head.Y + 200), TypeId = outside.Id, LevelId = document.Levels[0].Id, BaseOffset = 1000, UnconnectedHeight = 2400 };
+        document.Add(wall);
+        document.Add(new Door { TypeId = document.TypesOf<DoorType>().First(type => type.Function == DoorFunction.Exterior).Id, LevelId = wall.LevelId, HostWallId = wall.Id, DistanceAlongWall = 3000, Mark = "D1" });
+        Assert.True(Ramps.UpToADoorOut(document, ramp, Ramps.Layout(document, ramp)));
+        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("the door a home is left by to 1:12"));
+        ramp.Gradient = 7;
+        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("1:8 the IRC allows any ramp"));
+
+        // In another building, the ADA: 30 in to a run.
+        ramp.Building = RailingBuilding.Other;
+        ramp.Gradient = 12;
+        Assert.Equal(2, Ramps.Layout(document, ramp).FlightCount);
+    }
+
+    [Fact]
+    public void ItIsCheckedForHeadroomOverItAndTheLowSpaceUnderIt()
+    {
+        var document = BimDocument.CreateDefault();
+        var ramp = Put(document, rise: 600, width: 1500, building: RailingBuilding.Other);
+        ramp.TypeId = document.TypesOf<RampType>().Single(type => type.Name == "Ramp - Concrete Slab").Id;
+
+        // A floor over it 1.8 m over its foot.
+        var floor = new Floor { LevelId = document.Levels[0].Id, TypeId = document.TypesOf<FloorType>().First().Id, HeightOffset = 2100 };
+        floor.SetBoundary(new[] { new Point2D(-2000, -500), new Point2D(2000, -500), new Point2D(2000, 2000), new Point2D(-2000, 2000) });
+        document.Add(floor);
+        var under = floor.GetBottomElevation(document);
+        var (clear, by) = Ramps.LeastHeadroom(document, ramp, Ramps.Layout(document, ramp))!.Value;
+        Assert.Same(floor, by);
+        Assert.InRange(clear, under - 200, under);
+        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("A floor is only") && problem.Contains("2 m of headroom"));
+        document.Remove(floor);
+
+        // A slab with nothing under it but the ground at its foot: a space under it someone could walk into, lower than 2 m.
+        Assert.NotNull(Ramps.LowSpaceUnder(document, ramp, Ramps.Layout(document, ramp)));
+        Assert.Contains(Ramps.Problems(document, ramp), problem => problem.Contains("The space under it"));
+
+        // Closed underneath: its sides taken down to the ground, nothing to walk into.
+        ramp.ClosedUnderneath = true;
+        Assert.DoesNotContain(Ramps.Problems(document, ramp), problem => problem.Contains("The space under it"));
+        var kerbs = RampModel.Parts(document, ramp).Kerbs.SelectMany(mesh => mesh.Positions).ToList();
+        Assert.Contains(kerbs, point => point.Y > 5000 && Math.Abs(point.Z) < 1e-6);
+    }
+
+    [Fact]
+    public void AlongAWallItHasNoKerbNoGuardingAndItsHandrailIsOnTheWall()
+    {
+        var (document, _) = StairTests.House();
+        var south = document.Walls.Single(wall => Math.Abs(wall.Start.Y) < 1 && Math.Abs(wall.End.Y) < 1);
+        var face = document.GetWallType(south)!.Structure.TotalWidth / 2;
+
+        // Along the outside of the south wall, going east, the wall on its left.
+        var ramp = Put(document, rise: 300, width: 1200);
+        (ramp.Start, ramp.Angle, ramp.Railings) = (new Point2D(300, -face - 600), 0, StairRailings.BothSides);
+        var layout = Ramps.Layout(document, ramp);
+        var sides = Ramps.Sides(document, layout);
+        Assert.All(sides.Left.Walls, wall => Assert.Equal(0, wall!.Value, 6));
+        Assert.All(sides.Right.Walls, wall => Assert.Null(wall));
+
+        // Its handrail on the left on brackets, 50 off the wall; the right one on posts, its inner face at the ramp's width.
+        var runs = RampModel.HandrailRuns(document, ramp, layout);
+        var radius = Ramps.TypeOf(document, ramp).HandrailDiameter / 2;
+        Assert.Contains(runs, run => Math.Abs(run[1].Y - (-face - 50 - radius)) < 1e-6);
+        Assert.Contains(runs, run => Math.Abs(run[1].Y - (-face - 1200 - radius)) < 1e-6);
+
+        // No kerb along the wall: the kerbs are all on the right.
+        var kerbs = RampModel.Parts(document, ramp).Kerbs.SelectMany(mesh => mesh.Positions).ToList();
+        Assert.All(kerbs, point => Assert.True(point.Y < -face - 1200 + 1e-6));
+
+        // Higher, running on past the end of the wall: its side split where the wall stops - against it before, open after.
+        ramp.UnconnectedHeight = 900;
+        var longer = Ramps.Layout(document, ramp);
+        var left = Ramps.Sides(document, longer).Left;
+        var end = 6000 + face;
+        Assert.Contains(Enumerable.Range(0, left.Walls.Count), i => left.Walls[i] is not null && Math.Abs(left.Points[i + 1].At.X - end) < 100);
+        Assert.All(Enumerable.Range(0, left.Walls.Count), i => Assert.Equal(left.Points[i + 1].At.X <= end + 100, left.Walls[i] is not null));
+
+        // Guarded only where it is open: on its left only beyond the wall.
+        Assert.All(RampModel.Guards(document, ramp, longer), guard => Assert.All(guard.Points, point => Assert.True(point.At.Y < -face - 1200 || point.At.X > end - 100)));
+    }
+
+    [Fact]
+    public void DrawnDownFromADoorItHangsFromItsHeadAndRunsOnToItsFoot()
+    {
+        var document = BimDocument.CreateDefault();
+        var ramp = Put(document, rise: 900);
+        Ramps.SetPath(ramp, new[] { new Point2D(0, 0), new Point2D(0, -3000), new Point2D(4000, -3000) }, down: true);
+        Assert.Equal(RampAnchor.Head, ramp.Anchor);
+
+        // Its head where it was drawn from, going up back the way it came; its foot out along the last leg, as far as it takes.
+        var layout = Ramps.Layout(document, ramp);
+        Assert.Equal(0, layout.Head.X, 6);
+        Assert.Equal(0, layout.Head.Y, 6);
+        Assert.Equal(new Vector2D(0, 1), new Vector2D(Math.Round(layout.HeadUp.X, 9), Math.Round(layout.HeadUp.Y, 9)));
+        Assert.Equal(-3000, layout.Foot.Y, 6);
+        Assert.True(layout.Foot.X > 4000);
+        Assert.Equal(new Vector2D(-1, 0), new Vector2D(Math.Round(layout.FootUp.X, 9), Math.Round(layout.FootUp.Y, 9)));
+        Assert.Equal(0, layout.Bottom, 6);
+        Assert.Equal(900, layout.Pieces[^1].High, 6);
+        Assert.Equal(900, layout.Pieces[^1].Low, 6);
+
+        // Gentler, it stays at the door; only its foot goes further.
+        ramp.Gradient = 18;
+        var gentler = Ramps.Layout(document, ramp);
+        Assert.Equal(0, gentler.Head.Y, 6);
+        Assert.True(gentler.Foot.X > layout.Foot.X);
+
+        // Made to stay put by its foot: the same ramp, drawn up from there.
+        Ramps.Reanchor(document, ramp, RampAnchor.Foot);
+        var again = Ramps.Layout(document, ramp);
+        Assert.Equal(gentler.Head.X, again.Head.X, 3);
+        Assert.Equal(gentler.Head.Y, again.Head.Y, 3);
+    }
+
+    [Fact]
+    public void MakeItPassMendsWhatItCanAsOneStepToUndo()
+    {
+        var document = BimDocument.CreateDefault();
+        var ramp = Put(document, rise: 700, width: 800, gradient: 10);
+        ramp.Railings = StairRailings.None;
+        var type = Ramps.TypeOf(document, ramp);
+        type.HandrailHeight = 800;
+
+        var command = RampFixes.MakeItPass(document, ramp, out var message);
+        Assert.NotNull(command);
+        command!.Redo();
+        Assert.Equal(12, ramp.Gradient, 6);
+        Assert.Equal(900, ramp.Width, 6);
+        Assert.Equal(StairRailings.Auto, ramp.Railings);
+        Assert.Equal(900, Ramps.TypeOf(document, ramp).HandrailHeight, 6);
+        Assert.Equal(800, type.HandrailHeight, 6);
+        Assert.Empty(Ramps.Problems(document, ramp));
+        Assert.StartsWith("It passes now", message);
+
+        command.Undo();
+        Assert.Equal((10, 800, StairRailings.None), (ramp.Gradient, ramp.Width, ramp.Railings));
+        Assert.Same(type, Ramps.TypeOf(document, ramp));
+    }
+
+    [Fact]
+    public void ARailingAlongItStandsOnItsSurfaceAndItsTypeMayShortenItsFlights()
+    {
+        var document = BimDocument.CreateDefault();
+        var ramp = Put(document, rise: 450);
+        var railing = new Railing { LevelId = document.Levels[0].Id, TypeId = document.TypesOf<RailingType>().First().Id };
+        railing.SetPath(new[] { new Point2D(-500, 0), new Point2D(-500, 9000) });
+        document.Add(railing);
+        Assert.Equal(225, Railings.Base(document, railing, new Point2D(-500, 3375)), 6);
+        Assert.Equal(450, Railings.GuardedFrom(document, railing, new Point2D(-500, 8500)), 6);
+
+        // Its type's longest flight, shorter than the rules': more flights.
+        Assert.Equal(2, Ramps.Layout(document, ramp).FlightCount);
+        Ramps.TypeOf(document, ramp).LongestFlight = 2500;
+        Assert.Equal(3, Ramps.Layout(document, ramp).FlightCount);
+    }
+
+    [Fact]
+    public void TheRampToolDrawsOneDownAlongALineFromAFloorsEdge() => OnUi(() =>
+    {
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0];
+        var floor = new Floor { LevelId = level.Id, TypeId = document.TypesOf<FloorType>().First().Id };
+        floor.SetBoundary(new[] { new Point2D(0, 0), new Point2D(6000, 0), new Point2D(6000, 5000), new Point2D(0, 5000) });
+        document.Add(floor);
+        var ground = new Toposurface { LevelId = level.Id };
+        ground.SetPoints(new[] { new Point3D(-20000, -20000, -450), new Point3D(30000, -20000, -450), new Point3D(30000, 30000, -450), new Point3D(-20000, 30000, -450) });
+        document.Add(ground);
+
+        var plan = new PlanView { Document = document, ActiveLevelId = level.Id, NewRampShape = RampShape.Custom };
+        plan.SetTool(PlanTool.Ramp);
+        Assert.True(plan.ClickRamp(new Point2D(6000, 2500)));
+        Assert.True(plan.ClickRamp(new Point2D(9000, 2500)));
+        Assert.True(plan.ClickRamp(new Point2D(9000, -2000)));
+        Assert.True(plan.FinishRamp());
+
+        var ramp = Assert.Single(document.Elements.OfType<Ramp>());
+        var layout = Ramps.Layout(document, ramp);
+        Assert.Equal(RampAnchor.Head, ramp.Anchor);
+        Assert.Equal(6000, layout.Head.X, 6);
+        Assert.Equal(2500, layout.Head.Y, 6);
+        Assert.Equal(9000, layout.Foot.X, 6);
+        Assert.True(layout.Foot.Y < 2500);
+        Assert.Equal(-450, layout.Bottom, 6);
+    });
+
+    [Fact]
+    public void WithAFloorLevelWithTheGroundTheToolMakesUpNoRiseAndABuriedRampIsSaidToBe() => OnUi(() =>
+    {
+        // No ground modelled, the ground floor's top at the level: the ground is taken to be there too.
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0];
+        var floor = new Floor { LevelId = level.Id, TypeId = document.TypesOf<FloorType>().First().Id };
+        floor.SetBoundary(new[] { new Point2D(0, 0), new Point2D(6000, 0), new Point2D(6000, 5000), new Point2D(0, 5000) });
+        document.Add(floor);
+
+        var plan = new PlanView { Document = document, ActiveLevelId = level.Id };
+        var said = new List<string>();
+        plan.HintChanged += (_, hint) => said.Add(hint);
+        plan.SetTool(PlanTool.Ramp);
+
+        // Down off the floor's edge, up toward it: nothing to ramp to either way, and said so.
+        Assert.True(plan.ClickRamp(new Point2D(6000, 2500)));
+        Assert.False(plan.ClickRamp(new Point2D(9000, 2500)));
+        Assert.Contains("level with the ground", said[^1]);
+        plan.NewRampDirection = StairDirection.Up;
+        Assert.True(plan.ClickRamp(new Point2D(15000, 2500)));
+        Assert.False(plan.ClickRamp(new Point2D(10000, 2500)));
+        Assert.Contains("nothing for a ramp to come up to", said[^1]);
+        Assert.Empty(document.Elements.OfType<Ramp>());
+
+        // Told how high it rises, it is put in as told.
+        plan.NewRampRise = 450;
+        Assert.True(plan.ClickRamp(new Point2D(15000, 2500)));
+        Assert.True(plan.ClickRamp(new Point2D(10000, 2500)));
+        Assert.Single(document.Elements.OfType<Ramp>());
+
+        // A ramp down from the floor to 450 below it, with no ground modelled lower: it starts underground.
+        var buried = Put(document, rise: 450);
+        (buried.Anchor, buried.Start, buried.Angle, buried.TopLevelId, buried.TopOffset, buried.BaseOffset) = (RampAnchor.Head, new Point2D(6000, 2500), 180, level.Id, 0, -450);
+        Assert.Contains(Ramps.Problems(document, buried), problem => problem.Contains("Its foot is 450 below the ground in front of it: it starts underground"));
     });
 }

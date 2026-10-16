@@ -40,6 +40,9 @@ public sealed class GroundRegion : Element
 
     public GroundSurface Surface { get; set; } = GroundSurface.Lawn;
 
+    /// <summary>How far it is raised over the ground round it - a planting bed - or, below 0, sunk into it - a sunken patio, mm.</summary>
+    public double Offset { get; set; }
+
     /// <summary>A material of the project's for it; none for how its surface usually reads.</summary>
     public Guid MaterialId { get; set; }
 
@@ -60,6 +63,12 @@ public sealed class GroundRegion : Element
             () => document.FindMaterial(MaterialId)?.Name ?? "As its surface",
             v => MaterialId = document.Materials.FirstOrDefault(material => material.Name == v)?.Id ?? Guid.Empty,
             names.Prepend("As its surface").ToArray());
+        yield return ParameterValue.BindValidated(GroundRegionParameters.Offset, () => Offset, (double v) =>
+        {
+            if (!double.IsFinite(v) || Math.Abs(v) > 3000) return false;
+            Offset = v;
+            return true;
+        });
         yield return ParameterValue.Bind(GroundRegionParameters.Approach, () => Approach, v => Approach = v);
         yield return ParameterValue.ReadOnly(GroundRegionParameters.Area, () => Polygon2D.Area(Boundary));
         yield return ParameterValue.ReadOnly(GroundRegionParameters.Gradient, () => GroundRegions.Steepest(document, this) is { } steepest && steepest > 1e-6 ? $"1:{1 / steepest:0.#}" : "Level");
@@ -74,6 +83,7 @@ public static class GroundRegionParameters
     public static readonly ParameterDefinition Surface = new("Surface", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition Approach = new("Approach to Entrance", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Offset = new("Raised By (minus for sunk)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Area = new("Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Gradient = new("Steepest Gradient", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Rule = new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
@@ -138,13 +148,25 @@ public static class GroundRegions
 
     /// <summary>
     /// What about a region falls short. A path, or paving, that is the approach to a door:
-    /// Approved Document M takes 1:20 or gentler as gently sloping; steeper is a ramp - 1:15
-    /// over 10 m at most, 1:12 over 5 m - and steeper than 1:12 is no approach without steps.
-    /// The ADA: an accessible route at 1:20, a ramp at 1:12 at most.
+    /// Approved Document M takes 1:20 or gentler as gently sloping; steeper is a ramp - its
+    /// flights 2 m at 1:12, 5 m at 1:15, 10 m at 1:20 (M4(2) 2.10, Diagram 2.1) - and steeper
+    /// than 1:12 is no approach without steps; a wheelchair user's (M4(3) 3.10) no steeper than
+    /// 1:15. Loose gravel is no suitable surface for one (2.9e, 3.9e). The ADA: an accessible
+    /// route at 1:20, a ramp at 1:12 at most, its surface firm and stable (302.1).
     /// </summary>
     public static IReadOnlyList<string> Problems(BimDocument document, GroundRegion region)
     {
         var problems = new List<string>();
+
+        // A lawn steeper than 1 in 3 is not mown safely: plant it, or step it with a retaining wall.
+        if (region.Surface == GroundSurface.Lawn && Steepest(document, region) is { } lawn && lawn > 1 / 3.0 + 1e-6)
+            problems.Add($"It falls 1:{1 / lawn:0.#} at its steepest: a lawn steeper than 1 in 3 is not mown safely - plant it, or step it with a retaining wall.");
+
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        if (region.Approach && region.Surface == GroundSurface.Gravel)
+            problems.Add(us
+                ? "It is laid in gravel: the ADA asks an accessible route for a firm, stable surface (302.1) - loose gravel is not."
+                : "It is laid in gravel: Approved Document M asks an approach for a suitable ground surface (2.9e) - firm and even, which loose gravel is not.");
         if (!region.Approach || region.Surface is not (GroundSurface.Path or GroundSurface.Paving)) return problems;
         if (Steepest(document, region) is not { } steepest || steepest <= 1 / 20.0 + 1e-6) return problems;
 
@@ -152,7 +174,7 @@ public static class GroundRegions
         if (RampOver(document, region) is not null) return problems;
 
         var said = $"1:{1 / steepest:0.#}";
-        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada)
+        if (us)
         {
             if (steepest > 1 / 12.0 + 1e-6)
                 problems.Add($"It falls {said} at its steepest: the ADA allows a ramp no steeper than 1:12 on an accessible route.");
@@ -160,11 +182,17 @@ public static class GroundRegions
             return problems;
         }
 
+        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3)
+        {
+            problems.Add(steepest > 1 / 15.0 + 1e-6
+                ? $"It falls {said} at its steepest: Approved Document M allows a wheelchair user's approach no steeper than 1:15 (M4(3) 3.10a) - a ramp built over it, or a gentler way."
+                : $"It falls {said} at its steepest: Approved Document M takes it as a ramp (M4(3) 3.10, Diagram 3.1) - its flights 5 m long at 1:15 and 10 m at 1:20 at most, 1200 wide, with level landings.");
+            return problems;
+        }
+
         problems.Add(steepest > 1 / 12.0 + 1e-6
-            ? $"It falls {said} at its steepest: Approved Document M allows an approach no steeper than 1:12 - steps, or a ramp."
-            : steepest > 1 / 15.0 + 1e-6
-                ? $"It falls {said} at its steepest: Approved Document M takes it as a ramp of up to 1:12, its flights 5 m long at most, with landings."
-                : $"It falls {said} at its steepest: Approved Document M takes it as a ramp of up to 1:15, its flights 10 m long at most, with landings.");
+            ? $"It falls {said} at its steepest: Approved Document M allows an approach no steeper than 1:12 (M4(2) 2.10a) - a ramp built over it, or steps to another way."
+            : $"It falls {said} at its steepest: Approved Document M takes it as a ramp (M4(2) 2.10, Diagram 2.1) - its flights 2 m long at 1:12, 5 m at 1:15 and 10 m at 1:20 at most, with landings.");
         return problems;
     }
 
@@ -173,7 +201,9 @@ public static class GroundRegions
         var problems = Problems(document, region);
         if (problems.Count > 0) return string.Join(" ", problems);
         if (region.Approach && RampOver(document, region) is not null && Steepest(document, region) is > 1 / 20.0 + 1e-6) return "Too steep for an approach alone: ramped, the ramp checked as one";
-        return region.Approach ? "Gently sloping enough for an approach" : "Not an approach to a door: not checked";
+        return region.Approach ? "Gently sloping enough for an approach"
+            : region.Surface == GroundSurface.Lawn ? "Gentle enough to mow"
+            : "Not an approach to a door: not checked";
     }
 
     /// <summary>A ramp built over a region - a fair part of it under the ramp - if there is one.</summary>

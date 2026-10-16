@@ -126,7 +126,16 @@ public enum PlanTool
     Region,
 
     /// <summary>A joist layout, by the outline its joists fill.</summary>
-    Joists
+    Joists,
+
+    /// <summary>A pad graded into the ground, by its corners.</summary>
+    Pad,
+
+    /// <summary>The line round the property, by its corners.</summary>
+    PropertyLine,
+
+    /// <summary>A spot elevation at each click, reading the height there.</summary>
+    SpotElevation
 }
 
 /// <summary>What clicking walls does to the selected placed sweep, when not simply selecting.</summary>
@@ -1176,6 +1185,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
         PlanTool.Region => "Click the corners of the region of ground - a lawn, paving, gravel, planting - and its first again to close it; or, drawing a path, click along its middle and double-click where it ends. It lies on the ground, following it.",
         PlanTool.Joists => "Click the corners of the outline the joists fill - the faces of what carries their ends - and its first again to close it. They run across the short way, at the spacing on the option bar, and stop short of a stairwell, with trimmers across its ends.",
+        PlanTool.Pad => "Click the corners of the pad - a patio, a drive, a terrace - and its first again to close it. The ground is cut down or made up to its height on the option bar, and battered back to the ground round it; set its fall in Properties.",
+        PlanTool.PropertyLine => "Click the corners of the property, and its first again to close it: its area, and each side's length and bearing. Give it a setback on the option bar to keep the building behind it.",
+        PlanTool.SpotElevation => "Click where to read a height: the floor, ramp, pad or ground there, written beside it - FFL +0.000, GL -0.450.",
         PlanTool.RoofDrain => "Click on a flat roof where a drain goes: the roof's insulation is tapered to fall to it - at the roof's Drainage Fall, 1 in 40 to start - in valleys from its corners, with ridges between drains.",
         PlanTool.Downpipe => "Click on a gutter where the downpipe goes: an outlet in its bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. Its size and section come from the gutter's type.",
         PlanTool.Shaft => "Click where the shaft's middle goes: it is cut straight down through the roof on this level, or up through the floor of the level above. Shape and size are on the option bar.",
@@ -1416,10 +1428,23 @@ public partial class PlanView : FrameworkElement
                 case TextNote note: yield return note.Position; break;
                 case Room room: yield return room.Location; break;
                 case Column column: yield return column.Location; break;
-                case Component component: yield return component.Location; break;
+                case Component component:
+                    // All of it - a tree's spread, a car's length - not just its middle.
+                    if (document.FindType<ComponentType>(component.TypeId) is { } family)
+                        foreach (var point in ComponentModel.Footprint(family, ComponentModel.FrameOf(component, 0))) yield return point;
+                    else
+                        yield return component.Location;
+                    break;
                 case Ramp ramp:
                     foreach (var point in Ramps.Layout(document, ramp).Footprint) yield return point;
                     break;
+                case SitePad pad:
+                    foreach (var point in pad.Boundary) yield return point;
+                    break;
+                case PropertyLine line:
+                    foreach (var point in line.Boundary) yield return point;
+                    break;
+                case SpotElevation spot: yield return spot.Location; break;
                 case Grid grid:
                     yield return grid.Start;
                     yield return grid.End;
@@ -1521,7 +1546,7 @@ public partial class PlanView : FrameworkElement
 
         // Nothing to land on there, putting a stair, a railing or an outline down: onto the nearest
         // edge of a floor or a balcony, or a wall's line - round it, where it curves.
-        if (!found && ActiveTool is PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Region or PlanTool.Joists)
+        if (!found && ActiveTool is PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine)
         {
             void Along(Point2D a, Point2D b)
             {
@@ -1644,10 +1669,15 @@ public partial class PlanView : FrameworkElement
             _cursorIsSnapped = false;
             GroundHover(_cursorModel);
         }
-        else if (ActiveTool is PlanTool.Region or PlanTool.Joists)
+        else if (ActiveTool is PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine)
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             OutlineHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.SpotElevation)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            InvalidateVisual();
         }
         else if (ActiveTool == PlanTool.RoofDrain)
         {
@@ -1950,9 +1980,13 @@ public partial class PlanView : FrameworkElement
                 ClickGround(SnapToGrid(raw));
                 return;
 
-            case PlanTool.Region or PlanTool.Joists:
+            case PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine:
                 if (e.ClickCount == 2 && FinishOutline()) return;
                 ClickOutline(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.SpotElevation:
+                PlaceSpotElevation(SnapPoint(raw, null, out _));
                 return;
         }
 
@@ -4767,10 +4801,13 @@ public partial class PlanView : FrameworkElement
             component.Elevation = type.DefaultElevation;
             component.StandsOn = FloorSurfaces.FloorUnder(Document, ActiveLevelId, component.Location)?.Id;
 
-            // A wall unit closes up to the one beside it, and hangs its height above the worktop under it.
+            // A wall unit closes up to the one beside it, and hangs its height above the worktop
+            // under it; a cooker hood hangs its height over the hob.
             ComponentPlacing.CloseUp(Document, component, type);
             if (type.Kind == BuiltInCategory.Casework && ComponentPlacing.OverWorktop(Document, component, type) is { } over)
                 component.Elevation = over;
+            else if (type.Form == ComponentForm.CookerHood && ComponentPlacing.OverHob(Document, component, type) is { } hob)
+                component.Elevation = hob;
         }
         else if (type.Placement == ComponentPlacement.FaceBased)
         {
@@ -5194,6 +5231,13 @@ public partial class PlanView : FrameworkElement
 
         // The sketch has no menu of its own: a right click there has already stopped the line.
         if (IsSketching)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // A spot level on the ground picked: taken out from its menu.
+        if (GroundPointMenu(ScreenToModel(at)))
         {
             e.Handled = true;
             return;
@@ -5670,6 +5714,7 @@ public partial class PlanView : FrameworkElement
         foreach (var chimney in ChimneysAt(model)) yield return chimney;
 
         // A stair stands on the floor, and is picked before it; a railing along a floor's edge, the same.
+        foreach (var spot in SpotElevationsAt(model)) yield return spot;
         foreach (var stair in StairsAt(model)) yield return stair;
         foreach (var ramp in RampsAt(model)) yield return ramp;
         foreach (var railing in RailingsAt(model)) yield return railing;
@@ -5704,6 +5749,8 @@ public partial class PlanView : FrameworkElement
         // Slabs last: they are under everything, so anything above them wins the click - but for the ground, under them too.
         foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
             yield return slab;
+        foreach (var line in PropertyLinesAt(model)) yield return line;
+        foreach (var pad in PadsAt(model)) yield return pad;
         foreach (var region in RegionsAt(model)) yield return region;
         foreach (var ground in GroundsAt(model)) yield return ground;
     }
@@ -5786,6 +5833,7 @@ public partial class PlanView : FrameworkElement
         DrawGroundPreview(dc);
         DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);
+        DrawGroundLegend(dc);
         DrawArcToolPreview(dc);
         DrawShapedWallPreview(dc);
         DrawRotatePreview(dc);
@@ -5829,6 +5877,7 @@ public partial class PlanView : FrameworkElement
         _renderer.View = CurrentView;
         _renderer.SetSelection(_selection);
         _renderer.ActiveLevelId = ActiveLevelId;
+        _renderer.GroundColouring = GroundColouring;
         _renderer.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
         // The editor's surface is treated as a page at 1:1, which is what makes a grid bubble

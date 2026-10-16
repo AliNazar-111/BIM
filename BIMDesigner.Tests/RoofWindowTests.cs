@@ -76,6 +76,19 @@ public class RoofWindowTests
     }
 
     [Fact]
+    public void OneThatOpensWantsASlopeOf15DegreesAndAFixedRooflightGoesInAFlatterOne()
+    {
+        var (document, roof, type) = House();
+        roof.SetEdges(new[] { new RoofEdge { DefinesSlope = true, SlopeDegrees = 10 }, new RoofEdge(), new RoofEdge { DefinesSlope = true, SlopeDegrees = 10 }, new RoofEdge() });
+
+        var frame = RoofWindows.FrameOn(document, roof, type, new Point2D(5000, 2000))!;
+        Assert.Contains("a slope of 15° or more", RoofWindows.Problem(document, frame));
+
+        var rooflight = document.TypesOf<RoofWindowType>().Single(candidate => candidate.Operation == RoofWindowOperation.Fixed);
+        Assert.Null(RoofWindows.Problem(document, RoofWindows.FrameOn(document, roof, rooflight, new Point2D(5000, 2000))!));
+    }
+
+    [Fact]
     public void NotOverAnotherOne()
     {
         var (document, roof, type) = House();

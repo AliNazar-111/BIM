@@ -534,5 +534,65 @@ public static partial class Chimneys
         }
 
         if (!lead.IsEmpty) yield return lead;
+
+        // A cricket behind a wide stack in the US, as a saddle shedding the water round it.
+        if (Cricket(document, chimney) is var (a, b, ridge, apex))
+        {
+            var cricket = New(chimney, MeshKind.Sweep, Lead, "Cricket");
+            cricket.AddTriangle(a, apex, ridge);
+            cricket.AddTriangle(b, ridge, apex);
+            cricket.AddTriangle(a, ridge, b);
+            cricket.AddEdge(ridge, apex);
+            cricket.AddEdge(a, apex);
+            cricket.AddEdge(b, apex);
+            yield return cricket;
+        }
+    }
+
+    /// <summary>
+    /// The cricket the IRC asks behind a chimney more than 30 in (762) across the slope that does
+    /// not meet the ridge (R1003.20): a saddle on the roof against its uphill face - the face's two
+    /// ends on the roof, a level ridge from the face's middle up the slope to where it meets the
+    /// roof, as high at the stack as half its width at the roof's pitch (Table R1003.20: half the
+    /// width at 12 in 12, a third at 8, a quarter at 6, a sixth at 4, an eighth at 3). Null where
+    /// none is asked: outside the US, a round flue, a stack narrow enough, or one at the ridge.
+    /// </summary>
+    public static (Point3D A, Point3D B, Point3D Ridge, Point3D Apex)? Cricket(BimDocument document, Chimney chimney)
+    {
+        if (!document.ProjectInformation.ClearanceStandard.IsUs() || TypeOf(document, chimney).IsRound) return null;
+        var outline = Outline(document, chimney);
+        if (outline.Count != 4) return null;
+        var centre = new Point2D(outline.Average(point => point.X), outline.Average(point => point.Y));
+
+        foreach (var roof in Roofs(document, chimney))
+        {
+            var surface = roof.Surface(document);
+            if (surface.FaceAt(centre) is not { } face || face.Plane.Rise < 0.05) continue;
+            var uphill = new Vector2D(face.Plane.A, face.Plane.B).NormalisedOrDefault(Vector2D.UnitX);
+
+            // Its face looking furthest up the slope.
+            var (from, to, outward) = Enumerable.Range(0, 4)
+                .Select(i => (From: outline[i], To: outline[(i + 1) % 4]))
+                .Select(edge =>
+                {
+                    var normal = (edge.To - edge.From).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+                    if (normal.Dot(edge.From.MidpointTo(edge.To) - centre) < 0) normal = normal * -1;
+                    return (edge.From, edge.To, Outward: normal);
+                })
+                .MaxBy(edge => edge.Outward.Dot(uphill));
+            var width = from.DistanceTo(to);
+            if (width <= 762 + 0.5 || outward.Dot(uphill) < 0.5) continue;
+
+            var middle = from.MidpointTo(to);
+            var apex = middle + outward * (width / 2);
+            if (!ReferenceEquals(surface.FaceAt(apex), face) || !roof.Contains(apex)) return null;
+
+            double Top(Point2D at) => roof.TopAt(document, at);
+            var height = Top(apex);
+            return height <= Top(middle) + 1 ? null
+                : (Point3D.On(from, Top(from)), Point3D.On(to, Top(to)), Point3D.On(middle, height), Point3D.On(apex, height));
+        }
+
+        return null;
     }
 }

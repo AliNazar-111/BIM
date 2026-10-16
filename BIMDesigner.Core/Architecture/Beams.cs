@@ -437,6 +437,14 @@ public static class Beams
         if (CarriedBy(document, beam, beam.Start) is null) problems.Add("Its start rests on nothing: no column, wall or beam carries it there.");
         if (CarriedBy(document, beam, beam.End) is null) problems.Add("Its end rests on nothing: no column, wall or beam carries it there.");
 
+        // Deep enough for its span, as a floor's beams are first sized: a span of about 19 times
+        // its depth for solid timber (as TRADA's span tables come out for joists at 400 centres),
+        // 18 for glulam, 20 for steel and concrete. A rule of thumb, not a calculation.
+        var type = TypeOf(document, beam);
+        var ratio = type.Material switch { BeamMaterial.Timber => 19, BeamMaterial.Glulam => 18, _ => 20 };
+        if (type.Depth > 0 && beam.Length > ratio * type.Depth + 0.5)
+            problems.Add($"It spans {beam.Length / 1000:0.0} m on a section {type.Depth:0} deep - more than the {ratio} times its depth a floor's {EnumText.Humanise(type.Material).ToLowerInvariant()} beam is first sized at: have an engineer check it, or take a deeper section.");
+
         foreach (var door in document.Elements.OfType<Door>())
         {
             if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) continue;

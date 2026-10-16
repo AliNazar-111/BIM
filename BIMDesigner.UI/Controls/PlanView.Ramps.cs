@@ -66,12 +66,17 @@ public partial class PlanView
 
     /// <summary>
     /// A ramp from a point, one way or the other, on a storey. Up from its foot: from the floor
-    /// or the ground there to the floor of this storey where it is below it, or up the rise on
-    /// the option bar. Down from its head: from the floor it is clicked by, its foot on the
-    /// ground wherever that comes out, or the rise on the option bar below. Anchored by the end clicked.
+    /// or the ground there - with none modelled, the ground the building stands on - to the floor
+    /// beyond its head higher than it, this storey's where its foot is below it, or up the rise on
+    /// the option bar. Down from its head: from the floor it is clicked by to whatever is lower
+    /// where its foot comes out - the ground, or a lower floor - or the rise on the option bar
+    /// below. Anchored by the end clicked. Shaped - drawn along a line - before its heights are
+    /// worked out, so its foot lands where it comes out as drawn. None, and why, where there is
+    /// nothing higher or lower to ramp to: no rise is made up.
     /// </summary>
-    private Ramp? NewRamp(Point2D point, Vector2D way, bool down, Guid levelId)
+    private Ramp? NewRamp(Point2D point, Vector2D way, bool down, Guid levelId, out string? why, Action<Ramp>? shape = null)
     {
+        why = null;
         if (Document?.FindLevel(levelId) is not { } level) return null;
         way = way.NormalisedOrDefault(Vector2D.UnitY);
         var type = Document.FindType<RampType>(ActiveRampTypeId) ?? Document.TypesOf<RampType>().FirstOrDefault();
@@ -84,9 +89,9 @@ public partial class PlanView
             Width = NewRampWidth,
             Gradient = NewRampGradient,
             Building = NewRampBuilding,
-            TopLanding = Ramps.EndLanding(Document),
             Start = point
         };
+        ramp.TopLanding = Ramps.EndLanding(Document, ramp);
 
         double Angle(Vector2D up) => (Math.Atan2(up.Y, up.X) * 180 / Math.PI % 360 + 360) % 360;
         if (down)
@@ -95,60 +100,103 @@ public partial class PlanView
             var floor = FloorSurfaces.StoodOnNear(Document, level.Elevation, point - way * 300, Stairs.FloorReach)?.Top ?? level.Elevation;
             (ramp.Anchor, ramp.Angle, ramp.TopLevelId, ramp.TopOffset) = (RampAnchor.Head, Angle(way * -1), level.Id, floor - level.Elevation);
             ramp.BaseOffset = ramp.TopOffset - (NewRampRise ?? UsualRampRise);
+            shape?.Invoke(ramp);
+            if (NewRampRise is not null) return ramp;
 
-            // Its foot on the ground, wherever that comes out as it is laid out down to it.
-            if (NewRampRise is null)
-                for (var pass = 0; pass < 6; pass++)
+            // Its foot on whatever is lower where it comes out - the ground, or a lower floor - as it is laid out down to it.
+            for (var pass = 0; pass < 6; pass++)
+            {
+                if (Lower(Ramps.Layout(Document, ramp).Foot, floor) is not { } lower)
                 {
-                    var foot = Ramps.Layout(Document, ramp).Foot;
-                    if (Terrains.GroundNear(Document, floor, foot, Terrains.Reach) is not { } ground || ground > floor - Ramps.MinimumRise) break;
-                    var offset = Math.Round(ground - level.Elevation);
-                    if (Math.Abs(offset - ramp.BaseOffset) < 1) break;
-                    ramp.BaseOffset = offset;
+                    why = Document.Elements.OfType<Toposurface>().Any()
+                        ? "There is nothing lower than the floor here for a ramp to go down to. Give its Rise on the option bar, or draw it from somewhere higher."
+                        : "The floor here is level with the ground - with no ground modelled, the ground is taken to be at the lowest level - so there is nothing for a ramp to go down to. Model the ground outside lower with a Toposurface, or give its Rise on the option bar.";
+                    return null;
                 }
+
+                var offset = Math.Round(lower - level.Elevation);
+                if (Math.Abs(offset - ramp.BaseOffset) < 1) break;
+                ramp.BaseOffset = offset;
+            }
 
             return ramp;
         }
 
         // Its foot here, on the floor or the ground there, going up the way clicked.
-        var under = FloorSurfaces.StoodOnNear(Document, level.Elevation, point, 50)?.Top
-                    ?? Terrains.GroundNear(Document, level.Elevation, point, Terrains.Reach)
-                    ?? level.Elevation;
+        var under = FloorSurfaces.StoodOnNear(Document, level.Elevation, point, 50)?.Top ?? Ramps.GroundUnder(Document, point);
         (ramp.Anchor, ramp.Angle, ramp.BaseOffset) = (RampAnchor.Foot, Angle(way), Math.Round(under - level.Elevation));
-        if (NewRampRise is null && under < level.Elevation - Ramps.MinimumRise)
+        shape?.Invoke(ramp);
+        if (NewRampRise is { } rise)
         {
-            // Up from the ground to this storey's floor - the floor it comes up onto, where there is one.
-            (ramp.TopLevelId, ramp.TopOffset) = (level.Id, 0);
-            for (var pass = 0; pass < 3; pass++)
-            {
-                var layout = Ramps.Layout(Document, ramp);
-                if (FloorSurfaces.StoodOnNear(Document, level.Elevation, layout.Head + layout.HeadUp * 300, Stairs.FloorReach) is not { } onto) break;
-                var offset = Math.Round(onto.Top - level.Elevation);
-                if (Math.Abs(offset - ramp.TopOffset) < 1) break;
-                ramp.TopOffset = offset;
-            }
+            ramp.UnconnectedHeight = rise;
+            return ramp;
         }
-        else ramp.UnconnectedHeight = NewRampRise ?? UsualRampRise;
+
+        // Up to the floor beyond its head higher than its foot: this storey's, where its foot is below it, or the one it comes up onto.
+        ramp.UnconnectedHeight = UsualRampRise;
+        double? onto = under < level.Elevation - Ramps.MinimumRise ? level.Elevation : null;
+        for (var pass = 0; pass < 4; pass++)
+        {
+            if (onto is { } top) (ramp.TopLevelId, ramp.TopOffset) = (level.Id, Math.Round(top - level.Elevation));
+            var layout = Ramps.Layout(Document, ramp);
+            var beyond = layout.Head + layout.HeadUp * 300;
+            var floors = Document.Elements.OfType<Slab>()
+                .Where(slab => slab.Boundary.Count >= 3 && slab is not Ceiling && slab.Contains(beyond) && FloorSurfaces.IsStoodOn(Document, slab))
+                .Select(slab => FloorSurfaces.TopAt(Document, slab, beyond))
+                .Where(height => height > under + Ramps.MinimumRise && height < under + 10000)
+                .ToList();
+            if (floors.Count == 0) break;
+            var reached = floors.MinBy(height => Math.Abs(height - layout.Top));
+            if (onto is { } known && Math.Abs(reached - known) < 1) break;
+            onto = reached;
+        }
+
+        if (onto is null)
+        {
+            why = Document.Elements.OfType<Toposurface>().Any()
+                ? "There is nothing higher here for a ramp to come up to. Point it at the floor it is to reach, or give its Rise on the option bar."
+                : "The floor here is level with the ground - with no ground modelled, the ground is taken to be at the lowest level - so there is nothing for a ramp to come up to. Model the ground outside lower with a Toposurface, or give its Rise on the option bar.";
+            return null;
+        }
 
         return ramp;
+    }
+
+    /// <summary>The highest of what is lower than a height at a point - a floor there, or the ground - if anything is, by a ramp's least rise.</summary>
+    private double? Lower(Point2D at, double than)
+    {
+        if (Document is null) return null;
+        var lower = Document.Elements.OfType<Slab>()
+            .Where(slab => slab.Boundary.Count >= 3 && slab is not Ceiling && slab.Contains(at) && FloorSurfaces.IsStoodOn(Document, slab))
+            .Select(slab => FloorSurfaces.TopAt(Document, slab, at))
+            .Append(Ramps.GroundUnder(Document, at))
+            .Where(height => height < than - Ramps.MinimumRise)
+            .ToList();
+        return lower.Count == 0 ? null : lower.Max();
     }
 
     /// <summary>The ramp the tool puts in from a first click toward a second: up from its foot, or down from its head.</summary>
-    private Ramp? PlannedRamp(Point2D first, Point2D toward)
+    private Ramp? PlannedRamp(Point2D first, Point2D toward, out string? why)
     {
         var way = (toward - first).NormalisedOrDefault(Vector2D.UnitY);
-        return NewRamp(first, way, RampGoesDown(first, way), ActiveLevelId);
+        return NewRamp(first, way, RampGoesDown(first, way), ActiveLevelId, out why);
     }
 
-    /// <summary>A drawn ramp along the points of its walking line - with the cursor as one more, while it is drawn.</summary>
-    private Ramp? NewRampAlong(IReadOnlyList<Point2D> points)
+    /// <summary>
+    /// A drawn ramp along the points of its walking line - with the cursor as one more, while it is
+    /// drawn: up from its foot at the first, or - drawn off the edge of a floor, a doorway or a
+    /// terrace, or told to - down from its head there, running on from the last turn to the ground.
+    /// </summary>
+    private Ramp? NewRampAlong(IReadOnlyList<Point2D> points, out string? why)
     {
-        var ramp = NewRamp(points[0], points.Count > 1 ? points[1] - points[0] : Vector2D.UnitY, false, ActiveLevelId);
-        if (ramp is null) return null;
-        ramp.TurnsLeft = false;
-        if (points.Count > 1) Ramps.SetPath(ramp, points);
-        ramp.Shape = RampShape.Custom;
-        return ramp;
+        var way = points.Count > 1 ? points[1] - points[0] : Vector2D.UnitY;
+        var down = RampGoesDown(points[0], way.NormalisedOrDefault(Vector2D.UnitY));
+        return NewRamp(points[0], way, down, ActiveLevelId, out why, ramp =>
+        {
+            ramp.TurnsLeft = false;
+            ramp.Shape = RampShape.Custom;
+            if (points.Count > 1) Ramps.SetPath(ramp, points, down);
+        });
     }
 
     /// <summary>A ramp put in, said in the hint, the plan drawn again.</summary>
@@ -176,7 +224,7 @@ public partial class PlanView
             if (_rampPoints.Count > 0 && (at - _rampPoints[^1]).Length * PixelsPerMm < 8) return FinishRamp();
             _rampPoints.Add(at);
             HintChanged?.Invoke(this, _rampPoints.Count == 1
-                ? "Now click along its walking line, going up: each place it turns - a landing there - then double-click. It runs on from the last turn as far as it must."
+                ? "Now click along its walking line - up from its foot, or down from a doorway or a terrace's edge - each place it turns, a landing there, then double-click. It runs on from the last turn as far as it must."
                 : "Click where it turns next, or double-click to finish. Esc to stop.");
             InvalidateVisual();
             return true;
@@ -197,7 +245,13 @@ public partial class PlanView
 
         if ((at - start).Length < 10) return false;
         _rampStart = null;
-        if (PlannedRamp(start, at) is not { } ramp) return false;
+        if (PlannedRamp(start, at, out var why) is not { } ramp)
+        {
+            HintChanged?.Invoke(this, why ?? "No ramp there.");
+            InvalidateVisual();
+            return false;
+        }
+
         PutRamp(ramp, "Click for another; Esc to stop.");
         return true;
     }
@@ -206,9 +260,15 @@ public partial class PlanView
     public bool FinishRamp()
     {
         if (Document is null || NewRampShape != RampShape.Custom || _rampPoints.Count < 2) return false;
-        var ramp = NewRampAlong(_rampPoints);
+        var ramp = NewRampAlong(_rampPoints, out var why);
         _rampPoints.Clear();
-        if (ramp is null) return false;
+        if (ramp is null)
+        {
+            HintChanged?.Invoke(this, why ?? "No ramp there.");
+            InvalidateVisual();
+            return false;
+        }
+
         PutRamp(ramp, "Click for another; Esc to stop.");
         return true;
     }
@@ -244,7 +304,12 @@ public partial class PlanView
         var level = Document.Levels.Where(candidate => candidate.Elevation <= at.Z + Terrains.Reach).OrderByDescending(candidate => candidate.Elevation).FirstOrDefault()
                     ?? Document.Levels.OrderBy(candidate => candidate.Elevation).First();
         var down = NewRampDirection == StairDirection.Down;
-        if (NewRamp(new Point2D(at.X, at.Y), new Vector2D(0, down ? -1 : 1), down, level.Id) is not { } ramp) return false;
+        if (NewRamp(new Point2D(at.X, at.Y), new Vector2D(0, down ? -1 : 1), down, level.Id, out var why) is not { } ramp)
+        {
+            HintChanged?.Invoke(this, why ?? "No ramp there.");
+            return false;
+        }
+
         PutRamp(ramp, "Pick it to turn it, move it or widen it by its handles.");
         return true;
     }
@@ -259,12 +324,12 @@ public partial class PlanView
         {
             var points = _rampHover is { } next ? _rampPoints.Append(next).ToList() : _rampPoints.ToList();
             foreach (var (a, b) in points.Zip(points.Skip(1))) dc.DrawLine(SketchPreviewPen, ModelToScreen(a), ModelToScreen(b));
-            if (points.Count >= 2) ramp = NewRampAlong(points);
+            if (points.Count >= 2) ramp = NewRampAlong(points, out _);
         }
         else if (_rampStart is { } start)
         {
             var toward = _rampHover is { } aim && aim.DistanceTo(start) >= 10 ? aim : start + Vector2D.UnitY * 1000;
-            ramp = PlannedRamp(start, toward);
+            ramp = PlannedRamp(start, toward, out _);
         }
         else if (_rampHover is { } hover)
         {

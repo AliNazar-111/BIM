@@ -172,6 +172,30 @@
         <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M6,24 C10,20 14,20 18,21 C22,22 25,18 28,17"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.AroundBuilding"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Green}" Pen="{StaticResource Stroke}" Geometry="M2,22 L16,15 L30,22 L16,29 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M11,20 L11,9 L16,6 L21,9 L21,20 L16,23 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Pad"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M2,28 L2,16 L8,16 L12,22 L20,22 L24,12 L30,12 L30,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Pen="{StaticResource Stroke}" Geometry="M12,22 L20,22 L20,19 L12,19 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.PropertyLine"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,6 L28,4 L26,28 L6,26 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Red}" Geometry="M3,5 L7,5 L7,9 L3,9 Z M26,3 L30,3 L30,7 L26,7 Z M24,26 L28,26 L28,30 L24,30 Z M4,24 L8,24 L8,28 L4,28 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.SpotElevation"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,20 L16,20 M10,14 L10,26 M6,20 A4,4 0 1 0 14,20 A4,4 0 1 0 6,20"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Blue}" Geometry="M16,8 L30,8 L30,14 L16,14 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Region"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Timber}" Pen="{StaticResource Stroke}" Geometry="M2,26 L10,6 L30,6 L22,26 Z"/>

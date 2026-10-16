@@ -95,7 +95,9 @@ public class ComponentScheduleExportTests
         Assert.Contains(IfcSanitaryTerminalTypeEnum.WASHHANDBASIN, sanitary);
         Assert.Contains(IfcSanitaryTerminalTypeEnum.BATH, sanitary);
         Assert.Single(model.Instances.OfType<IfcLightFixture>());
-        Assert.Contains(model.Instances.OfType<IfcBuildingElementProxy>(), proxy => proxy.Name == "Tree - Small");
+        var tree = Assert.Single(model.Instances.OfType<Xbim.Ifc4.ProductExtension.IfcGeographicElement>(), item => item.Name == "Tree - Small");
+        Assert.Equal(IfcGeographicElementTypeEnum.USERDEFINED, tree.PredefinedType);
+        Assert.Equal("Tree", tree.ObjectType?.ToString());
 
         // Each with its body, its size and the room it is in.
         var chair = furniture.First(item => item.PredefinedType == IfcFurnitureTypeEnum.CHAIR);

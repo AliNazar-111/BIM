@@ -219,6 +219,8 @@ public abstract class RoofEdgeSweep : Element, IHostedElement
         // A vented soffit's air into the roof, all along it: what the eaves are checked against.
         if (this is Soffit && document.FindType<SoffitType>(TypeId) is { } soffit)
             yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.InstanceFreeAirArea, () => soffit.FreeAirArea * Length(document) / 1000);
+        if (this is Gutter or Soffit)
+            yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.Regulations, () => RoofEdgeRules.Verdict(document, this));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -337,6 +339,7 @@ public static class RoofEdgeSweepParameters
     public static readonly ParameterDefinition Roof = new("Roof", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Edges = new("Edges", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition HorizontalOffset = new("Horizontal Profile Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Regulations = new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition VerticalOffset = new("Vertical Profile Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Length = new("Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
 

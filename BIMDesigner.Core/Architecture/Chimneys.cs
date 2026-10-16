@@ -92,6 +92,7 @@ public sealed class Chimney : Element
         yield return ParameterValue.ReadOnly(ChimneyParameters.LeastTop, () => Chimneys.LeastTop(document, this) - (document.FindLevel(LevelId)?.Elevation ?? 0));
         yield return ParameterValue.ReadOnly(ChimneyParameters.Height, () => Chimneys.Top(document, this) - Chimneys.Foot(document, this));
         yield return ParameterValue.ReadOnly(ChimneyParameters.AboveRoof, () => Chimneys.Top(document, this) - Chimneys.HighestContact(document, this) ?? 0);
+        yield return ParameterValue.ReadOnly(ChimneyParameters.Regulations, () => ChimneyRules.Verdict(document, this));
 
         yield return ParameterValue.BindChoiceCommand(ChimneyParameters.Fireplace,
             () => EnumText.Humanise(Fireplace),
@@ -262,8 +263,10 @@ public static partial class Chimneys
 
     /// <summary>
     /// The lowest a chimney's top may be under its rule, in project elevation: above where it meets
-    /// the roof, above a ridge it is near, and above the roof round it - and no lower than its
-    /// type's own least height, which is what sets an industrial stack's.
+    /// the roof - 1000, or under Approved Document J as high as the ridge of a pitched roof, where
+    /// that is lower (Diagram 17 B) - above a ridge it is near, above the roof round it, and 1000
+    /// above the top of an opening window within 2300 (Diagram 17 C); and no lower than its type's
+    /// own least height, which is what sets an industrial stack's.
     /// </summary>
     public static double LeastTop(BimDocument document, Chimney chimney)
     {
@@ -282,6 +285,27 @@ public static partial class Chimneys
 
         var outline = Outline(document, chimney);
         var top = contact + (chimney.Rule == ChimneyRule.ThreeTwoTen ? ThreeFeet : AboveContact);
+
+        if (chimney.Rule == ChimneyRule.ApprovedDocumentJ)
+        {
+            // Diagram 17 B: 1000 above where it comes through, or at least as high as the ridge of the pitched roof it comes through.
+            var ridges = roofs.Where(roof => roof.SlopeDegrees >= 10).Select(roof => roof.RidgeElevation(document)).Where(ridge => ridge > contact + 1).ToList();
+            if (ridges.Count > 0) top = Math.Min(top, ridges.Max());
+
+            // Diagram 17 C: 1000 above the top of an opening window - in the roof, a dormer or a wall - within 2300 of it.
+            double Off(Point2D point) => Polygon2D.Contains(outline, point) ? 0
+                : Enumerable.Range(0, outline.Count).Min(i => Line2D.DistanceFromSegment(point, outline[i], outline[(i + 1) % outline.Count]));
+            foreach (var window in document.Elements.OfType<RoofWindow>())
+                if (RoofWindows.Frame(document, window) is { } frame && frame.Type.Operation != RoofWindowOperation.Fixed && frame.Corners.Min(Off) <= RoofReach)
+                    top = Math.Max(top, frame.Corners.Max(frame.FrameTop) + AboveContact);
+            foreach (var window in document.Elements.OfType<Window>())
+            {
+                if (document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId) is not { } wall) continue;
+                if (Off(wall.Start + wall.Direction * window.DistanceAlongWall) > RoofReach) continue;
+                var head = wall.GetBaseElevation(document) + window.SillHeight + window.HeightOf(document.FindType<WindowType>(window.TypeId));
+                if (head > foot) top = Math.Max(top, head + AboveContact);
+            }
+        }
 
         foreach (var roof in roofs)
         {
@@ -649,6 +673,7 @@ public sealed class FitChimneysCommand : IUndoableCommand
 
 public static class ChimneyParameters
 {
+    public static readonly ParameterDefinition Regulations = new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition BaseLevel = new("Base Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition BaseOffset = new("Base Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Rule = new("Height Rule", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);

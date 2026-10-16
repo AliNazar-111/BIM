@@ -178,6 +178,24 @@ public sealed class ScheduleDefinition
             }
             .WithoutTotals("Width", "Gradient (1 in)", "Rise", "Flights"),
 
+        // Every pad graded into the ground: what it is laid as, how high, how big, how it falls, and whether it sits right against the building.
+        new ScheduleDefinition("Pad Schedule", BuiltInCategory.Pads,
+                "Mark", "Surface", "Level", "Height Offset From Level", "Area", "Fall (1 in, 0 for level)", "Regulations")
+            {
+                SortBy = "Mark"
+            }
+            .WithoutTotals("Height Offset From Level", "Fall (1 in, 0 for level)"),
+
+        // The ground laid out: each region by what it is laid as, and how big, for the landscape's quantities.
+        new ScheduleDefinition("Landscape Schedule", BuiltInCategory.Topography,
+                "Surface", "Material", "Area", "Steepest Gradient", "Raised By (minus for sunk)", "Regulations")
+            {
+                SortBy = "Surface",
+                GroupBy = "Surface",
+                Filters = { new ScheduleFilter("Surface", ScheduleOperator.IsNotEmpty) }
+            }
+            .WithoutTotals("Raised By (minus for sunk)"),
+
         // Every railing: how long and high it is, whether it is outside, and whether it meets its regulations there.
         new ScheduleDefinition("Railing Schedule", BuiltInCategory.Railings,
                 "Mark", "Type Name", "Base Level", "Length", "Height", "Outside", "Regulations")
@@ -194,11 +212,18 @@ public sealed class ScheduleDefinition
             },
 
         // What is in each room, room by room - how many of each, what each costs and what they
-        // come to: the furniture, the kitchen units and appliances, and the sanitary fittings.
+        // come to: the furniture, the kitchen units and appliances, and the sanitary fittings;
+        // the lights, sockets, switches, heating and fans, the alarms and the consumer unit.
         RoomByRoom("Furniture Schedule", BuiltInCategory.Furniture),
         RoomByRoom("Casework Schedule", BuiltInCategory.Casework),
         RoomByRoom("Appliance Schedule", BuiltInCategory.SpecialtyEquipment),
-        RoomByRoom("Plumbing Fixture Schedule", BuiltInCategory.PlumbingFixtures)
+        RoomByRoom("Plumbing Fixture Schedule", BuiltInCategory.PlumbingFixtures),
+        RoomByRoom("Lighting Fixture Schedule", BuiltInCategory.LightingFixtures),
+        RoomByRoom("Electrical Fixture Schedule", BuiltInCategory.ElectricalFixtures),
+        RoomByRoom("Lighting Device Schedule", BuiltInCategory.LightingDevices),
+        RoomByRoom("Electrical Equipment Schedule", BuiltInCategory.ElectricalEquipment),
+        RoomByRoom("Mechanical Equipment Schedule", BuiltInCategory.MechanicalEquipment),
+        RoomByRoom("Fire Alarm Device Schedule", BuiltInCategory.FireAlarmDevices)
     };
 
     /// <summary>A schedule counting each type in each room: its unit cost, and the cost of all of them.</summary>

@@ -276,7 +276,7 @@ public class ScheduleTests
 
         // The 330 mm exterior wall has five layers, so one wall gives five takeoff lines.
         Assert.Equal(5, lines.Count);
-        Assert.Contains(lines, line => line.Material == "Concrete Block");
+        Assert.Contains(lines, line => line.Material == "Aircrete Block");
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public class ScheduleTests
         var wall = AddWall(document, exterior, levelId, 5000);
         var area = wall.GetArea(document);
 
-        var block = MaterialTakeoff.Lines(document).Single(line => line.Material == "Concrete Block");
+        var block = MaterialTakeoff.Lines(document).Single(line => line.Material == "Aircrete Block");
 
         // The blockwork is the 140 mm structural layer, not the wall's whole 330 mm.
         Assert.Equal(area * 140, block.Volume, precision: 3);

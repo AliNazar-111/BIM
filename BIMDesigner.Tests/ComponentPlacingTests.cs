@@ -33,7 +33,7 @@ public class ComponentPlacingTests
     public void ABedPutDownNearAWallBacksOntoItAndFacesTheRoom()
     {
         var (document, face) = House();
-        var bed = Put(document, "Bed - Double", 5000, 1200, rotation: 90);
+        var bed = Put(document, "Bed - King 1500 x 2000", 5000, 1200, rotation: 90);
         Assert.True(ComponentPlacing.FitToWalls(document, bed));
 
         var type = TypeOf(document, bed);
@@ -46,7 +46,7 @@ public class ComponentPlacingTests
     public void ABedOutInTheRoomAndATableNearAWallStayWhereTheyArePut()
     {
         var (document, _) = House();
-        var bed = Put(document, "Bed - Double", 5000, 4000, rotation: 30);
+        var bed = Put(document, "Bed - King 1500 x 2000", 5000, 4000, rotation: 30);
         Assert.False(ComponentPlacing.FitToWalls(document, bed));
         Assert.Equal(30, bed.Rotation, 6);
 
@@ -105,7 +105,7 @@ public class ComponentPlacingTests
         document.Add(new Room { LevelId = level, Location = new Point2D(7500, 4000), Name = "Bedroom", Number = "2" });
 
         var chair = Put(document, "Chair - Dining", 2500, 3000);
-        var bed = Put(document, "Bed - Double", 7500, 4000);
+        var bed = Put(document, "Bed - King 1500 x 2000", 7500, 4000);
         document.Add(chair);
         document.Add(bed);
 

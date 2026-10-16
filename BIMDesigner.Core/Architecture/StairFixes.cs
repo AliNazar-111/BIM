@@ -120,7 +120,7 @@ public static class StairFixes
     private static bool Fix(BimDocument document, Stair stair, StairType type, List<string> changes)
     {
         var standard = document.ProjectInformation.ClearanceStandard;
-        var us = standard == ClearanceStandard.Ada;
+        var us = standard.IsUs();
         var house = us || stair.Use == StairUse.Private;
         var problems = Stairs.Problems(document, stair);
         var count = changes.Count;
@@ -149,6 +149,8 @@ public static class StairFixes
         if (Has("off the wall")) Set(type.WallClearance, 60.0, v => type.WallClearance = v, "handrails 60 off the wall");
         if (Has("ends are cut off")) Set(type.HandrailEnds, HandrailEnds.ReturnToWall, v => type.HandrailEnds = v, "handrail ends returned to the wall");
         if (Has("run on 300")) Set(type.HandrailExtension, 300.0, v => type.HandrailExtension = v, "handrails run on 300 past its ends");
+        if (Has("past its top riser and a tread's depth") && Math.Max(305, Stairs.Layout(document, stair).Going) is var extension)
+            Set(type.HandrailExtension, extension, v => type.HandrailExtension = v, $"handrails run on {extension:0} past its ends");
         if (Has("Its guarding is"))
             Set(type.GuardHeight, us ? 920.0 : house ? 900.0 : 1100.0, v => type.GuardHeight = v, $"guarding {(us ? 920 : house ? 900 : 1100)} high where level");
         if (Has("balusters are")) Set(type.BalusterSpacing, 120.0, v => type.BalusterSpacing = v, "balusters 120 apart");
@@ -158,7 +160,7 @@ public static class StairFixes
             Set(type.OpenRisers, false, v => type.OpenRisers = v, "closed risers");
         else if (Has("leave")) Set(type.RiserBars, true, v => type.RiserBars = v, "bars across its open risers");
         if (Has("overlap by")) Set(type.Nosing, 20.0, v => type.Nosing = v, "nosings of 20");
-        if (Has("Its nosings are")) Set(type.Nosing, 25.0, v => type.Nosing = v, "nosings of 25");
+        if (Has("Its nosings are") || Has("Its nosings stand")) Set(type.Nosing, 25.0, v => type.Nosing = v, "nosings of 25");
 
         // An alternating tread device under the IRC: treads 5 in (127) deep, a tread every half its going - and 8½ in (216) with their nosing.
         if (Has("deep: the IRC asks for 127")) Set(type.Going, Math.Max(type.Going, 255.0), v => type.Going = v, "a tread every 127 (5 in)");
@@ -222,7 +224,9 @@ public static class StairFixes
     /// <summary>How wide a stair must be: the IRC's 36 in; a spiral's 800 (26 in under the IRC); 1000 between handrails, and landings 1200 long, on a stair other than a house's.</summary>
     private static double WidthWanted(Stair stair, StairLayout layout, ClearanceStandard standard)
     {
-        if (standard == ClearanceStandard.Ada) return Math.Max(stair.Width, layout.Shape == StairShape.Spiral ? 660 : stair.Shape is StairShape.AlternatingTread or StairShape.Ladder ? 510 : 920);
+        if (standard == ClearanceStandard.Ada && stair.Use != StairUse.Private && layout.Shape is not (StairShape.Spiral or StairShape.AlternatingTread or StairShape.Ladder))
+            return Math.Max(stair.Width, 1118);
+        if (standard.IsUs()) return Math.Max(stair.Width, layout.Shape == StairShape.Spiral ? 660 : stair.Shape is StairShape.AlternatingTread or StairShape.Ladder ? 510 : 920);
         if (layout.Shape == StairShape.Spiral) return Math.Max(stair.Width, 800);
         return stair.Use == StairUse.Private ? stair.Width : Math.Max(stair.Width, 1200);
     }
@@ -236,7 +240,7 @@ public static class StairFixes
     {
         var layout = Stairs.Layout(document, stair);
         var height = layout.Top - layout.Bottom;
-        var us = standard == ClearanceStandard.Ada;
+        var us = standard.IsUs();
 
         // Rise, going, pitch and 2R+G: as the stair is for, and what it is.
         var (riseLeast, riseMost, goingLeast, goingMost, pitchMost, twiceLeast, twiceMost) = (stair.Shape, stair.Use, us) switch
@@ -245,6 +249,7 @@ public static class StairFixes
             (StairShape.Spiral, _, false) => (170.0, 220.0, Math.Max(190, 120 * (layout.InnerRadius + layout.Width / 2) / (layout.InnerRadius + Math.Min(270, layout.Width / 2))), 1000.0, 90.0, 0.0, 9999.0),
             (StairShape.AlternatingTread or StairShape.Ladder, _, true) => (100.0, 241.0, 0.0, 1000.0, 90.0, 0.0, 9999.0),
             (StairShape.AlternatingTread or StairShape.Ladder, _, false) => (100.0, 220.0, 220.0, 1000.0, 90.0, 0.0, 9999.0),
+            (_, not StairUse.Private, true) when standard == ClearanceStandard.Ada => (102.0, 178.0, 279.0, 600.0, 90.0, 0.0, 9999.0),
             (_, _, true) => (100.0, 196.0, 254.0, 600.0, 90.0, 0.0, 9999.0),
             (_, StairUse.Utility, false) => (150.0, 190.0, 250.0, 400.0, 90.0, 550.0, 700.0),
             (_, StairUse.GeneralAccess, false) => (150.0, 170.0, 250.0, 400.0, 90.0, 550.0, 700.0),

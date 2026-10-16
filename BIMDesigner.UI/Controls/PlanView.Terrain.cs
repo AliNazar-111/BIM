@@ -12,8 +12,11 @@ namespace BIMDesigner.UI.Controls;
 /// </summary>
 public partial class PlanView
 {
-    /// <summary>How high the next spot level is above this level, mm.</summary>
-    public double ActiveGroundElevation { get; set; }
+    /// <summary>
+    /// How high the next spot level is above this level, mm: 150 below it to start with, so the
+    /// ground outside sits under the damp-proof course, as Approved Document C asks.
+    /// </summary>
+    public double ActiveGroundElevation { get; set; } = -150;
 
     /// <summary>The spot levels clicked before there are three to make the ground of.</summary>
     private readonly List<Point3D> _groundPoints = new();
@@ -39,17 +42,22 @@ public partial class PlanView
         if (Document?.FindLevel(ActiveLevelId) is not { } level) return false;
 
         var point = new Point3D(at.X, at.Y, level.Elevation + ActiveGroundElevation);
+
+        // Not under the damp-proof course: said, so it is not found out later in the checks.
+        var warning = ActiveGroundElevation > -150 + 0.5
+            ? $" That is {(ActiveGroundElevation >= 0 ? "level with or over" : "within 150 of")} {level.Name}'s floor: the ground outside wants to be 150 below it at least."
+            : "";
         if (GroundOnLevel is { } ground)
         {
             Apply(new SetToposurfacePointsCommand(ground, ground.Points.Append(point), "Ground Point"));
-            HintChanged?.Invoke(this, $"Spot level at {Units.FormatLength(point.Z)}: {ground.Points.Count} on the ground. Click for another; Esc to stop.");
+            HintChanged?.Invoke(this, $"Spot level at {Units.FormatLength(point.Z)}: {ground.Points.Count} on the ground.{warning} Click for another; Esc to stop.");
         }
         else
         {
             _groundPoints.Add(point);
             if (_groundPoints.Count < 3)
             {
-                HintChanged?.Invoke(this, $"Spot level at {Units.FormatLength(point.Z)}. {3 - _groundPoints.Count} more to make the ground; change the elevation on the option bar between clicks.");
+                HintChanged?.Invoke(this, $"Spot level at {Units.FormatLength(point.Z)}. {3 - _groundPoints.Count} more to make the ground; change the elevation on the option bar between clicks.{warning}");
                 InvalidateVisual();
                 return true;
             }
@@ -58,7 +66,7 @@ public partial class PlanView
             made.SetPoints(_groundPoints);
             _groundPoints.Clear();
             Apply(new AddElementCommand(Document, made, "Toposurface"));
-            HintChanged?.Invoke(this, "Ground made through its three spot levels. Click for more; Esc to stop.");
+            HintChanged?.Invoke(this, $"Ground made through its three spot levels.{warning} Click for more; Esc to stop.");
         }
 
         ModelChanged?.Invoke(this, EventArgs.Empty);

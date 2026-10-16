@@ -1559,23 +1559,31 @@ public static class IfcExport
         {
             foreach (var regionMesh in Terrains.Meshes(_document, ground).Where(mesh => mesh.ElementId != ground.Id))
             {
-                if (_document.Elements.OfType<GroundRegion>().FirstOrDefault(region => region.Id == regionMesh.ElementId) is not { } region) continue;
-                var regionStorey = StoreyOf(region);
+                // A region laid on it, or a pad graded into it: each its own geographic element, named for what it is laid as.
+                var laid = _document.FindElement(regionMesh.ElementId);
+                var (surface, pad) = laid switch
+                {
+                    GroundRegion region => (region.Surface, false),
+                    SitePad graded => (graded.Surface, true),
+                    _ => (GroundSurface.Lawn, false)
+                };
+                if (laid is not (GroundRegion or SitePad)) continue;
+                var regionStorey = StoreyOf(laid);
                 var regionElement = New<Xbim.Ifc4.ProductExtension.IfcGeographicElement>(g =>
                 {
-                    g.GlobalId = region.Id.ToIfc();
-                    g.Name = EnumText.Humanise(region.Surface);
-                    g.Tag = region.Mark;
+                    g.GlobalId = laid.Id.ToIfc();
+                    g.Name = pad ? $"Pad - {EnumText.Humanise(surface)}" : EnumText.Humanise(surface);
+                    g.Tag = laid.Mark;
                     g.PredefinedType = Xbim.Ifc4.Interfaces.IfcGeographicElementTypeEnum.USERDEFINED;
-                    g.ObjectType = region.Surface.ToString().ToUpperInvariant();
+                    g.ObjectType = pad ? "PAD" : surface.ToString().ToUpperInvariant();
                     g.ObjectPlacement = New<IfcLocalPlacement>(placement =>
                     {
                         placement.PlacementRelTo = regionStorey?.ObjectPlacement;
                         placement.RelativePlacement = Placement(Point3D(0, 0, 0));
                     });
-                    g.Representation = TessellatedBody(new[] { regionMesh }, _document.FindLevel(region.LevelId)?.Elevation ?? 0);
+                    g.Representation = TessellatedBody(new[] { regionMesh }, _document.FindLevel(laid.LevelId)?.Elevation ?? 0);
                 });
-                Contain(region, regionElement);
+                Contain(laid, regionElement);
             }
 
             if (Terrains.Mesh(_document, ground) is not { } mesh) return;
@@ -1705,7 +1713,7 @@ public static class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Proxy }
+        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -1714,16 +1722,23 @@ public static class IfcExport
         /// </summary>
         private static ComponentClass ClassOf(ComponentType type) => type.Form switch
         {
-            ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine => ComponentClass.Appliance,
+            ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
+                or ComponentForm.TumbleDryer or ComponentForm.CookerHood => ComponentClass.Appliance,
             ComponentForm.Sink or ComponentForm.Shower => ComponentClass.Sanitary,
-            ComponentForm.Radiator => ComponentClass.Heater,
-            ComponentForm.Socket => ComponentClass.Outlet,
+            ComponentForm.Radiator or ComponentForm.TowelRail => ComponentClass.Heater,
+            ComponentForm.Socket or ComponentForm.ShaverSocket => ComponentClass.Outlet,
             ComponentForm.Switch => ComponentClass.Switch,
+            ComponentForm.ExtractFan => ComponentClass.Fan,
+            ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm => ComponentClass.Sensor,
+            ComponentForm.ConsumerUnit => ComponentClass.Board,
+            ComponentForm.Thermostat => ComponentClass.Control,
+            ComponentForm.Boiler => ComponentClass.Boiler,
             _ => type.Kind switch
             {
                 BuiltInCategory.Furniture or BuiltInCategory.Casework => ComponentClass.Furniture,
                 BuiltInCategory.PlumbingFixtures => ComponentClass.Sanitary,
                 BuiltInCategory.LightingFixtures => ComponentClass.Light,
+                BuiltInCategory.Planting => ComponentClass.Planting,
                 _ => ComponentClass.Proxy
             }
         };
@@ -1733,7 +1748,8 @@ public static class IfcExport
         /// table, a desk, a bed, a sofa, shelving - sanitary fittings as IfcSanitaryTerminal - a WC
         /// pan, a wash-hand basin, a bath, a sink - kitchen appliances as IfcElectricAppliance - a
         /// fridge or fridge-freezer, a cooker, a dishwasher, a washing machine - and lights as
-        /// IfcLightFixture; a tree or anything else as a proxy. Its body as the 3D view builds it,
+        /// IfcLightFixture; a tree or a shrub as an IfcGeographicElement, as IFC4 has a tree;
+        /// anything else as a proxy. Its body as the 3D view builds it,
         /// its size, and the room it is in.
         /// </summary>
         private void ExportComponent(Component component)
@@ -1750,17 +1766,17 @@ public static class IfcExport
                     furniture.PredefinedType = type.Form switch
                     {
                         ComponentForm.Chair or ComponentForm.Armchair => IfcFurnitureTypeEnum.CHAIR,
-                        ComponentForm.Table or ComponentForm.CoffeeTable => IfcFurnitureTypeEnum.TABLE,
+                        ComponentForm.Table or ComponentForm.CoffeeTable or ComponentForm.RoundTable => IfcFurnitureTypeEnum.TABLE,
                         ComponentForm.Desk => IfcFurnitureTypeEnum.DESK,
-                        ComponentForm.Bed => IfcFurnitureTypeEnum.BED,
-                        ComponentForm.Sofa => IfcFurnitureTypeEnum.SOFA,
+                        ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Cot => IfcFurnitureTypeEnum.BED,
+                        ComponentForm.Sofa or ComponentForm.CornerSofa => IfcFurnitureTypeEnum.SOFA,
                         ComponentForm.Shelving => IfcFurnitureTypeEnum.SHELF,
                         _ => IfcFurnitureTypeEnum.USERDEFINED
                     }),
                 ComponentClass.Sanitary => ComponentProduct<IfcSanitaryTerminal>(component, type, meshes, sanitary =>
                     sanitary.PredefinedType = type.Form switch
                     {
-                        ComponentForm.Toilet => IfcSanitaryTerminalTypeEnum.TOILETPAN,
+                        ComponentForm.Toilet or ComponentForm.WallHungToilet => IfcSanitaryTerminalTypeEnum.TOILETPAN,
                         ComponentForm.Basin => IfcSanitaryTerminalTypeEnum.WASHHANDBASIN,
                         ComponentForm.Bath => IfcSanitaryTerminalTypeEnum.BATH,
                         ComponentForm.Sink => IfcSanitaryTerminalTypeEnum.SINK,
@@ -1774,6 +1790,7 @@ public static class IfcExport
                         ComponentForm.Cooker => IfcElectricApplianceTypeEnum.ELECTRICCOOKER,
                         ComponentForm.Dishwasher => IfcElectricApplianceTypeEnum.DISHWASHER,
                         ComponentForm.WashingMachine => IfcElectricApplianceTypeEnum.WASHINGMACHINE,
+                        ComponentForm.TumbleDryer => IfcElectricApplianceTypeEnum.TUMBLEDRYER,
                         _ => IfcElectricApplianceTypeEnum.USERDEFINED
                     }),
                 ComponentClass.Light => ComponentProduct<IfcLightFixture>(component, type, meshes, light =>
@@ -1784,6 +1801,23 @@ public static class IfcExport
                     outlet.PredefinedType = IfcOutletTypeEnum.POWEROUTLET),
                 ComponentClass.Switch => ComponentProduct<IfcSwitchingDevice>(component, type, meshes, device =>
                     device.PredefinedType = IfcSwitchingDeviceTypeEnum.TOGGLESWITCH),
+                ComponentClass.Planting => ComponentProduct<Xbim.Ifc4.ProductExtension.IfcGeographicElement>(component, type, meshes, planting =>
+                    planting.PredefinedType = Xbim.Ifc4.Interfaces.IfcGeographicElementTypeEnum.USERDEFINED),
+                ComponentClass.Fan => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcFan>(component, type, meshes, fan =>
+                    fan.PredefinedType = Xbim.Ifc4.Interfaces.IfcFanTypeEnum.PROPELLORAXIAL),
+                ComponentClass.Sensor => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcSensor>(component, type, meshes, sensor =>
+                    sensor.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.HeatAlarm => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.HEATSENSOR,
+                        ComponentForm.CarbonMonoxideAlarm => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.COSENSOR,
+                        _ => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.SMOKESENSOR
+                    }),
+                ComponentClass.Board => ComponentProduct<Xbim.Ifc4.ElectricalDomain.IfcElectricDistributionBoard>(component, type, meshes, board =>
+                    board.PredefinedType = Xbim.Ifc4.Interfaces.IfcElectricDistributionBoardTypeEnum.CONSUMERUNIT),
+                ComponentClass.Control => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcUnitaryControlElement>(component, type, meshes, control =>
+                    control.PredefinedType = Xbim.Ifc4.Interfaces.IfcUnitaryControlElementTypeEnum.THERMOSTAT),
+                ComponentClass.Boiler => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcBoiler>(component, type, meshes, boiler =>
+                    boiler.PredefinedType = Xbim.Ifc4.Interfaces.IfcBoilerTypeEnum.WATER),
                 _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
             };
 
@@ -1797,6 +1831,12 @@ public static class IfcExport
                 ComponentClass.Heater => "Pset_SpaceHeaterTypeCommon",
                 ComponentClass.Outlet => "Pset_OutletTypeCommon",
                 ComponentClass.Switch => "Pset_SwitchingDeviceTypeCommon",
+                ComponentClass.Planting => "Pset_GeographicElementCommon",
+                ComponentClass.Fan => "Pset_FanTypeCommon",
+                ComponentClass.Sensor => "Pset_SensorTypeCommon",
+                ComponentClass.Board => "Pset_ElectricDistributionBoardTypeCommon",
+                ComponentClass.Control => "Pset_UnitaryControlElementTypeCommon",
+                ComponentClass.Boiler => "Pset_BoilerTypeCommon",
                 _ => "Pset_BuildingElementProxyCommon"
             };
             WriteSet((IfcObject)product, common, new Dictionary<string, IfcValue?>

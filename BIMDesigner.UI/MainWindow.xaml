@@ -474,7 +474,7 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl Header="Stair &amp; Opening" Style="{StaticResource RibbonPanel}">
+                        <HeaderedContentControl Header="Stair &amp; Ramp" Style="{StaticResource RibbonPanel}">
                             <StackPanel>
                                 <RadioButton x:Name="StairTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Stair}"
                                              Content="Stair" Checked="OnToolChanged"
@@ -485,24 +485,6 @@
                                 <RadioButton x:Name="RailingTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Railing}"
                                              Content="Railing" Checked="OnToolChanged"
                                              ToolTip="Railing: click along where it runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the balcony, terrace or floor under it and is checked for its height there - 1100 round a balcony or a roof, 900 at a floor's edge inside a home (Approved Document K), 36 in under the IRC - and for gaps a child's head goes through. To guard a whole balcony or terrace, pick it and use Guard Edges"/>
-                                <RadioButton x:Name="BeamTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Beam}"
-                                             Content="Beam" Checked="OnToolChanged"
-                                             ToolTip="Beam: click where it starts and where it ends - it hangs from this level, its top there, under the floor it carries, and the next starts where it ended. Steel universal beams and wide flanges, C24 timber, GL24h glulam and concrete. A stair's headroom is measured to its underside, and it says when it crosses a doorway below the door's head"/>
-                                <RadioButton x:Name="TerrainTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Terrain}"
-                                             Content="Toposurface" Checked="OnToolChanged"
-                                             ToolTip="Toposurface: click where each spot level goes, at the elevation on the option bar - three make the ground, each after adds to it - or read in a points file (x, y, height). Contoured in plan, cut away under the floors of its storey; an outside stair stands on it, a railing follows it, and it is checked against the walls: 150 below the floor for the damp-proof course, and under the IRC falling 6 in in the first 10 ft"/>
-                                <RadioButton x:Name="RegionTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Region}"
-                                             Content="Region" Checked="OnToolChanged"
-                                             ToolTip="Region of the ground: click its corners - a lawn, paving, gravel, planting - or, ticking Path, click along a path's middle. It lies on the ground, following it, in its own colour; a path that is the approach to a door is checked for its gradient: 1:20 gently sloping, 1:15 and 1:12 ramps (Approved Document M)"/>
-                                <RadioButton x:Name="JoistsTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Joists}"
-                                             Content="Joists" Checked="OnToolChanged"
-                                             ToolTip="Joist layout: click the corners of the outline the joists fill. They run across the short way at the spacing on the option bar - 400 is usual - and stop short of a stairwell or shaft in the floor they carry, trimmers across its ends. Joist Direction in Properties turns them"/>
-                                <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Shaft}"
-                                             Content="Shaft" Checked="OnToolChanged"
-                                             ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
-                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.WallOpening}"
-                                             Content="Wall Opening" Checked="OnToolChanged"
-                                             ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -552,6 +534,69 @@
                                         Content="Level" Click="OnManageLevels" ToolTip="Add, rename, move and delete storeys"/>
                                 <RadioButton x:Name="GridTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Grid}"
                                              Content="Grid" Checked="OnToolChanged" ToolTip="Draw a setting-out gridline (G)"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <!-- =========================== STRUCTURE =========================== -->
+                <TabItem Header="Structure" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Framing" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="BeamTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Beam}"
+                                             Content="Beam" Checked="OnToolChanged"
+                                             ToolTip="Beam: click where it starts and where it ends - it hangs from this level, its top there, under the floor it carries, and the next starts where it ended. Steel universal beams and wide flanges, C24 timber, GL24h glulam and concrete. A stair's headroom is measured to its underside, and it says when it crosses a doorway below the door's head"/>
+                                <RadioButton x:Name="JoistsTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Joists}"
+                                             Content="Joists" Checked="OnToolChanged"
+                                             ToolTip="Joist layout: click the corners of the outline the joists fill. They run across the short way at the spacing on the option bar - 400 is usual - and stop short of a stairwell or shaft in the floor they carry, trimmers across its ends. Joist Direction in Properties turns them"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Opening" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Shaft}"
+                                             Content="Shaft" Checked="OnToolChanged"
+                                             ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
+                                <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallOpening}"
+                                             Content="Wall Opening" Checked="OnToolChanged"
+                                             ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <!-- ============================== SITE ============================== -->
+                <TabItem Header="Site" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Ground" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="TerrainTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Terrain}"
+                                             Content="Topo-&#10;surface" Checked="OnToolChanged"
+                                             ToolTip="Toposurface: click where each spot level goes, at the elevation on the option bar - three make the ground, each after adds to it - or read in a points file (x, y, height). Contoured in plan, cut away under the floors of its storey; an outside stair stands on it, a railing follows it, and it is checked against the walls: 150 below the floor for the damp-proof course, and under the IRC falling 6 in in the first 10 ft"/>
+                                <RadioButton x:Name="RegionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Region}"
+                                             Content="Region" Checked="OnToolChanged"
+                                             ToolTip="Region of the ground: click its corners - a lawn, paving, gravel, planting - or, ticking Path, click along a path's middle. It lies on the ground, following it, in its own colour - raised as a planting bed, or sunk as a sunken patio, by Raised By in Properties; a path that is the approach to a door is checked for its gradient: 1:20 gently sloping, 1:15 and 1:12 ramps (Approved Document M), and a lawn steeper than 1 in 3 as too steep to mow"/>
+                                <Button x:Name="AroundBuildingButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.AroundBuilding}"
+                                        Content="Around&#10;Building" Click="OnGroundAroundBuilding"
+                                        ToolTip="Put the ground round the whole building on this storey, 15 m out on every side, level at the Elevation on the Toposurface option bar - 150 below the floor to start with, under the damp-proof course. Then shape it with spot levels, pads and regions"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Grading" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="PadTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Pad}"
+                                         Content="Pad" Checked="OnToolChanged"
+                                         ToolTip="Pad: click its corners - a patio, a drive, a terrace, level ground for a shed. The ground is cut down or made up to its height on the option bar and battered back to the ground round it, so many along to one up - or held sheer by a wall; give it a fall in Properties. What is dug out and made up is counted in the ground's Cut and Fill, and it is checked against the house: 150 below the damp-proof course, falling away from the walls"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Plot" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="PropertyLineTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.PropertyLine}"
+                                             Content="Property&#10;Line" Checked="OnToolChanged"
+                                             ToolTip="Property line: click the corners of the plot. Each side's length and bearing is written along it, its area and how much of it the building covers are in Properties, and with a setback the building is checked to be behind it"/>
+                                <RadioButton x:Name="SpotElevationTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SpotElevation}"
+                                             Content="Spot&#10;Elevation" Checked="OnToolChanged"
+                                             ToolTip="Spot elevation: click where to read a height - the floor, ramp, pad or ground there - written beside it: FFL +0.000, GL -0.450. It reads afresh when what is under it changes"/>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>
@@ -1489,6 +1534,25 @@
                              ToolTip="How wide the path is: 900 at least for an approach to a door (Approved Document M)"/>
                 </StackPanel>
 
+                <StackPanel x:Name="PadOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Pad" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="PadSurfacePicker" Style="{StaticResource OptionCombo}" MinWidth="100" SelectionChanged="OnPadOptionChanged"
+                              ToolTip="What it is laid as"/>
+                    <TextBlock Text="Height" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="PadOffsetBox" Width="60" VerticalAlignment="Center" LostFocus="OnPadOptionChanged"
+                             ToolTip="How high it is above this level, mm - minus for below: 150 below the floor keeps the damp-proof course clear"/>
+                    <TextBlock Text="Batter 1 :" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="PadBatterBox" Width="40" VerticalAlignment="Center" LostFocus="OnPadOptionChanged"
+                             ToolTip="The side slope it is battered back to the ground at, so many along to one up: 2 for earth, 3 for a slope to mow; 0 for a sheer edge, held by a wall"/>
+                </StackPanel>
+
+                <StackPanel x:Name="PropertyLineOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Property line" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="Setback" VerticalAlignment="Center" Margin="6,0,6,0"/>
+                    <TextBox x:Name="SetbackBox" Width="60" VerticalAlignment="Center" LostFocus="OnPropertyLineOptionChanged"
+                             ToolTip="How far in from it the building is to be kept, mm - as a planning condition or a covenant sets it; 0 for none"/>
+                </StackPanel>
+
                 <StackPanel x:Name="JoistOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Joists" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <ComboBox x:Name="JoistTypePicker" Style="{StaticResource OptionCombo}" MinWidth="200"
@@ -1968,6 +2032,9 @@
                                 <ToggleButton x:Name="PlanClearancesToggle" Style="{StaticResource ViewControlToggle}"
                                               Content="Clearances" Click="OnPlanClearancesToggled"
                                               ToolTip="Show the clear space fittings need - red where something is in it"/>
+                                <ComboBox x:Name="PlanGroundPicker" Style="{StaticResource OptionCombo}" MinWidth="120" Margin="6,0,0,0"
+                                          SelectionChanged="OnPlanGroundColouringChanged"
+                                          ToolTip="Colour the ground: by slope - level, gently sloping, as steep as a ramp, too steep to mow, steeper than earth stands - by height, or by what is cut and filled against the ground as it was"/>
                                 <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnPlanZoomToFit"
                                         ToolTip="Frame the whole plan (F)"/>
                             </StackPanel>

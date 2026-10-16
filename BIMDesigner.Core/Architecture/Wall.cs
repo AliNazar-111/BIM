@@ -752,6 +752,7 @@ public sealed class Wall : Element
         // A curtain wall over a drop: whether its glass low down, its empty bays and its doors are guarded.
         if (document.IsCurtainWall(this))
             yield return ParameterValue.ReadOnly(WallParameters.Guarding, () => OpeningGuarding.CurtainVerdict(document, this));
+        yield return ParameterValue.ReadOnly(WallParameters.Regulations, () => WallRules.Verdict(document, this));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -854,4 +855,7 @@ public static class WallParameters
 
     public static readonly ParameterDefinition StructuralUsage =
         new("Structural Usage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition Regulations =
+        new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

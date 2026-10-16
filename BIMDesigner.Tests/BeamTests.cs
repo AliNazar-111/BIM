@@ -126,7 +126,7 @@ public class BeamTests
     public void ItIsSavedCopiedMirroredScheduledAndExported()
     {
         var (document, _) = House();
-        var beam = Hang(document, "Timber C24 47x225 Joist", (0, 2500), (6000, 2500));
+        var beam = Hang(document, "Glulam GL24h 140x360", (0, 2500), (6000, 2500));
         (beam.Usage, beam.Mark, beam.EndOffset) = (BeamUsage.Joist, "J1", -50);
 
         var back = ProjectFile.FromJson(ProjectFile.ToJson(document)).Elements.OfType<Beam>().Single();
@@ -173,5 +173,19 @@ public class BeamTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start(); thread.Join();
         if (failure is not null) throw failure;
+    }
+
+    [Fact]
+    public void ABeamTooShallowForItsSpanIsCalledOut()
+    {
+        var (document, _) = House();
+
+        // A 200 deep joist across 6 m: thirty times its depth, where timber is first sized at nineteen.
+        var joist = Hang(document, "Timber C24 47x200 Joist", (0, 2500), (6000, 2500));
+        Assert.Contains(Beams.Problems(document, joist), problem => problem.StartsWith("It spans 6.0 m on a section 200 deep"));
+
+        // A 600 deep concrete beam across the same 6 m is ten times its depth: well within.
+        var deep = Hang(document, "Concrete 300x600", (0, 1500), (6000, 1500));
+        Assert.DoesNotContain(Beams.Problems(document, deep), problem => problem.StartsWith("It spans"));
     }
 }

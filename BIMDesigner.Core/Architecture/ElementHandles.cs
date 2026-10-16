@@ -32,7 +32,7 @@ public sealed record ElementHandle(string Key, Point2D At, double Height, bool V
 public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
-    public static bool Has(Element element) => element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp;
+    public static bool Has(Element element) => element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine;
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -83,6 +83,14 @@ public static class ElementHandles
 
             case GroundRegion region:
                 Outline(handles, region.Boundary, at => GroundRegions.HeightAt(document, region, at));
+                break;
+
+            case SitePad pad:
+                Outline(handles, pad.Boundary, at => SitePads.HeightAt(document, pad, at));
+                break;
+
+            case PropertyLine line:
+                Outline(handles, line.Boundary, _ => document.FindLevel(line.LevelId)?.Elevation ?? 0);
                 break;
 
             case BeamSystem system:
@@ -194,6 +202,18 @@ public static class ElementHandles
                 return ($"Spot level at {Units.FormatLength(points[index].Z)}.", handle.Key);
             }
 
+            case SitePad pad:
+            {
+                pad.SetBoundary(Moved(pad.Boundary, kind, index, to, out _));
+                return ($"{Polygon2D.Area(pad.Boundary) / 1e6:0.0} m². {SitePads.Verdict(document, pad)}.", Following(pad.Boundary, to, handle.Key));
+            }
+
+            case PropertyLine line:
+            {
+                line.SetBoundary(Moved(line.Boundary, kind, index, to, out _));
+                return ($"{Polygon2D.Area(line.Boundary) / 1e6:0.0} m². {PropertyLines.Verdict(document, line)}.", Following(line.Boundary, to, handle.Key));
+            }
+
             case GroundRegion region:
             {
                 region.SetBoundary(Moved(region.Boundary, kind, index, to, out _));
@@ -245,7 +265,11 @@ public static class ElementHandles
                         var points = Ramps.Layout(document, ramp).Walk.ToList();
                         if (index <= 0 || index >= points.Count - 1) return (string.Empty, handle.Key);
                         points[index] = to;
-                        Ramps.SetPath(ramp, points);
+
+                        // Hung by its head, drawn down from it: its line from its head down again.
+                        var down = ramp.Anchor == RampAnchor.Head;
+                        if (down) points.Reverse();
+                        Ramps.SetPath(ramp, points, down);
                         break;
                 }
 
@@ -340,6 +364,14 @@ public static class ElementHandles
                 region.SetBoundary(Merged(region.Boundary, closed: true, least: 3));
                 break;
 
+            case SitePad pad:
+                pad.SetBoundary(Merged(pad.Boundary, closed: true, least: 3));
+                break;
+
+            case PropertyLine line:
+                line.SetBoundary(Merged(line.Boundary, closed: true, least: 3));
+                break;
+
             case BeamSystem system:
                 system.SetBoundary(Merged(system.Boundary, closed: true, least: 3));
                 break;
@@ -378,6 +410,8 @@ public static class ElementHandles
         Beam => key.StartsWith("raise", StringComparison.Ordinal) ? "Slope Beam" : "Move Beam End",
         Toposurface => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Ground Point" : "Move Ground Point",
         GroundRegion => "Reshape Region",
+        SitePad => "Reshape Pad",
+        PropertyLine => "Reshape Property Line",
         BeamSystem => "Reshape Joist Layout",
         Ramp => key switch
         {
@@ -397,6 +431,8 @@ public static class ElementHandles
         Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
         Toposurface ground => ground.Points.ToList(),
         GroundRegion region => region.Boundary.ToList(),
+        SitePad pad => pad.Boundary.ToList(),
+        PropertyLine line => line.Boundary.ToList(),
         BeamSystem system => system.Boundary.ToList(),
         Ramp ramp => new RampState(ramp.Start, ramp.Angle, ramp.Width, ramp.PathLengths.ToArray(), ramp.PathTurns.ToArray(), ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight),
         _ => new object()
@@ -418,6 +454,12 @@ public static class ElementHandles
                 break;
             case (GroundRegion region, List<Point2D> boundary):
                 region.SetBoundary(boundary);
+                break;
+            case (SitePad pad, List<Point2D> boundary):
+                pad.SetBoundary(boundary);
+                break;
+            case (PropertyLine line, List<Point2D> boundary):
+                line.SetBoundary(boundary);
                 break;
             case (BeamSystem system, List<Point2D> boundary):
                 system.SetBoundary(boundary);

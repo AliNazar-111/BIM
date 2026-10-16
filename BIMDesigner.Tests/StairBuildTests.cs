@@ -77,6 +77,56 @@ public class StairBuildTests
     }
 
     [Fact]
+    public void UnderTheIrcItsHandrailsLeaveItClearEnoughAndStandOutLittle()
+    {
+        var (document, _) = House();
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
+        var half = document.TypesOf<WallType>().First().Structure.TotalWidth / 2;
+        var stair = Put(document, half + 457, 600, width: 914);
+        stair.Railings = StairRailings.BothSides;
+        var layout = Stairs.Layout(document, stair);
+
+        // Rails both sides, one on the wall, 60 off it and 44 round: 104 out, leaving 914 less that and the balustrade's rail.
+        Assert.Contains(StairModel.Railings(document, stair, layout), railing => railing.OnWall);
+        Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("R311.7.1"));
+
+        // 100 off the wall: 144 out, more than the 4½ in allowed - though it still leaves 748, more than the 27 in asked.
+        Stairs.TypeOf(document, stair).WallClearance = 100;
+        Assert.Contains(Stairs.Problems(document, stair), problem => problem.Contains("stand 144 out from the wall"));
+        Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("clear at its handrails"));
+
+        // Narrowed to 800, a handrail on the wall side only, it leaves 696 at it: short of 31½ in.
+        (stair.Width, stair.Railings) = (800, StairRailings.LeftSide);
+        Assert.Contains(Stairs.Problems(document, stair), problem => problem.Contains("clear at its handrails: the IRC asks for 800"));
+    }
+
+    [Fact]
+    public void UnderTheAdaAStairOutsideAHomeKeepsToItsRisesTreadsAndHandrails()
+    {
+        var (document, _) = House();
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Ada;
+        var stair = Put(document, 3000, 600);
+        stair.Use = StairUse.GeneralAccess;
+
+        // 15 risers of 200, goings of 225, 900 wide: too steep, too shallow and too narrow for the ADA and the IBC.
+        var problems = Stairs.Problems(document, stair);
+        Assert.Contains(problems, problem => problem.Contains("the ADA allows 178 (7 in) at most (504.2)"));
+        Assert.Contains(problems, problem => problem.Contains("the ADA asks for 279 (11 in) at least (504.2)"));
+        Assert.Contains(problems, problem => problem.Contains("the IBC asks for 1118 (44 in)"));
+        Assert.DoesNotContain(problems, problem => problem.Contains("the IRC"));
+
+        // Made to pass: rises of 7 in at most, 11 in treads, 44 in wide, handrails both sides running on past its ends.
+        StairFixes.MakeItPass(document, stair, out _)!.Redo();
+        var layout = Stairs.Layout(document, stair);
+        Assert.True(layout.Rise <= 178 + 0.5 && layout.Going >= 279 - 0.5 && stair.Width >= 1118 - 0.5, $"{layout.Rise:0} by {layout.Going:0}, {stair.Width:0} wide");
+        Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("(504.2)") || problem.Contains("(505.") || problem.Contains("1118"));
+
+        // A home's stair stays under the IRC.
+        stair.Use = StairUse.Private;
+        Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("the ADA"));
+    }
+
+    [Fact]
     public void OpenRisersNeedABarAndBalustersCloseEnoughToStopAChildsHead()
     {
         var (document, _) = House();
@@ -94,6 +144,13 @@ public class StairBuildTests
         // The IRC's sphere is 4 in; its closed-riser stairs want nosings of ¾ to 1¼ in.
         document.ProjectInformation.ClearanceStandard = ClearanceStandard.Ada;
         Assert.Contains(Stairs.Problems(document, stair), problem => problem.Contains("less than 102 (4 in)"));
+
+        // Only where a gap is more than 30 in up: three steps down to a sunken room may be open.
+        var low = Put(document, 1000, 600);
+        (low.TypeId, low.TopLevelId, low.UnconnectedHeight) = (open.Id, null, 510);
+        Assert.Equal(3, Stairs.Layout(document, low).Risers);
+        Assert.DoesNotContain(Stairs.Problems(document, low), problem => problem.Contains("between the treads"));
+        document.Remove(low);
         stair.TypeId = TypeNamed(document, "Concrete").Id;
         Assert.Contains(Stairs.Problems(document, stair), problem => problem.Contains("Its nosings are 0"));
 

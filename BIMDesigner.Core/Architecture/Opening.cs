@@ -294,6 +294,9 @@ public sealed class Door : Opening
             () => FrameMaterialOr(type),
             v => FrameMaterial = string.Equals(v, type?.FrameMaterial, StringComparison.Ordinal) ? string.Empty : v ?? string.Empty);
         yield return ParameterValue.Bind(DoorParameters.Finish, () => Finish, v => Finish = v ?? string.Empty);
+
+        // Its clear width, and what it falls short of: its width, nib, fire rating, glass.
+        yield return ParameterValue.ReadOnly(DoorParameters.Regulations, () => Doors.Verdict(document, this));
     }
 }
 
@@ -302,8 +305,13 @@ public sealed class Window : Opening
 {
     public override BuiltInCategory Category => BuiltInCategory.Windows;
 
-    public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document) =>
-        GetOpeningParameters(document, document.FindType<WindowType>(TypeId));
+    public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
+    {
+        foreach (var parameter in GetOpeningParameters(document, document.FindType<WindowType>(TypeId))) yield return parameter;
+
+        // What it opens, and what it falls short of: its glass, its U-value.
+        yield return ParameterValue.ReadOnly(DoorParameters.Regulations, () => WindowRules.Verdict(document, this));
+    }
 }
 
 public static class OpeningParameters
@@ -361,4 +369,7 @@ public static class DoorParameters
 
     public static readonly ParameterDefinition Finish =
         new("Finish", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
+
+    public static readonly ParameterDefinition Regulations =
+        new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

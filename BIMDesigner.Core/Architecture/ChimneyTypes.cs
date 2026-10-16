@@ -170,7 +170,7 @@ public sealed class ChimneyType : ElementType
     {
         new ChimneyType("Chimney - Masonry, Brick, Clay Liners")
         {
-            Construction = ChimneyConstruction.Masonry, Width = 450, Depth = 450, FlueDiameter = 185, Fireplace = ChimneyFireplace.Open,
+            Construction = ChimneyConstruction.Masonry, Width = 450, Depth = 450, FlueDiameter = 200, Fireplace = ChimneyFireplace.Open,
             TemperatureClass = 600, PressureClass = "N1", CorrosionClass = 3, ClearanceToCombustibles = 40, FireRating = "2 hours", TypeMark = "CH1", Cost = 2400m
         },
         new ChimneyType("Chimney - Precast Pumice Block System")

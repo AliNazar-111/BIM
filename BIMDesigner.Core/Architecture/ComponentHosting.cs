@@ -92,7 +92,14 @@ public static class ComponentHosting
             return FloorSurfaces.TopAt(document, floor, component.Location) + component.Elevation;
 
         var level = document.Levels.FirstOrDefault(l => l.Id == component.LevelId);
-        return (level?.Elevation ?? 0) + component.Elevation;
+        var height = level?.Elevation ?? 0;
+
+        // Outside, on the ground - a tree, a car, a bench, a person - it stands on the ground there, following it, as planting does.
+        if (component.HostId == Guid.Empty && FloorSurfaces.StoodOnNear(document, height, component.Location, Stairs.FloorReach) is null
+            && Terrains.GroundNear(document, height, component.Location) is { } ground)
+            return ground + component.Elevation;
+
+        return height + component.Elevation;
     }
 
     /// <summary>Whether a mode can host this family at all: a work plane cannot carry a face-based one.</summary>

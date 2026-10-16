@@ -81,6 +81,43 @@ public static class DoorSwing
     }
 
     /// <summary>
+    /// The floor a door's leaves sweep opening, in plan: a quarter circle - or as far round as it
+    /// opens - from its hinge on the face of the wall it opens from, a leaf wide; or two, each
+    /// half as wide, for a pair. None for a door that slides or folds.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<Point2D>> Sweeps(BimDocument document, Door door)
+    {
+        if (document.FindType<DoorType>(door.TypeId) is not { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } type ||
+            document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall ||
+            document.GetWallType(wall) is not { } wallType)
+            return Array.Empty<IReadOnlyList<Point2D>>();
+
+        var structure = wallType.Structure;
+        var (from, to) = door.GetSpan(type);
+        var side = door.FlipFacing ? -1.0 : 1.0;
+        var face = structure.TotalWidth / 2;
+        var opens = Math.Clamp(door.SwingAngle, 0, 180) * Math.PI / 180;
+
+        IReadOnlyList<Point2D> Leaf(double hinge, double toward, double reach)
+        {
+            const int steps = 12;
+            var points = new List<Point2D> { wall.PointAt(structure, hinge, side * face) };
+            for (var i = 0; i <= steps; i++)
+            {
+                var angle = opens * i / steps;
+                points.Add(wall.PointAt(structure, hinge + toward * reach * Math.Cos(angle), side * (face + reach * Math.Sin(angle))));
+            }
+
+            return points;
+        }
+
+        if (to - from <= 1) return Array.Empty<IReadOnlyList<Point2D>>();
+        return type.Operation == DoorOperation.DoubleSwing || type.LeafCount >= 2
+            ? new[] { Leaf(from, 1, (to - from) / 2), Leaf(to, -1, (to - from) / 2) }
+            : new[] { door.FlipHand ? Leaf(to, -1, to - from) : Leaf(from, 1, to - from) };
+    }
+
+    /// <summary>
     /// The facing a door is to have: as asked, unless it would hit something opening that way
     /// and the other way is clear - then the other. Says what it would have hit, when it turned.
     /// </summary>

@@ -410,6 +410,10 @@ public partial class MainWindow : Window
         _document = document;
         _path = path;
 
+        // The plan's ground drawn plainly to start with; coloured as picked on the plan bar.
+        PlanGroundPicker.ItemsSource ??= new[] { "Ground: plain", "Ground: by slope", "Ground: by height", "Ground: cut and fill" };
+        if (PlanGroundPicker.SelectedIndex < 0) PlanGroundPicker.SelectedIndex = 0;
+
         _history = new UndoStack();
         _history.Changed += (_, _) =>
         {
@@ -577,7 +581,8 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists;
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -598,6 +603,10 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Terrain) ShowGroundOptions();
         RegionOptions.Visibility = tool == PlanTool.Region ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Region) ShowRegionOptions();
+        PadOptions.Visibility = tool == PlanTool.Pad ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Pad) ShowPadOptions();
+        PropertyLineOptions.Visibility = tool == PlanTool.PropertyLine ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.PropertyLine) ShowPropertyLineOptions();
         JoistOptions.Visibility = tool == PlanTool.Joists ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Joists) ShowJoistOptions();
 
@@ -1188,6 +1197,53 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(this, $"The points file could not be read: {failure.Message}", "Import Points", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>Around Building: the ground put round the whole building on the storey shown, at the Elevation on the Toposurface option bar.</summary>
+    private void OnGroundAroundBuilding(object sender, RoutedEventArgs e)
+    {
+        Plan?.GroundAroundBuilding();
+    }
+
+    private void ShowPadOptions()
+    {
+        _loadingOptions = true;
+        PadSurfacePicker.ItemsSource ??= EnumText.Choices<GroundSurface>();
+        PadSurfacePicker.SelectedItem = EnumText.Humanise(Plan.ActivePadSurface);
+        PadOffsetBox.Text = Plan.ActivePadOffset.ToString("0");
+        PadBatterBox.Text = Plan.ActivePadBatter.ToString("0.##");
+        _loadingOptions = false;
+    }
+
+    private void OnPadOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (PadSurfacePicker.SelectedItem is string surface && EnumText.TryParse<GroundSurface>(surface, out var picked)) Plan.ActivePadSurface = picked;
+        if (double.TryParse(PadOffsetBox.Text, out var offset) && Math.Abs(offset) <= 20000) Plan.ActivePadOffset = offset;
+        if (double.TryParse(PadBatterBox.Text, out var batter) && batter is >= 0 and <= 100) Plan.ActivePadBatter = batter;
+        ShowPadOptions();
+    }
+
+    private void ShowPropertyLineOptions()
+    {
+        _loadingOptions = true;
+        SetbackBox.Text = Plan.ActiveSetback.ToString("0");
+        _loadingOptions = false;
+    }
+
+    private void OnPropertyLineOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (double.TryParse(SetbackBox.Text, out var setback) && setback is >= 0 and <= 100000) Plan.ActiveSetback = setback;
+        ShowPropertyLineOptions();
+    }
+
+    /// <summary>The plan's ground coloured as picked: plainly, by slope, by height, or by cut and fill.</summary>
+    private void OnPlanGroundColouringChanged(object sender, RoutedEventArgs e)
+    {
+        if (Plan is null || PlanGroundPicker.SelectedIndex < 0) return;
+        Plan.GroundColouring = (GroundColouring)PlanGroundPicker.SelectedIndex;
+        Plan.RefreshModel();
     }
 
     private void ShowRegionOptions()
@@ -1945,7 +2001,7 @@ public partial class MainWindow : Window
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, TerrainTool,
-        RegionTool, JoistsTool, GridTool,
+        RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
@@ -2026,6 +2082,9 @@ public partial class MainWindow : Window
             : TerrainTool.IsChecked == true ? PlanTool.Terrain
             : RegionTool.IsChecked == true ? PlanTool.Region
             : JoistsTool.IsChecked == true ? PlanTool.Joists
+            : PadTool.IsChecked == true ? PlanTool.Pad
+            : PropertyLineTool.IsChecked == true ? PlanTool.PropertyLine
+            : SpotElevationTool.IsChecked == true ? PlanTool.SpotElevation
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
@@ -2513,10 +2572,10 @@ public partial class MainWindow : Window
         StatusClearances.Content = $"⚠ {blocked.Count} {(blocked.Count == 1 ? "clearance" : "clearances")} blocked";
         StatusClearances.Visibility = blocked.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        if (announce && blocked.FirstOrDefault(item => !_blockedClearances.Contains((item.Zone.Component.Id, item.Zone.What))) is { } fresh)
+        if (announce && blocked.FirstOrDefault(item => !_blockedClearances.Contains((item.Zone.Element.Id, item.Zone.What))) is { } fresh)
             StatusHint.Text = "⚠ " + fresh.Message;
 
-        _blockedClearances = blocked.Select(item => (item.Zone.Component.Id, item.Zone.What)).ToHashSet();
+        _blockedClearances = blocked.Select(item => (item.Zone.Element.Id, item.Zone.What)).ToHashSet();
         return blocked;
     }
 
@@ -3596,6 +3655,7 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition UnderlayParameter = new("Show Storey Below", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearancesParameter = new("Show Clearances", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearanceStandardParameter = new("Clearance Standard", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition DwellingSizeParameter = new("Dwelling Size (NDSS)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition VisualStyleParameter = new("Visual Style", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition EdgesParameter = new("Show Edges", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition LevelParameter = new("Associated Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
@@ -3636,6 +3696,7 @@ public partial class MainWindow : Window
                     if (Plan.ShowClearances) ShowClearances(true);
                 },
                 Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
+            ParameterValue.ReadOnly(DwellingSizeParameter, () => Dwellings.Verdict(_document) ?? "No bedrooms to size it by"),
             ParameterValue.ReadOnly(LevelParameter, () => levelName),
             ParameterValue.ReadOnly(ViewNameParameter, () => $"Floor Plan: {levelName}")
         };

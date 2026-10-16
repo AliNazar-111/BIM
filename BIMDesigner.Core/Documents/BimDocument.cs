@@ -183,6 +183,13 @@ public sealed class BimDocument
     /// already have types are left alone - this fills gaps, it does not impose a template on
     /// a project that has made its own choices.
     /// </summary>
+    /// <summary>Library families saved under an older name: the old name, the new, and the size it had then.</summary>
+    private static readonly (string Old, string Renamed, double Width, double Depth)[] RenamedFamilies =
+    {
+        ("Bed - Double", "Bed - King 1500 x 2000", 1500, 2000),
+        ("Bed - Single", "Bed - Single 900 x 1900", 900, 1900)
+    };
+
     public void EnsureDefaultTypes()
     {
         var template = CreateDefault();
@@ -198,9 +205,17 @@ public sealed class BimDocument
         // only what it has never had.
         var known = _types.Values.OfType<OpeningType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Families the library has renamed since: the old "Bed - Double" was a king's 1500 x 2000.
+        // One left at the size it was saved at takes its new name, so it is not added again beside itself.
+        foreach (var (old, renamed, width, depth) in RenamedFamilies)
+            if (_types.Values.OfType<ComponentType>().FirstOrDefault(type => string.Equals(type.Name, old, StringComparison.OrdinalIgnoreCase)) is { } family &&
+                Math.Abs(family.Width - width) < 0.5 && Math.Abs(family.Depth - depth) < 0.5 &&
+                !_types.Values.OfType<ComponentType>().Any(type => string.Equals(type.Name, renamed, StringComparison.OrdinalIgnoreCase)))
+                family.Name = renamed;
+
         // Component families are a library in the same way, and one that grows: a project made
         // before a family existed should still be able to place it, while keeping its own.
-        var families = _types.Values.OfType<ComponentType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var families =_types.Values.OfType<ComponentType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var columnTypes = _types.Values.OfType<ColumnType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Fascias, gutters and soffits are a library too, added to as it grows - and so are
@@ -220,7 +235,8 @@ public sealed class BimDocument
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
-                     WallType { Log: not null } => !wallTypeNames.Contains(type.Name),
+                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" } => !wallTypeNames.Contains(type.Name),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
@@ -242,10 +258,12 @@ public sealed class BimDocument
             AddType(type);
         }
 
-        // A library family saved while it was still a plain box - the wardrobe was one - takes the
-        // shape the library has given it since, keeping its size, material and everything else.
-        foreach (var own in _types.Values.OfType<ComponentType>().Where(type => type.Form == ComponentForm.Box))
-            if (template.TypesOf<ComponentType>().FirstOrDefault(type => string.Equals(type.Name, own.Name, StringComparison.OrdinalIgnoreCase)) is { Form: not ComponentForm.Box } shaped)
+        // A library family saved while it was still a plain box - the wardrobe was one - or as
+        // something it is not - a wall unit drawn as open shelves - takes the shape the library
+        // has given it since, keeping its size, material and everything else.
+        foreach (var own in _types.Values.OfType<ComponentType>().Where(type => type.Form is ComponentForm.Box or ComponentForm.Shelving))
+            if (template.TypesOf<ComponentType>().FirstOrDefault(type => string.Equals(type.Name, own.Name, StringComparison.OrdinalIgnoreCase)) is { } shaped &&
+                shaped.Form != own.Form && (own.Form == ComponentForm.Box || shaped.Form == ComponentForm.WallUnit))
                 own.Form = shaped.Form;
 
         // Finishes to paint with: a project made before Paint gains them, by name.
@@ -383,7 +401,26 @@ public sealed class BimDocument
             CostPerCubicMetre = 160m
         };
 
-        foreach (var material in new[] { concrete, brick, block, insulation, cavity, plaster, plasterboard })
+        // Aircrete block, light and warm, for the inner leaf of an outside wall; mineral wool for
+        // a stud wall's insulation and its sound.
+        var aircrete = new Material("Aircrete Block")
+        {
+            Density = 600,
+            ThermalConductivity = 0.11,
+            SurfaceColour = ColourRgb.FromHex("C9CBC4"),
+            CutColour = ColourRgb.FromHex("B9BBB4"),
+            CostPerCubicMetre = 110m
+        };
+        var mineralWool = new Material("Mineral Wool Insulation")
+        {
+            Density = 30,
+            ThermalConductivity = 0.035,
+            SurfaceColour = ColourRgb.FromHex("D9C38A"),
+            CutColour = ColourRgb.FromHex("C9B37A"),
+            CostPerCubicMetre = 60m
+        };
+
+        foreach (var material in new[] { concrete, brick, block, insulation, cavity, plaster, plasterboard, aircrete, mineralWool })
             document.AddMaterial(material);
         foreach (var finish in FinishMaterials()) document.AddMaterial(finish);
 
@@ -399,12 +436,13 @@ public sealed class BimDocument
             CoarseScaleFillColour = ColourRgb.FromHex("8A93A1")
         };
 
-        // Exterior cavity wall: brick outer leaf, cavity, insulation, block core, plaster.
+        // Exterior cavity wall: brick outer leaf, cavity, insulation, an aircrete block inner leaf,
+        // plaster - 0.25 W/m²K, inside the 0.26 Approved Document L allows a new dwelling's wall.
         var exterior = new WallType("Exterior - Brick on Block 330mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, brick.Id, 100),
             new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 25, wraps: false),
             new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50, wraps: false),
-            new MaterialLayer(LayerFunction.Structure, block.Id, 140),
+            new MaterialLayer(LayerFunction.Structure, aircrete.Id, 140),
             new MaterialLayer(LayerFunction.Finish2, plaster.Id, 15)))
         {
             Function = WallFunction.Exterior,
@@ -412,8 +450,8 @@ public sealed class BimDocument
             AssemblyCode = "B2010",
             FireRating = "120 min",
             AcousticRating = 53,
-            ThermalResistance = 2.85,
-            HeatTransferCoefficient = 0.32,
+            ThermalResistance = 4.05,
+            HeatTransferCoefficient = 0.25,
             Cost = 165m,
             CoarseScaleFillColour = ColourRgb.FromHex("A8846E"),
 
@@ -604,6 +642,45 @@ public sealed class BimDocument
             Cost = 4100m
         };
 
+        // Doors the rules ask for: a front door giving the 850 clear Approved Document M asks of an
+        // external door (M4(2) 2.20); a fire door, FD30S and self-closing, for between a house and
+        // its garage (Approved Document B 5.6); a wide internal door giving a wheelchair user's 850
+        // (M4(3) 3.24); a sectional garage door; and the US's 36 x 80 in exterior door, 32 in clear
+        // by 78 in, its egress door (IRC R311.2).
+        var frontDoor = new DoorType("Front Door - 1000 x 2100", 1000, 2100)
+        {
+            TypeMark = "D9", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.HalfGlazed,
+            PanelMaterial = "Composite", FrameMaterial = "Composite", Function = DoorFunction.Exterior, HeatTransferCoefficient = 1.4,
+            Cost = 1100m, Description = "850 clear and more, for Approved Document M's principal entrance"
+        };
+        var fireDoor = new DoorType("Fire Door FD30S - 900 x 2100", 900, 2100)
+        {
+            TypeMark = "D10", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.Flush,
+            PanelMaterial = "Timber, Painted", FrameMaterial = "Timber", FireRating = "30 min (FD30S)", SelfClosing = true,
+            HardwareSet = "Overhead closer, intumescent strips and smoke seals", Cost = 480m
+        };
+        var wideDoor = new DoorType("Single - 1000 x 2100", 1000, 2100)
+        {
+            TypeMark = "D11", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.Panelled,
+            PanelMaterial = "Timber, Painted", FrameMaterial = "Timber", FireRating = "30 min", Cost = 360m,
+            Description = "850 clear and more, for a wheelchair user's dwelling"
+        };
+        var garageDoor = new DoorType("Garage Door - Sectional 2400 x 2100", 2400, 2100)
+        {
+            TypeMark = "D12", AssemblyCode = "C1020", Operation = DoorOperation.Overhead, LeafDesign = DoorLeafDesign.Flush,
+            PanelMaterial = "Steel, Insulated", FrameMaterial = "Steel", Function = DoorFunction.Exterior, Thickness = 60, Cost = 1600m
+        };
+        var usExterior = new DoorType("Exterior Door - 36 x 80 in", 965, 2083)
+        {
+            TypeMark = "D13", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.HalfGlazed,
+            PanelMaterial = "Fiberglass", FrameMaterial = "Timber", Function = DoorFunction.Exterior, HeatTransferCoefficient = 1.7,
+            Cost = 900m, Description = "32 in clear by 78 in: the IRC's egress door"
+        };
+
+        // Glass in a door is safety glass, as it is sold: Approved Document K and the IRC ask it.
+        foreach (var door in new[] { singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, curtainSingle, curtainDouble, curtainSlider, frontDoor, usExterior })
+            door.SafetyGlazing = Doors.Glazed(door);
+
         var casement = new WindowType("Casement - 1200 x 1200", 1200, 1200)
         {
             TypeMark = "W1",
@@ -621,11 +698,12 @@ public sealed class BimDocument
             TypeMark = "W2",
             AssemblyCode = "B2020",
             Operation = WindowOperation.Fixed,
-            GlazingType = "Double glazed, low-E",
+            GlazingType = "Double glazed, low-E, toughened",
             FrameMaterial = "Aluminium, thermally broken",
             HeatTransferCoefficient = 1.6,
             SolarHeatGainCoefficient = 0.48,
-            Cost = 890m
+            Cost = 890m,
+            SafetyGlazing = true
         };
 
         // The rest of the window library: one of each way a window opens, and the divided
@@ -650,7 +728,7 @@ public sealed class BimDocument
             GlazingColumns = 2,
             GlazingType = "Double glazed",
             FrameMaterial = "Timber, Painted",
-            HeatTransferCoefficient = 1.8,
+            HeatTransferCoefficient = 1.4,
             Cost = 540m
         };
 
@@ -683,7 +761,7 @@ public sealed class BimDocument
             Operation = WindowOperation.Sliding,
             GlazingType = "Double glazed, low-E",
             FrameMaterial = "Aluminium, thermally broken",
-            HeatTransferCoefficient = 1.7,
+            HeatTransferCoefficient = 1.4,
             Cost = 700m
         };
 
@@ -707,7 +785,7 @@ public sealed class BimDocument
             GlazingColumns = 2,
             GlazingType = "Double glazed",
             FrameMaterial = "Timber, Painted",
-            HeatTransferCoefficient = 1.9,
+            HeatTransferCoefficient = 1.4,
             Cost = 720m
         };
 
@@ -720,7 +798,8 @@ public sealed class BimDocument
             FrameMaterial = "Aluminium, Anodised",
             HeatTransferCoefficient = 4.2,
             SolarHeatGainCoefficient = 0.7,
-            Cost = 310m
+            Cost = 310m,
+            Description = "Single glazed louvres: for a store or a porch, not a heated room"
         };
 
         var bay = new WindowType("Bay - 2400 x 1500", 2400, 1500)
@@ -729,10 +808,11 @@ public sealed class BimDocument
             AssemblyCode = "B2020",
             Operation = WindowOperation.Bay,
             GlazingRows = 2,
-            GlazingType = "Double glazed, low-E",
+            GlazingType = "Double glazed, low-E, toughened",
             FrameMaterial = "Timber, Painted",
-            HeatTransferCoefficient = 1.8,
-            Cost = 2100m
+            HeatTransferCoefficient = 1.4,
+            Cost = 2100m,
+            SafetyGlazing = true
         };
 
         var rooflight = new WindowType("Fixed Light - 600 x 600", 600, 600)
@@ -746,18 +826,20 @@ public sealed class BimDocument
             Cost = 180m
         };
 
-        // Horizontal build-ups, layered from the upper surface downward.
+        // Horizontal build-ups, layered from the upper surface downward. The ground floor: a
+        // flowing screed on 100 of PIR on the slab - 0.17 W/m²K on the ground under a house, inside
+        // the 0.18 Approved Document L allows.
         var screedFloor = new FloorType("Floor - Screed on Slab 250mm", new CompoundStructure(
-            new MaterialLayer(LayerFunction.Finish1, plaster.Id, 60),
-            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 40),
-            new MaterialLayer(LayerFunction.Structure, concrete.Id, 150)))
+            new MaterialLayer(LayerFunction.Finish1, plaster.Id, 50),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 100),
+            new MaterialLayer(LayerFunction.Structure, concrete.Id, 100)))
         {
             TypeMark = "F1",
             AssemblyCode = "B1010",
             Function = SlabFunction.Structural,
             FireRating = "90 min",
             AcousticRating = 52,
-            HeatTransferCoefficient = 0.22,
+            HeatTransferCoefficient = 0.17,
             Cost = 145m,
             CoarseScaleFillColour = ColourRgb.FromHex("8E8E8E")
         };
@@ -806,6 +888,68 @@ public sealed class BimDocument
             CostPerCubicMetre = 650m
         };
         foreach (var material in new[] { slate, softwood }) document.AddMaterial(material);
+
+        // A warm pitched roof: slate on rafters with PIR between them and under them - 0.16 W/m²K,
+        // as Approved Document L allows a new dwelling's roof; and a loft's ceiling with mineral
+        // wool laid on it, for a cold roof whose slates and rafters keep out only the weather.
+        var insulatedRafters = new Material("Timber Rafters with PIR Between")
+        {
+            Density = 150,
+            ThermalConductivity = 0.038,
+            SurfaceColour = ColourRgb.FromHex("D8C690"),
+            CutColour = ColourRgb.FromHex("C8B680"),
+            CostPerCubicMetre = 420m
+        };
+        document.AddMaterial(insulatedRafters);
+        var warmRoof = new RoofType("Roof - Insulated Slate on Rafters 230mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, slate.Id, 18),
+            new MaterialLayer(LayerFunction.Structure, insulatedRafters.Id, 150),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "R3", AssemblyCode = "B1020", Function = SlabFunction.Structural, FireRating = "30 min",
+            HeatTransferCoefficient = 0.16, Cost = 175m, CoarseScaleFillColour = ColourRgb.FromHex("7A6A58")
+        };
+        // Tiled roofs, warm as the slate one: clay plain tiles, laid at 35 degrees at the least, and
+        // concrete interlocking tiles, at 15 (BS 5534).
+        var plainTile = new Material("Roof Tile, Clay Plain")
+        {
+            Density = 2000, ThermalConductivity = 1.0,
+            SurfaceColour = ColourRgb.FromHex("9C4E36"), CutColour = ColourRgb.FromHex("8C442E"), CostPerCubicMetre = 2200m
+        };
+        var interlockingTile = new Material("Roof Tile, Concrete Interlocking")
+        {
+            Density = 2100, ThermalConductivity = 1.5,
+            SurfaceColour = ColourRgb.FromHex("5E5A57"), CutColour = ColourRgb.FromHex("504C49"), CostPerCubicMetre = 900m
+        };
+        document.AddMaterial(plainTile);
+        document.AddMaterial(interlockingTile);
+        var plainTileRoof = new RoofType("Roof - Plain Clay Tiles on Insulated Rafters 240mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, plainTile.Id, 28),
+            new MaterialLayer(LayerFunction.Structure, insulatedRafters.Id, 150),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "R4", AssemblyCode = "B1020", Function = SlabFunction.Structural, FireRating = "30 min",
+            HeatTransferCoefficient = 0.16, Cost = 185m, CoarseScaleFillColour = ColourRgb.FromHex("8C5A44")
+        };
+        var interlockingRoof = new RoofType("Roof - Concrete Interlocking Tiles on Insulated Rafters 240mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, interlockingTile.Id, 28),
+            new MaterialLayer(LayerFunction.Structure, insulatedRafters.Id, 150),
+            new MaterialLayer(LayerFunction.ThermalAir, insulation.Id, 50),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "R5", AssemblyCode = "B1020", Function = SlabFunction.Structural, FireRating = "30 min",
+            HeatTransferCoefficient = 0.16, Cost = 150m, CoarseScaleFillColour = ColourRgb.FromHex("66615D")
+        };
+
+        var loftCeiling = new CeilingType("Ceiling - Plasterboard under 270mm Mineral Wool", new CompoundStructure(
+            new MaterialLayer(LayerFunction.ThermalAir, mineralWool.Id, 270),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "C2", AssemblyCode = "C3030", Function = SlabFunction.Architectural, FireRating = "30 min", Cost = 42m,
+            CoarseScaleFillColour = ColourRgb.FromHex("D9C38A")
+        };
 
         var pitchedRoof = new RoofType("Roof - Slate on Timber Rafters 150mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, slate.Id, 18),
@@ -1210,10 +1354,39 @@ public sealed class BimDocument
                 { TypeMark = "F4", Colour = fabric, Cost = 150m },
             new ComponentType("Sofa - Two Seat", BuiltInCategory.Furniture, ComponentForm.Sofa, 1600, 850, 800)
                 { TypeMark = "F5", Colour = fabric, Cost = 620m },
-            new ComponentType("Bed - Double", BuiltInCategory.Furniture, ComponentForm.Bed, 1500, 2000, 900)
-                { TypeMark = "F6", Colour = fabric, Cost = 540m },
-            new ComponentType("Bed - Single", BuiltInCategory.Furniture, ComponentForm.Bed, 900, 1900, 900)
-                { TypeMark = "F7", Colour = fabric, Cost = 380m },
+
+            // Beds at the sizes their mattresses are sold in - the UK's, and Approved Document M's
+            // furniture schedule, which sizes the principal bedroom's bed a king - their headboards
+            // a metre high and the tops of their mattresses at 550.
+            new ComponentType("Bed - Single 900 x 1900", BuiltInCategory.Furniture, ComponentForm.Bed, 900, 1900, 1000)
+                { TypeMark = "F7", Colour = fabric, Cost = 380m, Description = "UK single: mattress 900 x 1900" },
+            new ComponentType("Bed - Small Double 1200 x 1900", BuiltInCategory.Furniture, ComponentForm.Bed, 1200, 1900, 1000)
+                { TypeMark = "F14", Colour = fabric, Cost = 420m, Description = "UK small double: mattress 1200 x 1900" },
+            new ComponentType("Bed - Double 1350 x 1900", BuiltInCategory.Furniture, ComponentForm.Bed, 1350, 1900, 1000)
+                { TypeMark = "F6", Colour = fabric, Cost = 480m, Description = "UK double: mattress 1350 x 1900" },
+            new ComponentType("Bed - King 1500 x 2000", BuiltInCategory.Furniture, ComponentForm.Bed, 1500, 2000, 1000)
+                { TypeMark = "F15", Colour = fabric, Cost = 540m, Description = "UK king: mattress 1500 x 2000 - the principal bedroom's in Approved Document M" },
+            new ComponentType("Bed - Super King 1800 x 2000", BuiltInCategory.Furniture, ComponentForm.Bed, 1800, 2000, 1000)
+                { TypeMark = "F16", Colour = fabric, Cost = 690m, Description = "UK super king: mattress 1800 x 2000" },
+
+            // And the US's, in inches: a twin, a full, a queen, a king and a California king.
+            new ComponentType("Bed - Twin 38 x 75 in", BuiltInCategory.Furniture, ComponentForm.Bed, 965, 1905, 1100)
+                { TypeMark = "F17", Colour = fabric, Cost = 380m, Description = "US twin: mattress 38 x 75 in" },
+            new ComponentType("Bed - Full 54 x 75 in", BuiltInCategory.Furniture, ComponentForm.Bed, 1372, 1905, 1100)
+                { TypeMark = "F18", Colour = fabric, Cost = 460m, Description = "US full: mattress 54 x 75 in" },
+            new ComponentType("Bed - Queen 60 x 80 in", BuiltInCategory.Furniture, ComponentForm.Bed, 1524, 2032, 1100)
+                { TypeMark = "F19", Colour = fabric, Cost = 540m, Description = "US queen: mattress 60 x 80 in" },
+            new ComponentType("Bed - King 76 x 80 in", BuiltInCategory.Furniture, ComponentForm.Bed, 1930, 2032, 1100)
+                { TypeMark = "F20", Colour = fabric, Cost = 720m, Description = "US king: mattress 76 x 80 in" },
+            new ComponentType("Bed - California King 72 x 84 in", BuiltInCategory.Furniture, ComponentForm.Bed, 1829, 2134, 1100)
+                { TypeMark = "F21", Colour = fabric, Cost = 760m, Description = "US California king: mattress 72 x 84 in" },
+
+            // A bunk bed on 900 x 1900 mattresses, its upper bed 1000 up and guarded as EN 747
+            // asks; a cot on a 600 x 1200 mattress, its rails 900 high.
+            new ComponentType("Bunk Bed - 900 x 1900", BuiltInCategory.Furniture, ComponentForm.BunkBed, 1020, 2020, 1600)
+                { TypeMark = "F22", Colour = timber, Cost = 450m, Description = "Two 900 x 1900 mattresses; upper bed guarded to EN 747-1" },
+            new ComponentType("Cot - 600 x 1200", BuiltInCategory.Furniture, ComponentForm.Cot, 680, 1280, 900)
+                { TypeMark = "F23", Colour = white, Cost = 220m, Description = "Cot to BS EN 716: mattress 600 x 1200" },
             new ComponentType("Wardrobe - 1000 x 600", BuiltInCategory.Furniture, ComponentForm.Wardrobe, 1000, 600, 2100)
                 { TypeMark = "F9", Colour = timber, Cost = 420m },
             new ComponentType("Bookcase - 900 x 1800", BuiltInCategory.Furniture, ComponentForm.Shelving, 900, 300, 1800)
@@ -1230,15 +1403,51 @@ public sealed class BimDocument
             new ComponentType("TV Unit - 1600", BuiltInCategory.Furniture, ComponentForm.TelevisionUnit, 1600, 450, 500)
                 { TypeMark = "F13", Colour = timber, Cost = 280m },
 
+            // A three seat sofa and a corner one, their seats at 450; a table for four - 1200 by
+            // 800, as Approved Document M sets one out - and round ones for four and for six, on
+            // pedestals; a bedside table, a chest of drawers and a sideboard; a single wardrobe.
+            new ComponentType("Sofa - Three Seat", BuiltInCategory.Furniture, ComponentForm.Sofa, 2100, 900, 850)
+                { TypeMark = "F24", Colour = fabric, Cost = 820m },
+            new ComponentType("Sofa - Corner 2600 x 1700", BuiltInCategory.Furniture, ComponentForm.CornerSofa, 2600, 1700, 850)
+                { TypeMark = "F25", Colour = fabric, Cost = 1250m },
+            new ComponentType("Table - Dining 1200 x 800", BuiltInCategory.Furniture, ComponentForm.Table, 1200, 800, 750)
+                { TypeMark = "F26", Colour = timber, Cost = 240m, Description = "Seats four" },
+            new ComponentType("Table - Round 900", BuiltInCategory.Furniture, ComponentForm.RoundTable, 900, 900, 750)
+                { TypeMark = "F27", Colour = timber, Cost = 220m, Description = "Seats two to four" },
+            new ComponentType("Table - Round 1200", BuiltInCategory.Furniture, ComponentForm.RoundTable, 1200, 1200, 750)
+                { TypeMark = "F28", Colour = timber, Cost = 340m, Description = "Seats four to six" },
+            new ComponentType("Bedside Table", BuiltInCategory.Furniture, ComponentForm.Drawers, 400, 400, 550)
+                { TypeMark = "F29", Colour = timber, Cost = 90m },
+            new ComponentType("Chest of Drawers - 750", BuiltInCategory.Furniture, ComponentForm.Drawers, 750, 450, 800)
+                { TypeMark = "F30", Colour = timber, Cost = 260m },
+            new ComponentType("Sideboard - 1600", BuiltInCategory.Furniture, ComponentForm.Drawers, 1600, 450, 850)
+                { TypeMark = "F31", Colour = timber, Cost = 420m },
+            new ComponentType("Wardrobe - Single 600 x 600", BuiltInCategory.Furniture, ComponentForm.Wardrobe, 600, 600, 2100)
+                { TypeMark = "F32", Colour = timber, Cost = 260m },
+
             new ComponentType("Counter - Kitchen 1800", BuiltInCategory.Casework, ComponentForm.Counter, 1800, 650, 900)
                 { TypeMark = "C1", Colour = timber, Cost = 460m },
             new ComponentType("Base Unit - 600", BuiltInCategory.Casework, ComponentForm.Counter, 600, 600, 900)
                 { TypeMark = "C2", Colour = timber, Cost = 180m },
-            new ComponentType("Wall Unit - 600", BuiltInCategory.Casework, ComponentForm.Shelving, 600, 350, 700)
+            // Wall units 720 high and 350 deep with their doors, their undersides 500 over the
+            // worktop; a tall larder and a tall housing with the oven at eye level, their tops
+            // with the wall units'; and an island, which stands where it is put.
+            new ComponentType("Wall Unit - 600", BuiltInCategory.Casework, ComponentForm.WallUnit, 600, 350, 720)
             {
                 TypeMark = "C3", Colour = timber, Cost = 160m,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1400
             },
+            new ComponentType("Wall Unit - 1000", BuiltInCategory.Casework, ComponentForm.WallUnit, 1000, 350, 720)
+            {
+                TypeMark = "C4", Colour = timber, Cost = 220m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1400
+            },
+            new ComponentType("Tall Unit - Larder 600", BuiltInCategory.Casework, ComponentForm.TallUnit, 600, 600, 2120)
+                { TypeMark = "C5", Colour = timber, Cost = 420m },
+            new ComponentType("Tall Unit - Oven Housing 600", BuiltInCategory.Casework, ComponentForm.OvenHousing, 600, 600, 2120)
+                { TypeMark = "C6", Colour = timber, Cost = 1350m, Description = "Built-in oven and microwave at eye level" },
+            new ComponentType("Island - 2400 x 1000", BuiltInCategory.Casework, ComponentForm.Counter, 2400, 1000, 900)
+                { TypeMark = "C7", Colour = timber, Cost = 1600m, AgainstWall = false },
 
             // The kitchen's appliances at the sizes UK ones come in: 600 wide to take the place of
             // a 600 unit in a run, the dishwasher, washing machine and under-counter fridge under
@@ -1260,18 +1469,44 @@ public sealed class BimDocument
                 { TypeMark = "A7", Colour = timber, Cost = 330m },
             new ComponentType("Washing Machine - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.WashingMachine, 600, 600, 900)
                 { TypeMark = "A8", Colour = timber, Cost = 400m },
+            new ComponentType("Tumble Dryer - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.TumbleDryer, 600, 600, 900)
+                { TypeMark = "A9", Colour = timber, Cost = 420m },
+
+            // Chimney cooker hoods over the hob, at least as wide as it as Approved Document F
+            // asks, hung 700 over it - the middle of its 650 to 750 - by the wall they are fixed to.
+            new ComponentType("Cooker Hood - Chimney 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.CookerHood, 600, 500, 850)
+            {
+                TypeMark = "A10", Colour = stainless, Cost = 280m, ExtractRate = 110,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1600
+            },
+            new ComponentType("Cooker Hood - Chimney 1000", BuiltInCategory.SpecialtyEquipment, ComponentForm.CookerHood, 1000, 500, 850)
+            {
+                TypeMark = "A11", Colour = stainless, Cost = 450m, ExtractRate = 170,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1600
+            },
 
             new ComponentType("Basin - Pedestal", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 450, 850)
                 { TypeMark = "P1", Colour = white, Cost = 190m },
+            // Basins on the wall with their rims at 850, as a pedestal basin's is; a hand-rinse
+            // basin for a cloakroom; WCs with their seats at 420, close coupled and wall hung.
             new ComponentType("Basin - Wall Hung", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 420, 300)
             {
                 TypeMark = "P2", Colour = white, Cost = 210m,
-                Placement = ComponentPlacement.FaceBased, DefaultElevation = 800
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 550
+            },
+            new ComponentType("Basin - Hand Rinse 400", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 400, 250, 250)
+            {
+                TypeMark = "P11", Colour = white, Cost = 120m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 600
             },
             new ComponentType("WC - Close Coupled", BuiltInCategory.PlumbingFixtures, ComponentForm.Toilet, 380, 680, 780)
                 { TypeMark = "P3", Colour = white, Cost = 260m },
+            new ComponentType("WC - Wall Hung", BuiltInCategory.PlumbingFixtures, ComponentForm.WallHungToilet, 360, 540, 1000)
+                { TypeMark = "P12", Colour = white, Cost = 420m, Description = "Concealed cistern in a frame in the wall" },
             new ComponentType("Bath - 1700 x 700", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1700, 700, 550)
                 { TypeMark = "P4", Colour = white, Cost = 340m },
+            new ComponentType("Bath - 1800 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1800, 800, 560)
+                { TypeMark = "P13", Colour = white, Cost = 480m },
 
             // Sinks set into the worktop of their unit: a bowl and drainer in a 1000 unit, a bowl in a 600.
             new ComponentType("Sink Unit - 1000", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 1000, 600, 900)
@@ -1290,23 +1525,35 @@ public sealed class BimDocument
             new ComponentType("Walk-in Shower - 1400 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1400, 900, 1945)
                 { TypeMark = "P10", Colour = white, Cost = 560m, Enclosure = ShowerEnclosure.WalkIn },
 
+            // A level-access shower, its former flush with the floor: 1200 x 1200, as Approved
+            // Document M asks of a wheelchair user's bathroom.
+            new ComponentType("Shower - Level Access 1200 x 1200", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1200, 1200, 10)
+                { TypeMark = "P14", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 650m, Description = "Wet-room former, laid to fall to its drain" },
+
+            // A wall light with its middle at 1700, as lights are put up - 1.6 to 1.8 m - and LED
+            // lamps in all of them, past the 75 lumens a watt Approved Document L asks for.
             new ComponentType("Wall Light", BuiltInCategory.LightingFixtures, ComponentForm.WallLight, 300, 140, 320)
             {
-                TypeMark = "L1", Colour = white, Cost = 75m,
-                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2000
+                TypeMark = "L1", Colour = white, Cost = 75m, Efficacy = 90,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1550
             },
 
             // Ceiling lights hang from the ceiling over where they are put; with no ceiling, their
             // top at 2400 - the height given is their underside's.
             new ComponentType("Ceiling Light - Flush", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 350, 350, 100)
             {
-                TypeMark = "L2", Colour = white, Cost = 45m,
+                TypeMark = "L2", Colour = white, Cost = 45m, Efficacy = 90,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2300
             },
             new ComponentType("Ceiling Light - Pendant", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 400, 400, 700)
             {
-                TypeMark = "L3", Colour = linen, Cost = 60m,
+                TypeMark = "L3", Colour = linen, Cost = 60m, Efficacy = 80,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1700
+            },
+            new ComponentType("Downlight - Recessed", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 90, 90, 60)
+            {
+                TypeMark = "L4", Colour = white, Cost = 25m, Efficacy = 95,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340
             },
 
             // Radiators on the wall, 150 off the floor on their valves; sockets and switches on it
@@ -1332,10 +1579,95 @@ public sealed class BimDocument
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1050
             },
 
+            // A shaver supply unit, the one socket BS 7671 lets into a bathroom's zone 2; the
+            // consumer unit, its switches at 1400 - Approved Document M's 1350 to 1450; a room
+            // thermostat at 1100, in M4(2)'s 900 to 1200 for heating controls.
+            new ComponentType("Shaver Socket", BuiltInCategory.ElectricalFixtures, ComponentForm.ShaverSocket, 146, 40, 86)
+            {
+                TypeMark = "E3", Colour = white, Cost = 45m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
+            },
+            new ComponentType("Consumer Unit - 12 Way", BuiltInCategory.ElectricalEquipment, ComponentForm.ConsumerUnit, 380, 120, 300)
+            {
+                TypeMark = "E4", Colour = white, Cost = 180m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1250
+            },
+            new ComponentType("Room Thermostat", BuiltInCategory.MechanicalEquipment, ComponentForm.Thermostat, 86, 25, 86)
+            {
+                TypeMark = "M3", Colour = white, Cost = 60m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
+            },
+
+            // A heated towel rail; extract fans within 400 of a 2400 ceiling, as Approved Document
+            // F asks (1.20), at a bathroom's 15 l/s and a kitchen's 60 l/s.
+            new ComponentType("Towel Rail - 500 x 1200", BuiltInCategory.MechanicalEquipment, ComponentForm.TowelRail, 500, 100, 1200)
+            {
+                TypeMark = "M4", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 140m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 150
+            },
+            new ComponentType("Extract Fan - 100 (15 l/s)", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 150, 40, 150)
+            {
+                TypeMark = "M5", Colour = white, Cost = 55m, ExtractRate = 15,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2150
+            },
+            new ComponentType("Extract Fan - 150 (60 l/s)", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 190, 50, 190)
+            {
+                TypeMark = "M6", Colour = white, Cost = 95m, ExtractRate = 60,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2110
+            },
+
+            // A gas combi boiler on the wall, its controls at 1150 or so.
+            new ComponentType("Boiler - Gas Combi", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
+            {
+                TypeMark = "M7", Colour = white, Cost = 1800m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
+            },
+
+            // Alarms on the ceiling: smoke, heat - for a kitchen - and carbon monoxide.
+            new ComponentType("Smoke Alarm", BuiltInCategory.FireAlarmDevices, ComponentForm.SmokeAlarm, 110, 110, 45)
+            {
+                TypeMark = "FA1", Colour = white, Cost = 35m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2355
+            },
+            new ComponentType("Heat Alarm", BuiltInCategory.FireAlarmDevices, ComponentForm.HeatAlarm, 110, 110, 45)
+            {
+                TypeMark = "FA2", Colour = white, Cost = 35m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2355
+            },
+            new ComponentType("Carbon Monoxide Alarm", BuiltInCategory.FireAlarmDevices, ComponentForm.CarbonMonoxideAlarm, 110, 110, 45)
+            {
+                TypeMark = "FA3", Colour = white, Cost = 30m,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2355
+            },
+
+            // Trees at their mature heights, with how much water they draw as NHBC Standards
+            // Table 3 sorts them - which is how far round them a clay soil is dried - and their
+            // stems' diameters, which their root protection areas are measured from (BS 5837).
+            // A tree of no named species is taken as high demand, as NHBC asks.
             new ComponentType("Tree - Small", BuiltInCategory.Planting, ComponentForm.Tree, 2400, 2400, 4000)
-                { TypeMark = "T1", Colour = foliage, Cost = 260m },
+                { TypeMark = "T1", Colour = foliage, Cost = 260m, StemDiameter = 150 },
             new ComponentType("Tree - Large", BuiltInCategory.Planting, ComponentForm.Tree, 6000, 6000, 9000)
-                { TypeMark = "T2", Colour = foliage, Cost = 650m },
+                { TypeMark = "T2", Colour = foliage, Cost = 650m, StemDiameter = 400 },
+            new ComponentType("Tree - Oak, English", BuiltInCategory.Planting, ComponentForm.Tree, 14000, 14000, 20000)
+                { TypeMark = "T5", Colour = foliage, Cost = 900m, WaterDemand = TreeWaterDemand.High, StemDiameter = 800 },
+            new ComponentType("Tree - Willow, Weeping", BuiltInCategory.Planting, ComponentForm.Tree, 12000, 12000, 16000)
+                { TypeMark = "T6", Colour = new ColourRgb(0x7E, 0x9E, 0x4E), Cost = 450m, WaterDemand = TreeWaterDemand.High, StemDiameter = 600 },
+            new ComponentType("Tree - Poplar, Lombardy", BuiltInCategory.Planting, ComponentForm.Tree, 4000, 4000, 25000)
+                { TypeMark = "T7", Colour = foliage, Cost = 380m, WaterDemand = TreeWaterDemand.High, StemDiameter = 500 },
+            new ComponentType("Tree - Ash", BuiltInCategory.Planting, ComponentForm.Tree, 15000, 15000, 23000)
+                { TypeMark = "T8", Colour = foliage, Cost = 700m, WaterDemand = TreeWaterDemand.Moderate, StemDiameter = 700 },
+            new ComponentType("Tree - Beech", BuiltInCategory.Planting, ComponentForm.Tree, 14000, 14000, 20000)
+                { TypeMark = "T9", Colour = new ColourRgb(0x5A, 0x7A, 0x3C), Cost = 750m, WaterDemand = TreeWaterDemand.Moderate, StemDiameter = 700 },
+            new ComponentType("Tree - Cherry, Japanese", BuiltInCategory.Planting, ComponentForm.Tree, 8000, 8000, 9000)
+                { TypeMark = "T10", Colour = new ColourRgb(0xD8, 0x9A, 0xB0), Cost = 320m, WaterDemand = TreeWaterDemand.Moderate, StemDiameter = 300 },
+            new ComponentType("Tree - Apple", BuiltInCategory.Planting, ComponentForm.Tree, 6000, 6000, 10000)
+                { TypeMark = "T11", Colour = foliage, Cost = 180m, WaterDemand = TreeWaterDemand.Moderate, StemDiameter = 250 },
+            new ComponentType("Tree - Birch, Silver", BuiltInCategory.Planting, ComponentForm.Tree, 6000, 6000, 14000)
+                { TypeMark = "T12", Colour = new ColourRgb(0x8A, 0xAA, 0x5A), Cost = 240m, WaterDemand = TreeWaterDemand.Low, StemDiameter = 300 },
+            new ComponentType("Tree - Holly", BuiltInCategory.Planting, ComponentForm.Tree, 5000, 5000, 12000)
+                { TypeMark = "T13", Colour = new ColourRgb(0x2F, 0x5A, 0x30), Cost = 200m, WaterDemand = TreeWaterDemand.Low, StemDiameter = 250 },
+            new ComponentType("Conifer - Leyland Cypress", BuiltInCategory.Planting, ComponentForm.Conifer, 5000, 5000, 20000)
+                { TypeMark = "T14", Colour = new ColourRgb(0x3F, 0x6B, 0x3A), Cost = 150m, WaterDemand = TreeWaterDemand.High, StemDiameter = 450 },
             new ComponentType("Conifer - 7 m", BuiltInCategory.Planting, ComponentForm.Conifer, 2500, 2500, 7000)
                 { TypeMark = "T3", Colour = new ColourRgb(0x3F, 0x6B, 0x3A), Cost = 300m },
             new ComponentType("Shrub - 1200", BuiltInCategory.Planting, ComponentForm.Shrub, 1200, 1200, 1000)
@@ -1346,10 +1678,35 @@ public sealed class BimDocument
                 { TypeMark = "V1", Colour = new ColourRgb(0x9E, 0x2B, 0x25), Cost = 0m },
             new ComponentType("Car - Estate", BuiltInCategory.Entourage, ComponentForm.Car, 4700, 1850, 1500)
                 { TypeMark = "V2", Colour = new ColourRgb(0x3E, 0x52, 0x66), Cost = 0m },
+            new ComponentType("Car - SUV", BuiltInCategory.Entourage, ComponentForm.Car, 4600, 1900, 1700)
+                { TypeMark = "V3", Colour = new ColourRgb(0x55, 0x5A, 0x60), Cost = 0m },
+            new ComponentType("Van - Panel", BuiltInCategory.Entourage, ComponentForm.Car, 5050, 2000, 1980)
+                { TypeMark = "V4", Colour = white, Cost = 0m },
+
+            // Parking bays marked out: the UK's 2.4 x 4.8, and an accessible one with 1.2 m zones
+            // to one side and behind (M4(3) 3.12); the US's 9 x 18 ft, and an accessible one with
+            // its 60 in aisle (ADA 502).
+            new ComponentType("Parking Bay - 2400 x 4800", BuiltInCategory.Parking, ComponentForm.ParkingBay, 2400, 4800, 5)
+                { TypeMark = "PB1", Colour = new ColourRgb(0x45, 0x48, 0x4D), Cost = 0m },
+            new ComponentType("Parking Bay - Accessible 3600 x 6000", BuiltInCategory.Parking, ComponentForm.AccessibleParkingBay, 3600, 6000, 5)
+                { TypeMark = "PB2", Colour = new ColourRgb(0x45, 0x48, 0x4D), Cost = 0m },
+            new ComponentType("Parking Space - 9 x 18 ft", BuiltInCategory.Parking, ComponentForm.ParkingBay, 2743, 5486, 5)
+                { TypeMark = "PB3", Colour = new ColourRgb(0x45, 0x48, 0x4D), Cost = 0m },
+            new ComponentType("Parking Space - Accessible 96 + 60 in", BuiltInCategory.Parking, ComponentForm.AccessibleParkingBay, 3962, 5486, 5)
+                { TypeMark = "PB4", Colour = new ColourRgb(0x45, 0x48, 0x4D), Cost = 0m },
             new ComponentType("Person - Adult", BuiltInCategory.Entourage, ComponentForm.Person, 500, 300, 1750)
                 { TypeMark = "H1", Colour = new ColourRgb(0x4A, 0x6F, 0xA5), Cost = 0m },
             new ComponentType("Person - Child", BuiltInCategory.Entourage, ComponentForm.Person, 380, 230, 1200)
                 { TypeMark = "H2", Colour = new ColourRgb(0xC0, 0x50, 0x3A), Cost = 0m },
+
+            // A wheelchair user, at the UK's reference wheelchair's 700 x 1200 x 1350; and turning
+            // circles to try a room with - Approved Document M's 1500, the ADA's 60 in.
+            new ComponentType("Person - Wheelchair User", BuiltInCategory.Entourage, ComponentForm.WheelchairUser, 700, 1200, 1350)
+                { TypeMark = "H3", Colour = new ColourRgb(0x4A, 0x6F, 0xA5), Cost = 0m },
+            new ComponentType("Turning Circle - 1500", BuiltInCategory.GenericModels, ComponentForm.TurningCircle, 1500, 1500, 10)
+                { TypeMark = "G2", Colour = new ColourRgb(0xB8, 0xE0, 0xC0), Cost = 0m },
+            new ComponentType("Turning Circle - 60 in", BuiltInCategory.GenericModels, ComponentForm.TurningCircle, 1525, 1525, 10)
+                { TypeMark = "G3", Colour = new ColourRgb(0xB8, 0xE0, 0xC0), Cost = 0m },
 
             new ComponentType("Generic - 600 Cube", BuiltInCategory.GenericModels, ComponentForm.Box, 600, 600, 600)
                 { TypeMark = "G1", Cost = 0m }
@@ -1363,6 +1720,28 @@ public sealed class BimDocument
         foreach (var beam in BeamType.Library()) document.AddType(beam);
 
         // Log walls, as Archicad builds them: round logs, D-logs flat inside, squared logs.
+        // A stud partition with mineral wool in it, for round a bedroom or a bathroom - Rw 43, past
+        // the 40 Approved Document E asks there; a timber frame outside wall behind a brick skin,
+        // 0.22 W/m²K.
+        var acousticPartition = new WallType("Stud Wall - Acoustic 125mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 100),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            Function = WallFunction.Interior, TypeMark = "P2", AssemblyCode = "C1010", FireRating = "30 min", AcousticRating = 43, Cost = 62m,
+            CoarseScaleFillColour = ColourRgb.FromHex("C9C1A8"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var timberFrame = new WallType("Timber Frame - Brick Clad 315mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, brick.Id, 100),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 50, wraps: false),
+            new MaterialLayer(LayerFunction.Substrate, softwood.Id, 9),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 140),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            Function = WallFunction.Exterior, TypeMark = "EW2", AssemblyCode = "B2010", FireRating = "60 min", AcousticRating = 45, Cost = 150m,
+            HeatTransferCoefficient = 0.22, CoarseScaleFillColour = ColourRgb.FromHex("B59A7A"), WrapAtEnds = WallWrapping.Exterior
+        };
+
         var logRound = new WallType("Log Wall - Round 220", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 220)))
             { Function = WallFunction.Exterior, Log = new LogWall(LogShape.Round, 190, 300), WrapAtEnds = WallWrapping.None, TypeMark = "L1", Cost = 210m };
         var logD = new WallType("Log Wall - D-Log 200", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 200)))
@@ -1381,11 +1760,11 @@ public sealed class BimDocument
                      roofWindow, tallRoofWindow, escapeRoofWindow, fixedRooflight,
                      storefront, plainGlass,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
-                     curtainSingle, curtainDouble, curtainSlider,
+                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, garageDoor, usExterior,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
-                     logRound, logD, logSquare
+                     logRound, logD, logSquare, acousticPartition, timberFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof
                  })
         {
             document.AddType(type);

@@ -92,7 +92,7 @@ public static class OpeningGuarding
         if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type)
             return Array.Empty<string>();
 
-        var us = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var drop = Drop(document, wall, opening.DistanceAlongWall);
         var (from, to) = (opening.DistanceAlongWall - opening.WidthOf(type) / 2, opening.DistanceAlongWall + opening.WidthOf(type) / 2);
         var guarded = GuardAcross(document, wall, from, to, opening) is not null;
@@ -131,7 +131,7 @@ public static class OpeningGuarding
     {
         if (!document.IsCurtainWall(wall) || CurtainLayout.Of(document, wall) is not { } layout) return Array.Empty<string>();
 
-        var us = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var limit = us ? 762.0 : 600.0;
         var (low, empty, doors, drop) = (0, 0, 0, 0.0);
         foreach (var cell in layout.Cells)

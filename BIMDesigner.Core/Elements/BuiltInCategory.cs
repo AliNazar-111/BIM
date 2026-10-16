@@ -64,7 +64,25 @@ public enum BuiltInCategory
     Topography,
 
     /// <summary>Ramps: their flights and landings, kerbs and handrails.</summary>
-    Ramps
+    Ramps,
+
+    /// <summary>Pads graded into the ground: patios, drives, terraces, level ground for the building.</summary>
+    Pads,
+
+    /// <summary>The lines round a property.</summary>
+    PropertyLines,
+
+    /// <summary>Spot elevations: heights read off the model in plan.</summary>
+    SpotElevations,
+
+    /// <summary>Smoke, heat and carbon monoxide alarms.</summary>
+    FireAlarmDevices,
+
+    /// <summary>The consumer unit, a distribution board.</summary>
+    ElectricalEquipment,
+
+    /// <summary>Parking bays marked out on a drive or a car park.</summary>
+    Parking
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

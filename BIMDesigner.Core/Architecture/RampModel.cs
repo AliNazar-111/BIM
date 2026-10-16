@@ -22,9 +22,11 @@ public sealed record RampParts(IReadOnlyList<(RampPiece Piece, Mesh3D Body)> Pie
 
 /// <summary>
 /// A ramp as it is built, for the 3D view, sections and IFC: its flights and landings - solid
-/// down to below its foot, or a slab or deck of its own thickness - a kerb along each side, its
-/// handrails running on past its ends and turned down there, on posts, a second rail at 600 if
-/// its type has one, and guarding - balusters or glass - where a side drops too far.
+/// down to below its foot and to the ground where that falls away, or a slab or deck of its own
+/// thickness - a kerb along each open side, its sides taken down to the ground if it is closed
+/// underneath; its handrails running on past its ends and turned down there, on posts on the
+/// kerb or on brackets from a wall beside it, a second rail at 600 if its type has one, and
+/// guarding - balusters or glass - where an open side drops too far.
 /// </summary>
 public static class RampModel
 {
@@ -36,72 +38,108 @@ public static class RampModel
     private const double BalusterSpacing = 110;
     private const double GlassThickness = 12;
 
+    /// <summary>The gap between a handrail on a wall and the wall, for the hand: Approved Document M asks 50 to 75, the ADA 1½ in (38) at least.</summary>
+    public const double WallGap = 50;
+
+    /// <summary>How far apart the brackets holding a handrail on a wall are, at most, mm.</summary>
+    private const double BracketSpacing = 900;
+
     public static IReadOnlyList<Mesh3D> Meshes(BimDocument document, Ramp ramp) => Parts(document, ramp).All;
 
     public static RampParts Parts(BimDocument document, Ramp ramp)
     {
         var type = Ramps.TypeOf(document, ramp);
         var layout = Ramps.Layout(document, ramp);
+        var sides = Ramps.Sides(document, layout);
         var made = document.FindMaterial(type.MaterialId);
         var railMade = document.FindMaterial(type.RailMaterialId);
         Mesh3D Body() => new(ramp.Id, ramp.LevelId, MeshKind.Ramp, made?.SurfaceColour ?? type.Colour, made?.Name ?? type.Name);
         Mesh3D Rail() => new(ramp.Id, ramp.LevelId, MeshKind.Ramp, railMade?.SurfaceColour ?? Steel, railMade?.Name ?? "Stainless Steel");
 
-        // Its flights and landings: solid down to under its foot, or a slab its thickness under its surface.
+        // Its flights and landings: solid down to under its foot - and on down to the ground where
+        // the ground falls away under it - or a slab its thickness under its surface.
         var solid = type.Construction == RampConstruction.Solid;
         var floor = layout.Bottom - type.Thickness;
+        double Founded(Point2D at) => Terrains.GroundAt(document, at) is { } ground && ground < layout.Bottom ? Math.Min(floor, ground - 100) : floor;
         var pieces = new List<(RampPiece, Mesh3D)>();
         foreach (var piece in layout.Pieces)
         {
             var body = Body();
-            body.AddExtrusion(piece.Outline, at => solid ? floor : piece.HeightAt(at) - type.Thickness, piece.HeightAt);
+            body.AddExtrusion(piece.Outline, at => solid ? Founded(at) : piece.HeightAt(at) - type.Thickness, piece.HeightAt);
             pieces.Add((piece, body));
         }
 
-        // A kerb along each side - or, with none, the edge its handrail posts stand on.
+        // A kerb along each open side - or, with none, the edge its handrail posts stand on - none
+        // along a wall; closed underneath, taken down to the floor or the ground under it.
         var kerbs = Body();
-        foreach (var (side, outward) in new[] { (layout.Left, 1.0), (layout.Right, -1.0) })
+        var closed = !solid && ramp.ClosedUnderneath;
+        double Under(Point2D at, double surface) =>
+            solid ? Founded(at) : closed ? Math.Min(surface - type.Thickness, Beneath(document, layout, at, surface - type.Thickness)) : surface - type.Thickness;
+        foreach (var (side, outward, faces) in new[] { (sides.Left.Points, 1.0, sides.Left.Walls), (sides.Right.Points, -1.0, sides.Right.Walls) })
         {
             var outer = Outside(side, outward * type.KerbWidth);
             for (var i = 0; i + 1 < side.Count; i++)
             {
                 var (a, b) = (side[i], side[i + 1]);
-                if (a.At.DistanceTo(b.At) < 1) continue;
+                if (a.At.DistanceTo(b.At) < 1 || faces[i] is not null) continue;
                 double Surface(Point2D at) => Along(a, b, at);
-                kerbs.AddExtrusion(new[] { a.At, b.At, outer[i + 1], outer[i] },
-                    at => solid ? floor : Surface(at) - type.Thickness,
-                    at => Surface(at) + type.KerbHeight);
+                kerbs.AddExtrusion(new[] { a.At, b.At, outer[i + 1], outer[i] }, at => Under(at, Surface(at)), at => Surface(at) + type.KerbHeight);
             }
         }
 
-        // Its handrails, on posts on the kerb, and a second rail lower down if its type has one.
+        // Its handrails, turned down at each end so a sleeve or a strap is not caught on them.
         var rails = Rail();
         var (left, right) = Ramps.Handrails(document, ramp, layout);
         var radius = type.HandrailDiameter / 2;
-        var guards = Guards(document, ramp, layout);
-        foreach (var run in HandrailRuns(document, ramp, layout))
+        foreach (var run in HandrailRuns(document, ramp, layout, sides))
         {
-            // Turned down at each end, so a sleeve or a strap is not caught on it.
             var path = run.ToList();
             path.Insert(0, path[0] with { Z = path[0].Z - 100 });
             path.Add(path[^1] with { Z = path[^1].Z - 100 });
             rails.AddTube(path, radius, 10);
         }
 
-        foreach (var (side, outward, wanted) in new[] { (layout.Left, 1.0, left), (layout.Right, -1.0, right) })
+        // On posts on the kerb along an open side, on brackets from the wall along a wall; and a second rail lower down if its type has one.
+        foreach (var (side, outward, wanted, faces) in new[] { (sides.Left.Points, 1.0, left, sides.Left.Walls), (sides.Right.Points, -1.0, right, sides.Right.Walls) })
         {
             if (!wanted || side.Count < 2) continue;
-            var line = Outside(side, outward * radius);
-            if (type.LowerRail) rails.AddTube(line.Select((at, i) => Point3D.On(at, side[i].Height + 600)).ToList(), radius, 10);
-            foreach (var (at, height) in Posts(line.Select((at, i) => new RampEdgePoint(at, side[i].Height)).ToList(), type.PostSpacing))
-                Post(rails, at, height + type.KerbHeight, height + type.HandrailHeight - radius);
+            if (type.LowerRail) rails.AddTube(Handrail(side, faces, outward, radius).Select(point => Point3D.On(point.At, point.Height + 600)).ToList(), radius, 10);
+            for (var i = 0; i + 1 < side.Count; i++)
+            {
+                var (a, b) = (side[i], side[i + 1]);
+                var length = a.At.DistanceTo(b.At);
+                if (length < 1) continue;
+                var outwards = (b.At - a.At).PerpendicularLeft() / length * outward;
+                if (faces[i] is { } face)
+                {
+                    var count = Math.Max(1, (int)Math.Ceiling(length / BracketSpacing - 1e-9));
+                    for (var k = 0; k < count; k++)
+                    {
+                        var t = (k + 0.5) / count;
+                        var at = a.At + (b.At - a.At) * t;
+                        var under = a.Height + (b.Height - a.Height) * t + type.HandrailHeight - radius - 30;
+                        var rail = at + outwards * (face - WallGap - radius);
+                        rails.AddTube(new[] { Point3D.On(rail, under + 30), Point3D.On(rail, under), Point3D.On(at + outwards * face, under) }, 8, 8);
+                    }
+
+                    continue;
+                }
+
+                var posts = Math.Max(1, (int)Math.Ceiling(length / Math.Max(300, type.PostSpacing) - 1e-9));
+                for (var k = i > 0 && faces[i - 1] is null ? 1 : 0; k <= posts; k++)
+                {
+                    var t = (double)k / posts;
+                    var height = a.Height + (b.Height - a.Height) * t;
+                    Post(rails, a.At + (b.At - a.At) * t + outwards * radius, height + type.KerbHeight, height + type.HandrailHeight - radius);
+                }
+            }
         }
 
-        // Its guarding where a side drops too far: a top rail at the height asked, balusters or glass under it.
+        // Its guarding where an open side drops too far: a top rail at the height asked, balusters or glass under it.
         var guarding = new List<Mesh3D>();
         var guardRails = Rail();
         var glass = new Mesh3D(ramp.Id, ramp.LevelId, MeshKind.Ramp, GlassTint, "Glass, Toughened Laminated") { Opacity = 0.35 };
-        foreach (var guard in guards)
+        foreach (var guard in Guards(document, ramp, layout, sides))
         {
             var points = guard.Points;
             guardRails.AddTube(points.Select(point => Point3D.On(point.At, point.Height + guard.Height - 20)).ToList(), 20, 10);
@@ -138,20 +176,24 @@ public static class RampModel
     }
 
     /// <summary>
-    /// Its handrails' centre lines, side by side: each along a side at its clear width, its inner
-    /// face there, at its handrail height over the surface - over a flight's slope, straight up -
-    /// running on level past its foot and its head as far as its type says.
+    /// Its handrails' centre lines, side by side: each along a side - its inner face at the
+    /// ramp's clear width on posts, or the hand's gap off a wall beside it - at its handrail height
+    /// over the surface - over a flight's slope, straight up - running on level past its foot and
+    /// its head as far as its type says.
     /// </summary>
-    public static IReadOnlyList<IReadOnlyList<Point3D>> HandrailRuns(BimDocument document, Ramp ramp, RampLayout layout)
+    public static IReadOnlyList<IReadOnlyList<Point3D>> HandrailRuns(BimDocument document, Ramp ramp, RampLayout layout) =>
+        HandrailRuns(document, ramp, layout, Ramps.Sides(document, layout));
+
+    private static IReadOnlyList<IReadOnlyList<Point3D>> HandrailRuns(BimDocument document, Ramp ramp, RampLayout layout, (RampSide Left, RampSide Right) sides)
     {
         var type = Ramps.TypeOf(document, ramp);
         var (left, right) = Ramps.Handrails(document, ramp, layout);
         var runs = new List<IReadOnlyList<Point3D>>();
-        foreach (var (side, outward, wanted) in new[] { (layout.Left, 1.0, left), (layout.Right, -1.0, right) })
+        foreach (var (side, outward, wanted, faces) in new[] { (sides.Left.Points, 1.0, left, sides.Left.Walls), (sides.Right.Points, -1.0, right, sides.Right.Walls) })
         {
             if (!wanted || side.Count < 2) continue;
-            var line = Outside(side, outward * type.HandrailDiameter / 2);
-            var path = line.Select((at, i) => Point3D.On(at, side[i].Height + type.HandrailHeight)).ToList();
+            var path = Handrail(side, faces, outward, type.HandrailDiameter / 2).Select(point => Point3D.On(point.At, point.Height + type.HandrailHeight)).ToList();
+            if (path.Count < 2) continue;
             if (type.HandrailExtension > 0.5)
             {
                 var (first, last) = (path[0], path[^1]);
@@ -167,12 +209,15 @@ public static class RampModel
     }
 
     /// <summary>
-    /// Where its sides want guarding: each stretch of a side that drops more than its rules allow
-    /// to be left open - to a floor or the ground beside it, or, with none, below its foot - as a
-    /// line along the middle of its kerb, at the height asked: higher round a landing, elsewhere
-    /// than a dwelling. None for one told to have no handrails.
+    /// Where its sides want guarding: each stretch of an open side that drops more than its rules
+    /// allow to be left open - to a floor or the ground beside it, or, with none, below its foot -
+    /// as a line along the middle of its kerb, at the height asked: higher round a landing,
+    /// elsewhere than a dwelling. None along a wall, nor for one told to have no handrails.
     /// </summary>
-    public static IReadOnlyList<RampGuard> Guards(BimDocument document, Ramp ramp, RampLayout layout)
+    public static IReadOnlyList<RampGuard> Guards(BimDocument document, Ramp ramp, RampLayout layout) =>
+        Guards(document, ramp, layout, Ramps.Sides(document, layout));
+
+    private static IReadOnlyList<RampGuard> Guards(BimDocument document, Ramp ramp, RampLayout layout, (RampSide Left, RampSide Right) sides)
     {
         var guards = new List<RampGuard>();
         if (ramp.Railings == StairRailings.None) return guards;
@@ -180,7 +225,7 @@ public static class RampModel
         var type = Ramps.TypeOf(document, ramp);
         var limit = Railings.GuardedDrop(document, ramp.Building);
         var reach = type.KerbWidth + 200;
-        foreach (var (side, outward) in new[] { (layout.Left, 1.0), (layout.Right, -1.0) })
+        foreach (var (side, outward, faces) in new[] { (sides.Left.Points, 1.0, sides.Left.Walls), (sides.Right.Points, -1.0, sides.Right.Walls) })
         {
             if (side.Count < 2) continue;
             var line = Outside(side, outward * type.KerbWidth / 2);
@@ -190,8 +235,9 @@ public static class RampModel
             {
                 var (a, b) = (side[i], side[i + 1]);
                 var across = (b.At - a.At).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (outward * reach);
-                var drop = new[] { (a.At, a.Height), (a.At.MidpointTo(b.At), (a.Height + b.Height) / 2), (b.At, b.Height) }
-                    .Max(sample => Ramps.DropBeside(document, layout, sample.Item1 + across, sample.Item2));
+                var drop = faces[i] is not null ? 0
+                    : new[] { (a.At, a.Height), (a.At.MidpointTo(b.At), (a.Height + b.Height) / 2), (b.At, b.Height) }
+                        .Max(sample => Ramps.DropBeside(document, layout, sample.Item1 + across, sample.Item2));
                 var landing = Math.Abs(b.Height - a.Height) < 1;
                 var asked = Ramps.GuardHeight(document, ramp, landing).Height;
                 if (drop <= limit + 0.5 || (height is { } before && Math.Abs(before - asked) > 1))
@@ -228,6 +274,61 @@ public static class RampModel
         }
 
         return axis;
+    }
+
+    /// <summary>
+    /// A handrail's centre line along a side, with the surface's height along it: its inner face
+    /// at the ramp's clear width on an open side, the hand's gap off a wall along a wall - set
+    /// out length by length, mitred where two lengths set out alike meet, stepped where they differ.
+    /// </summary>
+    private static List<RampEdgePoint> Handrail(IReadOnlyList<RampEdgePoint> side, IReadOnlyList<double?> faces, double outward, double radius) =>
+        SetOut(side, i => faces[i] is { } face ? face - WallGap - radius : radius, outward);
+
+    /// <summary>A line along a side, set out from it length by length - each its own distance, out to its left going along it for a positive outward - mitred where two lengths set out alike meet, stepped where they differ.</summary>
+    private static List<RampEdgePoint> SetOut(IReadOnlyList<RampEdgePoint> side, Func<int, double> by, double outward)
+    {
+        var line = new List<RampEdgePoint>();
+        (Point2D From, Point2D To, double By)? before = null;
+        for (var i = 0; i + 1 < side.Count; i++)
+        {
+            var (a, b) = (side[i], side[i + 1]);
+            var length = a.At.DistanceTo(b.At);
+            if (length < 1) continue;
+            var normal = (b.At - a.At).PerpendicularLeft() / length * outward;
+            var distance = by(i);
+            var (from, to) = (a.At + normal * distance, b.At + normal * distance);
+            if (before is not { } last) line.Add(new RampEdgePoint(from, a.Height));
+            else if (Math.Abs(distance - last.By) > 0.5)
+            {
+                line.Add(new RampEdgePoint(last.To, a.Height));
+                line.Add(new RampEdgePoint(from, a.Height));
+            }
+            else line.Add(new RampEdgePoint(Crossing(last.From, last.To, from, to) ?? from, a.Height));
+            before = (from, to, distance);
+        }
+
+        if (before is { } end) line.Add(new RampEdgePoint(end.To, side[^1].Height));
+        return line;
+    }
+
+    /// <summary>Where the lines through two lengths cross - none where they run the same way.</summary>
+    private static Point2D? Crossing(Point2D a, Point2D b, Point2D c, Point2D d)
+    {
+        var (first, second) = (b - a, d - c);
+        var across = first.Cross(second);
+        if (Math.Abs(across) < 1e-6 * Math.Max(1, first.Length * second.Length)) return null;
+        return a + first * ((c - a).Cross(second) / across);
+    }
+
+    /// <summary>The floor or the ground under a point of a ramp, below a height - or, with neither, its foot's height.</summary>
+    private static double Beneath(BimDocument document, RampLayout layout, Point2D at, double below)
+    {
+        var under = new List<double>();
+        if (Terrains.GroundAt(document, at) is { } ground && ground < below) under.Add(ground);
+        under.AddRange(document.Elements.OfType<Slab>()
+            .Where(slab => slab.Boundary.Count >= 3 && slab.Contains(at) && FloorSurfaces.IsStoodOn(document, slab))
+            .Select(slab => FloorSurfaces.TopAt(document, slab, at)).Where(top => top < below));
+        return under.Count > 0 ? under.Max() : Math.Min(below, Ramps.GroundUnder(document, at));
     }
 
     /// <summary>A side's points set out sideways - out to its left going along it for a positive distance - mitred at its corners.</summary>

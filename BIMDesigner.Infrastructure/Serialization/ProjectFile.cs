@@ -232,6 +232,7 @@ public static class ProjectFile
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Construction = type.Construction.ToString(), Thickness = type.Thickness,
                 KerbHeight = type.KerbHeight, KerbWidth = type.KerbWidth, HandrailHeight = type.HandrailHeight, HandrailDiameter = type.HandrailDiameter,
                 HandrailExtension = type.HandrailExtension, LowerRail = type.LowerRail, Guarding = type.Guarding.ToString(), PostSpacing = type.PostSpacing,
+                LongestFlight = type.LongestFlight,
                 Colour = type.Colour.ToString(), MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description
             });
 
@@ -243,7 +244,8 @@ public static class ProjectFile
                 PathLengths = ramp.PathLengths.Count > 0 ? ramp.PathLengths.ToList() : null, PathTurns = ramp.PathTurns.Count > 0 ? ramp.PathTurns.ToList() : null,
                 Gradient = ramp.Gradient, BaseOffset = ramp.BaseOffset, TopLevelId = ramp.TopLevelId, TopOffset = ramp.TopOffset,
                 UnconnectedHeight = ramp.UnconnectedHeight, TopLanding = ramp.TopLanding, BottomLanding = ramp.BottomLanding,
-                Building = ramp.Building.ToString(), Outside = ramp.Outside, Railings = ramp.Railings.ToString(), Mark = ramp.Mark, Comments = ramp.Comments
+                Building = ramp.Building.ToString(), Outside = ramp.Outside, Railings = ramp.Railings.ToString(), ClosedUnderneath = ramp.ClosedUnderneath,
+                Mark = ramp.Mark, Comments = ramp.Comments
             });
 
         foreach (var type in document.TypesOf<RailingType>())
@@ -273,8 +275,26 @@ public static class ProjectFile
             dto.GroundRegions.Add(new GroundRegionDto
             {
                 Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
-                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Mark = region.Mark, Comments = region.Comments
+                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset, Mark = region.Mark, Comments = region.Comments
             });
+
+        foreach (var pad in document.Elements.OfType<SitePad>())
+            dto.SitePads.Add(new SitePadDto
+            {
+                Id = pad.Id, LevelId = pad.LevelId, Boundary = pad.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                HeightOffset = pad.HeightOffset, Fall = pad.Fall, FallDirection = pad.FallDirection, Batter = pad.Batter,
+                Surface = pad.Surface.ToString(), MaterialId = pad.MaterialId, Mark = pad.Mark, Comments = pad.Comments
+            });
+
+        foreach (var line in document.Elements.OfType<PropertyLine>())
+            dto.PropertyLines.Add(new PropertyLineDto
+            {
+                Id = line.Id, LevelId = line.LevelId, Boundary = line.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Setback = line.Setback, Mark = line.Mark, Comments = line.Comments
+            });
+
+        foreach (var spot in document.Elements.OfType<SpotElevation>())
+            dto.SpotElevations.Add(new SpotElevationDto { Id = spot.Id, LevelId = spot.LevelId, X = spot.Location.X, Y = spot.Location.Y, Mark = spot.Mark, Comments = spot.Comments });
 
         foreach (var system in document.Elements.OfType<BeamSystem>())
             dto.BeamSystems.Add(new BeamSystemDto
@@ -425,7 +445,9 @@ public static class ProjectFile
                 MullionDepth = curtain.MullionDepth,
                 MullionMaterialId = curtain.MullionMaterialId,
                 BorderMullions = curtain.BorderMullions,
-                AutomaticallyEmbed = curtain.AutomaticallyEmbed
+                AutomaticallyEmbed = curtain.AutomaticallyEmbed,
+                HeatTransferCoefficient = curtain.HeatTransferCoefficient,
+                SafetyGlazing = curtain.SafetyGlazing
             });
 
         foreach (var type in document.TypesOf<WallType>())
@@ -501,7 +523,8 @@ public static class ProjectFile
                 CurtainPanel = type.CurtainPanel,
                 TrimWidth = type.TrimWidth,
                 TrimProjectionExterior = type.TrimProjectionExterior,
-                TrimProjectionInterior = type.TrimProjectionInterior
+                TrimProjectionInterior = type.TrimProjectionInterior,
+                SelfClosing = type.SelfClosing
             };
 
             WriteOpeningType(doorType, type);
@@ -831,6 +854,10 @@ public static class ProjectFile
                 Placement = type.Placement.ToString(),
                 AgainstWall = type.AgainstWall,
                 Enclosure = type.Form == ComponentForm.Shower ? type.Enclosure.ToString() : null,
+                ExtractRate = type.ExtractRate > 0 ? type.ExtractRate : null,
+                Efficacy = type.Efficacy > 0 ? type.Efficacy : null,
+                WaterDemand = type.WaterDemand == TreeWaterDemand.Unknown ? null : type.WaterDemand.ToString(),
+                StemDiameter = type.StemDiameter > 0 ? type.StemDiameter : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -1012,6 +1039,7 @@ public static class ProjectFile
         dto.FireRating = type.FireRating;
         dto.AcousticRating = type.AcousticRating;
         dto.HeatTransferCoefficient = type.HeatTransferCoefficient;
+        dto.SafetyGlazing = type.SafetyGlazing;
     }
 
     private static void WriteOpening(OpeningDto dto, Opening opening)
@@ -1287,7 +1315,8 @@ public static class ProjectFile
                 Thickness = Within(type.Thickness, 50, 1000, 150), KerbHeight = Within(type.KerbHeight, 0, 300, 100), KerbWidth = Within(type.KerbWidth, 50, 500, 100),
                 HandrailHeight = Within(type.HandrailHeight, 600, 1200, 900), HandrailDiameter = Within(type.HandrailDiameter, 20, 80, 42),
                 HandrailExtension = Within(type.HandrailExtension, 0, 1000, 300), LowerRail = type.LowerRail, Guarding = ParseEnum(type.Guarding, RampGuarding.Balusters),
-                PostSpacing = Within(type.PostSpacing, 300, 3000, 1500), Colour = ParseColour(type.Colour, new ColourRgb(0xB5, 0xB3, 0xAE)),
+                PostSpacing = Within(type.PostSpacing, 300, 3000, 1500), LongestFlight = Within(type.LongestFlight, 500, 50000, 0),
+                Colour = ParseColour(type.Colour, new ColourRgb(0xB5, 0xB3, 0xAE)),
                 MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
 
@@ -1407,7 +1436,9 @@ public static class ProjectFile
                 MullionDepth = dtoCurtain.MullionDepth,
                 MullionMaterialId = dtoCurtain.MullionMaterialId,
                 BorderMullions = dtoCurtain.BorderMullions,
-                AutomaticallyEmbed = dtoCurtain.AutomaticallyEmbed
+                AutomaticallyEmbed = dtoCurtain.AutomaticallyEmbed,
+                HeatTransferCoefficient = dtoCurtain.HeatTransferCoefficient is >= 0 and < 20 ? dtoCurtain.HeatTransferCoefficient.Value : 1.4,
+                SafetyGlazing = dtoCurtain.SafetyGlazing ?? true
             };
 
             // A type that could not be built from is put back to the storefront defaults' sizes.
@@ -1446,10 +1477,14 @@ public static class ProjectFile
                 CurtainPanel = type.CurtainPanel,
                 TrimWidth = type.TrimWidth is >= 0 and var trim ? trim : 70,
                 TrimProjectionExterior = type.TrimProjectionExterior is >= 0 and var outside ? outside : 20,
-                TrimProjectionInterior = type.TrimProjectionInterior is >= 0 and var inside ? inside : 20
+                TrimProjectionInterior = type.TrimProjectionInterior is >= 0 and var inside ? inside : 20,
+                SelfClosing = type.SelfClosing ?? false
             };
 
             ReadOpeningType(doorType, type);
+
+            // Saved before safety glazing was said: a glazed door's glass taken as the safety glass it is sold with.
+            if (type.SafetyGlazing is null && Doors.Glazed(doorType)) doorType.SafetyGlazing = true;
             document.AddType(doorType);
         }
 
@@ -1895,6 +1930,7 @@ public static class ProjectFile
                 UnconnectedHeight = Within(saved.UnconnectedHeight, Ramps.MinimumRise, 10000, 450),
                 TopLanding = Within(saved.TopLanding, 0, 10000, 1200), BottomLanding = Within(saved.BottomLanding, 0, 10000, 0),
                 Building = ParseEnum(saved.Building, RailingBuilding.Dwelling), Outside = saved.Outside, Railings = ParseEnum(saved.Railings, StairRailings.Auto),
+                ClosedUnderneath = saved.ClosedUnderneath,
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
@@ -1934,11 +1970,44 @@ public static class ProjectFile
             var region = new GroundRegion
             {
                 Id = saved.Id, LevelId = saved.LevelId, Surface = ParseEnum(saved.Surface, GroundSurface.Lawn), MaterialId = saved.MaterialId,
-                Approach = saved.Approach, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Approach = saved.Approach, Offset = Within(saved.Offset, -3000, 3000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             };
             region.SetBoundary(outline);
             document.Add(region);
         }
+
+        foreach (var saved in dto.SitePads.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var outline = Outline(saved.Boundary);
+            if (outline.Count < 3) continue;
+            var pad = new SitePad
+            {
+                Id = saved.Id, LevelId = saved.LevelId, HeightOffset = Within(saved.HeightOffset, -20000, 20000, -150),
+                Fall = saved.Fall >= 1 && saved.Fall <= 1000 ? saved.Fall : 0, FallDirection = double.IsFinite(saved.FallDirection) ? saved.FallDirection : 270,
+                Batter = Within(saved.Batter, 0, 100, 2), Surface = ParseEnum(saved.Surface, GroundSurface.Paving), MaterialId = saved.MaterialId,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            pad.SetBoundary(outline);
+            document.Add(pad);
+        }
+
+        foreach (var saved in dto.PropertyLines.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var outline = Outline(saved.Boundary);
+            if (outline.Count < 3) continue;
+            var line = new PropertyLine
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Setback = Within(saved.Setback, 0, 100000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            line.SetBoundary(outline);
+            document.Add(line);
+        }
+
+        foreach (var saved in dto.SpotElevations.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new SpotElevation
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
 
         foreach (var saved in dto.BeamSystems.Where(saved => document.FindLevel(saved.LevelId) is not null))
         {
@@ -2142,6 +2211,10 @@ public static class ProjectFile
                 DefaultElevation = Math.Max(0, type.DefaultElevation),
                 AgainstWall = type.AgainstWall ?? ComponentType.BacksOntoWallByDefault(ParseEnum(type.Form, ComponentForm.Box)),
                 Enclosure = ParseEnum(type.Enclosure, ShowerEnclosure.None),
+                ExtractRate = type.ExtractRate is >= 0 and < 10000 ? type.ExtractRate.Value : 0,
+                Efficacy = type.Efficacy is >= 0 and < 1000 ? type.Efficacy.Value : 0,
+                WaterDemand = ParseEnum(type.WaterDemand, TreeWaterDemand.Unknown),
+                StemDiameter = type.StemDiameter is >= 0 and < 10000 ? type.StemDiameter.Value : 0,
                 Mesh = MeshFrom(type.Mesh),
                 MaterialId = type.MaterialId,
                 Colour = ParseColour(type.Colour, new ColourRgb(0xB4, 0x9A, 0x74)),
@@ -2411,6 +2484,7 @@ public static class ProjectFile
         type.FireRating = dto.FireRating;
         type.AcousticRating = dto.AcousticRating;
         type.HeatTransferCoefficient = dto.HeatTransferCoefficient;
+        type.SafetyGlazing = dto.SafetyGlazing ?? false;
     }
 
     private static void ReadOpening(Opening opening, OpeningDto dto)

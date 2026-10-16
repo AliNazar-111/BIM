@@ -234,7 +234,8 @@ public static class ComponentModel
 
             case ComponentForm.Chair:
             {
-                var seat = h * 0.45;
+                // Its seat at 450 or so, as a dining chair's is, a little higher on a tall one.
+                var seat = Math.Min(h * 0.5, 460);
                 var thickness = Math.Min(60, h * 0.08);
                 Add(-halfW, halfW, -halfD, halfD, seat, seat + thickness);
                 Add(-halfW, halfW, -halfD, -halfD + thickness, seat, h);
@@ -244,33 +245,156 @@ public static class ComponentModel
 
             case ComponentForm.Sofa:
             {
-                var arm = Math.Min(w * 0.14, 220);
-                var back = Math.Min(d * 0.28, 260);
-                var seat = h * 0.42;
+                var (arm, back, seat, armTop) = SofaOf(type, d);
 
                 Add(-halfW, halfW, -halfD, halfD, 0, seat);                              // the base
                 Add(-halfW, halfW, -halfD, -halfD + back, seat, h);                      // the back
-                Add(-halfW, -halfW + arm, -halfD + back, halfD, seat, h * 0.72);         // the arms
-                Add(halfW - arm, halfW, -halfD + back, halfD, seat, h * 0.72);
+                Add(-halfW, -halfW + arm, -halfD + back, halfD, seat, armTop);           // the arms
+                Add(halfW - arm, halfW, -halfD + back, halfD, seat, armTop);
+                break;
+            }
+
+            case ComponentForm.CornerSofa:
+            {
+                // An L: seats along the back turning the corner down the right-hand side to the
+                // front, backed along both; an arm at the left end and at the front of the return.
+                var (run, turn) = CornerOf(type);
+                var (arm, back, seat, armTop) = SofaOf(type, run);
+
+                Add(-halfW, halfW, -halfD, -halfD + run, 0, seat);                                       // the base along the back
+                Add(halfW - turn, halfW, -halfD + run, halfD, 0, seat);                                  // and down the return
+                Add(-halfW, halfW, -halfD, -halfD + back, seat, h);                                      // the back
+                Add(halfW - back, halfW, -halfD + back, halfD, seat, h);                                 // turning the corner
+                Add(-halfW, -halfW + arm, -halfD + back, -halfD + run, seat, armTop);                    // the arm at the end
+                Add(halfW - turn, halfW - back, halfD - arm, halfD, seat, armTop);                       // and at the front of the return
+                break;
+            }
+
+            case ComponentForm.RoundTable:
+            {
+                // A round top on a pedestal, its foot spread under it.
+                var slab = Math.Min(40, h * 0.12);
+                var column = Math.Min(Math.Min(w, d) * 0.12, 120);
+                var foot = Math.Min(Math.Min(w, d) * 0.5, 600);
+                Add(-halfW, halfW, -halfD, halfD, h - slab, h, shape: PartShape.Upright);
+                Add(-column / 2, column / 2, -column / 2, column / 2, 40, h - slab, shape: PartShape.Upright);
+                Add(-foot / 2, foot / 2, -foot / 2, foot / 2, 0, 40, shape: PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.Drawers:
+            {
+                // A chest on a plinth set back in shadow, its top over it, and a drawer to every
+                // 200 or so of its height - two side by side where it is a metre or more wide -
+                // each with its handle across the middle of it.
+                var plinth = Math.Min(60, h * 0.08);
+                var top = Math.Min(25, h * 0.05);
+                var face = halfD - 22;
+
+                Add(-halfW + 20, halfW - 20, -halfD + 20, face - 38, 0, plinth, PartFinish.Dark);
+                Add(-halfW, halfW, -halfD, face - 18, plinth, h - top);
+                Add(-halfW, halfW, -halfD, face, h - top, h);
+
+                var (rows, columns) = DrawersOf(type);
+                var (tall, wide) = ((h - plinth - top) / rows, w / columns);
+                for (var row = 0; row < rows; row++)
+                for (var column = 0; column < columns; column++)
+                {
+                    var (from, bottom) = (-halfW + wide * column, plinth + tall * row);
+                    Add(from + 2, from + wide - 2, face - 18, face, bottom + 2, bottom + tall - 2);
+
+                    var middle = from + wide / 2;
+                    var bar = Math.Min(64, wide * 0.15);
+                    Handle(middle - bar, middle + bar, face, bottom + tall / 2 - 6, bottom + tall / 2 + 6, upright: false);
+                }
+
                 break;
             }
 
             case ComponentForm.Bed:
             {
-                var head = Math.Min(d * 0.1, 120);
-                var mattress = h * 0.45;
+                // The divan, the mattress on it - its top at 550 or so, as a bed is got into - the
+                // headboard up the back, and the pillows at the head: two, unless it is a single.
+                var (head, top, mattress) = BedOf(type);
 
-                Add(-halfW, halfW, -halfD, halfD, 0, mattress);                          // the divan
-                Add(-halfW + 40, halfW - 40, -halfD + head, halfD - 40, mattress, h * 0.78);
-                Add(-halfW, halfW, -halfD, -halfD + head, 0, h);                         // the headboard
+                Add(-halfW, halfW, -halfD + head, halfD, 0, top - mattress);                     // the divan
+                Add(-halfW + 15, halfW - 15, -halfD + head, halfD - 15, top - mattress, top);    // the mattress
+                Add(-halfW, halfW, -halfD, -halfD + head, 0, h);                                 // the headboard
 
-                // Two pillows at the head, side by side, unless it is a single.
-                var pillows = w > 1100 ? 2 : 1;
-                var span = (w - 200) / pillows;
-                for (var i = 0; i < pillows; i++)
+                foreach (var (from, to) in Pillows(type))
+                    Add(from, to, -halfD + head + 50, -halfD + head + 400, top, top + Math.Min(120, (h - top) * 0.4));
+                break;
+            }
+
+            case ComponentForm.BunkBed:
+            {
+                // Two beds, one over the other, on four posts: the lower near the floor, the upper
+                // guarded all round - to the posts' tops, well over the 260 above its base EN 747
+                // asks for - but for the way in at the foot of its right-hand side, where the ladder is.
+                var (lower, upper, opening) = BunkOf(type);
+                const double post = 60, rail = 25, thick = 150;
+
+                foreach (var across in new[] { -halfW, halfW - post })
+                foreach (var forward in new[] { -halfD, halfD - post })
+                    Add(across, across + post, forward, forward + post, 0, h);
+
+                foreach (var bottom in new[] { lower, upper })
                 {
-                    var from = -halfW + 100 + i * span;
-                    Add(from + 30, from + span - 30, -halfD + head + 60, -halfD + head + 380, h * 0.78, h * 0.9);
+                    Add(-halfW + post, halfW - post, -halfD + post, halfD - post, bottom - 40, bottom);                        // the base
+                    Add(-halfW + post + 10, halfW - post - 10, -halfD + post + 10, halfD - post - 10, bottom, bottom + thick);  // the mattress
+                    Add(-halfW, -halfW + rail, -halfD + post, halfD - post, bottom - 120, bottom - 40);                        // the rails it lies on
+                    Add(halfW - rail, halfW, -halfD + post, halfD - post, bottom - 120, bottom - 40);
+                }
+
+                // The upper bed guarded: its head and foot, its far side all along, its near side
+                // as far as the way in at its foot.
+                Add(-halfW + post, halfW - post, -halfD, -halfD + rail, upper + 100, h);
+                Add(-halfW + post, halfW - post, halfD - rail, halfD, upper + 100, h);
+                Add(-halfW, -halfW + rail, -halfD + post, halfD - post, upper + 100, h);
+                Add(halfW - rail, halfW, -halfD + post, halfD - post - opening, upper + 100, h);
+
+                // The ladder in the way in: its two stiles and a rung every 250.
+                var (from, to) = (halfD - post - opening + 20, halfD - post - 20);
+                Add(halfW - rail, halfW, from, from + 30, 0, h);
+                Add(halfW - rail, halfW, to - 30, to, 0, h);
+                for (var rung = 250.0; rung < upper; rung += 250)
+                    Add(halfW - rail + 3, halfW - 3, from + 30, to - 30, rung - 15, rung + 15, PartFinish.Metal);
+                break;
+            }
+
+            case ComponentForm.Cot:
+            {
+                // Four posts, top and bottom rails all round, slats between them 45 to 65 apart
+                // as BS EN 716 sets them, and the mattress low in it, its top 500 or more under the rails.
+                const double post = 40, rail = 40, slat = 20, gap = 50;
+                var mattress = Math.Max(150, h - rail - 600);
+
+                foreach (var across in new[] { -halfW, halfW - post })
+                foreach (var forward in new[] { -halfD, halfD - post })
+                    Add(across, across + post, forward, forward + post, 0, h);
+
+                Add(-halfW + post, halfW - post, -halfD + post, halfD - post, mattress - 100, mattress - 80);                // its base
+                Add(-halfW + post + 5, halfW - post - 5, -halfD + post + 5, halfD - post - 5, mattress - 80, mattress);    // the mattress
+
+                // The rails and slats along each side and across each end.
+                foreach (var (fromA, toA, fromF, toF, alongWidth) in new[]
+                         {
+                             (-halfW + post, halfW - post, -halfD, -halfD + post, true), (-halfW + post, halfW - post, halfD - post, halfD, true),
+                             (-halfW, -halfW + post, -halfD + post, halfD - post, false), (halfW - post, halfW, -halfD + post, halfD - post, false)
+                         })
+                {
+                    Add(fromA, toA, fromF, toF, mattress - 100, mattress - 100 + rail);
+                    Add(fromA, toA, fromF, toF, h - rail, h);
+
+                    var length = alongWidth ? toA - fromA : toF - fromF;
+                    var count = Math.Max(1, (int)Math.Floor((length - gap) / (slat + gap)));
+                    var spare = (length - count * slat) / (count + 1);
+                    for (var i = 0; i < count; i++)
+                    {
+                        var at = spare + i * (slat + spare);
+                        if (alongWidth) Add(fromA + at, fromA + at + slat, fromF + 10, toF - 10, mattress - 100 + rail, h - rail);
+                        else Add(fromA + 10, toA - 10, fromF + at, fromF + at + slat, mattress - 100 + rail, h - rail);
+                    }
                 }
 
                 break;
@@ -397,6 +521,97 @@ public static class ComponentModel
                 Add(-halfW + 2, halfW - 2, -halfD, face, kick, machine, PartFinish.White);      // the tub and its door
                 Add(-halfW + 2, halfW - 2, face, face + 2, machine - 60, machine, PartFinish.Dark); // the controls along the top of the door
                 Handle(-w * 0.3, w * 0.3, face, machine - 110, machine - 90, upright: false);
+                break;
+            }
+
+            case ComponentForm.WallUnit:
+            {
+                // A cupboard hung on the wall: its carcass, a door to every 600 or less of its
+                // width, and a bar handle along the bottom of each, where a hand reaches up to it.
+                var count = Math.Max(1, (int)Math.Ceiling(w / 600 - 0.01));
+                var each = w / count;
+                Add(-halfW, halfW, -halfD, halfD - 40, 0, h);
+                for (var i = 0; i < count; i++)
+                {
+                    var from = -halfW + each * i;
+                    Add(from + 2, from + each - 2, halfD - 40, halfD - 22, 3, h - 3);
+                    var middle = from + each / 2;
+                    var bar = Math.Min(64, each * 0.2);
+                    Handle(middle - bar, middle + bar, halfD - 22, 48, 60, upright: false);
+                }
+
+                break;
+            }
+
+            case ComponentForm.TallUnit:
+            {
+                // A larder: on its plinth, a tall door below and a short one over it, its handles
+                // up the edge they open from, at the height a hand is.
+                var plinth = Math.Min(120, h * 0.06);
+                var split = plinth + (h - plinth) * 0.7;
+                Add(-halfW, halfW, -halfD + 60, halfD - 60, 0, plinth);
+                Add(-halfW, halfW, -halfD, halfD - 40, plinth, h);
+                foreach (var (bottom, top, handleFrom, handleTo) in new[] { (plinth, split, 900.0, 1300.0), (split, h, split + 40, split + 300) })
+                {
+                    Add(-halfW + 2, halfW - 2, halfD - 40, halfD - 22, bottom + 3, top - 3);
+                    Handle(halfW - 50, halfW - 34, halfD - 22, Math.Max(bottom + 30, Math.Min(handleFrom, top - 60)), Math.Min(top - 30, handleTo), upright: true);
+                }
+
+                break;
+            }
+
+            case ComponentForm.OvenHousing:
+            {
+                // A tall housing: a drawer under, the oven at eye level - its stainless front, its
+                // door's window and handle - the microwave over it, and a door to the top.
+                var plinth = Math.Min(120, h * 0.06);
+                var (ovenBottom, ovenTop, microwaveTop) = OvenHousingOf(type);
+                Add(-halfW, halfW, -halfD + 60, halfD - 60, 0, plinth);
+                Add(-halfW, halfW, -halfD, halfD - 40, plinth, h);
+
+                Add(-halfW + 2, halfW - 2, halfD - 40, halfD - 22, plinth + 3, ovenBottom - 3);                         // the drawer under it
+                Handle(-w * 0.2, w * 0.2, halfD - 22, ovenBottom - 70, ovenBottom - 58, upright: false);
+                Add(-halfW + 2, halfW - 2, halfD - 40, halfD - 20, ovenBottom, ovenTop, PartFinish.Metal);              // the oven
+                Add(-halfW + 70, halfW - 70, halfD - 20, halfD - 18, ovenBottom + 80, ovenTop - 110, PartFinish.Dark);
+                Handle(-halfW + 60, halfW - 60, halfD - 22, ovenTop - 60, ovenTop - 40, upright: false);
+                Add(-halfW + 2, halfW - 2, halfD - 40, halfD - 20, ovenTop + 5, microwaveTop, PartFinish.Metal);        // the microwave
+                Add(-halfW + 30, halfW - 160, halfD - 20, halfD - 18, ovenTop + 40, microwaveTop - 40, PartFinish.Dark);
+                Add(-halfW + 2, halfW - 2, halfD - 40, halfD - 22, microwaveTop + 5, h - 3);                            // the door over them
+                Handle(-w * 0.2, w * 0.2, halfD - 22, microwaveTop + 40, microwaveTop + 52, upright: false);
+                break;
+            }
+
+            case ComponentForm.CookerHood:
+            {
+                // A chimney hood: its canopy over the hob - stainless, as its type is - its filters
+                // under it, and the chimney up from its back to the ceiling, the duct in it.
+                var canopy = Math.Min(90, h * 0.15);
+                var chimney = ChimneyOf(type);
+                Add(-halfW, halfW, -halfD, halfD, 0, canopy);
+                Add(-halfW + 30, halfW - 30, -halfD + 30, halfD - 30, 0, 2, PartFinish.Dark);
+                Add(-chimney.Width / 2, chimney.Width / 2, -halfD, -halfD + chimney.Depth, canopy, h);
+                break;
+            }
+
+            case ComponentForm.TumbleDryer:
+            {
+                // Under the worktop as a washing machine is: its cabinet, the control panel along
+                // the top with its dial, the water tank's drawer and the round door.
+                var machine = h - worktop - 10;
+                var face = halfD - 40;
+                var panel = Math.Min(130, machine * 0.16);
+
+                Add(-halfW, halfW, -halfD, halfD, h - worktop, h);
+                Add(-halfW + 2, halfW - 2, -halfD, face, 0, machine, PartFinish.White);
+                Add(-halfW + 2, halfW - 2, face, face + 4, machine - panel, machine, PartFinish.White);
+                Add(-halfW + 15, -halfW + 15 + w * 0.25, face + 4, face + 10, machine - panel + 20, machine - 20, PartFinish.White);   // the tank's drawer
+                var dial = Math.Min(24, panel * 0.2);
+                Add(halfW - w * 0.14 - dial, halfW - w * 0.14 + dial, face + 4, face + 20, machine - panel / 2 - dial, machine - panel / 2 + dial, PartFinish.Metal, PartShape.Facing);
+
+                var radius = Math.Min(w * 0.4, (machine - panel) * 0.42);
+                var middle = (machine - panel) * 0.5;
+                Add(-radius, radius, face, face + 20, middle - radius, middle + radius, PartFinish.White, PartShape.Facing);
+                Add(-radius * 0.75, radius * 0.75, face + 20, halfD, middle - radius * 0.75, middle + radius * 0.75, PartFinish.Dark, PartShape.Facing);
                 break;
             }
 
@@ -624,6 +839,16 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.Basin when type.IsHosted:
+            {
+                // Hung on the wall: the bowl, and its bottle trap under it down to the wall.
+                var bowl = Math.Min(h, 180);
+                Add(-halfW, halfW, -halfD, halfD, h - bowl, h);                                      // the bowl
+                Add(-30, 30, -halfD + 30, -halfD + 90, 0, h - bowl, PartFinish.Metal, PartShape.Upright); // the trap
+                Add(-40, 40, -halfD + 20, -halfD + 120, h, h + 140);                                 // the tap
+                break;
+            }
+
             case ComponentForm.Basin:
             {
                 var bowl = h * 0.25;
@@ -635,10 +860,24 @@ public static class ComponentModel
 
             case ComponentForm.Toilet:
             {
+                // The cistern at the back, the pan on its foot in front of it, its seat at 420 or
+                // so - as a WC's is, a little lower on a small one.
                 var cistern = Math.Min(d * 0.3, 200);
-                Add(-halfW * 0.8, halfW * 0.8, -halfD + cistern, halfD, h * 0.15, h * 0.62);   // the pan
-                Add(-halfW * 0.5, halfW * 0.5, -halfD + cistern - 20, halfD - 40, 0, h * 0.15); // its foot
-                Add(-halfW, halfW, -halfD, -halfD + cistern, 0, h);                            // the cistern
+                var seat = SeatOf(type);
+                Add(-halfW * 0.8, halfW * 0.8, -halfD + cistern, halfD, seat * 0.3, seat);        // the pan
+                Add(-halfW * 0.5, halfW * 0.5, -halfD + cistern - 20, halfD - 40, 0, seat * 0.3);  // its foot
+                Add(-halfW, halfW, -halfD, -halfD + cistern, 0, h);                                // the cistern
+                break;
+            }
+
+            case ComponentForm.WallHungToilet:
+            {
+                // The pan off the wall, clear of the floor, its seat at 420; its cistern in the wall,
+                // and the flush plate on the wall over it.
+                var seat = SeatOf(type);
+                Add(-halfW * 0.85, halfW * 0.85, -halfD + 15, halfD, seat - 220, seat);
+                Add(-halfW, halfW, -halfD, -halfD + 15, seat - 200, seat + 30);
+                Add(-120, 120, -halfD, -halfD + 12, Math.Max(seat + 200, h - 260), Math.Max(seat + 300, h - 100), PartFinish.White);
                 break;
             }
 
@@ -705,6 +944,138 @@ public static class ComponentModel
                 Add(-halfW, halfW, -halfD + standOff, halfD - 3, valve, h);
                 for (var across = -halfW + 25; across < halfW - 10; across += 50)
                     Add(across - 8, across + 8, halfD - 3, halfD, valve + 15, h - 15);
+                break;
+            }
+
+            case ComponentForm.TowelRail:
+            {
+                // A ladder rail: its two uprights off the wall on their brackets, and bars across
+                // between them every 80 or so.
+                var off = Math.Min(40, d * 0.4);
+                Add(-halfW, -halfW + 30, -halfD + off, halfD, 0, h, shape: PartShape.Upright);
+                Add(halfW - 30, halfW, -halfD + off, halfD, 0, h, shape: PartShape.Upright);
+                foreach (var z in new[] { h * 0.15, h * 0.85 })
+                foreach (var across in new[] { -halfW + 5, halfW - 25 })
+                    Add(across, across + 20, -halfD, -halfD + off, z, z + 20, PartFinish.Metal);
+                for (var z = 60.0; z < h - 40; z += 80)
+                    Add(-halfW + 30, halfW - 30, -halfD + off + 4, halfD - 4, z, z + 22);
+                break;
+            }
+
+            case ComponentForm.ExtractFan:
+            {
+                // Its grille on the wall, slatted across.
+                Add(-halfW, halfW, -halfD, halfD - 4, 0, h);
+                for (var z = h * 0.2; z < h * 0.8; z += Math.Max(12, h * 0.12))
+                    Add(-halfW * 0.7, halfW * 0.7, halfD - 4, halfD, z, z + 4, PartFinish.Dark);
+                break;
+            }
+
+            case ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm:
+            {
+                // A disc on the ceiling, and its light.
+                Add(-halfW, halfW, -halfD, halfD, h * 0.2, h, shape: PartShape.Upright);
+                Add(-halfW * 0.7, halfW * 0.7, -halfD * 0.7, halfD * 0.7, 0, h * 0.2, shape: PartShape.Upright);
+                Add(-6, 6, halfD * 0.4, halfD * 0.4 + 12, 0, 2, type.Form == ComponentForm.SmokeAlarm ? PartFinish.Dark : PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.ShaverSocket:
+            {
+                // Its plate, and the slots for two-pin and three-pin plugs.
+                Add(-halfW, halfW, -halfD, halfD - 3, 0, h);
+                foreach (var across in new[] { -w * 0.2, w * 0.2 })
+                {
+                    Add(across - 4, across + 4, halfD - 3, halfD, h * 0.45, h * 0.6, PartFinish.Dark);
+                    Add(across + 12, across + 20, halfD - 3, halfD, h * 0.45, h * 0.6, PartFinish.Dark);
+                }
+
+                break;
+            }
+
+            case ComponentForm.ConsumerUnit:
+            {
+                // Its box, the cover over its breakers, and the window they are seen through.
+                Add(-halfW, halfW, -halfD, halfD - 15, 0, h);
+                Add(-halfW + 5, halfW - 5, halfD - 15, halfD, 5, h - 5);
+                Add(-halfW + 30, halfW - 30, halfD - 1, halfD, h * 0.45, h * 0.7, PartFinish.Dark);
+                break;
+            }
+
+            case ComponentForm.ParkingBay:
+            {
+                // Its lines painted on the ground, 100 wide, down both sides and across the back - open
+                // at the front, where it is driven into.
+                Add(-halfW, halfW, -halfD, halfD, 0, Math.Min(1, h));
+                Add(-halfW, -halfW + 100, -halfD, halfD, Math.Min(1, h), h, PartFinish.White);
+                Add(halfW - 100, halfW, -halfD, halfD, Math.Min(1, h), h, PartFinish.White);
+                Add(-halfW + 100, halfW - 100, -halfD, -halfD + 100, Math.Min(1, h), h, PartFinish.White);
+                break;
+            }
+
+            case ComponentForm.AccessibleParkingBay:
+            {
+                // The bay's lines, and its zones beside it and behind it to get in and out of the car,
+                // striped across.
+                var (side, rear) = AccessibleBayOf(type);
+                var paint = Math.Min(1, h);
+                Add(-halfW, halfW, -halfD, halfD, 0, paint);
+                Add(-halfW, -halfW + 100, -halfD, halfD, paint, h, PartFinish.White);
+                Add(halfW - 100, halfW, -halfD, halfD, paint, h, PartFinish.White);
+                Add(-halfW + 100, halfW - 100, -halfD, -halfD + 100, paint, h, PartFinish.White);
+                if (side > 0)
+                {
+                    Add(halfW - side - 50, halfW - side + 50, -halfD + rear, halfD, paint, h, PartFinish.White);
+                    for (var forward = -halfD + rear + 300; forward < halfD - 200; forward += 600)
+                        Add(halfW - side + 150, halfW - 150, forward, forward + 150, paint, h, PartFinish.White);
+                }
+
+                if (rear > 0)
+                {
+                    Add(-halfW + 100, halfW - side, -halfD + rear - 50, -halfD + rear + 50, paint, h, PartFinish.White);
+                    for (var across = -halfW + 300; across < halfW - side - 200; across += 600)
+                        Add(across, across + 150, -halfD + 250, -halfD + rear - 150, paint, h, PartFinish.White);
+                }
+
+                break;
+            }
+
+            case ComponentForm.WheelchairUser:
+            {
+                // The chair - its big wheels at the back, the seat at 500 between them, its back and
+                // footplates - and the person sitting in it.
+                var wheel = Math.Min(610, h * 0.46);
+                foreach (var across in new[] { -halfW, halfW - 40 })
+                    Add(across, across + 40, -halfD + 60, -halfD + 60 + wheel, 0, wheel, PartFinish.Dark);
+                Add(-halfW + 60, halfW - 60, -halfD + 140, -halfD + 600, 470, 510, PartFinish.Dark);
+                Add(-halfW + 60, halfW - 60, -halfD + 100, -halfD + 140, 470, 900, PartFinish.Dark);
+                Add(-halfW + 120, halfW - 120, halfD - 160, halfD, 80, 100, PartFinish.Metal);
+                Add(-180, 180, -halfD + 140, -halfD + 390, 510, h * 0.8);
+                Add(-170, 170, -halfD + 390, halfD - 230, 510, 640);
+                Add(-160, 160, halfD - 290, halfD - 150, 100, 510);
+                Add(-95, 95, -halfD + 170, -halfD + 360, h * 0.8, h, PartFinish.Skin, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.TurningCircle:
+                // A disc on the floor, the size of the turning a wheelchair user needs.
+                Add(-halfW, halfW, -halfD, halfD, 0, h, PartFinish.Body, PartShape.Upright);
+                break;
+
+            case ComponentForm.Boiler:
+            {
+                // Its white case, the controls along the bottom of its front, and its flue out of the top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW + 40, halfW - 40, halfD - 1, halfD, h * 0.04, h * 0.14, PartFinish.Dark);
+                Add(-50, 50, -halfD + 40, -halfD + 140, h, h + 150, PartFinish.White, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.Thermostat:
+            {
+                // Its plate and the dial on it.
+                Add(-halfW, halfW, -halfD, halfD - 8, 0, h);
+                Add(-w * 0.3, w * 0.3, halfD - 8, halfD, h * 0.2, h * 0.8, PartFinish.Metal, PartShape.Facing);
                 break;
             }
 
@@ -837,13 +1208,18 @@ public static class ComponentModel
         var halfW = w / 2;
         var halfD = d / 2;
 
-        // Its footprint - round for what is round from above: a tree, a light, a person; a car's rounded at its corners.
+        // Its footprint - round for what is round from above: a tree, a light, a person, a round
+        // table; a car's rounded at its corners; a corner sofa's an L.
         var shapes = new List<IReadOnlyList<Point2D>>
         {
             type.Form switch
             {
-                ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub or ComponentForm.CeilingLight =>
+                ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub or ComponentForm.CeilingLight or ComponentForm.RoundTable
+                    or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.TurningCircle =>
                     frame.Ellipse(-halfW, halfW, -halfD, halfD, 32),
+                ComponentForm.CornerSofa => CornerOf(type) is var (run, turn)
+                    ? new[] { frame.Plan(-halfW, -halfD), frame.Plan(halfW, -halfD), frame.Plan(halfW, halfD), frame.Plan(halfW - turn, halfD), frame.Plan(halfW - turn, -halfD + run), frame.Plan(-halfW, -halfD + run) }
+                    : frame.Outline(-halfW, halfW, -halfD, halfD),
                 ComponentForm.Person => frame.Ellipse(-PersonOf(type).Torso - PersonOf(type).Arm, PersonOf(type).Torso + PersonOf(type).Arm, -halfD * 0.6, halfD * 0.6),
                 ComponentForm.Car => frame.Rounded(-halfW, halfW, -halfD, halfD, Math.Min(300, d * 0.2)),
                 _ => frame.Outline(-halfW, halfW, -halfD, halfD)
@@ -861,21 +1237,70 @@ public static class ComponentModel
 
             case ComponentForm.Sofa:
             {
-                var arm = Math.Min(w * 0.14, 220);
-                var back = Math.Min(d * 0.28, 260);
+                var (arm, back, _, _) = SofaOf(type, d);
                 Inside(-halfW, halfW, -halfD, -halfD + back);
                 Inside(-halfW, -halfW + arm, -halfD + back, halfD);
                 Inside(halfW - arm, halfW, -halfD + back, halfD);
                 break;
             }
 
-            case ComponentForm.Bed:
+            case ComponentForm.CornerSofa:
             {
-                var head = Math.Min(d * 0.1, 120);
-                Inside(-halfW, halfW, -halfD, -halfD + head);
-                Inside(-halfW + 40, halfW - 40, -halfD + head, halfD - 40);
+                var (run, turn) = CornerOf(type);
+                var (arm, back, _, _) = SofaOf(type, run);
+                Inside(-halfW, halfW, -halfD, -halfD + back);
+                Inside(halfW - back, halfW, -halfD + back, halfD);
+                Inside(-halfW, -halfW + arm, -halfD + back, -halfD + run);
+                Inside(halfW - turn, halfW - back, halfD - arm, halfD);
                 break;
             }
+
+            case ComponentForm.RoundTable:
+            {
+                // Its pedestal's foot, seen under the top.
+                var foot = Math.Min(Math.Min(w, d) * 0.5, 600);
+                shapes.Add(frame.Ellipse(-foot / 2, foot / 2, -foot / 2, foot / 2, 24));
+                break;
+            }
+
+            case ComponentForm.Drawers:
+            {
+                // Its drawer fronts, and where two columns of them meet.
+                Inside(-halfW, halfW, halfD - 40, halfD - 22);
+                if (DrawersOf(type).Columns == 2) shapes.Add(frame.Line(0, halfD - 40, 0, halfD - 22));
+                break;
+            }
+
+            case ComponentForm.Bed:
+            {
+                // The headboard, the mattress, the pillows, and the cover turned down at a corner.
+                var (head, _, _) = BedOf(type);
+                Inside(-halfW, halfW, -halfD, -halfD + head);
+                Inside(-halfW + 15, halfW - 15, -halfD + head, halfD - 15);
+                foreach (var (from, to) in Pillows(type)) shapes.Add(frame.Rounded(from, to, -halfD + head + 50, -halfD + head + 400, 60));
+
+                var turned = -halfD + head + 480;
+                var fold = Math.Min(300, (w - 30) * 0.3);
+                shapes.Add(frame.Line(-halfW + 15, turned, halfW - 15, turned));
+                shapes.Add(frame.Line(halfW - 15 - fold, turned, halfW - 15, turned + fold));
+                break;
+            }
+
+            case ComponentForm.BunkBed:
+            {
+                // Seen from above: the upper bed in its rails, the posts, and the ladder's rungs in the way in.
+                var (_, _, opening) = BunkOf(type);
+                Inside(-halfW + 60, halfW - 60, -halfD + 60, halfD - 60);
+                foreach (var across in new[] { -halfW, halfW - 60 })
+                foreach (var forward in new[] { -halfD, halfD - 60 })
+                    Inside(across, across + 60, forward, forward + 60);
+                shapes.Add(frame.Line(halfW - 12, halfD - 60 - opening, halfW - 12, halfD - 60));
+                break;
+            }
+
+            case ComponentForm.Cot:
+                Inside(-halfW + 40, halfW - 40, -halfD + 40, halfD - 40);
+                break;
 
             case ComponentForm.Desk:
             case ComponentForm.Counter:
@@ -897,6 +1322,12 @@ public static class ComponentModel
                 Inside(-halfW * 0.8, halfW * 0.8, -halfD + cistern, halfD);
                 break;
             }
+
+            case ComponentForm.WallHungToilet:
+                // Its pan, round at the front, and the flush plate on the wall.
+                shapes.Add(frame.Rounded(-halfW * 0.85, halfW * 0.85, -halfD + 15, halfD, halfW * 0.8));
+                Inside(-120, 120, -halfD, -halfD + 12);
+                break;
 
             case ComponentForm.Bath:
             {
@@ -922,6 +1353,71 @@ public static class ComponentModel
 
             case ComponentForm.Shrub:
                 shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 24));
+                break;
+
+            case ComponentForm.TowelRail:
+                // Its bars, off the wall.
+                Inside(-halfW, halfW, -halfD + Math.Min(40, d * 0.4), halfD);
+                break;
+
+            case ComponentForm.ExtractFan:
+                // A fan: its grille, crossed.
+                shapes.Add(frame.Line(-halfW, -halfD, halfW, halfD));
+                shapes.Add(frame.Line(-halfW, halfD, halfW, -halfD));
+                break;
+
+            case ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm:
+                shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
+                break;
+
+            case ComponentForm.ShaverSocket:
+            case ComponentForm.ConsumerUnit:
+                Inside(-halfW + Math.Min(10, w * 0.1), halfW - Math.Min(10, w * 0.1), halfD - Math.Min(15, d * 0.4), halfD);
+                break;
+
+            case ComponentForm.Thermostat:
+                shapes.Add(frame.Ellipse(-w * 0.3, w * 0.3, halfD - 8, halfD + 40, 12));
+                break;
+
+            case ComponentForm.Boiler:
+                // Its flue, seen from above.
+                shapes.Add(frame.Ellipse(-50, 50, -halfD + 40, -halfD + 140, 16));
+                break;
+
+            case ComponentForm.ParkingBay:
+                // The inside of its lines.
+                Inside(-halfW + 100, halfW - 100, -halfD + 100, halfD);
+                break;
+
+            case ComponentForm.AccessibleParkingBay:
+            {
+                // The bay, and its zones hatched.
+                var (side, rear) = AccessibleBayOf(type);
+                Inside(-halfW, halfW - side, -halfD + rear, halfD);
+                // Hatched at 45 degrees, each line run on until it meets the zone's edge.
+                void Hatch(double fromAcross, double fromForward, double toAcross, double toForward)
+                {
+                    var run = Math.Min(toAcross - fromAcross, toForward - fromForward);
+                    if (run > 1) shapes.Add(frame.Line(fromAcross, fromForward, fromAcross + run, fromForward + run));
+                }
+
+                if (side > 0)
+                    for (var forward = -halfD + rear; forward < halfD; forward += 400) Hatch(halfW - side, forward, halfW, halfD);
+                if (rear > 0)
+                    for (var across = -halfW; across < halfW - side; across += 400) Hatch(across, -halfD, halfW - side, -halfD + rear);
+                break;
+            }
+
+            case ComponentForm.WheelchairUser:
+                // The chair's wheels either side, and the person in it.
+                Inside(-halfW, -halfW + 40, -halfD + 60, -halfD + 60 + Math.Min(610, type.Height * 0.46));
+                Inside(halfW - 40, halfW, -halfD + 60, -halfD + 60 + Math.Min(610, type.Height * 0.46));
+                shapes.Add(frame.Ellipse(-95, 95, -halfD + 170, -halfD + 360, 16));
+                break;
+
+            case ComponentForm.TurningCircle:
+                shapes.Add(frame.Line(-halfW, 0, halfW, 0));
+                shapes.Add(frame.Line(0, -halfD, 0, halfD));
                 break;
 
             case ComponentForm.CeilingLight:
@@ -998,8 +1494,31 @@ public static class ComponentModel
 
             case ComponentForm.Dishwasher:
             case ComponentForm.WashingMachine:
+            case ComponentForm.TumbleDryer:
                 Inside(-halfW, halfW, -halfD, -halfD + Math.Min(80, d * 0.25));
                 break;
+
+            case ComponentForm.WallUnit:
+            case ComponentForm.TallUnit:
+            case ComponentForm.OvenHousing:
+                // Its doors' faces, and - a tall one, standing through the plan's cut - a cross
+                // corner to corner, as a plan draws a tall unit.
+                Inside(-halfW, halfW, halfD - 40, halfD - 22);
+                if (type.Form != ComponentForm.WallUnit)
+                {
+                    shapes.Add(frame.Line(-halfW, -halfD, halfW, halfD - 40));
+                    shapes.Add(frame.Line(-halfW, halfD - 40, halfW, -halfD));
+                }
+
+                break;
+
+            case ComponentForm.CookerHood:
+            {
+                // Its canopy, and the chimney at its back.
+                var chimney = ChimneyOf(type);
+                Inside(-chimney.Width / 2, chimney.Width / 2, -halfD, -halfD + chimney.Depth);
+                break;
+            }
 
             case ComponentForm.Sink:
             {
@@ -1067,15 +1586,91 @@ public static class ComponentModel
         ComponentForm.Fridge => type.Height > 1200 ? "FF" : "F",
         ComponentForm.Dishwasher => "DW",
         ComponentForm.WashingMachine => "WM",
+        ComponentForm.TumbleDryer => "TD",
+        ComponentForm.OvenHousing => "OV",
+        ComponentForm.SmokeAlarm => "S",
+        ComponentForm.HeatAlarm => "H",
+        ComponentForm.CarbonMonoxideAlarm => "CO",
+        ComponentForm.ExtractFan => "EF",
+        ComponentForm.ShaverSocket => "SH",
+        ComponentForm.ConsumerUnit => "CU",
+        ComponentForm.Thermostat => "T",
+        ComponentForm.Boiler => "B",
+        ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay => "P",
         ComponentForm.TelevisionUnit => "TV",
         _ => null
     };
 
+    /// <summary>
+    /// Whether one hung above where a plan cuts is drawn dashed, as overhead: a wall unit, a
+    /// shelf. A light, a socket and a switch are drawn as their symbols wherever they are.
+    /// </summary>
+    public static bool DrawnOverhead(ComponentType type) =>
+        type.Form is not (ComponentForm.CeilingLight or ComponentForm.WallLight or ComponentForm.Socket or ComponentForm.Switch
+            or ComponentForm.ExtractFan or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm
+            or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler);
+
+    /// <summary>How high a WC's seat is: 420 or so, as a WC's is - the ADA's 17 to 19 in, 430 to 485, on an accessible one made taller.</summary>
+    public static double SeatOf(ComponentType type) => Math.Min(type.Height * 0.55, 420);
+
+    /// <summary>
+    /// A bed's headboard, how thick; the height of the top of its mattress - 550 or so, as the
+    /// UK's beds are, the US's 600 - and how thick the mattress is.
+    /// </summary>
+    private static (double Head, double Top, double Mattress) BedOf(ComponentType type)
+    {
+        var top = Math.Min(type.Height * 0.55, 600);
+        return (Math.Min(type.Depth * 0.05, 80), top, Math.Min(250, top * 0.45));
+    }
+
+    /// <summary>Where a bed's pillows lie across its head: two side by side, or one on a single.</summary>
+    private static IEnumerable<(double From, double To)> Pillows(ComponentType type)
+    {
+        var count = type.Width > 1100 ? 2 : 1;
+        var span = (type.Width - 200) / count;
+        for (var i = 0; i < count; i++)
+        {
+            var from = -type.Width / 2 + 100 + i * span;
+            yield return (from + 30, from + span - 30);
+        }
+    }
+
+    /// <summary>
+    /// A bunk bed's two beds - the tops of their bases - and how wide the way in to the upper one
+    /// is: its base 1000 or so up, well over EN 747's 600, its rails to the posts' tops; the way
+    /// in 400, the most EN 747 lets it be.
+    /// </summary>
+    public static (double Lower, double Upper, double Opening) BunkOf(ComponentType type) =>
+        (Math.Min(250, type.Height * 0.15), Math.Max(type.Height * 0.4, type.Height - 600), Math.Min(400, type.Depth * 0.3));
+
+    /// <summary>
+    /// A sofa's arms and back, how thick, the height of its seat and of its arms: the seat at
+    /// 450 or so, as a sofa is sat on, a little lower on a low one; the arms at two thirds of its
+    /// height. <paramref name="deep"/> is how deep its seats are from the back.
+    /// </summary>
+    private static (double Arm, double Back, double Seat, double ArmTop) SofaOf(ComponentType type, double deep) =>
+        (Math.Min(type.Width * 0.14, 220), Math.Min(deep * 0.28, 260), Math.Min(type.Height * 0.55, 450), type.Height * 0.72);
+
+    /// <summary>
+    /// A corner sofa's L: how deep its run along the back is, to the front of its seats - 950,
+    /// or less in a shallow one - and how wide the return down its right-hand side is, as deep.
+    /// </summary>
+    public static (double Run, double Turn) CornerOf(ComponentType type)
+    {
+        var run = Math.Min(950, type.Depth * 0.6);
+        return (run, Math.Min(run, type.Width * 0.45));
+    }
+
+    /// <summary>A chest's drawers: a row to every 200 or so of its height, and two columns of them where it is a metre or more wide.</summary>
+    public static (int Rows, int Columns) DrawersOf(ComponentType type) =>
+        (Math.Max(1, (int)Math.Round((type.Height - Math.Min(60, type.Height * 0.08) - Math.Min(25, type.Height * 0.05)) / 200)), type.Width >= 1000 ? 2 : 1);
+
     /// <summary>How wide a person is across the body either side of the middle, and how thick an arm is.</summary>
     private static (double Torso, double Arm) PersonOf(ComponentType type) => (type.Width * 0.36, type.Width * 0.1);
 
-    /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light.</summary>
-    public static bool HangsFromCeiling(ComponentType type) => type.Form == ComponentForm.CeilingLight;
+    /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, or a smoke, heat or carbon monoxide alarm.</summary>
+    public static bool HangsFromCeiling(ComponentType type) =>
+        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm;
 
     /// <summary>An armchair's arms and back, how thick, and the height of its seat - 450 or so on a 950 chair.</summary>
     private static (double Arm, double Back, double Seat) ArmchairOf(ComponentType type) =>
@@ -1131,6 +1726,29 @@ public static class ComponentModel
     /// </summary>
     public static bool OpenOnTheRight(ComponentType type) =>
         type.Form == ComponentForm.Shower && type.Enclosure is ShowerEnclosure.Corner or ShowerEnclosure.WalkIn && ShowerGlass(type).Count > 0;
+
+    /// <summary>
+    /// Where a tall housing's oven and microwave are: the oven's underside at 850, as an oven at
+    /// eye level is set - its middle about 1150, a little over M4(3)'s 800 to 900 for a wheelchair
+    /// user's - 600 of oven, and a 380 microwave over it.
+    /// </summary>
+    public static (double OvenBottom, double OvenTop, double MicrowaveTop) OvenHousingOf(ComponentType type)
+    {
+        var bottom = Math.Min(850, type.Height * 0.45);
+        var top = Math.Min(bottom + 600, type.Height * 0.7);
+        return (bottom, top, Math.Min(top + 385, type.Height - 100));
+    }
+
+    /// <summary>
+    /// An accessible parking bay's zones: how wide the one beside the bay is - the UK's 1200, or
+    /// the ADA's 60 in aisle - and how deep the one behind it is, where it has one: the UK's 1200.
+    /// </summary>
+    public static (double Side, double Rear) AccessibleBayOf(ComponentType type) =>
+        (Math.Clamp(type.Width - (type.Width >= 3900 ? 2438 : 2400), 0, 1524), type.Depth >= 5900 ? Math.Min(1200, type.Depth - 4800) : 0);
+
+    /// <summary>A chimney hood's chimney: 40% of the hood's width, 250 deep, at its back.</summary>
+    public static (double Width, double Depth) ChimneyOf(ComponentType type) =>
+        (Math.Max(150, type.Width * 0.4), Math.Min(250, type.Depth * 0.6));
 
     /// <summary>Whether a fridge is one that stands under the worktop: as high as one, a metre or less.</summary>
     public static bool UnderCounter(ComponentType type) => type.Form == ComponentForm.Fridge && type.Height <= 1000;

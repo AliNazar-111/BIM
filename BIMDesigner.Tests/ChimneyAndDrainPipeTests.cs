@@ -40,6 +40,25 @@ public class ChimneyAndDrainPipeTests
     }
 
     [Fact]
+    public void AsHighAsTheRidgeWillDoAndAMetreOverAnOpeningRoofWindowNearIt()
+    {
+        var (document, roof, _) = DormerToolTests.House(10000, 8000, 40);
+        var chimney = Put(document, roof.LevelId, 2000, 2900);
+        var ridge = roof.RidgeElevation(document);
+
+        // Coming through less than a metre below the ridge, but more than 600 from it: as high as the ridge will do (Diagram 17 B).
+        Assert.True(Chimneys.HighestContact(document, chimney)!.Value + Chimneys.AboveContact > ridge + 1);
+        Assert.Equal(ridge, Chimneys.Top(document, chimney), 1);
+
+        // An opening roof window within 2.3 m of it: a metre over its top (Diagram 17 C).
+        var type = document.TypesOf<RoofWindowType>().First(t => t.Name.Contains("780 x 980"));
+        var window = new RoofWindow { RoofId = roof.Id, LevelId = roof.LevelId, TypeId = type.Id, Location = new Point2D(3500, 2400) };
+        document.Add(window);
+        var frame = RoofWindows.Frame(document, window)!;
+        Assert.Equal(frame.Corners.Max(frame.FrameTop) + Chimneys.AboveContact, Chimneys.Top(document, chimney), 1);
+    }
+
+    [Fact]
     public void NearTheRidgeItStands600AboveIt()
     {
         var (document, roof, _) = DormerToolTests.House(10000, 8000, 40);
@@ -158,6 +177,29 @@ public class ChimneyAndDrainPipeTests
         roof.SetBoundary(corners);
         document.Add(roof);
         return (document, roof, floor);
+    }
+
+    [Fact]
+    public void AFlatRoofShutInByParapetsWantsAWayOutForItsWaterBesidesOneDrain()
+    {
+        var (document, roof, _) = FlatRoofedBuilding();
+        document.Add(new RoofDrain { RoofId = roof.Id, LevelId = roof.LevelId, Location = new Point2D(5000, 4000) });
+        bool Wants(ClearanceStandard standard) => SlabRules.Problems(document, roof, standard).Any(problem => problem.Said.StartsWith("its parapets shut it in"));
+
+        // Its walls stopping at the roof: the water can spill over its edge.
+        Assert.False(RoofDrainage.Parapeted(document, roof));
+        Assert.False(Wants(ClearanceStandard.ApprovedDocumentM));
+
+        // Carried up 800 past it as parapets: one drain blocked would flood it.
+        foreach (var wall in document.Walls) wall.UnconnectedHeight = 3800;
+        Assert.True(RoofDrainage.Parapeted(document, roof));
+        Assert.True(Wants(ClearanceStandard.ApprovedDocumentM));
+        Assert.Contains(SlabRules.Problems(document, roof, ClearanceStandard.Irc), problem => problem.Rule.Contains("R903.4.1"));
+
+        // A scupper out through the edge takes what it does not.
+        document.Add(new RoofDrain { RoofId = roof.Id, LevelId = roof.LevelId, Location = new Point2D(5000, 400), Discharge = DrainDischarge.ThroughEdge });
+        Assert.False(Wants(ClearanceStandard.ApprovedDocumentM));
+        Assert.False(Wants(ClearanceStandard.Irc));
     }
 
     [Fact]

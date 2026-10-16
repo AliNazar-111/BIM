@@ -88,6 +88,10 @@ public abstract class Slab : Element
         if (FloorSurfaces.IsStoodOn(document, this))
             yield return ParameterValue.ReadOnly(SlabParameters.EdgeGuarding, () => Railings.EdgeVerdict(document, this));
 
+        // A floor or a roof: the heat it lets out, the sound and fire it holds back, the pitch its covering wants.
+        if (this is Floor or Roof)
+            yield return ParameterValue.ReadOnly(SlabParameters.Regulations, () => SlabRules.Verdict(document, this));
+
         foreach (var parameter in ExtraParameters(document)) yield return parameter;
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -135,4 +139,7 @@ public static class SlabParameters
 
     public static readonly ParameterDefinition EdgeGuarding =
         new("Edge Guarding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Regulations =
+        new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

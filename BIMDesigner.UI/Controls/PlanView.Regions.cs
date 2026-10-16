@@ -76,7 +76,24 @@ public partial class PlanView
             return false;
         }
 
-        if (ActiveTool == PlanTool.Joists)
+        if (ActiveTool == PlanTool.Pad)
+        {
+            var pad = new SitePad { LevelId = ActiveLevelId, HeightOffset = ActivePadOffset, Batter = Math.Max(0, ActivePadBatter), Surface = ActivePadSurface };
+            pad.SetBoundary(outline);
+            Apply(new AddElementCommand(Document, pad, "Pad"));
+            var (cut, fill) = GroundOnLevel is { } graded ? Terrains.CutAndFill(Document, graded) : (0, 0);
+            HintChanged?.Invoke(this, GroundOnLevel is null
+                ? "Pad drawn - but there is no ground on this level for it to be graded into: draw the ground with Toposurface, or Around Building."
+                : $"Pad graded in: {Polygon2D.Area(pad.Boundary) / 1e6:0.0} m² at {Core.Units.FormatLength(pad.HeightOffset)}; the ground's cut now {cut / 1e9:0.0} m³, fill {fill / 1e9:0.0} m³. {SitePads.Verdict(Document, pad)}. Draw another; Esc to stop.");
+        }
+        else if (ActiveTool == PlanTool.PropertyLine)
+        {
+            var line = new PropertyLine { LevelId = ActiveLevelId, Setback = Math.Max(0, ActiveSetback) };
+            line.SetBoundary(outline);
+            Apply(new AddElementCommand(Document, line, "Property Line"));
+            HintChanged?.Invoke(this, $"Property line: {Polygon2D.Area(line.Boundary) / 1e6:0.0} m², {Polygon2D.Perimeter(line.Boundary) / 1000:0.00} m round; the building covers {PropertyLines.Coverage(Document, line) * 100:0.#}% of it. {PropertyLines.Verdict(Document, line)}.");
+        }
+        else if (ActiveTool == PlanTool.Joists)
         {
             var type = Document.FindType<BeamType>(ActiveJoistTypeId)
                        ?? Document.TypesOf<BeamType>().FirstOrDefault(candidate => candidate.Name.Contains("47x200", StringComparison.Ordinal))
@@ -113,7 +130,7 @@ public partial class PlanView
     /// <summary>The outline or path being drawn, on to the cursor.</summary>
     private void DrawOutlinePreview(DrawingContext dc)
     {
-        if (ActiveTool is not (PlanTool.Region or PlanTool.Joists)) return;
+        if (ActiveTool is not (PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine)) return;
 
         var points = _outlineHover is { } next ? _outlinePoints.Append(next).ToList() : _outlinePoints.ToList();
         foreach (var (a, b) in points.Zip(points.Skip(1))) dc.DrawLine(SketchPreviewPen, ModelToScreen(a), ModelToScreen(b));

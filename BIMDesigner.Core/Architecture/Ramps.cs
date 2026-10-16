@@ -86,6 +86,9 @@ public sealed class RampType : ElementType
     /// <summary>Its handrail posts' spacing at most, mm.</summary>
     public double PostSpacing { get; set; } = 1500;
 
+    /// <summary>The longest its flights may go between landings, mm - shorter than its rules allow, as a client or a local rule asks; none for as the rules allow.</summary>
+    public double LongestFlight { get; set; }
+
     /// <summary>Its colour when no material is given: concrete grey, or a deck's timber.</summary>
     public ColourRgb Colour { get; set; } = new(0xB5, 0xB3, 0xAE);
 
@@ -97,7 +100,7 @@ public sealed class RampType : ElementType
     {
         Construction = Construction, Thickness = Thickness, KerbHeight = KerbHeight, KerbWidth = KerbWidth,
         HandrailHeight = HandrailHeight, HandrailDiameter = HandrailDiameter, HandrailExtension = HandrailExtension,
-        LowerRail = LowerRail, Guarding = Guarding, PostSpacing = PostSpacing, Colour = Colour, MaterialId = MaterialId,
+        LowerRail = LowerRail, Guarding = Guarding, PostSpacing = PostSpacing, LongestFlight = LongestFlight, Colour = Colour, MaterialId = MaterialId,
         RailMaterialId = RailMaterialId
     });
 
@@ -119,6 +122,12 @@ public sealed class RampType : ElementType
             v => { if (EnumText.TryParse<RampGuarding>(v, out var guarding)) Guarding = guarding; },
             EnumText.Choices<RampGuarding>());
         yield return Size(RampTypeParameters.PostSpacing, () => PostSpacing, v => PostSpacing = v, 300, 3000);
+        yield return ParameterValue.BindValidated(RampTypeParameters.LongestFlight, () => LongestFlight, (double v) =>
+        {
+            if (v != 0 && (v < 500 || v > 50000)) return false;
+            LongestFlight = v;
+            return true;
+        });
 
         if (document is not null)
         {
@@ -172,6 +181,7 @@ public static class RampTypeParameters
     public static readonly ParameterDefinition LowerRail = new("Second Handrail at 600", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition Guarding = new("Guarding", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition PostSpacing = new("Post Spacing", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition LongestFlight = new("Longest Flight (0 for the rules')", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition RailMaterial = new("Handrail Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
 }
@@ -244,6 +254,9 @@ public sealed class Ramp : Element
 
     /// <summary>Which sides have a handrail - as its rules ask, or said.</summary>
     public StairRailings Railings { get; set; } = StairRailings.Auto;
+
+    /// <summary>Whether one built as a slab or a deck is closed underneath - its sides taken down to the ground - so no one walks in under it.</summary>
+    public bool ClosedUnderneath { get; set; }
 
     /// <summary>Which way is up at its anchored end.</summary>
     public Vector2D Up => new(Math.Cos(Angle * Math.PI / 180), Math.Sin(Angle * Math.PI / 180));
@@ -353,6 +366,7 @@ public sealed class Ramp : Element
             v => { if (EnumText.TryParse<RailingBuilding>(v, out var building)) Building = building; },
             EnumText.Choices<RailingBuilding>());
         yield return ParameterValue.Bind(RampParameters.Outside, () => Outside, v => Outside = v);
+        yield return ParameterValue.Bind(RampParameters.ClosedUnderneath, () => ClosedUnderneath, v => ClosedUnderneath = v);
 
         // What it works out to, and whether that meets the regulations.
         var layout = Ramps.Layout(document, this);
@@ -362,6 +376,12 @@ public sealed class Ramp : Element
         yield return ParameterValue.ReadOnly(RampParameters.Length, () => Math.Round(layout.Length));
         yield return ParameterValue.ReadOnly(RampParameters.Summary, () => Ramps.Summary(document, this));
         yield return ParameterValue.ReadOnly(RampParameters.Rule, () => Ramps.Verdict(document, this));
+        yield return ParameterValue.BindFlagCommand(RampParameters.MakeItPass, () => false,
+            (bool make, out string? message) =>
+            {
+                message = null;
+                return make ? RampFixes.MakeItPass(document, this, out message) : null;
+            });
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -386,6 +406,8 @@ public static class RampParameters
     public static readonly ParameterDefinition Railings = new("Handrails", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Building = new("Building", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition Outside = new("Outside", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition ClosedUnderneath = new("Closed Underneath", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition MakeItPass = new("Make It Pass", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition Rise = new("Rise", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Flights = new("Flights", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Run = new("Going of Its Flights", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
@@ -403,6 +425,13 @@ public enum RampPieceKind
 
 /// <summary>A point along one side of a ramp, with the height of its surface there.</summary>
 public readonly record struct RampEdgePoint(Point2D At, double Height);
+
+/// <summary>
+/// A side of a ramp, left or right going up: its points, with its surface's height there, and for
+/// each length between one and the next how far out from its clear width a wall's face stands
+/// beside it - none where it is open.
+/// </summary>
+public sealed record RampSide(IReadOnlyList<RampEdgePoint> Points, IReadOnlyList<double?> Walls);
 
 /// <summary>
 /// One piece of a ramp as it is laid out: a flight or a landing; its outline in plan; where it
@@ -501,7 +530,9 @@ public sealed class RampLayout
     /// far as it must. Up it, the flights in each stretch between turns are each as long as the
     /// rules let them be at its gradient, a landing between them; each turn is a landing, square
     /// round the corner; and at its head a landing as long as it is told. Anchored by its head, it
-    /// is laid out so and then moved, its head where it is put, going up the way it is told.
+    /// is laid out so and then moved, its head where it is put, going up the way it is told - but a
+    /// drawn ramp hung by its head, drawn down from a door, is laid out from its head down the line
+    /// clicked, its last leg running on as far as it must to its foot, and then turned round.
     /// </summary>
     public static RampLayout Of(Ramp ramp, double bottom, double top, RampRules rules)
     {
@@ -517,6 +548,10 @@ public sealed class RampLayout
         var footLanding = Math.Max(0, ramp.BottomLanding);
         var headLanding = Math.Max(0, ramp.TopLanding);
         var flights = run <= 1e-6 ? 0 : Math.Max(1, (int)Math.Ceiling(run / going - 1e-9));
+
+        // Laid out from its head down, drawn so: its head's landing first, its foot's last.
+        var down = ramp.Anchor == RampAnchor.Head && ramp.Shape == RampShape.Custom;
+        var (startLanding, endLanding) = down ? (headLanding, footLanding) : (footLanding, headLanding);
 
         // Its walking line: so long to each turn, turning so far there - right going up, positive.
         var lengths = new List<double>();
@@ -551,14 +586,14 @@ public sealed class RampLayout
             : Math.Abs(turn) < 1 ? mid / 2
             : Math.Max(rules.TurnLanding / 2, half * Math.Tan(Math.Abs(turn) * Math.PI / 360));
         var blocks = new List<(double From, double To)>();
-        if (footLanding > 0) blocks.Add((0, footLanding));
+        if (startLanding > 0) blocks.Add((0, startLanding));
         for (var j = 0; j < corners.Count; j++) blocks.Add((Math.Max(0, corners[j] - Reach(turns[j])), corners[j] + Reach(turns[j])));
         blocks = Merged(blocks, rules.MinFlight);
 
         // Up it, stretch by stretch: flights as long as they may be with landings between, until it is as high as it goes.
         var spans = new List<(bool Flight, double From, double To, double Low, double High)>();
         var (at, done) = (0.0, 0.0);
-        double Height() => run <= 1e-9 ? bottom : bottom + rise * Math.Min(1, done / run);
+        double Height() => run <= 1e-9 ? (down ? bottom + rise : bottom) : bottom + rise * (down ? 1 - Math.Min(1, done / run) : Math.Min(1, done / run));
         void Level(double from, double to)
         {
             if (to - from <= 1e-6) return;
@@ -606,8 +641,8 @@ public sealed class RampLayout
             at = to;
         }
 
-        // The landing at its head, round any turn it reaches into.
-        var end = at + headLanding;
+        // The landing at its far end - its head, or laid out down, its foot - round any turn it reaches into.
+        var end = at + endLanding;
         foreach (var (from, to) in blocks)
             if (to > at + 1e-6 && from < end - 1e-6) end = Math.Max(end, to);
         Level(at, end);
@@ -635,11 +670,11 @@ public sealed class RampLayout
 
         // Where it is in the building: from its foot - or moved so its head is where it is put, going up the way it is told.
         var headLocal = On(total, false);
-        var turn = ramp.Angle * Math.PI / 180 - (ramp.Anchor == RampAnchor.Head ? headings[^1] : 0);
+        var turn = down ? ramp.Angle * Math.PI / 180 + Math.PI : ramp.Angle * Math.PI / 180 - (ramp.Anchor == RampAnchor.Head ? headings[^1] : 0);
         var (cos, sin) = (Math.Cos(turn), Math.Sin(turn));
         Vector2D Turned(Vector2D v) => new(v.X * cos - v.Y * sin, v.X * sin + v.Y * cos);
         var zero = new Point2D(0, 0);
-        var origin = ramp.Anchor == RampAnchor.Head ? ramp.Start - Turned(headLocal.At - zero) : ramp.Start;
+        var origin = ramp.Anchor == RampAnchor.Head && !down ? ramp.Start - Turned(headLocal.At - zero) : ramp.Start;
         Point2D Placed(Point2D p) => origin + Turned(p - zero);
 
         // Each piece: its edges either side, and its outline between them.
@@ -697,6 +732,19 @@ public sealed class RampLayout
         }
 
         var walk = vertices.Take(used + 1).Append(headLocal.At).Select(Placed).ToList();
+        var (foot, footUp, head, headUp) = (Placed(zero), Turned(Way(0)), Placed(headLocal.At), Turned(Way(headings[^1])));
+        if (down)
+        {
+            // Laid out down from its head: turned round to run up from its foot, its sides changing over.
+            pieces = pieces.Select(piece => piece with
+            {
+                From = total - piece.To, To = total - piece.From, Low = piece.High, High = piece.Low, Start = piece.End, End = piece.Start,
+                Left = piece.Right.Reverse().ToList(), Right = piece.Left.Reverse().ToList()
+            }).Reverse().ToList();
+            walk.Reverse();
+            (foot, footUp, head, headUp) = (head, headUp * -1, foot, footUp * -1);
+        }
+
         return new RampLayout
         {
             Bottom = bottom,
@@ -710,10 +758,10 @@ public sealed class RampLayout
             Walk = walk.Where((point, k) => k == 0 || point.DistanceTo(walk[k - 1]) > 0.5).ToList(),
             Left = Joined(pieces.Select(piece => piece.Left)),
             Right = Joined(pieces.Select(piece => piece.Right)),
-            Foot = Placed(new Point2D(0, 0)),
-            FootUp = Turned(Way(0)),
-            Head = Placed(headLocal.At),
-            HeadUp = Turned(Way(headings[^1]))
+            Foot = foot,
+            FootUp = footUp,
+            Head = head,
+            HeadUp = headUp
         };
     }
 
@@ -774,7 +822,14 @@ public static class Ramps
 
     public static RampType TypeOf(BimDocument document, Ramp ramp) => document.FindType<RampType>(ramp.TypeId) ?? Fallback;
 
-    private static bool Us(BimDocument document) => document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+    private static bool Us(BimDocument document) => document.ProjectInformation.ClearanceStandard.IsUs();
+
+    /// <summary>Whether it is a home's ramp in the US: held to the IRC (R311.8) rather than the ADA.</summary>
+    private static bool Irc(BimDocument document, Ramp ramp) => Us(document) && ramp.Building == RailingBuilding.Dwelling;
+
+    /// <summary>Whether it turns: no one at one end can see the other, so in a building other than a dwelling its landings are passing places.</summary>
+    private static bool Turns(Ramp ramp) =>
+        ramp.Shape is RampShape.QuarterTurn or RampShape.HalfTurn || ramp.Shape == RampShape.Custom && ramp.PathTurns.Any(turn => Math.Abs(turn) >= 1);
 
     /// <summary>The height of its foot.</summary>
     public static double Bottom(BimDocument document, Ramp ramp) => (document.FindLevel(ramp.LevelId)?.Elevation ?? 0) + ramp.BaseOffset;
@@ -785,6 +840,16 @@ public static class Ramps
             ? level.Elevation + ramp.TopOffset
             : Bottom(document, ramp) + ramp.UnconnectedHeight;
 
+    /// <summary>
+    /// The steepest it may be, as 1 in so many: 1:12 (Approved Document M, the ADA); a wheelchair
+    /// user's dwelling's ramp 1:15 (M4(3) 3.10a); under the IRC, a home's ramp up to the door it is
+    /// left by 1:12, any other 1:8 (R311.8.1).
+    /// </summary>
+    public static double SteepestAllowed(BimDocument document, Ramp ramp) =>
+        Irc(document, ramp) ? (UpToADoorOut(document, ramp, Layout(document, ramp)) ? 12 : 8)
+        : !Us(document) && ramp.Building == RailingBuilding.Dwelling && document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? 15
+        : 12;
+
     /// <summary>Whether its gradient makes it a ramp: steeper than 1:20. Gentler, it is a sloping path.</summary>
     public static bool IsRamp(Ramp ramp) => ramp.Gradient < 20 - 1e-9;
 
@@ -793,30 +858,49 @@ public static class Ramps
     /// Diagram 2.1 of Volume 1): a flight goes 2 m at 1:12, 5 m at 1:15 and 10 m at 1:20, and
     /// between pro rata - 1:14 for 4 m; gentler than 1:20, a building other than a dwelling still
     /// lands each 500 of rise. Its landings: 1200 between flights in a dwelling, 1500 elsewhere -
-    /// 1800 square, passing places, where there are three flights or more. The ADA: 30 in (760) of
-    /// rise to a run, landings 60 in (1525).
+    /// 1800 square, passing places, where there are three flights or more or one end cannot be
+    /// seen from the other round a turn - and never shorter than the ramp is wide (Approved
+    /// Document K, Diagram 2.2). The ADA: 30 in (760) of rise to a run, landings 60 in (1525). The
+    /// IRC, a home's: no limit to a run, landings 36 in (915) where it turns. Its type may set a
+    /// shorter longest flight.
     /// </summary>
     public static RampRules Rules(BimDocument document, Ramp ramp, int flights = 0)
     {
         var x = Math.Max(1, ramp.Gradient);
-        if (Us(document)) return new RampRules(IsRamp(ramp) ? 760 * x : double.PositiveInfinity, 1525, 1525, 0);
+        var width = Math.Max(300, ramp.Width);
+        var longest = TypeOf(document, ramp).LongestFlight;
+        RampRules Limited(RampRules rules) => longest > 0 ? rules with { MaxGoing = Math.Min(rules.MaxGoing, longest) } : rules;
+
+        if (Irc(document, ramp)) return Limited(new RampRules(double.PositiveInfinity, 915, 915, 0));
+        if (Us(document)) return Limited(new RampRules(IsRamp(ramp) ? 760 * x : double.PositiveInfinity, 1525, 1525, 0));
 
         var going = IsRamp(ramp)
             ? (Math.Clamp(x, 12, 20) - 10) * 1000
             : ramp.Building == RailingBuilding.Other ? 500 * x : double.PositiveInfinity;
-        if (ramp.Building == RailingBuilding.Dwelling) return new RampRules(going, 1200, 1200, 0);
-        var passing = flights >= 3;
-        return new RampRules(going, passing ? 1800 : 1500, passing ? 1800 : 1500, passing ? 1800 : 0);
+        if (ramp.Building == RailingBuilding.Dwelling) return Limited(new RampRules(going, Math.Max(1200, width), Math.Max(1200, width), 0));
+        var passing = flights >= 3 || Turns(ramp);
+        var landing = Math.Max(passing ? 1800 : 1500, width);
+        return Limited(new RampRules(going, landing, landing, passing ? 1800 : 0));
     }
 
-    /// <summary>How long its landings at its foot and head must be: 1200, Approved Document M says; the ADA 60 in (1525).</summary>
-    public static double EndLanding(BimDocument document) => Us(document) ? 1525 : 1200;
+    /// <summary>
+    /// How long its landings at its foot and head must be: 1200, Approved Document M says - and as
+    /// long as the ramp is wide, Approved Document K; the ADA 60 in (1525); the IRC 36 in (915).
+    /// </summary>
+    public static double EndLanding(BimDocument document, Ramp ramp) =>
+        Irc(document, ramp) ? 915 : Us(document) ? 1525 : Math.Max(1200, Math.Max(300, ramp.Width));
 
-    /// <summary>The narrowest it may be between its kerbs or handrails, and why.</summary>
+    /// <summary>The narrowest it may be between its kerbs or handrails, and why - none under the IRC, which asks no width of a home's ramp.</summary>
     public static (double Width, string Rule) LeastWidth(BimDocument document, Ramp ramp) =>
-        Us(document) ? (915, "the ADA asks for 36 in (915) clear between its handrails")
+        Irc(document, ramp) ? (0, "")
+        : Us(document) ? (915, "the ADA asks for 36 in (915) clear between its handrails")
         : ramp.Building == RailingBuilding.Other ? (1500, "Approved Document M asks for 1.5 m between its kerbs")
+        : document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? (1200, "Approved Document M asks a wheelchair user's ramp for 1200 clear (M4(3) 3.10c)")
         : (900, "Approved Document M asks a dwelling's ramp for 900 clear - 1200 on a communal approach");
+
+    /// <summary>The headroom it must have over its surface, and why: 2 m, Approved Document K; 80 in (2030) under the ADA and the IRC.</summary>
+    public static (double Height, string Rule) HeadroomAsked(BimDocument document) =>
+        Us(document) ? (2030, "80 in (2030) of headroom is asked over it") : (2000, "Approved Document K asks for 2 m of headroom over it");
 
     /// <summary>
     /// Laid out under its rules: in a building other than a dwelling, those of three flights or
@@ -826,7 +910,7 @@ public static class Ramps
     {
         var (bottom, top) = (Bottom(document, ramp), Top(document, ramp));
         var layout = RampLayout.Of(ramp, bottom, top, Rules(document, ramp));
-        if (!Us(document) && ramp.Building == RailingBuilding.Other && layout.FlightCount >= 3)
+        if (!Us(document) && ramp.Building == RailingBuilding.Other && layout.FlightCount >= 3 && !Turns(ramp))
             layout = RampLayout.Of(ramp, bottom, top, Rules(document, ramp, layout.FlightCount));
         return layout;
     }
@@ -839,6 +923,10 @@ public static class Ramps
     public static (bool Left, bool Right, string Rule) HandrailsAsked(BimDocument document, Ramp ramp, RampLayout layout)
     {
         if (!IsRamp(ramp)) return (false, false, "a path no steeper than 1:20 is not a ramp");
+        if (Irc(document, ramp))
+            return ramp.Gradient < 12 - 1e-9
+                ? (true, false, "the IRC asks for a handrail on at least one side of a ramp steeper than 1:12")
+                : (false, false, "the IRC asks for none on a ramp of 1:12 or gentler");
         if (Us(document))
             return layout.Rise > 150
                 ? (true, true, "the ADA asks for handrails on both sides of a ramp rising more than 6 in")
@@ -894,7 +982,7 @@ public static class Ramps
         }
 
         if (SurfaceAt(document, beside, height, Terrains.Reach) is { } ramp && ramp <= height + Stairs.FloorReach) under.Add(ramp);
-        return height - (under.Count > 0 ? under.Max() : layout.Bottom);
+        return height - (under.Count > 0 ? under.Max() : GroundUnder(document, beside));
     }
 
     /// <summary>The surface of a ramp over a point within reach of a height - the highest, where one passes over another - if any.</summary>
@@ -911,13 +999,209 @@ public static class Ramps
         return highest;
     }
 
-    /// <summary>The drop beside its sides at its worst, left and right going up.</summary>
+    /// <summary>The drop beside its sides at its worst, left and right going up - none along a wall.</summary>
     public static (double Left, double Right) Drops(BimDocument document, Ramp ramp, RampLayout layout)
     {
         var reach = TypeOf(document, ramp).KerbWidth + 200;
-        double Worst(IReadOnlyList<RampEdgePoint> side, double outward) =>
-            side.Count < 2 ? 0 : SideSamples(side).Max(sample => DropBeside(document, layout, sample.At + sample.Out * (outward * reach), sample.Height));
-        return (Worst(layout.Left, 1), Worst(layout.Right, -1));
+        var sides = Sides(document, layout);
+        double Worst(RampSide side, double outward)
+        {
+            var worst = 0.0;
+            for (var i = 0; i + 1 < side.Points.Count; i++)
+            {
+                if (side.Walls[i] is not null) continue;
+                var (a, b) = (side.Points[i], side.Points[i + 1]);
+                var across = (b.At - a.At).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (outward * reach);
+                foreach (var (at, height) in new[] { (a.At, a.Height), (a.At.MidpointTo(b.At), (a.Height + b.Height) / 2), (b.At, b.Height) })
+                    worst = Math.Max(worst, DropBeside(document, layout, at + across, height));
+            }
+
+            return worst;
+        }
+
+        return (Worst(sides.Left, 1), Worst(sides.Right, -1));
+    }
+
+    /// <summary>How far out from its clear width a wall beside it may stand and still be the side of it, mm.</summary>
+    public const double WallReach = 300;
+
+    /// <summary>
+    /// Its two sides, left and right going up, and where walls stand along them: each side's points
+    /// - split where a wall beside it starts or stops - with its surface's height there, and for
+    /// each length between them how far out from its clear width the face of the wall beside it is:
+    /// a wall as high as a handrail over it, standing no higher than a floor's reach above it. None
+    /// where the side is open. Along a wall it needs no kerb, and its handrail is on the wall.
+    /// </summary>
+    public static (RampSide Left, RampSide Right) Sides(BimDocument document, RampLayout layout)
+    {
+        // Only the walls near it.
+        var footprint = layout.Footprint;
+        var bands = footprint.Count == 0 ? new List<StairModel.WallBand>() : StairModel.WallBands(document).Where(band =>
+            band.Max.X >= footprint.Min(point => point.X) - WallReach - 100 && band.Min.X <= footprint.Max(point => point.X) + WallReach + 100
+            && band.Max.Y >= footprint.Min(point => point.Y) - WallReach - 100 && band.Min.Y <= footprint.Max(point => point.Y) + WallReach + 100).ToList();
+
+        RampSide Side(IReadOnlyList<RampEdgePoint> side, double outward)
+        {
+            if (bands.Count == 0 || side.Count < 2) return new RampSide(side, new double?[Math.Max(0, side.Count - 1)]);
+
+            var points = new List<RampEdgePoint> { side[0] };
+            var walls = new List<double?>();
+            for (var i = 0; i + 1 < side.Count; i++)
+            {
+                var (a, b) = (side[i], side[i + 1]);
+                var length = a.At.DistanceTo(b.At);
+                if (length < 1)
+                {
+                    points.Add(b);
+                    walls.Add(null);
+                    continue;
+                }
+
+                var outwards = (b.At - a.At).PerpendicularLeft() / length * outward;
+                RampEdgePoint At(double t) => new(a.At + (b.At - a.At) * t, a.Height + (b.Height - a.Height) * t);
+                double? Face(RampEdgePoint sample)
+                {
+                    for (var reach = 0.0; reach <= WallReach + 1e-9; reach += 25)
+                    {
+                        var probe = sample.At + outwards * reach;
+                        if (bands.Any(band => band.Base <= sample.Height + Stairs.FloorReach && band.Top >= sample.Height + 900 && band.Holds(probe))) return reach;
+                    }
+
+                    return null;
+                }
+
+                // Every 100 or so along it, the wall beside it there or none - and the length split where that changes.
+                var count = Math.Max(1, (int)Math.Ceiling(length / 100));
+                var faces = Enumerable.Range(0, count).Select(k => Face(At((k + 0.5) / count))).ToList();
+                for (var k = 0; k < count;)
+                {
+                    var walled = faces[k] is not null;
+                    var next = k;
+                    while (next < count && faces[next] is not null == walled) next++;
+                    points.Add(next == count ? b : At((double)next / count));
+                    walls.Add(walled ? faces.Skip(k).Take(next - k).Max() : null);
+                    k = next;
+                }
+            }
+
+            return new RampSide(points, walls);
+        }
+
+        return (Side(layout.Left, 1), Side(layout.Right, -1));
+    }
+
+    /// <summary>The ground at a point: the ground modelled there, or - with none - the lowest level's, which the building stands on.</summary>
+    public static double GroundUnder(BimDocument document, Point2D at) =>
+        Terrains.GroundAt(document, at) ?? (document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation));
+
+    /// <summary>The surface of a ramp on a storey over a point - the highest, where one passes over another - if any.</summary>
+    public static double? SurfaceOn(BimDocument document, Guid levelId, Point2D at)
+    {
+        double? highest = null;
+        foreach (var ramp in document.Elements.OfType<Ramp>().Where(ramp => ramp.LevelId == levelId))
+            if (Layout(document, ramp).PieceAt(at) is { } piece && (highest is null || piece.HeightAt(at) > highest)) highest = piece.HeightAt(at);
+        return highest;
+    }
+
+    /// <summary>
+    /// The least headroom over it, and what gives it: under the floors, flat roofs and ceilings
+    /// over it as they are built - their holes left open - the beams and joists over it, and a
+    /// pitched roof coming down over it; measured round each of its flights and landings and at
+    /// their middles. None with nothing over it.
+    /// </summary>
+    public static (double Clear, Element By)? LeastHeadroom(BimDocument document, Ramp ramp, RampLayout layout)
+    {
+        var footprint = layout.Pieces.SelectMany(piece => piece.Outline).ToList();
+        if (footprint.Count < 3) return null;
+        var (low, high) = (new Point2D(footprint.Min(point => point.X) - 100, footprint.Min(point => point.Y) - 100),
+            new Point2D(footprint.Max(point => point.X) + 100, footprint.Max(point => point.Y) + 100));
+        bool Over(IEnumerable<Point2D> outline) => outline.Any() && outline.Max(point => point.X) >= low.X && outline.Min(point => point.X) <= high.X
+                                                   && outline.Max(point => point.Y) >= low.Y && outline.Min(point => point.Y) <= high.Y;
+
+        // Where it is measured: round each piece every 300 or so, and its middle, with its surface there.
+        var samples = new List<(Point2D At, double Surface)>();
+        foreach (var piece in layout.Pieces)
+        {
+            for (var i = 0; i < piece.Outline.Count; i++)
+            {
+                var (a, b) = (piece.Outline[i], piece.Outline[(i + 1) % piece.Outline.Count]);
+                var count = Math.Max(1, (int)Math.Ceiling((b - a).Length / 300));
+                for (var k = 0; k < count; k++)
+                {
+                    // A little in from the edge, so what stops at its edge is not taken to be over it.
+                    var at = a + (b - a) * ((double)k / count);
+                    var middle = Polygon2D.Centroid(piece.Outline, piece.Start);
+                    samples.Add((at + (middle - at).NormalisedOrDefault(Vector2D.UnitX) * 20, piece.HeightAt(at)));
+                }
+            }
+
+            var centre = Polygon2D.Centroid(piece.Outline, piece.Start);
+            samples.Add((centre, piece.HeightAt(centre)));
+        }
+
+        (double Clear, Element By)? least = null;
+        void Consider(double underside, double surface, Element by)
+        {
+            var clear = underside - surface;
+            if (clear > 0 && (least is not { } known || clear < known.Clear)) least = (clear, by);
+        }
+
+        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3 && Over(slab.Boundary) && Stairs.IsFloorLike(document, slab)))
+        {
+            var underside = slab.GetBottomElevation(document);
+            if (underside <= layout.Bottom + 1) continue;
+            var regions = SlabEdges.Regions(document, slab);
+            foreach (var (at, surface) in samples.Where(sample => underside > sample.Surface && slab.Contains(sample.At)))
+                if (regions.Any(region => Polygon2D.Contains(region.Outer, at) && !region.Holes.Any(hole => Polygon2D.Contains(hole, at))))
+                    Consider(underside, surface, slab);
+        }
+
+        var framing = document.Elements.OfType<Beam>().Where(beam => Over(new[] { beam.Start, beam.End })).Select(beam => (Beam: beam, By: (Element)beam))
+            .Concat(document.Elements.OfType<BeamSystem>().Where(system => Over(system.Boundary))
+                .SelectMany(system => BeamSystems.Members(document, system).Select(joist => (Beam: joist, By: (Element)system))));
+        foreach (var (beam, by) in framing)
+        foreach (var piece in layout.Pieces)
+            if (Beams.LowestOver(document, beam, piece.Outline) is { } underside && underside > piece.High)
+                Consider(underside, piece.High, by);
+
+        foreach (var roof in document.Elements.OfType<Roof>().Where(roof => roof.Boundary.Count >= 3 && Over(roof.Boundary) && !Stairs.IsFloorLike(document, roof)))
+        {
+            var surface = roof.Surface(document);
+            var openings = RoofJoin.Openings(document, roof);
+            foreach (var (at, height) in samples.Where(sample => roof.Contains(sample.At) && !openings.Any(opening => Polygon2D.Contains(opening, sample.At))))
+                Consider(surface.HeightAt(at), height, roof);
+        }
+
+        return least;
+    }
+
+    /// <summary>
+    /// How low the space under a ramp built as a slab or a deck is at its lowest that someone could
+    /// walk into - its underside over the floor or the ground under it, where that is more than 100
+    /// and less than 2 m - and none for a solid one, or one closed underneath.
+    /// </summary>
+    public static double? LowSpaceUnder(BimDocument document, Ramp ramp, RampLayout layout)
+    {
+        var type = TypeOf(document, ramp);
+        if (type.Construction == RampConstruction.Solid || ramp.ClosedUnderneath) return null;
+        double? lowest = null;
+        foreach (var piece in layout.Pieces)
+        {
+            var middle = Polygon2D.Centroid(piece.Outline, piece.Start);
+            foreach (var at in piece.Outline.Select(corner => corner + (middle - corner) * 0.1).Append(middle))
+            {
+                var underside = piece.HeightAt(at) - type.Thickness;
+                var floor = new List<double>();
+                if (Terrains.GroundAt(document, at) is { } ground) floor.Add(ground);
+                floor.AddRange(document.Elements.OfType<Slab>()
+                    .Where(slab => slab.Boundary.Count >= 3 && slab.Contains(at) && FloorSurfaces.IsStoodOn(document, slab))
+                    .Select(slab => FloorSurfaces.TopAt(document, slab, at)).Where(top => top < underside));
+                var space = underside - (floor.Count > 0 ? floor.Max() : GroundUnder(document, at));
+                if (space > 100 && space < 2000 && (lowest is null || space > lowest)) lowest = space;
+            }
+        }
+
+        return lowest;
     }
 
     /// <summary>Points along a side - each of its points, and midway along each length - with which way is out to its left there.</summary>
@@ -944,10 +1228,11 @@ public static class Ramps
     }
 
     /// <summary>
-    /// A drawn ramp's walking line set from the points clicked along it, its foot first: each turn
-    /// to the nearest 15°, a right angle at most, the next stretch measured from the way it then goes.
+    /// A drawn ramp's walking line set from the points clicked along it, its foot first - or, drawn
+    /// down from a door, its head first, hung by it: each turn to the nearest 15°, a right angle at
+    /// most, the next stretch measured from the way it then goes.
     /// </summary>
-    public static void SetPath(Ramp ramp, IReadOnlyList<Point2D> points)
+    public static void SetPath(Ramp ramp, IReadOnlyList<Point2D> points, bool down = false)
     {
         var kept = new List<Point2D>();
         foreach (var point in points)
@@ -970,8 +1255,9 @@ public static class Ramps
         }
 
         ramp.Start = kept[0];
-        ramp.Angle = (Math.Atan2(first.Y, first.X) * 180 / Math.PI % 360 + 360) % 360;
-        ramp.Anchor = RampAnchor.Foot;
+        var up = down ? first * -1 : first;
+        ramp.Angle = (Math.Atan2(up.Y, up.X) * 180 / Math.PI % 360 + 360) % 360;
+        ramp.Anchor = down ? RampAnchor.Head : RampAnchor.Foot;
         (ramp.PathLengths, ramp.PathTurns, ramp.Shape) = (lengths, turns, RampShape.Custom);
     }
 
@@ -980,10 +1266,35 @@ public static class Ramps
     {
         if (ramp.Anchor == anchor) return;
         var layout = Layout(document, ramp);
+
+        // A drawn one along the line it now runs: from its head down, or from its foot up.
+        if (ramp.Shape == RampShape.Custom && layout.Walk.Count >= 2)
+        {
+            SetPath(ramp, anchor == RampAnchor.Head ? layout.Walk.Reverse().ToList() : layout.Walk, anchor == RampAnchor.Head);
+            return;
+        }
+
         var (at, up) = anchor == RampAnchor.Head ? (layout.Head, layout.HeadUp) : (layout.Foot, layout.FootUp);
         ramp.Start = at;
         ramp.Angle = (Math.Atan2(up.Y, up.X) * 180 / Math.PI % 360 + 360) % 360;
         ramp.Anchor = anchor;
+    }
+
+    /// <summary>
+    /// Whether a ramp comes up to a door out of the building at its head - the way a home is left
+    /// by, which the IRC holds to 1:12 where any other ramp may be 1:8.
+    /// </summary>
+    public static bool UpToADoorOut(BimDocument document, Ramp ramp, RampLayout layout)
+    {
+        foreach (var door in document.Elements.OfType<Door>())
+        {
+            if (document.FindType<DoorType>(door.TypeId) is not { } type || !Doors.External(document, door, type)) continue;
+            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) continue;
+            if (Math.Abs(wall.GetBaseElevation(document) + door.SillHeight - layout.Top) > 300) continue;
+            if ((wall.Start + wall.Direction * door.DistanceAlongWall).DistanceTo(layout.Head) <= Math.Max(ramp.TopLanding, 0) + 1500) return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -998,6 +1309,7 @@ public static class Ramps
         var layout = Layout(document, ramp);
         var type = TypeOf(document, ramp);
         var us = Us(document);
+        var irc = Irc(document, ramp);
         var other = ramp.Building == RailingBuilding.Other;
         var said = $"1:{ramp.Gradient:0.#}";
 
@@ -1007,13 +1319,19 @@ public static class Ramps
             return problems;
         }
 
-        if (ramp.Gradient < 12 - 1e-9)
+        if (irc && ramp.Gradient < 8 - 1e-9)
+            problems.Add($"At {said} it is steeper than the 1:8 the IRC allows any ramp (R311.8.1).");
+        else if (irc && ramp.Gradient < 12 - 1e-9 && UpToADoorOut(document, ramp, layout))
+            problems.Add($"At {said} it is steeper than 1:12: the IRC holds a ramp up to the door a home is left by to 1:12, any other to 1:8 (R311.8.1).");
+        else if (!irc && ramp.Gradient < SteepestAllowed(document, ramp) - 1e-9)
             problems.Add(us
                 ? $"At {said} it is steeper than the 1:12 the ADA allows a ramp (405.2)."
-                : $"At {said} it is steeper than the 1:12 Approved Document M allows a ramp.");
+                : SteepestAllowed(document, ramp) > 12
+                    ? $"At {said} it is steeper than the 1:15 Approved Document M allows a wheelchair user's ramp (M4(3) 3.10a)."
+                    : $"At {said} it is steeper than the 1:12 Approved Document M allows a ramp.");
 
         var (least, widthRule) = LeastWidth(document, ramp);
-        if (layout.Width < least - 0.5) problems.Add($"It is {layout.Width:0} wide: {widthRule}.");
+        if (least > 0 && layout.Width < least - 0.5) problems.Add($"It is {layout.Width:0} wide: {widthRule}.");
 
         if (!us && other && layout.Rise > 2000)
             problems.Add($"It rises {layout.Rise:0} in all: past 2 m, Approved Document M asks for a lift as well.");
@@ -1021,15 +1339,21 @@ public static class Ramps
             problems.Add($"It rises {layout.Rise:0}: past 300, Approved Document M asks for clearly signposted steps as well.");
 
         // A level landing at either end, as long as asked, clear of any door swinging over it.
-        var end = EndLanding(document);
-        var endRule = us ? "the ADA asks for 60 in (1525)" : "Approved Document M asks for 1200";
+        var end = EndLanding(document, ramp);
+        var endRule = irc ? "the IRC asks for 36 in (915)"
+            : us ? "the ADA asks for 60 in (1525)"
+            : end > 1200 + 0.5 ? $"Approved Document K asks for one as long as the ramp is wide, {end:0}"
+            : "Approved Document M asks for 1200";
         if (IsRamp(ramp) && ramp.TopLanding < end - 0.5 && !LandsOn(document, layout.Head + layout.HeadUp * (end / 2), layout.Top))
             problems.Add($"Its head comes up onto {(ramp.TopLanding > 0.5 ? $"a landing {ramp.TopLanding:0} long" : "no landing")} and no floor beyond: {endRule}.");
-        // Its foot: on the ground or a floor in front of it - only where one is modelled there and its foot is off it; with nothing modelled, the ground is taken to be at its foot.
+        // Its foot: on the floor or the ground in front of it - with none modelled, the ground the building stands on, at the lowest level.
         var before = layout.Foot - layout.FootUp * (end / 2);
-        var modelled = Terrains.GroundAt(document, before) is not null || document.Elements.OfType<Slab>().Any(slab => slab.Boundary.Count >= 3 && slab is not Ceiling && slab.Contains(before));
-        if (IsRamp(ramp) && ramp.BottomLanding < end - 0.5 && modelled && !LandsOn(document, before, layout.Bottom))
-            problems.Add($"Its foot starts from {(ramp.BottomLanding > 0.5 ? $"a landing {ramp.BottomLanding:0} long" : "no landing")}, off the floor or ground in front of it: {endRule}.");
+        var floorThere = FloorSurfaces.StoodOnNear(document, layout.Bottom, before, Stairs.FloorReach)?.Top;
+        var under = floorThere ?? GroundUnder(document, before);
+        if (under > layout.Bottom + 20)
+            problems.Add($"Its foot is {under - layout.Bottom:0} below the {(floorThere is null ? "ground" : "floor")} in front of it: it starts underground. Model the ground there, or raise its foot.");
+        else if (IsRamp(ramp) && ramp.BottomLanding < end - 0.5 && layout.Bottom - under > 50)
+            problems.Add($"Its foot starts from {(ramp.BottomLanding > 0.5 ? $"a landing {ramp.BottomLanding:0} long" : "no landing")}, {layout.Bottom - under:0} off the floor or ground in front of it: {endRule}.");
         if (!us && IsRamp(ramp) && layout.Pieces.LastOrDefault() is { Kind: RampPieceKind.Landing } head
             && Stairs.DoorSwings(document, layout.Top).Any(swing => PolygonBoolean.Combine(swing, head.Outline, BooleanOperation.Intersection).Sum(piece => piece.Area) > 10000))
             problems.Add("A door swings over the landing at its head: Approved Document M asks for 1200 clear of any door swing.");
@@ -1044,7 +1368,7 @@ public static class Ramps
             var (low, high, heightRule) = us ? (865, 965, "the ADA asks for 34 in to 38 in (865 to 965)") : (900, 1000, "Approved Document M asks for 900 to 1000");
             if (type.HandrailHeight < low - 0.5 || type.HandrailHeight > high + 0.5)
                 problems.Add($"Its handrails stand {type.HandrailHeight:0} over its surface: {heightRule}.");
-            if (IsRamp(ramp) && (us || other) && type.HandrailExtension < (us ? 304.8 : 300) - 0.5)
+            if (IsRamp(ramp) && !irc && (us || other) && type.HandrailExtension < (us ? 304.8 : 300) - 0.5)
                 problems.Add(us
                     ? $"Its handrails run on {type.HandrailExtension:0} past its ends: the ADA asks for 12 in (305) (505.10)."
                     : $"Its handrails run on {type.HandrailExtension:0} past its ends: Approved Document M asks for 300.");
@@ -1057,8 +1381,15 @@ public static class Ramps
         // A kerb along its open sides: Approved Document M's 100; the ADA's edge protection.
         if (IsRamp(ramp) && !us && other && type.KerbHeight < 100 - 0.5)
             problems.Add($"Its kerb is {(type.KerbHeight > 0.5 ? $"{type.KerbHeight:0} high" : "missing")}: Approved Document M asks for one 100 high on its open sides.");
-        if (IsRamp(ramp) && us && layout.Rise > 150 && type.KerbHeight < 100 - 0.5 && type.KerbWidth < 305 - 0.5)
+        if (IsRamp(ramp) && us && !irc && layout.Rise > 150 && type.KerbHeight < 100 - 0.5 && type.KerbWidth < 305 - 0.5)
             problems.Add("Its sides have no edge protection: the ADA asks for a curb 4 in (100) high, or its surface 12 in past its handrails (405.9).");
+
+        // Headroom over it, and the space under one built as a slab or a deck.
+        var (headroom, headroomRule) = HeadroomAsked(document);
+        if (LeastHeadroom(document, ramp, layout) is { } over && over.Clear < headroom - 0.5)
+            problems.Add($"{Describe(over.By)} is only {over.Clear:0} over it: {headroomRule}.");
+        if (!us && other && LowSpaceUnder(document, ramp, layout) is { } space)
+            problems.Add($"The space under it is {space:0} high in places: under 2 m, Approved Document K asks for it to be guarded off, with something low enough for a cane to find - or close it underneath.");
 
         // Guarding where a side drops too far - none put up, told to have no handrails.
         var limit = Railings.GuardedDrop(document, ramp.Building);
@@ -1068,6 +1399,17 @@ public static class Ramps
 
         return problems;
     }
+
+    /// <summary>What something over a ramp is, in words: "A floor", "A beam".</summary>
+    private static string Describe(Element element) => element switch
+    {
+        Ceiling => "A ceiling",
+        Roof => "A roof",
+        Floor => "A floor",
+        Beam => "A beam",
+        BeamSystem => "A joist",
+        _ => "Something"
+    };
 
     private static string Sides(bool left, bool right) => (left, right) switch
     {

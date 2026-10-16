@@ -293,10 +293,17 @@ public static class ElementCopy
             Start = ramp.Start, Angle = ramp.Angle, Anchor = ramp.Anchor, Shape = ramp.Shape, TurnsLeft = ramp.TurnsLeft, Width = ramp.Width,
             Gap = ramp.Gap, PathLengths = ramp.PathLengths.ToList(), PathTurns = ramp.PathTurns.ToList(), Gradient = ramp.Gradient,
             BaseOffset = ramp.BaseOffset, TopLevelId = ramp.TopLevelId, TopOffset = ramp.TopOffset, UnconnectedHeight = ramp.UnconnectedHeight,
-            TopLanding = ramp.TopLanding, BottomLanding = ramp.BottomLanding, Building = ramp.Building, Outside = ramp.Outside, Railings = ramp.Railings
+            TopLanding = ramp.TopLanding, BottomLanding = ramp.BottomLanding, Building = ramp.Building, Outside = ramp.Outside, Railings = ramp.Railings,
+            ClosedUnderneath = ramp.ClosedUnderneath
         }, ramp),
         Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points, ground.ExistingPoints), ground),
-        GroundRegion region => CarryCommon(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach }, region.Boundary), region),
+        GroundRegion region => CarryCommon(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset }, region.Boundary), region),
+        SitePad pad => CarryCommon(Outline(new SitePad
+        {
+            HeightOffset = pad.HeightOffset, Fall = pad.Fall, FallDirection = pad.FallDirection, Batter = pad.Batter, Surface = pad.Surface, MaterialId = pad.MaterialId
+        }, pad.Boundary), pad),
+        PropertyLine line => CarryCommon(Outline(new PropertyLine { Setback = line.Setback }, line.Boundary), line),
+        SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         Beam beam => CarryCommon(new Beam
         {
@@ -415,6 +422,8 @@ public static class ElementCopy
         switch (copy)
         {
             case GroundRegion region: region.SetBoundary(outline); break;
+            case SitePad pad: pad.SetBoundary(outline); break;
+            case PropertyLine line: line.SetBoundary(outline); break;
             case BeamSystem system: system.SetBoundary(outline); break;
         }
 

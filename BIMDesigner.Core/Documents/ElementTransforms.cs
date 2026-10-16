@@ -55,6 +55,7 @@ public static class ElementTransforms
 
         // The ground, with its spot levels; a region of it, and a joist layout, with their outlines.
         Toposurface or GroundRegion or BeamSystem => true,
+        SitePad or PropertyLine or SpotElevation => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -135,6 +136,18 @@ public static class ElementTransforms
 
             case GroundRegion region:
                 region.SetBoundary(region.Boundary.Select(point => point + delta).ToList());
+                break;
+
+            case SitePad pad:
+                pad.SetBoundary(pad.Boundary.Select(point => point + delta).ToList());
+                break;
+
+            case PropertyLine line:
+                line.SetBoundary(line.Boundary.Select(point => point + delta).ToList());
+                break;
+
+            case SpotElevation spot:
+                spot.Location += delta;
                 break;
 
             case BeamSystem system:
@@ -305,6 +318,24 @@ public static class ElementTransforms
 
             case GroundRegion region:
                 region.SetBoundary(region.Boundary.Select(Reflect).ToList());
+                break;
+
+            case SitePad pad:
+            {
+                // The way it falls reflected with it.
+                var middle = Polygon2D.Centroid(pad.Boundary, pad.Boundary.Count > 0 ? pad.Boundary[0] : default);
+                var falls = Reflect(middle + new Vector2D(Math.Cos(pad.FallDirection * Math.PI / 180), Math.Sin(pad.FallDirection * Math.PI / 180)) * 1000) - Reflect(middle);
+                pad.SetBoundary(pad.Boundary.Select(Reflect).ToList());
+                pad.FallDirection = (Math.Atan2(falls.Y, falls.X) * 180 / Math.PI % 360 + 360) % 360;
+                break;
+            }
+
+            case PropertyLine line:
+                line.SetBoundary(line.Boundary.Select(Reflect).ToList());
+                break;
+
+            case SpotElevation spot:
+                spot.Location = Reflect(spot.Location);
                 break;
 
             case BeamSystem system:
@@ -503,6 +534,19 @@ public static class ElementTransforms
 
             case GroundRegion region:
                 region.SetBoundary(region.Boundary.Select(map).ToList());
+                break;
+
+            case SitePad pad:
+                pad.SetBoundary(pad.Boundary.Select(map).ToList());
+                pad.FallDirection = ((pad.FallDirection + degrees) % 360 + 360) % 360;
+                break;
+
+            case PropertyLine line:
+                line.SetBoundary(line.Boundary.Select(map).ToList());
+                break;
+
+            case SpotElevation spot:
+                spot.Location = map(spot.Location);
                 break;
 
             case BeamSystem system:

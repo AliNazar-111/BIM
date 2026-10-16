@@ -63,6 +63,15 @@ public class RibbonLayoutTests
                 var panels = (FrameworkElement)tab.Content;
                 panels.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 Assert.True(panels.DesiredSize.Width <= Laptop, $"{tab.Header} needs {panels.DesiredSize.Width:0} px of the {Laptop}");
+
+                // Every tool on it there to be seen: none stacked below where its panel is cut off.
+                var host = (FrameworkElement)ribbon.Template.FindName("RibbonScroll", ribbon);
+                var bottom = host.TransformToAncestor(ribbon).Transform(new Point(0, host.ActualHeight)).Y;
+                foreach (var tool in Descendants(panels).OfType<System.Windows.Controls.Primitives.ButtonBase>().Where(tool => Shown(tool, panels)))
+                {
+                    var below = tool.TransformToAncestor(ribbon).Transform(new Point(0, tool.ActualHeight)).Y;
+                    Assert.True(below <= bottom + 0.5, $"{tab.Header}: {tool.Content} is cut off, {below - bottom:0} px below the ribbon");
+                }
             }
 
             // A wall picked: its own tab comes forward, Frame Walls on it within the screen.
@@ -81,5 +90,23 @@ public class RibbonLayoutTests
             var scroller = (RibbonScroller)ribbon.Template.FindName("RibbonScroll", ribbon);
             Assert.True(scroller.Overflows);
         });
+    }
+
+    /// <summary>Whether something is meant to be seen: it and all round it on the tab not hidden.</summary>
+    private static bool Shown(DependencyObject element, DependencyObject tab)
+    {
+        for (var at = element; at is not null && !ReferenceEquals(at, tab); at = System.Windows.Media.VisualTreeHelper.GetParent(at))
+            if (at is UIElement { Visibility: not Visibility.Visible }) return false;
+        return true;
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            yield return child;
+            foreach (var below in Descendants(child)) yield return below;
+        }
     }
 }

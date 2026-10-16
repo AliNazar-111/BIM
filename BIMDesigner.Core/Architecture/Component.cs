@@ -83,7 +83,61 @@ public enum ComponentForm
     Shrub,
 
     // A family of your own: drawn in the family editor from simple solids, or loaded from a 3D model.
-    Custom
+    Custom,
+
+    // The bedroom and the dining room again: a chest of drawers - a bedside table, a chest, a
+    // sideboard - a corner sofa turning an L, and a round table on its pedestal.
+    Drawers,
+    CornerSofa,
+    RoundTable,
+
+    // The children's room: a bunk bed, its upper bed guarded and a ladder up to it, and a cot.
+    BunkBed,
+    Cot,
+
+    // The kitchen again: a wall unit with its doors, a tall larder unit, a tall housing with an
+    // oven and a microwave at eye level, a chimney cooker hood, and a tumble dryer under the worktop.
+    WallUnit,
+    TallUnit,
+    OvenHousing,
+    CookerHood,
+    TumbleDryer,
+
+    // The bathroom again: a WC hung on the wall, its cistern hidden in it behind a flush plate.
+    WallHungToilet,
+
+    // The services again: a heated towel rail, an extract fan, a smoke, a heat and a carbon
+    // monoxide alarm on the ceiling, a shaver socket, a consumer unit and a room thermostat.
+    TowelRail,
+    ExtractFan,
+    SmokeAlarm,
+    HeatAlarm,
+    CarbonMonoxideAlarm,
+    ShaverSocket,
+    ConsumerUnit,
+    Thermostat,
+
+    // Outside again: a parking bay marked out - and an accessible one, with its zones to get in
+    // and out - a person in a wheelchair, and a turning circle to try a room with.
+    ParkingBay,
+    AccessibleParkingBay,
+    WheelchairUser,
+    TurningCircle,
+
+    // A gas boiler on the wall: what a carbon monoxide alarm is put up by.
+    Boiler
+}
+
+/// <summary>
+/// How much water a tree draws from the ground, as NHBC Standards' Table 3 sorts the species - which
+/// says how far round it a shrinkable clay is dried out. One not known is taken as high.
+/// </summary>
+public enum TreeWaterDemand
+{
+    Unknown,
+    Low,
+    Moderate,
+    High
 }
 
 /// <summary>
@@ -126,7 +180,10 @@ public sealed class ComponentType : ElementType
         form is ComponentForm.Counter or ComponentForm.Shelving or ComponentForm.Basin or ComponentForm.Toilet
             or ComponentForm.Bath or ComponentForm.Bed or ComponentForm.Sofa or ComponentForm.Desk
             or ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine or ComponentForm.Sink
-            or ComponentForm.Wardrobe or ComponentForm.TelevisionUnit or ComponentForm.Shower;
+            or ComponentForm.Wardrobe or ComponentForm.TelevisionUnit or ComponentForm.Shower
+            or ComponentForm.Drawers or ComponentForm.CornerSofa or ComponentForm.BunkBed
+            or ComponentForm.WallUnit or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.CookerHood or ComponentForm.TumbleDryer
+            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler;
 
     /// <summary>
     /// Whether one put down near a wall backs onto it and faces the room: a bed, a wardrobe, a
@@ -150,6 +207,21 @@ public sealed class ComponentType : ElementType
 
     /// <summary>For a family of your own, the 3D model loaded into it, in its box likewise; or none.</summary>
     public ComponentMesh? Mesh { get; set; }
+
+    /// <summary>
+    /// For an extract fan or a cooker hood, how much air it draws out, l/s: what Approved
+    /// Document F's rates for a kitchen, a bathroom or a WC are met with.
+    /// </summary>
+    public double ExtractRate { get; set; }
+
+    /// <summary>For a light, its light source's efficacy, lumens per circuit-watt: 75 at least, Approved Document L asks (6.58).</summary>
+    public double Efficacy { get; set; }
+
+    /// <summary>For a tree or a shrub, how much water it draws - its height being taken as its mature height.</summary>
+    public TreeWaterDemand WaterDemand { get; set; }
+
+    /// <summary>For a tree, its stem's diameter 1.5 m up, mm - what its root protection area is measured from; none where not known.</summary>
+    public double StemDiameter { get; set; }
 
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
@@ -180,7 +252,7 @@ public sealed class ComponentType : ElementType
     public ComponentType Duplicate(string name) => WithCommonOf(new ComponentType(name, Kind, Form, Width, Depth, Height)
     {
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
-        Enclosure = Enclosure, Mesh = Mesh
+        Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -233,6 +305,22 @@ public sealed class ComponentType : ElementType
                     Mesh is null ? null : $"{Mesh.Source} ({Mesh.TriangleCount:N0} triangles)"
                 }.Where(said => said is not null)) is { Length: > 0 } said ? said : "Nothing yet");
 
+        if (Form is ComponentForm.ExtractFan or ComponentForm.CookerHood)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.ExtractRate, () => ExtractRate, v => { if (v < 0) return false; ExtractRate = v; return true; });
+
+        if (Kind == BuiltInCategory.LightingFixtures)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Efficacy, () => Efficacy, v => { if (v < 0) return false; Efficacy = v; return true; });
+
+        if (Form is ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub)
+        {
+            yield return ParameterValue.BindChoice(
+                ComponentTypeParameters.WaterDemand,
+                () => EnumText.Humanise(WaterDemand),
+                v => { if (EnumText.TryParse<TreeWaterDemand>(v, out var demand)) WaterDemand = demand; },
+                EnumText.Choices<TreeWaterDemand>());
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.StemDiameter, () => StemDiameter, v => { if (v < 0) return false; StemDiameter = v; return true; });
+        }
+
         if (Form == ComponentForm.Shower)
             yield return ParameterValue.BindChoice(
                 ComponentTypeParameters.Enclosure,
@@ -272,7 +360,10 @@ public static class ComponentCategories
         BuiltInCategory.LightingFixtures,
         BuiltInCategory.ElectricalFixtures,
         BuiltInCategory.LightingDevices,
+        BuiltInCategory.FireAlarmDevices,
+        BuiltInCategory.ElectricalEquipment,
         BuiltInCategory.Planting,
+        BuiltInCategory.Parking,
         BuiltInCategory.Entourage,
         BuiltInCategory.GenericModels
     };
@@ -520,6 +611,18 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition DefaultElevation =
         new("Default Elevation", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition ExtractRate =
+        new("Extract Rate (l/s)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Efficacy =
+        new("Efficacy (lm/W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition WaterDemand =
+        new("Water Demand", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition StemDiameter =
+        new("Stem Diameter", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
 }
 
 public static class ComponentParameters

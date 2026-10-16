@@ -21,7 +21,7 @@ public class WallDrawingTests
         return (
             document,
             document.TypesOf<WallType>().First(t => t.Function == WallFunction.Interior),
-            document.TypesOf<WallType>().Single(t => t.Function == WallFunction.Exterior && t.Log is null));
+            document.TypesOf<WallType>().Single(t => t.Name == "Exterior - Brick on Block 330mm"));
     }
 
     private static Wall Add(BimDocument document, WallType type, Point2D start, Point2D end)

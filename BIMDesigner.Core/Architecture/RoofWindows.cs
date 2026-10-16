@@ -328,13 +328,21 @@ public static class RoofWindows
         return new RoofWindowFrame(roof, type, plane, thickness, at, uphill, uphill.PerpendicularLeft());
     }
 
+    /// <summary>The least slope a roof window that opens is made to lie in, degrees.</summary>
+    public const double MinimumPitch = 15;
+
     /// <summary>
-    /// Why a roof window cannot go where this frame puts it - off the roof, over a ridge, hip or
-    /// valley, too near the edge, over a hole already there - or null where it fits.
+    /// Why a roof window cannot go where this frame puts it - too flat a slope for one that opens,
+    /// off the roof, over a ridge, hip or valley, too near the edge, over a hole already there - or
+    /// null where it fits.
     /// </summary>
     public static string? Problem(BimDocument document, RoofWindowFrame frame, RoofWindow? except = null)
     {
         var surface = frame.Roof.Surface(document);
+
+        // An opening roof window is made to lie in a slope of 15° to 90°: flatter, a fixed rooflight on its upstand goes in.
+        if (frame.Type.Operation != RoofWindowOperation.Fixed && frame.Plane.SlopeDegrees < MinimumPitch - 0.05)
+            return $"A roof window that opens is made for a slope of {MinimumPitch:0}° or more, and this one is {frame.Plane.SlopeDegrees:0.#}°: put in a fixed rooflight on its upstand.";
 
         // All of it, and a margin round it, on the one face.
         var outline = frame.Corners;

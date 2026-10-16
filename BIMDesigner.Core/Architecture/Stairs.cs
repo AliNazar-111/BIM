@@ -1745,11 +1745,11 @@ public static class Stairs
 
     /// <summary>The rules a stair is checked against, by name.</summary>
     public static string Label(ClearanceStandard standard) =>
-        standard == ClearanceStandard.Ada ? "IRC R311.7" : "Approved Document K";
+        standard.IsUs() ? "IRC R311.7" : "Approved Document K";
 
     /// <summary>The clear height over a stair its rules ask for, mm: 2000, or 6 ft 8 in - 6 ft 6 in over a spiral stair.</summary>
     public static double Headroom(ClearanceStandard standard, StairShape shape = StairShape.Straight) =>
-        standard != ClearanceStandard.Ada ? 2000 : shape == StairShape.Spiral ? 1982 : 2032;
+        !standard.IsUs() ? 2000 : shape == StairShape.Spiral ? 1982 : 2032;
 
     /// <summary>
     /// The holes stairs cut in a slab over them: over each the steps that would not have the
@@ -1798,7 +1798,7 @@ public static class Stairs
         if (slab.Boundary.Count < 3) return Array.Empty<IReadOnlyList<Point2D>>();
 
         // A loft conversion's stair cuts as far as 1900 over the middle of it asks.
-        var headroom = stair.LoftConversion && document.ProjectInformation.ClearanceStandard != ClearanceStandard.Ada
+        var headroom = stair.LoftConversion && !document.ProjectInformation.ClearanceStandard.IsUs()
             ? 1900 : Headroom(document.ProjectInformation.ClearanceStandard, layout.Shape);
 
         // A pitched roof it comes up into: cut over each step it comes down into the headroom of, under the eaves or in an attic.
@@ -2066,7 +2066,7 @@ public static class Stairs
     private static IReadOnlyList<(double Going, string Where)> MeasuredGoings(StairLayout layout, ClearanceStandard standard)
     {
         if (layout.Shape != StairShape.Curved || layout.GoingAt is not { } at) return new[] { (layout.Going, "") };
-        if (standard == ClearanceStandard.Ada) return new[] { (at(Math.Min(305, layout.Width / 2)), "at the walkline 305 (12 in) from the inside") };
+        if (standard.IsUs()) return new[] { (at(Math.Min(305, layout.Width / 2)), "at the walkline 305 (12 in) from the inside") };
         return layout.Width < 1000
             ? new[] { (at(layout.Width / 2), "along the middle") }
             : new[] { (at(270), "270 in from the inside"), (at(layout.Width - 270), "270 in from the outside") };
@@ -2113,12 +2113,45 @@ public static class Stairs
             problems.AddRange(SteepProblems(stair, type, layout, standard));
         else if (layout.Shape == StairShape.Spiral)
             problems.AddRange(SpiralProblems(layout, standard));
-        else if (standard == ClearanceStandard.Ada)
+        else if (standard == ClearanceStandard.Ada && stair.Use != StairUse.Private)
+        {
+            // A stair in a building other than a home, as the ADA has it (504, 505) - and the IBC as wide as an exit stair.
+            if (rise > 178 + 0.5) problems.Add($"Each riser is {rise:0}: the ADA allows 178 (7 in) at most (504.2).");
+            if (rise < 102 - 0.5) problems.Add($"Each riser is {rise:0}: the ADA asks for 102 (4 in) at least (504.2).");
+            foreach (var (going, where) in MeasuredGoings(layout, standard))
+                if (going < 279 - 0.5) problems.Add(where == "" ? $"Each tread is {going:0}: the ADA asks for 279 (11 in) at least (504.2)." : $"Its treads are {going:0} {where}: the ADA asks for 279 (11 in) at least (504.2).");
+            if (layout.Width < 1118 - 0.5) problems.Add($"It is {layout.Width:0} wide: the IBC asks for 1118 (44 in) of an exit stair (1011.2).");
+            if (layout.WinderGoing is not null || layout.Shape == StairShape.Curved && narrowest is < 279)
+                problems.Add("Its treads taper: the ADA asks for treads all the same, and the IBC allows winders only within a home.");
+            if (type.OpenRisers) problems.Add("Its risers are open: the ADA does not allow open risers (504.3).");
+            if (type.Nosing > 38 + 0.5) problems.Add($"Its nosings stand {type.Nosing:0} out: the ADA allows 38 (1½ in) at most (504.5).");
+            if (stair.Railings is StairRailings.LeftSide or StairRailings.RightSide or StairRailings.None)
+                problems.Add("The ADA asks for handrails on both sides (505.2).");
+            else if (type.HandrailExtension < Math.Max(305, layout.Going) - 0.5)
+                problems.Add($"Its handrails run on {type.HandrailExtension:0} past its ends: the ADA asks for 305 (12 in) past its top riser and a tread's depth, {layout.Going:0}, past its bottom one (505.10).");
+        }
+        else if (standard.IsUs())
         {
             if (rise > 196 + 0.5) problems.Add($"Each riser is {rise:0}: the IRC allows 196 (7¾ in) at most.");
             foreach (var (going, where) in MeasuredGoings(layout, standard))
                 if (going < 254 - 0.5) problems.Add(where == "" ? $"Each tread is {going:0}: the IRC asks for 254 (10 in) at least." : $"Its treads are {going:0} {where}: the IRC asks for 254 (10 in) at least.");
             if (layout.Width < 914 - 0.5) problems.Add($"It is {layout.Width:0} wide: the IRC asks for 914 (36 in) at least.");
+
+            // At its handrails, what they leave clear: 31½ in with one, 27 in with two, a wall rail standing 4½ in out at most (R311.7.1).
+            var projection = type.WallClearance + type.HandrailWidth;
+            var sides = StairModel.Railings(document, stair, layout)
+                .GroupBy(railing => railing.LeftSide)
+                .Select(side => side.Any(railing => railing.OnWall) ? projection : type.HandrailWidth / 2)
+                .ToList();
+            if (sides.Count > 0)
+            {
+                var (least, said) = sides.Count >= 2 ? (686.0, "686 (27 in) with handrails both sides") : (800.0, "800 (31½ in) with a handrail on one side");
+                var clear = layout.Width - sides.Sum();
+                if (clear < least - 0.5) problems.Add($"It is {clear:0} clear at its handrails: the IRC asks for {said} (R311.7.1).");
+                if (sides.Any(side => side == projection) && projection > 114 + 0.5)
+                    problems.Add($"Its wall handrails stand {projection:0} out from the wall: the IRC allows 114 (4½ in) at most (R311.7.1).");
+            }
+
             if (layout.WinderNarrowEnd is { } narrow && narrow < 152) problems.Add($"Its winders are {narrow:0} at their narrow end: the IRC asks for 152 (6 in).");
             if (layout.WinderGoing is not null && layout.GoingAt is { } goingAt && goingAt(305) < 254) problems.Add("Its winders are too shallow at the walkline 305 (12 in) from their narrow end: the IRC asks for 254 (10 in).");
             if (layout.Shape == StairShape.Curved && narrowest is { } inside && inside < 152 - 0.5) problems.Add($"Its treads are {inside:0} at their narrow end: the IRC asks for 152 (6 in).");
@@ -2151,23 +2184,26 @@ public static class Stairs
             if (stair.Use != StairUse.Private) problems.AddRange(PublicProblems(document, stair, type, layout));
         }
 
-        if (standard == ClearanceStandard.Ada && layout.Shape is StairShape.AlternatingTread or StairShape.Ladder)
+        if (standard.IsUs() && layout.Shape is StairShape.AlternatingTread or StairShape.Ladder)
         {
             if (type.HandrailHeight < 762 - 0.5 || type.HandrailHeight > 864 + 0.5) problems.Add($"Its handrail is {type.HandrailHeight:0} high: the IRC asks for 762 to 864 (30 to 34 in) on {(layout.Shape == StairShape.Ladder ? "a ship's ladder" : "alternating treads")}.");
         }
-        else if (standard == ClearanceStandard.Ada)
+        else if (standard.IsUs())
         {
             if (type.HandrailHeight < 864 - 0.5 || type.HandrailHeight > 965 + 0.5) problems.Add($"Its handrail is {type.HandrailHeight:0} high: the IRC asks for 864 to 965 (34 to 38 in).");
         }
         else if (type.HandrailHeight < 900 - 0.5 || type.HandrailHeight > 1000 + 0.5)
             problems.Add($"Its handrail is {type.HandrailHeight:0} high: Approved Document K asks for 900 to 1000.");
 
-        // A handrail on one side at least: under the IRC where it has 4 risers or more; in a house, 3 or more - as Approved Document M asks of steps up to a door; elsewhere, any.
-        var wantsHandrail = standard == ClearanceStandard.Ada ? layout.Risers >= 4 : stair.Use != StairUse.Private || layout.Risers >= 3;
+        // A handrail on one side at least: under the IRC where it has 4 risers or more (R311.7.8); in a house, 3 or more - as Approved
+        // Document K asks of a stepped change of level in the entrance storey (1.37) and Approved Document M of steps up to a door (1.8f, 2.11f); elsewhere, any.
+        var wantsHandrail = standard.IsUs() ? layout.Risers >= 4 : stair.Use != StairUse.Private || layout.Risers >= 3;
         if (stair.Railings == StairRailings.None && wantsHandrail)
-            problems.Add(standard == ClearanceStandard.Ada
+            problems.Add(standard.IsUs()
                 ? "It has no handrail: the IRC asks for one on at least one side of 4 risers or more."
-                : "It has no handrail: a stair needs one on at least one side.");
+                : stair.Use == StairUse.Private
+                    ? "It has no handrail: Approved Document K asks for one on at least one side (1.34) - of a flight of three risers or more in a house (1.37, and Approved Document M 1.8f, 2.11f)."
+                    : "It has no handrail: Approved Document K asks for one on each side (1.35).");
         problems.AddRange(BuildProblems(document, stair, type, layout, standard));
 
         // Open sides it is told to leave without a railing: guarded where they drop more than 600 in a dwelling, beside two risers
@@ -2175,7 +2211,7 @@ public static class Stairs
         foreach (var (role, highest) in StairModel.Unguarded(document, stair, layout))
         {
             var drop = highest - layout.Bottom;
-            var (limit, rule) = standard == ClearanceStandard.Ada ? (762.0, "the IRC asks for a guard where it is more than 762 (30 in) up")
+            var (limit, rule) = standard.IsUs() ? (762.0, "the IRC asks for a guard where it is more than 762 (30 in) up")
                 : stair.Use == StairUse.Private ? (600.0, "Approved Document K asks for guarding where it drops more than 600")
                 : (2 * rise - 1.5, "Approved Document K asks for guarding beside two risers or more");
             var side = role switch { StairSideRole.Left => "left side", StairSideRole.Right => "right side", _ => "landing's open edge" };
@@ -2187,7 +2223,7 @@ public static class Stairs
             problems.Add($"It runs through a wall ({document.GetWallType(wall)?.Name ?? "Wall"}) at step {step}: move it clear of the wall, or the wall clear of it.");
 
         var needed = Headroom(standard, layout.Shape);
-        if (stair.LoftConversion && standard != ClearanceStandard.Ada)
+        if (stair.LoftConversion && !standard.IsUs())
         {
             // In a loft conversion: 1900 at the middle of the stair, 1800 at its sides.
             if (LeastHeadroom(document, stair, layout, middleOnly: true) is { } middle && middle.Clear < 1900 - 0.5)
@@ -2284,7 +2320,7 @@ public static class Stairs
     {
         var ladder = layout.Shape == StairShape.Ladder;
         var both = stair.Railings == StairRailings.BothSides;
-        if (standard != ClearanceStandard.Ada)
+        if (!standard.IsUs())
         {
             var what = ladder ? "a fixed ladder" : "alternating treads";
             if (!stair.LoftConversion) yield return $"Approved Document K allows {what} only in a loft conversion, up to one habitable room, where there is no room for a stair.";
@@ -2328,16 +2364,16 @@ public static class Stairs
         }
 
         most = Math.Max(most, run + 1);
-        if (standard == ClearanceStandard.Ada && most * layout.Rise > 3835 + 0.5)
+        if (standard.IsUs() && most * layout.Rise > 3835 + 0.5)
             yield return $"It rises {most * layout.Rise:0} with no landing: the IRC allows 3835 (151 in) between floors and landings.";
 
         // A building other than a dwelling: 16 risers a flight on a utility stair, 12 on a general access one.
         var flightMost = stair.Use switch { StairUse.Utility => 16, StairUse.GeneralAccess => 12, _ => int.MaxValue };
-        if (standard != ClearanceStandard.Ada && most > flightMost)
+        if (!standard.IsUs() && most > flightMost)
             yield return $"It climbs {most} risers in a flight: Approved Document K allows {flightMost} on {UseName(stair.Use)}.";
 
         // Risers going the same way, give or take 30°: a run that turns is a fresh one.
-        if (standard != ClearanceStandard.Ada)
+        if (!standard.IsUs())
         {
             var (count, longest) = (0, 0);
             Vector2D? way = null;
@@ -2363,7 +2399,7 @@ public static class Stairs
         var first = steps[0];
         var clear = stair.Use == StairUse.Private ? 400 : Math.Max(1200, layout.Width);
         var foot = new[] { first.RiserFrom, first.RiserTo, first.RiserTo - first.Up * clear, first.RiserFrom - first.Up * clear };
-        if (standard != ClearanceStandard.Ada && below.Any(swing => Overlap(swing, foot)))
+        if (!standard.IsUs() && below.Any(swing => Overlap(swing, foot)))
             yield return stair.Use == StairUse.Private
                 ? "A door swings within 400 of its bottom step: Approved Document K asks for 400 clear across the stair."
                 : $"A door swings across the landing at its foot: Approved Document K asks for landings clear of doors on {UseName(stair.Use)}.";
@@ -2374,7 +2410,7 @@ public static class Stairs
         var above = DoorSwings(document, layout.Top, reach);
         if (above.Any(swing => steps.Any(step => layout.Top - step.Top < 2100 && Overlap(swing, step.Outline))))
             yield return "A door at its head swings out over its steps: it must open onto a landing, clear of the stair.";
-        if (standard == ClearanceStandard.Ada) yield break;
+        if (standard.IsUs()) yield break;
 
         // The landing at its head: out from where it comes up as far as it is wide.
         foreach (var (from, to) in layout.Arrivals)
@@ -2427,22 +2463,25 @@ public static class Stairs
     /// <summary>
     /// What about how a stair is built falls short. Open risers: Approved Document K asks that no
     /// 100 mm sphere pass between the treads, and that they overlap by 16; the IRC, no 4 in
-    /// (102) sphere, but not on a spiral. Closed risers under the IRC: nosings of ¾ to 1¼ in (19
+    /// (102) sphere through a gap more than 30 in (763) over the floor below (R311.7.5.1), and
+    /// none at all on a spiral. Closed risers under the IRC: nosings of ¾ to 1¼ in (19
     /// to 32) where treads are under 11 in (279). Balusters no further apart than lets a 100
     /// sphere through - 4⅜ in (111) up an IRC stair. And treads cantilevered from a wall need one.
     /// </summary>
     private static IEnumerable<string> BuildProblems(BimDocument document, Stair stair, StairType type, StairLayout layout, ClearanceStandard standard)
     {
         var timber = type.Construction == StairConstruction.Timber;
-        var us = standard == ClearanceStandard.Ada;
+        var us = standard.IsUs();
 
         if (timber && type.OpenRisers)
         {
             var gap = layout.Rise - type.TreadThickness;
             if (type.RiserBars) gap = (gap - StairModel.RiserBarSize) / 2;
             var sphere = us ? 102 : 100;
-            if (gap >= sphere && !(us && layout.Shape == StairShape.Spiral))
-                yield return $"Its open risers leave {gap:0} between the treads: {(us ? "the IRC asks for less than 102 (4 in)" : "Approved Document K asks for less than 100")} - thicker treads, or a bar across each.";
+            // Under the IRC, only a gap whose bottom - the tread under it - is more than 30 in over the floor at the foot.
+            var high = !us || (layout.Risers - 1) * layout.Rise > 763;
+            if (gap >= sphere && high && !(us && layout.Shape == StairShape.Spiral))
+                yield return $"Its open risers leave {gap:0} between the treads: {(us ? "the IRC asks for less than 102 (4 in) where they are more than 30 in (763) up" : "Approved Document K asks for less than 100")} - thicker treads, or a bar across each.";
             if (!us && type.Nosing < 16 - 0.5)
                 yield return $"Its treads overlap by {type.Nosing:0}: Approved Document K asks for 16 at least where the risers are open.";
         }
@@ -2473,7 +2512,7 @@ public static class Stairs
     private static IEnumerable<string> RailingProblems(BimDocument document, Stair stair, StairType type, StairLayout layout, ClearanceStandard standard)
     {
         if (stair.Railings == StairRailings.None) yield break;
-        var us = standard == ClearanceStandard.Ada;
+        var us = standard.IsUs();
         var (width, depth) = (type.HandrailWidth, type.HandrailProfile == HandrailProfile.Round ? type.HandrailWidth : type.HandrailDepth);
 
         if (type.HandrailProfile == HandrailProfile.Round)
@@ -2519,7 +2558,7 @@ public static class Stairs
         var (rise, width) = (layout.Rise, layout.Width);
         var going = layout.GoingAt ?? (_ => layout.Going);
 
-        if (standard == ClearanceStandard.Ada)
+        if (standard.IsUs())
         {
             if (width < 660 - 0.5) yield return $"It is {width:0} wide: the IRC asks for 660 (26 in) at least on a spiral stair.";
             var walkline = going(Math.Min(305, width));

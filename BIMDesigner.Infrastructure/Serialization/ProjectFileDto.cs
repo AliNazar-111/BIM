@@ -53,6 +53,9 @@ internal sealed class ProjectFileDto
     public List<BeamDto> Beams { get; set; } = new();
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
+    public List<SitePadDto> SitePads { get; set; } = new();
+    public List<PropertyLineDto> PropertyLines { get; set; } = new();
+    public List<SpotElevationDto> SpotElevations { get; set; } = new();
     public List<BeamSystemDto> BeamSystems { get; set; } = new();
 
     /// <summary>The elements pinned where they are.</summary>
@@ -522,6 +525,17 @@ internal sealed class ComponentTypeDto
     /// <summary>A shower's glass: none, alcove, corner or walk-in.</summary>
     public string? Enclosure { get; set; }
 
+    /// <summary>An extract fan's or cooker hood's extract rate, l/s; none in a file from before.</summary>
+    public double? ExtractRate { get; set; }
+
+    /// <summary>A light's efficacy, lm/W; none in a file from before.</summary>
+    public double? Efficacy { get; set; }
+
+    /// <summary>A tree's water demand, and its stem's diameter; none in a file from before.</summary>
+    public string? WaterDemand { get; set; }
+
+    public double? StemDiameter { get; set; }
+
     /// <summary>A family of your own's solids, in its box.</summary>
     public List<ComponentSolidDto>? Solids { get; set; }
 
@@ -729,6 +743,10 @@ internal sealed class CurtainWallTypeDto
     public Guid MullionMaterialId { get; set; }
     public bool BorderMullions { get; set; } = true;
     public bool AutomaticallyEmbed { get; set; }
+
+    /// <summary>Its U-value and whether its glass is safety glass; none in a file from before.</summary>
+    public double? HeatTransferCoefficient { get; set; }
+    public bool? SafetyGlazing { get; set; }
 }
 
 internal sealed class CurtainSegmentDto
@@ -840,6 +858,9 @@ internal abstract class OpeningTypeDto
     public string FireRating { get; set; } = string.Empty;
     public double AcousticRating { get; set; }
     public double HeatTransferCoefficient { get; set; }
+
+    /// <summary>Whether its glass is safety glass; none in a file from before.</summary>
+    public bool? SafetyGlazing { get; set; }
 }
 
 internal sealed class DoorTypeDto : OpeningTypeDto
@@ -860,6 +881,9 @@ internal sealed class DoorTypeDto : OpeningTypeDto
 
     /// <summary>Whether it is a curtain wall door, one that replaces a panel of a curtain wall.</summary>
     public bool CurtainPanel { get; set; }
+
+    /// <summary>Whether it closes itself; none in a file from before.</summary>
+    public bool? SelfClosing { get; set; }
 }
 
 internal sealed class WindowTypeDto : OpeningTypeDto
@@ -1258,6 +1282,7 @@ internal sealed class RampTypeDto
     public bool LowerRail { get; set; }
     public string Guarding { get; set; } = "Balusters";
     public double PostSpacing { get; set; }
+    public double LongestFlight { get; set; }
     public string Colour { get; set; } = string.Empty;
     public Guid MaterialId { get; set; }
     public Guid RailMaterialId { get; set; }
@@ -1290,6 +1315,7 @@ internal sealed class RampDto
     public string Building { get; set; } = "Dwelling";
     public bool Outside { get; set; } = true;
     public string Railings { get; set; } = "Auto";
+    public bool ClosedUnderneath { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }
@@ -1340,6 +1366,42 @@ internal sealed class GroundRegionDto
     public string Surface { get; set; } = "Lawn";
     public Guid MaterialId { get; set; }
     public bool Approach { get; set; }
+    public double Offset { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class SitePadDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Boundary { get; set; }
+    public double HeightOffset { get; set; }
+    public double Fall { get; set; }
+    public double FallDirection { get; set; }
+    public double Batter { get; set; }
+    public string Surface { get; set; } = "Paving";
+    public Guid MaterialId { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class PropertyLineDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Boundary { get; set; }
+    public double Setback { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class SpotElevationDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }

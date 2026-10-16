@@ -190,6 +190,12 @@ public sealed class CurtainWallType : ElementType
     /// <summary>The fill colour of the wall's outline when drawn coarse.</summary>
     public ColourRgb CoarseScaleFillColour { get; set; } = ColourRgb.FromHex("7FB3D0");
 
+    /// <summary>Its U-value as a whole, glass and frame, W/m²K: 1.6 at most, Approved Document L asks of curtain walling (Table 4.1).</summary>
+    public double HeatTransferCoefficient { get; set; } = 1.4;
+
+    /// <summary>Whether its glass is safety glass - toughened or laminated - as glass low in a wall must be (Approved Document K; IRC R308).</summary>
+    public bool SafetyGlazing { get; set; } = true;
+
     /// <summary>A new type with this one's settings, to change without touching any wall of this type.</summary>
     public CurtainWallType Duplicate(string name) => new(name)
     {
@@ -218,7 +224,9 @@ public sealed class CurtainWallType : ElementType
         MullionMaterialId = MullionMaterialId,
         BorderMullions = BorderMullions,
         AutomaticallyEmbed = AutomaticallyEmbed,
-        CoarseScaleFillColour = CoarseScaleFillColour
+        CoarseScaleFillColour = CoarseScaleFillColour,
+        HeatTransferCoefficient = HeatTransferCoefficient,
+        SafetyGlazing = SafetyGlazing
     };
 
     /// <summary>Copies every setting of another type onto this one, keeping its own id. For undo.</summary>
@@ -244,6 +252,8 @@ public sealed class CurtainWallType : ElementType
         MullionMaterialId = other.MullionMaterialId;
         BorderMullions = other.BorderMullions;
         AutomaticallyEmbed = other.AutomaticallyEmbed;
+        HeatTransferCoefficient = other.HeatTransferCoefficient;
+        SafetyGlazing = other.SafetyGlazing;
     }
 
     /// <summary>What is wrong with these settings, or null if a wall can be built from them.</summary>
@@ -278,6 +288,8 @@ public sealed class CurtainWallType : ElementType
                 ? $"Round, {MullionWidth:0} mm"
                 : $"{MullionWidth:0} x {MullionDepth:0} mm");
         yield return ParameterValue.ReadOnly(CurtainWallTypeParameters.AutomaticallyEmbed, () => AutomaticallyEmbed);
+        yield return ParameterValue.BindValidated(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => { if (v < 0) return false; HeatTransferCoefficient = v; return true; });
+        yield return ParameterValue.Bind(OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
     }
 
     private static string GridText(CurtainGridLayout layout, double spacing, int count) => layout switch

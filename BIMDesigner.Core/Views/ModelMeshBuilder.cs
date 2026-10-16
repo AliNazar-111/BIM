@@ -79,7 +79,9 @@ public static class ModelMeshBuilder
 
         // The ground, cut away under the building.
         foreach (var ground in document.Elements.OfType<Toposurface>().Where(g => shows(g)))
-            meshes.AddRange(Terrains.Meshes(document, ground).Where(mesh => mesh.ElementId == ground.Id || document.Elements.OfType<GroundRegion>().Any(region => region.Id == mesh.ElementId && shows(region))));
+            meshes.AddRange(Terrains.Meshes(document, ground).Where(mesh => mesh.ElementId == ground.Id
+                || document.Elements.OfType<GroundRegion>().Any(region => region.Id == mesh.ElementId && shows(region))
+                || document.Elements.OfType<SitePad>().Any(pad => pad.Id == mesh.ElementId && shows(pad))));
 
         // Beams, under the floors and roofs they carry.
         foreach (var beam in document.Elements.OfType<Beam>().Where(b => shows(b)))

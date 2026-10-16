@@ -83,6 +83,14 @@ public sealed class PlanRenderer
     private readonly Brush _roomBrush;
     private readonly Brush _chimneyBrush;
     private readonly Brush _rampBrush = RenderPens.Fill(Color.FromArgb(0x48, 0xB5, 0xB3, 0xAE));
+    private readonly Pen _propertyPen = RenderPens.Chain(Color.FromRgb(0xB0, 0x30, 0x60), 1.4, 12, 3, 2, 3, 2, 3);
+    private readonly Pen _setbackPen = RenderPens.Dashed(Color.FromRgb(0xB0, 0x30, 0x60), 0.8, 5, 4);
+    private readonly Brush _propertyBrush = RenderPens.Fill(Color.FromRgb(0xB0, 0x30, 0x60));
+    private readonly Pen _spotPen = RenderPens.Solid(Color.FromRgb(0x20, 0x40, 0x80), 1.1);
+    private readonly Brush _spotBrush = RenderPens.Fill(Color.FromRgb(0x20, 0x40, 0x80));
+
+    /// <summary>How the ground is coloured on the plan being drawn: plainly, or by slope, height, or cut and fill.</summary>
+    public GroundColouring GroundColouring { get; set; }
     private readonly Brush _roomSelectedBrush;
     private readonly Brush _roomTagBrush;
     private readonly Pen _contourPen;
@@ -272,6 +280,7 @@ public sealed class PlanRenderer
         // The ground first, under everything built on it: its contours, and its edge; then the regions laid on it.
         foreach (var ground in OnActiveLevel<Toposurface>()) DrawTerrain(dc, ground, underlay);
         foreach (var region in OnActiveLevel<GroundRegion>()) DrawGroundRegion(dc, region);
+        foreach (var pad in OnActiveLevel<SitePad>()) DrawSitePad(dc, pad);
 
         // Grids come through on every level: they are datums of the whole building, and
         // lining storeys up against them is the point of having them. An underlay leaves them
@@ -348,6 +357,10 @@ public sealed class PlanRenderer
             }
 
         if (underlay) return;
+
+        // The property line round it all, and the heights read off it.
+        foreach (var line in OnActiveLevel<PropertyLine>()) DrawPropertyLine(dc, line);
+        foreach (var spot in OnActiveLevel<SpotElevation>()) DrawSpotElevation(dc, spot);
 
         if (ShowWallLabels)
             foreach (var wall in OnActiveLevel<Wall>()) DrawWallLabel(dc, wall);
@@ -931,7 +944,11 @@ public sealed class PlanRenderer
         Point2D At(double distance) => jambFrom + along * (distance - from);
 
         var isSelected = IsSelected(opening);
-        var pen = isSelected ? _selectedPen : _openingPen;
+        // Red where it falls short of its rules, as a stair or a ramp is.
+        var pen = isSelected ? _selectedPen
+            : opening is Door hung && Kept($"door short {hung.Id}", () => Doors.Problems(Document, hung, Document.ProjectInformation.ClearanceStandard).Count > 0) ? _stairShortPen
+            : opening is Core.Architecture.Window light && Kept($"window short {light.Id}", () => WindowRules.Problems(Document, light, Document.ProjectInformation.ClearanceStandard).Count > 0) ? _stairShortPen
+            : _openingPen;
 
         // The reveals at each end of the hole - across the wall where it is, so radial in a
         // curved one.
@@ -972,10 +989,12 @@ public sealed class PlanRenderer
 
         switch (type.Operation)
         {
-            case DoorOperation.Swing:
+            case DoorOperation.Swing when type.LeafCount < 2:
                 DrawLeafAndArc(dc, pen, hinge, toOther, facing, width, door.SwingAngle);
                 break;
 
+            // A pair - a double door, or a swing door given two leaves - is drawn as the 3D view builds it.
+            case DoorOperation.Swing:
             case DoorOperation.DoubleSwing:
                 // A leaf from each jamb, each half the opening, both opening the same way.
                 DrawLeafAndArc(dc, pen, jambFrom, along, facing, width / 2, door.SwingAngle);
@@ -1574,10 +1593,15 @@ public sealed class PlanRenderer
 
         var frame = ComponentModel.FrameOf(component, 0);
         var outlines = ComponentModel.PlanOutlines(type, frame);
-        var pen = IsSelected(component) ? _selectedPen : _componentPen;
+
+        // Hung above where the plan cuts - a wall unit - it is seen from below, dashed and
+        // unfilled, as a plan draws what is overhead; a light or a socket keeps its symbol.
+        var overhead = ComponentModel.DrawnOverhead(type)
+            && ComponentHosting.BaseElevation(Document, component, type) - (Document.FindLevel(component.LevelId)?.Elevation ?? 0) >= StackedWallType.PlanCutHeight;
+        var pen = IsSelected(component) ? _selectedPen : overhead ? _overheadPen : _componentPen;
 
         // The footprint is filled; what is inside it is drawn in line only, over the top.
-        dc.DrawGeometry(_componentBrush, pen, BuildOutline(outlines[0]));
+        dc.DrawGeometry(overhead ? null : _componentBrush, pen, BuildOutline(outlines[0]));
         foreach (var outline in outlines.Skip(1)) dc.DrawGeometry(null, pen, BuildOutline(outline));
 
         // An appliance lettered as drawings letter them - FF, DW, WM - where there is room for it.
@@ -1680,11 +1704,34 @@ public sealed class PlanRenderer
 
         var type = Ramps.TypeOf(Document, ramp);
         var pen = IsSelected(ramp) ? _selectedPen : Kept($"ramp short {ramp.Id}", () => Ramps.Problems(Document, ramp).Count > 0) ? _stairShortPen : _componentPen;
-        foreach (var piece in layout.Pieces) dc.DrawGeometry(own ? _rampBrush : null, pen, BuildOutline(piece.Outline));
+        var cutAt = (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight;
+        foreach (var piece in layout.Pieces.Where(piece => !own || piece.High <= cutAt)) dc.DrawGeometry(own ? _rampBrush : null, pen, BuildOutline(piece.Outline));
 
-        // Its kerbs, outside its clear width.
-        foreach (var (side, outward) in new[] { (layout.Left, 1.0), (layout.Right, -1.0) })
-            if (side.Count >= 2) DrawPolyline(dc, _layerPen, Railings.SetIn(side.Select(point => point.At).ToList(), false, outward * type.KerbWidth));
+        // Its kerbs, outside its clear width along its open sides - none along a wall.
+        var sides = Kept($"ramp sides {ramp.Id}", () => Ramps.Sides(Document, layout));
+        foreach (var (side, outward, faces) in new[] { (sides.Left.Points, 1.0, sides.Left.Walls), (sides.Right.Points, -1.0, sides.Right.Walls) })
+        {
+            if (side.Count < 2) continue;
+            var outer = Railings.SetIn(side.Select(point => point.At).ToList(), false, outward * type.KerbWidth);
+            for (var i = 0; i + 1 < side.Count; i++)
+                if (faces[i] is null && side[i].At.DistanceTo(side[i + 1].At) >= 1)
+                    dc.DrawLine(_layerPen, ModelToScreen(outer[i]), ModelToScreen(outer[i + 1]));
+        }
+
+        // Rising past the plan's cut, as up to the storey above: dashed above it, a line slanting across where it is cut.
+        if (own)
+        {
+            var cut = (Document.FindLevel(ActiveLevelId)?.Elevation ?? 0) + StackedWallType.PlanCutHeight;
+            foreach (var piece in layout.Pieces.Where(piece => piece.High > cut))
+            {
+                dc.DrawGeometry(null, _overheadPen, BuildOutline(piece.Outline));
+                if (piece.Kind != RampPieceKind.Flight || piece.Low >= cut) continue;
+                var along = (piece.End - piece.Start).NormalisedOrDefault(Vector2D.UnitX);
+                var cutting = piece.Start + (piece.End - piece.Start) * ((cut - piece.Low) / (piece.High - piece.Low));
+                var across = along.PerpendicularLeft() * (layout.Width / 2 + type.KerbWidth);
+                dc.DrawLine(pen, ModelToScreen(cutting - across - along * 150), ModelToScreen(cutting + across + along * 150));
+            }
+        }
 
         // Its handrails and its guarding.
         foreach (var run in Kept($"ramp rails {ramp.Id}", () => RampModel.HandrailRuns(Document, ramp, layout)))
@@ -1789,6 +1836,44 @@ public sealed class PlanRenderer
     {
         if (Document is null) return;
 
+        // Coloured, as asked: each triangle by its slope, its height, or how far it is cut or filled.
+        if (!underlay && GroundColouring != GroundColouring.None)
+        {
+            var bands = Kept($"ground bands {ground.Id} {GroundColouring}", () => GroundColours.Bands(Document, ground, GroundColouring));
+            var shaded = Kept($"ground shade {ground.Id} {GroundColouring}", () => GroundColours.Shade(Document, ground, GroundColouring));
+
+            // Not under the building: the ground is dug out there.
+            var building = new StreamGeometry();
+            using (var context = building.Open())
+                foreach (var pad in Terrains.Pads(Document, ground))
+                {
+                    context.BeginFigure(ModelToScreen(pad[0]), true, true);
+                    foreach (var corner in pad.Skip(1)) context.LineTo(ModelToScreen(corner), false, false);
+                }
+
+            building.Freeze();
+            dc.PushClip(new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(new Rect(-1e6, -1e6, 2e6, 2e6)), building));
+            for (var band = 0; band < bands.Count; band++)
+            {
+                var geometry = new StreamGeometry();
+                using (var context = geometry.Open())
+                    foreach (var (triangle, _) in shaded.Where(entry => entry.Band == band))
+                    {
+                        context.BeginFigure(ModelToScreen(triangle[0]), true, true);
+                        context.LineTo(ModelToScreen(triangle[1]), false, false);
+                        context.LineTo(ModelToScreen(triangle[2]), false, false);
+                    }
+
+                geometry.Freeze();
+                var colour = bands[band].Colour;
+                var fill = new SolidColorBrush(Color.FromArgb(0xC0, colour.R, colour.G, colour.B));
+                fill.Freeze();
+                dc.DrawGeometry(fill, null, geometry);
+            }
+
+            dc.Pop();
+        }
+
         // The ground as it was, where it was recorded before it was graded: its contours dashed, under the new.
         foreach (var (_, from, to, _) in Terrains.Contours(Document, ground, existing: true)) dc.DrawLine(_existingContourPen, ModelToScreen(from), ModelToScreen(to));
 
@@ -1838,6 +1923,83 @@ public sealed class PlanRenderer
         var fill = new SolidColorBrush(Color.FromArgb(0x70, made.R, made.G, made.B));
         fill.Freeze();
         dc.DrawGeometry(fill, IsSelected(region) ? _selectedPen : _contourPen, BuildOutline(region.Boundary));
+    }
+
+    /// <summary>
+    /// A pad in plan: its outline filled as it is laid, its height in the middle - "PAD -0.150" -
+    /// and, falling, an arrow down it with its fall.
+    /// </summary>
+    private void DrawSitePad(DrawingContext dc, SitePad pad)
+    {
+        if (Document is null || pad.Boundary.Count < 3) return;
+        var made = Document.FindMaterial(pad.MaterialId)?.SurfaceColour ?? GroundRegions.Colour(pad.Surface);
+        var fill = new SolidColorBrush(Color.FromArgb(0x90, made.R, made.G, made.B));
+        fill.Freeze();
+        dc.DrawGeometry(fill, IsSelected(pad) ? _selectedPen : _componentPen, BuildOutline(pad.Boundary));
+
+        var middle = Polygon2D.Centroid(pad.Boundary, pad.Boundary[0]);
+        var height = Math.Round(SitePads.HeightAt(Document, pad, middle) / 1000, 3);
+        var label = Text($"PAD {(height < 0 ? "-" : "+")}{Math.Abs(height):0.000}", Page(9), _wallLabelBrush, bold: true);
+        var at = ModelToScreen(middle);
+        dc.DrawRectangle(_labelBackdrop, null, new Rect(at.X - label.Width / 2 - 2, at.Y - label.Height / 2, label.Width + 4, label.Height));
+        dc.DrawText(label, new Point(at.X - label.Width / 2, at.Y - label.Height / 2));
+
+        if (SitePads.Downhill(pad) is not { } down) return;
+        var from = ModelToScreen(middle + down * 300);
+        var to = ModelToScreen(middle + down * 1500);
+        dc.DrawLine(_componentPen, from, to);
+        var way = new Vector(to.X - from.X, to.Y - from.Y);
+        if (way.Length < 1) return;
+        way /= way.Length;
+        var side = new Vector(-way.Y, way.X);
+        dc.DrawLine(_componentPen, to, to - way * 7 + side * 4);
+        dc.DrawLine(_componentPen, to, to - way * 7 - side * 4);
+        var falls = Text($"1:{pad.Fall:0.#}", Page(8), _roomTagBrush);
+        dc.DrawText(falls, new Point(to.X + 4, to.Y - falls.Height / 2));
+    }
+
+    /// <summary>
+    /// The property line in plan, as a site plan draws it: chained, each side's length and bearing
+    /// written along it - "12.50 m  N 45°00' E" - and its setback dashed inside it.
+    /// </summary>
+    private void DrawPropertyLine(DrawingContext dc, PropertyLine line)
+    {
+        if (line.Boundary.Count < 2) return;
+        var pen = IsSelected(line) ? _selectedPen : _propertyPen;
+        dc.DrawGeometry(null, pen, BuildOutline(line.Boundary));
+        var setback = PropertyLines.SetbackLine(line);
+        if (setback.Count >= 3) dc.DrawGeometry(null, _setbackPen, BuildOutline(setback));
+
+        var middle = Polygon2D.Centroid(line.Boundary, line.Boundary[0]);
+        for (var i = 0; i < line.Boundary.Count; i++)
+        {
+            var (a, b) = (line.Boundary[i], line.Boundary[(i + 1) % line.Boundary.Count]);
+            var length = a.DistanceTo(b);
+            if (length < 1) continue;
+
+            // Written outside it, beside the middle of the side.
+            var centre = a.MidpointTo(b);
+            var outward = (b - a).PerpendicularLeft().NormalisedOrDefault(Vector2D.UnitY);
+            if ((centre + outward - middle).Length < (centre - middle).Length) outward = outward * -1;
+            var text = Text($"{length / 1000:0.00} m  {PropertyLines.Bearing(a, b)}", Page(8), _wallLabelBrush);
+            var at = ModelToScreen(centre + outward * (9 / Math.Max(1e-9, PixelsPerMm)));
+            dc.DrawRectangle(_labelBackdrop, null, new Rect(at.X - text.Width / 2 - 1, at.Y - text.Height / 2, text.Width + 2, text.Height));
+            dc.DrawText(text, new Point(at.X - text.Width / 2, at.Y - text.Height / 2));
+        }
+    }
+
+    /// <summary>A spot elevation in plan: a cross in a circle at its point, its label beside it.</summary>
+    private void DrawSpotElevation(DrawingContext dc, SpotElevation spot)
+    {
+        if (Document is null) return;
+        var pen = IsSelected(spot) ? _selectedPen : _spotPen;
+        var at = ModelToScreen(spot.Location);
+        dc.DrawEllipse(null, pen, at, 4, 4);
+        dc.DrawLine(pen, new Point(at.X - 6, at.Y), new Point(at.X + 6, at.Y));
+        dc.DrawLine(pen, new Point(at.X, at.Y - 6), new Point(at.X, at.Y + 6));
+        var label = Text(SpotElevations.Label(Document, spot), Page(9), _wallLabelBrush, bold: true);
+        dc.DrawRectangle(_labelBackdrop, null, new Rect(at.X + 7, at.Y + 2, label.Width + 2, label.Height));
+        dc.DrawText(label, new Point(at.X + 8, at.Y + 2));
     }
 
     /// <summary>

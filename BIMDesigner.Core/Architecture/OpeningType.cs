@@ -99,6 +99,12 @@ public abstract class OpeningType : ElementType
     /// <summary>Area of the opening, in mm² - the quantity a schedule reports.</summary>
     public double Area => Width * Height;
 
+    /// <summary>
+    /// Whether its glass is safety glass - toughened or laminated, to BS EN 12600 - as glass in a
+    /// door, beside one or low in a wall must be (Approved Document K section 4; IRC R308).
+    /// </summary>
+    public bool SafetyGlazing { get; set; }
+
     /// <summary>Gives a copy of this type what every door and window has: its frame's depth and material, and its ratings.</summary>
     protected T WithOpeningOf<T>(T copy) where T : OpeningType
     {
@@ -107,6 +113,7 @@ public abstract class OpeningType : ElementType
         copy.FireRating = FireRating;
         copy.AcousticRating = AcousticRating;
         copy.HeatTransferCoefficient = HeatTransferCoefficient;
+        copy.SafetyGlazing = SafetyGlazing;
         return copy;
     }
 
@@ -123,6 +130,7 @@ public abstract class OpeningType : ElementType
         yield return ParameterValue.Bind(OpeningTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
         yield return ParameterValue.Bind(OpeningTypeParameters.HeatTransferCoefficient,
             () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
+        yield return ParameterValue.Bind(OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
     }
 }
 
@@ -134,7 +142,7 @@ public sealed class DoorType : OpeningType
     /// <summary>A new door type starting as this one is: its size, swing, leaves, glazing and trim.</summary>
     public DoorType Duplicate(string name) => WithCommonOf(WithOpeningOf(new DoorType(name, Width, Height)
     {
-        Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign,
+        Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign, SelfClosing = SelfClosing,
         GlazingRows = GlazingRows, GlazingColumns = GlazingColumns, Function = Function, CurtainPanel = CurtainPanel,
         TrimWidth = TrimWidth, TrimProjectionExterior = TrimProjectionExterior, TrimProjectionInterior = TrimProjectionInterior
     }));
@@ -148,6 +156,9 @@ public sealed class DoorType : OpeningType
     public string PanelMaterial { get; set; } = "Timber";
 
     public string HardwareSet { get; set; } = string.Empty;
+
+    /// <summary>Whether it closes itself - a closer on it - as a fire door between a house and its garage must.</summary>
+    public bool SelfClosing { get; set; }
 
     /// <summary>What the leaves look like. See <see cref="DoorLeafDesign"/>.</summary>
     public DoorLeafDesign LeafDesign { get; set; } = DoorLeafDesign.Panelled;
@@ -186,6 +197,8 @@ public sealed class DoorType : OpeningType
         yield return ParameterValue.Bind(DoorTypeParameters.LeafCount, () => LeafCount, v => { if (v > 0) LeafCount = v; });
         yield return ParameterValue.Bind(DoorTypeParameters.PanelMaterial, () => PanelMaterial, v => PanelMaterial = v);
         yield return ParameterValue.Bind(DoorTypeParameters.HardwareSet, () => HardwareSet, v => HardwareSet = v);
+        yield return ParameterValue.Bind(DoorTypeParameters.SelfClosing, () => SelfClosing, v => SelfClosing = v);
+        yield return ParameterValue.ReadOnly(DoorTypeParameters.ClearWidth, () => Doors.ClearWidth(this));
 
         yield return ParameterValue.BindChoice(
             DoorTypeParameters.LeafDesign,
@@ -280,6 +293,9 @@ public static class OpeningTypeParameters
 
     public static readonly ParameterDefinition HeatTransferCoefficient =
         new("Heat Transfer Coefficient (U)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition SafetyGlazing =
+        new("Safety Glazing (BS EN 12600)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class DoorTypeParameters
@@ -295,6 +311,12 @@ public static class DoorTypeParameters
 
     public static readonly ParameterDefinition HardwareSet =
         new("Hardware Set", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SelfClosing =
+        new("Self-Closing", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ClearWidth =
+        new("Clear Opening Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition LeafDesign =
         new("Leaf Design", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);

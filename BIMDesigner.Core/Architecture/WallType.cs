@@ -135,6 +135,8 @@ public sealed class WallType : ElementType
         yield return ParameterValue.Bind(WallTypeParameters.InteriorTaperAngle, () => InteriorTaperAngle, v => InteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.ThermalResistance, () => ThermalResistance, v => ThermalResistance = v);
         yield return ParameterValue.Bind(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
+        if (document is not null && Log is null && Thermal.UValue(document, Structure) is { } worked)
+            yield return ParameterValue.ReadOnly(WallTypeParameters.WorkedUValue, () => Math.Round(worked, 3));
         yield return ParameterValue.BindChoice(
             WallTypeParameters.WrapAtInserts,
             () => EnumText.Humanise(WrapAtInserts),
@@ -208,6 +210,9 @@ public static class WallTypeParameters
 
     public static readonly ParameterDefinition HeatTransferCoefficient =
         new("Heat Transfer Coefficient (U)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition WorkedUValue =
+        new("U-Value from its Layers", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition ExteriorTaperAngle =
         new("Exterior Taper Angle", ParameterDataType.Angle, ParameterBinding.Type, ParameterGroup.Construction);

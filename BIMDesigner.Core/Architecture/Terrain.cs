@@ -75,15 +75,40 @@ public sealed class Toposurface : Element
         });
         yield return ParameterValue.ReadOnly(TerrainParameters.Points, () => Points.Count);
         yield return ParameterValue.ReadOnly(TerrainParameters.Area, () => Terrains.Area(this));
-        yield return ParameterValue.ReadOnly(TerrainParameters.Lowest, () => Points.Count == 0 ? 0 : Points.Min(point => point.Z));
-        yield return ParameterValue.ReadOnly(TerrainParameters.Highest, () => Points.Count == 0 ? 0 : Points.Max(point => point.Z));
+        // Its lowest or highest point set: the whole of it moved up or down so far, its shape kept - the ground as it was recorded left as it was.
+        yield return ParameterValue.BindValidated(TerrainParameters.Lowest, () => Points.Count == 0 ? 0 : Points.Min(point => point.Z), (double v) => MovedTo(v, Points.Min(point => point.Z)));
+        yield return ParameterValue.BindValidated(TerrainParameters.Highest, () => Points.Count == 0 ? 0 : Points.Max(point => point.Z), (double v) => MovedTo(v, Points.Max(point => point.Z)));
         yield return ParameterValue.ReadOnly(TerrainParameters.Existing, () => ExistingPoints.Count >= 3 ? $"Recorded, {ExistingPoints.Count} points" : "As it is");
         yield return ParameterValue.ReadOnly(TerrainParameters.Cut, () => Terrains.CutAndFill(document, this).Cut);
         yield return ParameterValue.ReadOnly(TerrainParameters.Fill, () => Terrains.CutAndFill(document, this).Fill);
         yield return ParameterValue.ReadOnly(TerrainParameters.Net, () => Terrains.CutAndFill(document, this) is var (cut, fill) ? cut - fill : 0);
         yield return ParameterValue.ReadOnly(TerrainParameters.Rule, () => Terrains.Verdict(document, this));
+        yield return ParameterValue.BindFlagCommand(TerrainParameters.Simplify, () => false,
+            (bool simplify, out string? message) =>
+            {
+                message = null;
+                if (!simplify) return null;
+                var kept = Terrains.Simplified(Points, Terrains.SimplifyWithin);
+                if (kept.Count >= Points.Count)
+                {
+                    message = $"Nothing to take out: each of its {Points.Count} spot levels shapes it by more than {Terrains.SimplifyWithin:0}.";
+                    return null;
+                }
+
+                message = $"From {Points.Count} spot levels to {kept.Count}: the ground keeps its shape within {Terrains.SimplifyWithin:0}.";
+                return new SetToposurfacePointsCommand(this, kept, "Simplify Surface");
+            });
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
+    }
+
+    /// <summary>Every point moved up or down by as much as takes one height to another: false where there is nothing to move, or the height is no number.</summary>
+    private bool MovedTo(double height, double from)
+    {
+        if (Points.Count == 0 || !double.IsFinite(height) || Math.Abs(height) > 1_000_000) return false;
+        var by = height - from;
+        SetPoints(Points.Select(point => point with { Z = point.Z + by }).ToList());
+        return true;
     }
 }
 
@@ -101,6 +126,7 @@ public static class TerrainParameters
     public static readonly ParameterDefinition Fill = new("Fill", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Net = new("Net Cut/Fill", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Rule = new("Ground at the Walls", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition Simplify = new("Simplify Surface", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Dimensions);
 }
 
 /// <summary>
@@ -141,8 +167,21 @@ public static class Terrains
     /// <summary>Its height over a point in plan, between the three spot levels round it - as surveyed, with nothing stepping it; none beyond it.</summary>
     public static double? HeightAt(Toposurface surface, Point2D at) => Interpolate(surface.Points, Triangles(surface), at);
 
-    /// <summary>Its height over a point in plan, stepped where retaining walls stand in it; none beyond it, nor in a wall.</summary>
-    public static double? HeightAt(BimDocument document, Toposurface surface, Point2D at) => HeightIn(Graded(document, surface), at);
+    /// <summary>
+    /// Its height over a point in plan, stepped where retaining walls stand in it and graded to
+    /// the pads in it - raised or sunk where a region laid on it is; none beyond it, nor in a wall.
+    /// </summary>
+    public static double? HeightAt(BimDocument document, Toposurface surface, Point2D at) =>
+        HeightIn(Graded(document, surface), at) is { } height ? height + RegionOffset(document, surface, at) : null;
+
+    /// <summary>How far a region laid on it is raised over it, or sunk into it, at a point: a planting bed, a sunken patio.</summary>
+    private static double RegionOffset(BimDocument document, Toposurface surface, Point2D at)
+    {
+        foreach (var region in document.Elements.OfType<GroundRegion>())
+            if (region.Offset != 0 && region.LevelId == surface.LevelId && region.Boundary.Count >= 3 && Polygon2D.Contains(region.Boundary, at))
+                return region.Offset;
+        return 0;
+    }
 
     private static double? HeightIn(Model model, Point2D at) =>
         model.Walls.Any(wall => Polygon2D.Contains(wall, at)) ? null : Interpolate(model.Points, model.Triangles, at);
@@ -182,9 +221,12 @@ public static class Terrains
     private static Model Graded(BimDocument document, Toposurface surface)
     {
         var walls = RetainingWalls(document, surface);
+        var pads = SitePads.On(document, surface.LevelId);
         var signature = $"{surface.Version}|" + string.Join(";", walls.Select(pair =>
             $"{pair.Wall.Id}:{pair.Wall.Start}:{pair.Wall.End}:{pair.Wall.Bulge}:{pair.Wall.Ellipse}:{pair.Wall.Spline?.GetHashCode()}:{pair.Wall.LocationLine}:" +
-            $"{pair.Wall.Flipped}:{pair.Wall.AcrossOffset}:{pair.Wall.GetBaseElevation(document):0}:{pair.Wall.GetTopElevation(document):0}:{pair.Type.Structure.TotalWidth:0}"));
+            $"{pair.Wall.Flipped}:{pair.Wall.AcrossOffset}:{pair.Wall.GetBaseElevation(document):0}:{pair.Wall.GetTopElevation(document):0}:{pair.Type.Structure.TotalWidth:0}"))
+            + "|" + string.Join(";", pads.Select(pad => $"{pad.Id}:{string.Join(",", pad.Boundary)}:{pad.HeightOffset}:{pad.Fall}:{pad.FallDirection}:{pad.Batter}"))
+            + $"|{document.FindLevel(surface.LevelId)?.Elevation}";
         if (Models.TryGetValue(surface, out var known) && known.Signature == signature) return known;
 
         var points = surface.Points.ToList();
@@ -216,6 +258,9 @@ public static class Terrains
             footprints.Add(CurtainGeometry.Band(wall, type, 0, wall.Length, half, -half));
         }
 
+        // Its pads, graded in: level - or falling - at their own height inside, the ground battered back to them round about.
+        foreach (var pad in pads) Grade(document, surface, pad, points);
+
         var plan = points.Select(point => new Point2D(point.X, point.Y)).ToList();
         var triangles = Delaunay.Triangulate(plan)
             .Where(t => !footprints.Any(wall => Polygon2D.Contains(wall, new Point2D((plan[t.A].X + plan[t.B].X + plan[t.C].X) / 3, (plan[t.A].Y + plan[t.B].Y + plan[t.C].Y) / 3))))
@@ -223,6 +268,107 @@ public static class Terrains
         var model = new Model(signature, points, triangles, footprints);
         Models.AddOrUpdate(surface, model);
         return model;
+    }
+
+    /// <summary>
+    /// A pad graded into the ground: the spot levels it covers taken out, its edge laid in every
+    /// 500 at its own height, and round it a batter - so many along to one up - from its edge out
+    /// to where it meets the ground, the spot levels inside that brought onto it: the ground cut
+    /// down to it where it is higher, made up to it where it is lower. A pad with no batter is
+    /// sheer at its edge, as a retaining wall holds it.
+    /// </summary>
+    private static void Grade(BimDocument document, Toposurface surface, SitePad pad, List<Point3D> points)
+    {
+        var outline = pad.Boundary;
+        double Pad(Point2D at) => SitePads.HeightAt(document, pad, at);
+        (Point2D Edge, double Distance) Nearest(Point2D at)
+        {
+            var best = (Edge: outline[0], Distance: double.PositiveInfinity);
+            for (var i = 0; i < outline.Count; i++)
+            {
+                var on = Line2D.ClosestPointOnSegment(at, outline[i], outline[(i + 1) % outline.Count]);
+                if (on.DistanceTo(at) < best.Distance) best = (on, on.DistanceTo(at));
+            }
+
+            return best;
+        }
+
+        for (var i = points.Count - 1; i >= 0; i--)
+        {
+            var at = new Point2D(points[i].X, points[i].Y);
+            if (Polygon2D.Contains(outline, at))
+            {
+                points.RemoveAt(i);
+                continue;
+            }
+
+            if (pad.Batter <= 0) continue;
+            var (edge, distance) = Nearest(at);
+            var height = Pad(edge);
+            var rise = points[i].Z - height;
+            if (Math.Abs(rise) * pad.Batter > distance) points[i] = points[i] with { Z = height + Math.Sign(rise) * distance / pad.Batter };
+        }
+
+        for (var e = 0; e < outline.Count; e++)
+        {
+            var (a, b) = (outline[e], outline[(e + 1) % outline.Count]);
+            var length = a.DistanceTo(b);
+            if (length < 1) continue;
+
+            // Anticlockwise round it: outside is on the right going along each side.
+            var outward = ((b - a) / length).PerpendicularLeft() * -1;
+            var before = outline[(e - 1 + outline.Count) % outline.Count];
+            var outwardBefore = (a - before).NormalisedOrDefault(b - a).PerpendicularLeft() * -1;
+            var count = Math.Max(1, (int)Math.Ceiling(length / 500));
+            for (var k = 0; k < count; k++)
+            {
+                var at = a + (b - a) * ((double)k / count);
+                var height = Pad(at);
+                points.Add(new Point3D(at.X, at.Y, height));
+                var ways = k == 0 ? new[] { outwardBefore, (outwardBefore + outward).NormalisedOrDefault(outward), outward } : new[] { outward };
+
+                // Sheer: the ground just outside left as it is, a step at its edge.
+                if (pad.Batter <= 0)
+                {
+                    foreach (var way in ways)
+                        if (HeightAt(surface, at + way * 10) is { } outside) points.Add(new Point3D(at.X + way.X * 10, at.Y + way.Y * 10, outside));
+                    continue;
+                }
+
+                foreach (var way in ways)
+                    if (Toe(surface, at, way, height, pad.Batter) is { } toe) points.Add(toe);
+            }
+        }
+    }
+
+    /// <summary>Where a batter from a pad's edge, out one way, meets the ground: within 30 m, and on it.</summary>
+    private static Point3D? Toe(Toposurface surface, Point2D from, Vector2D way, double height, double batter)
+    {
+        double Gap(double distance) => HeightAt(surface, from + way * distance) is { } ground ? Math.Abs(ground - height) - distance / batter : double.NaN;
+        var (inside, outside) = (0.0, double.NaN);
+        for (var distance = 250.0; distance <= 30000; distance += 250)
+        {
+            var gap = Gap(distance);
+            if (double.IsNaN(gap)) return null;
+            if (gap <= 0)
+            {
+                outside = distance;
+                break;
+            }
+
+            inside = distance;
+        }
+
+        if (double.IsNaN(outside)) return null;
+        for (var pass = 0; pass < 8; pass++)
+        {
+            var middle = (inside + outside) / 2;
+            if (Gap(middle) > 0) inside = middle;
+            else outside = middle;
+        }
+
+        var at = from + way * outside;
+        return HeightAt(surface, at) is { } met ? new Point3D(at.X, at.Y, met) : null;
     }
 
     /// <summary>Its faces as it is worked: each triangle's corners, in the model.</summary>
@@ -337,11 +483,12 @@ public static class Terrains
         var model = Graded(document, surface);
         double? HeightAt(BimDocument _, Toposurface __, Point2D at) => HeightIn(model, at);
 
-        // Its points, and the pads' and the regions' edges every 500 laid onto it.
+        // Its points, and the pads', the building's and the regions' edges every 500 laid onto it.
         var pads = Pads(document, surface);
         var regions = Regions(document, surface);
+        var graded = SitePads.On(document, surface.LevelId);
         var all = model.Points.ToList();
-        foreach (var outline in pads.Concat(regions.Select(region => region.Boundary)))
+        foreach (var outline in pads.Concat(regions.Select(region => region.Boundary)).Concat(graded.Select(pad => pad.Boundary)))
             for (var i = 0; i < outline.Count; i++)
             {
                 var (a, b) = (outline[i], outline[(i + 1) % outline.Count]);
@@ -359,13 +506,47 @@ public static class Terrains
             return new Mesh3D(region.Id, region.LevelId, MeshKind.Terrain, made?.SurfaceColour ?? GroundRegions.Colour(region.Surface), made?.Name ?? EnumText.Humanise(region.Surface));
         });
 
+        // Each pad in its own surface.
+        var paved = graded.ToDictionary(pad => pad, pad =>
+        {
+            var made = document.FindMaterial(pad.MaterialId);
+            return new Mesh3D(pad.Id, pad.LevelId, MeshKind.Terrain, made?.SurfaceColour ?? GroundRegions.Colour(pad.Surface), made?.Name ?? EnumText.Humanise(pad.Surface));
+        });
+
         var plan = all.Select(point => new Point2D(point.X, point.Y)).ToList();
         foreach (var (a, b, c) in Delaunay.Triangulate(plan))
         {
             var middle = new Point2D((plan[a].X + plan[b].X + plan[c].X) / 3, (plan[a].Y + plan[b].Y + plan[c].Y) / 3);
             if (InPad(pads, middle) || HeightAt(document, surface, middle) is null) continue;
+            if (graded.FirstOrDefault(pad => Polygon2D.Contains(pad.Boundary, middle)) is { } onPad)
+            {
+                paved[onPad].AddTriangle(all[a], all[b], all[c]);
+                continue;
+            }
+
+            // A region raised or sunk: its surface so far over the ground.
             var region = regions.FirstOrDefault(candidate => Polygon2D.Contains(candidate.Boundary, middle));
-            (region is null ? ground : laid[region]).AddTriangle(all[a], all[b], all[c]);
+            if (region is null) ground.AddTriangle(all[a], all[b], all[c]);
+            else laid[region].AddTriangle(all[a] with { Z = all[a].Z + region.Offset }, all[b] with { Z = all[b].Z + region.Offset }, all[c] with { Z = all[c].Z + region.Offset });
+        }
+
+        // A raised region's sides down to the ground round it; a sunk one's down into it.
+        foreach (var region in regions.Where(region => region.Offset != 0))
+        {
+            var outline = region.Boundary;
+            for (var i = 0; i < outline.Count; i++)
+            {
+                var (from, to) = (outline[i], outline[(i + 1) % outline.Count]);
+                var count = Math.Max(1, (int)Math.Ceiling((to - from).Length / 500));
+                for (var k = 0; k < count; k++)
+                {
+                    var (p, q) = (from + (to - from) * ((double)k / count), from + (to - from) * ((double)(k + 1) / count));
+                    if (HeightAt(document, surface, p) is not { } hp || HeightAt(document, surface, q) is not { } hq) continue;
+                    var (pLow, qLow, pHigh, qHigh) = (new Point3D(p.X, p.Y, hp), new Point3D(q.X, q.Y, hq), new Point3D(p.X, p.Y, hp + region.Offset), new Point3D(q.X, q.Y, hq + region.Offset));
+                    if (region.Offset > 0) laid[region].AddQuad(pLow, qLow, qHigh, pHigh);
+                    else laid[region].AddQuad(qHigh, pHigh, pLow, qLow);
+                }
+            }
         }
 
         // Its sides, round the edge of its own points' triangles, down below its lowest.
@@ -387,7 +568,7 @@ public static class Terrains
                 ground.AddEdge(p, q);
             }
 
-        return new[] { ground }.Concat(laid.Values).Where(mesh => !mesh.IsEmpty).ToList();
+        return new[] { ground }.Concat(laid.Values).Concat(paved.Values).Where(mesh => !mesh.IsEmpty).ToList();
     }
 
     /// <summary>The recorded existing ground's triangles.</summary>
@@ -415,8 +596,14 @@ public static class Terrains
         var model = Graded(document, surface);
         var pads = PadFloors(document, surface).Select(floor => (floor.Boundary, Formation: floor.GetBottomElevation(document))).ToList();
 
+        // A basement's floor under the storey the ground is on: dug down to its underside.
+        var storey = document.FindLevel(surface.LevelId)?.Elevation ?? 0;
+        var basements = document.Elements.OfType<Floor>()
+            .Where(floor => floor.Boundary.Count >= 3 && (document.FindLevel(floor.LevelId)?.Elevation ?? 0) < storey - 1)
+            .Select(floor => (floor.Boundary, Formation: floor.GetBottomElevation(document))).ToList();
+
         // Worked out again only when the ground, its walls or the floors set into it change.
-        var key = $"{model.Signature}|" + string.Join(";", pads.Select(pad => $"{pad.Formation:0}:{string.Join(",", pad.Boundary)}"));
+        var key = $"{model.Signature}|" + string.Join(";", pads.Concat(basements).Select(pad => $"{pad.Formation:0}:{string.Join(",", pad.Boundary)}"));
         if (Volumes.TryGetValue(surface, out var known) && known.Key == key) return known.Volumes;
 
         var (minX, maxX) = (surface.Points.Min(point => point.X), surface.Points.Max(point => point.X));
@@ -444,6 +631,7 @@ public static class Terrains
 
         foreach (var wall in model.Walls) Over(wall, (i, j) => after[i, j] = null);
         foreach (var (boundary, formation) in pads) Over(boundary, (i, j) => after[i, j] = formation);
+        foreach (var (boundary, formation) in basements) Over(boundary, (i, j) => after[i, j] = after[i, j] is { } above ? Math.Min(above, formation) : formation);
 
         double cut = 0, fill = 0;
         for (var i = 0; i < across; i++)
@@ -497,17 +685,25 @@ public static class Terrains
     /// What about the ground against the building falls short. Approved Document C: the damp-proof
     /// course 150 above the ground beside the walls - the ground 150 below the floor at least; the
     /// IRC: 6 in (152) of foundation above the finished grade, and the ground falling 6 in (152)
-    /// in the first 10 ft (3048) away from the walls. And a retaining wall holding back more than
-    /// 600 - 30 in under the IRC - with nothing along its top: the drop off it is to be guarded.
+    /// in the first 10 ft (3048) away from the walls - a hard surface there 2% (R401.3, and the
+    /// IBC's 1804.4). Timber framing in a wall kept clear of it: 8 in (203) under the IRC (R317.1)
+    /// unless treated, over the damp-proof course here. The building kept back from a slope steeper
+    /// than 1 in 3: from the top of one falling away by a third of its height, up to 40 ft (12192),
+    /// and from the foot of one rising by half, up to 15 ft (4572) (R403.1.7). And a retaining wall
+    /// holding back more than 600 - 30 in under the IRC - with nothing along its top: the drop off
+    /// it is to be guarded.
     /// </summary>
     public static IReadOnlyList<string> Problems(BimDocument document, Toposurface surface)
     {
         var problems = new List<string>();
         if (surface.Points.Count < 3) return problems;
-        var us = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var pads = Pads(document, surface);
         var level = document.FindLevel(surface.LevelId)?.Elevation ?? 0;
-        double? worstKept = null, worstFall = null;
+        double? worstKept = null;
+        (double Short, double Falls, bool Hard)? worstFall = null;
+        (double Gap, double Asked, bool Descending, double Height)? worstSetback = null;
+        double? worstTimber = null;
 
         foreach (var wall in document.Walls.Where(wall => wall.LevelId == surface.LevelId))
         {
@@ -531,9 +727,24 @@ public static class Terrains
 
                     if (us && HeightAt(document, surface, wall.PointAt(type.Structure, along, side * (half + 3048))) is { } away)
                     {
+                        // A hard surface against the walls - paving, a path, a paved pad - need only fall 2%.
                         var falls = ground - away;
-                        if (worstFall is not { } fell || falls < fell) worstFall = falls;
+                        var hard = Hard(document, surface, near);
+                        var asked = hard ? 3048 / 50.0 : 152;
+                        if (asked - falls > (worstFall?.Short ?? 0.5)) worstFall = (asked - falls, falls, hard);
                     }
+
+                    // Timber framing in the wall, its foot near the ground outside.
+                    if (document.Elements.OfType<WallFraming>().Any(framing => framing.HostId == wall.Id && framing.Material == FramingMaterial.Timber))
+                    {
+                        var clear = wall.GetBaseElevation(document) - ground;
+                        if (worstTimber is not { } closest || clear < closest) worstTimber = clear;
+                    }
+
+                    // A slope steeper than 1 in 3 near it, falling away or rising: the building kept back from it.
+                    if (us && Setback(document, surface, wall.PointAt(type.Structure, along, side * (half + 1)), (wall.PointAt(type.Structure, along, side * (half + 100)) - wall.PointAt(type.Structure, along, side * half)).NormalisedOrDefault(Vector2D.UnitX)) is { } setback
+                        && setback.Gap < setback.Asked - 0.5 && (worstSetback is not { } worst || setback.Asked - setback.Gap > worst.Asked - worst.Gap))
+                        worstSetback = setback;
                 }
             }
         }
@@ -542,10 +753,22 @@ public static class Terrains
             problems.Add(us
                 ? $"The ground comes up to {least:0} below the floor beside its walls: the IRC asks for 6 in (152) of foundation above the finished grade."
                 : $"The ground comes up to {least:0} below the floor beside its walls: Approved Document C asks for the damp-proof course 150 above the ground at least.");
-        if (worstFall is { } fall && fall < 152 - 0.5)
-            problems.Add(Math.Round(fall) < 0
-                ? $"The ground rises {-fall:0} toward its walls over the first 10 ft (3048): the IRC asks for it to fall 6 in (152) away from them, or 5%, so water runs off."
-                : $"The ground falls only {Math.Round(fall) + 0.0:0} in the first 10 ft (3048) away from its walls: the IRC asks for 6 in (152), or 5%, so water runs off.");
+        if (worstFall is { } fall)
+            problems.Add(fall.Hard
+                ? Math.Round(fall.Falls) < 0
+                    ? $"A hard surface rises {-fall.Falls:0} toward its walls over the first 10 ft (3048): the IRC and the IBC ask for it to fall 2% away from them."
+                    : $"A hard surface falls only {Math.Round(fall.Falls) + 0.0:0} in the first 10 ft (3048) away from its walls: the IRC and the IBC ask for 2% (61)."
+                : Math.Round(fall.Falls) < 0
+                    ? $"The ground rises {-fall.Falls:0} toward its walls over the first 10 ft (3048): the IRC asks for it to fall 6 in (152) away from them, or 5%, so water runs off."
+                    : $"The ground falls only {Math.Round(fall.Falls) + 0.0:0} in the first 10 ft (3048) away from its walls: the IRC asks for 6 in (152), or 5%, so water runs off.");
+        if (worstTimber is { } timber && timber < (us ? 203 : 150) - 0.5)
+            problems.Add(us
+                ? $"Timber framing in its walls is {Math.Max(0, timber):0} over the ground outside: the IRC asks for 8 in (203), or treated or naturally durable wood (R317.1)."
+                : $"Timber framing in its walls is {Math.Max(0, timber):0} over the ground outside: Approved Document C asks for it on the damp-proof course, 150 above the ground.");
+        if (worstSetback is { } slope)
+            problems.Add(slope.Descending
+                ? $"The ground falls away {slope.Height / 1000:0.0} m steeper than 1 in 3 just {slope.Gap / 1000:0.0} m from its walls: the IRC asks for the building to be set back {slope.Asked / 1000:0.0} m from the top of such a slope - a third of its height, 40 ft at most (R403.1.7) - or an engineered foundation."
+                : $"The ground rises {slope.Height / 1000:0.0} m steeper than 1 in 3 just {slope.Gap / 1000:0.0} m from its walls: the IRC asks for {slope.Asked / 1000:0.0} m clear of the foot of such a slope - half its height, 15 ft at most (R403.1.7).");
 
         // A retaining wall's top: a drop off it, guarded by a railing along it, or not.
         var limit = us ? 762 : 600;
@@ -568,6 +791,98 @@ public static class Terrains
     {
         var problems = Problems(document, surface);
         return problems.Count == 0 ? "Clear of the walls, and falling away" : string.Join(" ", problems);
+    }
+
+    /// <summary>Whether the ground at a point is laid hard: paving or a path, a region or a pad.</summary>
+    private static bool Hard(BimDocument document, Toposurface surface, Point2D at) =>
+        document.Elements.OfType<GroundRegion>().Any(region => region.LevelId == surface.LevelId && region.Surface is GroundSurface.Paving or GroundSurface.Path
+                                                               && region.Boundary.Count >= 3 && Polygon2D.Contains(region.Boundary, at))
+        || SitePads.On(document, surface.LevelId).Any(pad => pad.Surface is GroundSurface.Paving or GroundSurface.Path && Polygon2D.Contains(pad.Boundary, at));
+
+    /// <summary>
+    /// A slope steeper than 1 in 3 out from a wall, within 40 ft (12192): how far off it starts,
+    /// how high it is, which way it goes, and how far the IRC asks the building to be kept from it -
+    /// a third of its height from the top of one falling away, up to 40 ft; half its height from
+    /// the foot of one rising, up to 15 ft. None where there is none that high, or no ground.
+    /// </summary>
+    private static (double Gap, double Asked, bool Descending, double Height)? Setback(BimDocument document, Toposurface surface, Point2D from, Vector2D away)
+    {
+        const double step = 300;
+        double? Ground(double distance) => HeightAt(document, surface, from + away * distance);
+        for (var start = 0.0; start + step <= 12192; start += step)
+        {
+            if (Ground(start) is not { } here || Ground(start + step) is not { } next || Math.Abs(next - here) <= step / 3) continue;
+
+            // The steep stretch from here, as far as it goes on steep the same way.
+            var descending = next < here;
+            var end = start + step;
+            while (end + step <= 15000 && Ground(end) is { } a && Ground(end + step) is { } b && (descending ? a - b : b - a) > step / 3) end += step;
+            var height = Math.Abs((Ground(end) ?? here) - here);
+            if (height < 600) continue;
+            var asked = descending ? Math.Min(height / 3, 12192) : Math.Min(height / 2, 4572);
+            return (start, asked, descending, height);
+        }
+
+        return null;
+    }
+
+    /// <summary>How near the ground a spot level may be to the surface the others make without it, and be taken out to simplify it, mm.</summary>
+    public const double SimplifyWithin = 25;
+
+    /// <summary>
+    /// Spot levels simplified - as many taken out as can be while the ground keeps its shape: pass
+    /// by pass, each that its neighbours round it put within so far of its height without it, none
+    /// next to another taken out in the same pass, those round its edge kept.
+    /// </summary>
+    public static IReadOnlyList<Point3D> Simplified(IReadOnlyList<Point3D> points, double within)
+    {
+        var kept = points.ToList();
+        for (var pass = 0; pass < 30 && kept.Count > 3; pass++)
+        {
+            var plan = kept.Select(point => new Point2D(point.X, point.Y)).ToList();
+            var triangles = Delaunay.Triangulate(plan);
+            var around = Enumerable.Range(0, kept.Count).Select(_ => new HashSet<int>()).ToList();
+            var edges = new Dictionary<(int, int), int>();
+            foreach (var (a, b, c) in triangles)
+                foreach (var (p, q) in new[] { (a, b), (b, c), (c, a) })
+                {
+                    around[p].Add(q);
+                    around[q].Add(p);
+                    var key = p < q ? (p, q) : (q, p);
+                    edges[key] = edges.TryGetValue(key, out var seen) ? seen + 1 : 1;
+                }
+
+            var edge = new HashSet<int>(edges.Where(pair => pair.Value == 1).SelectMany(pair => new[] { pair.Key.Item1, pair.Key.Item2 }));
+
+            // How far each is off the height its neighbours give it - nearer ones counting more.
+            var off = new double[kept.Count];
+            for (var i = 0; i < kept.Count; i++)
+            {
+                if (edge.Contains(i) || around[i].Count < 3)
+                {
+                    off[i] = double.PositiveInfinity;
+                    continue;
+                }
+
+                var (sum, weights) = (0.0, 0.0);
+                foreach (var j in around[i])
+                {
+                    var weight = 1 / Math.Max(1, plan[i].DistanceTo(plan[j]));
+                    sum += kept[j].Z * weight;
+                    weights += weight;
+                }
+
+                off[i] = Math.Abs(kept[i].Z - sum / weights);
+            }
+
+            var gone = new HashSet<int>();
+            foreach (var i in Enumerable.Range(0, kept.Count).Where(i => off[i] <= within).OrderBy(i => off[i]))
+                if (!around[i].Any(gone.Contains)) gone.Add(i);
+            if (gone.Count == 0 || kept.Count - gone.Count < 3) break;
+            kept = kept.Where((_, i) => !gone.Contains(i)).ToList();
+        }
+
+        return kept;
     }
 
     /// <summary>
@@ -637,4 +952,124 @@ public sealed class SetExistingGroundCommand : Documents.Commands.IUndoableComma
     public void Redo() => _surface.SetExistingPoints(_after);
 
     public void Undo() => _surface.SetExistingPoints(_before);
+}
+
+/// <summary>How the ground is coloured in plan: plainly, or by how steep it is, how high, or how much it is cut or filled.</summary>
+public enum GroundColouring
+{
+    None,
+    Slope,
+    Height,
+    CutAndFill
+}
+
+/// <summary>
+/// The ground coloured to read it as a landscape architect does: by slope - level, gently sloping,
+/// steep as a ramp, too steep to mow, steeper than earth stands - by height in bands between its
+/// lowest and highest, or by what is dug out of it and made up on it against the ground as it was.
+/// </summary>
+public static class GroundColours
+{
+    /// <summary>One band of a colouring: what it means, and its colour.</summary>
+    public sealed record Band(string Label, ColourRgb Colour);
+
+    /// <summary>The slopes that matter: 1:60 is level for a landing, 1:20 gently sloping, 1:12 the steepest ramp, 1:3 the steepest lawn mown safely, 1:1 the steepest earth stands.</summary>
+    private static readonly (double Steepest, Band Band)[] Slopes =
+    {
+        (1 / 60.0, new Band("Level - 1:60 or flatter", new ColourRgb(0xB8, 0xD8, 0xA8))),
+        (1 / 20.0, new Band("Gently sloping - to 1:20", new ColourRgb(0x7F, 0xC0, 0x6A))),
+        (1 / 12.0, new Band("As steep as a ramp - to 1:12", new ColourRgb(0xE8, 0xD8, 0x5A))),
+        (1 / 3.0, new Band("Steep - to 1:3, mown with care", new ColourRgb(0xF0, 0xA0, 0x48))),
+        (1.0, new Band("Very steep - to 1:1", new ColourRgb(0xE0, 0x5A, 0x40))),
+        (double.PositiveInfinity, new Band("Steeper than earth stands", new ColourRgb(0x9A, 0x48, 0xA8)))
+    };
+
+    /// <summary>What is dug out (red) and made up (blue), mm deep.</summary>
+    private static readonly (double Below, Band Band)[] Changes =
+    {
+        (-1000, new Band("Cut over 1 m", new ColourRgb(0xA0, 0x28, 0x28))),
+        (-300, new Band("Cut 300 to 1000", new ColourRgb(0xD8, 0x58, 0x50))),
+        (-50, new Band("Cut 50 to 300", new ColourRgb(0xF0, 0xA8, 0x98))),
+        (50, new Band("Within 50 of as it was", new ColourRgb(0xD8, 0xD8, 0xD0))),
+        (300, new Band("Filled 50 to 300", new ColourRgb(0xA8, 0xC8, 0xF0))),
+        (1000, new Band("Filled 300 to 1000", new ColourRgb(0x58, 0x88, 0xD8))),
+        (double.PositiveInfinity, new Band("Filled over 1 m", new ColourRgb(0x28, 0x48, 0xA0)))
+    };
+
+    private static readonly ColourRgb[] Heights =
+    {
+        new(0x3A, 0x6E, 0xA5), new(0x5A, 0x9C, 0xB0), new(0x8C, 0xC0, 0x8A), new(0xD8, 0xD0, 0x7A), new(0xC8, 0x94, 0x5A), new(0x8E, 0x5E, 0x3C)
+    };
+
+    /// <summary>The bands a colouring of a surface has, in order: its legend.</summary>
+    public static IReadOnlyList<Band> Bands(BimDocument document, Toposurface surface, GroundColouring colouring)
+    {
+        switch (colouring)
+        {
+            case GroundColouring.Slope: return Slopes.Select(slope => slope.Band).ToList();
+            case GroundColouring.CutAndFill: return Changes.Select(change => change.Band).ToList();
+            case GroundColouring.Height:
+            {
+                var (low, high) = HeightRange(document, surface);
+                var step = (high - low) / Heights.Length;
+                return Heights.Select((colour, i) => new Band($"{Units.FormatLength(low + step * i)} to {Units.FormatLength(low + step * (i + 1))}", colour)).ToList();
+            }
+            default: return Array.Empty<Band>();
+        }
+    }
+
+    private static (double Low, double High) HeightRange(BimDocument document, Toposurface surface)
+    {
+        var heights = Terrains.Faces(document, surface).SelectMany(face => new[] { face.A.Z, face.B.Z, face.C.Z }).ToList();
+        if (heights.Count == 0) return (0, 1);
+        var (low, high) = (heights.Min(), heights.Max());
+        return high - low < 1 ? (low - 0.5, high + 0.5) : (low, high);
+    }
+
+    /// <summary>
+    /// The ground's triangles as it is worked, each with the band it falls in - by its slope, the
+    /// height of its middle, or how far its middle is cut or filled - those under the building left out.
+    /// </summary>
+    public static IReadOnlyList<(IReadOnlyList<Point2D> Triangle, int Band)> Shade(BimDocument document, Toposurface surface, GroundColouring colouring)
+    {
+        var shaded = new List<(IReadOnlyList<Point2D>, int)>();
+        if (colouring == GroundColouring.None) return shaded;
+        var pads = Terrains.Pads(document, surface);
+        var (low, high) = HeightRange(document, surface);
+        foreach (var (a, b, c) in Terrains.Faces(document, surface))
+        {
+            var triangle = new[] { new Point2D(a.X, a.Y), new Point2D(b.X, b.Y), new Point2D(c.X, c.Y) };
+            var middle = new Point2D((a.X + b.X + c.X) / 3, (a.Y + b.Y + c.Y) / 3);
+            if (pads.Any(pad => Polygon2D.Contains(pad, middle))) continue;
+            var height = (a.Z + b.Z + c.Z) / 3;
+            int band;
+            switch (colouring)
+            {
+                case GroundColouring.Slope:
+                {
+                    var (ux, uy, uz) = (b.X - a.X, b.Y - a.Y, b.Z - a.Z);
+                    var (vx, vy, vz) = (c.X - a.X, c.Y - a.Y, c.Z - a.Z);
+                    var (nx, ny, nz) = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+                    if (Math.Abs(nz) < 1e-9) continue;
+                    var slope = Math.Sqrt(nx * nx + ny * ny) / Math.Abs(nz);
+                    band = Array.FindIndex(Slopes, entry => slope <= entry.Steepest + 1e-9);
+                    break;
+                }
+                case GroundColouring.Height:
+                    band = Math.Clamp((int)Math.Floor((height - low) / (high - low) * Heights.Length), 0, Heights.Length - 1);
+                    break;
+                default:
+                {
+                    if (Terrains.ExistingAt(surface, middle) is not { } was) continue;
+                    var change = height - was;
+                    band = Array.FindIndex(Changes, entry => change < entry.Below);
+                    break;
+                }
+            }
+
+            shaded.Add((triangle, band));
+        }
+
+        return shaded;
+    }
 }

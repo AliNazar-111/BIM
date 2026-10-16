@@ -636,6 +636,9 @@ public static class Railings
         var level = document.FindLevel(railing.LevelId)?.Elevation ?? 0;
         var floor = FloorSurfaces.StoodOnNear(document, level, at, Stairs.FloorReach)?.Top;
 
+        // On a ramp on its storey: on its surface, rising with it.
+        if (Ramps.SurfaceOn(document, railing.LevelId, at) is { } ramp && (floor is null || ramp > floor.Value)) floor = ramp;
+
         // On a parapet, a dwarf wall or a retaining wall along its line: on its top, over the floor under it.
         if (WallTopNear(document, level, at) is { } wall && (floor is null || wall > floor.Value + 1)) return wall + railing.BaseOffset;
         return (floor ?? Terrains.GroundNear(document, level, at) ?? level) + railing.BaseOffset;
@@ -659,7 +662,9 @@ public static class Railings
         if (Host(document, railing) is { } host) return host.Floor;
 
         var level = document.FindLevel(railing.LevelId)?.Elevation ?? 0;
-        if (FloorSurfaces.StoodOnNear(document, level, at, Stairs.FloorReach) is { } floor) return floor.Top;
+        var stood = FloorSurfaces.StoodOnNear(document, level, at, Stairs.FloorReach)?.Top;
+        if (Ramps.SurfaceOn(document, railing.LevelId, at) is { } ramp && (stood is null || ramp > stood.Value)) return ramp;
+        if (stood is { } floor) return floor;
         if (WallTopNear(document, level, at) is not { } top) return Terrains.GroundNear(document, level, at) ?? level;
 
         // Either side of the wall it is on: the higher, floor or ground.
@@ -716,7 +721,7 @@ public static class Railings
     /// </summary>
     public static (double Height, string Rule) Required(BimDocument document, Railing railing)
     {
-        var us = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
 
         // Across a window: Approved Document K's 800 from the floor; under the IRC, the 24 in a window's own sill would give.
         if (Host(document, railing) is { Opening: Window })
@@ -743,7 +748,7 @@ public static class Railings
     public static (double Line, double Point, string Rule) RequiredLoad(BimDocument document, Railing railing)
     {
         if (TypeOf(document, railing).Use == RailingUse.Fence) return (0, 0, "a fence guards no drop");
-        if (document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada)
+        if (document.ProjectInformation.ClearanceStandard.IsUs())
             return railing.Building == RailingBuilding.Dwelling
                 ? (0, 0.89, "the IRC asks a guard round a home to take 200 lb (0.89 kN) at any point on its top")
                 : (0.73, 0.89, "the IBC asks a guard to take 50 lb/ft (0.73 kN/m) along its top and 200 lb (0.89 kN) at any point on it");
@@ -760,7 +765,7 @@ public static class Railings
     {
         var problems = new List<string>();
         var type = TypeOf(document, railing);
-        var us = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         if (Length(railing) < 100)
         {
             problems.Add("It has no length: draw it along two points at least.");
@@ -819,7 +824,7 @@ public static class Railings
     {
         if (TypeOf(document, railing).Use == RailingUse.Fence && Length(railing) >= 100) return "A fence: it guards no drop";
         var problems = Problems(document, railing);
-        var rules = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada ? "the IRC" : "Approved Document K";
+        var rules = document.ProjectInformation.ClearanceStandard.IsUs() ? "the IRC" : "Approved Document K";
         return problems.Count == 0 ? $"Meets {rules}" : $"{problems.Count} short of {rules}: {string.Join(" ", problems)}";
     }
 
@@ -835,7 +840,7 @@ public static class Railings
         if (railing.Closed || lengths.Count == 0) return gaps;
 
         var type = TypeOf(document, railing);
-        var sphere = document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada ? 102.0 : 100.0;
+        var sphere = document.ProjectInformation.ClearanceStandard.IsUs() ? 102.0 : 100.0;
         var end = type.Infill == RailingInfill.FramelessGlass ? type.GlassJoint / 2 : type.PostSize / 2;
         var walls = StairModel.WallBands(document);
 
@@ -994,7 +999,7 @@ public static class Railings
     /// Approved Document K says, and in other buildings 380; more than 30 in (762) under the IRC.
     /// </summary>
     public static double GuardedDrop(BimDocument document, RailingBuilding building) =>
-        document.ProjectInformation.ClearanceStandard == ClearanceStandard.Ada ? 762 : building == RailingBuilding.Dwelling ? 600 : 380;
+        document.ProjectInformation.ClearanceStandard.IsUs() ? 762 : building == RailingBuilding.Dwelling ? 600 : 380;
 
     /// <summary>A length of a slab's edge that drops too far, with no wall, floor, stair or railing there: how far it drops at most.</summary>
     public sealed record OpenEdge(IReadOnlyList<Point2D> Points, bool Closed, double Drop);
@@ -1021,6 +1026,9 @@ public static class Railings
         var railings = document.Elements.OfType<Railing>().ToList();
         var others = document.Elements.OfType<Slab>().Where(other => !ReferenceEquals(other, slab) && other.Boundary.Count >= 3 && FloorSurfaces.IsStoodOn(document, other)).ToList();
 
+        // How far out the drop is looked for: just past the edge - under the IRC, anywhere within 36 in of it (R312.1.1).
+        var reaches = document.ProjectInformation.ClearanceStandard.IsUs() ? new[] { 60.0, 305, 610, 914 } : new[] { 60.0 };
+
         // Its edge in short pieces, anticlockwise, so the slab is on the left of each going round.
         var boundary = slab.Boundary;
         var pieces = new List<(Point2D From, Point2D To, double Drop, bool Wanted)>();
@@ -1037,10 +1045,13 @@ public static class Railings
                 var length = (to - from).Length;
                 var top = FloorSurfaces.TopAt(document, slab, middle - outward * 20);
 
-                // Beyond it: the highest floor or ground below, or a floor carrying on near its height.
+                // Beyond it: the highest floor or ground below, or a floor carrying on near its height - the lowest of them within reach.
                 var beyond = middle + outward * 60;
-                var below = others.Where(other => other.Contains(beyond)).Select(other => FloorSurfaces.TopAt(document, other, beyond))
-                    .Where(height => height <= top + Stairs.FloorReach).DefaultIfEmpty(Terrains.GroundAt(document, beyond) ?? lowest).Max();
+                double Below(Point2D at) => others.Where(other => other.Contains(at)).Select(other => FloorSurfaces.TopAt(document, other, at))
+                    .Where(height => height <= top + Stairs.FloorReach).DefaultIfEmpty(Terrains.GroundAt(document, at) ?? lowest).Max();
+                var below = Below(beyond);
+                if (below < top - 1)
+                    foreach (var reach in reaches.Skip(1)) below = Math.Min(below, Below(middle + outward * reach));
                 var drop = top - below;
 
                 bool Wall() => walls.Any(wall => wall.Base <= top + 100 && wall.Top >= top + 900 && (wall.Holds(middle) || wall.Holds(beyond) || wall.Holds(middle - outward * 30)));
@@ -1255,7 +1266,7 @@ public static class Railings
         var length = open.Sum(edge => Polygon2D.Perimeter(edge.Points) - (edge.Closed ? 0 : edge.Points[^1].DistanceTo(edge.Points[0])));
         var drop = open.Max(edge => edge.Drop);
         var standard = document.ProjectInformation.ClearanceStandard;
-        var asked = standard == ClearanceStandard.Ada ? "the IRC asks for a guard 36 in (914) high" : slab is Roof || !Within(document, slab.LevelId, Polygon2D.Centroid(slab.Boundary, slab.Boundary[0]))
+        var asked = standard.IsUs() ? "the IRC asks for a guard 36 in (914) high" : slab is Roof || !Within(document, slab.LevelId, Polygon2D.Centroid(slab.Boundary, slab.Boundary[0]))
             ? "Approved Document K asks for guarding 1100 high round a balcony or a roof"
             : "Approved Document K asks for guarding 900 high at a floor's edge inside a home";
         return $"{length / 1000:0.0} m of its edge drops {drop:0} with no guarding: {asked} - Guard Edges puts it up.";

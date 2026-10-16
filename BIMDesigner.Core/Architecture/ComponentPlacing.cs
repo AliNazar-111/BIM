@@ -23,6 +23,13 @@ public static class ComponentPlacing
     /// <summary>How far a wall unit's underside is above the worktop under it, mm.</summary>
     public const double AboveWorktop = 500;
 
+    /// <summary>
+    /// How far a cooker hood's underside is hung over the hob: 700, the middle of the 650 to 750
+    /// Approved Document F asks for where the hood's maker gives none - 28 in (711) in the US,
+    /// between the 24 and 30 in hoods are hung at.
+    /// </summary>
+    public static double AboveHob(ClearanceStandard standard) => standard.IsUs() ? 711 : 700;
+
     /// <summary>Whether a piece of this type is set against a wall: one standing on the floor, made to back onto one.</summary>
     public static bool BacksOntoWall(ComponentType type) => type.AgainstWall && type.Placement == ComponentPlacement.Freestanding;
 
@@ -32,7 +39,8 @@ public static class ComponentPlacing
     /// </summary>
     public static bool InRun(ComponentType type) =>
         type.Kind == Elements.BuiltInCategory.Casework
-        || type.Form is ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine or ComponentForm.Sink;
+        || type.Form is ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine or ComponentForm.Sink
+            or ComponentForm.TumbleDryer or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.WallUnit;
 
     /// <summary>
     /// Whether a type has a worktop on top, for a wall unit to hang over: a unit, a sink unit, a
@@ -40,6 +48,7 @@ public static class ComponentPlacing
     /// </summary>
     public static bool HasWorktop(ComponentType type) =>
         type.Form is ComponentForm.Counter or ComponentForm.Sink or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
+            or ComponentForm.TumbleDryer
         || ComponentModel.UnderCounter(type);
 
     /// <summary>A wall's body in plan, about its centreline: its ends, its left normal and half its thickness.</summary>
@@ -196,6 +205,28 @@ public static class ComponentPlacing
         }
 
         if (best is { } shift && Math.Abs(shift) > 1e-6) component.Location += across * shift;
+    }
+
+    /// <summary>
+    /// The height a cooker hood hangs at over the hob under it - its underside 700 over it, or
+    /// 28 in in the US - as an elevation for it; null where no cooker is under it.
+    /// </summary>
+    public static double? OverHob(BimDocument document, Component hood, ComponentType type)
+    {
+        var footprint = Footprint(hood, type);
+        double? top = null;
+        foreach (var cooker in document.Elements.OfType<Component>().Where(other => other != hood && other.LevelId == hood.LevelId))
+        {
+            if (document.FindType<ComponentType>(cooker.TypeId) is not { Form: ComponentForm.Cooker } cookerType) continue;
+            if (Overlap(footprint, Footprint(cooker, cookerType)) <= 100) continue;
+
+            var height = ComponentHosting.BaseElevation(document, cooker, cookerType) + cookerType.Height;
+            top = top is { } known ? Math.Max(known, height) : height;
+        }
+
+        return top is { } hob
+            ? hood.Elevation + hob + AboveHob(document.ProjectInformation.ClearanceStandard) - ComponentHosting.BaseElevation(document, hood, type)
+            : null;
     }
 
     /// <summary>

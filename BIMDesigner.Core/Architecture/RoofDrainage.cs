@@ -343,6 +343,52 @@ public static class RoofDrainage
         return null;
     }
 
+    /// <summary>
+    /// Whether a flat roof is shut in by parapets - walls standing up past its top nearly all the
+    /// way round - so water its drains do not take has nowhere to go but to stand on it.
+    /// </summary>
+    public static bool Parapeted(BimDocument document, Roof roof)
+    {
+        var boundary = roof.Boundary;
+        if (boundary.Count < 3) return false;
+        var walls = StairModel.WallBands(document);
+        var anticlockwise = Polygon2D.SignedArea(boundary) >= 0;
+        double walled = 0, all = 0;
+        for (var i = 0; i < boundary.Count; i++)
+        {
+            var (a, b) = (boundary[i], boundary[(i + 1) % boundary.Count]);
+            var outward = (b - a).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (anticlockwise ? -1 : 1);
+            var count = Math.Max(1, (int)Math.Ceiling(a.DistanceTo(b) / 500));
+            for (var k = 0; k < count; k++)
+            {
+                var at = a + (b - a) * ((k + 0.5) / count);
+                var top = roof.TopAt(document, at - outward * 20);
+                var length = a.DistanceTo(b) / count;
+                all += length;
+                if (walls.Any(wall => wall.Base < top && wall.Top > top + 100 && (wall.Holds(at) || wall.Holds(at + outward * 50))))
+                    walled += length;
+            }
+        }
+
+        return all > 0 && walled >= 0.9 * all;
+    }
+
+    /// <summary>
+    /// What a flat roof's drains leave short: shut in by parapets with one drain and no outlet
+    /// through its edge, nothing takes the water if that drain blocks - Approved Document H (1.7)
+    /// asks for more outlets, BS EN 12056-3 an overflow; the IRC secondary drains or scuppers
+    /// (R903.4.1).
+    /// </summary>
+    public static string? OverflowProblem(BimDocument document, Roof roof, bool us)
+    {
+        if (!Drains(document, roof) || !Parapeted(document, roof)) return null;
+        var drains = On(document, roof).ToList();
+        if (drains.Count >= 2 || drains.Any(drain => drain.Discharge == DrainDischarge.ThroughEdge)) return null;
+        return us
+            ? "The IRC asks for secondary drains or scuppers where parapets would trap the water (R903.4.1): a drain out through the edge, or another drain."
+            : "Approved Document H asks for more outlets on a flat roof shut in by parapets (1.7), and BS EN 12056-3 an overflow: a drain out through the edge, or another drain.";
+    }
+
     /// <summary>How near the roof's edge a drain must be to let its water out through it, mm.</summary>
     public const double EdgeOutletReach = 1000;
 

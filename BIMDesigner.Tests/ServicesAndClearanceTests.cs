@@ -160,16 +160,44 @@ public class ServicesAndClearanceTests
         var (zone, inTheWay) = Assert.Single(Clearances.Of(document, wc, ClearanceStandard.ApprovedDocumentM));
         Assert.Empty(inTheWay);
 
-        // 700 wide and 1100 deep, from the front of the WC.
+        // 1100 deep from the front of the WC, from 350 on one side of its centreline to 1000 on the other.
         var front = wc.Location.Y + type.Depth / 2;
-        Assert.Equal(700, zone.Outline.Max(p => p.X) - zone.Outline.Min(p => p.X), 6);
-        Assert.Equal((front, front + 1100), (zone.Outline.Min(p => p.Y), zone.Outline.Max(p => p.Y)));
+        Assert.Equal(1350, zone.Outline.Max(p => p.X) - zone.Outline.Min(p => p.X), 6);
+        Assert.Equal(front, zone.Outline.Min(p => p.Y), 6);
+        Assert.Equal(front + 1100, zone.Outline.Max(p => p.Y), 6);
 
-        Put(document, "Basin - Pedestal", 2000, 1200, fit: false);
+        // A basin beside it, coming into the zone by no more than 300, is let be.
+        var basin = Put(document, "Basin - Pedestal", 2000, 1200, fit: false);
+        var edge = zone.Outline.Max(p => p.X);
+        basin.Location = new Point2D(edge + 275 - 250, front + 500);
+        Assert.Empty(Clearances.Of(document, wc, ClearanceStandard.ApprovedDocumentM).Single().In);
+
+        // Put in the middle of it, it blocks it.
+        basin.Location = new Point2D(2000, 1200);
         var blocked = Assert.Single(Clearances.Blocked(document, document.Levels[0].Id, ClearanceStandard.ApprovedDocumentM),
             item => item.Zone.Component == wc);
         Assert.Equal("Basin - Pedestal", blocked.By);
-        Assert.Contains("1100 deep by 700 wide", blocked.Message);
+        Assert.Contains("from 350 on its wall side to 1000 on its open side", blocked.Message);
+    }
+
+    [Fact]
+    public void ForAWheelchairUserTheWcsZoneRunsOut2200FromTheWallBehindIt()
+    {
+        var (document, _) = Room();
+        var wc = Put(document, "WC - Close Coupled", 450, 400);
+
+        // Beside the wall at x = 0: 350 toward it, 1200 away from it, 2200 out from the wall behind.
+        var (zone, inTheWay) = Assert.Single(Clearances.Of(document, wc, ClearanceStandard.ApprovedDocumentM3));
+        Assert.Empty(inTheWay);
+        Assert.Equal(wc.Location.X - 350, zone.Outline.Min(p => p.X), 0);
+        Assert.Equal(wc.Location.X + 1200, zone.Outline.Max(p => p.X), 0);
+        var behind = wc.Location.Y - Type(document, "WC - Close Coupled").Depth / 2;
+        Assert.Equal(behind + 2200, zone.Outline.Max(p => p.Y), 0);
+
+        // Under the IRC: 15 in either side of its centreline and 21 in in front.
+        var (irc, _) = Assert.Single(Clearances.Of(document, wc, ClearanceStandard.Irc));
+        Assert.Equal(762, irc.Outline.Max(p => p.X) - irc.Outline.Min(p => p.X), 6);
+        Assert.Contains("R307.1", irc.Rule);
     }
 
     [Fact]
@@ -195,19 +223,19 @@ public class ServicesAndClearanceTests
         var level = document.Levels[0].Id;
 
         // A double against the back wall, in the middle: both sides and the foot clear.
-        var bed = Put(document, "Bed - Double", 2000, 500);
+        var bed = Put(document, "Bed - King 1500 x 2000", 2000, 500);
         var zones = Clearances.Of(document, bed, ClearanceStandard.ApprovedDocumentM);
         Assert.Equal(3, zones.Count);
         Assert.All(zones, zone => Assert.Empty(zone.In));
 
         // Pushed into the corner its left side is in the wall: blocked, as M4(2) asks of a principal bedroom.
         document.Remove(bed);
-        var cornered = Put(document, "Bed - Double", 900, 500);
+        var cornered = Put(document, "Bed - King 1500 x 2000", 900, 500);
         Assert.Contains(Clearances.Blocked(document, level, ClearanceStandard.ApprovedDocumentM), item => item.Zone.Component == cornered && item.By == "the wall");
 
         // A single in the corner needs one side only, and takes the open one.
         document.Remove(cornered);
-        var single = Put(document, "Bed - Single", 1000, 500);
+        var single = Put(document, "Bed - Single 900 x 1900", 1000, 500);
         var side = Assert.Single(Clearances.Of(document, single, ClearanceStandard.ApprovedDocumentM));
         Assert.Empty(side.In);
         Assert.True(side.Zone.Outline.Min(p => p.X) > single.Location.X);

@@ -117,6 +117,30 @@ public sealed class Room : Element
                 ? $"Meets it: {measured.FullHeightShare:P0} at 2.3 m or more"
                 : $"Short: {measured.FullHeightShare:P0} at 2.3 m or more, 75% needed"
             : null);
+        // Whether it is big enough for the beds in it, as a bedroom: only shown for one with a bed.
+        if (Bedrooms.Verdict(document, this) is { } bedroom)
+            yield return ParameterValue.ReadOnly(RoomParameters.BedroomSize, () => bedroom);
+
+        // As a kitchen: its work triangle, and so on - only shown for one with a sink or a hob.
+        if (Kitchens.Verdict(document, this) is { } kitchen)
+            yield return ParameterValue.ReadOnly(RoomParameters.Kitchen, () => kitchen);
+
+        // As a WC or bathroom: what is in it, and whether its WC has its basin - only for one with a WC, a bath or a shower.
+        if (Bathrooms.Verdict(document, this) is { } sanitary)
+            yield return ParameterValue.ReadOnly(RoomParameters.Sanitary, () => sanitary);
+
+        // Its extract, and in the US its lights and receptacles - only for a room that asks something of them.
+        if (Architecture.Services.Verdict(document, this) is { } services)
+            yield return ParameterValue.ReadOnly(RoomParameters.Services, () => services);
+
+        // The alarms it lacks: a smoke alarm near its door, a heat alarm, a carbon monoxide alarm by its boiler or stove.
+        if (Architecture.Alarms.Verdict(document, this) is { } alarms)
+            yield return ParameterValue.ReadOnly(RoomParameters.Alarms, () => alarms);
+
+        // Its windows: an escape window where one is asked for, the air and light they let in.
+        if (Architecture.WindowRules.Verdict(document, this) is { } windows)
+            yield return ParameterValue.ReadOnly(RoomParameters.Windows, () => windows);
+
         yield return ParameterValue.ReadOnly(RoomParameters.BoundingWalls, () => boundary.BoundingWalls.Count);
 
         // Finishes - what a finishes schedule reports
@@ -187,6 +211,24 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition SpaceStandard =
         new("Space Standard (75% at 2.3 m)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition BedroomSize =
+        new("Bedroom Size", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Kitchen =
+        new("Kitchen", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Sanitary =
+        new("WC or Bathroom", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Services =
+        new("Services", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Alarms =
+        new("Alarms", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Windows =
+        new("Windows", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition BoundingWalls =
         new("Bounding Walls", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);
