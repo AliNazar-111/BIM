@@ -1,0 +1,57 @@
+<Window x:Class="BIMDesigner.UI.ViewTemplatesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="View Templates" Height="560" Width="760"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg.Window}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource UiFont}"
+        FontSize="{StaticResource UiFontSize}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True">
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Padding="16,14,16,10">
+            <StackPanel>
+                <TextBlock Text="VIEW TEMPLATES" Foreground="{StaticResource Text.Muted}"
+                           FontSize="{StaticResource UiFontSizeSmall}" FontWeight="SemiBold"/>
+                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" LineHeight="18"
+                           Foreground="{StaticResource Text.Muted}"
+                           Text="A template sets the views it governs: each setting ticked Include is set by the template and can only be changed here. A change here reaches every view it governs. Make one from a view with Create from View; give it to a view in the view's Properties, under View Template."/>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="16,10,16,14"
+                Background="{StaticResource Bg.Panel}"
+                BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button x:Name="DuplicateButton" Content="Duplicate" Padding="12,5" Margin="0,0,8,0" IsEnabled="False" Click="OnDuplicate"/>
+                    <Button x:Name="DeleteButton" Content="Delete" Padding="12,5" IsEnabled="False" Click="OnDelete"/>
+                </StackPanel>
+
+                <Button Grid.Column="1" Content="Close" Padding="18,5" IsCancel="True" IsDefault="True" Click="OnClose"/>
+            </Grid>
+        </Border>
+
+        <Grid Margin="16,0,16,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="230"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ListBox x:Name="TemplateList" Grid.Column="0" SelectionChanged="OnSelectionChanged"/>
+
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="Details"/>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

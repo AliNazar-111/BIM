@@ -91,6 +91,35 @@ public partial class MainWindow : Window
         // Drawing a section opens it: the marker and the view are the same thing, so there is
         // nothing sensible to do between creating one and looking at it.
         Plan.SectionPlaced += (_, marker) => ShowSection(marker);
+
+        // A camera made, or a walkthrough drawn, is opened in the 3D view.
+        Plan.CameraPlaced += (_, view) => Show3D(view);
+        Plan.WalkthroughPlaced += (_, walk) => ShowWalkthrough(walk);
+
+        // A section box dragged in 3D is one step to undo.
+        Model3D.ViewEdited += (_, command) =>
+        {
+            _history.Record(command);
+            AfterHistoryChange();
+        };
+        Model3D.MovingChanged += (_, _) => SyncMoving();
+
+        // Interior elevations open from their arrows on the plan; callouts from their boxes,
+        // and a callout drawn on a section is made there.
+        Plan.InteriorViewPicked += (_, view) => ShowInteriorElevation(view);
+        Plan.CalloutPicked += (_, callout) => ShowCallout(callout);
+        Section.CalloutDrawn += (_, region) =>
+        {
+            if (Section.Marker is not { } marker) return;
+            var (callout, command) = Callouts.Draw(_document, ViewReference.Section(marker.Id), marker.LevelId, new Point2D(region.MinX, region.MinY), new Point2D(region.MaxX, region.MaxY));
+            _history.Execute(command);
+            AfterHistoryChange();
+            StatusHint.Text = $"{callout.Name}: a detail of Section {marker.Name}, a view of its own at 1:20, under Callouts.";
+        };
+
+        // What is projected for sheets is kept until the model changes - or a 3D view on a sheet is looked through again.
+        Model3D.CameraChanged += (_, _) => Projections.Forget(_document);
+        Model3D.FrameShown += (_, frame) => ShowFrameNumber(frame);
         Plan.SweepEditChanged += (_, _) => SyncSweepEditControls();
         Plan.JunctionsChanged += (_, _) => RefreshJunctionOptions();
         Plan.WallPointModeChanged += (_, _) => ContextAddPoint.IsChecked = Plan.AddingWallPoints;
@@ -428,6 +457,9 @@ public partial class MainWindow : Window
         _document = document;
         _path = path;
 
+        // Its sheets are not projected again at every move of the mouse: what was projected is kept till it changes.
+        Projections.Keep(document);
+
         // The plan's ground drawn plainly to start with; coloured as picked on the plan bar.
         PlanGroundPicker.ItemsSource ??= new[] { "Ground: plain", "Ground: by slope", "Ground: by height", "Ground: cut and fill" };
         if (PlanGroundPicker.SelectedIndex < 0) PlanGroundPicker.SelectedIndex = 0;
@@ -443,6 +475,7 @@ public partial class MainWindow : Window
             // And dormers go on standing on their roofs as those roofs now are.
             if (Dormers.FollowRoofs(_document)) Plan.RefreshModel();
 
+            Projections.Forget(_document);
             RefreshTitle();
             CommandManager.InvalidateRequerySuggested();
 
@@ -552,9 +585,9 @@ public partial class MainWindow : Window
         LocationLinePicker.ItemsSource = EnumText.Choices<WallLocationLine>();
         LocationLinePicker.SelectedItem = EnumText.Humanise(WallLocationLine.WallCentreline);
 
-        VisualStylePicker.ItemsSource = new[] { "Shaded", "Flat colours", "X-ray" };
+        // In the order of the styles themselves.
+        VisualStylePicker.ItemsSource = new[] { "Shaded", "Flat colours", "X-ray", "Wireframe", "Hidden line" };
         VisualStylePicker.SelectedIndex = 0;
-        Model3D.RenderStyle = VisualStyle.Shaded;
 
         var schedules = ScheduleDefinition.Defaults();
         SchedulePicker.ItemsSource = schedules;
@@ -600,7 +633,8 @@ public partial class MainWindow : Window
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
             or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
-            or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass;
+            or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
+            or PlanTool.InteriorElevation or PlanTool.Callout;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -2130,7 +2164,12 @@ public partial class MainWindow : Window
         if (Plan.SelectedElement is { } selected && !_document.Elements.Contains(selected))
             Plan.Select(null);
 
+        // A callout undone away: back to the whole plan.
+        if (Plan.ActiveCallout is { } open && !_document.Elements.Contains(open)) Plan.ActiveCallout = null;
+        if (Section.Callout is { } detail && !_document.Elements.Contains(detail)) Section.Callout = null;
+
         Plan.RefreshModel();
+        ShowDetailLevel();
         RefreshProperties();
         RefreshProjectBrowser();
 
@@ -2154,7 +2193,7 @@ public partial class MainWindow : Window
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool, SlabEdgeTool,
-        MassTool, WallByFaceTool, CurtainByFaceTool, FloorByFaceTool, RoofByFaceTool
+        MassTool, WallByFaceTool, CurtainByFaceTool, FloorByFaceTool, RoofByFaceTool, CameraTool, WalkthroughTool, InteriorElevationTool, CalloutTool
     ];
 
     /// <summary>
@@ -2228,6 +2267,10 @@ public partial class MainWindow : Window
             : SoffitTool.IsChecked == true ? PlanTool.Soffit
             : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
             : ShaftTool.IsChecked == true ? PlanTool.Shaft
+            : CameraTool.IsChecked == true ? PlanTool.Camera
+            : WalkthroughTool.IsChecked == true ? PlanTool.Walkthrough
+            : InteriorElevationTool.IsChecked == true ? PlanTool.InteriorElevation
+            : CalloutTool.IsChecked == true ? PlanTool.Callout
             : FaceOpeningTool.IsChecked == true ? PlanTool.FaceOpening
             : DownpipeTool.IsChecked == true ? PlanTool.Downpipe
             : RoofDrainTool.IsChecked == true ? PlanTool.RoofDrain
@@ -2273,9 +2316,31 @@ public partial class MainWindow : Window
             : ReferenceEquals(sender, DetailMedium) ? DetailLevel.Medium
             : DetailLevel.Fine);
 
-    /// <summary>The plan's detail level, from the ribbon or the view control bar: both show it.</summary>
+    /// <summary>
+    /// The detail level of the view shown - a plan, a callout - from the ribbon or the view
+    /// control bar: kept by the view, as one step to undo.
+    /// </summary>
     private void SetDetailLevel(DetailLevel level)
     {
+        if (Plan.EffectiveDetailLevel != level && Locked(Plan.CurrentView, ViewTemplateSetting.DetailLevel))
+        {
+            ShowDetailLevel();
+            return;
+        }
+
+        if (Plan.EffectiveDetailLevel != level)
+        {
+            _history.Execute(new SetViewDetailLevelCommand(_document, Plan.CurrentView, level));
+            Plan.RefreshModel();
+        }
+
+        ShowDetailLevel();
+    }
+
+    /// <summary>The ribbon and the view control bar showing the detail level of the view shown.</summary>
+    private void ShowDetailLevel()
+    {
+        var level = Plan.EffectiveDetailLevel;
         _loadingOptions = true;
         PlanDetailPicker.SelectedIndex = (int)level;
         _loadingOptions = false;
@@ -2283,9 +2348,6 @@ public partial class MainWindow : Window
         DetailCoarse.IsChecked = level == DetailLevel.Coarse;
         DetailMedium.IsChecked = level == DetailLevel.Medium;
         DetailFine.IsChecked = level == DetailLevel.Fine;
-
-        Plan.DetailLevel = level;
-        Plan.RefreshModel();
         StatusDetail.Text = $"Detail: {level}";
     }
 
@@ -2679,6 +2741,7 @@ public partial class MainWindow : Window
         if (LevelPicker.SelectedItem is not Core.Datums.Level level) return;
 
         Plan.ActiveLevelId = level.Id;
+        ShowDetailLevel();
         RefreshNewWallTopChoices();
         OnNewWallHeightChanged(this, new RoutedEventArgs());
         RefreshProjectBrowser();
@@ -3793,11 +3856,11 @@ public partial class MainWindow : Window
 
         SelectedTypeImage.Source = TryFindResource(threeD ? "Icon.View3D" : "Icon.Plan") as System.Windows.Media.ImageSource;
         SelectedFamilyName.Text = threeD ? "3D View" : "Floor Plan";
-        SelectedTypeName.Text = threeD ? "{3D}" : levelName;
+        SelectedTypeName.Text = threeD ? Model3D.View.Name : levelName;
         SelectedTypePicker.Visibility = Visibility.Collapsed;
 
         _loadingOptions = true;
-        PropertyCategoryPicker.ItemsSource = new[] { threeD ? "3D View: {3D}" : $"Floor Plan: {levelName}" };
+        PropertyCategoryPicker.ItemsSource = new[] { threeD ? $"3D View: {Model3D.View.Name}" : $"Floor Plan: {levelName}" };
         PropertyCategoryPicker.SelectedIndex = 0;
         PropertyCategoryPicker.IsEnabled = false;
         _loadingOptions = false;
@@ -3826,20 +3889,27 @@ public partial class MainWindow : Window
         var scales = ViewScale.Common.Select(d => new ViewScale(d).ToString()).ToList();
         var details = EnumText.Choices<DetailLevel>();
 
+        // What the view's template sets is shown, not changed, here.
+        var locks = (Func<ViewTemplateSetting, bool>)(setting => ViewTemplates.Locks(_document, view, setting));
+        var scale = ParameterValue.BindChoice(ViewScaleParameter,
+            () => new ViewScale(_document.ViewSettings.ScaleOf(view)).ToString(),
+            text => { _document.ViewSettings.SetScale(view, ViewScale.Common[scales.IndexOf(text)]); Plan.RefreshModel(); },
+            scales);
+        var detail = ParameterValue.BindChoice(DetailLevelParameter,
+            () => EnumText.Humanise(Plan.EffectiveDetailLevel),
+            text => { if (EnumText.TryParse<DetailLevel>(text, out var level)) SetDetailLevel(level); },
+            details);
+        var joins = ParameterValue.BindChoice(JoinDisplayParameter,
+            () => _document.ViewSettings.JoinDisplayOf(view) == WallJoinDisplay.CleanAllWallJoins ? "Clean all wall joins" : "Clean same type wall joins",
+            text => { _document.ViewSettings.SetJoinDisplay(view, text == "Clean all wall joins" ? WallJoinDisplay.CleanAllWallJoins : WallJoinDisplay.CleanSameTypeWallJoins); Plan.RefreshModel(); },
+            new[] { "Clean all wall joins", "Clean same type wall joins" });
+
         return new[]
         {
-            ParameterValue.BindChoice(ViewScaleParameter,
-                () => new ViewScale(_document.ViewSettings.ScaleOf(view)).ToString(),
-                text => { _document.ViewSettings.SetScale(view, ViewScale.Common[scales.IndexOf(text)]); Plan.RefreshModel(); },
-                scales),
-            ParameterValue.BindChoice(DetailLevelParameter,
-                () => EnumText.Humanise(Plan.DetailLevel),
-                text => { if (EnumText.TryParse<DetailLevel>(text, out var level)) SetDetailLevel(level); },
-                details),
-            ParameterValue.BindChoice(JoinDisplayParameter,
-                () => _document.ViewSettings.JoinDisplayOf(view) == WallJoinDisplay.CleanAllWallJoins ? "Clean all wall joins" : "Clean same type wall joins",
-                text => { _document.ViewSettings.SetJoinDisplay(view, text == "Clean all wall joins" ? WallJoinDisplay.CleanAllWallJoins : WallJoinDisplay.CleanSameTypeWallJoins); Plan.RefreshModel(); },
-                new[] { "Clean all wall joins", "Clean same type wall joins" }),
+            ViewTemplateChoice(view),
+            locks(ViewTemplateSetting.Scale) ? ParameterValue.ReadOnly(ViewScaleParameter, () => scale.DisplayValue) : scale,
+            locks(ViewTemplateSetting.DetailLevel) ? ParameterValue.ReadOnly(DetailLevelParameter, () => detail.DisplayValue) : detail,
+            locks(ViewTemplateSetting.JoinDisplay) ? ParameterValue.ReadOnly(JoinDisplayParameter, () => joins.DisplayValue) : joins,
             ParameterValue.Bind(UnderlayParameter, () => Plan.ShowUnderlay, show =>
             {
                 UnderlayMenuItem.IsChecked = PlanUnderlayToggle.IsChecked = show;
@@ -3861,23 +3931,27 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>The 3D view's own properties: its name, style, perspective, section box and camera, and whether edges are drawn.</summary>
     private IReadOnlyList<ParameterValue> ModelViewParameters()
     {
-        var styles = VisualStylePicker.Items.Cast<object>().Select(item => item.ToString() ?? string.Empty).ToList();
+        var view = Model3D.View;
+        if (!IsKept(view)) return new[] { ParameterValue.ReadOnly(ViewNameParameter, () => view.Name) };
 
-        return new[]
-        {
-            ParameterValue.BindChoice(VisualStyleParameter,
-                () => VisualStylePicker.SelectedItem?.ToString() ?? string.Empty,
-                text => VisualStylePicker.SelectedIndex = styles.IndexOf(text),
-                styles),
-            ParameterValue.Bind(EdgesParameter, () => ShowEdgesBox.IsChecked == true, show =>
-            {
-                ShowEdgesBox.IsChecked = show;
-                OnModelCategoryToggled(ShowEdgesBox, new RoutedEventArgs());
-            }),
-            ParameterValue.ReadOnly(ViewNameParameter, () => "{3D}")
-        };
+        var parameters = view.GetInstanceParameters(_document)
+            .Where(parameter => parameter.Name is not "Mark" and not "Phase Created" and not "Phase Demolished" and not "Workset")
+            .ToList();
+        parameters.Add(ParameterValue.Bind(EdgesParameter, () => view.ShowEdges, show => view.ShowEdges = show));
+
+        // The {3D} view keeps its name.
+        if (ReferenceEquals(view, _document.Default3D))
+            parameters[0] = ParameterValue.ReadOnly(ViewNameParameter, () => view.Name);
+
+        // Its template, and what that sets shown, not changed, here.
+        var reference = Model3D.Reference;
+        if (ViewTemplates.Locks(_document, reference, ViewTemplateSetting.VisualStyle))
+            parameters = parameters.Select(parameter => parameter.Name == View3DParameters.Style.Name ? ParameterValue.ReadOnly(View3DParameters.Style, () => parameter.DisplayValue) : parameter).ToList();
+        parameters.Insert(1, ViewTemplateChoice(reference));
+        return parameters;
     }
 
     /// <summary>The picture beside a type: the ribbon icon of what it is.</summary>
@@ -4016,7 +4090,9 @@ public partial class MainWindow : Window
 
     private void RefreshProjectBrowser()
     {
-        PlanTitle.Text = _document.FindLevel(Plan.ActiveLevelId) is { } shown ? $"Floor Plan: {shown.Name}" : "Floor Plan";
+        PlanTitle.Text = Plan.ActiveCallout is { } open
+            ? $"Callout: {open.Name}"
+            : _document.FindLevel(Plan.ActiveLevelId) is { } shown ? $"Floor Plan: {shown.Name}" : "Floor Plan";
         RefreshPlanScale();
 
         var project = new TreeViewItem
@@ -4052,7 +4128,11 @@ public partial class MainWindow : Window
             item.MouseLeftButtonUp += (_, args) =>
             {
                 if (item.Tag is not Core.Datums.Level picked) return;
+
+                // The whole plan, not a callout of it.
+                Plan.ActiveCallout = null;
                 LevelPicker.SelectedItem = picked;
+                ShowPlanView();
                 args.Handled = true;
             };
 
@@ -4082,7 +4162,8 @@ public partial class MainWindow : Window
             sections.Items.Add(item);
         }
 
-        // The four elevations, the building seen straight on from each side.
+        // The four elevations, the building seen straight on from each side; then each interior
+        // elevation marker's views, one for each of its arrows.
         var elevations = new TreeViewItem { Header = "Elevations", IsExpanded = true };
         foreach (var side in Elevations.All)
         {
@@ -4094,6 +4175,19 @@ public partial class MainWindow : Window
             };
             elevations.Items.Add(item);
         }
+
+        foreach (var marker in _document.Elements.OfType<InteriorElevationMarker>().OrderBy(marker => marker.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var arrow in marker.Arrows)
+            {
+                var reference = ViewReference.InteriorElevation(marker.Id, arrow);
+                var item = new TreeViewItem { Header = marker.ViewName(arrow), Tag = marker };
+                item.MouseLeftButtonUp += (_, args) =>
+                {
+                    ShowInteriorElevation(reference);
+                    args.Handled = true;
+                };
+                elevations.Items.Add(item);
+            }
 
         // The drawing set. Clicking a sheet opens it, the way clicking a plan switches storey.
         var sheets = new TreeViewItem { Header = "Sheets", IsExpanded = true };
@@ -4144,13 +4238,56 @@ public partial class MainWindow : Window
         project.Items.Add(plans);
         project.Items.Add(elevations);
 
-        var view3D = new TreeViewItem { Header = "3D View" };
-        view3D.MouseLeftButtonUp += (_, args) =>
+        // The {3D} view, the cameras' and those saved by name; and the walkthroughs.
+        var views3D = new TreeViewItem { Header = "3D Views", IsExpanded = true };
+        foreach (var view in Views3D.All(_document))
         {
-            Show3D();
-            args.Handled = true;
-        };
-        project.Items.Add(view3D);
+            var item = new TreeViewItem { Header = view.Perspective && view.Camera is { } camera && !ReferenceEquals(view, _document.Default3D) ? $"{view.Name}  —  camera" : view.Name, Tag = view };
+            item.MouseLeftButtonUp += (_, args) =>
+            {
+                Show3D(view);
+                args.Handled = true;
+            };
+            item.ContextMenu = ViewMenu(view);
+            views3D.Items.Add(item);
+        }
+
+        project.Items.Add(views3D);
+
+        var walkthroughs = new TreeViewItem { Header = "Walkthroughs", IsExpanded = true };
+        foreach (var walk in _document.Elements.OfType<Walkthrough>().OrderBy(walk => walk.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var item = new TreeViewItem { Header = $"{walk.Name}  —  {walk.Length / 1000:0.0} m, {walk.Duration:0} s", Tag = walk };
+            item.MouseLeftButtonUp += (_, args) =>
+            {
+                ShowWalkthrough(walk);
+                args.Handled = true;
+            };
+            item.ContextMenu = ViewMenu(walk);
+            walkthroughs.Items.Add(item);
+        }
+
+        if (walkthroughs.Items.Count > 0) project.Items.Add(walkthroughs);
+
+        // Callouts: the parts of plans and sections drawn larger as views of their own.
+        var callouts = new TreeViewItem { Header = "Callouts", IsExpanded = true };
+        foreach (var callout in _document.Elements.OfType<Callout>().Where(c => Callouts.Reference(c).ExistsIn(_document)).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var item = new TreeViewItem
+            {
+                Header = $"{callout.Name}  —  {callout.Parent.TitleIn(_document)}, {new ViewScale(_document.ViewSettings.ScaleOf(Callouts.Reference(callout)))}",
+                Tag = callout,
+                FontWeight = ReferenceEquals(Plan.ActiveCallout, callout) ? FontWeights.SemiBold : FontWeights.Normal
+            };
+            item.MouseLeftButtonUp += (_, args) =>
+            {
+                ShowCallout(callout);
+                args.Handled = true;
+            };
+            callouts.Items.Add(item);
+        }
+
+        if (callouts.Items.Count > 0) project.Items.Add(callouts);
 
         if (sections.Items.Count > 0) project.Items.Add(sections);
         if (sheets.Items.Count > 0) project.Items.Add(sheets);
@@ -4291,6 +4428,20 @@ public partial class MainWindow : Window
         foreach (var marker in _document.Elements.OfType<SectionMarker>().OrderBy(marker => marker.Name))
             options.Add(new SheetViewOption($"Section {marker.Name}", ViewReference.Section(marker.Id)));
 
+        foreach (var side in Elevations.All)
+            options.Add(new SheetViewOption(Elevations.Name(side), ViewReference.Elevation(side)));
+
+        foreach (var marker in _document.Elements.OfType<InteriorElevationMarker>().OrderBy(marker => marker.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var arrow in marker.Arrows)
+                options.Add(new SheetViewOption($"Interior {marker.ViewName(arrow)}", ViewReference.InteriorElevation(marker.Id, arrow)));
+
+        foreach (var view in Views3D.All(_document))
+            options.Add(new SheetViewOption($"3D: {view.Name}", Views3D.Reference(_document, view)));
+
+        foreach (var callout in _document.Elements.OfType<Callout>().OrderBy(callout => callout.Name, StringComparer.OrdinalIgnoreCase))
+            if (Callouts.Reference(callout).ExistsIn(_document))
+                options.Add(new SheetViewOption($"{callout.Name} ({callout.Parent.TitleIn(_document)})", Callouts.Reference(callout)));
+
         var current = (SheetViewPicker.SelectedItem as SheetViewOption)?.Display;
 
         _loadingSheets = true;
@@ -4407,43 +4558,289 @@ public partial class MainWindow : Window
         else Show3D();
     }
 
-    private void Show3D() => ShowModel(null);
+    /// <summary>Opens a 3D view - the {3D} view unless another is named - looking as it was left.</summary>
+    private void Show3D(View3D? view = null) => ShowModel(null, view ?? (ModelPanel.Visibility == Visibility.Visible && Model3D.Elevation is null && _shownWalkthrough is null && IsKept(Model3D.View) ? Model3D.View : _document.Default3D));
 
     /// <summary>
     /// Opens an elevation: the model straight on from one side, flat, with the levels and the
     /// gridlines facing it drawn across it. It pans and zooms; it does not turn.
     /// </summary>
-    private void ShowElevation(ElevationSide side) => ShowModel(side);
+    private void ShowElevation(ElevationSide side) => ShowModel(side, ElevationView(side));
 
-    private void ShowModel(ElevationSide? elevation)
+    /// <summary>Each elevation's own view: what it leaves out is its own, but it is not kept by name.</summary>
+    private readonly Dictionary<ElevationSide, View3D> _elevationViews = new();
+
+    private View3D ElevationView(ElevationSide side) =>
+        _elevationViews.TryGetValue(side, out var view) ? view : _elevationViews[side] = new View3D { Name = Elevations.Name(side), Perspective = false };
+
+    /// <summary>The walkthrough open in the 3D view, and the frame it is on.</summary>
+    private Walkthrough? _shownWalkthrough;
+    private int _walkFrame;
+    private readonly Dictionary<Guid, View3D> _walkViews = new();
+
+    /// <summary>Whether a view is one of the project's, kept by name, rather than an elevation's or a walkthrough's.</summary>
+    private bool IsKept(View3D view) => ReferenceEquals(view, _document.Default3D) || _document.Elements.Contains(view);
+
+    /// <summary>Opens a walkthrough on its first frame, ready to play.</summary>
+    private void ShowWalkthrough(Walkthrough walk)
+    {
+        if (!_walkViews.TryGetValue(walk.Id, out var view)) _walkViews[walk.Id] = view = new View3D { Name = walk.Name, Perspective = true };
+        ShowModel(null, view, walk);
+        _walkFrame = 0;
+        Model3D.ShowFrame(walk, 0);
+    }
+
+    private void ShowModel(ElevationSide? elevation, View3D view, Walkthrough? walk = null)
     {
         // The sheet and the 3D view both take over the drawing area; only one can.
         if (SheetPanel.Visibility == Visibility.Visible) OnCloseSheet(this, new RoutedEventArgs());
 
+        Model3D.StopMoving();
+        _shownWalkthrough = walk;
         Model3D.Elevation = elevation;
-        ModelCaption.Text = elevation is { } side ? Elevations.Name(side) : "3D View";
-        ModelHelp.Text = elevation is null
-            ? "Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select"
-            : "Drag to pan  ·  scroll to zoom  ·  click to select";
-        Cube.Visibility = elevation is null ? Visibility.Visible : Visibility.Collapsed;
+        Model3D.View = view;
+        ModelCaption.Text = elevation is { } side ? Elevations.Name(side) : walk?.Name ?? view.Name;
+        ModelHelp.Text = walk is not null
+            ? "Play, or step through it a key frame at a time"
+            : elevation is null
+                ? "Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select"
+                : "Drag to pan  ·  scroll to zoom  ·  click to select";
+        Cube.Visibility = elevation is null && walk is null ? Visibility.Visible : Visibility.Collapsed;
 
         ModelPanel.Visibility = Visibility.Visible;
         ModelMenuItem.IsChecked = true;
 
-        RefreshStoreyToggles();
         Model3D.Rebuild();
+        SyncModelOptions();
         Model3D.SetSelection(Plan.SelectedElements.Select(element => element.Id));
 
+        // Fitted round the model only when the view has never been looked through.
+        var fit = view.Camera is null && walk is null;
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
-            Model3D.ZoomToFit();
+            if (fit) Model3D.ZoomToFit();
             Model3D.Focus();
         });
 
         StatusHint.Text = elevation is { } shown
             ? $"{Elevations.Name(shown)}. Drag to pan, scroll to zoom, click to select."
-            : "3D view. Drag to orbit, right-drag to pan, scroll to zoom, click to select.";
+            : walk is not null
+                ? $"{walk.Name}: {walk.Frames} frames at {walk.FramesPerSecond:0} a second. Play it, or step through it."
+                : $"{view.Name}. Drag to orbit, right-drag to pan, scroll to zoom, click to select; Walk to walk through it.";
         RefreshProperties();
+    }
+
+    /// <summary>The view bar set from the view shown: its style, perspective, section box, and what it shows.</summary>
+    private void SyncModelOptions()
+    {
+        var view = Model3D.View;
+        var elevation = Model3D.Elevation is not null;
+        var walk = _shownWalkthrough is not null;
+
+        _loadingOptions = true;
+        VisualStylePicker.SelectedIndex = (int)view.Style;
+        PerspectiveBox.IsChecked = view.Perspective;
+        SectionBoxToggle.IsChecked = view.SectionBoxOn;
+        WalkToggle.IsChecked = Model3D.IsWalking;
+        ShowRoofsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Roof);
+        ShowCeilingsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Ceiling);
+        ShowFloorsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Floor);
+        ShowWallsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Wall);
+        ShowFramingBox.IsChecked = Model3D.IsKindVisible(MeshKind.Framing);
+        ShowStairsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Stair);
+        ShowRailingsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Railing);
+        ShowRampsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Ramp);
+        ShowBeamsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Beam);
+        ShowTerrainBox.IsChecked = Model3D.IsKindVisible(MeshKind.Terrain);
+        ShowGroundBox.IsChecked = view.ShowGround;
+        ShowEdgesBox.IsChecked = view.ShowEdges;
+        _loadingOptions = false;
+
+        // An elevation is flat and whole; a walkthrough is its path.
+        var turning = elevation || walk ? Visibility.Collapsed : Visibility.Visible;
+        PerspectiveBox.Visibility = SectionBoxToggle.Visibility = BoxSelectionButton.Visibility = WalkToggle.Visibility = SaveViewButton.Visibility = turning;
+        WalkthroughBar.Visibility = walk ? Visibility.Visible : Visibility.Collapsed;
+        RefreshStoreyToggles();
+    }
+
+    /// <summary>A change to the view shown, as one step to undo.</summary>
+    private void ChangeView(Action<View3D> change, string name)
+    {
+        var command = new SetView3DCommand(Model3D.View, change, name);
+        if (!command.Changes) return;
+        _history.Execute(command);
+        AfterHistoryChange();
+    }
+
+    private void OnPerspectiveChanged(object sender, RoutedEventArgs e) =>
+        ChangeView(view => view.Perspective = PerspectiveBox.IsChecked == true, "Perspective");
+
+    /// <summary>The section box on or off: round everything shown the first time.</summary>
+    private void OnToggleSectionBox(object sender, RoutedEventArgs e)
+    {
+        var on = SectionBoxToggle.IsChecked == true;
+        var box = Model3D.View.SectionBox ?? Model3D.ModelBox;
+        ChangeView(view =>
+        {
+            view.SectionBox = box;
+            view.SectionBoxOn = on && box is not null;
+        }, "Section Box");
+        StatusHint.Text = on ? "Section box on: pull its faces in by the handles on them to cut into the building." : "Section box off. Its box is kept for when it is turned on again.";
+    }
+
+    /// <summary>A section box round what is selected: Revit's Selection Box.</summary>
+    private void OnBoxSelection(object sender, RoutedEventArgs e)
+    {
+        var selected = Plan.SelectedElements.Select(element => element.Id).ToHashSet();
+        if (selected.Count == 0)
+        {
+            StatusHint.Text = "Select what to box first: the section box goes round it.";
+            return;
+        }
+
+        if (ModelPanel.Visibility != Visibility.Visible || Model3D.Elevation is not null || _shownWalkthrough is not null) Show3D();
+        if (Model3D.BoxAround(selected) is not { } box)
+        {
+            StatusHint.Text = "What is selected is not drawn in 3D.";
+            return;
+        }
+
+        ChangeView(view =>
+        {
+            view.SectionBox = box;
+            view.SectionBoxOn = true;
+        }, "Selection Box");
+        StatusHint.Text = "Section box round what is selected. Pull its faces by their handles; Section Box turns it off.";
+    }
+
+    private void OnToggleWalk(object sender, RoutedEventArgs e)
+    {
+        if (Model3D.IsWalking)
+        {
+            Model3D.StopWalking();
+            return;
+        }
+
+        if (Model3D.StartWalking() is { } why)
+        {
+            StatusHint.Text = why;
+            WalkToggle.IsChecked = false;
+            return;
+        }
+
+        StatusHint.Text = "Walking: W A S D or the arrows, Shift to hurry, drag to look round, the wheel for a stride. Esc stops.";
+    }
+
+    /// <summary>Walk and Play show what is going on.</summary>
+    private void SyncMoving()
+    {
+        WalkToggle.IsChecked = Model3D.IsWalking;
+        PlayButton.Content = Model3D.Playing is not null ? "Stop" : "Play";
+        ModelHelp.Text = Model3D.IsWalking
+            ? "W A S D or the arrows to walk  ·  Shift to hurry  ·  drag to look round  ·  Esc to stop"
+            : _shownWalkthrough is not null
+                ? "Play, or step through it a key frame at a time"
+                : "Drag to orbit  ·  right-drag to pan  ·  scroll to zoom  ·  click to select";
+    }
+
+    /// <summary>The view kept by a name of its own: what is shown, as it is now.</summary>
+    private void OnSave3DView(object sender, RoutedEventArgs e)
+    {
+        if (Model3D.Elevation is not null || _shownWalkthrough is not null) return;
+        var copy = Views3D.Duplicate(_document, Model3D.View);
+        _history.Execute(new AddElementCommand(_document, copy, "Save View"));
+        AfterHistoryChange();
+        Show3D(copy);
+        StatusHint.Text = $"Kept as {copy.Name}, under 3D Views. Rename it in Properties; place it on a sheet with Place View.";
+    }
+
+    /// <summary>What can be done with a view or walkthrough from the Project Browser.</summary>
+    private ContextMenu? ViewMenu(Element view)
+    {
+        if (view is View3D shown && ReferenceEquals(shown, _document.Default3D))
+        {
+            var only = new ContextMenu();
+            var copy = new MenuItem { Header = "Duplicate" };
+            copy.Click += (_, _) => DuplicateView(shown);
+            only.Items.Add(copy);
+            return only;
+        }
+
+        var menu = new ContextMenu();
+        if (view is View3D named)
+        {
+            var copy = new MenuItem { Header = "Duplicate" };
+            copy.Click += (_, _) => DuplicateView(named);
+            menu.Items.Add(copy);
+        }
+
+        var delete = new MenuItem { Header = "Delete" };
+        delete.Click += (_, _) =>
+        {
+            if (ModelPanel.Visibility == Visibility.Visible && (ReferenceEquals(Model3D.View, view) || ReferenceEquals(_shownWalkthrough, view))) Show3D(_document.Default3D);
+            _history.Execute(new DeleteElementCommand(_document, view));
+            AfterHistoryChange();
+        };
+        menu.Items.Add(delete);
+        return menu;
+    }
+
+    private void DuplicateView(View3D view)
+    {
+        var copy = Views3D.Duplicate(_document, view);
+        _history.Execute(new AddElementCommand(_document, copy, "Duplicate View"));
+        AfterHistoryChange();
+        Show3D(copy);
+    }
+
+    // ---- walkthroughs ------------------------------------------------------------------
+
+    private void ShowFrameNumber(int frame)
+    {
+        _walkFrame = frame;
+        if (_shownWalkthrough is { } walk) FrameText.Text = $"Frame {frame + 1} of {walk.Frames}";
+    }
+
+    private void OnPlayWalkthrough(object sender, RoutedEventArgs e)
+    {
+        if (_shownWalkthrough is not { } walk) return;
+        if (Model3D.Playing is not null)
+        {
+            Model3D.StopPlaying();
+            return;
+        }
+
+        Model3D.Play(walk, _walkFrame >= walk.Frames - 1 ? 0 : _walkFrame);
+        Model3D.Focus();
+    }
+
+    private void OnWalkthroughFirst(object sender, RoutedEventArgs e)
+    {
+        if (_shownWalkthrough is not { } walk) return;
+        Model3D.StopPlaying();
+        Model3D.ShowFrame(walk, 0);
+    }
+
+    private void OnWalkthroughBack(object sender, RoutedEventArgs e) => StepKeyFrame(-1);
+
+    private void OnWalkthroughForward(object sender, RoutedEventArgs e) => StepKeyFrame(1);
+
+    /// <summary>To the frame at the next or last point of the path - a key frame.</summary>
+    private void StepKeyFrame(int way)
+    {
+        if (_shownWalkthrough is not { } walk || walk.Length <= 0) return;
+        Model3D.StopPlaying();
+
+        var keys = new List<int>();
+        var along = 0.0;
+        for (var i = 0; i < walk.Path.Count; i++)
+        {
+            if (i > 0) along += walk.Path[i - 1].DistanceTo(walk.Path[i]);
+            keys.Add((int)Math.Round(along / walk.Length * (walk.Frames - 1)));
+        }
+
+        var next = way > 0 ? keys.FirstOrDefault(key => key > _walkFrame, walk.Frames - 1) : keys.LastOrDefault(key => key < _walkFrame, 0);
+        Model3D.ShowFrame(walk, next);
     }
 
     private void OnClose3D(object sender, RoutedEventArgs e)
@@ -4552,7 +4949,17 @@ public partial class MainWindow : Window
     private void Refresh3D()
     {
         if (ModelPanel.Visibility != Visibility.Visible) return;
+
+        // The view or walkthrough shown taken away by an undo: back to {3D}.
+        if (!IsKept(Model3D.View) && Model3D.Elevation is null && (_shownWalkthrough is null || !_document.Elements.Contains(_shownWalkthrough)))
+        {
+            Show3D(_document.Default3D);
+            return;
+        }
+
         Model3D.Rebuild();
+        SyncModelOptions();
+        ModelCaption.Text = Model3D.Elevation is { } side ? Elevations.Name(side) : _shownWalkthrough?.Name ?? Model3D.View.Name;
     }
 
     /// <summary>
@@ -4585,18 +4992,27 @@ public partial class MainWindow : Window
 
     private void OnVisualStyleChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loadingOptions) return;
+        if (_loadingOptions || VisualStylePicker.SelectedIndex < 0) return;
 
-        Model3D.RenderStyle = VisualStylePicker.SelectedIndex switch
+        var style = (VisualStyle)VisualStylePicker.SelectedIndex;
+        if (style != Model3D.View.Style && IsKept(Model3D.View) && Locked(Model3D.Reference, ViewTemplateSetting.VisualStyle))
         {
-            1 => VisualStyle.FlatColours,
-            2 => VisualStyle.XRay,
-            _ => VisualStyle.Shaded
-        };
+            SyncModelOptions();
+            return;
+        }
+
+        ChangeView(view => view.Style = style, "Visual Style");
     }
 
     private void OnModelCategoryToggled(object sender, RoutedEventArgs e)
     {
+        if (_loadingOptions) return;
+        if (!ReferenceEquals(sender, ShowGroundBox) && !ReferenceEquals(sender, ShowEdgesBox) && IsKept(Model3D.View) &&
+            Locked(Model3D.Reference, ViewTemplateSetting.HiddenKinds))
+        {
+            SyncModelOptions();
+            return;
+        }
         Model3D.SetKindVisible(MeshKind.Roof, ShowRoofsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Ceiling, ShowCeilingsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Floor, ShowFloorsBox.IsChecked == true);
@@ -4635,6 +5051,11 @@ public partial class MainWindow : Window
     {
         if (_loadingOptions || PlanScalePicker.SelectedItem is not ViewScale scale) return;
         if (_document.ViewSettings.ScaleOf(Plan.CurrentView) == scale.Denominator) return;
+        if (Locked(Plan.CurrentView, ViewTemplateSetting.Scale))
+        {
+            RefreshPlanScale();
+            return;
+        }
 
         _history.Execute(new SetViewScaleCommand(_document, Plan.CurrentView, scale.Denominator));
         StatusHint.Text = $"This plan is drawn at {scale}: it goes on a sheet at that scale when it fits.";
@@ -5092,6 +5513,103 @@ public partial class MainWindow : Window
         WallFunctionsMenu.IsOpen = true;
     }
 
+    // ---- view templates --------------------------------------------------------
+
+    private static readonly ParameterDefinition ViewTemplateParameter = new("View Template", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    private const string NoTemplate = "<None>";
+
+    /// <summary>
+    /// The view being worked in: the 3D view, an elevation, or a section or interior elevation
+    /// when it has the keyboard; otherwise the plan, or the callout of it shown.
+    /// </summary>
+    private ViewReference CurrentViewReference()
+    {
+        if (ModelCoversPlan || (ModelPanel.Visibility == Visibility.Visible && Model3D.IsKeyboardFocusWithin))
+        {
+            if (Model3D.Elevation is { } side) return ViewReference.Elevation(side);
+            if (IsKept(Model3D.View) && _shownWalkthrough is null) return Model3D.Reference;
+        }
+
+        if (SectionPanel.Visibility == Visibility.Visible && (Section.IsKeyboardFocusWithin || Projected.IsKeyboardFocusWithin))
+        {
+            if (Projected.Visibility == Visibility.Visible && Projected.View is { } elevation) return elevation;
+            if (Section.Callout is { } detail) return Callouts.Reference(detail);
+            if (Section.Marker is { } marker) return ViewReference.Section(marker.Id);
+        }
+
+        return Plan.CurrentView;
+    }
+
+    /// <summary>Whether a setting of a view is set by its template; said so, if it is.</summary>
+    private bool Locked(ViewReference view, ViewTemplateSetting setting)
+    {
+        if (ViewTemplates.Of(_document, view) is not { } template || !template.Includes(setting)) return false;
+        StatusHint.Text = $"{view.TitleIn(_document)} is governed by the template {template.Name}: change it there (View tab, Templates, Manage), or set the view's View Template to {NoTemplate}.";
+        return true;
+    }
+
+    /// <summary>The View Template a view's Properties show: none, or one of those for its kind, to govern it.</summary>
+    private ParameterValue ViewTemplateChoice(ViewReference view)
+    {
+        var templates = ViewTemplates.For(_document, view).ToList();
+        var choices = new[] { NoTemplate }.Concat(templates.Select(template => template.Name)).ToList();
+        return ParameterValue.BindChoiceCommand(ViewTemplateParameter,
+            () => ViewTemplates.Of(_document, view)?.Name ?? NoTemplate,
+            text => ViewTemplates.Apply(_document, templates.FirstOrDefault(template => template.Name == text), view, govern: true),
+            choices);
+    }
+
+    private void OnCreateViewTemplate(object sender, RoutedEventArgs e)
+    {
+        var view = CurrentViewReference();
+        if (ViewTemplates.FromView(_document, view) is not { } template)
+        {
+            StatusHint.Text = "Open a plan, section, elevation or 3D view first: a template is made from it.";
+            return;
+        }
+
+        _history.Execute(new AddElementCommand(_document, template, "Create View Template"));
+        AfterHistoryChange();
+        StatusHint.Text = $"{template.Name}, from {view.TitleIn(_document)}. Pick it as a view's View Template in Properties to have it govern that view.";
+        ShowViewTemplates(template);
+    }
+
+    /// <summary>Apply to View: the templates for the view shown, one to pick.</summary>
+    private void OnApplyViewTemplate(object sender, RoutedEventArgs e)
+    {
+        var view = CurrentViewReference();
+        ApplyTemplateMenu.Items.Clear();
+        foreach (var template in ViewTemplates.For(_document, view))
+        {
+            var item = new MenuItem { Header = template.Name };
+            item.Click += (_, _) =>
+            {
+                _history.Execute(ViewTemplates.Apply(_document, template, view, govern: false));
+                AfterHistoryChange();
+                StatusHint.Text = $"{template.Name} applied to {view.TitleIn(_document)}. The view goes its own way from here.";
+            };
+            ApplyTemplateMenu.Items.Add(item);
+        }
+
+        if (ApplyTemplateMenu.Items.Count == 0)
+        {
+            StatusHint.Text = $"There is no template for a view like {view.TitleIn(_document)}: make one with Create from View.";
+            return;
+        }
+
+        ApplyTemplateMenu.PlacementTarget = ApplyTemplateButton;
+        ApplyTemplateMenu.IsOpen = true;
+    }
+
+    private void OnManageViewTemplates(object sender, RoutedEventArgs e) => ShowViewTemplates(null);
+
+    private void ShowViewTemplates(ViewTemplate? selected)
+    {
+        var window = new ViewTemplatesWindow(_document, _history, selected) { Owner = this };
+        window.Changed += (_, _) => AfterHistoryChange();
+        window.ShowDialog();
+    }
+
     private void OnWallFunctionsMenuOpened(object sender, RoutedEventArgs e)
     {
         if (!ReferenceEquals(e.OriginalSource, WallFunctionsMenu)) return;
@@ -5116,7 +5634,10 @@ public partial class MainWindow : Window
                     Header = EnumText.Humanise(function),
                     IsCheckable = true,
                     IsChecked = _document.ViewSettings.IsWallFunctionVisible(view, function),
-                    StaysOpenOnClick = true
+                    StaysOpenOnClick = true,
+
+                    // Set by the view's template: changed there, not here.
+                    IsEnabled = !ViewTemplates.Locks(_document, view, ViewTemplateSetting.WallFunctions)
                 };
 
                 item.Click += (_, _) =>
@@ -5563,8 +6084,83 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Opens the section panel on one marker, whether or not it was already open.</summary>
+    /// <summary>
+    /// Opens an interior elevation under the plan, where sections open: the wall it looks at, in
+    /// hidden line, cropped to the room, its floor and ceiling.
+    /// </summary>
+    private void ShowInteriorElevation(ViewReference view)
+    {
+        if (!view.ExistsIn(_document)) return;
+
+        SectionPanel.Visibility = Visibility.Visible;
+        SectionSplitter.Visibility = Visibility.Visible;
+        SectionMenuItem.IsChecked = true;
+        Section.Visibility = Visibility.Collapsed;
+        Projected.Visibility = Visibility.Visible;
+        Projected.Document = _document;
+        Projected.View = view;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Projected.ZoomToFit());
+
+        _loadingSections = true;
+        SectionPicker.SelectedItem = null;
+        _loadingSections = false;
+        SectionSummary.Text = $"Interior elevation {view.TitleIn(_document)}";
+        StatusHint.Text = $"{view.TitleIn(_document)}: cropped to its room, its floor and its ceiling. Scroll to zoom, drag to pan; place it on a sheet with Place View.";
+    }
+
+    /// <summary>
+    /// Opens a callout's view: a plan's in the plan, cropped to its box at its own detail level;
+    /// a section's under the plan, cropped to its box.
+    /// </summary>
+    private void ShowCallout(Callout callout)
+    {
+        if (!Callouts.Reference(callout).ExistsIn(_document)) return;
+
+        if (callout.Parent.Kind == ViewKind.FloorPlan)
+        {
+            ShowPlanView();
+            if (_document.FindLevel(callout.LevelId) is { } level) LevelPicker.SelectedItem = level;
+            Plan.ActiveCallout = callout;
+            Plan.ZoomToFit();
+            ShowDetailLevel();
+            RefreshProjectBrowser();
+            RefreshProperties();
+            StatusHint.Text = $"{callout.Name}: part of {callout.Parent.TitleIn(_document)}, at {new ViewScale(_document.ViewSettings.ScaleOf(Callouts.Reference(callout)))}. Open the plan from Floor Plans to see all of it.";
+            return;
+        }
+
+        if (_document.Elements.OfType<SectionMarker>().FirstOrDefault(m => m.Id == callout.Parent.TargetId) is not { } marker) return;
+        ShowSection(marker);
+        Section.Callout = callout;
+        StatusHint.Text = $"{callout.Name}: a detail of Section {marker.Name}. Place it on a sheet with Place View.";
+    }
+
+    /// <summary>The plan in front: the 3D view or a sheet over it put away.</summary>
+    private void ShowPlanView()
+    {
+        if (SheetPanel.Visibility == Visibility.Visible) OnCloseSheet(this, new RoutedEventArgs());
+        if (ModelCoversPlan) OnClose3D(this, new RoutedEventArgs());
+    }
+
+    /// <summary>Drag a box round part of the section for a callout of it.</summary>
+    private void OnSectionCallout(object sender, RoutedEventArgs e)
+    {
+        if (Section.Marker is null || Projected.Visibility == Visibility.Visible)
+        {
+            StatusHint.Text = "Open a section first: a callout is drawn round part of it.";
+            return;
+        }
+
+        Section.DrawingCallout = true;
+        Section.Focus();
+        StatusHint.Text = "Drag a box round the part of the section to call out.";
+    }
+
     private void ShowSection(SectionMarker marker)
     {
+        Section.Callout = null;
+        Projected.Visibility = Visibility.Collapsed;
+        Section.Visibility = Visibility.Visible;
         SectionPanel.Visibility = Visibility.Visible;
         SectionSplitter.Visibility = Visibility.Visible;
         SectionMenuItem.IsChecked = true;
@@ -5602,6 +6198,9 @@ public partial class MainWindow : Window
     {
         if (_loadingSections) return;
 
+        // A section picked: back from an interior elevation to the section view.
+        Projected.Visibility = Visibility.Collapsed;
+        Section.Visibility = Visibility.Visible;
         Section.Marker = SectionPicker.SelectedItem as SectionMarker;
         RefreshSectionSummary();
     }
@@ -5627,6 +6226,12 @@ public partial class MainWindow : Window
     private void RefreshSection()
     {
         if (SectionPanel.Visibility != Visibility.Visible) return;
+
+        if (Projected.Visibility == Visibility.Visible)
+        {
+            Projected.Rebuild();
+            return;
+        }
 
         Section.Rebuild();
         RefreshSectionSummary();

@@ -3,6 +3,7 @@ using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
 
 namespace BIMDesigner.Core.Documents;
@@ -57,6 +58,9 @@ public static class ElementTransforms
         Toposurface or GroundRegion or BeamSystem => true,
         SitePad or PropertyLine or SpotElevation => true,
         Mass => true,
+        Walkthrough => true,
+        InteriorElevationMarker => true,
+        Callout { Parent.Kind: ViewKind.FloorPlan } => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -152,6 +156,18 @@ public static class ElementTransforms
             case Mass mass:
                 mass.SetBoundary(mass.Boundary.Select(point => point + delta).ToList());
                 mass.TransformCircle(point => point + delta);
+                break;
+
+            case Walkthrough walk:
+                walk.SetPath(walk.Path.Select(point => point + delta).ToList());
+                break;
+
+            case InteriorElevationMarker marker:
+                marker.Location += delta;
+                break;
+
+            case Callout callout:
+                callout.Region = new BoundingBox2D(callout.Region.MinX + delta.X, callout.Region.MinY + delta.Y, callout.Region.MaxX + delta.X, callout.Region.MaxY + delta.Y);
                 break;
 
             case PropertyLine line:
@@ -343,6 +359,31 @@ public static class ElementTransforms
                 mass.SetBoundary(mass.Boundary.Select(Reflect).ToList());
                 mass.TransformCircle(Reflect);
                 break;
+
+            case Walkthrough walk:
+                walk.SetPath(walk.Path.Select(Reflect).ToList());
+                break;
+
+            case Callout callout:
+            {
+                var a = Reflect(new Point2D(callout.Region.MinX, callout.Region.MinY));
+                var b = Reflect(new Point2D(callout.Region.MaxX, callout.Region.MaxY));
+                var c = Reflect(new Point2D(callout.Region.MinX, callout.Region.MaxY));
+                var d = Reflect(new Point2D(callout.Region.MaxX, callout.Region.MinY));
+                callout.Region = BoundingBox2D.Empty.Include(a).Include(b).Include(c).Include(d);
+                break;
+            }
+
+            case InteriorElevationMarker marker:
+            {
+                // Its first arrow reflected; the arrows to either side change places.
+                var up = ReflectPoint(marker.Location + marker.Look(0) * 1000, axis);
+                marker.Location = Reflect(marker.Location);
+                var look = up - marker.Location;
+                marker.Rotation = Math.Atan2(look.Y, look.X) * 180 / Math.PI - 90;
+                (marker.LooksRight, marker.LooksLeft) = (marker.LooksLeft, marker.LooksRight);
+                break;
+            }
 
             case SitePad pad:
             {
@@ -576,6 +617,26 @@ public static class ElementTransforms
                 mass.SetBoundary(mass.Boundary.Select(map).ToList());
                 mass.TransformCircle(map);
                 break;
+
+            case Walkthrough walk:
+                walk.SetPath(walk.Path.Select(map).ToList());
+                break;
+
+            case InteriorElevationMarker marker:
+                marker.Location = map(marker.Location);
+                marker.Rotation += degrees;
+                break;
+
+            // A callout's box stays square to the plan: round where its corners go.
+            case Callout callout:
+            {
+                var box = BoundingBox2D.Empty;
+                foreach (var corner in new[] { new Point2D(callout.Region.MinX, callout.Region.MinY), new Point2D(callout.Region.MaxX, callout.Region.MinY),
+                             new Point2D(callout.Region.MaxX, callout.Region.MaxY), new Point2D(callout.Region.MinX, callout.Region.MaxY) })
+                    box = box.Include(map(corner));
+                callout.Region = box;
+                break;
+            }
 
             case PropertyLine line:
                 line.SetBoundary(line.Boundary.Select(map).ToList());

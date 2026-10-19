@@ -88,7 +88,19 @@ public enum BuiltInCategory
     SlabEdges,
 
     /// <summary>Masses: the shape of a building before it is one, its faces made into walls, floors and roofs.</summary>
-    Masses
+    Masses,
+
+    /// <summary>Views of the model kept by name: 3D views and cameras, walkthroughs.</summary>
+    Views,
+
+    /// <summary>Interior elevation markers: each arrow a view of the wall it points at.</summary>
+    Elevations,
+
+    /// <summary>Callouts: a part of a plan or section drawn larger as a view of its own.</summary>
+    Callouts,
+
+    /// <summary>View templates: named sets of view settings, applied to views or governing them.</summary>
+    ViewTemplates
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

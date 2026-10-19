@@ -39,6 +39,12 @@ public sealed class Viewport
     /// </summary>
     public string TitleOverride { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Its number on the sheet - 1, 2, 3 in the order views are placed - which callouts, sections
+    /// and elevations pointing at the view quote with the sheet number: "2 / A-101".
+    /// </summary>
+    public string DetailNumber { get; set; } = string.Empty;
+
     public string TitleIn(BimDocument document) =>
         string.IsNullOrWhiteSpace(TitleOverride) ? View.TitleIn(document) : TitleOverride;
 
@@ -77,7 +83,8 @@ public sealed class Viewport
         Centre = Centre,
         Scale = Scale,
         ShowTitle = ShowTitle,
-        TitleOverride = TitleOverride
+        TitleOverride = TitleOverride,
+        DetailNumber = DetailNumber
     };
 }
 
@@ -126,7 +133,20 @@ public sealed class Sheet : Element
 
     public IReadOnlyList<Viewport> Viewports => _viewports;
 
-    public void Add(Viewport viewport) => _viewports.Add(viewport);
+    /// <summary>Puts a view on the sheet, numbered after those on it already unless it has a number.</summary>
+    public void Add(Viewport viewport)
+    {
+        if (string.IsNullOrWhiteSpace(viewport.DetailNumber)) viewport.DetailNumber = NextDetailNumber();
+        _viewports.Add(viewport);
+    }
+
+    /// <summary>The lowest detail number not yet used on the sheet.</summary>
+    public string NextDetailNumber()
+    {
+        var used = _viewports.Select(viewport => viewport.DetailNumber).ToHashSet();
+        for (var i = 1; ; i++)
+            if (!used.Contains(i.ToString())) return i.ToString();
+    }
 
     public void Insert(int index, Viewport viewport) => _viewports.Insert(index, viewport);
 

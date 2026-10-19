@@ -41,7 +41,7 @@ public partial class PlanView
         var document = Document!;
         var view = CurrentView;
         return string.Join("|",
-            _modelVersion, document.Elements.Count, document.Levels.Count, ActiveLevelId, PixelsPerMm.ToString("R"), DetailLevel, ShowUnderlay,
+            _modelVersion, document.Elements.Count, document.Levels.Count, ActiveLevelId, view, PixelsPerMm.ToString("R"), EffectiveDetailLevel, ShowUnderlay,
             _renderer.ShowWallLabels, SketchedElement?.Id, VisualTreeHelper.GetDpi(this).PixelsPerDip, document.ViewSettings.Version,
             document.ProjectInformation.ClearanceStandard, GroundColouring, string.Join(",", _selection.Select(element => element.Id)));
     }

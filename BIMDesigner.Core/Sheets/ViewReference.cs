@@ -13,8 +13,14 @@ public enum ViewKind
     Section,
     Schedule,
 
-    /// <summary>The 3D view. It cannot be placed on a sheet yet, but it has its own settings.</summary>
-    Model3D
+    /// <summary>A 3D view: the {3D} view, a camera, a copy - drawn on a sheet in its own style.</summary>
+    Model3D,
+
+    /// <summary>An elevation: one side of the building, or one arrow of an interior elevation marker.</summary>
+    Elevation,
+
+    /// <summary>A callout: part of a plan or section, larger, cropped to its box.</summary>
+    Callout
 }
 
 /// <summary>
@@ -27,6 +33,18 @@ public enum ViewKind
 /// </summary>
 public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string ScheduleName)
 {
+    /// <summary>Which of a target's views: an elevation's side, an interior marker's arrow.</summary>
+    public int Index { get; init; }
+
+    /// <summary>A callout's own view.</summary>
+    public static ViewReference Callout(Guid calloutId) => new(ViewKind.Callout, calloutId, string.Empty);
+
+    /// <summary>One of the building's four elevations.</summary>
+    public static ViewReference Elevation(ElevationSide side) => new(ViewKind.Elevation, Guid.Empty, string.Empty) { Index = (int)side };
+
+    /// <summary>The view one arrow of an interior elevation marker looks at.</summary>
+    public static ViewReference InteriorElevation(Guid markerId, int arrow) => new(ViewKind.Elevation, markerId, string.Empty) { Index = arrow };
+
     public static ViewReference FloorPlan(Guid levelId) => new(ViewKind.FloorPlan, levelId, string.Empty);
 
     public static ViewReference Section(Guid markerId) => new(ViewKind.Section, markerId, string.Empty);
@@ -34,6 +52,9 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
     public static ViewReference Schedule(string name) => new(ViewKind.Schedule, Guid.Empty, name);
 
     public static ViewReference Model3D => new(ViewKind.Model3D, Guid.Empty, string.Empty);
+
+    /// <summary>A 3D view kept by name: a camera's, or a copy of {3D}.</summary>
+    public static ViewReference View3D(Guid viewId) => new(ViewKind.Model3D, viewId, string.Empty);
 
     /// <summary>Whether the view this refers to still exists in the project.</summary>
     public bool ExistsIn(BimDocument document)
@@ -46,7 +67,11 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
             ViewKind.FloorPlan => document.FindLevel(targetId) is not null,
             ViewKind.Section => document.Elements.OfType<SectionMarker>().Any(s => s.Id == targetId),
             ViewKind.Schedule => !string.IsNullOrWhiteSpace(ScheduleName),
-            ViewKind.Model3D => true,
+            ViewKind.Model3D => Views3D.Find(document, this) is not null,
+            ViewKind.Elevation => targetId == Guid.Empty
+                ? Index is >= 0 and <= 3
+                : document.FindElement(targetId) is InteriorElevationMarker marker && marker.Looks(Index),
+            ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout && callout.Parent.Kind != ViewKind.Callout && callout.Parent.ExistsIn(document),
             _ => false
         };
     }
@@ -68,7 +93,13 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                 : "Section - missing marker",
 
             ViewKind.Schedule => string.IsNullOrWhiteSpace(ScheduleName) ? "Schedule" : ScheduleName,
-            ViewKind.Model3D => "3D",
+            ViewKind.Model3D => Views3D.Find(document, this)?.Name ?? "3D - missing view",
+            ViewKind.Elevation => targetId == Guid.Empty
+                ? Elevations.Name((ElevationSide)Math.Clamp(Index, 0, 3))
+                : document.FindElement(targetId) is InteriorElevationMarker marker
+                    ? marker.ViewName(Index)
+                    : "Elevation - missing marker",
+            ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout ? callout.Name : "Callout - missing",
             _ => "View"
         };
     }
@@ -90,6 +121,10 @@ public static class ViewExtent
     {
         ViewKind.FloorPlan => OfFloorPlan(document, reference.TargetId),
         ViewKind.Section => OfSection(document, reference.TargetId),
+        ViewKind.Model3D or ViewKind.Elevation => Projections.Of(document, reference).Extent is { IsEmpty: false } drawn ? drawn.Expand(Margin) : BoundingBox2D.Empty,
+
+        // A callout is cropped to its box: the box is its extent.
+        ViewKind.Callout => document.FindElement(reference.TargetId) is Callout callout ? callout.Region : BoundingBox2D.Empty,
         _ => BoundingBox2D.Empty
     };
 

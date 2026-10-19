@@ -853,6 +853,112 @@ public sealed class Mesh3D
     /// </summary>
     public void DropEdges() => _edges.Clear();
 
+    /// <summary>Where a cut has closed a solid again - a section box's face through it - rather than a face it was built with.</summary>
+    public bool Cut { get; init; }
+
+    /// <summary>
+    /// A copy with every point moved - into the frame of a view, say - its faces and edges with
+    /// it. How it was shaded is not carried: a moved surface faces new ways.
+    /// </summary>
+    public Mesh3D Mapped(Func<Point3D, Point3D> map)
+    {
+        var copy = _opacity is { } opacity
+            ? new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Opacity = opacity, Cut = Cut }
+            : new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Cut = Cut };
+        copy._positions.AddRange(_positions.Select(map));
+        copy._indices.AddRange(_indices);
+        copy._edges.AddRange(_edges.Select(edge => (map(edge.From), map(edge.To))));
+        return copy;
+    }
+
+    /// <summary>
+    /// What of this solid is inside a box - a section box round part of the model: each face
+    /// cut where it leaves the box, each edge likewise, a curved face shaded as it was. Null
+    /// when none of it is inside; itself when all of it is. Where it is cut open it is left
+    /// open: the faces that close it there are made from where the box's faces slice it.
+    /// </summary>
+    public Mesh3D? ClippedTo(Box3D box)
+    {
+        if (Bounds() is not { } bounds) return null;
+        if (bounds.Max.X < box.Min.X || bounds.Min.X > box.Max.X || bounds.Max.Y < box.Min.Y || bounds.Min.Y > box.Max.Y ||
+            bounds.Max.Z < box.Min.Z || bounds.Min.Z > box.Max.Z) return null;
+        if (box.Contains(bounds.Min) && box.Contains(bounds.Max)) return this;
+
+        var clipped = _opacity is { } opacity
+            ? new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Opacity = opacity, Cut = Cut }
+            : new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Cut = Cut };
+        var normals = _normals is null ? null : new List<Point3D>();
+
+        // Each face cut by the six planes in turn, its corners carrying which way it faces.
+        static (Point3D P, Point3D N) Between((Point3D P, Point3D N) a, (Point3D P, Point3D N) b, double t) =>
+            (new Point3D(a.P.X + (b.P.X - a.P.X) * t, a.P.Y + (b.P.Y - a.P.Y) * t, a.P.Z + (b.P.Z - a.P.Z) * t),
+             new Point3D(a.N.X + (b.N.X - a.N.X) * t, a.N.Y + (b.N.Y - a.N.Y) * t, a.N.Z + (b.N.Z - a.N.Z) * t));
+
+        var polygon = new List<(Point3D P, Point3D N)>(9);
+        var next = new List<(Point3D P, Point3D N)>(9);
+        for (var i = 0; i + 2 < _indices.Count; i += 3)
+        {
+            polygon.Clear();
+            for (var k = 0; k < 3; k++)
+            {
+                var index = _indices[i + k];
+                polygon.Add((_positions[index], _normals is { } n ? n[index] : default));
+            }
+
+            for (var plane = 0; plane < 6 && polygon.Count >= 3; plane++)
+            {
+                var axis = plane / 2;
+                var high = plane % 2 == 1;
+                var limit = Box3D.Along(high ? box.Max : box.Min, axis);
+                double Inside(Point3D p) => high ? limit - Box3D.Along(p, axis) : Box3D.Along(p, axis) - limit;
+
+                next.Clear();
+                for (var k = 0; k < polygon.Count; k++)
+                {
+                    var (a, b) = (polygon[k], polygon[(k + 1) % polygon.Count]);
+                    var (da, db) = (Inside(a.P), Inside(b.P));
+                    if (da >= 0) next.Add(a);
+                    if (da >= 0 != db >= 0) next.Add(Between(a, b, da / (da - db)));
+                }
+
+                (polygon, next) = (next, polygon);
+            }
+
+            for (var k = 1; k + 1 < polygon.Count; k++)
+            {
+                clipped.AddTriangle(polygon[0].P, polygon[k].P, polygon[k + 1].P);
+                normals?.AddRange(new[] { polygon[0].N, polygon[k].N, polygon[k + 1].N });
+            }
+        }
+
+        // Each edge to where it leaves the box.
+        foreach (var (from, to) in _edges)
+        {
+            var (t0, t1) = (0.0, 1.0);
+            for (var axis = 0; axis < 3 && t0 <= t1; axis++)
+            {
+                var (a, b) = (Box3D.Along(from, axis), Box3D.Along(to, axis));
+                var (low, high) = (Box3D.Along(box.Min, axis), Box3D.Along(box.Max, axis));
+                if (Math.Abs(b - a) < 1e-12)
+                {
+                    if (a < low || a > high) t0 = 2;
+                    continue;
+                }
+
+                var (enter, leave) = ((low - a) / (b - a), (high - a) / (b - a));
+                if (enter > leave) (enter, leave) = (leave, enter);
+                (t0, t1) = (Math.Max(t0, enter), Math.Min(t1, leave));
+            }
+
+            if (t0 >= t1) continue;
+            Point3D At(double t) => new(from.X + (to.X - from.X) * t, from.Y + (to.Y - from.Y) * t, from.Z + (to.Z - from.Z) * t);
+            clipped.AddEdge(At(t0), At(t1));
+        }
+
+        if (normals is not null) clipped._normals = normals.ToArray();
+        return clipped.IsEmpty && clipped._edges.Count == 0 ? null : clipped;
+    }
+
     /// <summary>The smallest box around everything, or null for an empty mesh.</summary>
     public (Point3D Min, Point3D Max)? Bounds()
     {

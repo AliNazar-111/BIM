@@ -646,6 +646,33 @@ public static class ProjectFile
                 Workset = section.Workset
             });
 
+        // The {3D} view is the project's own: no id of its own to keep.
+        dto.Default3D = View3DToDto(document.Default3D);
+        dto.Default3D.Id = Guid.Empty;
+        foreach (var view in document.Elements.OfType<View3D>()) dto.Views3D.Add(View3DToDto(view));
+        foreach (var callout in document.Elements.OfType<Callout>())
+            dto.Callouts.Add(new CalloutDto
+            {
+                Id = callout.Id, LevelId = callout.LevelId, Name = callout.Name,
+                ParentKind = callout.Parent.Kind.ToString(), ParentId = callout.Parent.TargetId, ParentIndex = callout.Parent.Index,
+                MinX = callout.Region.MinX, MinY = callout.Region.MinY, MaxX = callout.Region.MaxX, MaxY = callout.Region.MaxY,
+                Comments = callout.Comments
+            });
+
+        foreach (var marker in document.Elements.OfType<InteriorElevationMarker>())
+            dto.InteriorElevations.Add(new InteriorElevationDto
+            {
+                Id = marker.Id, LevelId = marker.LevelId, Name = marker.Name, X = marker.Location.X, Y = marker.Location.Y, Rotation = marker.Rotation,
+                Up = marker.LooksUp, Right = marker.LooksRight, Down = marker.LooksDown, Left = marker.LooksLeft, Comments = marker.Comments
+            });
+
+        foreach (var walk in document.Elements.OfType<Walkthrough>())
+            dto.Walkthroughs.Add(new WalkthroughDto
+            {
+                Id = walk.Id, LevelId = walk.LevelId, Name = walk.Name, Path = walk.Path.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                EyeHeight = walk.EyeHeight, Frames = walk.Frames, FramesPerSecond = walk.FramesPerSecond, Comments = walk.Comments
+            });
+
         foreach (var sheet in document.Elements.OfType<Sheet>())
             dto.Sheets.Add(new SheetDto
             {
@@ -666,11 +693,13 @@ public static class ProjectFile
                     Kind = viewport.View.Kind.ToString(),
                     TargetId = viewport.View.TargetId,
                     ScheduleName = viewport.View.ScheduleName,
+                    Index = viewport.View.Index,
                     X = viewport.Centre.X,
                     Y = viewport.Centre.Y,
                     Scale = viewport.Scale.Denominator,
                     ShowTitle = viewport.ShowTitle,
-                    TitleOverride = viewport.TitleOverride
+                    TitleOverride = viewport.TitleOverride,
+                    DetailNumber = viewport.DetailNumber
                 }).ToList()
             });
 
@@ -679,20 +708,40 @@ public static class ProjectFile
             {
                 Kind = view.Kind.ToString(),
                 TargetId = view.TargetId,
+                Index = view.Index,
                 HiddenWallFunctions = hidden.Select(function => function.ToString()).OrderBy(name => name).ToList(),
                 Scale = document.ViewSettings.Scaled.Where(s => s.View == view).Select(s => (double?)s.Scale).FirstOrDefault(),
-                JoinDisplay = document.ViewSettings.JoinDisplays.Where(s => s.View == view).Select(s => s.Display.ToString()).FirstOrDefault()
+                JoinDisplay = document.ViewSettings.JoinDisplays.Where(s => s.View == view).Select(s => s.Display.ToString()).FirstOrDefault(),
+                DetailLevel = document.ViewSettings.DetailLevelOf(view)?.ToString(),
+                Template = document.ViewSettings.TemplateOf(view)
             });
 
-        // Views with a scale or join display of their own but nothing hidden.
-        foreach (var view in document.ViewSettings.Scaled.Select(s => s.View).Concat(document.ViewSettings.JoinDisplays.Select(s => s.View)).Distinct()
+        // Views with a scale, join display, detail level or template of their own but nothing hidden.
+        foreach (var view in document.ViewSettings.Scaled.Select(s => s.View).Concat(document.ViewSettings.JoinDisplays.Select(s => s.View))
+                     .Concat(document.ViewSettings.DetailLevels.Select(s => s.View)).Concat(document.ViewSettings.Templated.Select(s => s.View)).Distinct()
                      .Where(v => document.ViewSettings.Filtered.All(f => f.View != v)))
             dto.ViewSettings.Add(new ViewSettingsDto
             {
                 Kind = view.Kind.ToString(),
                 TargetId = view.TargetId,
+                Index = view.Index,
                 Scale = document.ViewSettings.Scaled.Where(s => s.View == view).Select(s => (double?)s.Scale).FirstOrDefault(),
-                JoinDisplay = document.ViewSettings.JoinDisplays.Where(s => s.View == view).Select(s => s.Display.ToString()).FirstOrDefault()
+                JoinDisplay = document.ViewSettings.JoinDisplays.Where(s => s.View == view).Select(s => s.Display.ToString()).FirstOrDefault(),
+                DetailLevel = document.ViewSettings.DetailLevelOf(view)?.ToString(),
+                Template = document.ViewSettings.TemplateOf(view)
+            });
+
+        foreach (var template in document.Elements.OfType<ViewTemplate>())
+            dto.ViewTemplates.Add(new ViewTemplateDto
+            {
+                Id = template.Id, Name = template.Name, For = template.For.ToString(),
+                IncludeScale = template.IncludeScale, Scale = template.Scale,
+                IncludeDetailLevel = template.IncludeDetailLevel, DetailLevel = template.DetailLevel.ToString(),
+                IncludeWallFunctions = template.IncludeWallFunctions, HiddenWallFunctions = template.HiddenWallFunctions.Select(f => f.ToString()).OrderBy(n => n).ToList(),
+                IncludeJoinDisplay = template.IncludeJoinDisplay, JoinDisplay = template.JoinDisplay.ToString(),
+                IncludeVisualStyle = template.IncludeVisualStyle, VisualStyle = template.VisualStyle.ToString(),
+                IncludeHiddenKinds = template.IncludeHiddenKinds, HiddenKinds = template.HiddenKinds.Select(k => k.ToString()).OrderBy(n => n).ToList(),
+                Comments = template.Comments
             });
 
         foreach (var grid in document.Elements.OfType<Grid>())
@@ -2448,6 +2497,62 @@ public static class ProjectFile
                 Workset = section.Workset
             });
 
+        if (dto.Default3D is { } saved3D) View3DFromDto(saved3D, document.Default3D, document);
+        foreach (var saved in dto.Views3D)
+        {
+            var view = new View3D { Id = saved.Id };
+            View3DFromDto(saved, view, document);
+            document.Add(view);
+        }
+
+        foreach (var saved in dto.InteriorElevations.Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new InteriorElevationMarker
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Name = string.IsNullOrWhiteSpace(saved.Name) ? "1" : saved.Name,
+                Location = new Point2D(saved.X, saved.Y), Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0,
+                LooksUp = saved.Up, LooksRight = saved.Right, LooksDown = saved.Down, LooksLeft = saved.Left, Comments = saved.Comments ?? string.Empty
+            });
+
+        foreach (var saved in dto.ViewTemplates)
+        {
+            var template = new ViewTemplate
+            {
+                Id = saved.Id, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Template" : saved.Name, For = ParseEnum(saved.For, ViewTemplateKind.Plan),
+                IncludeScale = saved.IncludeScale, Scale = Within(saved.Scale, 1, 10000, 100),
+                IncludeDetailLevel = saved.IncludeDetailLevel, DetailLevel = ParseEnum(saved.DetailLevel, DetailLevel.Medium),
+                IncludeWallFunctions = saved.IncludeWallFunctions, IncludeJoinDisplay = saved.IncludeJoinDisplay,
+                JoinDisplay = ParseEnum(saved.JoinDisplay, WallJoinDisplay.CleanAllWallJoins),
+                IncludeVisualStyle = saved.IncludeVisualStyle, VisualStyle = ParseEnum(saved.VisualStyle, VisualStyle.HiddenLine),
+                IncludeHiddenKinds = saved.IncludeHiddenKinds, Comments = saved.Comments ?? string.Empty
+            };
+            foreach (var name in saved.HiddenWallFunctions ?? new List<string>())
+                if (Enum.TryParse<WallFunction>(name, out var function)) template.HiddenWallFunctions.Add(function);
+            foreach (var name in saved.HiddenKinds ?? new List<string>())
+                if (Enum.TryParse<MeshKind>(name, out var kind)) template.HiddenKinds.Add(kind);
+            document.Add(template);
+        }
+
+        foreach (var saved in dto.Callouts.Where(saved => new[] { saved.MinX, saved.MinY, saved.MaxX, saved.MaxY }.All(double.IsFinite) && saved.MaxX > saved.MinX && saved.MaxY > saved.MinY))
+            document.Add(new Callout
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Callout" : saved.Name,
+                Parent = new ViewReference(ParseEnum(saved.ParentKind, ViewKind.FloorPlan), saved.ParentId, string.Empty) { Index = saved.ParentIndex },
+                Region = new BoundingBox2D(saved.MinX, saved.MinY, saved.MaxX, saved.MaxY), Comments = saved.Comments ?? string.Empty
+            });
+
+        foreach (var saved in dto.Walkthroughs.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var walk = new Walkthrough
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Walkthrough" : saved.Name,
+                EyeHeight = Within(saved.EyeHeight, 100, 100000, 1750), Frames = saved.Frames is >= 2 and <= 100000 ? saved.Frames : 300,
+                FramesPerSecond = Within(saved.FramesPerSecond, 1, 120, 15), Comments = saved.Comments ?? string.Empty
+            };
+            var path = saved.Path ?? new List<double>();
+            walk.SetPath(Enumerable.Range(0, path.Count / 2).Select(i => new Point2D(path[2 * i], path[2 * i + 1])).Where(point => double.IsFinite(point.X) && double.IsFinite(point.Y)));
+            if (walk.Path.Count >= 2) document.Add(walk);
+        }
+
         foreach (var dtoSheet in dto.Sheets)
         {
             var sheet = new Sheet
@@ -2472,11 +2577,12 @@ public static class ProjectFile
                 sheet.Add(new Viewport
                 {
                     Id = dtoViewport.Id,
-                    View = new ViewReference(kind, dtoViewport.TargetId, dtoViewport.ScheduleName),
+                    View = new ViewReference(kind, dtoViewport.TargetId, dtoViewport.ScheduleName) { Index = dtoViewport.Index },
                     Centre = new Point2D(dtoViewport.X, dtoViewport.Y),
                     Scale = new ViewScale(dtoViewport.Scale > 0 ? dtoViewport.Scale : 100),
                     ShowTitle = dtoViewport.ShowTitle,
-                    TitleOverride = dtoViewport.TitleOverride
+                    TitleOverride = dtoViewport.TitleOverride,
+                    DetailNumber = dtoViewport.DetailNumber ?? string.Empty
                 });
             }
 
@@ -2485,7 +2591,7 @@ public static class ProjectFile
 
         foreach (var settings in dto.ViewSettings)
         {
-            var view = new ViewReference(ParseEnum(settings.Kind, ViewKind.FloorPlan), settings.TargetId, string.Empty);
+            var view = new ViewReference(ParseEnum(settings.Kind, ViewKind.FloorPlan), settings.TargetId, string.Empty) { Index = settings.Index };
 
             foreach (var name in settings.HiddenWallFunctions)
                 if (Enum.TryParse<WallFunction>(name, out var function))
@@ -2493,6 +2599,8 @@ public static class ProjectFile
 
             if (settings.Scale is { } scale) document.ViewSettings.SetScale(view, scale);
             if (settings.JoinDisplay is { } display) document.ViewSettings.SetJoinDisplay(view, ParseEnum(display, WallJoinDisplay.CleanAllWallJoins));
+            if (settings.DetailLevel is { } detail && Enum.TryParse<DetailLevel>(detail, out var level)) document.ViewSettings.SetDetailLevel(view, level);
+            if (settings.Template is { } governing) document.ViewSettings.SetTemplate(view, governing);
         }
 
         // A project written before a category existed carries no types for it. Fill those
@@ -2640,6 +2748,37 @@ public static class ProjectFile
 
     /// <summary>The railing type of a name in the library, for what an older project did not save of it.</summary>
     private static RailingType? Usual(string name) => RailingType.Library().FirstOrDefault(type => type.Name == name);
+
+    private static View3DDto View3DToDto(View3D view) => new()
+    {
+        Id = view.Id, Name = view.Name,
+        Camera = view.Camera is { } camera
+            ? new List<double> { camera.Eye.X, camera.Eye.Y, camera.Eye.Z, camera.Target.X, camera.Target.Y, camera.Target.Z, camera.FieldOfView }
+            : null,
+        Perspective = view.Perspective, Style = view.Style.ToString(),
+        SectionBox = view.SectionBox is { } box ? new List<double> { box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z } : null,
+        SectionBoxOn = view.SectionBoxOn,
+        HiddenLevels = view.HiddenLevels.Count > 0 ? view.HiddenLevels.ToList() : null,
+        HiddenKinds = view.HiddenKinds.Count > 0 ? view.HiddenKinds.Select(kind => kind.ToString()).OrderBy(name => name).ToList() : null,
+        ShowGround = view.ShowGround, ShowEdges = view.ShowEdges, Comments = view.Comments
+    };
+
+    private static void View3DFromDto(View3DDto saved, View3D view, BimDocument document)
+    {
+        view.Name = string.IsNullOrWhiteSpace(saved.Name) ? view.Name : saved.Name;
+        if (saved.Camera is { Count: 7 } c && c.All(double.IsFinite))
+            view.Camera = new Camera3D(new Point3D(c[0], c[1], c[2]), new Point3D(c[3], c[4], c[5])) { FieldOfView = Math.Clamp(c[6], 10, 120) };
+        view.Perspective = saved.Perspective;
+        view.Style = ParseEnum(saved.Style, VisualStyle.Shaded);
+        if (saved.SectionBox is { Count: 6 } b && b.All(double.IsFinite))
+            view.SectionBox = Box3D.Around(new Point3D(b[0], b[1], b[2]), new Point3D(b[3], b[4], b[5]));
+        view.SectionBoxOn = saved.SectionBoxOn && view.SectionBox is not null;
+        if (saved.HiddenLevels is { } levels) view.HiddenLevels.UnionWith(levels.Where(id => document.FindLevel(id) is not null));
+        if (saved.HiddenKinds is { } kinds)
+            foreach (var name in kinds)
+                if (Enum.TryParse<MeshKind>(name, out var kind)) view.HiddenKinds.Add(kind);
+        (view.ShowGround, view.ShowEdges, view.Comments) = (saved.ShowGround, saved.ShowEdges, saved.Comments ?? string.Empty);
+    }
 
     private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(text, ignoreCase: true, out var value) ? value : fallback;

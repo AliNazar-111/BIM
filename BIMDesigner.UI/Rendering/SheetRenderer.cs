@@ -21,6 +21,7 @@ public sealed class SheetRenderer
 {
     private readonly PlanRenderer _plan = new(DrawingPalette.Paper);
     private readonly SectionRenderer _section = new(DrawingPalette.Paper);
+    private readonly ProjectionRenderer _projection = new(DrawingPalette.Paper);
 
     private readonly Brush _paperBrush;
     private readonly Brush _shadowBrush;
@@ -203,7 +204,7 @@ public sealed class SheetRenderer
                 _plan.Document = Document;
                 _plan.ActiveLevelId = viewport.View.TargetId;
                 _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
-                _plan.DetailLevel = DetailLevel.Fine;
+                _plan.DetailLevel = Document.ViewSettings.DetailLevelOf(viewport.View) ?? DetailLevel.Fine;
                 _plan.ShowWallLabels = false;
                 _plan.View = viewport.View;
 
@@ -230,8 +231,44 @@ public sealed class SheetRenderer
                 // Datum names are suppressed: they would spill outside the frame and be
                 // clipped, which reads as a mistake rather than as a label.
                 _section.DrawContent(dc, SectionProjection.Build(Document, marker, Document.ViewSettings.FilterFor(Document, viewport.View)), labelLevels: false);
+                _section.DrawCallouts(dc, Document, viewport.View);
                 break;
             }
+
+            // A callout: its parent drawn again at its own scale and detail, cropped to its box by the viewport's frame.
+            case ViewKind.Callout when Document.FindElement(viewport.View.TargetId) is Callout callout:
+                if (callout.Parent.Kind == ViewKind.FloorPlan)
+                {
+                    _plan.Document = Document;
+                    _plan.ActiveLevelId = callout.Parent.TargetId;
+                    _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
+                    _plan.DetailLevel = Document.ViewSettings.DetailLevelOf(viewport.View) ?? DetailLevel.Fine;
+                    _plan.ShowWallLabels = false;
+                    _plan.View = viewport.View;
+                    _plan.SetSelection(null);
+                    _plan.PixelsPerDip = PixelsPerDip;
+                    _plan.PixelsPerPaperMm = PixelsPerPaperMm;
+                    _plan.SetTransform(point => ViewToScreen(point.X, point.Y), pixelsPerModelMm);
+                    _plan.DrawContent(dc);
+                }
+                else if (Document.Elements.OfType<SectionMarker>().FirstOrDefault(m => m.Id == callout.Parent.TargetId) is { } cut)
+                {
+                    _section.SetSelection(null);
+                    _section.PixelsPerDip = PixelsPerDip;
+                    _section.PixelsPerPaperMm = PixelsPerPaperMm;
+                    _section.SetTransform(ViewToScreen);
+                    _section.DrawContent(dc, SectionProjection.Build(Document, cut, Document.ViewSettings.FilterFor(Document, viewport.View)), labelLevels: false);
+                }
+
+                break;
+
+            // A 3D view as it was left, or an elevation: the model projected into lines and painted faces.
+            case ViewKind.Model3D or ViewKind.Elevation:
+                _projection.PixelsPerDip = PixelsPerDip;
+                _projection.PixelsPerPaperMm = PixelsPerPaperMm;
+                _projection.SetTransform(ViewToScreen);
+                _projection.DrawContent(dc, Projections.Of(Document, viewport.View), labelLevels: false);
+                break;
         }
     }
 
@@ -244,15 +281,28 @@ public sealed class SheetRenderer
 
         var baseline = frame.Bottom + Paper(3);
 
-        dc.DrawText(title, new Point(frame.X, baseline));
-        dc.DrawText(scale, new Point(frame.X, baseline + title.Height));
+        // Its detail number in a circle before the title: what a callout, section or elevation
+        // pointing at the view quotes, with the sheet's number.
+        var left = frame.X;
+        if (!string.IsNullOrWhiteSpace(viewport.DetailNumber))
+        {
+            var radius = Paper(3.4);
+            var centre = new Point(frame.X + radius, baseline + radius + Paper(0.6));
+            dc.DrawEllipse(null, _titleBlockPen, centre, radius, radius);
+            var number = Text(viewport.DetailNumber, Paper(3.2), _titleTextBrush, bold: true);
+            dc.DrawText(number, new Point(centre.X - number.Width / 2, centre.Y - number.Height / 2));
+            left = frame.X + radius * 2 + Paper(2);
+        }
+
+        dc.DrawText(title, new Point(left, baseline));
+        dc.DrawText(scale, new Point(left, baseline + title.Height));
 
         // The rule under a view title is the convention that binds the two lines to the
         // drawing above rather than to the one below.
         var rule = baseline + title.Height + scale.Height + Paper(1);
         dc.DrawLine(_titleBlockPen,
             new Point(frame.X, rule),
-            new Point(frame.X + Math.Max(title.Width, Paper(30)), rule));
+            new Point(left + Math.Max(title.Width, Paper(30)), rule));
     }
 
     /// <summary>

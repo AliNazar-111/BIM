@@ -808,10 +808,40 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Templates" Style="{StaticResource RibbonPanel}">
+                            <StackPanel>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Filter}"
+                                        Content="Create from View" Click="OnCreateViewTemplate"
+                                        ToolTip="A view template of the view shown, as it is set now: its scale, detail level, walls shown, joins, style"/>
+                                <Button x:Name="ApplyTemplateButton" Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Filter}"
+                                        Content="Apply to View" Click="OnApplyViewTemplate"
+                                        ToolTip="Set the view shown from a template, once; to have a template govern it, pick it in the view's Properties">
+                                    <Button.ContextMenu>
+                                        <ContextMenu x:Name="ApplyTemplateMenu"/>
+                                    </Button.ContextMenu>
+                                </Button>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Filter}"
+                                        Content="Manage" Click="OnManageViewTemplates"
+                                        ToolTip="The project's view templates: what each sets, and the views each governs"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Create" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <ToggleButton x:Name="ModelMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.View3D}"
                                               Content="3D View" Click="OnToggle3D" ToolTip="Ctrl+3"/>
+                                <RadioButton x:Name="CameraTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Camera}"
+                                             Content="Camera" Checked="OnToolChanged"
+                                             ToolTip="Click where the eye stands, then where it looks: a 3D view in perspective, from eye height above the floor"/>
+                                <RadioButton x:Name="CalloutTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Callout}"
+                                             Content="Callout" Checked="OnToolChanged"
+                                             ToolTip="Click two corners of part of the plan: a view of its own, cropped to the box, at 1:50 and fine detail. On a section, use Callout on the section bar"/>
+                                <RadioButton x:Name="InteriorElevationTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.InteriorElevation}"
+                                             Content="Elevation" Checked="OnToolChanged"
+                                             ToolTip="Interior elevation: click in a room for a marker looking at each of its walls, each view cropped to the room, its floor and ceiling"/>
+                                <RadioButton x:Name="WalkthroughTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Walkthrough}"
+                                             Content="Walkthrough" Checked="OnToolChanged"
+                                             ToolTip="Click along a path and double-click where it ends: a camera follows it at eye height, played in the 3D view"/>
                                 <RadioButton x:Name="SectionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Section}"
                                              Content="Section" Checked="OnToolChanged" ToolTip="Cut a section through the building (C)"/>
                                 <ToggleButton x:Name="SectionMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Plan}"
@@ -2175,6 +2205,9 @@
                                 </StackPanel>
 
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button x:Name="SectionCalloutButton" Content="Callout" Padding="12,5" Margin="0,0,8,0"
+                                            Click="OnSectionCallout"
+                                            ToolTip="Drag a box round part of the section: a detail of it, a view of its own at 1:20"/>
                                     <Button Content="Flip" Padding="12,5" Margin="0,0,8,0"
                                             Click="OnFlipSection"
                                             ToolTip="Look the other way along the cut"/>
@@ -2185,7 +2218,10 @@
                             </Grid>
                         </Border>
 
-                        <controls:SectionView x:Name="Section"/>
+                        <Grid>
+                            <controls:SectionView x:Name="Section"/>
+                            <controls:ProjectedView x:Name="Projected" Visibility="Collapsed"/>
+                        </Grid>
                     </DockPanel>
                 </Border>
 
@@ -2345,7 +2381,30 @@
                                            ToolTip="Visual style"/>
                                     <ComboBox x:Name="VisualStylePicker" Style="{StaticResource ViewControlCombo}"
                                               MinWidth="110" SelectionChanged="OnVisualStyleChanged"
-                                              ToolTip="Visual style: shaded, flat colours, or see-through"/>
+                                              ToolTip="Visual style: shaded, flat colours, see-through, wireframe - every edge, those behind too - or hidden line, white faces and black edges"/>
+                                    <CheckBox x:Name="PerspectiveBox" Content="Perspective" VerticalAlignment="Center" Margin="6,0,8,0"
+                                              Click="OnPerspectiveChanged"
+                                              ToolTip="In perspective, as the eye sees; or orthographic, every line its true direction, as an axonometric is drawn"/>
+                                    <ToggleButton x:Name="SectionBoxToggle" Style="{StaticResource ViewControlToggle}" Content="Section Box"
+                                                  Click="OnToggleSectionBox"
+                                                  ToolTip="Show only what is inside a box round the model; pull its faces in by the handles on them"/>
+                                    <Button x:Name="BoxSelectionButton" Style="{StaticResource ViewControlButton}" Content="Box Selection"
+                                            Click="OnBoxSelection"
+                                            ToolTip="A section box round what is selected (BX)"/>
+                                    <ToggleButton x:Name="WalkToggle" Style="{StaticResource ViewControlToggle}" Content="Walk"
+                                                  Click="OnToggleWalk"
+                                                  ToolTip="Walk through the model at eye height: W A S D or the arrows, Shift to hurry, drag to look round, Esc to stop"/>
+                                    <Button x:Name="SaveViewButton" Style="{StaticResource ViewControlButton}" Content="Save View"
+                                            Click="OnSave3DView"
+                                            ToolTip="Keep this view by a name of its own - its camera, style, section box and what it shows - to open again or place on a sheet"/>
+                                    <StackPanel x:Name="WalkthroughBar" Orientation="Horizontal" Visibility="Collapsed">
+                                        <Button x:Name="PlayButton" Style="{StaticResource ViewControlButton}" Content="Play"
+                                                Click="OnPlayWalkthrough" ToolTip="Play the walkthrough from this frame; Esc stops it"/>
+                                        <Button Style="{StaticResource ViewControlButton}" Content="|&lt;" Click="OnWalkthroughFirst" ToolTip="The first frame"/>
+                                        <Button Style="{StaticResource ViewControlButton}" Content="&lt;" Click="OnWalkthroughBack" ToolTip="Back a key frame"/>
+                                        <Button Style="{StaticResource ViewControlButton}" Content="&gt;" Click="OnWalkthroughForward" ToolTip="On a key frame"/>
+                                        <TextBlock x:Name="FrameText" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource Text.Muted}"/>
+                                    </StackPanel>
                                     <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnZoom3DToFit"
                                             ToolTip="Frame the whole model (F)"/>
                                     <Button Style="{StaticResource ViewControlButton}" Content="Reset" Click="OnReset3DView"

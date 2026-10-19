@@ -69,6 +69,9 @@ public sealed class BimDocument
     /// <summary>What each view leaves out. Views not listed show everything.</summary>
     public Views.ViewSettings ViewSettings { get; } = new();
 
+    /// <summary>The {3D} view every project has: where the 3D window opens, with its camera, style and section box.</summary>
+    public Views.View3D Default3D { get; } = new() { Name = "{3D}" };
+
     /// <summary>Everything placed in the project. Observable so views refresh themselves.</summary>
     public ObservableCollection<Element> Elements { get; } = new();
 

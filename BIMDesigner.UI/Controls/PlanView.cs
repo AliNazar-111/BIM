@@ -113,6 +113,18 @@ public enum PlanTool
     /// <summary>Cuts an opening in a roof's face, square to its slope.</summary>
     FaceOpening,
 
+    /// <summary>Makes a 3D view in perspective, from where the eye stands to where it looks.</summary>
+    Camera,
+
+    /// <summary>Draws the path a walkthrough follows.</summary>
+    Walkthrough,
+
+    /// <summary>Places an interior elevation marker in a room.</summary>
+    InteriorElevation,
+
+    /// <summary>Draws a callout's box: part of the plan, larger, as a view of its own.</summary>
+    Callout,
+
     /// <summary>Puts a roof window in the roof slope clicked, lined up with it.</summary>
     RoofWindow,
 
@@ -399,6 +411,9 @@ public partial class PlanView : FrameworkElement
 
             _activeLevelId = value;
 
+            // A callout belongs to its storey: another storey is its own plan.
+            if (_activeCallout is { } callout && callout.LevelId != value) _activeCallout = null;
+
             // Anything selected on the old level is no longer on this drawing.
             if (_selection.Any(element => !IsOnActiveLevel(element)))
                 SelectMany(_selection.Where(IsOnActiveLevel).ToList());
@@ -675,7 +690,7 @@ public partial class PlanView : FrameworkElement
     };
 
     /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
-    public ViewReference CurrentView => ViewReference.FloorPlan(ActiveLevelId);
+    public ViewReference CurrentView => ActiveCallout is { } callout ? Callouts.Reference(callout) : ViewReference.FloorPlan(ActiveLevelId);
 
     /// <summary>
     /// The spacebar: flips the wall being drawn, or failing that every selected wall.
@@ -1207,6 +1222,10 @@ public partial class PlanView : FrameworkElement
         PlanTool.FloorByFace => "Click a mass: floors are made at its mass floors - every level through it, if it has none yet.",
         PlanTool.RoofByFace => "Click a mass: its top is made a roof - flat, pitched as its top slopes, or up from its foot to a point.",
         PlanTool.FaceOpening => "Click on a roof's face where the opening's middle goes: it is cut square to the slope, as wide across it and as long up it as the option bar says.",
+        PlanTool.Camera => "Click where the camera stands, then where it looks: a 3D view in perspective from eye height above this floor.",
+        PlanTool.Walkthrough => "Click along the way a camera is to go, and double-click where it ends: a walkthrough, played in the 3D view.",
+        PlanTool.InteriorElevation => "Click in a room: a marker looking at each of its four walls, each a view cropped to the room, its floor and ceiling.",
+        PlanTool.Callout => "Click two corners of the part of the plan to call out: it becomes a view of its own, at 1:50 and fine detail, under Callouts.",
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
         PlanTool.Chimney => "Click where the chimney stack goes: it rises from this storey up through the roof over it, as far above it as the height rule asks, capped with a pot on each flue. Size and flues on the option bar.",
         PlanTool.Stair => "Click where the stair's first riser goes, then which way is up: it runs up to the level above, its risers worked out from the storey's height, and cuts its opening in the floor over it. Shape, turn and width are on the option bar.",
@@ -1351,6 +1370,8 @@ public partial class PlanView : FrameworkElement
                       | CancelRoofEdgePick()
                       | CancelSlabEdgePick()
                       | CancelMass()
+                      | CancelCamera()
+                      | CancelCallout()
                       | CancelSplitFace()
                       | CancelArcTools()
                       | CancelShapedWall()
@@ -1409,7 +1430,9 @@ public partial class PlanView : FrameworkElement
 
     public void ZoomToFit()
     {
-        var points = Document is null ? new List<Point2D>() : ExtentPoints(Document).ToList();
+        var points = Document is null ? new List<Point2D>() : ActiveCallout is { } callout
+            ? new List<Point2D> { new(callout.Region.MinX, callout.Region.MinY), new(callout.Region.MaxX, callout.Region.MaxY) }
+            : ExtentPoints(Document).ToList();
 
         if (points.Count == 0 || ActualWidth <= 0 || ActualHeight <= 0)
         {
@@ -1747,6 +1770,11 @@ public partial class PlanView : FrameworkElement
             _cursorIsSnapped = false;
             FaceOpeningHover(raw);
         }
+        else if (ActiveTool is PlanTool.Camera or PlanTool.Walkthrough or PlanTool.InteriorElevation or PlanTool.Callout)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            CameraHover(_cursorModel);
+        }
         else if (ActiveTool == PlanTool.Dormer)
         {
             DormerHover(raw);
@@ -1821,6 +1849,9 @@ public partial class PlanView : FrameworkElement
             SketchClick(raw);
             return;
         }
+
+        // A double-click on a callout's box opens its view.
+        if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && OpenCalloutAt(raw)) return;
 
         // Double-clicking a roof opens its sketch, as it does in Revit - or, for a roof by
         // extrusion, its profile. A floor or ceiling opens its boundary.
@@ -2012,6 +2043,23 @@ public partial class PlanView : FrameworkElement
                 PlaceFaceOpeningAt(raw);
                 return;
 
+            case PlanTool.Camera:
+                ClickCamera(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.InteriorElevation:
+                PlaceInteriorElevation(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Callout:
+                ClickCallout(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Walkthrough:
+                if (e.ClickCount == 2 && FinishWalkthrough()) return;
+                ClickWalkthrough(SnapPoint(raw, null, out _));
+                return;
+
             case PlanTool.Downpipe:
                 PlaceDownpipeAt(raw);
                 return;
@@ -2088,10 +2136,16 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        // An elevation marker opens its elevation.
+        // An elevation marker opens its elevation; an interior marker's arrow, the view it looks at.
         if (ElevationMarkerAt(e.GetPosition(this)) is { } elevation)
         {
             ElevationPicked?.Invoke(this, elevation);
+            return;
+        }
+
+        if (InteriorArrowAt(e.GetPosition(this)) is { } interior)
+        {
+            InteriorViewPicked?.Invoke(this, interior);
             return;
         }
 
@@ -5828,8 +5882,11 @@ public partial class PlanView : FrameworkElement
         foreach (var grid in OnActiveLevel<Grid>().Where(grid => DistanceToSegment(model, grid.Start, grid.End) <= gridTolerance))
             yield return grid;
 
-        // A mass is picked where this storey cuts it, before the slabs it may be built of.
+        // A callout is picked by its box's edge; a mass where this storey cuts it, before the slabs it may be built of.
+        foreach (var callout in CalloutsAt(model)) yield return callout;
         foreach (var mass in MassesAt(model)) yield return mass;
+        foreach (var walk in WalkthroughsAt(model)) yield return walk;
+        foreach (var marker in InteriorMarkersAt(model)) yield return marker;
 
         // Slabs last: they are under everything, so anything above them wins the click - but for the ground, under them too.
         foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
@@ -5896,8 +5953,15 @@ public partial class PlanView : FrameworkElement
         // drawing itself comes from the shared renderer, so the plan on screen and the plan
         // inside a viewport on a sheet are the same drawing produced by the same code - kept
         // between repaints, where nothing it shows has changed.
+        // A callout is its part of the plan only: the rest is cropped away.
+        if (ActiveCallout is { } callout) dc.PushClip(new RectangleGeometry(CropRect(callout)));
         DrawModel(dc);
         DrawClearances(dc);
+        if (ActiveCallout is not null)
+        {
+            dc.Pop();
+            DrawCrop(dc);
+        }
 
         // Editing affordances go on top, and only here. Grips, snap rings and half-finished
         // walls belong to the editor rather than to the drawing, so none of them may ever
@@ -5908,6 +5972,8 @@ public partial class PlanView : FrameworkElement
         DrawRoofEdgePick(dc);
         DrawRoofWindowPreview(dc);
         DrawShaftPreview(dc);
+        DrawCameras(dc);
+        DrawCalloutPreview(dc);
         DrawFaceOpeningPreview(dc);
         DrawSlabEdgePick(dc);
         DrawMasses(dc);
@@ -5921,6 +5987,7 @@ public partial class PlanView : FrameworkElement
         DrawGroundPreview(dc);
         DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);
+        DrawInteriorMarkers(dc);
         DrawGroundLegend(dc);
         DrawArcToolPreview(dc);
         DrawShapedWallPreview(dc);
@@ -5961,7 +6028,7 @@ public partial class PlanView : FrameworkElement
         var editing = SketchedElement;
         _renderer.Filter = editing is null ? _shows : element => !ReferenceEquals(element, editing) && _shows(element);
         _renderer.Document = Document;
-        _renderer.DetailLevel = DetailLevel;
+        _renderer.DetailLevel = EffectiveDetailLevel;
         _renderer.View = CurrentView;
         _renderer.SetSelection(_selection);
         _renderer.ActiveLevelId = ActiveLevelId;
@@ -5988,7 +6055,7 @@ public partial class PlanView : FrameworkElement
         if (Levels.Below(Document, ActiveLevelId) is not { } below) return;
 
         _underlayRenderer.Document = Document;
-        _underlayRenderer.DetailLevel = DetailLevel;
+        _underlayRenderer.DetailLevel = EffectiveDetailLevel;
         _underlayRenderer.View = CurrentView;
         _underlayRenderer.SetSelection(null);
         _underlayRenderer.ActiveLevelId = below.Id;

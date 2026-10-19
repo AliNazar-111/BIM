@@ -46,25 +46,38 @@ public partial class ModelView
             if (_elevation == value) return;
 
             _elevation = value;
-            _viewport.Camera = value is null ? _camera : _ortho;
+            _viewport.Camera = IsOrtho ? _ortho : _camera;
             if (value is { } side)
             {
+                StopMoving();
                 var outward = Elevations.Outward(side);
                 _yaw = Math.Atan2(outward.Y, outward.X) * 180 / Math.PI;
                 _pitch = 0;
+                ZoomToFit();
+            }
+            else if (_view.Camera is not null)
+            {
+                LoadCamera();
+            }
+            else
+            {
+                ZoomToFit();
             }
 
-            ZoomToFit();
+            // An elevation is the whole building: no section box.
+            ApplySectionBox();
+            Compose();
             _overlay.InvalidateVisual();
         }
     }
 
     /// <summary>How wide the elevation shows, in metres: as wide as the perspective view sees at the same distance.</summary>
-    private double OrthoWidth => 2 * _distance * Math.Tan(FieldOfView / 2 * Math.PI / 180);
+    private double OrthoWidth => 2 * _distance * Math.Tan(_camera.FieldOfView / 2 * Math.PI / 180);
 
+    /// <summary>The camera without perspective - an elevation, or an orthographic 3D view - set where the orbit puts it.</summary>
     private void UpdateElevationCamera()
     {
-        if (_elevation is null) return;
+        if (!IsOrtho) return;
 
         var look = _camera.LookDirection;
         look.Normalize();
@@ -79,7 +92,7 @@ public partial class ModelView
     /// <summary>Frames the whole model, seen from this side.</summary>
     private void ElevationZoomToFit()
     {
-        var visible = _meshes.Where(mesh => !_hiddenLevels.Contains(mesh.LevelId));
+        var visible = _meshes.Where(_view.Shows);
         if (ModelMeshBuilder.Bounds(visible) is not { } bounds) return;
 
         _target = new MediaPoint3D(
@@ -99,17 +112,27 @@ public partial class ModelView
     }
 
     /// <summary>Where a point of the model is on the elevation, in the view's pixels. Null in the 3D view.</summary>
-    public Point? ToScreen(CorePoint3D point)
-    {
-        if (_elevation is null) return null;
+    public Point? ToScreen(CorePoint3D point) => _elevation is null ? null : OrthoScreen(point);
 
+    /// <summary>Where a point of the model is in a view without perspective, in its pixels.</summary>
+    private Point OrthoScreen(CorePoint3D point)
+    {
         var width = Math.Max(_viewport.ActualWidth, 1);
         var height = Math.Max(_viewport.ActualHeight, 1);
-        var (right, _) = ElevationAxes();
+        var (right, up, _) = OrthoAxes();
         var perUnit = width / OrthoWidth;
         var d = new Vector3D(point.X / MillimetresPerUnit - _target.X, point.Y / MillimetresPerUnit - _target.Y, point.Z / MillimetresPerUnit - _target.Z);
 
-        return new Point(width / 2 + Vector3D.DotProduct(d, right) * perUnit, height / 2 - d.Z * perUnit);
+        return new Point(width / 2 + Vector3D.DotProduct(d, right) * perUnit, height / 2 - Vector3D.DotProduct(d, up) * perUnit);
+    }
+
+    /// <summary>Across the view, up it, and the way it looks, for a view without perspective.</summary>
+    private (Vector3D Right, Vector3D Up, Vector3D Look) OrthoAxes()
+    {
+        var (right, look) = ElevationAxes();
+        var up = Vector3D.CrossProduct(right, look);
+        up.Normalize();
+        return (right, up, look);
     }
 
     /// <summary>The way across the elevation, left to right, and the way it looks.</summary>
@@ -118,19 +141,20 @@ public partial class ModelView
         var look = _camera.LookDirection;
         look.Normalize();
         var right = Vector3D.CrossProduct(look, new Vector3D(0, 0, 1));
+        if (right.Length < 1e-9) right = new Vector3D(1, 0, 0);
         right.Normalize();
         return (right, look);
     }
 
-    /// <summary>A line of sight through a point of an elevation: square to it, from in front of everything.</summary>
+    /// <summary>A line of sight through a point of a view without perspective: square to it, from in front of everything.</summary>
     private (CorePoint3D From, CorePoint3D Through) ElevationRay(Point point)
     {
         var width = Math.Max(_viewport.ActualWidth, 1);
         var height = Math.Max(_viewport.ActualHeight, 1);
-        var (right, look) = ElevationAxes();
+        var (right, up, look) = OrthoAxes();
         var perUnit = width / OrthoWidth;
 
-        var onPlane = _target + right * ((point.X - width / 2) / perUnit) + new Vector3D(0, 0, (height / 2 - point.Y) / perUnit);
+        var onPlane = _target + right * ((point.X - width / 2) / perUnit) + up * ((height / 2 - point.Y) / perUnit);
         var from = onPlane - look * ElevationBack;
         var through = from + look;
 

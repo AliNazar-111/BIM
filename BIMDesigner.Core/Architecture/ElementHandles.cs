@@ -2,6 +2,8 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Sheets;
+using BIMDesigner.Core.Views;
 
 namespace BIMDesigner.Core.Architecture;
 
@@ -32,7 +34,8 @@ public sealed record ElementHandle(string Key, Point2D At, double Height, bool V
 public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
-    public static bool Has(Element element) => element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine;
+    public static bool Has(Element element) =>
+        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or Callout { Parent.Kind: ViewKind.FloorPlan };
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -93,6 +96,15 @@ public static class ElementHandles
                 Outline(handles, line.Boundary, _ => document.FindLevel(line.LevelId)?.Elevation ?? 0);
                 break;
 
+            // A plan callout's box: its corners, to crop it larger or smaller.
+            case Callout { Parent.Kind: ViewKind.FloorPlan } callout:
+            {
+                var floor = document.FindLevel(callout.LevelId)?.Elevation ?? 0;
+                var corners = Corners(callout.Region);
+                for (var i = 0; i < 4; i++) handles.Add(new ElementHandle($"corner:{i}", corners[i], floor, false, HandleShape.Corner));
+                break;
+            }
+
             case BeamSystem system:
                 Outline(handles, system.Boundary, _ => BeamSystems.Top(document, system));
                 break;
@@ -122,6 +134,10 @@ public static class ElementHandles
 
         return handles;
     }
+
+    /// <summary>A box's corners, anticlockwise from its lowest.</summary>
+    private static Point2D[] Corners(BoundingBox2D box) =>
+        new[] { new Point2D(box.MinX, box.MinY), new Point2D(box.MaxX, box.MinY), new Point2D(box.MaxX, box.MaxY), new Point2D(box.MinX, box.MaxY) };
 
     /// <summary>A closed outline's handles: a corner at each point, a "+" midway along each side.</summary>
     private static void Outline(List<ElementHandle> handles, IReadOnlyList<Point2D> outline, Func<Point2D, double> height)
@@ -212,6 +228,21 @@ public static class ElementHandles
             {
                 line.SetBoundary(Moved(line.Boundary, kind, index, to, out _));
                 return ($"{Polygon2D.Area(line.Boundary) / 1e6:0.0} m². {PropertyLines.Verdict(document, line)}.", Following(line.Boundary, to, handle.Key));
+            }
+
+            case Callout callout when kind == "corner" && index is >= 0 and < 4:
+            {
+                // The corner across from it stays; the box is never smaller than a callout can be.
+                var fixedCorner = Corners(callout.Region)[(index + 2) % 4];
+                var away = new Vector2D(Math.Sign(to.X - fixedCorner.X), Math.Sign(to.Y - fixedCorner.Y));
+                if (away.X == 0) away = away with { X = 1 };
+                if (away.Y == 0) away = away with { Y = 1 };
+                var corner = new Point2D(
+                    Math.Abs(to.X - fixedCorner.X) < Callouts.Smallest ? fixedCorner.X + away.X * Callouts.Smallest : to.X,
+                    Math.Abs(to.Y - fixedCorner.Y) < Callouts.Smallest ? fixedCorner.Y + away.Y * Callouts.Smallest : to.Y);
+                callout.Region = new BoundingBox2D(Math.Min(corner.X, fixedCorner.X), Math.Min(corner.Y, fixedCorner.Y), Math.Max(corner.X, fixedCorner.X), Math.Max(corner.Y, fixedCorner.Y));
+                var follow = Enumerable.Range(0, 4).OrderBy(i => Corners(callout.Region)[i].DistanceTo(corner)).First();
+                return ($"Cropped to {callout.Region.Width / 1000:0.00} m by {callout.Region.Height / 1000:0.00} m.", $"corner:{follow}");
             }
 
             case GroundRegion region:
@@ -434,6 +465,7 @@ public static class ElementHandles
         SitePad pad => pad.Boundary.ToList(),
         PropertyLine line => line.Boundary.ToList(),
         BeamSystem system => system.Boundary.ToList(),
+        Callout callout => callout.Region,
         Ramp ramp => new RampState(ramp.Start, ramp.Angle, ramp.Width, ramp.PathLengths.ToArray(), ramp.PathTurns.ToArray(), ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight),
         _ => new object()
     };
@@ -463,6 +495,9 @@ public static class ElementHandles
                 break;
             case (BeamSystem system, List<Point2D> boundary):
                 system.SetBoundary(boundary);
+                break;
+            case (Callout callout, BoundingBox2D region):
+                callout.Region = region;
                 break;
             case (Ramp ramp, RampState state):
                 (ramp.Start, ramp.Angle, ramp.Width, ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight) =

@@ -54,5 +54,11 @@ public enum ParameterGroup
     Other,
 
     /// <summary>How a view is drawn: its scale, detail level, style.</summary>
-    Graphics
+    Graphics,
+
+    /// <summary>How far a view reaches: its section box, its crop.</summary>
+    Extents,
+
+    /// <summary>Where a camera stands and looks.</summary>
+    Camera
 }

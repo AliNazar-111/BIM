@@ -111,6 +111,109 @@ internal sealed class ProjectFileDto
 
     /// <summary>Views that leave something out. Missing from older files, where every view showed everything.</summary>
     public List<ViewSettingsDto> ViewSettings { get; set; } = new();
+
+    /// <summary>The {3D} view: its camera, style, section box. Missing from older files, which open fitted round the model.</summary>
+    public View3DDto? Default3D { get; set; }
+
+    /// <summary>3D views kept by name: cameras, and copies of {3D}.</summary>
+    public List<View3DDto> Views3D { get; set; } = new();
+
+    public List<WalkthroughDto> Walkthroughs { get; set; } = new();
+
+    public List<InteriorElevationDto> InteriorElevations { get; set; } = new();
+
+    public List<CalloutDto> Callouts { get; set; } = new();
+
+    public List<ViewTemplateDto> ViewTemplates { get; set; } = new();
+}
+
+/// <summary>A view template: what it is for, and each setting with whether it is included.</summary>
+internal sealed class ViewTemplateDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Template";
+    public string For { get; set; } = "Plan";
+    public bool IncludeScale { get; set; } = true;
+    public double Scale { get; set; } = 100;
+    public bool IncludeDetailLevel { get; set; } = true;
+    public string DetailLevel { get; set; } = "Medium";
+    public bool IncludeWallFunctions { get; set; } = true;
+    public List<string>? HiddenWallFunctions { get; set; }
+    public bool IncludeJoinDisplay { get; set; } = true;
+    public string JoinDisplay { get; set; } = "CleanAllWallJoins";
+    public bool IncludeVisualStyle { get; set; } = true;
+    public string VisualStyle { get; set; } = "HiddenLine";
+    public bool IncludeHiddenKinds { get; set; } = true;
+    public List<string>? HiddenKinds { get; set; }
+    public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A callout: the view it is drawn on, and its box there.</summary>
+internal sealed class CalloutDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string Name { get; set; } = "Callout 1";
+    public string ParentKind { get; set; } = "FloorPlan";
+    public Guid ParentId { get; set; }
+    public int ParentIndex { get; set; }
+    public double MinX { get; set; }
+    public double MinY { get; set; }
+    public double MaxX { get; set; }
+    public double MaxY { get; set; }
+    public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>An interior elevation marker: where it stands, how it is turned, and which of its arrows are views.</summary>
+internal sealed class InteriorElevationDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string Name { get; set; } = "1";
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Rotation { get; set; }
+    public bool Up { get; set; } = true;
+    public bool Right { get; set; } = true;
+    public bool Down { get; set; } = true;
+    public bool Left { get; set; } = true;
+    public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A 3D view: where it looks from, how it is drawn, its section box and what it leaves out.</summary>
+internal sealed class View3DDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "{3D}";
+
+    /// <summary>The eye's x, y, z, the target's x, y, z, and the field of view; null until first looked through.</summary>
+    public List<double>? Camera { get; set; }
+
+    public bool Perspective { get; set; } = true;
+    public string? Style { get; set; }
+
+    /// <summary>The section box's lowest corner then its highest, x, y, z each.</summary>
+    public List<double>? SectionBox { get; set; }
+    public bool SectionBoxOn { get; set; }
+
+    public List<Guid>? HiddenLevels { get; set; }
+    public List<string>? HiddenKinds { get; set; }
+    public bool ShowGround { get; set; } = true;
+    public bool ShowEdges { get; set; } = true;
+    public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A walkthrough: its path on its storey, the eye's height, and how it plays.</summary>
+internal sealed class WalkthroughDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string Name { get; set; } = "Walkthrough 1";
+    public List<double>? Path { get; set; }
+    public double EyeHeight { get; set; } = 1750;
+    public int Frames { get; set; } = 300;
+    public double FramesPerSecond { get; set; } = 15;
+    public string Comments { get; set; } = string.Empty;
 }
 
 /// <summary>What one view hides. The view is named the same way a viewport names it.</summary>
@@ -122,6 +225,9 @@ internal sealed class ViewSettingsDto
     /// <summary>The level or section marker. Empty for the 3D view.</summary>
     public Guid TargetId { get; set; }
 
+    /// <summary>Which of the views of what it shows: the side of an elevation, the arrow of an interior marker.</summary>
+    public int Index { get; set; }
+
     public List<string> HiddenWallFunctions { get; set; } = new();
 
     /// <summary>The view's scale as the denominator of 1:n, when it has its own.</summary>
@@ -129,6 +235,12 @@ internal sealed class ViewSettingsDto
 
     /// <summary>The view's Wall Join Display, when not the default of cleaning every join.</summary>
     public string? JoinDisplay { get; set; }
+
+    /// <summary>The view's detail level, where it has one of its own.</summary>
+    public string? DetailLevel { get; set; }
+
+    /// <summary>The view template governing the view, where one does.</summary>
+    public Guid? Template { get; set; }
 }
 
 /// <summary>
@@ -168,6 +280,9 @@ internal sealed class ViewportDto
 
     public string ScheduleName { get; set; } = string.Empty;
 
+    /// <summary>Which of the views of what it shows: the side of an elevation, the arrow of an interior marker.</summary>
+    public int Index { get; set; }
+
     /// <summary>Millimetres from the sheet's bottom-left corner.</summary>
     public double X { get; set; }
     public double Y { get; set; }
@@ -177,6 +292,9 @@ internal sealed class ViewportDto
 
     public bool ShowTitle { get; set; } = true;
     public string TitleOverride { get; set; } = string.Empty;
+
+    /// <summary>Its number on the sheet; missing from older files, where the views are numbered as they come.</summary>
+    public string? DetailNumber { get; set; }
 }
 
 /// <summary>

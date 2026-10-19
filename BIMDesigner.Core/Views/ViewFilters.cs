@@ -22,6 +22,54 @@ public sealed class ViewSettings
     private readonly Dictionary<ViewReference, HashSet<WallFunction>> _hiddenWallFunctions = new();
     private readonly Dictionary<ViewReference, double> _scales = new();
     private readonly Dictionary<ViewReference, WallJoinDisplay> _joinDisplays = new();
+    private readonly Dictionary<ViewReference, DetailLevel> _detailLevels = new();
+    private readonly Dictionary<ViewReference, Guid> _templates = new();
+
+    /// <summary>The view template governing a view, where one does.</summary>
+    public Guid? TemplateOf(ViewReference view) => _templates.TryGetValue(view, out var id) ? id : null;
+
+    public void SetTemplate(ViewReference view, Guid? template)
+    {
+        Version++;
+        if (template is { } id) _templates[view] = id;
+        else _templates.Remove(view);
+    }
+
+    /// <summary>Every view governed by a template, for saving.</summary>
+    public IEnumerable<(ViewReference View, Guid Template)> Templated => _templates.Select(entry => (entry.Key, entry.Value));
+
+    /// <summary>Everything set on one view: what a change to it is put back to.</summary>
+    public sealed record ViewState(ViewReference View, double? Scale, DetailLevel? Detail, WallJoinDisplay? Join, WallFunction[] Hidden, Guid? Template);
+
+    public ViewState Capture(ViewReference view) => new(
+        view,
+        _scales.TryGetValue(view, out var scale) ? scale : null,
+        DetailLevelOf(view),
+        _joinDisplays.TryGetValue(view, out var join) ? join : null,
+        HiddenWallFunctions(view).ToArray(),
+        TemplateOf(view));
+
+    public void Restore(ViewState state)
+    {
+        SetScale(state.View, state.Scale ?? DefaultScale);
+        SetDetailLevel(state.View, state.Detail);
+        SetJoinDisplay(state.View, state.Join ?? WallJoinDisplay.CleanAllWallJoins);
+        foreach (var function in Enum.GetValues<WallFunction>()) SetWallFunctionVisible(state.View, function, !state.Hidden.Contains(function));
+        SetTemplate(state.View, state.Template);
+    }
+
+    /// <summary>How much detail a view is drawn in, where it has been set: a plan, a callout. Null where it never was.</summary>
+    public DetailLevel? DetailLevelOf(ViewReference view) => _detailLevels.TryGetValue(view, out var level) ? level : null;
+
+    public void SetDetailLevel(ViewReference view, DetailLevel? level)
+    {
+        Version++;
+        if (level is { } set) _detailLevels[view] = set;
+        else _detailLevels.Remove(view);
+    }
+
+    /// <summary>Every view with a detail level of its own, for saving.</summary>
+    public IEnumerable<(ViewReference View, DetailLevel Level)> DetailLevels => _detailLevels.Select(entry => (entry.Key, entry.Value));
 
     /// <summary>How the view cleans the wall joins left to it. Every join, unless set otherwise.</summary>
     public WallJoinDisplay JoinDisplayOf(ViewReference view) =>

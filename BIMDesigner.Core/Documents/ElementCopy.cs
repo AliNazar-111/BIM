@@ -305,6 +305,15 @@ public static class ElementCopy
         }, pad.Boundary), pad),
         PropertyLine line => CarryCommon(Outline(new PropertyLine { Setback = line.Setback }, line.Boundary), line),
         Mass mass => CarryCommon(CloneMass(mass), mass),
+        View3D view => CarryCommon(CloneView(view), view),
+        Walkthrough walk => CarryCommon(CloneWalkthrough(walk), walk),
+        Callout callout => CarryCommon(new Callout { Name = callout.Name, Parent = callout.Parent, Region = callout.Region }, callout),
+        ViewTemplate template => CarryCommon(CloneTemplate(template), template),
+        InteriorElevationMarker marker => CarryCommon(new InteriorElevationMarker
+        {
+            Name = marker.Name, Location = marker.Location, Rotation = marker.Rotation,
+            LooksUp = marker.LooksUp, LooksRight = marker.LooksRight, LooksDown = marker.LooksDown, LooksLeft = marker.LooksLeft
+        }, marker),
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         Beam beam => CarryCommon(new Beam
@@ -468,6 +477,43 @@ public static class ElementCopy
     private static Railing Path(Railing copy, IReadOnlyList<Geometry.Point2D> path, IReadOnlyList<double> bulges)
     {
         copy.SetPath(path, bulges);
+        return copy;
+    }
+
+    /// <summary>A copied 3D view looks from the same place, drawn the same way, showing the same.</summary>
+    private static View3D CloneView(View3D original)
+    {
+        var copy = new View3D
+        {
+            Name = original.Name, Camera = original.Camera, Perspective = original.Perspective, Style = original.Style,
+            SectionBox = original.SectionBox, SectionBoxOn = original.SectionBoxOn, ShowGround = original.ShowGround, ShowEdges = original.ShowEdges
+        };
+        copy.HiddenLevels.UnionWith(original.HiddenLevels);
+        copy.HiddenKinds.UnionWith(original.HiddenKinds);
+        return copy;
+    }
+
+    /// <summary>A copied view template sets the same settings, the same ones included.</summary>
+    private static ViewTemplate CloneTemplate(ViewTemplate original)
+    {
+        var copy = new ViewTemplate
+        {
+            Name = original.Name, For = original.For,
+            IncludeScale = original.IncludeScale, Scale = original.Scale,
+            IncludeDetailLevel = original.IncludeDetailLevel, DetailLevel = original.DetailLevel,
+            IncludeWallFunctions = original.IncludeWallFunctions, IncludeJoinDisplay = original.IncludeJoinDisplay, JoinDisplay = original.JoinDisplay,
+            IncludeVisualStyle = original.IncludeVisualStyle, VisualStyle = original.VisualStyle, IncludeHiddenKinds = original.IncludeHiddenKinds
+        };
+        copy.HiddenWallFunctions.UnionWith(original.HiddenWallFunctions);
+        copy.HiddenKinds.UnionWith(original.HiddenKinds);
+        return copy;
+    }
+
+    /// <summary>A copied walkthrough follows the same path, at the same height and pace.</summary>
+    private static Walkthrough CloneWalkthrough(Walkthrough original)
+    {
+        var copy = new Walkthrough { Name = original.Name, EyeHeight = original.EyeHeight, Frames = original.Frames, FramesPerSecond = original.FramesPerSecond };
+        copy.SetPath(original.Path);
         return copy;
     }
 

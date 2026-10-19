@@ -129,6 +129,36 @@ public sealed class SectionRenderer
         }
     }
 
+    /// <summary>
+    /// The callouts drawn on a section: each box, rounded, with a bubble off its corner carrying
+    /// its detail number over its sheet's - all but the one whose own view this is.
+    /// </summary>
+    public void DrawCallouts(DrawingContext dc, Core.Documents.BimDocument document, Core.Sheets.ViewReference section, Core.Sheets.ViewReference? shown = null)
+    {
+        foreach (var callout in Callouts.On(document, section))
+        {
+            if (shown == Callouts.Reference(callout)) continue;
+            var pen = _selected.Contains(callout.Id) ? _selectedPen : _cutPen;
+            var box = new Rect(_toScreen(callout.Region.MinX, callout.Region.MaxY), _toScreen(callout.Region.MaxX, callout.Region.MinY));
+            dc.DrawRoundedRectangle(null, pen, box, Page(6), Page(6));
+
+            var radius = Page(11);
+            var from = box.TopRight;
+            var centre = new Point(from.X + Page(22), from.Y - Page(22));
+            dc.DrawLine(pen, from, centre + (from - centre) / (from - centre).Length * radius);
+            dc.DrawEllipse(Brushes.White, pen, centre, radius, radius);
+            dc.DrawLine(pen, new Point(centre.X - radius, centre.Y), new Point(centre.X + radius, centre.Y));
+
+            var placed = Callouts.PlacedOn(document, Callouts.Reference(callout));
+            var detail = Text(placed?.Detail ?? "–", Page(9), _levelTextBrush);
+            var sheet = Text(placed?.Sheet ?? "–", Page(7), _levelTextBrush);
+            dc.DrawText(detail, new Point(centre.X - detail.Width / 2, centre.Y - detail.Height));
+            dc.DrawText(sheet, new Point(centre.X - sheet.Width / 2, centre.Y));
+            var name = Text(callout.Name, Page(9), _levelTextBrush);
+            dc.DrawText(name, new Point(centre.X + radius + Page(4), centre.Y - name.Height / 2));
+        }
+    }
+
     private void DrawPiece(DrawingContext dc, SectionPiece piece)
     {
         var topLeft = _toScreen(piece.Bounds.Left, piece.Bounds.Top);

@@ -373,6 +373,7 @@ public sealed class PlanRenderer
 
         foreach (var dimension in OnActiveLevel<Dimension>()) DrawDimension(dc, dimension);
         foreach (var section in OnActiveLevel<SectionMarker>()) DrawSectionMarker(dc, section);
+        DrawCallouts(dc);
         foreach (var tag in OnActiveLevel<Tag>()) DrawTag(dc, tag);
         foreach (var note in OnActiveLevel<TextNote>()) DrawTextNote(dc, note);
     }
@@ -2257,6 +2258,45 @@ public sealed class PlanRenderer
 
         DrawSectionHead(dc, section, start, look, headPen, isSelected);
         DrawSectionHead(dc, section, end, look, headPen, isSelected);
+    }
+
+    /// <summary>
+    /// The callouts drawn on this plan: each box, rounded, with a leader to a bubble carrying its
+    /// detail number over the number of the sheet it is on - not the one whose view this is.
+    /// </summary>
+    private void DrawCallouts(DrawingContext dc)
+    {
+        if (Document is null) return;
+
+        var plan = BIMDesigner.Core.Sheets.ViewReference.FloorPlan(ActiveLevelId);
+        foreach (var callout in Callouts.On(Document, plan))
+        {
+            if (View == Callouts.Reference(callout)) continue;
+            var selected = IsSelected(callout);
+            var pen = selected ? _selectedPen : _sectionHeadPen;
+
+            var corner = ModelToScreen(new Point2D(callout.Region.MinX, callout.Region.MaxY));
+            var opposite = ModelToScreen(new Point2D(callout.Region.MaxX, callout.Region.MinY));
+            var box = new Rect(corner, opposite);
+            dc.DrawRoundedRectangle(null, pen, box, Page(6), Page(6));
+
+            // The bubble off its top right corner, on a short leader.
+            var radius = Page(11);
+            var from = box.TopRight;
+            var centre = new Point(from.X + Page(22), from.Y - Page(22));
+            dc.DrawLine(pen, from, centre + (from - centre) / (from - centre).Length * radius);
+            dc.DrawEllipse(_gridBubbleBrush, pen, centre, radius, radius);
+            dc.DrawLine(pen, new Point(centre.X - radius, centre.Y), new Point(centre.X + radius, centre.Y));
+
+            var placed = Callouts.PlacedOn(Document, Callouts.Reference(callout));
+            var detail = Text(placed?.Detail ?? "–", Page(9), _sectionTextBrush, bold: true);
+            var sheet = Text(placed?.Sheet ?? "–", Page(7), _sectionTextBrush);
+            dc.DrawText(detail, new Point(centre.X - detail.Width / 2, centre.Y - detail.Height));
+            dc.DrawText(sheet, new Point(centre.X - sheet.Width / 2, centre.Y));
+
+            var name = Text(callout.Name, Page(9), _sectionTextBrush);
+            dc.DrawText(name, new Point(centre.X + radius + Page(4), centre.Y - name.Height / 2));
+        }
     }
 
     private void DrawSectionHead(

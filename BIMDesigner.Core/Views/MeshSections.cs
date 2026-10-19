@@ -23,61 +23,16 @@ public static class MeshSections
     /// </summary>
     public static IReadOnlyList<IReadOnlyList<(double X, double Y)>> Cut(Mesh3D mesh, SectionMarker marker)
     {
-        var positions = mesh.Positions;
-        var indices = mesh.Indices;
-        if (positions.Count == 0 || marker.Length <= 0) return Array.Empty<IReadOnlyList<(double, double)>>();
+        if (marker.Length <= 0) return Array.Empty<IReadOnlyList<(double, double)>>();
 
-        double Depth(Point3D p)
-        {
-            var depth = marker.DepthOf(new Point2D(p.X, p.Y));
-            return Math.Abs(depth) < OnPlane ? OnPlane : depth;
-        }
-
-        // Nothing either side of the plane, or nowhere along the line: nothing to cut.
-        var depths = positions.Select(Depth).ToList();
-        if (depths.Min() > 0 || depths.Max() < 0) return Array.Empty<IReadOnlyList<(double, double)>>();
-
-        // Each triangle the plane passes through leaves a short line across it.
-        var segments = new List<(Point2D A, Point2D B)>();
-        var crossing = new List<Point2D>(2);
-        for (var i = 0; i + 2 < indices.Count; i += 3)
-        {
-            crossing.Clear();
-            for (var edge = 0; edge < 3; edge++)
-            {
-                var (a, b) = (indices[i + edge], indices[i + (edge + 1) % 3]);
-                var (da, db) = (depths[a], depths[b]);
-                if (da > 0 == db > 0) continue;
-
-                var (p, q) = (positions[a], positions[b]);
-                var t = da / (da - db);
-                var plan = new Point2D(p.X + (q.X - p.X) * t, p.Y + (q.Y - p.Y) * t);
-                crossing.Add(new Point2D(marker.DistanceAlong(plan), p.Z + (q.Z - p.Z) * t));
-            }
-
-            if (crossing.Count == 2 && crossing[0].DistanceTo(crossing[1]) > Join) segments.Add((crossing[0], crossing[1]));
-        }
-
-        var loops = Chain(segments);
-        if (loops.Count == 0) return Array.Empty<IReadOnlyList<(double, double)>>();
-
-        // A loop inside an odd number of others is a void in the one round it.
-        var regions = new List<PolygonBoolean.Region>();
-        foreach (var loop in loops)
-        {
-            var round = loops.Where(other => !ReferenceEquals(other, loop) && Polygon2D.Area(other) > Polygon2D.Area(loop) && Polygon2D.Contains(other, loop[0])).ToList();
-            if (round.Count % 2 == 1) continue;
-
-            var holes = loops.Where(other => !ReferenceEquals(other, loop) && Polygon2D.Area(other) < Polygon2D.Area(loop) && Polygon2D.Contains(loop, other[0]) &&
-                                             loops.Count(between => !ReferenceEquals(between, loop) && !ReferenceEquals(between, other) &&
-                                                                     Polygon2D.Contains(loop, between[0]) && Polygon2D.Contains(between, other[0])) == 0)
-                .ToList();
-            regions.Add(new PolygonBoolean.Region(loop, holes));
-        }
+        var regions = Slice(mesh,
+            point => marker.DepthOf(new Point2D(point.X, point.Y)),
+            point => new Point2D(marker.DistanceAlong(new Point2D(point.X, point.Y)), point.Z));
+        if (regions.Count == 0) return Array.Empty<IReadOnlyList<(double, double)>>();
 
         // Only what lies along the cut line, between its ends.
-        var low = loops.SelectMany(loop => loop).Min(point => point.Y) - 1;
-        var high = loops.SelectMany(loop => loop).Max(point => point.Y) + 1;
+        var low = regions.SelectMany(region => region.Outer).Min(point => point.Y) - 1;
+        var high = regions.SelectMany(region => region.Outer).Max(point => point.Y) + 1;
         var line = new[] { new Point2D(0, low), new Point2D(marker.Length, low), new Point2D(marker.Length, high), new Point2D(0, high) };
 
         var pieces = new List<IReadOnlyList<Point2D>>();
@@ -103,6 +58,66 @@ public static class MeshSections
         return BoxUnion(boxes).Concat(others)
             .Select(piece => (IReadOnlyList<(double X, double Y)>)piece.Select(point => (point.X, point.Y)).ToList())
             .ToList();
+    }
+
+    /// <summary>
+    /// Where a plane slices a solid: the regions - outlines, each with the voids in it - in the
+    /// plane's own coordinates. The plane is given by how far in front of it each point is, and
+    /// where a point on it is drawn. A section's cut, and a section box's faces, are both this.
+    /// </summary>
+    public static IReadOnlyList<PolygonBoolean.Region> Slice(Mesh3D mesh, Func<Point3D, double> depthOf, Func<Point3D, Point2D> onPlane)
+    {
+        var positions = mesh.Positions;
+        var indices = mesh.Indices;
+        if (positions.Count == 0) return Array.Empty<PolygonBoolean.Region>();
+
+        double Depth(Point3D p)
+        {
+            var depth = depthOf(p);
+            return Math.Abs(depth) < OnPlane ? OnPlane : depth;
+        }
+
+        // Nothing either side of the plane: nothing to cut.
+        var depths = positions.Select(Depth).ToList();
+        if (depths.Min() > 0 || depths.Max() < 0) return Array.Empty<PolygonBoolean.Region>();
+
+        // Each triangle the plane passes through leaves a short line across it.
+        var segments = new List<(Point2D A, Point2D B)>();
+        var crossing = new List<Point2D>(2);
+        for (var i = 0; i + 2 < indices.Count; i += 3)
+        {
+            crossing.Clear();
+            for (var edge = 0; edge < 3; edge++)
+            {
+                var (a, b) = (indices[i + edge], indices[i + (edge + 1) % 3]);
+                var (da, db) = (depths[a], depths[b]);
+                if (da > 0 == db > 0) continue;
+
+                var (p, q) = (positions[a], positions[b]);
+                var t = da / (da - db);
+                crossing.Add(onPlane(new Point3D(p.X + (q.X - p.X) * t, p.Y + (q.Y - p.Y) * t, p.Z + (q.Z - p.Z) * t)));
+            }
+
+            if (crossing.Count == 2 && crossing[0].DistanceTo(crossing[1]) > Join) segments.Add((crossing[0], crossing[1]));
+        }
+
+        var loops = Chain(segments);
+
+        // A loop inside an odd number of others is a void in the one round it.
+        var regions = new List<PolygonBoolean.Region>();
+        foreach (var loop in loops)
+        {
+            var round = loops.Where(other => !ReferenceEquals(other, loop) && Polygon2D.Area(other) > Polygon2D.Area(loop) && Polygon2D.Contains(other, loop[0])).ToList();
+            if (round.Count % 2 == 1) continue;
+
+            var holes = loops.Where(other => !ReferenceEquals(other, loop) && Polygon2D.Area(other) < Polygon2D.Area(loop) && Polygon2D.Contains(loop, other[0]) &&
+                                             loops.Count(between => !ReferenceEquals(between, loop) && !ReferenceEquals(between, other) &&
+                                                                     Polygon2D.Contains(loop, between[0]) && Polygon2D.Contains(between, other[0])) == 0)
+                .ToList();
+            regions.Add(new PolygonBoolean.Region(loop, holes));
+        }
+
+        return regions;
     }
 
     /// <summary>

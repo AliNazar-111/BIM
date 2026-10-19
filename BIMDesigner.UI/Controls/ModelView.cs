@@ -20,19 +20,6 @@ namespace BIMDesigner.UI.Controls;
 /// </summary>
 public readonly record struct ModelDrag(Guid Id, CorePoint3D From, CorePoint3D Through);
 
-/// <summary>How the 3D view colours what it draws (specification section 6.2).</summary>
-public enum VisualStyle
-{
-    /// <summary>Lit by the sun and the sky: the building as it looks.</summary>
-    Shaded,
-
-    /// <summary>Every surface its own colour, unlit: what each thing is made of, at a glance.</summary>
-    FlatColours,
-
-    /// <summary>Everything see-through, so what is behind and inside can be read.</summary>
-    XRay
-}
-
 /// <summary>
 /// The 3D viewport (specification section 6.1).
 ///
@@ -67,12 +54,22 @@ public partial class ModelView : Border
 
     /// <summary>Camera distance when the edges were last sized, so we know when to redo them.</summary>
     private double _edgeDistance;
-    private readonly HashSet<Guid> _hiddenLevels = new();
     private HashSet<Guid> _selected = new();
 
     private BimDocument? _document;
+
+    /// <summary>The 3D view shown: its camera, style, section box and what it leaves out.</summary>
+    private View3D _view = new();
+
+    /// <summary>Everything in the model, as built.</summary>
+    private IReadOnlyList<Mesh3D> _allMeshes = Array.Empty<Mesh3D>();
+    private readonly Dictionary<Mesh3D, MeshGeometry3D> _allGeometry = new();
+
+    /// <summary>What is shown: the model, cut to the section box when the view has one.</summary>
     private IReadOnlyList<Mesh3D> _meshes = Array.Empty<Mesh3D>();
-    private VisualStyle _style = VisualStyle.Shaded;
+
+    /// <summary>The camera last read from the view or written to it: when the view's is another, something else moved it - an undo.</summary>
+    private Camera3D? _shownCamera;
     private bool _hasFitted;
 
     // Orbit camera: a point looked at, and where the eye sits around it.
@@ -126,23 +123,69 @@ public partial class ModelView : Border
             if (ReferenceEquals(_document, value)) return;
 
             _document = value;
-            _hiddenLevels.Clear();
+            _view = value?.Default3D ?? new View3D();
             _hasFitted = false;
+            LoadCamera();
             Rebuild();
         }
     }
 
-    public VisualStyle RenderStyle
+    /// <summary>
+    /// The 3D view shown - the {3D} view, a camera's, a copy. Its camera is where the view
+    /// opens looking, and every look round is kept in it, so the view placed on a sheet, or
+    /// opened again, is the view as it was left.
+    /// </summary>
+    public View3D View
     {
-        get => _style;
+        get => _view;
         set
         {
-            if (_style == value) return;
+            if (ReferenceEquals(_view, value)) return;
 
-            _style = value;
+            StopMoving();
+            _view = value;
+            _hasFitted = false;
+            LoadCamera();
+            Rebuild();
+        }
+    }
+
+    /// <summary>The view as sheets and view settings know it: the plain 3D reference for {3D}.</summary>
+    public ViewReference Reference =>
+        _document is not null && (ReferenceEquals(_view, _document.Default3D) || _document.Elements.Contains(_view))
+            ? Views3D.Reference(_document, _view)
+            : ViewReference.Model3D;
+
+    public VisualStyle RenderStyle
+    {
+        get => _view.Style;
+        set
+        {
+            if (_view.Style == value) return;
+
+            _view.Style = value;
             Compose();
         }
     }
+
+    /// <summary>The camera the view has, put into the orbit: what it looks at, from where.</summary>
+    private void LoadCamera()
+    {
+        if (_view.Camera is not { } camera || _elevation is not null) return;
+
+        _target = ToUnits(camera.Target);
+        _distance = Math.Max(camera.Distance / MillimetresPerUnit, 0.5);
+        (_yaw, _pitch) = camera.Orbit();
+        _pitch = Math.Clamp(_pitch, -MaxPitch, MaxPitch);
+        _hasFitted = true;
+        _shownCamera = camera;
+        _camera.FieldOfView = camera.FieldOfView;
+        _viewport.Camera = IsOrtho ? _ortho : _camera;
+        UpdateCamera();
+    }
+
+    /// <summary>Whether the view is drawn without perspective: an elevation, or a 3D view set orthographic - not while walking or playing a walkthrough, which are seen by the eye.</summary>
+    private bool IsOrtho => _walking || _playing is not null || _frameCamera is not null ? false : _elevation is not null || !_view.Perspective;
 
     /// <summary>Raised with the element clicked on and the point on it, or null for empty space.</summary>
     public event EventHandler<(Guid Id, CorePoint3D At)?>? ElementClicked;
@@ -169,13 +212,20 @@ public partial class ModelView : Border
     {
         // Built again from the model: whatever a drag was showing in its place is the model now.
         (_previewId, _previewMeshes) = (null, Array.Empty<Mesh3D>());
-        _meshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document, _document.ViewSettings.FilterFor(_document, ViewReference.Model3D));
+
+        // The view's camera moved by something else - an undo, a change in Properties: looked through again.
+        if (_view.Camera is { } camera && camera != _shownCamera && _elevation is null && !_walking) LoadCamera();
+        _viewport.Camera = IsOrtho ? _ortho : _camera;
+        if (_hasFitted) UpdateCamera();
+
+        _allMeshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document, _document.ViewSettings.FilterFor(_document, Reference));
 
         // Converted once per rebuild. Selecting something or changing the style only swaps
         // materials, and should not pay to copy every vertex again.
-        _geometry.Clear();
-        foreach (var mesh in _meshes) _geometry[mesh] = ToGeometry(mesh);
+        _allGeometry.Clear();
+        foreach (var mesh in _allMeshes) _allGeometry[mesh] = ToGeometry(mesh);
 
+        ApplySectionBox();
         Compose();
 
         // The camera is fitted once, when there is first something to fit. Refitting after
@@ -187,9 +237,18 @@ public partial class ModelView : Border
         }
     }
 
-    private readonly HashSet<MeshKind> _hiddenKinds = new();
-    private bool _showGround = true;
-    private bool _showEdges = true;
+    /// <summary>
+    /// What is shown made from what was built: all of it, or what is inside the section box,
+    /// cut and closed where the box cuts it. Only what the box cuts is converted again.
+    /// </summary>
+    private void ApplySectionBox()
+    {
+        _meshes = _elevation is null && _view.ActiveBox is { } box ? SectionBoxes.Clip(_allMeshes, box) : _allMeshes;
+
+        _geometry.Clear();
+        foreach (var mesh in _meshes)
+            _geometry[mesh] = _allGeometry.TryGetValue(mesh, out var built) ? built : ToGeometry(mesh);
+    }
 
     /// <summary>
     /// Whether the model's edges are drawn over the shading.
@@ -201,12 +260,12 @@ public partial class ModelView : Border
     /// </summary>
     public bool ShowEdges
     {
-        get => _showEdges;
+        get => _view.ShowEdges;
         set
         {
-            if (_showEdges == value) return;
+            if (_view.ShowEdges == value) return;
 
-            _showEdges = value;
+            _view.ShowEdges = value;
             BuildEdges();
         }
     }
@@ -217,11 +276,11 @@ public partial class ModelView : Border
     /// </summary>
     public void SetKindVisible(MeshKind kind, bool visible)
     {
-        var changed = visible ? _hiddenKinds.Remove(kind) : _hiddenKinds.Add(kind);
+        var changed = visible ? _view.HiddenKinds.Remove(kind) : _view.HiddenKinds.Add(kind);
         if (changed) Compose();
     }
 
-    public bool IsKindVisible(MeshKind kind) => !_hiddenKinds.Contains(kind);
+    public bool IsKindVisible(MeshKind kind) => !_view.HiddenKinds.Contains(kind);
 
     /// <summary>
     /// Whether the ground is drawn. Turning it off shows what is below ground level - the
@@ -229,23 +288,23 @@ public partial class ModelView : Border
     /// </summary>
     public bool ShowGround
     {
-        get => _showGround;
+        get => _view.ShowGround;
         set
         {
-            if (_showGround == value) return;
+            if (_view.ShowGround == value) return;
 
-            _showGround = value;
+            _view.ShowGround = value;
             Compose();
         }
     }
 
     public void SetLevelVisible(Guid levelId, bool visible)
     {
-        var changed = visible ? _hiddenLevels.Remove(levelId) : _hiddenLevels.Add(levelId);
+        var changed = visible ? _view.HiddenLevels.Remove(levelId) : _view.HiddenLevels.Add(levelId);
         if (changed) Compose();
     }
 
-    public bool IsLevelVisible(Guid levelId) => !_hiddenLevels.Contains(levelId);
+    public bool IsLevelVisible(Guid levelId) => !_view.HiddenLevels.Contains(levelId);
 
     public void SetSelection(IEnumerable<Guid> elementIds)
     {
@@ -275,8 +334,7 @@ public partial class ModelView : Border
         foreach (var mesh in _meshes)
         {
             if (mesh.ElementId == _previewId) continue;
-            if (_hiddenLevels.Contains(mesh.LevelId)) continue;
-            if (IsHiddenKind(mesh.Kind)) continue;
+            if (!_view.Shows(mesh)) continue;
 
             if (!_geometry.TryGetValue(mesh, out var geometry)) continue;
             var material = MaterialFor(mesh);
@@ -284,7 +342,8 @@ public partial class ModelView : Border
             var model = new GeometryModel3D(geometry, material) { BackMaterial = material };
             _meshOf[model] = mesh;
 
-            var seeThrough = mesh.Opacity < 1 || _style == VisualStyle.XRay;
+            // In wireframe every face is clear, kept only to be clicked on: the edges are all there is.
+            var seeThrough = mesh.Opacity < 1 || _view.Style is VisualStyle.XRay or VisualStyle.Wireframe;
             (seeThrough ? clear : solid).Children.Add(model);
         }
 
@@ -319,7 +378,7 @@ public partial class ModelView : Border
         _selectedEdges = null;
         _edgeDistance = _distance;
 
-        if (!_showEdges) return;
+        if (!ShowsEdges) return;
 
         // Scaled with distance so the lines stay about a pixel wide however far out you are.
         // Fixed world thickness would be hairline across a site and a fence post up close.
@@ -332,11 +391,19 @@ public partial class ModelView : Border
             foreach (var (from, to) in mesh.Edges) plain.Add(ToUnits(from), ToUnits(to), half);
         }
 
-        AddEdgeModel(plain, AppTheme.Pick(Color.FromRgb(0x3A, 0x3E, 0x44), Color.FromRgb(0x14, 0x17, 0x1C)));
+        // Black on white for a hidden-line drawing; wireframe lines in the ink of the theme.
+        AddEdgeModel(plain, _view.Style == VisualStyle.HiddenLine
+            ? Color.FromRgb(0x10, 0x10, 0x10)
+            : _view.Style == VisualStyle.Wireframe
+                ? AppTheme.Pick(Color.FromRgb(0x24, 0x28, 0x30), Color.FromRgb(0xC8, 0xCE, 0xD8))
+                : AppTheme.Pick(Color.FromRgb(0x3A, 0x3E, 0x44), Color.FromRgb(0x14, 0x17, 0x1C)));
         _selectedEdges = AddEdgeModel(SelectedEdges(), Color.FromRgb(0x4A, 0x9B, 0xFF));
     }
 
-    private double EdgeHalfWidth => Math.Max(_distance * 0.0009, 0.0015);
+    /// <summary>Edges are drawn when the view asks for them - and always in wireframe and hidden line, which are nothing but.</summary>
+    private bool ShowsEdges => _view.ShowEdges || _view.Style is VisualStyle.Wireframe or VisualStyle.HiddenLine;
+
+    private double EdgeHalfWidth => Math.Max(_distance * 0.0009, 0.0015) * (_walking ? 0.35 : 1);
 
     private bool IsSelectedMesh(Mesh3D mesh) => _selected.Contains(mesh.ElementId) || _selected.Contains(mesh.OwnerId);
 
@@ -345,7 +412,7 @@ public partial class ModelView : Border
     /// window read as a solid panel, which is the opposite of what it is.
     /// </summary>
     private bool HasEdges(Mesh3D mesh) =>
-        mesh.ElementId != _previewId && !_hiddenLevels.Contains(mesh.LevelId) && !IsHiddenKind(mesh.Kind) && mesh.Kind != MeshKind.Glazing;
+        mesh.ElementId != _previewId && _view.Shows(mesh) && (mesh.Kind != MeshKind.Glazing || _view.Style == VisualStyle.Wireframe);
 
     /// <summary>The selection's edges, drawn wider: what is selected, and whatever a drag is showing in its place.</summary>
     private EdgeMesh SelectedEdges()
@@ -430,7 +497,7 @@ public partial class ModelView : Border
 
     /// <summary>A door leaf and a pane go with the walls they sit in, not a kind of their own.</summary>
     private bool IsHiddenKind(MeshKind kind) =>
-        _hiddenKinds.Contains(kind is MeshKind.Glazing or MeshKind.DoorLeaf or MeshKind.Mullion ? MeshKind.Wall : kind);
+        _view.HiddenKinds.Contains(kind is MeshKind.Glazing or MeshKind.DoorLeaf or MeshKind.Mullion ? MeshKind.Wall : kind);
 
     private static MeshGeometry3D ToGeometry(Mesh3D mesh)
     {
@@ -460,17 +527,29 @@ public partial class ModelView : Border
         var colour = Color.FromRgb(mesh.Colour.R, mesh.Colour.G, mesh.Colour.B);
         var isSelected = _selected.Contains(mesh.ElementId) || _selected.Contains(mesh.OwnerId);
 
-        var opacity = _style == VisualStyle.XRay ? Math.Min(mesh.Opacity, 0.28) : mesh.Opacity;
+        var opacity = _view.Style switch
+        {
+            VisualStyle.XRay => Math.Min(mesh.Opacity, 0.28),
+            VisualStyle.Wireframe => 0,
+            _ => mesh.Opacity
+        };
+
+        // A hidden-line drawing is white faces - pale glass - under black edges.
+        if (_view.Style == VisualStyle.HiddenLine)
+            colour = mesh.Kind == MeshKind.Glazing ? Color.FromRgb(0xE4, 0xEE, 0xF4) : Color.FromRgb(0xFF, 0xFF, 0xFF);
         colour.A = (byte)Math.Round(opacity * 255);
 
         var brush = new SolidColorBrush(colour);
         brush.Freeze();
 
-        Material material = _style switch
+        Material material = _view.Style switch
         {
+            // Wireframe: nothing at all, the face kept only to be clicked on.
+            VisualStyle.Wireframe => new DiffuseMaterial(brush),
+
             // Unlit: a black diffuse base, so only the emissive colour shows and no face is
             // darker than another because of which way it points.
-            VisualStyle.FlatColours => new MaterialGroup
+            VisualStyle.FlatColours or VisualStyle.HiddenLine => new MaterialGroup
             {
                 Children = { new DiffuseMaterial(Brushes.Black), new EmissiveMaterial(brush) }
             },
@@ -534,7 +613,8 @@ public partial class ModelView : Border
     /// </summary>
     private void AddGround(Model3DGroup root)
     {
-        if (!_showGround) return;
+        // Not under a section box, which shows the part of the building in it and nothing round it; not in wireframe.
+        if (!_view.ShowGround || _view.ActiveBox is not null || _view.Style == VisualStyle.Wireframe) return;
         if (ModelMeshBuilder.Bounds(_meshes) is not { } bounds) return;
 
         // Where the model has ground of its own, shown, that is the ground: a flat plane would hide it where it falls below.
@@ -583,7 +663,7 @@ public partial class ModelView : Border
             return;
         }
 
-        var visible = _meshes.Where(mesh => !_hiddenLevels.Contains(mesh.LevelId));
+        var visible = _meshes.Where(_view.Shows);
 
         if (ModelMeshBuilder.Bounds(visible) is not { } bounds)
         {
@@ -609,6 +689,7 @@ public partial class ModelView : Border
         var narrowest = aspect >= 1 ? halfAngle : Math.Atan(Math.Tan(halfAngle) * aspect);
 
         _distance = Math.Max(radius / Math.Sin(narrowest) * 1.08, 1);
+        _hasFitted = true;
         UpdateCamera();
     }
 
@@ -659,7 +740,7 @@ public partial class ModelView : Border
     /// <summary>Turns the camera round the model by this much, as dragging does.</summary>
     public void Orbit(double yawDegrees, double pitchDegrees)
     {
-        if (_elevation is not null) return;
+        if (_elevation is not null || _walking) return;
         _yaw += yawDegrees;
         _pitch = Math.Clamp(_pitch + pitchDegrees, -MaxPitch, MaxPitch);
         UpdateCamera();
@@ -688,6 +769,19 @@ public partial class ModelView : Border
     {
         // The handles stay where they are in the model: only drawn again where they now are on the screen.
         _gripOverlay?.InvalidateVisual();
+        if (_walking)
+        {
+            UpdateWalkCamera();
+            return;
+        }
+
+        // A walkthrough's frame stays as it is.
+        if (_frameCamera is { } frame)
+        {
+            ShowCamera(frame);
+            return;
+        }
+
         var yaw = _yaw * Math.PI / 180;
         var pitch = _pitch * Math.PI / 180;
 
@@ -707,12 +801,21 @@ public partial class ModelView : Border
         _camera.NearPlaneDistance = Math.Max(0.01, _distance * 0.005);
         _camera.FarPlaneDistance = _distance * 12 + 200;
         UpdateElevationCamera();
+        KeepCamera();
         CameraChanged?.Invoke(this, EventArgs.Empty);
 
         // Edge width follows the camera, but rebuilding on every wheel notch would be wasted
         // work - a quarter of the distance either way is the point at which it starts to show.
-        if (_showEdges && _edgeDistance > 0 && Math.Abs(Math.Log(_distance / _edgeDistance)) > 0.22)
+        if (ShowsEdges && _edgeDistance > 0 && Math.Abs(Math.Log(_distance / _edgeDistance)) > 0.22)
             BuildEdges();
+    }
+
+    /// <summary>Where the view now looks from, kept in it - once it has been looked through, and not while it stands as an elevation.</summary>
+    private void KeepCamera()
+    {
+        if (!_hasFitted || _elevation is not null) return;
+        var target = new CorePoint3D(_target.X * MillimetresPerUnit, _target.Y * MillimetresPerUnit, _target.Z * MillimetresPerUnit);
+        _shownCamera = _view.Camera = Camera3D.FromOrbit(target, _yaw, _pitch, _distance * MillimetresPerUnit, _view.Perspective, _camera.FieldOfView);
     }
 
     // ---- input ------------------------------------------------------------------
@@ -770,10 +873,20 @@ public partial class ModelView : Border
         if (_gesture == Gesture.Grip && _grip is { } held)
         {
             var (from, through) = RayThrough(e.GetPosition(_viewport));
-            GripDragged?.Invoke(this, new ModelGripDrag(held, from, through));
+            if (IsBoxGrip(held)) DragBoxFace(held, from, through);
+            else GripDragged?.Invoke(this, new ModelGripDrag(held, from, through));
             Cursor = Cursors.SizeAll;
             return;
         }
+
+        // Walking, a drag looks round; a walkthrough playing is not turned.
+        if (_walking)
+        {
+            Look(delta);
+            return;
+        }
+
+        if (_playing is not null || _frameCamera is not null) return;
 
         // An elevation does not turn: a drag slides it.
         if (_gesture == Gesture.Orbit && _elevation is null)
@@ -837,6 +950,12 @@ public partial class ModelView : Border
         ReleaseMouseCapture();
         Cursor = Cursors.Arrow;
 
+        if (IsBoxGrip(grip))
+        {
+            EndBoxDrag();
+            return;
+        }
+
         if (grip is not null)
         {
             if (_movedBeyondClick) GripDragEnded?.Invoke(this, grip);
@@ -860,20 +979,47 @@ public partial class ModelView : Border
         Cursor = Cursors.Arrow;
 
         if (wasDrag) ElementDragEnded?.Invoke(this, _dragged);
-        if (grip is not null) GripDragEnded?.Invoke(this, grip);
+        if (IsBoxGrip(grip)) EndBoxDrag();
+        else if (grip is not null) GripDragEnded?.Invoke(this, grip);
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         base.OnMouseWheel(e);
 
+        if (_playing is not null || _frameCamera is not null) return;
+        if (_walking)
+        {
+            WalkWheel(e.Delta);
+            return;
+        }
+
         _distance = Math.Clamp(_distance * Math.Pow(0.999, e.Delta), 0.5, 5000);
         UpdateCamera();
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        base.OnKeyUp(e);
+        if (WalkKeyUp(e.Key)) e.Handled = true;
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+
+        if (WalkKeyDown(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape && _playing is not null)
+        {
+            StopPlaying();
+            e.Handled = true;
+            return;
+        }
 
         switch (e.Key)
         {
@@ -908,7 +1054,7 @@ public partial class ModelView : Border
     /// </summary>
     private (CorePoint3D From, CorePoint3D Through) RayThrough(Point point)
     {
-        if (_elevation is not null) return ElevationRay(point);
+        if (IsOrtho) return ElevationRay(point);
 
         var width = Math.Max(_viewport.ActualWidth, 1);
         var height = Math.Max(_viewport.ActualHeight, 1);

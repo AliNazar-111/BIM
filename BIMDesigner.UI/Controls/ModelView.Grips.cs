@@ -52,11 +52,12 @@ public partial class ModelView
 
     /// <summary>The handles shown: asked for once each time something changes, not each time the view turns - and only on what is shown.</summary>
     private IReadOnlyList<ModelGrip> CurrentGrips() =>
-        _gripCache ??= (Grips?.Invoke() ?? Array.Empty<ModelGrip>()).Where(grip => IsShown(grip.Element)).ToList();
+        _gripCache ??= _walking || _playing is not null
+            ? new List<ModelGrip>()
+            : (Grips?.Invoke() ?? Array.Empty<ModelGrip>()).Where(grip => IsShown(grip.Element)).Concat(BoxGrips()).ToList();
 
     private bool IsShown(Guid element) =>
-        (element == _previewId ? _previewMeshes : _meshes.Where(mesh => mesh.ElementId == element))
-        .Any(mesh => !_hiddenLevels.Contains(mesh.LevelId) && !IsHiddenKind(mesh.Kind));
+        (element == _previewId ? _previewMeshes : _meshes.Where(mesh => mesh.ElementId == element)).Any(_view.Shows);
 
     /// <summary>
     /// Shows one element as it is now, in place of what the model was last built with, leaving
@@ -83,7 +84,7 @@ public partial class ModelView
         ShowPreview();
 
         // Only the selection's edges are drawn again: everything else's are as they were.
-        if (_showEdges)
+        if (ShowsEdges)
         {
             if (_selectedEdges is not null) _edgeGroup.Children.Remove(_selectedEdges);
             _selectedEdges = AddEdgeModel(SelectedEdges(), Color.FromRgb(0x4A, 0x9B, 0xFF));
@@ -98,7 +99,7 @@ public partial class ModelView
         _previewGroup.Children.Clear();
         foreach (var mesh in _previewMeshes)
         {
-            if (_hiddenLevels.Contains(mesh.LevelId) || IsHiddenKind(mesh.Kind)) continue;
+            if (!_view.Shows(mesh)) continue;
             var material = MaterialFor(mesh);
             var model = new GeometryModel3D(ToGeometry(mesh), material) { BackMaterial = material };
             _previewGroup.Children.Add(model);
@@ -125,7 +126,7 @@ public partial class ModelView
     /// <summary>Where a point of the model is in the view's pixels - in perspective or on an elevation - or null behind the eye.</summary>
     public Point? ScreenOf(CorePoint3D point)
     {
-        if (_elevation is not null) return ToScreen(point);
+        if (IsOrtho) return OrthoScreen(point);
 
         var width = Math.Max(_viewport.ActualWidth, 1);
         var height = Math.Max(_viewport.ActualHeight, 1);
@@ -171,6 +172,7 @@ public partial class ModelView
 
         protected override void OnRender(DrawingContext dc)
         {
+            _view.DrawSectionBox(dc);
             var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
             foreach (var grip in _view.CurrentGrips())
             {

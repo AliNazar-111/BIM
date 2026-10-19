@@ -7,6 +7,7 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Sheets;
+using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Views;
 using BIMDesigner.UI.Rendering;
 
@@ -97,6 +98,29 @@ public class SectionView : FrameworkElement
 
     public event EventHandler? SelectionChanged;
 
+    private Callout? _callout;
+
+    /// <summary>A callout of this section shown in place of it: cropped to its box. Null for the whole section.</summary>
+    public Callout? Callout
+    {
+        get => _callout;
+        set
+        {
+            _callout = value;
+            InvalidateVisual();
+            ZoomToFit();
+        }
+    }
+
+    /// <summary>Whether the next drag draws a callout's box rather than picking.</summary>
+    public bool DrawingCallout { get; set; }
+
+    /// <summary>Raised with the box dragged for a callout, in the section's own millimetres.</summary>
+    public event EventHandler<BoundingBox2D>? CalloutDrawn;
+
+    private Point? _calloutStart;
+    private Point _calloutNow;
+
     /// <summary>Recuts the model and repaints. Called whenever anything might have changed.</summary>
     public void Rebuild()
     {
@@ -134,6 +158,16 @@ public class SectionView : FrameworkElement
 
     public void ZoomToFit()
     {
+        // A callout: its box, filling the view.
+        if (_callout is { } shown && ActualWidth > 0 && ActualHeight > 0)
+        {
+            var region = shown.Region.Expand(300);
+            _pixelsPerMm = Clamp(Math.Min(ActualWidth / region.Width, ActualHeight / region.Height));
+            _centre = new Point(region.Centre.X, region.Centre.Y);
+            InvalidateVisual();
+            return;
+        }
+
         if (_drawing is null || ActualWidth <= 0 || ActualHeight <= 0)
         {
             _pixelsPerMm = 0.05;
@@ -216,6 +250,13 @@ public class SectionView : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        if (_calloutStart is not null)
+        {
+            _calloutNow = e.GetPosition(this);
+            InvalidateVisual();
+            return;
+        }
+
         if (!_isPanning) return;
 
         var now = e.GetPosition(this);
@@ -229,6 +270,18 @@ public class SectionView : FrameworkElement
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_calloutStart is { } start && e.ChangedButton == MouseButton.Left)
+        {
+            _calloutStart = null;
+            DrawingCallout = false;
+            ReleaseMouseCapture();
+            var (a, b) = (ToSection(start), ToSection(e.GetPosition(this)));
+            InvalidateVisual();
+            if (Math.Abs(a.X - b.X) >= Callouts.Smallest && Math.Abs(a.Y - b.Y) >= Callouts.Smallest)
+                CalloutDrawn?.Invoke(this, new BoundingBox2D(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Max(a.X, b.X), Math.Max(a.Y, b.Y)));
+            return;
+        }
+
         if (!_isPanning) return;
 
         _isPanning = false;
@@ -242,6 +295,14 @@ public class SectionView : FrameworkElement
         Focus();
 
         if (_drawing is null || _document is null) return;
+
+        // Drawing a callout: dragged from here.
+        if (DrawingCallout)
+        {
+            _calloutStart = _calloutNow = e.GetPosition(this);
+            CaptureMouse();
+            return;
+        }
 
         var point = ToSection(e.GetPosition(this));
         Select(HitTest(point.X, point.Y));
@@ -300,7 +361,19 @@ public class SectionView : FrameworkElement
         _renderer.SetSelection(_highlighted);
         _renderer.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         _renderer.SetTransform(ToScreen);
+
+        // A callout of the section is its box of it only.
+        var crop = _callout is { } shown ? new Rect(ToScreen(shown.Region.MinX, shown.Region.MaxY), ToScreen(shown.Region.MaxX, shown.Region.MinY)) : (Rect?)null;
+        if (crop is { } clip) dc.PushClip(new RectangleGeometry(clip));
         _renderer.DrawContent(dc, _drawing);
+        if (_document is not null) _renderer.DrawCallouts(dc, _document, ViewReference.Section(_marker.Id), _callout is { } own ? Callouts.Reference(own) : null);
+        if (crop is { } frame)
+        {
+            dc.Pop();
+            dc.DrawRectangle(null, RenderPens.Dashed(Color.FromRgb(0x9A, 0xA4, 0xB2), 1, 6, 3), frame);
+        }
+
+        if (_calloutStart is { } start) dc.DrawRoundedRectangle(null, RenderPens.Solid(Color.FromRgb(0x5A, 0xAB, 0xFF), 1.4), new Rect(start, _calloutNow), 6, 6);
 
         if (_drawing.IsEmpty)
             DrawMessage(dc, "Nothing stands on this line. Move the marker so it crosses the building.");

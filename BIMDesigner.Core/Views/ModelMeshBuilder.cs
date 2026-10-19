@@ -1357,10 +1357,48 @@ public static class ModelMeshBuilder
                     topCap: !all.Any(other => Stacked(other, piece)),
                     bottomCap: !all.Any(other => Stacked(piece, other)));
 
+            // Where two faces of the layer meet at an angle - a ridge, a hip, a valley - the join
+            // has no sides, but it is a crease on top and underneath, and is drawn as one.
+            for (var i = 0; i < pieces.Count; i++)
+            {
+                var piece = pieces[i];
+                if (piece.SmoothGroup is not null) continue;
+                for (var k = 0; k < piece.Outline.Count; k++)
+                {
+                    var (a, b) = (piece.Outline[k], piece.Outline[(k + 1) % piece.Outline.Count]);
+                    if (CreaseWith(pieces, i, a, b) is not { } other) continue;
+                    if (TopShows(all, piece, other)) mesh.AddEdge(Point3D.On(a, piece.Top.HeightAt(a)), Point3D.On(b, piece.Top.HeightAt(b)));
+                    if (!all.Any(lower => Stacked(piece, lower) || Stacked(other, lower)))
+                        mesh.AddEdge(Point3D.On(a, piece.Bottom.HeightAt(a)), Point3D.On(b, piece.Bottom.HeightAt(b)));
+                }
+            }
+
             mesh.SmoothGroups();
             if (!mesh.IsEmpty) meshes.Add(mesh);
         }
     }
+
+    /// <summary>
+    /// The piece of the layer, after this one in the list, that an edge of this one runs on into
+    /// at an angle: the two meet along the edge but are not one plane. Each crease is found once.
+    /// </summary>
+    private static RoofPiece? CreaseWith(IReadOnlyList<RoofPiece> pieces, int index, Point2D a, Point2D b)
+    {
+        var piece = pieces[index];
+        for (var j = index + 1; j < pieces.Count; j++)
+        {
+            var other = pieces[j];
+            if (!Joined(new[] { piece, other }, piece, a, b)) continue;
+            var flat = Math.Abs(piece.Top.A - other.Top.A) < 1e-9 && Math.Abs(piece.Top.B - other.Top.B) < 1e-9;
+            return flat || other.SmoothGroup is not null ? null : other;
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether the top of a crease is a face of the roof: nothing of another layer lies on either piece there.</summary>
+    private static bool TopShows(IReadOnlyList<RoofPiece> all, RoofPiece piece, RoofPiece other) =>
+        !all.Any(upper => Stacked(upper, piece) || Stacked(upper, other));
 
     /// <summary>Whether one piece of roof lies right on another: the same outline, its underside the other's top all round.</summary>
     private static bool Stacked(RoofPiece upper, RoofPiece lower)
