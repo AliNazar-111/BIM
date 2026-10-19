@@ -145,6 +145,21 @@ public static class ProjectFile
                 DownpipeShape = gutter.DownpipeShape.ToString(), DownpipeWidth = gutter.DownpipeWidth, DownpipeDepth = gutter.DownpipeDepth
             });
 
+        foreach (var edgeType in document.TypesOf<SlabEdgeType>())
+            dto.SlabEdgeTypes.Add(new SlabEdgeTypeDto
+            {
+                Id = edgeType.Id, Name = edgeType.Name, TypeMark = edgeType.TypeMark, Shape = edgeType.Shape.ToString(), Width = edgeType.Width,
+                Depth = edgeType.Depth, FootWidth = edgeType.FootWidth, MaterialId = edgeType.MaterialId, Cost = edgeType.Cost, Description = edgeType.Description
+            });
+
+        foreach (var slabEdge in document.Elements.OfType<SlabEdge>())
+            dto.SlabEdges.Add(new SlabEdgeDto
+            {
+                Id = slabEdge.Id, TypeId = slabEdge.TypeId, FloorId = slabEdge.FloorId, LevelId = slabEdge.LevelId,
+                Edges = slabEdge.Edges.SelectMany(pair => new[] { pair.From.X, pair.From.Y, pair.To.X, pair.To.Y }).ToList(),
+                HorizontalOffset = slabEdge.HorizontalOffset, VerticalOffset = slabEdge.VerticalOffset, Mark = slabEdge.Mark, Comments = slabEdge.Comments
+            });
+
         foreach (var drain in document.Elements.OfType<RoofDrain>())
             dto.RoofDrains.Add(new RoofDrainDto
             {
@@ -275,7 +290,20 @@ public static class ProjectFile
             dto.GroundRegions.Add(new GroundRegionDto
             {
                 Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
-                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset, Mark = region.Mark, Comments = region.Comments
+                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset, Mark = region.Mark, Comments = region.Comments,
+                PathLine = region.PathLine.Count >= 2 ? region.PathLine.SelectMany(point => new[] { point.X, point.Y }).ToList() : null,
+                PathWidth = region.PathWidth
+            });
+
+        foreach (var mass in document.Elements.OfType<Mass>())
+            dto.Masses.Add(new MassDto
+            {
+                Id = mass.Id, LevelId = mass.LevelId, Boundary = mass.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Round = mass.Round, CentreX = mass.Centre.X, CentreY = mass.Centre.Y, Radius = mass.Radius,
+                BaseOffset = mass.BaseOffset, Height = mass.Height, Top = mass.Top.ToString(), Pitch = mass.Pitch, TopScale = mass.TopScale,
+                FloorLevels = mass.FloorLevels.ToList(),
+                Links = mass.Links.Select(link => new MassLinkDto { ElementId = link.ElementId, Kind = link.Kind.ToString(), Face = link.Face, LevelId = link.LevelId }).ToList(),
+                Mark = mass.Mark, Comments = mass.Comments
             });
 
         foreach (var pad in document.Elements.OfType<SitePad>())
@@ -333,7 +361,7 @@ public static class ProjectFile
             dto.Downpipes.Add(new DownpipeDto
             {
                 Id = pipe.Id, GutterId = pipe.GutterId, LevelId = pipe.LevelId, X = pipe.Location.X, Y = pipe.Location.Y,
-                Mark = pipe.Mark, Comments = pipe.Comments
+                Distributor = pipe.Distributor, Mark = pipe.Mark, Comments = pipe.Comments
             });
 
         foreach (var soffit in document.TypesOf<SoffitType>())
@@ -465,6 +493,7 @@ public static class ProjectFile
                 Function = type.Function.ToString(),
                 FireRating = type.FireRating,
                 AcousticRating = type.AcousticRating,
+                Separating = type.Separating,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 WrapAtInserts = type.WrapAtInserts != WallWrapping.None,
@@ -717,6 +746,8 @@ public static class ProjectFile
                 Kind = SlabKindOf(slab.Category),
                 HeightOffset = slab.HeightOffset,
                 Boundary = slab.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Holes = slab.Holes.Count > 0 ? slab.Holes.Select(hole => hole.SelectMany(point => new[] { point.X, point.Y }).ToList()).ToList() : null,
+                SpanDirection = (slab as Floor)?.SpanDirection,
                 RoofEdges = slab is Roof roof
                     ? roof.Edges.Select(edge => new RoofEdgeDto
                     {
@@ -748,10 +779,12 @@ public static class ProjectFile
                     ? holed.Openings.Select(opening => new RoofOpeningDto
                     {
                         Points = opening.Points.SelectMany(point => new[] { point.X, point.Y }).ToList(),
-                        ArcIds = opening.ArcIds.Any(id => id is not null) ? opening.ArcIds.ToList() : null
+                        ArcIds = opening.ArcIds.Any(id => id is not null) ? opening.ArcIds.ToList() : null,
+                        Square = opening.Square
                     }).ToList()
                     : null,
                 RoofFasciaDepth = slab is Roof fascia ? fascia.FasciaDepth : 150,
+                RoofHighLevelVents = slab is Roof { HighLevelVents: true },
                 RoofDrainageFall = slab is Roof drained ? drained.DrainageFall : RoofDrainage.DesignFall,
                 RoofExtrusion = slab is Roof { Extrusion: { } extrusion }
                     ? new RoofExtrusionDto
@@ -1173,6 +1206,7 @@ public static class ProjectFile
                 Function = ParseEnum(type.Function, WallFunction.Interior),
                 FireRating = type.FireRating,
                 AcousticRating = type.AcousticRating,
+                Separating = type.Separating,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 // Older files said only yes or no: yes meant both sides at openings and the
@@ -1396,6 +1430,14 @@ public static class ProjectFile
                 // A board saved before soffits had kinds was a plain one.
                 Board = ParseEnum(soffit.Board, SoffitBoard.Solid),
                 FreeAirArea = double.IsFinite(soffit.FreeAirArea) && soffit.FreeAirArea > 0 ? soffit.FreeAirArea : 0
+            });
+
+        foreach (var edgeType in dto.SlabEdgeTypes)
+            document.AddType(new SlabEdgeType(edgeType.Name)
+            {
+                Id = edgeType.Id, TypeMark = edgeType.TypeMark ?? string.Empty, Shape = ParseEnum(edgeType.Shape, SlabEdgeShape.Thickened),
+                Width = PositiveOr(edgeType.Width, 450), Depth = PositiveOr(edgeType.Depth, 450), FootWidth = PositiveOr(edgeType.FootWidth, 250),
+                MaterialId = edgeType.MaterialId, Cost = edgeType.Cost, Description = edgeType.Description ?? string.Empty
             });
 
         foreach (var gutter in dto.GutterTypes)
@@ -1690,6 +1732,9 @@ public static class ProjectFile
                 points.Add(new Point2D(slab.Boundary[i], slab.Boundary[i + 1]));
 
             element.SetBoundary(points);
+            if (slab.Holes is { } sketchedHoles)
+                element.SetHoles(sketchedHoles.Select(hole => Enumerable.Range(0, hole.Count / 2).Select(i => new Point2D(hole[2 * i], hole[2 * i + 1]))));
+            if (element is Floor spanned && slab.SpanDirection is { } span && double.IsFinite(span)) spanned.SpanDirection = Floors.Normalised(span);
 
             // The edges come after the outline, since it is the outline that says how many
             // there are. A roof from a file that predates pitched roofs has none, and reads
@@ -1719,10 +1764,11 @@ public static class ProjectFile
                         var arcs = Enumerable.Range(0, points.Count)
                             .Select(i => hole.ArcIds is { } ids && i < ids.Count ? ids[i] : null)
                             .ToList();
-                        return new RoofOpening(points, arcs);
+                        return new RoofOpening(points, arcs) { Square = hole.Square };
                     }));
                 }
                 pitched.FasciaDepth = slab.RoofFasciaDepth;
+                pitched.HighLevelVents = slab.RoofHighLevelVents;
                 pitched.DrainageFall = double.IsFinite(slab.RoofDrainageFall) && slab.RoofDrainageFall >= 10 ? slab.RoofDrainageFall : RoofDrainage.DesignFall;
                 if (slab.RoofExtrusion is { } extruded)
                 {
@@ -1853,6 +1899,22 @@ public static class ProjectFile
 
         static double? Own(double? value) => value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
 
+        // A slab edge is on its floor; one whose floor is gone runs along nothing.
+        var edgeFloors = document.Elements.OfType<Floor>().Select(floor => floor.Id).ToHashSet();
+        foreach (var saved in dto.SlabEdges.Where(saved => edgeFloors.Contains(saved.FloorId)))
+        {
+            var slabEdge = new SlabEdge
+            {
+                Id = saved.Id, TypeId = saved.TypeId, FloorId = saved.FloorId, LevelId = saved.LevelId,
+                HorizontalOffset = double.IsFinite(saved.HorizontalOffset) ? saved.HorizontalOffset : 0,
+                VerticalOffset = double.IsFinite(saved.VerticalOffset) ? saved.VerticalOffset : 0,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            for (var i = 0; i + 3 < saved.Edges.Count; i += 4)
+                slabEdge.Edges.Add((new Point2D(saved.Edges[i], saved.Edges[i + 1]), new Point2D(saved.Edges[i + 2], saved.Edges[i + 3])));
+            document.Add(slabEdge);
+        }
+
         // A roof drain is in its roof; one whose roof is gone has nothing to drain.
         var drainRoofs = document.Elements.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
         foreach (var saved in dto.RoofDrains.Where(saved => drainRoofs.Contains(saved.RoofId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
@@ -1972,8 +2034,33 @@ public static class ProjectFile
                 Id = saved.Id, LevelId = saved.LevelId, Surface = ParseEnum(saved.Surface, GroundSurface.Lawn), MaterialId = saved.MaterialId,
                 Approach = saved.Approach, Offset = Within(saved.Offset, -3000, 3000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             };
+            if (saved.PathLine is { Count: >= 4 } path && double.IsFinite(saved.PathWidth) && saved.PathWidth >= 300)
+                region.SetPath(Enumerable.Range(0, path.Count / 2).Select(i => new Point2D(path[2 * i], path[2 * i + 1])), saved.PathWidth);
             region.SetBoundary(outline);
             document.Add(region);
+        }
+
+        foreach (var saved in dto.Masses.Where(saved => document.FindLevel(saved.LevelId) is not null))
+        {
+            var mass = new Mass
+            {
+                Id = saved.Id, LevelId = saved.LevelId, BaseOffset = Within(saved.BaseOffset, -100000, 100000, 0),
+                Height = double.IsFinite(saved.Height) && saved.Height >= 300 ? saved.Height : 9000,
+                Top = ParseEnum(saved.Top, MassTop.Flat), Pitch = Within(saved.Pitch, 1, 75, 35), TopScale = Within(saved.TopScale, 0, 0.999, 0.5),
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            if (saved.Round && double.IsFinite(saved.Radius) && saved.Radius > 0) mass.SetCircle(new Point2D(saved.CentreX, saved.CentreY), saved.Radius);
+            else
+            {
+                var outline = Outline(saved.Boundary);
+                if (outline.Count < 3) continue;
+                mass.SetBoundary(outline);
+            }
+
+            if (saved.FloorLevels is { } levels) mass.FloorLevels.AddRange(levels.Where(id => document.FindLevel(id) is not null));
+            if (saved.Links is { } links)
+                mass.Links.AddRange(links.Select(link => new MassLink(link.ElementId, ParseEnum(link.Kind, MassLinkKind.Wall), link.Face, link.LevelId)));
+            document.Add(mass);
         }
 
         foreach (var saved in dto.SitePads.Where(saved => document.FindLevel(saved.LevelId) is not null))
@@ -2106,7 +2193,7 @@ public static class ProjectFile
             document.Add(new Downpipe
             {
                 Id = saved.Id, GutterId = saved.GutterId, LevelId = saved.LevelId, Location = new Point2D(saved.X, saved.Y),
-                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Distributor = saved.Distributor, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
         // A shaft stands on a level; one whose level is gone has nowhere to start from.

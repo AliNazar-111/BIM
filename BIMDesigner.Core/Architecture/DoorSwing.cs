@@ -73,7 +73,7 @@ public static class DoorSwing
         {
             var point = wall.PointAt(structure, from + (to - from) * i / steps, side * (face + reach * j / steps));
 
-            if (soffits.Any(piece => InTheWay(piece.Bottom) && Polygon2D.Contains(piece.Outline, point))) return "the soffit";
+            if (soffits.Any(piece => Polygon2D.Contains(piece.Outline, point) && InTheWay(piece.BottomAt(point)))) return "the soffit";
             if (roofs.Any(entry => entry.Roof.Contains(point) && InTheWay(entry.Surface.HeightAt(point)))) return "the roof";
         }
 

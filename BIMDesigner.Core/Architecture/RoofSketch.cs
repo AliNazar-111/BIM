@@ -529,6 +529,21 @@ public static class RoofSketch
         return lines;
     }
 
+    /// <summary>
+    /// A floor's or ceiling's sketch, to edit its boundary again: its outline and its holes as
+    /// level lines, none of them sloping.
+    /// </summary>
+    public static List<RoofSketchLine> LinesOf(Slab slab)
+    {
+        if (slab is Roof roof) return LinesOf(roof);
+
+        var lines = new List<RoofSketchLine>();
+        AddLoop(lines, slab.Boundary, _ => null, _ => new RoofEdge { DefinesSlope = false });
+        foreach (var hole in slab.Holes)
+            AddLoop(lines, hole, _ => null, _ => new RoofEdge { DefinesSlope = false });
+        return lines;
+    }
+
     private static void AddLoop(
         List<RoofSketchLine> lines, IReadOnlyList<Point2D> points, Func<int, Guid?> arcAt, Func<int, RoofEdge> edgeAt)
     {
@@ -631,6 +646,42 @@ public static class RoofSketch
 /// Replaces a roof's sketch - its outline and every edge's settings - as one undoable step.
 /// What Finish does when the roof being sketched already exists.
 /// </summary>
+/// <summary>
+/// A floor's or ceiling's boundary edited in its sketch - Revit's Edit Boundary: its outline,
+/// its holes and, for a floor, its span direction, as one step to undo.
+/// </summary>
+public sealed class SetSlabSketchCommand : IUndoableCommand
+{
+    private readonly Slab _slab;
+    private readonly List<Point2D> _oldBoundary, _newBoundary;
+    private readonly List<IReadOnlyList<Point2D>> _oldHoles, _newHoles;
+    private readonly double? _oldSpan, _newSpan;
+
+    public SetSlabSketchCommand(Slab slab, IEnumerable<Point2D> boundary, IEnumerable<IReadOnlyList<Point2D>> holes, double? span)
+    {
+        _slab = slab;
+        _oldBoundary = slab.Boundary.ToList();
+        _oldHoles = slab.Holes.ToList();
+        _oldSpan = (slab as Floor)?.SpanDirection;
+        _newBoundary = boundary.ToList();
+        _newHoles = holes.ToList();
+        _newSpan = span;
+    }
+
+    public string Name => _slab is Ceiling ? "Edit Ceiling Boundary" : "Edit Floor Boundary";
+
+    public void Redo() => Apply(_newBoundary, _newHoles, _newSpan);
+
+    public void Undo() => Apply(_oldBoundary, _oldHoles, _oldSpan);
+
+    private void Apply(List<Point2D> boundary, List<IReadOnlyList<Point2D>> holes, double? span)
+    {
+        _slab.SetBoundary(boundary);
+        _slab.SetHoles(holes);
+        if (_slab is Floor floor) floor.SpanDirection = span;
+    }
+}
+
 public sealed class SetRoofSketchCommand : IUndoableCommand
 {
     private readonly Roof _roof;
@@ -647,8 +698,11 @@ public sealed class SetRoofSketchCommand : IUndoableCommand
         Roof roof, IEnumerable<Point2D> boundary, IEnumerable<RoofEdge> edges,
         IEnumerable<RoofSlopeArrow>? arrows = null, string name = "Edit Footprint", IEnumerable<RoofOpening>? openings = null)
     {
+        // An opening drawn again where one square to the face was is still square to it.
         _oldOpenings = roof.Openings.ToList();
-        _newOpenings = (openings ?? roof.Openings).ToList();
+        _newOpenings = (openings ?? roof.Openings)
+            .Select(opening => !opening.Square && _oldOpenings.Any(old => old.Square && Same(old.Points, opening.Points)) ? opening with { Square = true } : opening)
+            .ToList();
         _roof = roof;
         _oldBoundary = roof.Boundary.ToList();
         _oldEdges = roof.Edges.Select(edge => edge.Copy()).ToList();
@@ -665,11 +719,75 @@ public sealed class SetRoofSketchCommand : IUndoableCommand
 
     public void Undo() => Apply(_oldBoundary, _oldEdges, _oldArrows, _oldOpenings);
 
+    private static bool Same(IReadOnlyList<Point2D> one, IReadOnlyList<Point2D> other) =>
+        one.Count == other.Count && one.All(point => other.Any(corner => corner.DistanceTo(point) < 1));
+
     private void Apply(List<Point2D> boundary, List<RoofEdge> edges, List<RoofSlopeArrow> arrows, List<RoofOpening> openings)
     {
         _roof.SetOpenings(openings);
         _roof.SetBoundary(boundary);
         _roof.SetEdges(edges.Select(edge => edge.Copy()));
         _roof.SetSlopeArrows(arrows.Select(arrow => arrow.Copy()));
+    }
+}
+
+/// <summary>
+/// Openings cut in a roof's face, square to its slope - Revit's Opening by Face: a hole for a
+/// rooflight or a hatch trimmed between the rafters, which a hole cut straight down is not.
+/// </summary>
+public static class RoofOpenings
+{
+    /// <summary>The smallest opening cut, mm either way.</summary>
+    public const double SmallestSize = 100;
+
+    /// <summary>
+    /// A rectangular opening with its middle where a roof's face is clicked, so wide across the
+    /// slope and so long up it - measured on the face, not in plan. Null, with the reason, when
+    /// it would not lie on one face of the roof or would run into an opening already there.
+    /// </summary>
+    public static RoofOpening? ByFace(BimDocument document, Roof roof, Point2D at, double width, double length, out string? why)
+    {
+        why = null;
+        if (roof.IsExtrusion)
+        {
+            why = "An opening by face goes in a roof drawn by footprint; cut an extruded roof with a shaft.";
+            return null;
+        }
+
+        if (roof.Surface(document).FaceAt(at) is not { } face || !Polygon2D.Contains(face.Outline, at))
+        {
+            why = "Click on the roof's face: the opening is cut square to it there.";
+            return null;
+        }
+
+        // Up the slope and across it; on a flat roof, lined up with the project. Its length up
+        // the face is shorter in plan by the pitch.
+        var plane = face.Plane;
+        var up = plane.Rise < 1e-6 ? Vector2D.UnitY : new Vector2D(plane.A / plane.Rise, plane.B / plane.Rise);
+        var across = up.PerpendicularLeft();
+        var run = length / plane.VerticalStretch / 2;
+        var side = width / 2;
+        var corners = new[]
+        {
+            at - up * run - across * side, at + up * run - across * side,
+            at + up * run + across * side, at - up * run + across * side
+        };
+
+        // On the one face: past a hip, valley or ridge it would no longer be square to it.
+        var edges = Enumerable.Range(0, 4).Select(i => corners[i].MidpointTo(corners[(i + 1) % 4]));
+        if (!corners.Concat(edges).All(point => Polygon2D.Contains(face.Outline, point)))
+        {
+            why = "It runs off the face it is on - over an edge, hip, valley or ridge. Make it smaller, or click further into the face.";
+            return null;
+        }
+
+        if (RoofJoin.Openings(document, roof).Any(hole => PolygonBoolean.Combine(hole, corners, BooleanOperation.Intersection)
+                .Any(region => Polygon2D.Area(region.Outer) > 1)))
+        {
+            why = "It would run into an opening already in the roof.";
+            return null;
+        }
+
+        return new RoofOpening(corners, new Guid?[4]) { Square = true };
     }
 }

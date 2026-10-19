@@ -235,8 +235,8 @@ public sealed class BimDocument
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
-                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
-                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" } => !wallTypeNames.Contains(type.Name),
+                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Party Wall - Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
@@ -307,6 +307,9 @@ public sealed class BimDocument
             case GutterType gutter when gutter.MaterialId == from:
                 gutter.MaterialId = to;
                 return true;
+            case SlabEdgeType slabEdge when slabEdge.MaterialId == from:
+                slabEdge.MaterialId = to;
+                return true;
             case RoofWindowType roofWindow when roofWindow.FrameMaterialId == from || roofWindow.GlassMaterialId == from:
                 if (roofWindow.FrameMaterialId == from) roofWindow.FrameMaterialId = to;
                 if (roofWindow.GlassMaterialId == from) roofWindow.GlassMaterialId = to;
@@ -324,6 +327,7 @@ public sealed class BimDocument
         WallSweepType sweep => new[] { sweep.MaterialId },
         FasciaType fascia => new[] { fascia.MaterialId },
         GutterType gutter => new[] { gutter.MaterialId },
+        SlabEdgeType slabEdge => new[] { slabEdge.MaterialId },
         SoffitType soffit => new[] { soffit.MaterialId },
         RoofWindowType roofWindow => new[] { roofWindow.FrameMaterialId, roofWindow.GlassMaterialId },
         ColumnType column => new[] { column.MaterialId },
@@ -1731,6 +1735,17 @@ public sealed class BimDocument
             Function = WallFunction.Interior, TypeMark = "P2", AssemblyCode = "C1010", FireRating = "30 min", AcousticRating = 43, Cost = 62m,
             CoarseScaleFillColour = ColourRgb.FromHex("C9C1A8"), WrapAtEnds = WallWrapping.Exterior
         };
+        // A party wall between houses: two leaves of dense block with a cavity between, plastered both sides.
+        var partyWall = new WallType("Party Wall - Cavity Blockwork 300mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
+            new MaterialLayer(LayerFunction.Structure, block.Id, 100),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 75, wraps: false),
+            new MaterialLayer(LayerFunction.Structure, block.Id, 100),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
+        {
+            Function = WallFunction.Interior, Separating = true, TypeMark = "PW1", AssemblyCode = "C1010", FireRating = "60 min", AcousticRating = 55, Cost = 118m,
+            CoarseScaleFillColour = ColourRgb.FromHex("B9B2A4"), WrapAtEnds = WallWrapping.Exterior
+        };
         var timberFrame = new WallType("Timber Frame - Brick Clad 315mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, brick.Id, 100),
             new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 50, wraps: false),
@@ -1741,6 +1756,22 @@ public sealed class BimDocument
             Function = WallFunction.Exterior, TypeMark = "EW2", AssemblyCode = "B2010", FireRating = "60 min", AcousticRating = 45, Cost = 150m,
             HeatTransferCoefficient = 0.22, CoarseScaleFillColour = ColourRgb.FromHex("B59A7A"), WrapAtEnds = WallWrapping.Exterior
         };
+
+        // A soffit of any shape - a porch's, a carport's - sketched as a ceiling of soffit board.
+        var soffitCeiling = new CeilingType("Ceiling - Soffit Board, uPVC 10mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, pvcWhite.Id, 10)))
+        {
+            TypeMark = "C3", AssemblyCode = "B2010", Function = SlabFunction.Architectural, Cost = 28m,
+            CoarseScaleFillColour = ColourRgb.FromHex("F2F2EE")
+        };
+
+        // Slab edges: a thickened edge to a ground-bearing slab, an edge beam, a kerb along a floor's edge.
+        var thickenedEdge = new SlabEdgeType("Slab Edge - Thickened 450 x 450")
+            { Shape = SlabEdgeShape.Thickened, Width = 450, Depth = 450, FootWidth = 250, MaterialId = concrete.Id, TypeMark = "SE1", Cost = 85m };
+        var edgeBeam = new SlabEdgeType("Slab Edge - Edge Beam 300 x 600")
+            { Shape = SlabEdgeShape.EdgeBeam, Width = 300, Depth = 600, MaterialId = concrete.Id, TypeMark = "SE2", Cost = 110m };
+        var kerb = new SlabEdgeType("Slab Edge - Upstand Kerb 150 x 150")
+            { Shape = SlabEdgeShape.Upstand, Width = 150, Depth = 150, MaterialId = concrete.Id, TypeMark = "SE3", Cost = 40m };
 
         var logRound = new WallType("Log Wall - Round 220", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, softwood.Id, 220)))
             { Function = WallFunction.Exterior, Log = new LogWall(LogShape.Round, 190, 300), WrapAtEnds = WallWrapping.None, TypeMark = "L1", Cost = 210m };
@@ -1764,7 +1795,8 @@ public sealed class BimDocument
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
-                     logRound, logD, logSquare, acousticPartition, timberFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof
+                     logRound, logD, logSquare, acousticPartition, timberFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof,
+                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling
                  })
         {
             document.AddType(type);

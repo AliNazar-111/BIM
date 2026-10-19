@@ -239,7 +239,7 @@ public static class SlabEdges
 
     /// <summary>Whether a floor is anything other than its sketched outline: cut back from a curtain wall, or a lip past a wall, or with a shaft through it.</summary>
     public static bool IsCut(BimDocument document, Slab slab) =>
-        Shafts.Through(document, slab).Any() || CurtainWallsAt(document, slab).Count > 0 || Chimneys.Holes(document, slab).Any() ||
+        slab.Holes.Count > 0 || Shafts.Through(document, slab).Any() || CurtainWallsAt(document, slab).Count > 0 || Chimneys.Holes(document, slab).Any() ||
         RoofDrainage.PipeHoles(document, slab).Any() || Stairs.Holes(document, slab).Any() || Lips(document, slab).Count > 0 || Beyond(document, slab).Count > 0;
 
     /// <summary>A floor's plan as built: its outline cut back from the curtain walls in front of it and the walls it reaches past, less the shafts through it.</summary>
@@ -248,6 +248,7 @@ public static class SlabEdges
         var cuts = CurtainWallsAt(document, slab).Select(entry => Slot(entry.Wall, entry.Body, SafingGap))
             .Concat(Lips(document, slab))
             .Concat(Beyond(document, slab))
+            .Concat(slab.Holes)
             .Concat(Shafts.Holes(document, slab))
             .Concat(Chimneys.Holes(document, slab))
             .Concat(RoofDrainage.PipeHoles(document, slab))

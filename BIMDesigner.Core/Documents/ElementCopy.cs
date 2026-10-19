@@ -254,7 +254,8 @@ public static class ElementCopy
         Gutter gutter => CarryRoofEdgeSweep(new Gutter(), gutter),
         Soffit soffit => CarryRoofEdgeSweep(new Soffit(), soffit),
         RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location, Own = roofWindow.Own }, roofWindow),
-        Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location }, pipe),
+        Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location, Distributor = pipe.Distributor }, pipe),
+        SlabEdge slabEdge => CloneSlabEdge(slabEdge),
         RoofDrain drain => CarryCommon(new RoofDrain { RoofId = drain.RoofId, Location = drain.Location, OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge }, drain),
         PolygonWall shaped => CarryCommon(new PolygonWall
         {
@@ -297,12 +298,13 @@ public static class ElementCopy
             ClosedUnderneath = ramp.ClosedUnderneath
         }, ramp),
         Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points, ground.ExistingPoints), ground),
-        GroundRegion region => CarryCommon(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset }, region.Boundary), region),
+        GroundRegion region => CarryCommon(CopyPath(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset }, region.Boundary), region), region),
         SitePad pad => CarryCommon(Outline(new SitePad
         {
             HeightOffset = pad.HeightOffset, Fall = pad.Fall, FallDirection = pad.FallDirection, Batter = pad.Batter, Surface = pad.Surface, MaterialId = pad.MaterialId
         }, pad.Boundary), pad),
         PropertyLine line => CarryCommon(Outline(new PropertyLine { Setback = line.Setback }, line.Boundary), line),
+        Mass mass => CarryCommon(CloneMass(mass), mass),
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         Beam beam => CarryCommon(new Beam
@@ -341,10 +343,41 @@ public static class ElementCopy
         return copy;
     }
 
+    /// <summary>A copied mass is the same shape; what was made from the original's faces stays the original's.</summary>
+    private static Mass CloneMass(Mass original)
+    {
+        var copy = new Mass { BaseOffset = original.BaseOffset, Height = original.Height, Top = original.Top, Pitch = original.Pitch, TopScale = original.TopScale };
+        if (original.Round) copy.SetCircle(original.Centre, original.Radius);
+        else copy.SetBoundary(original.Boundary);
+        copy.FloorLevels.AddRange(original.FloorLevels);
+        return copy;
+    }
+
+    /// <summary>A copied path keeps its middle and width, and with them its outline.</summary>
+    private static GroundRegion CopyPath(GroundRegion copy, GroundRegion original)
+    {
+        if (original.PathLine.Count >= 2)
+        {
+            copy.SetPath(original.PathLine, original.PathWidth);
+            copy.SetBoundary(original.Boundary);
+        }
+
+        return copy;
+    }
+
+    private static Element CloneSlabEdge(SlabEdge original)
+    {
+        var copy = new SlabEdge { FloorId = original.FloorId, HorizontalOffset = original.HorizontalOffset, VerticalOffset = original.VerticalOffset };
+        copy.Edges.AddRange(original.Edges);
+        return CarryCommon(copy, original);
+    }
+
     private static Slab CloneSlab(Slab copy, Slab original)
     {
         copy.HeightOffset = original.HeightOffset;
         copy.SetBoundary(original.Boundary);
+        copy.SetHoles(original.Holes);
+        if (copy is Floor copiedFloor && original is Floor floor) copiedFloor.SpanDirection = floor.SpanDirection;
 
         // A copied roof is the same roof: the edges that slope carry over, or the copy would
         // come out flat.
@@ -359,6 +392,7 @@ public static class ElementCopy
             copied.DormerWalls.AddRange(roof.DormerWalls);
             copied.SetOpenings(roof.Openings);
             copied.FasciaDepth = roof.FasciaDepth;
+            copied.HighLevelVents = roof.HighLevelVents;
             copied.DrainageFall = roof.DrainageFall;
             copied.SetSlopeArrows(roof.SlopeArrows.Select(arrow => arrow.Copy()));
             copied.SetExtrusion(roof.Extrusion);
@@ -519,6 +553,10 @@ public static class ElementCopy
 
             case Downpipe pipe when replacements.TryGetValue(pipe.GutterId, out var pipeGutter):
                 pipe.GutterId = pipeGutter;
+                break;
+
+            case SlabEdge slabEdge when replacements.TryGetValue(slabEdge.FloorId, out var edgeFloor):
+                slabEdge.FloorId = edgeFloor;
                 break;
 
             case RoofDrain drain when replacements.TryGetValue(drain.RoofId, out var drainRoof):

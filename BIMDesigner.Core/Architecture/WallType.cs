@@ -64,6 +64,7 @@ public sealed class WallType : ElementType
         Function = Function,
         FireRating = FireRating,
         AcousticRating = AcousticRating,
+        Separating = Separating,
         ThermalResistance = ThermalResistance,
         HeatTransferCoefficient = HeatTransferCoefficient,
         WrapAtInserts = WrapAtInserts,
@@ -87,6 +88,12 @@ public sealed class WallType : ElementType
 
     /// <summary>Weighted sound reduction index Rw, in decibels.</summary>
     public double AcousticRating { get; set; }
+
+    /// <summary>
+    /// Whether it separates one dwelling from another - a party wall: a compartment wall, to
+    /// resist fire for 60 minutes and run up to the roof covering (Approved Document B 5.8, 5.11).
+    /// </summary>
+    public bool Separating { get; set; }
 
     /// <summary>Thermal resistance R, in m²K/W.</summary>
     public double ThermalResistance { get; set; }
@@ -131,6 +138,7 @@ public sealed class WallType : ElementType
             EnumText.Choices<WallFunction>());
         yield return ParameterValue.Bind(WallTypeParameters.FireRating, () => FireRating, v => FireRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
+        yield return ParameterValue.Bind(WallTypeParameters.Separating, () => Separating, v => Separating = v);
         yield return ParameterValue.Bind(WallTypeParameters.ExteriorTaperAngle, () => ExteriorTaperAngle, v => ExteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.InteriorTaperAngle, () => InteriorTaperAngle, v => InteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.ThermalResistance, () => ThermalResistance, v => ThermalResistance = v);
@@ -201,6 +209,9 @@ public static class WallTypeParameters
 
     public static readonly ParameterDefinition FireRating =
         new("Fire Rating", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Separating =
+        new("Party Wall (separates dwellings)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.IdentityData);
 
     public static readonly ParameterDefinition AcousticRating =
         new("Acoustic Rating (Rw)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);

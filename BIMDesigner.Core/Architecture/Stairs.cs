@@ -2073,6 +2073,36 @@ public static class Stairs
     }
 
     /// <summary>
+    /// Whether a stair comes up to an outside door, and every outside door of the building is
+    /// reached by a stair outside - none by a level way or a ramp.
+    /// </summary>
+    private static bool StepsToEveryDoor(BimDocument document, StairLayout layout)
+    {
+        var outside = document.Elements.OfType<Door>()
+            .Where(door => document.FindType<DoorType>(door.TypeId) is { } type && Doors.External(document, door, type))
+            .ToList();
+        if (outside.Count == 0) return false;
+
+        var arrivals = document.Elements.OfType<Stair>().Where(other => other.Outside)
+            .SelectMany(other => Flights(document, other))
+            .SelectMany(flight => flight.Layout.Arrivals.Select(arrival => (Middle: arrival.From.MidpointTo(arrival.To), flight.Layout.Top)))
+            .ToList();
+
+        bool Stepped(Door door)
+        {
+            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) return false;
+            var at = wall.PointAt(document.GetWallType(wall)?.Structure ?? new Materials.CompoundStructure(), door.DistanceAlongWall, 0);
+            var sill = wall.GetBaseElevation(document) + door.SillHeight;
+            return arrivals.Any(arrival => Math.Abs(arrival.Top - sill) < 150 && arrival.Middle.DistanceTo(at) < 2000);
+        }
+
+        var mine = layout.Arrivals.Select(arrival => arrival.From.MidpointTo(arrival.To)).ToList();
+        var servesOne = outside.Any(door => Stepped(door) && document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is { } wall
+            && mine.Any(middle => middle.DistanceTo(wall.PointAt(document.GetWallType(wall)?.Structure ?? new Materials.CompoundStructure(), door.DistanceAlongWall, 0)) < 2000));
+        return servesOne && outside.All(Stepped);
+    }
+
+    /// <summary>
     /// What about a stair falls short of its rules - each said, with what is asked - or nothing.
     /// A stair repeated up a stairwell is checked storey by storey: what is wrong further up and
     /// not at its foot is said with the storey it goes up from.
@@ -2217,6 +2247,11 @@ public static class Stairs
             var side = role switch { StairSideRole.Left => "left side", StairSideRole.Right => "right side", _ => "landing's open edge" };
             if (drop > limit + 0.5) problems.Add($"Its {side} is open, {drop:0} up at its highest, with no railing: {rule}.");
         }
+
+        // Steps up to the house's doors, under Approved Document M: the approach is to be step-free to one entrance at least.
+        if (standard is ClearanceStandard.ApprovedDocumentM or ClearanceStandard.ApprovedDocumentM3 && stair.Outside && StepsToEveryDoor(document, layout))
+            problems.Add("Its steps are the only way up to the house's outside doors: Approved Document M asks for a step-free approach to the entrance, " +
+                         "or to another entrance (M4(2) 2.6, 2.7; M4(3) 3.7, 3.8) - a ramp beside it, or another door reached without steps.");
 
         // A wall standing across its steps.
         foreach (var (wall, step) in StairModel.WallsThrough(document, layout))
@@ -2540,9 +2575,11 @@ public static class Stairs
         }
 
         // Guarding where it is level: in a dwelling 900, elsewhere 1100 off the flights.
-        var guard = us ? 914 : stair.Use == StairUse.Private ? 900 : 1100;
+        // The IBC's 42 in outside a home, under the ADA.
+        var ibc = standard == ClearanceStandard.Ada && stair.Use != StairUse.Private;
+        var guard = ibc ? 1067 : us ? 914 : stair.Use == StairUse.Private ? 900 : 1100;
         if (type.GuardHeight < guard - 0.5)
-            yield return $"Its guarding is {type.GuardHeight:0} high where it is level: {(us ? "the IRC asks for 36 in (914)" : $"Approved Document K asks for {guard}")} at least.";
+            yield return $"Its guarding is {type.GuardHeight:0} high where it is level: {(ibc ? "the IBC asks for 42 in (1067) outside a home (1015.3)" : us ? "the IRC asks for 36 in (914)" : $"Approved Document K asks for {guard}")} at least.";
     }
 
     /// <summary>

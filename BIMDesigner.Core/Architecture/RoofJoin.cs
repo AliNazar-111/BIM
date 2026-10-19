@@ -273,12 +273,16 @@ public static class RoofJoin
     private static Point2D Centroid(IReadOnlyList<Point2D> outline) =>
         new(outline.Average(point => point.X), outline.Average(point => point.Y));
 
-    /// <summary>A roof's pieces with its dormer openings cut out of them.</summary>
+    /// <summary>A roof's pieces with its openings - drawn, cut for dormers, square to its face - cut out of them.</summary>
     public static IReadOnlyList<RoofPiece> Open(BimDocument document, Roof roof, IReadOnlyList<RoofPiece> pieces)
     {
-        var openings = Openings(document, roof, null, trimmed: true);
-        if (openings.Count == 0) return pieces;
+        // Those cut square to the face go through the build-up their own way; the rest straight down.
+        var square = roof.Openings.Where(opening => opening.Square).Select(opening => opening.Points).ToList();
+        var openings = Openings(document, roof, null, trimmed: true)
+            .Where(opening => !square.Any(hole => ReferenceEquals(hole, opening))).ToList();
+        if (openings.Count == 0 && square.Count == 0) return pieces;
 
+        var holes = square.Select(outline => SquareHole.Of(document, roof, outline)).ToList();
         var cut = new List<RoofPiece>();
         foreach (var piece in pieces)
         {
@@ -286,10 +290,96 @@ public static class RoofJoin
             foreach (var opening in openings)
                 remaining = RoofShape.Subtract(remaining, new PolygonBoolean.Region(opening, Array.Empty<IReadOnlyList<Point2D>>()));
 
+            var wedges = new List<RoofPiece>();
+            foreach (var hole in holes) remaining = hole.Cut(piece, remaining, wedges);
+
             foreach (var part in Outlines(remaining)) cut.Add(piece with { Outline = part });
+            cut.AddRange(wedges);
         }
 
         return cut;
+    }
+
+    /// <summary>
+    /// An opening cut square to a roof's face. Its outline is where it is on the top; going down
+    /// through the build-up, square to the slope, it moves up the slope - by the depth times the
+    /// sine and cosine of the pitch, measured down in plan. A rectangle with its sides up and
+    /// across the slope is cut exactly: its sides straight down, its head and sill square to the
+    /// slope, left as wedges of each layer they pass through. Any other shape is cut layer by
+    /// layer, each where the opening is at the middle of the layer.
+    /// </summary>
+    private sealed record SquareHole(
+        IReadOnlyList<Point2D> Outline, RoofPlane Top, Point2D Middle, Vector2D Up, double Rise,
+        (double Sill, double Head, double Left, double Right)? Box)
+    {
+        public static SquareHole Of(BimDocument document, Roof roof, IReadOnlyList<Point2D> outline)
+        {
+            var middle = Centroid(outline);
+            var surface = roof.Surface(document);
+            var under = surface.FaceAt(middle)?.Plane ?? new RoofPlane(0, 0, surface.HeightAt(middle), double.MinValue);
+            var top = Lift(under, roof.Thickness(document) * under.VerticalStretch);
+            if (under.Rise < 1e-6) return new SquareHole(outline, top, middle, Vector2D.UnitX, 0, null);
+
+            // Measured up the slope and across it from its middle; a rectangle square to the slope if every corner is a corner of that box.
+            var up = new Vector2D(under.A / under.Rise, under.B / under.Rise);
+            var across = up.PerpendicularLeft();
+            var along = outline.Select(point => (point - middle).Dot(up)).ToList();
+            var aside = outline.Select(point => (point - middle).Dot(across)).ToList();
+            var box = (Sill: along.Min(), Head: along.Max(), Left: aside.Min(), Right: aside.Max());
+            var rectangle = outline.Count == 4 && Enumerable.Range(0, 4).All(i =>
+                Math.Min(Math.Abs(along[i] - box.Sill), Math.Abs(along[i] - box.Head)) < 1 &&
+                Math.Min(Math.Abs(aside[i] - box.Left), Math.Abs(aside[i] - box.Right)) < 1);
+
+            return new SquareHole(outline, top, middle, up, under.Rise, rectangle ? box : null);
+        }
+
+        /// <summary>A piece with the hole cut from it, and the wedges of it left under the sill and over the head.</summary>
+        public List<PolygonBoolean.Region> Cut(RoofPiece piece, List<PolygonBoolean.Region> remaining, List<RoofPiece> wedges)
+        {
+            if (Rise == 0) return RoofShape.Subtract(remaining, Hole(Outline));
+
+            // How far up the slope it has moved at the top of the layer, and at its bottom.
+            var shift = Rise / (1 + Rise * Rise);
+            var atTop = (Top.HeightAt(Middle) - piece.Top.HeightAt(Middle)) * shift;
+            var atBottom = (Top.HeightAt(Middle) - piece.Bottom.HeightAt(Middle)) * shift;
+
+            var parallel = Parallel(piece.Top) && Parallel(piece.Bottom);
+            if (Box is not { } box || !parallel || box.Sill + atBottom > box.Head + atTop)
+                return RoofShape.Subtract(remaining, Hole(Outline.Select(point => point + Up * ((atTop + atBottom) / 2)).ToList()));
+
+            // Under the sill's slope, between where it leaves the top of the layer and reaches its
+            // bottom; over the head's; and straight through between them.
+            var sill = Intersect(remaining, Rectangle(box.Sill + atTop, box.Sill + atBottom, box.Left, box.Right));
+            var head = Intersect(remaining, Rectangle(box.Head + atTop, box.Head + atBottom, box.Left, box.Right));
+            wedges.AddRange(Outlines(sill).Select(outline => piece with { Outline = outline, Top = SquareAt(box.Sill) }));
+            wedges.AddRange(Outlines(head).Select(outline => piece with { Outline = outline, Bottom = SquareAt(box.Head) }));
+            return RoofShape.Subtract(remaining, Hole(Rectangle(box.Sill + atTop, box.Head + atBottom, box.Left, box.Right)));
+        }
+
+        private bool Parallel(RoofPlane plane) => Math.Abs(plane.A - Top.A) < 1e-9 && Math.Abs(plane.B - Top.B) < 1e-9;
+
+        /// <summary>The plane square to the face through the line across it where the top is this far up the slope.</summary>
+        private RoofPlane SquareAt(double up)
+        {
+            // Falling 1 in the pitch's tangent going up the slope from that line.
+            var height = Top.HeightAt(Middle) + Rise * up;
+            var a = -Up.X / Rise;
+            var b = -Up.Y / Rise;
+            var at = Middle + Up * up;
+            return new RoofPlane(a, b, height - a * at.X - b * at.Y, double.MinValue);
+        }
+
+        private IReadOnlyList<Point2D> Rectangle(double from, double to, double left, double right)
+        {
+            var across = Up.PerpendicularLeft();
+            return new[]
+            {
+                Middle + Up * from + across * left, Middle + Up * to + across * left,
+                Middle + Up * to + across * right, Middle + Up * from + across * right
+            };
+        }
+
+        private static PolygonBoolean.Region Hole(IReadOnlyList<Point2D> outline) => new(outline, Array.Empty<IReadOnlyList<Point2D>>());
     }
 
     /// <summary>

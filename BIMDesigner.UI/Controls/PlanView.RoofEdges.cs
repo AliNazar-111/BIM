@@ -92,9 +92,9 @@ public partial class PlanView
         }
 
         var edge = roof.Edges[index];
-        if (kind == RoofEdgeKind.Soffit && (!edge.DefinesSlope || edge.Overhang <= 1))
+        if (kind == RoofEdgeKind.Soffit && edge.Overhang <= 1)
         {
-            HintChanged?.Invoke(this, "A soffit goes under an eave that overhangs its wall. That edge is a verge, or has no overhang to close.");
+            HintChanged?.Invoke(this, "A soffit goes under an eave or a verge that overhangs its wall. That edge has no overhang to close.");
             return false;
         }
 

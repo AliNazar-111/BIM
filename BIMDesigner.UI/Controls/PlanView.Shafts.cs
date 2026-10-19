@@ -89,6 +89,65 @@ public partial class PlanView
         foreach (var (from, to) in shaft.Cross) dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
     }
 
+    // ---- openings by face ---------------------------------------------------------------
+
+    /// <summary>How wide the Opening by Face tool cuts, across the slope, mm.</summary>
+    public double ActiveFaceOpeningWidth { get; set; } = 900;
+
+    /// <summary>How long the Opening by Face tool cuts, up the slope and measured on it, mm.</summary>
+    public double ActiveFaceOpeningLength { get; set; } = 1200;
+
+    private Point2D? _faceOpeningHover;
+
+    private void FaceOpeningHover(Point2D at)
+    {
+        _faceOpeningHover = at;
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// A click with the Opening by Face tool: an opening square to the face of the roof there,
+    /// its middle where the click was. Public so it can be driven from tests.
+    /// </summary>
+    public bool PlaceFaceOpeningAt(Point2D raw)
+    {
+        if (RoofWindowRoofAt(raw) is { } roof) return PlaceFaceOpening(roof, raw);
+
+        HintChanged?.Invoke(this, "Click on a roof's face: the opening is cut square to it there.");
+        return false;
+    }
+
+    /// <summary>A click on a roof in 3D with the Opening by Face tool: an opening square to its face there.</summary>
+    public bool PlaceFaceOpeningIn3D(Guid roofId, Point3D at) =>
+        Document?.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == roofId) is { } roof && PlaceFaceOpening(roof, new Point2D(at.X, at.Y));
+
+    private bool PlaceFaceOpening(Roof roof, Point2D at)
+    {
+        if (Document is null) return false;
+
+        if (RoofOpenings.ByFace(Document, roof, at, ActiveFaceOpeningWidth, ActiveFaceOpeningLength, out var why) is not { } opening)
+        {
+            HintChanged?.Invoke(this, why ?? "No opening fits there.");
+            return false;
+        }
+
+        Apply(new SetRoofSketchCommand(roof, roof.Boundary, roof.Edges, roof.SlopeArrows, "Opening by Face", roof.Openings.Append(opening)));
+        HintChanged?.Invoke(this, "Opening cut square to the roof's face. Click for another; Esc to stop.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>The opening the next click would cut, following the cursor.</summary>
+    private void DrawFaceOpeningPreview(DrawingContext dc)
+    {
+        if (ActiveTool != PlanTool.FaceOpening || _faceOpeningHover is not { } hover || Document is null) return;
+        if (RoofWindowRoofAt(hover) is not { } roof) return;
+        if (RoofOpenings.ByFace(Document, roof, hover, ActiveFaceOpeningWidth, ActiveFaceOpeningLength, out _) is not { } opening) return;
+
+        dc.DrawGeometry(null, SketchPreviewPen, Outline(opening.Points));
+    }
+
     /// <summary>The shafts under a point of this plan.</summary>
     private IEnumerable<ShaftOpening> ShaftsAt(Point2D model) =>
         OnActiveLevel<ShaftOpening>().Where(shaft => Polygon2D.Contains(shaft.Outline, model));

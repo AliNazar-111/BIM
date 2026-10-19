@@ -212,6 +212,9 @@ public static class Doors
             Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.",
                 "Approved Document L (Table 4.1) limits an external door in a new dwelling to a U-value of 1.6 W/m²K.");
 
+        // The entrance an approach path comes to: its landing outside, level and covered.
+        foreach (var (said, rule) in Approaches.EntranceProblems(document, door, standard)) Add(said, rule);
+
         return problems;
     }
 

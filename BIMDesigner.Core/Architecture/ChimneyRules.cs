@@ -47,7 +47,9 @@ public static class ChimneyRules
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Chimney chimney, ClearanceStandard standard)
     {
         var type = Chimneys.TypeOf(document, chimney);
-        if (type.Construction is ChimneyConstruction.SteelStack or ChimneyConstruction.GuyedStack or ChimneyConstruction.IndustrialMultiFlue or ChimneyConstruction.SolarChimney)
+        // An industrial stack is sized by its own engineer; a gas appliance's flue by its terminal's siting, not a solid fuel fire's rules.
+        if (type.Construction is ChimneyConstruction.SteelStack or ChimneyConstruction.GuyedStack or ChimneyConstruction.IndustrialMultiFlue or ChimneyConstruction.SolarChimney
+            or ChimneyConstruction.TypeBVent or ChimneyConstruction.ConcentricFlue)
             return Array.Empty<PlacementProblem>();
 
         var problems = new List<PlacementProblem>();

@@ -195,7 +195,8 @@ public class ChimneyTypeTests
 
         var (foot, top) = (Chimneys.Foot(document, chimney), Chimneys.Top(document, chimney));
         Assert.True(top - foot >= type.MinimumHeight - 1e-6);
-        Assert.True(top >= Chimneys.HighestContact(document, chimney)!.Value + Chimneys.AboveContact - 1e-6);
+        var above = construction == ChimneyConstruction.ConcentricFlue ? Chimneys.BalancedFlueAbove : Chimneys.AboveContact;
+        Assert.True(top >= Chimneys.HighestContact(document, chimney)!.Value + above - 1e-6);
         Assert.Equal(type.IsRound ? 24 : 4, Chimneys.Outline(document, chimney).Count);
 
         // Its hole through the roof is opened up by its clearance to combustibles.

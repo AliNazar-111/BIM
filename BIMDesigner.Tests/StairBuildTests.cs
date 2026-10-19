@@ -121,6 +121,9 @@ public class StairBuildTests
         Assert.True(layout.Rise <= 178 + 0.5 && layout.Going >= 279 - 0.5 && stair.Width >= 1118 - 0.5, $"{layout.Rise:0} by {layout.Going:0}, {stair.Width:0} wide");
         Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("(504.2)") || problem.Contains("(505.") || problem.Contains("1118"));
 
+        // Its guarding 42 in, as the IBC asks outside a home.
+        Assert.True(Stairs.TypeOf(document, stair).GuardHeight >= 1067 - 0.5);
+
         // A home's stair stays under the IRC.
         stair.Use = StairUse.Private;
         Assert.DoesNotContain(Stairs.Problems(document, stair), problem => problem.Contains("the ADA"));

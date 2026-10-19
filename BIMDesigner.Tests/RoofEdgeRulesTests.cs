@@ -89,6 +89,53 @@ public class RoofEdgeRulesTests
     }
 
     [Fact]
+    public void ADownpipeOntoALowerRoofFromMoreThan25SquareMetresHasADistributor()
+    {
+        // A shed dormer 9 m wide: its gutter's downpipe lets the water off it onto the main roof.
+        var (document, main, wallType) = DormerToolTests.House(14000, 10000, 40);
+        Dormers.Add(document, main, new Point2D(7000, 800), DormerSettings.Default with { Shape = DormerShape.Shed, Slope = 15, Width = 9000 }, wallType.Id, out _, out _);
+        var dormer = document.Elements.OfType<Roof>().Single(roof => !ReferenceEquals(roof, main));
+        var gutter = new Gutter { RoofId = dormer.Id, LevelId = dormer.LevelId, TypeId = document.TypesOf<GutterType>().First().Id };
+        gutter.EdgeIds.AddRange(RoofEdgeSweeps.GutterEdges(document, dormer));
+        document.Add(gutter);
+        var pipe = new Downpipe { GutterId = gutter.Id, LevelId = gutter.LevelId, Location = Downpipes.AtEnds(document, gutter)[0] };
+        document.Add(pipe);
+        Assert.True(Downpipes.Path(document, pipe)!.OntoRoof);
+
+        var standard = document.ProjectInformation.ClearanceStandard;
+        Assert.Contains(RoofEdgeRules.Problems(document, gutter, standard), problem => problem.Rule.Contains("(1.9)"));
+        pipe.Distributor = true;
+        Assert.DoesNotContain(RoofEdgeRules.Problems(document, gutter, standard), problem => problem.Rule.Contains("(1.9)"));
+    }
+
+    [Fact]
+    public void ASteepColdRoofIsAiredAtTheRidgeTooAndTheIrcAsksTwiceTheEavesVentsWithoutIt()
+    {
+        var (document, roof, gutter, _) = Guttered();
+        roof.TypeId = document.TypesOf<RoofType>().Single(type => type.Name == "Roof - Slate on Timber Rafters 150mm").Id;
+        var ceiling = new Ceiling
+        {
+            LevelId = roof.LevelId, HeightOffset = 3000,
+            TypeId = document.TypesOf<CeilingType>().Single(type => type.Name == "Ceiling - Plasterboard under 270mm Mineral Wool").Id
+        };
+        ceiling.SetBoundary(new[] { new Point2D(0, 0), new Point2D(10000, 0), new Point2D(10000, 8000), new Point2D(0, 8000) });
+        document.Add(ceiling);
+        var soffit = new Soffit { RoofId = roof.Id, LevelId = roof.LevelId, TypeId = document.TypesOf<SoffitType>().First().Id };
+        soffit.EdgeIds.AddRange(gutter.EdgeIds);
+        document.Add(soffit);
+
+        // Pitched 40°: BS 5250 wants it aired at the ridge as well.
+        Assert.Contains(SlabRules.Problems(document, roof, ClearanceStandard.ApprovedDocumentM), problem => problem.Rule.Contains("5,000 mm²"));
+        roof.HighLevelVents = true;
+        Assert.DoesNotContain(SlabRules.Problems(document, roof, ClearanceStandard.ApprovedDocumentM), problem => problem.Rule.Contains("5,000 mm²"));
+
+        // The IRC: 1/300 with half of it high up, 1/150 at the eaves without.
+        var withRidge = RoofEdgeRules.EavesAirAsked(document, roof, ClearanceStandard.Irc)!.Value.PerMetre;
+        roof.HighLevelVents = false;
+        Assert.Equal(4 * withRidge, RoofEdgeRules.EavesAirAsked(document, roof, ClearanceStandard.Irc)!.Value.PerMetre, 6);
+    }
+
+    [Fact]
     public void ASoffitUnderAColdRoofLetsAirIntoIt()
     {
         var (document, roof, gutter, _) = Guttered();

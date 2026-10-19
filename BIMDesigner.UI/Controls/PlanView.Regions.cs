@@ -68,6 +68,7 @@ public partial class PlanView
         }
 
         var outline = path ? GroundRegions.Band(_outlinePoints, Math.Max(300, ActivePathWidth)).ToList() : _outlinePoints.ToList();
+        var pathLine = _outlinePoints.ToList();
         _outlinePoints.Clear();
         if (Polygon2D.Area(outline) < 10000)
         {
@@ -76,7 +77,11 @@ public partial class PlanView
             return false;
         }
 
-        if (ActiveTool == PlanTool.Pad)
+        if (ActiveTool == PlanTool.Mass)
+        {
+            if (MakeMass(outline) is null) HintChanged?.Invoke(this, "Too small for a mass: draw it bigger.");
+        }
+        else if (ActiveTool == PlanTool.Pad)
         {
             var pad = new SitePad { LevelId = ActiveLevelId, HeightOffset = ActivePadOffset, Batter = Math.Max(0, ActivePadBatter), Surface = ActivePadSurface };
             pad.SetBoundary(outline);
@@ -106,6 +111,7 @@ public partial class PlanView
         else
         {
             var region = new GroundRegion { LevelId = ActiveLevelId, Surface = path && ActiveGroundSurface == GroundSurface.Lawn ? GroundSurface.Path : ActiveGroundSurface };
+            if (path) region.SetPath(pathLine, Math.Max(300, ActivePathWidth));
             region.SetBoundary(outline);
             Apply(new AddElementCommand(Document, region, "Ground Region"));
             HintChanged?.Invoke(this, GroundRegions.Host(Document, region) is null
@@ -130,7 +136,8 @@ public partial class PlanView
     /// <summary>The outline or path being drawn, on to the cursor.</summary>
     private void DrawOutlinePreview(DrawingContext dc)
     {
-        if (ActiveTool is not (PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine)) return;
+        if (ActiveTool is not (PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.Mass)) return;
+        if (ActiveTool == PlanTool.Mass && ActiveMassFootprint != MassFootprint.Outline) return;
 
         var points = _outlineHover is { } next ? _outlinePoints.Append(next).ToList() : _outlinePoints.ToList();
         foreach (var (a, b) in points.Zip(points.Skip(1))) dc.DrawLine(SketchPreviewPen, ModelToScreen(a), ModelToScreen(b));

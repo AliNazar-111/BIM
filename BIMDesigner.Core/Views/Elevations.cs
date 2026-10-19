@@ -52,6 +52,9 @@ public static class Elevations
                 case Architecture.Slab slab:
                     points.AddRange(slab.Boundary);
                     break;
+                case Architecture.Mass mass:
+                    points.AddRange(mass.Boundary);
+                    break;
                 case Architecture.Column column:
                     points.Add(column.Location);
                     break;

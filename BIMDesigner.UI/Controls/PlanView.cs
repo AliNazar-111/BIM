@@ -92,6 +92,27 @@ public enum PlanTool
     /// <summary>Closes the underside of the overhang along the roof eaves clicked.</summary>
     Soffit,
 
+    /// <summary>Runs a slab edge - a thickened edge, an edge beam, a kerb - along floor edges picked one after another.</summary>
+    SlabEdge,
+
+    /// <summary>Draws a mass: a box, a circle or an outline, so high and so topped.</summary>
+    Mass,
+
+    /// <summary>Makes a side of a mass into a wall.</summary>
+    WallByFace,
+
+    /// <summary>Makes a side of a mass into a curtain wall.</summary>
+    CurtainByFace,
+
+    /// <summary>Makes a mass's floors into floors.</summary>
+    FloorByFace,
+
+    /// <summary>Makes a mass's top into a roof.</summary>
+    RoofByFace,
+
+    /// <summary>Cuts an opening in a roof's face, square to its slope.</summary>
+    FaceOpening,
+
     /// <summary>Puts a roof window in the roof slope clicked, lined up with it.</summary>
     RoofWindow,
 
@@ -1116,16 +1137,19 @@ public partial class PlanView : FrameworkElement
 
     public void SetTool(PlanTool tool)
     {
-        // Another tool leaves a roof sketch without making anything - the window asks first.
-        // The Roof tool itself opens one, as Revit's does, rather than placing a roof.
-        if (IsSketching && tool != PlanTool.Roof) EndSketch();
+        // Another tool leaves a sketch without making anything - the window asks first. The
+        // Roof, Floor and Ceiling tools themselves open one, as Revit's do, rather than placing
+        // anything: a roof's footprint, a floor's or a ceiling's boundary.
+        var sketchTool = _sketchTarget switch { SketchTarget.Floor => PlanTool.Floor, SketchTarget.Ceiling => PlanTool.Ceiling, _ => PlanTool.Roof };
+        if (IsSketching && tool != sketchTool) EndSketch();
 
         ActiveTool = tool;
         CancelPendingOperation();
 
-        if (tool == PlanTool.Roof && !IsSketching)
+        if (!IsSketching && tool is PlanTool.Roof or PlanTool.Floor or PlanTool.Ceiling)
         {
-            BeginRoofSketch();
+            if (tool == PlanTool.Roof) BeginRoofSketch();
+            else BeginSlabSketch(tool == PlanTool.Ceiling ? SketchTarget.Ceiling : SketchTarget.Floor);
             return;
         }
         _joinFirst = null;
@@ -1154,8 +1178,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.Room => "Click inside a space enclosed by walls.",
         PlanTool.Component => "Click where the component should go; on a wall for one fixed to a face. Space turns it.",
         PlanTool.Column => "Click where the column should stand. Space turns it a quarter turn.",
-        PlanTool.Floor => "Click inside a space enclosed by walls to lay a floor in it.",
-        PlanTool.Ceiling => "Click inside a space enclosed by walls to put a ceiling over it.",
+        PlanTool.Floor => "Pick the walls round the floor, or click inside a room for all of it; draw holes inside. Finish ✓ makes the floor.",
+        PlanTool.Ceiling => "Pick the walls round the ceiling, or click inside a room for all of it; draw holes inside. Finish ✓ makes the ceiling.",
         PlanTool.Roof => "Pick Walls: hover just outside a wall and click - the roof edge goes on that face. Finish ✓ when the outline closes.",
         PlanTool.RoofExtrusion => "Roof by Extrusion: click where the profile's line starts, then where it ends, then how far the roof runs back from it.",
         PlanTool.Split => "Click a wall where it should be split.",
@@ -1175,7 +1199,14 @@ public partial class PlanView : FrameworkElement
         PlanTool.Dormer => "Click on a roof's slope where the dormer's front wall should be. Shape and size are on the options bar.",
         PlanTool.Fascia => "Click a roof's edges one after another: the fascia runs along them all, round the corners. Esc finishes it.",
         PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
-        PlanTool.Soffit => "Click a roof's eaves one after another: the soffit closes the overhang under them, back to the wall. Esc finishes it.",
+        PlanTool.Soffit => "Click a roof's eaves or verges one after another: the soffit closes the overhang under them, back to the wall - under a verge sloping with the roof. Esc finishes it.",
+        PlanTool.SlabEdge => "Click a floor's edges one after another: the slab edge runs along them all, round the corners. Click one again to take it off; Esc finishes it.",
+        PlanTool.Mass => "Draw the mass's footprint - a box by two corners, a circle by its centre and a point on it, or an outline by its corners - so high and so topped as the option bar says.",
+        PlanTool.WallByFace => "Click the edge of a mass, in plan or on its face in 3D: a wall is made on that face, its outside on it.",
+        PlanTool.CurtainByFace => "Click the edge of a mass, in plan or on its face in 3D: a curtain wall is made on that face.",
+        PlanTool.FloorByFace => "Click a mass: floors are made at its mass floors - every level through it, if it has none yet.",
+        PlanTool.RoofByFace => "Click a mass: its top is made a roof - flat, pitched as its top slopes, or up from its foot to a point.",
+        PlanTool.FaceOpening => "Click on a roof's face where the opening's middle goes: it is cut square to the slope, as wide across it and as long up it as the option bar says.",
         PlanTool.RoofWindow => "Click on a roof's slope where the roof window's middle goes: it lies in the slope, lined up with it, the roof cut away under it. The type is on the option bar.",
         PlanTool.Chimney => "Click where the chimney stack goes: it rises from this storey up through the roof over it, as far above it as the height rule asks, capped with a pot on each flue. Size and flues on the option bar.",
         PlanTool.Stair => "Click where the stair's first riser goes, then which way is up: it runs up to the level above, its risers worked out from the storey's height, and cuts its opening in the floor over it. Shape, turn and width are on the option bar.",
@@ -1318,6 +1349,8 @@ public partial class PlanView : FrameworkElement
                       | CancelExtrusion()
                       | CancelRoofJoin()
                       | CancelRoofEdgePick()
+                      | CancelSlabEdgePick()
+                      | CancelMass()
                       | CancelSplitFace()
                       | CancelArcTools()
                       | CancelShapedWall()
@@ -1631,6 +1664,17 @@ public partial class PlanView : FrameworkElement
             _cursorModel = raw;
             _cursorIsSnapped = false;
         }
+        else if (ActiveTool == PlanTool.SlabEdge)
+        {
+            SlabEdgeHover(raw);
+            _cursorModel = raw;
+            _cursorIsSnapped = false;
+        }
+        else if (ActiveTool == PlanTool.Mass && ActiveMassFootprint != MassFootprint.Outline)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            InvalidateVisual();
+        }
         else if (ActiveTool == PlanTool.RoofWindow)
         {
             RoofWindowHover(raw);
@@ -1669,7 +1713,7 @@ public partial class PlanView : FrameworkElement
             _cursorIsSnapped = false;
             GroundHover(_cursorModel);
         }
-        else if (ActiveTool is PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine)
+        else if (ActiveTool is PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine || ActiveTool == PlanTool.Mass)
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             OutlineHover(_cursorModel);
@@ -1696,6 +1740,12 @@ public partial class PlanView : FrameworkElement
             _cursorModel = SnapToGrid(raw);
             _cursorIsSnapped = false;
             ShaftHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.FaceOpening)
+        {
+            _cursorModel = raw;
+            _cursorIsSnapped = false;
+            FaceOpeningHover(raw);
         }
         else if (ActiveTool == PlanTool.Dormer)
         {
@@ -1773,12 +1823,19 @@ public partial class PlanView : FrameworkElement
         }
 
         // Double-clicking a roof opens its sketch, as it does in Revit - or, for a roof by
-        // extrusion, its profile.
+        // extrusion, its profile. A floor or ceiling opens its boundary.
         if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && HitTest(raw) is Roof doubleClicked)
         {
             Select(doubleClicked);
             if (doubleClicked.IsExtrusion) EditProfileRequested?.Invoke(this, doubleClicked);
             else EditFootprint();
+            return;
+        }
+
+        if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && HitTest(raw) is Floor or Ceiling && HitTest(raw) is Slab slabClicked)
+        {
+            Select(slabClicked);
+            EditFootprint();
             return;
         }
 
@@ -1926,12 +1983,33 @@ public partial class PlanView : FrameworkElement
                 PickRoofEdgeAt(raw);
                 return;
 
+            case PlanTool.SlabEdge:
+                PickSlabEdgeAt(raw);
+                return;
+
+            case PlanTool.Mass when ActiveMassFootprint == MassFootprint.Outline:
+                if (e.ClickCount == 2 && FinishOutline()) return;
+                ClickOutline(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Mass:
+                MassClick(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.WallByFace or PlanTool.CurtainByFace or PlanTool.FloorByFace or PlanTool.RoofByFace:
+                ByFaceAt(raw);
+                return;
+
             case PlanTool.RoofWindow:
                 PlaceRoofWindowAt(raw);
                 return;
 
             case PlanTool.Shaft:
                 PlaceShaftAt(SnapToGrid(raw));
+                return;
+
+            case PlanTool.FaceOpening:
+                PlaceFaceOpeningAt(raw);
                 return;
 
             case PlanTool.Downpipe:
@@ -2112,6 +2190,7 @@ public partial class PlanView : FrameworkElement
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
+        if (IsSketching && EndSketchDrag()) return;
         if (_stroke is not null)
         {
             FinishStroke();
@@ -5725,6 +5804,9 @@ public partial class PlanView : FrameworkElement
                      RoofWindows.Frame(Document, roofWindow) is { } frame && Polygon2D.Contains(frame.Corners, model)))
             yield return roofWindow;
 
+        // Slab edges run along a floor's edge, under it or up out of it: picked before the floor.
+        foreach (var slabEdge in SlabEdgesAt(model)) yield return slabEdge;
+
         // Fascias and gutters run round a roof's edge: thin, so picked by coming near them.
         var edgeReach = 5 / PixelsPerMm;
         foreach (var edgeSweep in OnActiveLevel<RoofEdgeSweep>().Where(edgeSweep =>
@@ -5745,6 +5827,9 @@ public partial class PlanView : FrameworkElement
         var gridTolerance = 5 / PixelsPerMm;
         foreach (var grid in OnActiveLevel<Grid>().Where(grid => DistanceToSegment(model, grid.Start, grid.End) <= gridTolerance))
             yield return grid;
+
+        // A mass is picked where this storey cuts it, before the slabs it may be built of.
+        foreach (var mass in MassesAt(model)) yield return mass;
 
         // Slabs last: they are under everything, so anything above them wins the click - but for the ground, under them too.
         foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
@@ -5823,6 +5908,9 @@ public partial class PlanView : FrameworkElement
         DrawRoofEdgePick(dc);
         DrawRoofWindowPreview(dc);
         DrawShaftPreview(dc);
+        DrawFaceOpeningPreview(dc);
+        DrawSlabEdgePick(dc);
+        DrawMasses(dc);
         DrawDownpipePreview(dc);
         DrawRoofDrainPreview(dc);
         DrawChimneyPreview(dc);
@@ -5869,8 +5957,8 @@ public partial class PlanView : FrameworkElement
     {
         RefreshViewFilter();
 
-        // A roof whose footprint is open for editing is not drawn: its sketch stands in for it.
-        var editing = _sketchRoof;
+        // A roof, floor or ceiling whose outline is open for editing is not drawn: its sketch stands in for it.
+        var editing = SketchedElement;
         _renderer.Filter = editing is null ? _shows : element => !ReferenceEquals(element, editing) && _shows(element);
         _renderer.Document = Document;
         _renderer.DetailLevel = DetailLevel;

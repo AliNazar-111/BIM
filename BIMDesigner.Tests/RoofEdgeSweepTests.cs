@@ -251,9 +251,17 @@ public class RoofEdgeSweepTests
         });
         Assert.Equal(Polygon2D.Area(roof.Boundary) - wallFaces, pieces.Sum(piece => Polygon2D.Area(piece.Outline)), 1000.0);
 
-        // A gable has soffits under its two eaves only.
+        // A gable has soffits under its two eaves, level, and its two verges, sloping up them with the roof.
         var gable = House(gable: true);
-        Assert.Equal(2, RoofEdgeSweeps.SoffitEdges(gable.Document, gable.Roof).Count);
+        Assert.Equal(4, RoofEdgeSweeps.SoffitEdges(gable.Document, gable.Roof).Count);
+        var gableSoffit = new Soffit { RoofId = gable.Roof.Id, LevelId = gable.Roof.LevelId, TypeId = gable.Document.TypesOf<SoffitType>().First().Id };
+        gableSoffit.EdgeIds.AddRange(RoofEdgeSweeps.SoffitEdges(gable.Document, gable.Roof));
+        gable.Document.Add(gableSoffit);
+        var gablePieces = RoofEdgeSweeps.SoffitPieces(gable.Document, gableSoffit);
+        Assert.Equal(2, gablePieces.Count(piece => piece.TopAt is null));
+        var verge = gablePieces.First(piece => piece.TopAt is not null);
+        var (low, high) = (verge.Outline.Min(point => verge.TopAt!(point)), verge.Outline.Max(point => verge.TopAt!(point)));
+        Assert.True(high - low > 1000, $"the verge's soffit rises {high - low:0}");
 
         // Saved, cut in section and built.
         var reopened = ProjectFile.FromJson(ProjectFile.ToJson(document));

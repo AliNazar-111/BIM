@@ -56,6 +56,10 @@ public class SlabRulesTests
         ceiling.SetBoundary(House);
         document.Add(ceiling);
         Assert.InRange(SlabRules.UValue(document, roof)!.Value, 0.10, 0.13);
+
+        // A cold roof this steep is aired at its ridge too (BS 5250).
+        Assert.Contains(SlabRules.Problems(document, roof, ClearanceStandard.ApprovedDocumentM), problem => problem.Rule.Contains("BS 5250"));
+        roof.HighLevelVents = true;
         Assert.Empty(SlabRules.Problems(document, roof, ClearanceStandard.ApprovedDocumentM));
 
         // A warm roof needs no ceiling: its PIR between and under its rafters gives 0.16.

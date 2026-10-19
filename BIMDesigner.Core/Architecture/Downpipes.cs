@@ -25,6 +25,12 @@ public sealed class Downpipe : Element, IHostedElement
     /// <summary>Where along its gutter its outlet is, in plan: the outlet is at the nearest point of the gutter to this.</summary>
     public Point2D Location { get; set; }
 
+    /// <summary>
+    /// Whether a distributor pipe is fitted to its shoe, spreading the water along the gutter of a
+    /// lower roof it discharges onto - Approved Document H 1.9, past 25 m² of roof.
+    /// </summary>
+    public bool Distributor { get; set; }
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         var gutter = document.Elements.OfType<Gutter>().FirstOrDefault(candidate => candidate.Id == GutterId);
@@ -37,6 +43,7 @@ public sealed class Downpipe : Element, IHostedElement
         yield return ParameterValue.ReadOnly(DownpipeParameters.Length, () => Downpipes.Path(document, this)?.Length ?? 0);
         yield return ParameterValue.ReadOnly(DownpipeParameters.Discharge,
             () => Downpipes.Path(document, this) is { OntoRoof: true } ? "Onto the roof below" : "To the ground");
+        yield return ParameterValue.Bind(DownpipeParameters.Distributor, () => Distributor, v => Distributor = v);
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -411,6 +418,7 @@ public static class Downpipes
 public static class DownpipeParameters
 {
     public static readonly ParameterDefinition Gutter = new("Gutter", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Distributor = new("Distributor on its Shoe", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Shape = new("Shape", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Size = new("Size", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Height = new("Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);

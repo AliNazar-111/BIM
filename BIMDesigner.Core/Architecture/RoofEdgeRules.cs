@@ -80,7 +80,8 @@ public static class RoofEdgeRules
         : Math.Sqrt(4 * type.DownpipeWidth * (type.DownpipeShape == DownpipeShape.Square ? type.DownpipeWidth : type.DownpipeDepth) / Math.PI);
 
     /// <summary>One run of a gutter, as a line in plan, with the roof's water coming into it along it.</summary>
-    private sealed record Channel(IReadOnlyList<Point2D> Line, IReadOnlyList<(double From, double To, double Area)> Inflow, IReadOnlyList<double> Outlets)
+    private sealed record Channel(IReadOnlyList<Point2D> Line, IReadOnlyList<(double From, double To, double Area)> Inflow, IReadOnlyList<double> Outlets,
+        IReadOnlyList<Downpipe> Pipes)
     {
         public double Length => Line.Zip(Line.Skip(1), (a, b) => a.DistanceTo(b)).Sum();
 
@@ -145,15 +146,19 @@ public static class RoofEdgeRules
         }
 
         // Each downpipe's outlet, on the run it is nearest.
-        var outlets = lines.Select(_ => new List<double>()).ToList();
+        var outlets = lines.Select(_ => new List<(double Along, Downpipe Pipe)>()).ToList();
         foreach (var pipe in Downpipes.On(document, gutter))
         {
             var at = Downpipes.Path(document, pipe) is { } path ? path.Points[0].Plan : pipe.Location;
             var nearest = Enumerable.Range(0, lines.Count).Select(k => (K: k, Place: Project(lines[k], at))).OrderBy(entry => entry.Place.Off).FirstOrDefault();
-            if (lines.Count > 0 && nearest.Place.Off < 600) outlets[nearest.K].Add(nearest.Place.Along);
+            if (lines.Count > 0 && nearest.Place.Off < 600) outlets[nearest.K].Add((nearest.Place.Along, pipe));
         }
 
-        return lines.Select((line, k) => new Channel(line, inflow[k], outlets[k].OrderBy(along => along).ToList())).ToList();
+        return lines.Select((line, k) =>
+        {
+            var sorted = outlets[k].OrderBy(outlet => outlet.Along).ToList();
+            return new Channel(line, inflow[k], sorted.Select(outlet => outlet.Along).ToList(), sorted.Select(outlet => outlet.Pipe).ToList());
+        }).ToList();
     }
 
     /// <summary>A band along a run, as wide as the gutter: what is drawn red in plan.</summary>
@@ -225,6 +230,12 @@ public static class RoofEdgeRules
                 }
 
                 var total = before + after;
+
+                // Onto a lower roof, a shoe - and past 25 m², a distributor to spread the water along its gutter.
+                if (total > 25 + 0.05 && !channel.Pipes[i].Distributor && Downpipes.Path(document, channel.Pipes[i]) is { OntoRoof: true })
+                    Add($"its downpipe takes {total:0.0} m² of roof down onto the roof below with no distributor on its shoe.",
+                        "Approved Document H (1.9) asks for a distributor pipe on the shoe of a downpipe from more than 25 m² onto a lower roof, so its gutter is not over-topped - tick Distributor on its Shoe.");
+
                 if (Asked(total) is { } outlet && bore < outlet.Outlet - 0.5)
                     Add($"its downpipe is {Downpipes.Size(type)} - {bore:0} bore - and the {total:0.0} m² coming to it wants an outlet of {outlet.Outlet:0}.",
                         "Approved Document H asks for a downpipe at least as big as its outlet (1.10), and the outlet Table 2 gives for the area.");
@@ -240,10 +251,12 @@ public static class RoofEdgeRules
         if (!SlabRules.Cold(document, roof)) return null;
         if (standard.IsUs())
         {
-            // 1/300 of the loft's floor, half of it at the eaves, along the eaves there are.
+            // 1/300 of the loft's floor, half of it at the eaves, where it is vented high up as well; 1/150 at the eaves where it is not.
             var eaves = RoofEdgeSweeps.Of(document, roof).OfType<Soffit>().Sum(soffit => soffit.Length(document));
-            return eaves < 1 ? null : (Polygon2D.Area(roof.Boundary) / 300 / 2 / (eaves / 1000),
-                "The IRC (R806.2) asks for 1/300 of the loft's area in vents, half of them at the eaves and half high up");
+            if (eaves < 1) return null;
+            return roof.HighLevelVents
+                ? (Polygon2D.Area(roof.Boundary) / 300 / 2 / (eaves / 1000), "The IRC (R806.2) asks for 1/300 of the loft's area in vents, half of them at the eaves and half high up")
+                : (Polygon2D.Area(roof.Boundary) / 150 / (eaves / 1000), "The IRC (R806.2) asks for 1/150 of the loft's area in vents where none are high up - or 1/300 with half of them at the ridge");
         }
 
         return roof.SlopeDegrees >= 15

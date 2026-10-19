@@ -55,6 +55,28 @@ public class ChimneyRulesTests
     }
 
     [Fact]
+    public void AGasFluesTerminalStandsAsItsOwnRulesAsk()
+    {
+        var (document, roof, _) = DormerToolTests.House(10000, 8000, 30);
+        Chimney Flue(string name, ChimneyRule rule)
+        {
+            var flue = new Chimney { LevelId = roof.LevelId, Location = new Point2D(3000, 1500), Rule = rule, TypeId = document.TypesOf<ChimneyType>().Single(type => type.Name == name).Id };
+            document.Add(flue);
+            return flue;
+        }
+
+        // A balanced flue 300 above the roof where it comes through - not a solid-fuel chimney's metre.
+        var balanced = Flue("Flue - Concentric 60/100", ChimneyRule.ApprovedDocumentJ);
+        Assert.Equal(Chimneys.HighestContact(document, balanced)!.Value + 300, Chimneys.Top(document, balanced), 1);
+
+        // A Type B gas vent in the US on a roof of 30° - 6.9 in 12 - 1¼ ft up.
+        var vent = Flue("Gas Vent - Type B 100", ChimneyRule.ThreeTwoTen);
+        Assert.Equal(1.25 * 304.8, Chimneys.GasVentAbove(30), 6);
+        Assert.Equal(Chimneys.HighestContact(document, vent)!.Value + 1.25 * 304.8, Chimneys.Top(document, vent), 1);
+        Assert.Equal(304.8, Chimneys.GasVentAbove(0), 6);
+    }
+
+    [Fact]
     public void InTheUsAStackWiderThan30InHasACricketBehindIt()
     {
         var (document, roof, chimney) = Fire(40, 5000, 1500);

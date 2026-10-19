@@ -76,6 +76,15 @@ public static class SlabRules
         && Thermal.UValue(document, type.Structure, Thermal.Flow.Upward) is { } own && own > 0.5
         && UValue(document, roof) is { } whole && whole < own / 2;
 
+    /// <summary>How far a roof spans between its eaves, mm: its outline's width across its own square.</summary>
+    public static double Span(Roof roof)
+    {
+        if (roof.Boundary.Count < 3) return 0;
+        var (along, across) = RoofDrainage.Axes(roof);
+        var widths = new[] { along, across }.Select(way => roof.Boundary.Max(point => (point - roof.Boundary[0]).Dot(way)) - roof.Boundary.Min(point => (point - roof.Boundary[0]).Dot(way)));
+        return widths.Min();
+    }
+
     /// <summary>The least pitch a roof's covering is laid at, degrees, by what its top layer is made of; null for one not known.</summary>
     public static (double Pitch, string Covering)? CoveringPitch(BimDocument document, RoofType type)
     {
@@ -138,6 +147,11 @@ public static class SlabRules
             if (UValue(document, roof) is { } roofU && roofU > Thermal.RoofLimit + 0.005)
                 Add($"its U-value is {roofU:0.00}{(document.Elements.OfType<Ceiling>().Any() ? ", with the ceiling under it" : string.Empty)}.",
                     "Approved Document L (Table 4.1) limits a new dwelling's roof to a U-value of 0.16 W/m²K - with a cold loft, its ceiling's insulation counted.");
+
+            // A cold roof pitched steeply or spanning far is aired high up as well as at its eaves.
+            if (Cold(document, roof) && !roof.HighLevelVents && (roof.SlopeDegrees > 35 || Span(roof) > 10000))
+                Add($"it is a cold roof {(roof.SlopeDegrees > 35 ? $"pitched {roof.SlopeDegrees:0.#}°" : $"spanning {Span(roof) / 1000:0.0} m")}, aired at its eaves only.",
+                    "BS 5250 asks a cold roof pitched over 35° or spanning more than 10 m for air high up as well - 5,000 mm² a metre at the ridge; tick Vented at the Ridge.");
 
             if (roof.SlopeDegrees > 0.5 && document.FindType<RoofType>(roof.TypeId) is { } roofType && CoveringPitch(document, roofType) is var (least, covering) && roof.SlopeDegrees < least - 0.05)
                 Add($"it is pitched {roof.SlopeDegrees:0.#}°, too flat for {covering}.", $"BS 5534 lays {covering} at {least:0}° at the least, to shed the rain.");

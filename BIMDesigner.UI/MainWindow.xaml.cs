@@ -163,6 +163,16 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // The By Face tools act on the face of a mass where it is clicked.
+            if (hit is { } onMass && Plan.ActiveTool is PlanTool.WallByFace or PlanTool.CurtainByFace or PlanTool.FloorByFace or PlanTool.RoofByFace &&
+                Plan.ByFaceIn3D(onMass.Id, onMass.At))
+            {
+                RefreshProperties();
+                Refresh3D();
+                Model3D.Focus();
+                return;
+            }
+
             // Paint and Split Face act on the face of a wall where it is clicked.
             if (hit is { } painted && Plan.ActiveTool == PlanTool.Paint && Plan.PaintIn3D(painted.Id, painted.At))
             {
@@ -217,6 +227,14 @@ public partial class MainWindow : Window
 
             // The ramp tool, the same: a straight ramp there.
             if (hit is { } onGround && Plan.ActiveTool == PlanTool.Ramp && Plan.PlaceRampIn3D(onGround.Id, onGround.At))
+            {
+                Model3D.Focus();
+                return;
+            }
+
+            // Opening by Face: a click on a roof cuts an opening square to its face there.
+            if (hit is { } onFace && Plan.ActiveTool == PlanTool.FaceOpening &&
+                Plan.PlaceFaceOpeningIn3D(onFace.Id, onFace.At))
             {
                 Model3D.Focus();
                 return;
@@ -569,9 +587,9 @@ public partial class MainWindow : Window
         var tool = Plan.ActiveTool;
         RefreshPlaceWallTab();
         if (tool == PlanTool.Select && Plan.SelectedElements.Count > 0) RefreshContextTab();
-        var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof or PlanTool.RoofExtrusion;
+        var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof or PlanTool.RoofExtrusion or PlanTool.FloorByFace or PlanTool.RoofByFace;
         var isSweep = tool is PlanTool.Sweep or PlanTool.Reveal;
-        var isRoofEdge = tool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit;
+        var isRoofEdge = tool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit or PlanTool.SlabEdge;
 
         // Grids, sections, annotation and the editing tools are not built from a type, so
         // offering one would be asking a question the tool never reads the answer to.
@@ -580,15 +598,17 @@ public partial class MainWindow : Window
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.Rotate or PlanTool.Scale or PlanTool.SplitGap
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
-            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
             or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
-            or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation;
+            or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Dormer) ShowDormerOptions();
         ShaftOptions.Visibility = tool == PlanTool.Shaft ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Shaft) ShowShaftOptions();
+        FaceOpeningOptions.Visibility = tool == PlanTool.FaceOpening ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.FaceOpening) ShowFaceOpeningOptions();
         ChimneyOptions.Visibility = tool == PlanTool.Chimney ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Chimney) ShowChimneyOptions();
         StairOptions.Visibility = tool == PlanTool.Stair ? Visibility.Visible : Visibility.Collapsed;
@@ -605,6 +625,8 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Region) ShowRegionOptions();
         PadOptions.Visibility = tool == PlanTool.Pad ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Pad) ShowPadOptions();
+        MassOptions.Visibility = tool == PlanTool.Mass ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Mass) ShowMassOptions();
         PropertyLineOptions.Visibility = tool == PlanTool.PropertyLine ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.PropertyLine) ShowPropertyLineOptions();
         JoistOptions.Visibility = tool == PlanTool.Joists ? Visibility.Visible : Visibility.Collapsed;
@@ -657,7 +679,7 @@ public partial class MainWindow : Window
         ColumnTypePicker.Visibility = ColumnOptions.Visibility =
             tool == PlanTool.Column ? Visibility.Visible : Visibility.Collapsed;
         SlabTypePicker.Visibility = isSlab ? Visibility.Visible : Visibility.Collapsed;
-        RoofOptions.Visibility = tool == PlanTool.Roof ? Visibility.Visible : Visibility.Collapsed;
+        RoofOptions.Visibility = tool == PlanTool.Roof || Plan.IsSketching && tool is PlanTool.Floor or PlanTool.Ceiling ? Visibility.Visible : Visibility.Collapsed;
 
         if (tool == PlanTool.Roof) ShowRoofSketchOptions();
 
@@ -667,7 +689,7 @@ public partial class MainWindow : Window
 
             var types = tool switch
             {
-                PlanTool.Floor => _document.TypesOf<SlabType>().Where(t => t is FloorType),
+                PlanTool.Floor or PlanTool.FloorByFace => _document.TypesOf<SlabType>().Where(t => t is FloorType),
                 PlanTool.Ceiling => _document.TypesOf<SlabType>().Where(t => t is CeilingType),
                 _ => _document.TypesOf<SlabType>().Where(t => t is RoofType)
             };
@@ -684,7 +706,9 @@ public partial class MainWindow : Window
         {
             PlanTool.Door => "Door type",
             PlanTool.Window => "Window type",
-            PlanTool.Floor => "Floor type",
+            PlanTool.Floor or PlanTool.FloorByFace => "Floor type",
+            PlanTool.CurtainByFace => "Curtain wall type",
+            PlanTool.RoofByFace => "Roof type",
             PlanTool.Ceiling => "Ceiling type",
             PlanTool.Roof or PlanTool.RoofExtrusion => "Roof type",
             PlanTool.Sweep => "Sweep type",
@@ -723,6 +747,7 @@ public partial class MainWindow : Window
         var types = (tool switch
         {
             PlanTool.Gutter => _document.TypesOf<GutterType>().Cast<ElementType>(),
+            PlanTool.SlabEdge => _document.TypesOf<SlabEdgeType>().Cast<ElementType>(),
             PlanTool.Soffit => _document.TypesOf<SoffitType>().Cast<ElementType>(),
             _ => _document.TypesOf<FasciaType>().Cast<ElementType>()
         }).OrderBy(t => t.Name).Select(t => new RoofEdgeTypeChoice(t.Name, t.Id, tool)).ToList();
@@ -734,6 +759,7 @@ public partial class MainWindow : Window
         {
             PlanTool.Gutter => Plan.ActiveGutterTypeId,
             PlanTool.Soffit => Plan.ActiveSoffitTypeId,
+            PlanTool.SlabEdge => Plan.ActiveSlabEdgeTypeId,
             _ => Plan.ActiveFasciaTypeId
         };
         RoofEdgeTypePicker.ItemsSource = types;
@@ -749,6 +775,7 @@ public partial class MainWindow : Window
         {
             case PlanTool.Gutter: Plan.ActiveGutterTypeId = choice.Id; break;
             case PlanTool.Soffit: Plan.ActiveSoffitTypeId = choice.Id; break;
+            case PlanTool.SlabEdge: Plan.ActiveSlabEdgeTypeId = choice.Id; break;
             default: Plan.ActiveFasciaTypeId = choice.Id; break;
         }
     }
@@ -825,7 +852,22 @@ public partial class MainWindow : Window
                 RoofSketchTab.Visibility = Visibility.Visible;
             }
 
-            RoofSketchTab.Header = Plan.SketchedRoof is null ? "Modify | Create Roof Footprint" : "Modify | Roofs > Edit Footprint";
+            RoofSketchTab.Header = (Plan.SketchTarget, Plan.SketchedRoof, Plan.SketchedSlab) switch
+            {
+                (SketchTarget.Floor, _, null) => "Modify | Create Floor Boundary",
+                (SketchTarget.Floor, _, _) => "Modify | Floors > Edit Boundary",
+                (SketchTarget.Ceiling, _, null) => "Modify | Create Ceiling Boundary",
+                (SketchTarget.Ceiling, _, _) => "Modify | Ceilings > Edit Boundary",
+                (_, null, _) => "Modify | Create Roof Footprint",
+                _ => "Modify | Roofs > Edit Footprint"
+            };
+
+            // A floor's or ceiling's lines are level: no slope arrows, no eaves to align - and a floor has a span.
+            var roofSketch = Plan.SketchTarget == SketchTarget.Roof;
+            RoofSketchArrow.Visibility = roofSketch ? Visibility.Visible : Visibility.Collapsed;
+            RoofSketchToolsPanel.Visibility = roofSketch ? Visibility.Visible : Visibility.Collapsed;
+            RoofSketchSpan.Visibility = Plan.SketchTarget == SketchTarget.Floor ? Visibility.Visible : Visibility.Collapsed;
+            RoofSketchSpan.IsChecked = Plan.SketchTool == RoofSketchTool.SpanDirection;
             ContextTab.Visibility = Visibility.Collapsed;
             Ribbon.SelectedItem = RoofSketchTab;
 
@@ -842,11 +884,15 @@ public partial class MainWindow : Window
             RoofSketchOffset.IsChecked = Plan.SketchTool == RoofSketchTool.Offset;
             RoofSketchTrim.IsChecked = Plan.SketchTool == RoofSketchTool.TrimExtend;
             RoofSketchAlignEaves.IsChecked = Plan.SketchTool == RoofSketchTool.AlignEaves;
+            RoofSketchMove.IsChecked = Plan.SketchTool == RoofSketchTool.Move;
+            RoofSketchMirror.IsChecked = Plan.SketchTool == RoofSketchTool.Mirror;
+            RoofSketchAlign.IsChecked = Plan.SketchTool == RoofSketchTool.Align;
+            RoofSketchFillet.IsChecked = Plan.SketchTool == RoofSketchTool.Fillet;
 
-            if (RoofTool.IsChecked != true)
+            if (SketchToolButton().IsChecked != true)
             {
                 _loadingOptions = true;
-                RoofTool.IsChecked = true;
+                SketchToolButton().IsChecked = true;
                 _loadingOptions = false;
             }
 
@@ -864,7 +910,7 @@ public partial class MainWindow : Window
 
         // The sketch finishing or being cancelled leaves the Select tool on in the plan; the
         // ribbon follows it.
-        if (Plan.ActiveTool == PlanTool.Select && RoofTool.IsChecked == true)
+        if (Plan.ActiveTool == PlanTool.Select && (RoofTool.IsChecked == true || FloorTool.IsChecked == true || CeilingTool.IsChecked == true))
         {
             _loadingOptions = true;
             SelectTool.IsChecked = true;
@@ -875,6 +921,14 @@ public partial class MainWindow : Window
 
     private TabItem? _tabBeforeRoofSketch;
 
+    /// <summary>The ribbon tool the open sketch belongs to: Roof, Floor or Ceiling.</summary>
+    private RadioButton SketchToolButton() => Plan.SketchTarget switch
+    {
+        SketchTarget.Floor => FloorTool,
+        SketchTarget.Ceiling => CeilingTool,
+        _ => RoofTool
+    };
+
     private void ShowRoofSketchOptions()
     {
         _loadingOptions = true;
@@ -883,9 +937,14 @@ public partial class MainWindow : Window
         var selected = Plan.SelectedSketchLines;
         var first = selected.FirstOrDefault()?.Edge;
 
+        // A floor's or ceiling's lines are level, and stand off their walls by an offset rather than overhang them.
+        var roofSketch = Plan.SketchTarget == SketchTarget.Roof;
+        RoofDefinesSlopeBox.Visibility = RoofSlopeLabel.Visibility = RoofSlopeBox.Visibility = roofSketch ? Visibility.Visible : Visibility.Collapsed;
+        RoofOverhangLabel.Text = roofSketch ? "Overhang" : "Offset";
+
         RoofDefinesSlopeBox.IsChecked = first?.DefinesSlope ?? Plan.SketchDefinesSlope;
         RoofSlopeBox.Text = ParameterFormatter.Format(ParameterDataType.Angle, first?.SlopeDegrees ?? Plan.ActiveRoofSlopeDegrees);
-        RoofOverhangBox.Text = Units.FormatLength(first?.Overhang ?? Plan.SketchOverhang);
+        RoofOverhangBox.Text = Units.FormatLength(first?.Overhang ?? (roofSketch ? Plan.SketchOverhang : Plan.SketchSlabOffset));
         RoofExtendToCoreBox.IsChecked = first?.ExtendToCore ?? Plan.SketchExtendToCore;
         RoofSidesBox.Text = Plan.PolygonSides.ToString();
 
@@ -896,12 +955,19 @@ public partial class MainWindow : Window
         RoofSidesLabel.Visibility = RoofSidesBox.Visibility =
             Plan.SketchTool == RoofSketchTool.Polygon ? Visibility.Visible : Visibility.Collapsed;
 
-        // The offset belongs to Pick Lines and to Offset; Copy to Offset alone.
-        RoofOffsetBox.Text = Units.FormatLength(Plan.SketchOffset);
-        RoofOffsetCopyBox.IsChecked = Plan.SketchOffsetCopy;
+        // The offset belongs to Pick Lines and to Offset - Fillet Arc's box is its radius; Copy to Offset, Move and Mirror.
+        var filleting = Plan.SketchTool == RoofSketchTool.Fillet;
+        RoofOffsetLabel.Text = filleting ? "Radius" : "Offset";
+        RoofOffsetBox.Text = Units.FormatLength(filleting ? Plan.SketchFilletRadius : Plan.SketchOffset);
+        RoofOffsetCopyBox.IsChecked = Plan.SketchTool switch
+        {
+            RoofSketchTool.Move => Plan.SketchMoveCopy,
+            RoofSketchTool.Mirror => Plan.SketchMirrorCopy,
+            _ => Plan.SketchOffsetCopy
+        };
         RoofOffsetLabel.Visibility = RoofOffsetBox.Visibility =
-            Plan.SketchTool is RoofSketchTool.PickLines or RoofSketchTool.Offset ? Visibility.Visible : Visibility.Collapsed;
-        RoofOffsetCopyBox.Visibility = Plan.SketchTool == RoofSketchTool.Offset ? Visibility.Visible : Visibility.Collapsed;
+            Plan.SketchTool is RoofSketchTool.PickLines or RoofSketchTool.Offset or RoofSketchTool.Fillet ? Visibility.Visible : Visibility.Collapsed;
+        RoofOffsetCopyBox.Visibility = Plan.SketchTool is RoofSketchTool.Offset or RoofSketchTool.Move or RoofSketchTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
 
         // How Align Eaves brings an eave to height.
         RoofAlignPicker.ItemsSource ??= new[] { "Adjust Height", "Adjust Overhang" };
@@ -1224,6 +1290,42 @@ public partial class MainWindow : Window
         ShowPadOptions();
     }
 
+    private void ShowMassOptions()
+    {
+        _loadingOptions = true;
+        MassFootprintPicker.ItemsSource ??= EnumText.Choices<MassFootprint>();
+        MassFootprintPicker.SelectedItem = EnumText.Humanise(Plan.ActiveMassFootprint);
+        MassTopPicker.ItemsSource ??= EnumText.Choices<MassTop>();
+        MassTopPicker.SelectedItem = EnumText.Humanise(Plan.ActiveMassTop);
+        MassHeightBox.Text = Plan.ActiveMassHeight.ToString("0");
+        MassPitchBox.Text = Plan.ActiveMassPitch.ToString("0.#");
+        MassScaleBox.Text = Plan.ActiveMassTopScale.ToString("0.##");
+        MassPitchLabel.Visibility = MassPitchBox.Visibility = Plan.ActiveMassTop is MassTop.Gable or MassTop.Hip or MassTop.Shed ? Visibility.Visible : Visibility.Collapsed;
+        MassScaleLabel.Visibility = MassScaleBox.Visibility = Plan.ActiveMassTop == MassTop.Tapered ? Visibility.Visible : Visibility.Collapsed;
+        _loadingOptions = false;
+    }
+
+    private void OnMassOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (MassFootprintPicker.SelectedItem is string footprint && EnumText.TryParse<MassFootprint>(footprint, out var drawn)) Plan.ActiveMassFootprint = drawn;
+        if (MassTopPicker.SelectedItem is string top && EnumText.TryParse<MassTop>(top, out var topped)) Plan.ActiveMassTop = topped;
+        if (double.TryParse(MassHeightBox.Text, out var height) && height is >= 300 and <= 500000) Plan.ActiveMassHeight = height;
+        if (double.TryParse(MassPitchBox.Text, out var pitch) && pitch is >= 1 and <= 75) Plan.ActiveMassPitch = pitch;
+        if (double.TryParse(MassScaleBox.Text, out var scale) && scale is >= 0 and < 1) Plan.ActiveMassTopScale = scale;
+        ShowMassOptions();
+    }
+
+    private void OnMassFloors(object sender, RoutedEventArgs e)
+    {
+        if (Plan.ToggleMassFloors()) AfterHistoryChange();
+    }
+
+    private void OnUpdateMassToFace(object sender, RoutedEventArgs e)
+    {
+        if (Plan.UpdateMassToFace()) AfterHistoryChange();
+    }
+
     private void ShowPropertyLineOptions()
     {
         _loadingOptions = true;
@@ -1489,6 +1591,36 @@ public partial class MainWindow : Window
         ShowShaftOptions();
     }
 
+    /// <summary>The opening the Opening by Face tool cuts next, on the options bar.</summary>
+    private void ShowFaceOpeningOptions()
+    {
+        _loadingOptions = true;
+        FaceOpeningWidthBox.Text = Units.FormatLength(Plan.ActiveFaceOpeningWidth);
+        FaceOpeningLengthBox.Text = Units.FormatLength(Plan.ActiveFaceOpeningLength);
+        _loadingOptions = false;
+    }
+
+    private void OnFaceOpeningOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        static double? Read(string text) =>
+            ParameterFormatter.TryParse(ParameterDataType.Length, text, out var value) && value is double number ? number : null;
+
+        if (Read(FaceOpeningWidthBox.Text) is { } width and >= RoofOpenings.SmallestSize) Plan.ActiveFaceOpeningWidth = width;
+        if (Read(FaceOpeningLengthBox.Text) is { } length and >= RoofOpenings.SmallestSize) Plan.ActiveFaceOpeningLength = length;
+        ShowFaceOpeningOptions();
+    }
+
+    private void OnFaceOpeningOptionKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+
+        OnFaceOpeningOptionChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
     private void OnShaftOptionKey(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
@@ -1595,9 +1727,10 @@ public partial class MainWindow : Window
     {
         if (!Plan.IsSketching) return true;
 
+        var noun = Plan.SketchTarget switch { SketchTarget.Floor => "floor", SketchTarget.Ceiling => "ceiling", _ => "roof" };
         var answer = MessageBox.Show(this,
-            "Finish the roof sketch before switching tools?\n\nYes makes the roof, No throws the sketch away, Cancel keeps sketching.",
-            "Roof sketch", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            $"Finish the {noun} sketch before switching tools?\n\nYes makes the {noun}, No throws the sketch away, Cancel keeps sketching.",
+            $"{char.ToUpperInvariant(noun[0])}{noun[1..]} sketch", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
 
         switch (answer)
         {
@@ -1659,7 +1792,10 @@ public partial class MainWindow : Window
             value is double millimetres && millimetres >= 0)
         {
             if (!Plan.ChangeSelectedSketchLines(edge => { if (edge.WallId is not null) edge.Overhang = millimetres; }))
-                Plan.SketchOverhang = millimetres;
+            {
+                if (Plan.SketchTarget == SketchTarget.Roof) Plan.SketchOverhang = millimetres;
+                else Plan.SketchSlabOffset = millimetres;
+            }
         }
 
         ShowRoofSketchOptions();
@@ -1678,7 +1814,13 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
 
         if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofOffsetBox.Text, out var value) && value is double millimetres)
-            Plan.SketchOffset = Math.Abs(millimetres);
+        {
+            if (Plan.SketchTool == RoofSketchTool.Fillet)
+            {
+                if (millimetres > 0) Plan.SketchFilletRadius = millimetres;
+            }
+            else Plan.SketchOffset = Math.Abs(millimetres);
+        }
 
         ShowRoofSketchOptions();
     }
@@ -1704,7 +1846,14 @@ public partial class MainWindow : Window
     {
         if (_loadingOptions || Plan is null) return;
 
-        Plan.SketchOffsetCopy = RoofOffsetCopyBox.IsChecked == true;
+        var copy = RoofOffsetCopyBox.IsChecked == true;
+        switch (Plan.SketchTool)
+        {
+            case RoofSketchTool.Move: Plan.SketchMoveCopy = copy; break;
+            case RoofSketchTool.Mirror: Plan.SketchMirrorCopy = copy; break;
+            default: Plan.SketchOffsetCopy = copy; break;
+        }
+
         Plan.Focus();
     }
 
@@ -1752,7 +1901,7 @@ public partial class MainWindow : Window
 
     private Guid ActiveSlabTypeId(PlanTool tool) => tool switch
     {
-        PlanTool.Floor => Plan.ActiveFloorTypeId,
+        PlanTool.Floor or PlanTool.FloorByFace => Plan.ActiveFloorTypeId,
         PlanTool.Ceiling => Plan.ActiveCeilingTypeId,
         _ => Plan.ActiveRoofTypeId
     };
@@ -1764,9 +1913,9 @@ public partial class MainWindow : Window
 
         switch (Plan.ActiveTool)
         {
-            case PlanTool.Floor: Plan.ActiveFloorTypeId = type.Id; break;
+            case PlanTool.Floor or PlanTool.FloorByFace: Plan.ActiveFloorTypeId = type.Id; break;
             case PlanTool.Ceiling: Plan.ActiveCeilingTypeId = type.Id; break;
-            case PlanTool.Roof or PlanTool.RoofExtrusion: Plan.ActiveRoofTypeId = type.Id; break;
+            case PlanTool.Roof or PlanTool.RoofExtrusion or PlanTool.RoofByFace: Plan.ActiveRoofTypeId = type.Id; break;
         }
     }
 
@@ -2000,11 +2149,12 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, TerrainTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, TerrainTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
-        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool
+        SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool, SlabEdgeTool,
+        MassTool, WallByFaceTool, CurtainByFaceTool, FloorByFaceTool, RoofByFaceTool
     ];
 
     /// <summary>
@@ -2045,12 +2195,12 @@ public partial class MainWindow : Window
         // The ribbon being brought into line with the plan, not a tool being chosen.
         if (_loadingOptions) return;
 
-        // Picking another tool with a roof sketch open asks what to do with the sketch first.
-        if (Plan.IsSketching && RoofTool.IsChecked != true && !LeaveRoofSketch())
+        // Picking another tool with a sketch open asks what to do with the sketch first.
+        if (Plan.IsSketching && SketchToolButton().IsChecked != true && !LeaveRoofSketch())
         {
             _loadingOptions = true;
             foreach (var other in ToolButtons().Where(button => button is not null)) other.IsChecked = false;
-            RoofTool.IsChecked = true;
+            SketchToolButton().IsChecked = true;
             _loadingOptions = false;
             return;
         }
@@ -2069,9 +2219,16 @@ public partial class MainWindow : Window
             : DormerTool.IsChecked == true ? PlanTool.Dormer
             : FasciaTool.IsChecked == true ? PlanTool.Fascia
             : GutterTool.IsChecked == true ? PlanTool.Gutter
+            : MassTool.IsChecked == true ? PlanTool.Mass
+            : WallByFaceTool.IsChecked == true ? PlanTool.WallByFace
+            : CurtainByFaceTool.IsChecked == true ? PlanTool.CurtainByFace
+            : FloorByFaceTool.IsChecked == true ? PlanTool.FloorByFace
+            : RoofByFaceTool.IsChecked == true ? PlanTool.RoofByFace
+            : SlabEdgeTool.IsChecked == true ? PlanTool.SlabEdge
             : SoffitTool.IsChecked == true ? PlanTool.Soffit
             : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
             : ShaftTool.IsChecked == true ? PlanTool.Shaft
+            : FaceOpeningTool.IsChecked == true ? PlanTool.FaceOpening
             : DownpipeTool.IsChecked == true ? PlanTool.Downpipe
             : RoofDrainTool.IsChecked == true ? PlanTool.RoofDrain
             : ChimneyTool.IsChecked == true ? PlanTool.Chimney
@@ -3167,6 +3324,8 @@ public partial class MainWindow : Window
         ContextAddDownpipes.Visibility = selected is [Roof { IsExtrusion: false }] or [Gutter] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
         ContextAddDormer.Visibility = ContextDormerOpening.Visibility = selected is [Roof] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditFootprint.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
+        ContextSlabPanel.Visibility = selected is [Floor] or [Ceiling] ? Visibility.Visible : Visibility.Collapsed;
+        ContextMassPanel.Visibility = selected is [Mass] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
         ContextAddFascia.Visibility = ContextAddGutters.Visibility = ContextAddSoffits.Visibility =
             selected is [Roof { IsExtrusion: false }] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;

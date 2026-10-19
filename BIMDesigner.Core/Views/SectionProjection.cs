@@ -149,6 +149,8 @@ public static class SectionProjection
         {
             foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, marker, wall, pieces);
             foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, marker, slab, pieces);
+            foreach (var mass in document.Elements.OfType<Mass>().Where(mass => shows(mass) && mass.Boundary.Count >= 3))
+                AddCut(marker, new[] { Masses.Mesh(document, mass) }, pieces);
 
             // A wall shaped in plan is cut through where the line crosses its outline.
             foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(shaped => shows(shaped)))
@@ -190,6 +192,8 @@ public static class SectionProjection
                     AddCut(marker, new[] { mesh }, pieces);
             foreach (var drain in document.Elements.OfType<RoofDrain>().Where(drain => shows(drain)))
                 if (RoofDrainage.Mesh(document, drain) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
+            foreach (var slabEdge in document.Elements.OfType<SlabEdge>().Where(slabEdge => shows(slabEdge)))
+                if (SlabEdgeRuns.Mesh(document, slabEdge) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
 
             // Roof windows the cut goes through: the frame each side, the pane between.
             foreach (var window in document.Elements.OfType<RoofWindow>().Where(window => shows(window)))

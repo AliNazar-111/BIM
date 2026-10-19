@@ -102,7 +102,7 @@ public partial class PlanView
 
         foreach (var slab in OnActiveLevel<Slab>())
         {
-            if (ReferenceEquals(slab, _sketchRoof)) continue;
+            if (ReferenceEquals(slab, SketchedElement)) continue;
 
             for (var i = 0; i < slab.Boundary.Count; i++)
                 Consider(slab.Boundary[i], slab.Boundary[(i + 1) % slab.Boundary.Count]);

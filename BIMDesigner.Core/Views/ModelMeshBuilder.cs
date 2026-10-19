@@ -53,6 +53,8 @@ public static class ModelMeshBuilder
         // The downpipes taking the water down from them.
         foreach (var pipe in document.Elements.OfType<Downpipe>().Where(p => shows(p)))
             if (Downpipes.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
+        foreach (var slabEdge in document.Elements.OfType<SlabEdge>().Where(e => shows(e)))
+            if (SlabEdgeRuns.Mesh(document, slabEdge) is { } edgeMesh) meshes.Add(edgeMesh);
 
         // And the drains in flat roofs, with the pipes taking their water away.
         foreach (var drain in document.Elements.OfType<RoofDrain>().Where(d => shows(d)))
@@ -90,6 +92,10 @@ public static class ModelMeshBuilder
         // Joist layouts: their joists and trimmers.
         foreach (var system in document.Elements.OfType<BeamSystem>().Where(s => shows(s)))
             meshes.AddRange(BeamSystems.Meshes(document, system));
+
+        // Masses, see-through: the shape of the building before it is one.
+        foreach (var mass in document.Elements.OfType<Mass>().Where(m => shows(m) && m.Boundary.Count >= 3))
+            meshes.Add(Masses.Mesh(document, mass));
 
         // Walls shaped in plan - trapezoids and polygons - stood up from their outlines.
         foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(w => shows(w)))

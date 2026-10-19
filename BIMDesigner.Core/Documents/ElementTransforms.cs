@@ -56,6 +56,7 @@ public static class ElementTransforms
         // The ground, with its spot levels; a region of it, and a joist layout, with their outlines.
         Toposurface or GroundRegion or BeamSystem => true,
         SitePad or PropertyLine or SpotElevation => true,
+        Mass => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         _ => false
@@ -77,6 +78,7 @@ public static class ElementTransforms
 
             case Slab slab:
                 slab.SetBoundary(slab.Boundary.Select(point => point + delta).ToList());
+                slab.SetHoles(slab.Holes.Select(hole => hole.Select(point => point + delta)).ToList());
                 (slab as Roof)?.TransformSketch(point => point + delta);
                 break;
 
@@ -103,6 +105,10 @@ public static class ElementTransforms
 
             case Downpipe pipe:
                 pipe.Location += delta;
+                break;
+
+            case SlabEdge slabEdge:
+                SlabEdgeRuns.Transform(slabEdge, point => point + delta);
                 break;
 
             case RoofDrain drain:
@@ -136,10 +142,16 @@ public static class ElementTransforms
 
             case GroundRegion region:
                 region.SetBoundary(region.Boundary.Select(point => point + delta).ToList());
+                region.TransformPath(point => point + delta);
                 break;
 
             case SitePad pad:
                 pad.SetBoundary(pad.Boundary.Select(point => point + delta).ToList());
+                break;
+
+            case Mass mass:
+                mass.SetBoundary(mass.Boundary.Select(point => point + delta).ToList());
+                mass.TransformCircle(point => point + delta);
                 break;
 
             case PropertyLine line:
@@ -226,6 +238,8 @@ public static class ElementTransforms
                 // SetBoundary re-winds the outline, so a reflected one comes back the right
                 // way round and its area stays positive.
                 slab.SetBoundary(slab.Boundary.Select(Reflect).ToList());
+                slab.SetHoles(slab.Holes.Select(hole => hole.Select(Reflect)).ToList());
+                if (slab is Floor { SpanDirection: { } span } spanned) spanned.SpanDirection = Floors.Reflected(span, Reflect);
                 (slab as Roof)?.TransformSketch(Reflect);
                 break;
 
@@ -255,6 +269,10 @@ public static class ElementTransforms
 
             case Downpipe pipe:
                 pipe.Location = Reflect(pipe.Location);
+                break;
+
+            case SlabEdge slabEdge:
+                SlabEdgeRuns.Transform(slabEdge, Reflect);
                 break;
 
             case RoofDrain drain:
@@ -318,6 +336,12 @@ public static class ElementTransforms
 
             case GroundRegion region:
                 region.SetBoundary(region.Boundary.Select(Reflect).ToList());
+                region.TransformPath(Reflect);
+                break;
+
+            case Mass mass:
+                mass.SetBoundary(mass.Boundary.Select(Reflect).ToList());
+                mass.TransformCircle(Reflect);
                 break;
 
             case SitePad pad:
@@ -432,7 +456,7 @@ public static class ElementTransforms
     /// a point, which keep their own size and only move. Not a roof by extrusion, whose section
     /// would have to change shape.
     /// </summary>
-    public static bool CanScale(Element element) => CanMove(element) && element is not Roof { Extrusion: not null };
+    public static bool CanScale(Element element) => CanMove(element) && element is not Roof { Extrusion: not null } || element is SlabEdge;
 
     /// <summary>
     /// Scales an element's setting out about a point: its points move away from it, or toward
@@ -470,6 +494,8 @@ public static class ElementTransforms
 
             case Slab slab:
                 slab.SetBoundary(slab.Boundary.Select(map).ToList());
+                slab.SetHoles(slab.Holes.Select(hole => hole.Select(map)).ToList());
+                if (slab is Floor { SpanDirection: { } span } spanned) spanned.SpanDirection = Floors.Turned(span, degrees);
                 (slab as Roof)?.TransformSketch(map);
                 break;
 
@@ -498,6 +524,10 @@ public static class ElementTransforms
 
             case Downpipe pipe:
                 pipe.Location = map(pipe.Location);
+                break;
+
+            case SlabEdge slabEdge:
+                SlabEdgeRuns.Transform(slabEdge, map);
                 break;
 
             case RoofDrain drain:
@@ -534,11 +564,17 @@ public static class ElementTransforms
 
             case GroundRegion region:
                 region.SetBoundary(region.Boundary.Select(map).ToList());
+                region.TransformPath(map);
                 break;
 
             case SitePad pad:
                 pad.SetBoundary(pad.Boundary.Select(map).ToList());
                 pad.FallDirection = ((pad.FallDirection + degrees) % 360 + 360) % 360;
+                break;
+
+            case Mass mass:
+                mass.SetBoundary(mass.Boundary.Select(map).ToList());
+                mass.TransformCircle(map);
                 break;
 
             case PropertyLine line:

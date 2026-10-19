@@ -52,6 +52,7 @@ public sealed class PlanRenderer
     private readonly Pen _stairShortPen;
     private readonly Pen _selectedPen;
     private readonly Pen _overheadPen;
+    private readonly Pen _slabEdgePen;
     private readonly Pen _previewPen;
     private readonly Pen _locationLinePen;
     private readonly Pen _openingPen;
@@ -114,6 +115,7 @@ public sealed class PlanRenderer
         _layerPen = RenderPens.Solid(ink.LayerSeparator, 0.7);
         _membranePen = RenderPens.Dashed(ink.WallOutline, 1.0, 5, 3);
         _overheadPen = RenderPens.Dashed(ink.WallOutline, 0.9, 7, 4);
+        _slabEdgePen = RenderPens.Dashed(ink.WallOutline, 1.4, 6, 3);
         _componentPen = RenderPens.Solid(ink.Component, 1.1);
         _stairShortPen = RenderPens.Solid(Color.FromRgb(0xE0, 0x4B, 0x3A), 1.4);
         _selectedPen = RenderPens.Solid(ink.Selected, 2.2);
@@ -293,6 +295,9 @@ public sealed class PlanRenderer
 
         // Fascias and gutters round the roofs: the strip each covers, seen from above.
         foreach (var sweep in OnActiveLevel<RoofEdgeSweep>()) DrawRoofEdgeSweep(dc, sweep);
+
+        // Slab edges along the floors: under them dashed, as hidden; a kerb standing up out of one, drawn.
+        foreach (var slabEdge in OnActiveLevel<SlabEdge>()) DrawSlabEdge(dc, slabEdge);
         foreach (var roofWindow in OnActiveLevel<RoofWindow>()) DrawRoofWindow(dc, roofWindow);
         foreach (var shaft in ShaftsOnPlan()) DrawShaft(dc, shaft);
         foreach (var pipe in DownpipesOnPlan()) DrawDownpipe(dc, pipe);
@@ -1391,6 +1396,15 @@ public sealed class PlanRenderer
             ? Enumerable.Empty<ShaftOpening>()
             : Document.Elements.OfType<ShaftOpening>().Where(shaft => Shafts.ShownOn(Document, shaft, ActiveLevelId) && Filter(shaft));
 
+    private void DrawSlabEdge(DrawingContext dc, SlabEdge slabEdge)
+    {
+        if (Document is null) return;
+        var standsUp = Document.FindType<SlabEdgeType>(slabEdge.TypeId) is { Shape: SlabEdgeShape.Upstand };
+        var pen = IsSelected(slabEdge) ? _selectedPen : standsUp ? _componentPen : _slabEdgePen;
+        foreach (var outline in Kept($"slab edge {slabEdge.Id}", () => SlabEdgeRuns.Outlines(Document, slabEdge).ToList()))
+            if (outline.Count >= 3) dc.DrawGeometry(null, pen, BuildOutline(outline));
+    }
+
     private void DrawRoofEdgeSweep(DrawingContext dc, RoofEdgeSweep sweep)
     {
         if (Document is null) return;
@@ -1416,11 +1430,12 @@ public sealed class PlanRenderer
 
         var isSelected = IsSelected(slab);
 
-        // A floor or ceiling with shafts through it, or cut back from a curtain wall: drawn as built.
+        // A floor or ceiling with holes or shafts through it, or cut back from a curtain wall: drawn as built.
         if (slab is not Roof && Kept($"cut {slab.Id}", () => SlabEdges.IsCut(Document, slab) ? SlabEdges.Regions(Document, slab) : null) is { } built)
         {
             foreach (var region in built)
                 dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildLoops(Shafts.Loops(region)));
+            DrawSpan(dc, slab);
             return;
         }
 
@@ -1433,6 +1448,8 @@ public sealed class PlanRenderer
         foreach (var outline in outlines)
             dc.DrawGeometry(SlabBrush(type), isSelected ? _selectedPen : _slabPen, BuildOutline(outline));
 
+        DrawSpan(dc, slab);
+
         if (slab is Roof roof)
         {
             DrawRoofLines(dc, roof, isSelected, outlines);
@@ -1441,6 +1458,43 @@ public sealed class PlanRenderer
             // Where the roof is cut away for a dormer, the hole's outline.
             foreach (var opening in Kept($"openings {roof.Id}", () => RoofJoin.Openings(Document, roof)))
                 dc.DrawGeometry(null, isSelected ? _selectedPen : _slabPen, BuildOutline(opening));
+        }
+    }
+
+    private static readonly Pen SpanPen = RenderPens.Solid(Color.FromRgb(0x20, 0x20, 0x20), 1.1);
+
+    /// <summary>A floor's span direction symbol, in the middle of the floor, the size it prints at.</summary>
+    private void DrawSpan(DrawingContext dc, Slab slab)
+    {
+        if (slab is not Floor { SpanDirection: { } span } || slab.Boundary.Count < 3) return;
+        DrawSpanSymbol(dc, ModelToScreen(Floors.SymbolPlace(slab)), span, SpanPen, 24 * PixelsPerPaperMm);
+    }
+
+    /// <summary>
+    /// Revit's one-way span symbol: a line the way the floor spans, a half arrowhead filled at
+    /// each end on opposite sides. Model angles turn anticlockwise; the screen's Y runs down.
+    /// </summary>
+    public static void DrawSpanSymbol(DrawingContext dc, Point at, double degrees, Pen pen, double length = 60)
+    {
+        var radians = degrees * Math.PI / 180;
+        var along = new Vector(Math.Cos(radians), -Math.Sin(radians));
+        var side = new Vector(-along.Y, along.X);
+        var (a, b) = (at - along * (length / 2), at + along * (length / 2));
+        dc.DrawLine(pen, a, b);
+
+        var head = length / 6;
+        foreach (var (tip, back, across) in new[] { (b, -along, side), (a, along, -side) })
+        {
+            var triangle = new StreamGeometry();
+            using (var context = triangle.Open())
+            {
+                context.BeginFigure(tip, true, true);
+                context.LineTo(tip + back * head + across * (head / 2.2), true, false);
+                context.LineTo(tip + back * head, true, false);
+            }
+
+            triangle.Freeze();
+            dc.DrawGeometry(pen.Brush, pen, triangle);
         }
     }
 

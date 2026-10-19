@@ -17,9 +17,33 @@ namespace BIMDesigner.Core.Architecture;
 public abstract class Slab : Element
 {
     private readonly List<Point2D> _boundary = new();
+    private readonly List<IReadOnlyList<Point2D>> _holes = new();
 
     /// <summary>The sketched outline, anticlockwise. Millimetres.</summary>
     public IReadOnlyList<Point2D> Boundary => _boundary;
+
+    /// <summary>
+    /// The holes sketched inside a floor's or ceiling's own outline - a void, a light well, a
+    /// stair drawn round rather than cut by a shaft - each anticlockwise. A roof keeps its own
+    /// as openings.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<Point2D>> Holes => _holes;
+
+    public void SetHoles(IEnumerable<IEnumerable<Point2D>> holes)
+    {
+        // Read before clearing, as with the outline.
+        var replacement = holes
+            .Select(hole => hole.ToList())
+            .Where(hole => hole.Count >= 3)
+            .Select(hole =>
+            {
+                if (Polygon2D.SignedArea(hole) < 0) hole.Reverse();
+                return (IReadOnlyList<Point2D>)hole;
+            })
+            .ToList();
+        _holes.Clear();
+        _holes.AddRange(replacement);
+    }
 
     /// <summary>
     /// Height of the slab's reference surface above its level, in millimetres. A floor sits
@@ -46,14 +70,15 @@ public abstract class Slab : Element
     public virtual double GetBottomElevation(BimDocument document) =>
         GetTopElevation(document) - (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
-    /// <summary>Plan area in mm². The quantity a finishes or takeoff schedule reports.</summary>
-    public double Area => Polygon2D.Area(_boundary);
+    /// <summary>Plan area in mm², less its own holes. The quantity a finishes or takeoff schedule reports.</summary>
+    public double Area => Polygon2D.Area(_boundary) - _holes.Sum(hole => Polygon2D.Area(hole));
 
     public double Perimeter => Polygon2D.Perimeter(_boundary);
 
     public Point2D Centroid => Polygon2D.Centroid(_boundary, default);
 
-    public bool Contains(Point2D point) => Polygon2D.Contains(_boundary, point);
+    /// <summary>Whether a point is on the slab: inside its outline, and not in one of its own holes.</summary>
+    public bool Contains(Point2D point) => Polygon2D.Contains(_boundary, point) && !_holes.Any(hole => Polygon2D.Contains(hole, point));
 
     /// <summary>Volume in mm³, from the plan area less the shafts through it and the type's build-up thickness.</summary>
     public virtual double GetVolume(BimDocument document) =>
@@ -105,6 +130,72 @@ public abstract class Slab : Element
 public sealed class Floor : Slab
 {
     public override BuiltInCategory Category => BuiltInCategory.Floors;
+
+    /// <summary>
+    /// The way the floor spans - its joists or its deck run - as degrees anticlockwise from the
+    /// X axis; null where none is given. Drawn in plan as Revit's span direction symbol.
+    /// </summary>
+    public double? SpanDirection { get; set; }
+
+    protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document)
+    {
+        yield return ParameterValue.BindValidated(SlabParameters.SpanDirection,
+            () => SpanDirection is { } span ? $"{span:0.##}°" : "None",
+            (string text) =>
+            {
+                var trimmed = text.Trim().TrimEnd('°').Trim();
+                if (trimmed.Length == 0 || trimmed.Equals("None", StringComparison.OrdinalIgnoreCase))
+                {
+                    SpanDirection = null;
+                    return true;
+                }
+
+                if (!double.TryParse(trimmed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var degrees) || !double.IsFinite(degrees))
+                    return false;
+                SpanDirection = Floors.Normalised(degrees);
+                return true;
+            });
+    }
+}
+
+/// <summary>Floors' span directions: kept between 0° and 180°, since a span runs both ways.</summary>
+public static class Floors
+{
+    public static double Normalised(double degrees) => ((degrees % 180) + 180) % 180;
+
+    /// <summary>
+    /// Where a floor's span symbol goes: its middle - or, where that is in a hole, the nearest
+    /// place to it on the floor clear of its holes.
+    /// </summary>
+    public static Point2D SymbolPlace(Slab slab)
+    {
+        var middle = Polygon2D.Centroid(slab.Boundary, slab.Boundary[0]);
+        double Clear(Point2D at) => slab.Holes.Count == 0 ? double.MaxValue
+            : slab.Holes.Min(hole => Enumerable.Range(0, hole.Count).Min(i => Line2D.DistanceFromSegment(at, hole[i], hole[(i + 1) % hole.Count])));
+        if (slab.Contains(middle) && Clear(middle) > 1000) return middle;
+
+        // Out from the middle toward each corner and the middle of each side, a little at a time.
+        var toward = slab.Boundary.Concat(slab.Boundary.Select((point, i) => point.MidpointTo(slab.Boundary[(i + 1) % slab.Boundary.Count])));
+        return toward
+            .SelectMany(target => Enumerable.Range(1, 9).Select(step => middle + (target - middle) * (step / 10.0)))
+            .Where(slab.Contains)
+            .OrderByDescending(at => Math.Min(Clear(at), 1000))
+            .ThenBy(at => at.DistanceTo(middle))
+            .DefaultIfEmpty(middle)
+            .First();
+    }
+
+    /// <summary>A span direction turned by an angle - as its floor is rotated.</summary>
+    public static double Turned(double degrees, double by) => Normalised(degrees + by);
+
+    /// <summary>A span direction as a reflection leaves it: the way a line along it ends up.</summary>
+    public static double Reflected(double degrees, Func<Point2D, Point2D> reflect)
+    {
+        var radians = degrees * Math.PI / 180;
+        var from = reflect(new Point2D(0, 0));
+        var to = reflect(new Point2D(Math.Cos(radians), Math.Sin(radians)));
+        return Normalised(Math.Atan2(to.Y - from.Y, to.X - from.X) * 180 / Math.PI);
+    }
 }
 
 /// <summary>A ceiling (specification section 3.4).</summary>
@@ -139,6 +230,9 @@ public static class SlabParameters
 
     public static readonly ParameterDefinition EdgeGuarding =
         new("Edge Guarding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition SpanDirection =
+        new("Span Direction", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition Regulations =
         new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);

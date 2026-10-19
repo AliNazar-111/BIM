@@ -11,6 +11,31 @@ namespace BIMDesigner.Tests;
 /// </summary>
 public class WallRulesTests
 {
+    [Fact]
+    public void APartyWallResistsFireForAnHourAndRunsUpToTheRoof()
+    {
+        var (document, roof, _) = DormerToolTests.House(10000, 8000, 40);
+        var type = document.TypesOf<WallType>().Single(candidate => candidate.Name == "Party Wall - Cavity Blockwork 300mm");
+        Assert.True(type.Separating);
+        var wall = new Wall { Start = new Point2D(5000, 0), End = new Point2D(5000, 8000), TypeId = type.Id, LevelId = roof.LevelId, UnconnectedHeight = 3000 };
+        document.Add(wall);
+        var standard = document.ProjectInformation.ClearanceStandard;
+
+        // Stopped at the ceiling, under the ridge: short of the roof by the height of the loft.
+        var underside = roof.UndersideAt(document, new Point2D(5000, 4000));
+        Assert.Equal(underside - 3000, WallRules.ShortOfRoof(document, wall)!.Value, 1);
+        Assert.Contains(WallRules.Problems(document, wall, standard), problem => problem.Rule.Contains("(5.11)"));
+
+        // Taken up to the roof, it is a compartment wall all the way.
+        wall.UnconnectedHeight = underside - wall.GetBaseElevation(document);
+        Assert.Null(WallRules.ShortOfRoof(document, wall));
+        Assert.DoesNotContain(WallRules.Problems(document, wall, standard), problem => problem.Rule.Contains("(5.11)"));
+
+        // Rated 30 minutes, it falls short of the hour asked.
+        type.FireRating = "30 min";
+        Assert.Contains(WallRules.Problems(document, wall, standard), problem => problem.Rule.Contains("60 minutes"));
+    }
+
     private static WallType Type(BimDocument document, string name) =>
         document.TypesOf<WallType>().Single(type => type.Name == name);
 

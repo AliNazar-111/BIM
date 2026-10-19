@@ -5,6 +5,9 @@ Spec section references are in brackets.
 
 Status: ✅ done · 🔨 in progress · ⬜ not started
 
+*Brought up to date on 19 October 2026. What comes next is set out in rounds at the end of
+the phases.*
+
 ---
 
 ## Phase 1 — Core & Architecture MVP
@@ -20,7 +23,7 @@ test before the next begins.
 | **1.2** | **Save / open / new project** (`.bimx` JSON format), undo–redo stack, unsaved-changes prompts | §12.3 | ✅ |
 | **1.3** | **Wall editing** — wall-to-wall mitre joins, move, endpoint grips, endpoint snapping, split, trim/extend | §2.4 §3.1 | ✅ |
 | **1.3b** | **Editing** — multi-select (click, Ctrl+click, band), move any selection, copy/paste and paste in place across levels, offset, mirror, linear array | §2.4 | ✅ |
-| 1.3c | Radial array, rotate, scale, align, and lock constraints | §2.4 | ⬜ |
+| 1.3c | Radial array, rotate, scale, align, and lock constraints - **Rotate**, **Scale** and **Pin** done; radial array, **Align** and locked dimensions to come | §2.4 | 🔨 |
 | **1.3d** | **Wall completion (W1)** — editable top constraint and top offset, location line changes that keep the wall in place, flip control and Space to flip, offset while drawing, wall functions hidden per view | §3.1 §6.2 | ✅ |
 | **1.3e** | **Wall joins and wrapping (W2)** — shared junctions for three or more walls, heaviest run carries through a cross, per-end join control (mitre, butt, run through, square off, disallow), clean outlines with no lines across joins, layers wrapping at exposed ends and openings | §2.4 §3.1 | ✅ |
 | **1.3f** | **Wall type editor (W3)** — duplicate, rename and delete wall types; edit layers (function, material, thickness, wrapping) with a live preview and core boundaries; applied as one undoable step; change the type of a whole selection | §3.1 §13.1 | ✅ |
@@ -38,11 +41,11 @@ test before the next begins.
 | **1.3r** | **Placed sweeps and contextual tabs** — sweep and reveal types with offset, flip, setback, cutting and returns; profiles drawn by hand; sweeps and reveals placed horizontally or vertically across several walls, with Add/Remove Walls and Modify Returns; green "Modify \| …" tabs for the selection | §3.1 | ✅ |
 | **1.3s** | **Spline, freeform and double-slanted walls** — walls along a smooth curve clicked point by point or drawn freehand, open or closed into a loop, reshaped by their points; walls bent partway up, leaning one way below a break and another above it; plan, joins, section, 3D, split, mirror, offset and saving follow | §3.1 | ✅ |
 | **1.4** | **Hosting** — doors and windows in walls, automatic openings, host delete cascades, plan symbols | §2.5 §3.5 §13.2 §13.3 | ✅ |
-| **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection | §3.7 §13.4 | ✅ |
+| **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection, headroom under roofs | §3.7 §13.4 | ✅ |
 | 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |
 | **1.6** | **Floors, ceilings and flat roofs** — layered build-ups sharing the wall layer system, outline picked from an enclosed space, quantities and persistence | §3.2 §3.3 §3.4 | ✅ |
-| 1.6b | Free-sketched slab outlines, slab openings and shafts, slab edges, span direction | §3.2 | 🔨 |
-| **1.6c** | **Pitched roofs** — slope per edge, pitch and eave height per edge, cutoff, hip/gable/shed/dutch/cross-gable shapes, ridge/hip/valley generation, plan/section/3D, takeoff by sloping area, `IfcRoof`. Built in steps R1–R10 of [ROOFS.md](ROOFS.md): done so far are sketch mode with Pick Walls and overhangs, arcs and cones, walls attaching to the slope, eave cuts, slope arrows, roof by extrusion (gambrel, barrel vault), Join Roof, openings and dormer openings, the one-click Dormer tool, and fascias, gutters and soffits; still to come are By Face openings and flat-roof shape editing | §3.3 | 🔨 |
+| 1.6b | Free-sketched slab outlines, slab openings and shafts, slab edges, span direction - **shafts** cutting floors, ceilings and roofs, holes of any shape in roofs, floors dividing the walls through them and stopping at the walls they meet, floors and ceilings sketched with holes of their own (Edit Boundary), span direction, and slab edges (thickened edges, edge beams, kerbs) run along a floor's edges done | §3.2 | ✅ |
+| **1.6c** | **Pitched roofs** — slope per edge, pitch and eave height per edge, cutoff, hip/gable/shed/dutch/cross-gable shapes, ridge/hip/valley generation, plan/section/3D, takeoff by sloping area, `IfcRoof`. Built in steps R1–R10 of [ROOFS.md](ROOFS.md): done so far are sketch mode with Pick Walls and overhangs, arcs and cones, walls attaching to the slope, eave cuts, slope arrows, roof by extrusion (gambrel, barrel vault), Join Roof, openings and dormer openings, the one-click Dormer tool, fascias, gutters, soffits and downpipes, roof windows, chimneys, shafts, and flat roofs falling to their drains; still to come are By Face openings, joining an extruded roof to another, flat-roof shape editing, and the last sketch tools listed in ROOFS.md (tangent arcs, locked lines) | §3.3 | 🔨 |
 | **1.7** | **Levels and grids** — plan shows one storey, level switching, gridlines with bubbles, snapping to grid crossings | §2.3 | ✅ |
 | **1.7b** | **Levels** — add, rename, move and delete storeys (with cascade and one-step undo), underlay of the storey below | §2.3 §6.1 | ✅ |
 | **1.8** | **Schedules and quantity takeoff** — tabular views, fields, filters, sorting, grouping with subtotals, bidirectional editing, material takeoff, CSV export | §6.4 | ✅ |
@@ -51,34 +54,73 @@ test before the next begins.
 | 1.9b | Dimension styles, angular/radial dimensions, multi-segment strings, keynotes and a keynote database, revision clouds | §6.3 | ⬜ |
 | **1.10a** | **Sections** — section markers on plan, live cut through walls, slabs and openings, levels as datums, what lies beyond the cut shown in elevation, selection shared with the plan | §6.1 §6.2 | ✅ |
 | **1.10b** | **3D viewport** — walls as their real layers with openings cut through, slabs at their elevations, glazing and door leaves, orbit/pan/zoom, shaded / flat / X-ray styles, per-storey visibility, click to select | §6.1 §6.2 | ✅ |
-| 1.10d | 3D: section box, wireframe style, walk-through camera, 3D views on sheets | §6.1 §6.2 | ⬜ |
-| 1.10c | Interior and exterior elevation views, callouts, view templates | §6.1 | ⬜ |
+| 1.10d | 3D: section box, wireframe style, walk-through camera, 3D views on sheets - shaded, flat and **X-ray** styles, storeys hidden one by one, turning to a face, edge or corner done; the rest to come | §6.1 §6.2 | 🔨 |
+| 1.10c | Interior and exterior elevation views, callouts, view templates - the four **exterior elevations** done, with their markers on every plan; interior elevations, callouts and view templates to come | §6.1 | 🔨 |
 | **1.11a** | **Sheets** — paper sizes, title block read from the project, viewports at true drawing scales, drag to lay out, one renderer shared with the editors | §6.5 | ✅ |
 | **1.11b** | **Publishing** — vector PDF export of a sheet or a whole set, printing at true paper size | §6.5 | ✅ |
 | 1.11c | Sheet lists, revision schedules and clouds, issue history | §6.5 §7 | ⬜ |
 | **1.12a** | **IFC4 export** — project/site/building/storeys, walls, slabs, ceilings, doors, windows with real openings, spaces, material layer sets, standard and custom property sets, stable identifiers | §8 | ✅ |
 | 1.12b | IFC import, DXF export of plans and sheets, IFC2x3 fallback, COBie | §8 | ⬜ |
 | 1.13 | **Release packaging** — installer, signed with a trusted code-signing certificate so Smart App Control and SmartScreen accept it; file association for .bimx | §12 | ⬜ |
+| **1.14** | **Columns** — architectural columns of any section, drawn or from a library (classical orders among them), tapering, twisting and leaning, bases, capitals and fluting; placed at grid intersections, on wall faces or built into walls, rising to what is over them | §3.1 | ✅ |
+| **1.15** | **Components and families** — furniture, fittings and equipment placed freestanding or on a host, moved between hosts and levels; types of your own; a family editor to draw new ones from solids, and 3D models loaded as components | §2.2 §3.9 | ✅ |
+| **1.16** | **Parts and painting** — wall layers made parts of their own, given their own materials, excluded or divided; faces painted, or split and painted in part | §3.1 | ✅ |
 
-## Phase 2 — Documentation depth & data ⬜
-Stairs/railings, curtain walls, site, view templates, filters, keynotes, revisions, design
-options, phasing, classification systems, shared parameters, material library, rendering
-basics, IFC import, DWG link. §3.6 §3.8 §6.2 §7 §8
+## Phase 2 — Documentation depth & data 🔨
+
+| Step | Scope | Spec | Status |
+| --- | --- | --- | --- |
+| **2.1** | **Stairs** — straight, turning, winders, spiral, curved, split, along a line, alternating treads and ladders; risers worked out from the storey; openings and headroom; handrails, guarding and stairwell balustrades; checked against Approved Document K, BS 5395-2, the IRC and the ADA, made to pass in one step; plan, 3D, section, schedule, IFC | §3.6 | ✅ |
+| **2.2** | **Railings and guarding** — balusters, glass, panels, mesh and cables, curved, with handrails; Guard Edges along every open edge that drops too far; Juliet balconies and glass guarding at doors and windows; checked for height, gaps and loads | §3.6 | ✅ |
+| **2.3** | **Ramps** — straight, turning, switchback or along a line, laid out to their gradient with landings, kerbs and handrails; checked against Approved Documents K and M, the IRC and the ADA, made to pass in one step | §3.6 | ✅ |
+| **2.4** | **Site** — ground from spot levels or a points file, contours, regions (lawn, paths, paving, gravel, planting), pads graded into the ground, cut and fill, retaining walls, the property line with its setback, ground cut away under the building | §3.8 | ✅ |
+| **2.5** | **Fit-out** — kitchens, bathrooms and WCs, beds and living-room furniture, lights, sockets, switches, radiators, fans and alarms, cars, people, trees and parking, each at the sizes it comes in and checked for the room it needs | §3.9 | ✅ |
+| 2.6 | View templates, filters, keynotes, revisions | §6.2 §7 | ⬜ |
+| 2.7 | Design options and phasing - **Phase Created** and **Phase Demolished** on every element done; phase views, phase filters and design options to come | §7 | 🔨 |
+| 2.8 | Classification systems, shared parameters | §2.1 §7 | ⬜ |
+| 2.9 | Material library and rendering basics - materials with surface colours, paints and finishes done; textures and rendering to come | §13.1 | 🔨 |
+| 2.10 | IFC import, DWG link | §8 | ⬜ |
 
 ## Phase 3 — Collaboration ⬜
 Worksharing, model linking, copy/monitor, cloud CDE, web/mobile viewer, issues/BCF,
 version compare, permissions. §7 §12.1
 
-## Phase 4 — Structure & MEP ⬜
-Structural elements, rebar, analytical model; ducts, pipes, electrical, systems, sizing,
-connectors, spaces/zones, gbXML. §4 §5
+## Phase 4 — Structure & MEP 🔨
+Beams of steel, timber, glulam and concrete and joist layouts are built, measured against
+stair headroom and doorways and checked for their span. Still to come: structural columns,
+foundations, rebar, analytical model; ducts, pipes, electrical, systems, sizing, connectors,
+spaces/zones, gbXML. §4 §5
 
-## Phase 5 — Coordination & nD ⬜
-Clash detection, rule checking, quantity takeoff/5D, 4D scheduling, energy/daylight
-analysis, API/plugins, visual scripting. §9
+## Phase 5 — Coordination & nD 🔨
+**Rule checking** is built for homes: every wall, floor, roof, door, window, room, stair, ramp,
+railing, gutter, soffit, chimney, fitting and the dwelling as a whole is checked against the
+project's standard - Approved Documents B, E, F, H, J, K, L and M (M4(2) and M4(3)), the
+Nationally Described Space Standard and the British Standards they point to, or the IRC and
+the ADA - shown in each element's **Regulations**, room by room, and drawn red in plan.
+Thermal U-values are worked from each build-up's layers (BS EN ISO 6946, ISO 13370). Still to
+come: clash detection, quantity takeoff/5D, 4D scheduling, energy/daylight analysis,
+API/plugins, visual scripting. §9
 
 ## Phase 6 — Handover & FM ⬜
 COBie, asset register, O&M documents, maintenance, digital twin/IoT, dashboards. §11
+
+---
+
+## Next: the rounds
+
+Work goes on in rounds. Each takes one area and finishes it: how the real thing works is
+looked up first, then it is built, tested and written up in the README.
+
+| Round | What | Status |
+| --- | --- | --- |
+| **1** | **Finish the half-built tools** — floors and ceilings sketched with holes and Edit Boundary, span direction, slab edges; sketch corners dragged, Move, Mirror, Align and Fillet Arc in every sketch; soffits sloping under verges, and soffits of any shape sketched as soffit-board ceilings; downpipes cut in section (already were). The rules left from the audit: space separation to the property line (Approved Document B 11.8, 11.17-11.18); party walls - 60 minutes, up to the roof (B 5.8, 5.11); a step-free approach where outside steps reach every door, approach paths' width, cross-fall and passing places, and a level, covered landing at the entrance (M4(2) 2.6-2.10, 2.20; M4(3) 3.9, 3.22); 42 in stair guards outside homes under the ADA (IBC 1015.3); air at the ridge of a steep or wide cold roof (BS 5250; IRC R806.2); distributors on downpipes onto a lower roof (Approved Document H 1.9); gas flue terminals (Approved Document J Diagram 34; IFGC 503.6.5). Already met by how they are built: no gap under a stair's bottom rail, an ADA switchback's handrail continuous round its landing | ✅ |
+| **2** | **Massing, then building by face** — masses as a box, cylinder or any outline, flat, tapered or to a point, or topped with a gable, hip or shed; mass floors, gross floor area, volume and surface area; Wall by Face (leaning on a tapered mass, shaped to a gable, halved round a cylinder), Curtain System by Face on upright sides, Floor by Face at the mass floors, Roof by Face (flat, pitched, pyramid or cone, gable, hip, shed); Update to Face bringing them back to a changed mass in one step; roof openings by face, cut square to the slope through the build-up. Not done: sloped glazing - a curtain system on a sloping face | ✅ |
+| **3** | **Views** — section box, wireframe, walk-through camera, interior elevations, callouts, view templates, 3D views on sheets | ⬜ |
+| **4** | **Drawings and documents** — dimension styles, angular and radial dimensions, multi-segment strings, keynotes, revision clouds, sheet lists, revision schedules, schedules of your own with calculated fields and conditional formatting | ⬜ |
+| **5** | **Files and release** — DXF export, IFC import, IFC2x3, a signed installer opening .bimx files | ⬜ |
+
+Left until those are done: Phase 3's collaboration, the rest of Phase 4's structure and MEP,
+clash checking and 4D/5D, and Phase 6's handover.
 
 ---
 

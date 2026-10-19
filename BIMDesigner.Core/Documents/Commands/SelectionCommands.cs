@@ -212,6 +212,7 @@ public sealed class MoveElementsCommand : IUndoableCommand
         if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
         if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
         if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
+        if (document is not null) _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
 
         Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
@@ -268,6 +269,7 @@ public sealed class NudgeElementsCommand : IUndoableCommand
         if (document is not null) _elements.AddRange(RoofWindows.Following(document, _elements));
         if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
         if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
+        if (document is not null) _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
 
         Name = named == 1 ? "Move" : "Move " + named + " Elements";
     }
@@ -324,6 +326,7 @@ public sealed class MirrorElementsCommand : IUndoableCommand
             _elements.AddRange(RoofWindows.Following(document, _elements));
             _elements.AddRange(Downpipes.Following(document, _elements));
             _elements.AddRange(RoofDrainage.Following(document, _elements));
+            _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
         }
 
         Name = _elements.Count == 1 ? "Mirror" : $"Mirror {_elements.Count} Elements";
@@ -368,6 +371,7 @@ public sealed class RotateElementsCommand : IUndoableCommand
         carried.AddRange(RoofWindows.Following(document, elements));
         carried.AddRange(Downpipes.Following(document, elements));
         carried.AddRange(RoofDrainage.Following(document, elements));
+        carried.AddRange(SlabEdgeRuns.Following(document, elements));
 
         var walls = elements.OfType<Wall>().Select(wall => wall.Id).ToHashSet();
         carried.AddRange(document.Elements.OfType<Component>()

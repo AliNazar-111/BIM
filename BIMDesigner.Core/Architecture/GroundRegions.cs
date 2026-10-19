@@ -52,6 +52,32 @@ public sealed class GroundRegion : Element
     /// </summary>
     public bool Approach { get; set; }
 
+    private readonly List<Point2D> _pathLine = new();
+
+    /// <summary>A path's middle, as it was drawn along - empty for a region drawn by its outline.</summary>
+    public IReadOnlyList<Point2D> PathLine => _pathLine;
+
+    /// <summary>How wide a path drawn along its middle is, mm.</summary>
+    public double PathWidth { get; private set; }
+
+    /// <summary>Makes it a path along a line, so wide: its outline the band either side of the line.</summary>
+    public void SetPath(IEnumerable<Point2D> line, double width)
+    {
+        var points = line.ToList();
+        _pathLine.Clear();
+        _pathLine.AddRange(points);
+        PathWidth = Math.Max(300, width);
+        if (_pathLine.Count >= 2) SetBoundary(GroundRegions.Band(_pathLine, PathWidth));
+    }
+
+    /// <summary>A path's middle moved as the region is - by a move, a turn, a mirror.</summary>
+    public void TransformPath(Func<Point2D, Point2D> map)
+    {
+        var moved = _pathLine.Select(map).ToList();
+        _pathLine.Clear();
+        _pathLine.AddRange(moved);
+    }
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         yield return ParameterValue.BindChoice(GroundRegionParameters.Surface,
@@ -70,6 +96,18 @@ public sealed class GroundRegion : Element
             return true;
         });
         yield return ParameterValue.Bind(GroundRegionParameters.Approach, () => Approach, v => Approach = v);
+        if (_pathLine.Count >= 2)
+        {
+            yield return ParameterValue.BindValidated(GroundRegionParameters.PathWidth, () => PathWidth, (double v) =>
+            {
+                if (!double.IsFinite(v) || v < 300 || v > 20000) return false;
+                SetPath(_pathLine.ToList(), v);
+                return true;
+            });
+            yield return ParameterValue.ReadOnly(GroundRegionParameters.PathLength, () => Approaches.Length(_pathLine));
+            yield return ParameterValue.ReadOnly(GroundRegionParameters.CrossFall,
+                () => Approaches.CrossFall(document, this) is { } fall && fall > 1e-6 ? $"1:{1 / fall:0.#}" : "Level");
+        }
         yield return ParameterValue.ReadOnly(GroundRegionParameters.Area, () => Polygon2D.Area(Boundary));
         yield return ParameterValue.ReadOnly(GroundRegionParameters.Gradient, () => GroundRegions.Steepest(document, this) is { } steepest && steepest > 1e-6 ? $"1:{1 / steepest:0.#}" : "Level");
         yield return ParameterValue.ReadOnly(GroundRegionParameters.Rule, () => GroundRegions.Verdict(document, this));
@@ -83,6 +121,9 @@ public static class GroundRegionParameters
     public static readonly ParameterDefinition Surface = new("Surface", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition Approach = new("Approach to Entrance", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition PathWidth = new("Path Width", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition PathLength = new("Path Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition CrossFall = new("Steepest Cross-fall", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Offset = new("Raised By (minus for sunk)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Area = new("Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Gradient = new("Steepest Gradient", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
@@ -168,6 +209,7 @@ public static class GroundRegions
                 ? "It is laid in gravel: the ADA asks an accessible route for a firm, stable surface (302.1) - loose gravel is not."
                 : "It is laid in gravel: Approved Document M asks an approach for a suitable ground surface (2.9e) - firm and even, which loose gravel is not.");
         if (!region.Approach || region.Surface is not (GroundSurface.Path or GroundSurface.Paving)) return problems;
+        problems.AddRange(Approaches.PathProblems(document, region));
         if (Steepest(document, region) is not { } steepest || steepest <= 1 / 20.0 + 1e-6) return problems;
 
         // A ramp built over it takes the slope, and is checked as a ramp.

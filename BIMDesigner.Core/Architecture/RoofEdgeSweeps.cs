@@ -330,9 +330,21 @@ public sealed class SoffitType : ElementType
 
 /// <summary>
 /// One strip of a soffit: under one eave, its outline in plan, its top and underside, how long
-/// the eave is, and which way the eave runs and the strip goes in from it - from its start.
+/// the eave is, and which way the eave runs and the strip goes in from it - from its start. Under
+/// a verge it follows the roof's underside up the slope: its top at a point is given by
+/// <see cref="TopAt"/>, and Top and Bottom are where its middle is.
 /// </summary>
-public sealed record SoffitPiece(IReadOnlyList<Point2D> Outline, double Top, double Bottom, double Length, Point2D From, Vector2D Along, Vector2D Inward);
+public sealed record SoffitPiece(IReadOnlyList<Point2D> Outline, double Top, double Bottom, double Length, Point2D From, Vector2D Along, Vector2D Inward)
+{
+    /// <summary>For a strip sloping with the roof, its top at a point; null for a level one.</summary>
+    public Func<Point2D, double>? TopAt { get; init; }
+
+    /// <summary>Its board's thickness.</summary>
+    public double Thickness => Top - Bottom;
+
+    /// <summary>Its underside at a point: level, or following the roof.</summary>
+    public double BottomAt(Point2D point) => TopAt is { } top ? top(point) - Thickness : Bottom;
+}
 
 public static class RoofEdgeSweepParameters
 {
@@ -859,6 +871,12 @@ public static class RoofEdgeSweeps
             var kind = document.FindType<SoffitType>(sweep.TypeId)?.Board ?? SoffitBoard.Solid;
             foreach (var piece in SoffitPieces(document, sweep))
             {
+                if (piece.TopAt is { } top)
+                {
+                    soffit.AddExtrusion(piece.Outline, piece.BottomAt, top);
+                    continue;
+                }
+
                 soffit.AddExtrusion(piece.Outline, piece.Bottom, piece.Top);
                 Face(soffit, piece, kind);
             }
@@ -1007,23 +1025,28 @@ public static class RoofEdgeSweeps
     public static IEnumerable<IReadOnlyList<(double X, double Y)>> Cut(
         BimDocument document, RoofEdgeSweep sweep, Func<Point2D, double> depthOf, Func<Point2D, double> alongCut)
     {
-        // A soffit is level: where the cut crosses a strip of it, a band of its thickness.
+        // Where the cut crosses a strip of a soffit, a band of its thickness - level, or sloping with the roof.
         foreach (var piece in SoffitPieces(document, sweep))
         {
-            var crossings = new List<double>();
+            var crossings = new List<(double Along, Point2D At)>();
             var outline = piece.Outline;
             for (var i = 0; i < outline.Count; i++)
             {
                 var (p, q) = (outline[i], outline[(i + 1) % outline.Count]);
                 var (dp, dq) = (depthOf(p), depthOf(q));
                 if (dp * dq > 0 || Math.Abs(dp - dq) < 1e-9) continue;
-                crossings.Add(alongCut(p + (q - p) * (dp / (dp - dq))));
+                var at = p + (q - p) * (dp / (dp - dq));
+                crossings.Add((alongCut(at), at));
             }
 
             if (crossings.Count < 2) continue;
-            var (from, to) = (crossings.Min(), crossings.Max());
-            if (to - from < 1) continue;
-            yield return new[] { (from, piece.Bottom), (to, piece.Bottom), (to, piece.Top), (from, piece.Top) };
+            var (from, to) = (crossings.MinBy(crossing => crossing.Along), crossings.MaxBy(crossing => crossing.Along));
+            if (to.Along - from.Along < 1) continue;
+            yield return new[]
+            {
+                (from.Along, piece.BottomAt(from.At)), (to.Along, piece.BottomAt(to.At)),
+                (to.Along, piece.BottomAt(to.At) + piece.Thickness), (from.Along, piece.BottomAt(from.At) + piece.Thickness)
+            };
         }
 
         foreach (var run in Runs(document, sweep))
@@ -1106,8 +1129,8 @@ public static class RoofEdgeSweeps
         var wanted = sweep.EdgeIds.ToHashSet();
         var target = CarriedInto(document, roof);
 
-        // Under a level eave that overhangs its wall.
-        bool Under(int i) => wanted.Contains(roof.Edges[i].Id) && roof.Edges[i].DefinesSlope && roof.Edges[i].Overhang > 1;
+        // Under an eave that overhangs its wall - or a verge, its board following the roof up the slope.
+        bool Under(int i) => wanted.Contains(roof.Edges[i].Id) && roof.Edges[i].Overhang > 1;
         Vector2D Inward(int i) =>
             (boundary[(i + 1) % count] - boundary[i]).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (anticlockwise ? 1 : -1);
         (Point2D, Point2D) Inset(int i) =>
@@ -1135,7 +1158,39 @@ public static class RoofEdgeSweeps
             if (roof.RafterCut != RafterCut.PlumbCut && (face?.Plane.Rise ?? 0) > 1e-6) depth = Math.Min(roof.FasciaDepth, depth);
             var underside = top - depth + sweep.VerticalOffset;
 
+            // A verge's strip lies under the roof as it rises: its top the roof's underside wherever it is.
+            Func<Point2D, double>? sloping = null;
+            if (!roof.Edges[i].DefinesSlope && roof.Form != RoofForm.Flat)
+            {
+                var offset = sweep.VerticalOffset;
+                sloping = point => surface.HeightAt(point) + offset;
+                underside = sloping(middle + Inward(i) * (roof.Edges[i].Overhang / 2));
+            }
+
             var outline = new List<Point2D> { a, b, inB, inA };
+
+            // Under a verge, a corner wherever a ridge or hip crosses it, so the board bends over it with the roof.
+            if (sloping is not null)
+            {
+                var stations = surface.BreakLines
+                    .Select(line => Crossing(a, b, line.From, line.To))
+                    .OfType<double>()
+                    .Where(t => t > 1e-6 && t < 1 - 1e-6)
+                    .Distinct()
+                    .OrderBy(t => t)
+                    .ToList();
+                if (stations.Count > 0)
+                {
+                    var outer = stations.Select(t => a + (b - a) * t).ToList();
+                    var inner = outer.Select(point => OntoInset(point, inA, inB)).Reverse().ToList();
+                    outline = new List<Point2D> { a };
+                    outline.AddRange(outer);
+                    outline.Add(b);
+                    outline.Add(inB);
+                    outline.AddRange(inner);
+                    outline.Add(inA);
+                }
+            }
             if (Polygon2D.SignedArea(outline) < 0) outline.Reverse();
 
             // Where the roof is carried back into another, the soffit stops where it goes in
@@ -1153,11 +1208,19 @@ public static class RoofEdgeSweeps
             foreach (var part in parts)
             {
                 var length = part.Max(point => (point - a).Dot(along)) - part.Min(point => (point - a).Dot(along));
-                pieces.Add(new SoffitPiece(part, underside, underside - board, length, a, along, Inward(i)));
+                pieces.Add(new SoffitPiece(part, underside, underside - board, length, a, along, Inward(i)) { TopAt = sloping });
             }
         }
 
         return pieces;
+    }
+
+    /// <summary>The point on the line through two points nearest a point - square across onto it.</summary>
+    private static Point2D OntoInset(Point2D point, Point2D a, Point2D b)
+    {
+        var along = b - a;
+        var length = along.Length;
+        return length <= 0 ? a : a + along * ((point - a).Dot(along) / (length * length));
     }
 
     /// <summary>Where two lines, each through two points, cross; null if they run parallel.</summary>
@@ -1172,9 +1235,9 @@ public static class RoofEdgeSweeps
         return first.A + r * t;
     }
 
-    /// <summary>The eaves a soffit goes under by itself: those that overhang their walls.</summary>
+    /// <summary>The edges a soffit goes under by itself: the eaves and verges that overhang their walls.</summary>
     public static IReadOnlyList<Guid> SoffitEdges(BimDocument document, Roof roof) =>
-        OpenEdges(document, roof).Where(i => roof.Edges[i].DefinesSlope && roof.Edges[i].Overhang > 1).Select(i => roof.Edges[i].Id).ToList();
+        OpenEdges(document, roof).Where(i => roof.Edges[i].Overhang > 1).Select(i => roof.Edges[i].Id).ToList();
 
     /// <summary>
     /// The fascia type that stands out most on a roof: the one whose colour is furthest from

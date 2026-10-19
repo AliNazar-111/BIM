@@ -152,7 +152,10 @@ public static class StairFixes
         if (Has("past its top riser and a tread's depth") && Math.Max(305, Stairs.Layout(document, stair).Going) is var extension)
             Set(type.HandrailExtension, extension, v => type.HandrailExtension = v, $"handrails run on {extension:0} past its ends");
         if (Has("Its guarding is"))
-            Set(type.GuardHeight, us ? 920.0 : house ? 900.0 : 1100.0, v => type.GuardHeight = v, $"guarding {(us ? 920 : house ? 900 : 1100)} high where level");
+        {
+            var guard = standard == ClearanceStandard.Ada && stair.Use != StairUse.Private ? 1070.0 : us ? 920.0 : house ? 900.0 : 1100.0;
+            Set(type.GuardHeight, guard, v => type.GuardHeight = v, $"guarding {guard:0} high where level");
+        }
         if (Has("balusters are")) Set(type.BalusterSpacing, 120.0, v => type.BalusterSpacing = v, "balusters 120 apart");
 
         // Its risers: barred where open, closed where they may not be open, its nosings as asked.

@@ -90,7 +90,16 @@ public static class WallRules
     /// <summary>What a wall falls short of, as the project's standard asks.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Wall wall, ClearanceStandard standard)
     {
-        if (document.IsCurtainWall(wall)) return wall.Length < 1 ? Array.Empty<PlacementProblem>() : CurtainProblems(document, wall, standard).ToList();
+        if (document.IsCurtainWall(wall))
+        {
+            if (wall.Length < 1) return Array.Empty<PlacementProblem>();
+            var along = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
+            var side = along.PerpendicularLeft() * 100;
+            var band = new[] { wall.Start - side, wall.End - side, wall.End + side, wall.Start + side };
+            return CurtainProblems(document, wall, standard)
+                .Concat(SpaceSeparation.Problems(document, wall, standard).Select(problem => new PlacementProblem(wall, problem.Said, problem.Rule, band)))
+                .ToList();
+        }
         if (document.GetWallType(wall) is not { } type || wall.Length < 1) return Array.Empty<PlacementProblem>();
 
         var us = standard.IsUs();
@@ -119,7 +128,42 @@ public static class WallRules
                     "Approved Document E (E2, Table 0.2) asks for Rw 40 dB from an internal wall round a bedroom or a room with a WC.");
         }
 
+        // A party wall: a compartment wall between the homes, 60 minutes, up to the roof.
+        if (!us && type.Separating)
+        {
+            if (Doors.FireMinutes(type.FireRating) < 60)
+                Add($"it separates two homes, {(Doors.FireMinutes(type.FireRating) is > 0 and var rated ? $"rated {rated} minutes" : "not fire-rated")}.",
+                    "Approved Document B (5.8, Table B4) asks for a wall separating dwellings to be a compartment wall resisting fire for 60 minutes (REI 60).");
+            if (ShortOfRoof(document, wall) is { } gap)
+                Add($"it separates two homes and stops {gap:0} below the roof over it.",
+                    "Approved Document B (5.11) asks a compartment wall to meet the underside of the roof covering, fire-stopped - attach its top to the roof.");
+        }
+
+        // Fire spreading over the property line: how near it the wall stands, and how much of its side is open.
+        foreach (var (said, rule) in SpaceSeparation.Problems(document, wall, standard)) Add(said, rule);
+
         return problems;
+    }
+
+    /// <summary>
+    /// How far short of the roof over it a party wall stops, mm - for the topmost of the party walls
+    /// stacked up that line, where a roof is over it; null where it reaches it, or none is over it.
+    /// </summary>
+    public static double? ShortOfRoof(BimDocument document, Wall wall)
+    {
+        var middle = wall.Start.MidpointTo(wall.End);
+        var roofs = document.Elements.OfType<Roof>().Where(roof => !roof.IsExtrusion && roof.Contains(middle)).ToList();
+        if (roofs.Count == 0) return null;
+
+        // The party walls on the same line, storey above storey: the highest of them is the one to reach the roof.
+        var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
+        var stack = document.Walls.Where(other => document.GetWallType(other) is { Separating: true }
+            && Math.Abs(way.Cross(other.Start.MidpointTo(other.End) - wall.Start)) < 50 && Math.Abs(way.Cross((other.End - other.Start).NormalisedOrDefault(way))) < 0.02).ToList();
+        var top = wall.GetTopElevation(document);
+        if (stack.Any(other => other.GetTopElevation(document) > top + 1)) return null;
+
+        var underside = roofs.Max(roof => roof.UndersideAt(document, middle));
+        return underside - top > 50 ? underside - top : null;
     }
 
     /// <summary>What a wall comes to as its rules see it - its U-value outside, what it falls short of.</summary>

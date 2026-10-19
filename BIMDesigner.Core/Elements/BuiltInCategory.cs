@@ -82,7 +82,13 @@ public enum BuiltInCategory
     ElectricalEquipment,
 
     /// <summary>Parking bays marked out on a drive or a car park.</summary>
-    Parking
+    Parking,
+
+    /// <summary>Slab edges: thickened edges, edge beams and kerbs run along floors.</summary>
+    SlabEdges,
+
+    /// <summary>Masses: the shape of a building before it is one, its faces made into walls, floors and roofs.</summary>
+    Masses
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

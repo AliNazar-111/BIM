@@ -553,11 +553,20 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Floor" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="SlabEdgeTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SlabEdge}"
+                                         Content="Slab Edge" Checked="OnToolChanged"
+                                         ToolTip="Run a thickened edge, an edge beam or a kerb along a floor's edges: click them one after another, round the corners; Esc finishes"/>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Opening" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="ShaftTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Shaft}"
                                              Content="Shaft" Checked="OnToolChanged"
                                              ToolTip="Shaft Opening: click where it goes - in plan or on a roof or floor in 3D - and a hole is cut straight down through the roofs, floors and ceilings there: a stairwell, lift shaft or riser. For a chimney stack, use Chimney"/>
+                                <RadioButton x:Name="FaceOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.FaceOpening}"
+                                             Content="By Face" Checked="OnToolChanged"
+                                             ToolTip="Opening by Face: click on a roof's face - in plan or 3D - and a rectangular opening is cut square to its slope, for a rooflight or hatch trimmed between the rafters"/>
                                 <RadioButton x:Name="WallOpeningTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallOpening}"
                                              Content="Wall Opening" Checked="OnToolChanged"
                                              ToolTip="Cut a rectangular opening through a wall, curved walls included"/>
@@ -597,6 +606,33 @@
                                 <RadioButton x:Name="SpotElevationTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.SpotElevation}"
                                              Content="Spot&#10;Elevation" Checked="OnToolChanged"
                                              ToolTip="Spot elevation: click where to read a height - the floor, ramp, pad or ground there - written beside it: FFL +0.000, GL -0.450. It reads afresh when what is under it changes"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Massing" Style="{StaticResource RibbonPanel}">
+                            <RadioButton x:Name="MassTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Mass}"
+                                         Content="Mass" Checked="OnToolChanged"
+                                         ToolTip="Draw a mass - the shape of the building before it is one: a box, a circle or an outline, so high, flat-topped, tapered, or with a gable, hip or shed top. Its mass floors give its gross floor area"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Model by Face" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="WallByFaceTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Wall}"
+                                                 Content="Wall" Checked="OnToolChanged"
+                                                 ToolTip="Wall by Face: click a mass's side, in plan or 3D - a wall of the wall type is made on it, its outside on the face, leaning or gabled as the face is"/>
+                                    <RadioButton x:Name="CurtainByFaceTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.CurtainWall}"
+                                                 Content="Curtain System" Checked="OnToolChanged"
+                                                 ToolTip="Curtain System by Face: click a mass's upright side - a curtain wall is made on it"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="FloorByFaceTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Floor}"
+                                                 Content="Floor" Checked="OnToolChanged"
+                                                 ToolTip="Floor by Face: click a mass - a floor is made at each of its mass floors"/>
+                                    <RadioButton x:Name="RoofByFaceTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Roof}"
+                                                 Content="Roof" Checked="OnToolChanged"
+                                                 ToolTip="Roof by Face: click a mass - its top is made a roof: flat, pitched as it slopes, or up from its foot to a point"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>
@@ -1036,6 +1072,25 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl x:Name="ContextMassPanel" Header="Mass" Style="{StaticResource ContextRibbonPanel}" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Level}"
+                                        Content="Mass Floors" Click="OnMassFloors"
+                                        ToolTip="Cut the mass by a mass floor at every level it rises through - or take them off: its gross floor area is theirs, and Floor by Face makes floors of them"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Mass}"
+                                        Content="Update to Face" Click="OnUpdateMassToFace"
+                                        ToolTip="Bring the walls, curtain walls, floors and roof made from this mass's faces back to them, after the mass has changed - one step to undo"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextSlabPanel" Header="Mode" Style="{StaticResource ContextRibbonPanel}" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.EditFootprint}"
+                                        Content="Edit Boundary" Click="OnEditRoofFootprint"
+                                        ToolTip="Open the floor's or ceiling's sketch again: pick more walls, move or delete lines, draw holes inside it, set a floor's span. Double-clicking it does the same"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl x:Name="ContextRoofPanel" Header="Mode" Style="{StaticResource ContextRibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="ContextEditFootprint" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.EditFootprint}"
@@ -1274,6 +1329,9 @@
                                     <RadioButton x:Name="RoofSketchArc" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawArc}"
                                                  Content="Arc" CommandParameter="Arc"
                                                  ToolTip="Start, end, then a point the arc passes through. A sloping arc rises as part of a cone - a round end, a bay"/>
+                                    <RadioButton x:Name="RoofSketchFillet" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.DrawFilletArc}"
+                                                 Content="Fillet Arc" CommandParameter="Fillet"
+                                                 ToolTip="Round off a corner: type the radius on the options bar, then click the two lines, each on the part to keep"/>
                                     <RadioButton x:Name="RoofSketchArrow" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.SlopeArrow}"
                                                  Content="Slope Arrow" CommandParameter="SlopeArrow"
                                                  ToolTip="A slope drawn in plan: click a line of the outline for the tail, then where it rises toward. One arrow on a flat roof makes it fall one way; two from the ends of a split eave to its middle make a dormer"/>
@@ -1300,11 +1358,30 @@
                                     <RadioButton x:Name="RoofSketchTrim" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Trim}"
                                                  Content="Trim/Extend" CommandParameter="TrimExtend"
                                                  ToolTip="Click two lines, each on the part to keep: both are cut back or run on to meet at a corner"/>
+                                    <RadioButton x:Name="RoofSketchAlign" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Offset}"
+                                                 Content="Align" CommandParameter="Align"
+                                                 ToolTip="Click the line to align to, then a line running the same way: it is brought onto the first, and the lines at its ends follow"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchMove" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Copy}"
+                                                 Content="Move" CommandParameter="Move"
+                                                 ToolTip="Move the selected lines: click where from, then where to. Tick Copy on the options bar to copy them"/>
+                                    <RadioButton x:Name="RoofSketchMirror" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Mirror}"
+                                                 Content="Mirror" CommandParameter="Mirror"
+                                                 ToolTip="Mirror the selected lines about a line clicked with two points - copied, unless Copy is unticked"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl Header="Tools" Style="{StaticResource ContextRibbonPanel}">
+                        <HeaderedContentControl Header="Floor" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Margin="2,0">
+                                <RadioButton x:Name="RoofSketchSpan" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.SlopeArrow}"
+                                             Content="Span Direction" CommandParameter="SpanDirection" Visibility="Collapsed"
+                                             ToolTip="Click a line of the outline: the floor spans along it, as its joists or deck run, and its span symbol is drawn in plan"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="RoofSketchToolsPanel" Header="Tools" Style="{StaticResource ContextRibbonPanel}">
                             <StackPanel Margin="2,0">
                                 <RadioButton x:Name="RoofSketchAlignEaves" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.AttachTop}"
                                              Content="Align Eaves" CommandParameter="AlignEaves"
@@ -1373,7 +1450,7 @@
                     <CheckBox x:Name="RoofDefinesSlopeBox" Content="Defines slope" VerticalAlignment="Center" Margin="12,0,12,0"
                               Click="OnRoofDefinesSlopeChanged"
                               ToolTip="The roof rises from this line. Off, the roof is cut off here - a gable end. All four lines of a box sloping make a hip roof; two opposite ones a gable"/>
-                    <TextBlock Text="Slope" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="RoofSlopeLabel" Text="Slope" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBox x:Name="RoofSlopeBox" Width="70" VerticalAlignment="Center"
                              LostFocus="OnRoofSlopeChanged" KeyDown="OnRoofSlopeKey"
                              ToolTip="The pitch the roof rises at from a sloping line"/>
@@ -1546,6 +1623,24 @@
                              ToolTip="The side slope it is battered back to the ground at, so many along to one up: 2 for earth, 3 for a slope to mow; 0 for a sheer edge, held by a wall"/>
                 </StackPanel>
 
+                <StackPanel x:Name="MassOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Mass" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="MassFootprintPicker" Width="90" VerticalAlignment="Center" SelectionChanged="OnMassOptionChanged"
+                              ToolTip="How its footprint is drawn: two corners of a box, a circle's centre and a point on it, or an outline's corners"/>
+                    <TextBlock Text="Top" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <ComboBox x:Name="MassTopPicker" Width="90" VerticalAlignment="Center" SelectionChanged="OnMassOptionChanged"
+                              ToolTip="Flat; tapered to a smaller top or a point; or sloping up to a gable, a hip or a shed"/>
+                    <TextBlock Text="Height" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox x:Name="MassHeightBox" Width="64" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
+                             ToolTip="How high it rises - to its top, or its eaves under a sloping top - mm"/>
+                    <TextBlock x:Name="MassPitchLabel" Text="Pitch" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox x:Name="MassPitchBox" Width="44" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
+                             ToolTip="The pitch of a gable, hip or shed top, degrees"/>
+                    <TextBlock x:Name="MassScaleLabel" Text="Top scale" VerticalAlignment="Center" Margin="10,0,6,0"/>
+                    <TextBox x:Name="MassScaleBox" Width="44" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
+                             ToolTip="How big a tapered top is beside its footprint: 0 to a point, 0.5 half as big"/>
+                </StackPanel>
+
                 <StackPanel x:Name="PropertyLineOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Property line" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="Setback" VerticalAlignment="Center" Margin="6,0,6,0"/>
@@ -1571,6 +1666,16 @@
                     <TextBlock Text="At its foot" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <ComboBox x:Name="ChimneyFireplacePicker" Style="{StaticResource OptionCombo}" MinWidth="90" SelectionChanged="OnChimneyOptionChanged"
                               ToolTip="An open fireplace or a stove opening into the room through the front of the breast - or nothing. Put by a wall, its back goes to the wall"/>
+                </StackPanel>
+
+                <StackPanel x:Name="FaceOpeningOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Opening" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock Text="Width" VerticalAlignment="Center" Margin="6,0,6,0"/>
+                    <TextBox x:Name="FaceOpeningWidthBox" Width="70" VerticalAlignment="Center" LostFocus="OnFaceOpeningOptionChanged" KeyDown="OnFaceOpeningOptionKey"
+                             ToolTip="Across the slope"/>
+                    <TextBlock Text="Length" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="FaceOpeningLengthBox" Width="70" VerticalAlignment="Center" LostFocus="OnFaceOpeningOptionChanged" KeyDown="OnFaceOpeningOptionKey"
+                             ToolTip="Up the slope, measured on the roof's face rather than in plan"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ShaftOptions" Orientation="Horizontal" Visibility="Collapsed">

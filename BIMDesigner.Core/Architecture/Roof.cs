@@ -25,7 +25,14 @@ namespace BIMDesigner.Core.Architecture;
 /// A hole drawn in a roof's sketch: its outline, and for each edge of it the arc it is a straight
 /// piece of, if any - so a round skylight opens again as a circle.
 /// </summary>
-public sealed record RoofOpening(IReadOnlyList<Point2D> Points, IReadOnlyList<Guid?> ArcIds);
+public sealed record RoofOpening(IReadOnlyList<Point2D> Points, IReadOnlyList<Guid?> ArcIds)
+{
+    /// <summary>
+    /// Cut square to the roof's face, as a hole for a rooflight is trimmed between rafters, rather
+    /// than straight down (Revit's Opening by Face). Its outline is where it is on the roof's top.
+    /// </summary>
+    public bool Square { get; init; }
+}
 
 public sealed class Roof : Slab
 {
@@ -253,6 +260,13 @@ public sealed class Roof : Slab
     public const double DefaultFasciaDepth = 150;
 
     /// <summary>
+    /// Whether the roof is aired high up - a ridge vent, or tile vents near it - as well as at its
+    /// eaves: what BS 5250 asks of a cold roof pitched steeply or spanning far, and what lets the
+    /// IRC halve the vents it asks.
+    /// </summary>
+    public bool HighLevelVents { get; set; }
+
+    /// <summary>
     /// Where the roof bears on the walls it was picked from - Revit's Rafter or Truss. Truss
     /// by default, as in Revit: the slope starts on the walls' outside faces.
     /// </summary>
@@ -312,7 +326,7 @@ public sealed class Roof : Slab
     public override double GetTopElevation(BimDocument document) =>
         BaseElevation(document) + Thickness(document);
 
-    private double Thickness(BimDocument document) => document.FindType<SlabType>(TypeId)?.Thickness ?? 0;
+    internal double Thickness(BimDocument document) => document.FindType<SlabType>(TypeId)?.Thickness ?? 0;
 
     /// <summary>
     /// The roof's faces and the lines between them, worked out from the footprint. The planes
@@ -657,6 +671,8 @@ public sealed class Roof : Slab
                 return true;
             });
 
+        yield return ParameterValue.Bind(RoofParameters.HighLevelVents, () => HighLevelVents, v => HighLevelVents = v);
+
         yield return ParameterValue.ReadOnly(
             RoofParameters.RidgeHeight, () => RidgeElevation(document) - BaseElevation(document));
 
@@ -788,6 +804,9 @@ public sealed class SetRoofEdgesCommand : IUndoableCommand
 
 public static class RoofParameters
 {
+    public static readonly ParameterDefinition HighLevelVents =
+        new("Vented at the Ridge", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition DrainageFall =
         new("Drainage Fall (1 in)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Construction);
 

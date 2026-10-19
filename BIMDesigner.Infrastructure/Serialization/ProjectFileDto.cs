@@ -39,6 +39,8 @@ internal sealed class ProjectFileDto
     /// <summary>Fascia and gutter types, and the fascias and gutters run along roof edges. Missing from older files.</summary>
     public List<FasciaTypeDto> FasciaTypes { get; set; } = new();
     public List<GutterTypeDto> GutterTypes { get; set; } = new();
+    public List<SlabEdgeTypeDto> SlabEdgeTypes { get; set; } = new();
+    public List<SlabEdgeDto> SlabEdges { get; set; } = new();
     public List<SoffitTypeDto> SoffitTypes { get; set; } = new();
     public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
     public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
@@ -54,6 +56,7 @@ internal sealed class ProjectFileDto
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
     public List<SitePadDto> SitePads { get; set; } = new();
+    public List<MassDto> Masses { get; set; } = new();
     public List<PropertyLineDto> PropertyLines { get; set; } = new();
     public List<SpotElevationDto> SpotElevations { get; set; } = new();
     public List<BeamSystemDto> BeamSystems { get; set; } = new();
@@ -349,7 +352,14 @@ internal sealed class SlabDto
     /// <summary>Holes drawn in the roof's sketch.</summary>
     public List<RoofOpeningDto>? RoofOpenings { get; set; }
 
+    /// <summary>Holes sketched in a floor's or ceiling's outline, each flattened as x, y, x, y.</summary>
+    public List<List<double>>? Holes { get; set; }
+
+    /// <summary>A floor's span direction, degrees; null where none is given.</summary>
+    public double? SpanDirection { get; set; }
+
     public double RoofFasciaDepth { get; set; } = 150;
+    public bool RoofHighLevelVents { get; set; }
     public double RoofDrainageFall { get; set; } = 40;
 
     /// <summary>For a roof, the slope arrows drawn in its sketch.</summary>
@@ -811,6 +821,9 @@ internal sealed class WallTypeDto
     public decimal Cost { get; set; }
 
     public string Function { get; set; } = "Interior";
+
+    /// <summary>Whether it is a party wall, separating dwellings.</summary>
+    public bool Separating { get; set; }
     public string FireRating { get; set; } = string.Empty;
     public double AcousticRating { get; set; }
     public double ThermalResistance { get; set; }
@@ -1129,6 +1142,36 @@ internal sealed class GutterTypeDto
     public double DownpipeDepth { get; set; } = 68;
 }
 
+internal sealed class SlabEdgeTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Slab Edge";
+    public string? TypeMark { get; set; }
+    public string? Shape { get; set; }
+    public double Width { get; set; } = 450;
+    public double Depth { get; set; } = 450;
+    public double FootWidth { get; set; } = 250;
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string? Description { get; set; }
+}
+
+internal sealed class SlabEdgeDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid FloorId { get; set; }
+    public Guid LevelId { get; set; }
+
+    /// <summary>Each edge's two ends, flattened as x, y, x, y.</summary>
+    public List<double> Edges { get; set; } = new();
+
+    public double HorizontalOffset { get; set; }
+    public double VerticalOffset { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
 internal sealed class RoofDrainDto
 {
     public Guid Id { get; set; }
@@ -1367,8 +1410,40 @@ internal sealed class GroundRegionDto
     public Guid MaterialId { get; set; }
     public bool Approach { get; set; }
     public double Offset { get; set; }
+
+    /// <summary>A path's middle, x, y, x, y, and its width; none for a region drawn by its outline.</summary>
+    public List<double>? PathLine { get; set; }
+    public double PathWidth { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class MassDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Boundary { get; set; }
+    public bool Round { get; set; }
+    public double CentreX { get; set; }
+    public double CentreY { get; set; }
+    public double Radius { get; set; }
+    public double BaseOffset { get; set; }
+    public double Height { get; set; } = 9000;
+    public string? Top { get; set; }
+    public double Pitch { get; set; } = 35;
+    public double TopScale { get; set; } = 0.5;
+    public List<Guid>? FloorLevels { get; set; }
+    public List<MassLinkDto>? Links { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class MassLinkDto
+{
+    public Guid ElementId { get; set; }
+    public string? Kind { get; set; }
+    public int Face { get; set; }
+    public Guid? LevelId { get; set; }
 }
 
 internal sealed class SitePadDto
@@ -1534,6 +1609,7 @@ internal sealed class DownpipeDto
 {
     public Guid Id { get; set; }
     public Guid GutterId { get; set; }
+    public bool Distributor { get; set; }
     public Guid LevelId { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
@@ -1643,4 +1719,5 @@ internal sealed class RoofOpeningDto
 {
     public List<double> Points { get; set; } = new();
     public List<Guid?>? ArcIds { get; set; }
+    public bool Square { get; set; }
 }

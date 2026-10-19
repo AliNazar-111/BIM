@@ -243,6 +243,8 @@ public sealed class PropertyLine : Element
         yield return ParameterValue.ReadOnly(PropertyLineParameters.Perimeter, () => Polygon2D.Perimeter(Boundary));
         yield return ParameterValue.ReadOnly(PropertyLineParameters.Coverage, () => $"{PropertyLines.Coverage(document, this) * 100:0.#}%");
         yield return ParameterValue.ReadOnly(PropertyLineParameters.Rule, () => PropertyLines.Verdict(document, this));
+        if (!document.ProjectInformation.ClearanceStandard.IsUs())
+            yield return ParameterValue.ReadOnly(PropertyLineParameters.SpaceSeparation, () => SpaceSeparation.Summary(document));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -255,6 +257,7 @@ public static class PropertyLineParameters
     public static readonly ParameterDefinition Perimeter = new("Perimeter", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Coverage = new("Plot Covered by the Building", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Rule = new("Building Within It", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition SpaceSeparation = new("Space Separation (Approved Document B)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }
 
 /// <summary>Property lines: each side's length and bearing, how much of the plot the building covers, and whether the building is inside it and behind its setback.</summary>

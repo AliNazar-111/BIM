@@ -240,6 +240,26 @@ public class StairConnectionTests
     }
 
     [Fact]
+    public void StepsUpToEveryOutsideDoorLeaveNoStepFreeApproach()
+    {
+        var (document, _) = House();
+        var doorType = document.TypesOf<DoorType>().First(type => type.Function == DoorFunction.Exterior);
+        var front = document.Walls.First(wall => wall.Start.Y == 0 && wall.End.Y == 0);
+        front.BaseOffset = 510;
+        document.Add(new Door { TypeId = doorType.Id, LevelId = front.LevelId, HostWallId = front.Id, DistanceAlongWall = 3000, Mark = "D1" });
+
+        // Three steps up to the front door, the only door out.
+        var steps = Put(document, 3000, -1200);
+        (steps.TopLevelId, steps.UnconnectedHeight, steps.Outside, steps.Railings) = (null, 510, true, StairRailings.BothSides);
+        Assert.Contains(Stairs.Problems(document, steps), problem => problem.Contains("step-free approach to the entrance"));
+
+        // A back door on the level is the step-free way in.
+        var back = document.Walls.First(wall => wall.Start.Y == 5000 && wall.End.Y == 5000);
+        document.Add(new Door { TypeId = doorType.Id, LevelId = back.LevelId, HostWallId = back.Id, DistanceAlongWall = 3000, Mark = "D2" });
+        Assert.DoesNotContain(Stairs.Problems(document, steps), problem => problem.Contains("step-free"));
+    }
+
+    [Fact]
     public void AHousesStairOutsideHasGoingsOf280()
     {
         var (document, _) = House();

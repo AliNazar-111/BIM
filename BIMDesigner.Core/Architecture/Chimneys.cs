@@ -149,6 +149,24 @@ public static partial class Chimneys
     /// <summary>Approved Document J: above the highest contact, above a ridge it is near, and the reach of the roof that counts, mm.</summary>
     public const double AboveContact = 1000, AboveRidge = 600, NearRidge = 600, RoofReach = 2300;
 
+    /// <summary>How far a balanced gas flue's terminal stands above the roof, mm: Approved Document J's 300 (the table to Diagram 34, row I).</summary>
+    public const double BalancedFlueAbove = 300;
+
+    /// <summary>
+    /// How far a Type B gas vent of 12 in or less stands above the roof for its pitch, mm - the
+    /// IFGC's Table 503.6.5: 1 ft up to 6 in 12, rising to 8 ft at 21 in 12.
+    /// </summary>
+    public static double GasVentAbove(double pitchDegrees)
+    {
+        var rise = Math.Tan(pitchDegrees * Math.PI / 180) * 12;
+        (double UpTo, double Feet)[] table =
+        {
+            (6, 1), (7, 1.25), (8, 1.5), (9, 2), (10, 2.5), (11, 3.25), (12, 4), (14, 5), (16, 6), (18, 7), (20, 7.5), (21, 8)
+        };
+        var feet = table.FirstOrDefault(row => rise <= row.UpTo + 1e-9).Feet;
+        return (feet > 0 ? feet : 8) * 304.8;
+    }
+
     /// <summary>The US 3-2-10 rule, in mm: 3 ft above the roof, 2 ft above anything within 10 ft.</summary>
     public const double ThreeFeet = 914.4, TwoFeet = 609.6, TenFeet = 3048;
 
@@ -282,6 +300,16 @@ public static partial class Chimneys
         var own = foot + TypeOf(document, chimney).MinimumHeight;
         var roofs = Roofs(document, chimney);
         if (HighestContact(document, chimney) is not { } contact) return Math.Max(own, foot + Freestanding);
+
+        // A gas appliance's flue terminal is sited by its own rules, not a solid-fuel chimney's: a
+        // balanced flue 300 above the roof (Approved Document J, the table to Diagram 34, row I) -
+        // 12 in in the US, as direct-vent terminals are listed; a Type B gas vent in the US as high
+        // above the roof as its pitch asks (IFGC 503.6.5).
+        var construction = TypeOf(document, chimney).Construction;
+        if (construction == ChimneyConstruction.ConcentricFlue)
+            return Math.Max(own, contact + (chimney.Rule == ChimneyRule.ThreeTwoTen ? 305 : BalancedFlueAbove));
+        if (construction == ChimneyConstruction.TypeBVent && chimney.Rule == ChimneyRule.ThreeTwoTen)
+            return Math.Max(own, contact + GasVentAbove(roofs.Select(roof => roof.SlopeDegrees).DefaultIfEmpty(0).Max()));
 
         var outline = Outline(document, chimney);
         var top = contact + (chimney.Rule == ChimneyRule.ThreeTwoTen ? ThreeFeet : AboveContact);

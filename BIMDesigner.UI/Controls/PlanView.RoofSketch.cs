@@ -44,7 +44,30 @@ public enum RoofSketchTool
     TrimExtend,
 
     /// <summary>Click a reference eave, then others to bring to its height - by their plate, or their overhang.</summary>
-    AlignEaves
+    AlignEaves,
+
+    /// <summary>A floor's: click a line for the floor to span along it.</summary>
+    SpanDirection,
+
+    /// <summary>The selected lines moved - or copied - from one point to another.</summary>
+    Move,
+
+    /// <summary>The selected lines mirrored about a line drawn with two clicks - copied, to start with.</summary>
+    Mirror,
+
+    /// <summary>Click a line to align to, then one running the same way to bring onto it.</summary>
+    Align,
+
+    /// <summary>Click two lines and the corner between them is rounded off with an arc.</summary>
+    Fillet
+}
+
+/// <summary>What a sketch makes when it is finished: a roof, a floor or a ceiling.</summary>
+public enum SketchTarget
+{
+    Roof,
+    Floor,
+    Ceiling
 }
 
 /// <summary>
@@ -60,6 +83,15 @@ public partial class PlanView
     private List<RoofSketchLine>? _sketch;
     private List<RoofSlopeArrow> _sketchArrows = new();
     private Roof? _sketchRoof;
+
+    /// <summary>What the open sketch makes: a roof, or a floor or ceiling - Revit's Create Floor Boundary.</summary>
+    private SketchTarget _sketchTarget = SketchTarget.Roof;
+
+    /// <summary>The floor or ceiling whose boundary is being edited, or null for a new one.</summary>
+    private Slab? _sketchSlab;
+
+    /// <summary>The way the floor being sketched spans, degrees; null where none is given.</summary>
+    private double? _sketchSpan;
     private readonly List<(List<RoofSketchLine> Lines, List<RoofSlopeArrow> Arrows)> _sketchUndo = new();
     private readonly List<(List<RoofSketchLine> Lines, List<RoofSlopeArrow> Arrows)> _sketchRedo = new();
     private readonly List<RoofSketchLine> _sketchSelection = new();
@@ -104,6 +136,32 @@ public partial class PlanView
 
     /// <summary>The roof whose footprint is being edited, or null for a new roof.</summary>
     public Roof? SketchedRoof => _sketchRoof;
+
+    /// <summary>What the open sketch makes.</summary>
+    public SketchTarget SketchTarget => _sketchTarget;
+
+    /// <summary>The floor or ceiling whose boundary is being edited, or null.</summary>
+    public Slab? SketchedSlab => _sketchSlab;
+
+    /// <summary>Whatever the open sketch is the outline of - hidden while it is open, its sketch standing in for it.</summary>
+    private Slab? SketchedElement => (Slab?)_sketchRoof ?? _sketchSlab;
+
+    /// <summary>The span direction the floor being sketched will take, degrees; null for none.</summary>
+    public double? SketchSpan => _sketchSpan;
+
+    /// <summary>
+    /// How far a line picked off a wall for a floor or ceiling stands off the wall's face, toward
+    /// the cursor: 0 to start with, so a floor picked inside a room fills it to its walls.
+    /// </summary>
+    public double SketchSlabOffset { get; set; }
+
+    /// <summary>The word for what the sketch makes, for what the status bar says.</summary>
+    private string SketchNoun => _sketchTarget switch
+    {
+        SketchTarget.Floor => "floor",
+        SketchTarget.Ceiling => "ceiling",
+        _ => "roof"
+    };
 
     public IReadOnlyList<RoofSketchLine> SketchLines => _sketch ?? (IReadOnlyList<RoofSketchLine>)Array.Empty<RoofSketchLine>();
 
@@ -203,7 +261,7 @@ public partial class PlanView
             _alignReference = null;
             _sketchPreview.Clear();
             _sketchPickChain = false;
-            if (value != RoofSketchTool.Modify)
+            if (value is not (RoofSketchTool.Modify or RoofSketchTool.Move or RoofSketchTool.Mirror))
             {
                 _sketchSelection.Clear();
                 _sketchArrowSelection.Clear();
@@ -229,6 +287,9 @@ public partial class PlanView
         _sketch = existing is null ? new List<RoofSketchLine>() : RoofSketch.LinesOf(existing);
         _sketchArrows = existing is null ? new List<RoofSlopeArrow>() : existing.SlopeArrows.Select(arrow => arrow.Copy()).ToList();
         _sketchRoof = existing;
+        _sketchTarget = SketchTarget.Roof;
+        _sketchSlab = null;
+        _sketchSpan = null;
         _sketchUndo.Clear();
         _sketchRedo.Clear();
         _sketchSelection.Clear();
@@ -261,9 +322,111 @@ public partial class PlanView
     /// </summary>
     public bool EditFootprint()
     {
+        // A floor's or ceiling's boundary opens the same way - Revit's Edit Boundary.
+        if (_selection is [Floor floor])
+        {
+            BeginSlabSketch(SketchTarget.Floor, floor);
+            return true;
+        }
+
+        if (_selection is [Ceiling ceiling])
+        {
+            BeginSlabSketch(SketchTarget.Ceiling, ceiling);
+            return true;
+        }
+
         if (_selection is not [Roof roof] || roof.IsExtrusion) return false;
 
         BeginRoofSketch(roof);
+        return true;
+    }
+
+    /// <summary>
+    /// Opens a floor's or ceiling's sketch - Revit's Create Floor Boundary, or Edit Boundary for
+    /// one already made. The same sketch a roof's footprint is drawn in, its lines level: walls
+    /// picked, lines and shapes drawn, a loop inside the outline a hole through it - and, for a
+    /// floor, a line picked for it to span along.
+    /// </summary>
+    public void BeginSlabSketch(SketchTarget target, Slab? existing = null)
+    {
+        if (Document is null || target == SketchTarget.Roof) return;
+
+        _sketch = existing is null ? new List<RoofSketchLine>() : RoofSketch.LinesOf(existing);
+        _sketchArrows = new List<RoofSlopeArrow>();
+        _sketchRoof = null;
+        _sketchTarget = target;
+        _sketchSlab = existing;
+        _sketchSpan = (existing as Floor)?.SpanDirection;
+        _sketchUndo.Clear();
+        _sketchRedo.Clear();
+        _sketchSelection.Clear();
+        _sketchArrowSelection.Clear();
+        _sketchCulprits = Array.Empty<RoofSketchLine>();
+        _sketchStart = null;
+        _sketchArcEnd = null;
+        _trimFirst = null;
+        _alignReference = null;
+        _sketchPreview.Clear();
+        _sketchPickChain = false;
+        _sketchTool = existing is null ? RoofSketchTool.PickWalls : RoofSketchTool.Modify;
+
+        var tool = target == SketchTarget.Ceiling ? PlanTool.Ceiling : PlanTool.Floor;
+        if (ActiveTool != tool)
+        {
+            ActiveTool = tool;
+            Cursor = Cursors.Cross;
+        }
+
+        Select(null);
+        ModelMayHaveChanged();
+
+        HintChanged?.Invoke(this, SketchHint());
+        SketchChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
+
+    /// <summary>Makes the floor or ceiling the sketch closes into, or changes the one being edited.</summary>
+    private bool FinishSlabSketch(RoofSketchCheck check)
+    {
+        if (Document is null) return false;
+
+        var holes = check.Openings.Select(opening => opening.Points).ToList();
+        var span = _sketchTarget == SketchTarget.Floor ? _sketchSpan : null;
+        Slab slab;
+
+        if (_sketchSlab is { } existing)
+        {
+            slab = existing;
+            Apply(new SetSlabSketchCommand(slab, check.Boundary, holes, span));
+        }
+        else
+        {
+            var typeId = _sketchTarget == SketchTarget.Ceiling ? ActiveCeilingTypeId : ActiveFloorTypeId;
+            var type = Document.FindType<SlabType>(typeId)
+                       ?? (_sketchTarget == SketchTarget.Ceiling ? Document.TypesOf<CeilingType>().FirstOrDefault() : Document.TypesOf<FloorType>().FirstOrDefault());
+            if (type is null)
+            {
+                HintChanged?.Invoke(this, $"This project has no {SketchNoun} types to build the {SketchNoun} from.");
+                return false;
+            }
+
+            slab = _sketchTarget == SketchTarget.Ceiling ? new Ceiling { HeightOffset = 2400 } : new Floor { SpanDirection = span };
+            slab.TypeId = type.Id;
+            slab.LevelId = ActiveLevelId;
+            slab.SetBoundary(check.Boundary);
+            slab.SetHoles(holes);
+            Apply(new AddElementCommand(Document, slab, _sketchTarget == SketchTarget.Ceiling ? "Create Ceiling" : "Create Floor"));
+        }
+
+        var noun = SketchNoun;
+        EndSketch();
+        SetTool(PlanTool.Select);
+        Select(slab);
+
+        HintChanged?.Invoke(this,
+            $"{char.ToUpperInvariant(noun[0])}{noun[1..]}: {Units.FormatArea(slab.Area)}{(holes.Count > 0 ? $", {holes.Count} hole{(holes.Count == 1 ? "" : "s")} through it" : "")}. " +
+            "Double-click it, or Edit Boundary, to change its outline.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }
 
@@ -283,10 +446,12 @@ public partial class PlanView
         if (!check.IsValid)
         {
             _sketchCulprits = check.Culprits;
-            HintChanged?.Invoke(this, check.Problem!);
+            HintChanged?.Invoke(this, _sketchTarget == SketchTarget.Roof ? check.Problem! : check.Problem!.Replace("roof", SketchNoun));
             InvalidateVisual();
             return false;
         }
+
+        if (_sketchTarget != SketchTarget.Roof) return FinishSlabSketch(check);
 
         Roof roof;
 
@@ -344,19 +509,27 @@ public partial class PlanView
     {
         if (_sketch is null) return;
 
-        var editing = _sketchRoof;
+        var editing = SketchedElement;
+        var noun = SketchNoun;
         EndSketch();
         SetTool(PlanTool.Select);
         if (editing is not null) Select(editing);
 
-        HintChanged?.Invoke(this, editing is null ? "Roof sketch cancelled; nothing was made." : "Footprint left as it was.");
+        HintChanged?.Invoke(this, editing is null
+            ? $"{char.ToUpperInvariant(noun[0])}{noun[1..]} sketch cancelled; nothing was made."
+            : editing is Roof ? "Footprint left as it was." : "Boundary left as it was.");
     }
 
     private void EndSketch()
     {
+        var hidden = SketchedElement is not null;
         _sketch = null;
         _sketchArrows = new List<RoofSlopeArrow>();
         _sketchRoof = null;
+        _sketchSlab = null;
+        _sketchSpan = null;
+        _sketchTarget = SketchTarget.Roof;
+        if (hidden) ModelMayHaveChanged();
         _sketchUndo.Clear();
         _sketchRedo.Clear();
         _sketchSelection.Clear();
@@ -553,8 +726,8 @@ public partial class PlanView
         _sketchCursor = raw;
 
         // A pitch clicked while selecting is a pitch to type. Only then: a drawing tool's click
-        // near a line is meant for the line.
-        if (_sketchTool == RoofSketchTool.Modify && PitchLabelAt(raw) is { } pitched)
+        // near a line is meant for the line. A floor's lines have no pitch.
+        if (_sketchTarget == SketchTarget.Roof && _sketchTool == RoofSketchTool.Modify && PitchLabelAt(raw) is { } pitched)
         {
             BeginPitchEdit(pitched);
             return true;
@@ -570,8 +743,22 @@ public partial class PlanView
         switch (_sketchTool)
         {
             case RoofSketchTool.Modify:
+                // A corner is dragged; anywhere else on a line selects it.
+                if (BeginSketchDragAt(raw)) return true;
                 SelectSketchLineAt(raw);
                 return true;
+
+            case RoofSketchTool.Move:
+                return SketchMoveAt(raw);
+
+            case RoofSketchTool.Mirror:
+                return SketchMirrorAt(raw);
+
+            case RoofSketchTool.Align:
+                return SketchAlignAt(raw);
+
+            case RoofSketchTool.Fillet:
+                return SketchFilletAt(raw);
 
             case RoofSketchTool.PickWalls:
                 return PickWallsAt(raw);
@@ -604,9 +791,29 @@ public partial class PlanView
 
             case RoofSketchTool.Split:
                 return SplitSketchLineAt(raw);
+
+            case RoofSketchTool.SpanDirection:
+                return SpanAlongLineAt(raw);
         }
 
         return false;
+    }
+
+    /// <summary>A floor's span direction: along the line clicked, as Revit's Span Direction tool sets it.</summary>
+    private bool SpanAlongLineAt(Point2D raw)
+    {
+        if (_sketch is null || _sketchTarget != SketchTarget.Floor) return false;
+        if (SketchLineAt(raw) is not { } line)
+        {
+            HintChanged?.Invoke(this, "Click a line of the outline: the floor spans along it.");
+            return false;
+        }
+
+        Remember();
+        var along = line.IsArc ? line.Facets[^1] - line.Facets[0] : line.End - line.Start;
+        _sketchSpan = Floors.Normalised(Math.Atan2(along.Y, along.X) * 180 / Math.PI);
+        AfterSketchEdit($"The floor spans at {_sketchSpan:0.##}°, along that line. Click another to change it.");
+        return true;
     }
 
     // ---- slope arrows -------------------------------------------------------------------
@@ -740,6 +947,12 @@ public partial class PlanView
 
         _sketchCursor = raw;
 
+        if (_sketchDrag is not null)
+        {
+            SketchDragTo(raw);
+            return;
+        }
+
         if (_sketchTool == RoofSketchTool.PickWalls) _sketchPreview = PickPreview(raw);
 
         InvalidateVisual();
@@ -753,6 +966,12 @@ public partial class PlanView
     public bool SketchEscape()
     {
         if (_sketch is null) return false;
+
+        if (_sketchDrag is not null)
+        {
+            EndSketchDrag();
+            return true;
+        }
 
         if (_sketchStart is not null || _sketchPickChain || _trimFirst is not null || _alignReference is not null)
         {
@@ -780,7 +999,7 @@ public partial class PlanView
             return true;
         }
 
-        HintChanged?.Invoke(this, "Finish ✓ makes the roof; Cancel ✗ throws the sketch away.");
+        HintChanged?.Invoke(this, $"Finish ✓ makes the {SketchNoun}; Cancel ✗ throws the sketch away.");
         return true;
     }
 
@@ -886,9 +1105,22 @@ public partial class PlanView
         var picked = PickPreview(raw);
         if (picked.Count == 0)
         {
+            // A floor or ceiling: a click inside a room, away from its walls, takes the whole room.
+            if (_sketchTarget != SketchTarget.Roof && NearestWall(raw) is null && RoomOutlineAt(raw) is { Count: > 0 } room)
+            {
+                Remember();
+                _sketch.AddRange(room);
+                AfterSketchEdit(RoofSketch.Check(_sketch).IsValid
+                    ? $"The room's outline, {room.Count} lines. Finish ✓ to make the {SketchNoun}, or pick more."
+                    : $"The room's outline, {room.Count} lines.");
+                return true;
+            }
+
             HintChanged?.Invoke(this, NearestWall(raw) is { IsCurved: true }
-                ? "Curved walls cannot carry a roof edge yet. Draw lines along it instead."
-                : "No wall there. Hover just outside a wall - the roof edge goes on the side the cursor is on.");
+                ? $"Curved walls cannot carry a {SketchNoun} edge yet. Draw lines along it instead."
+                : _sketchTarget == SketchTarget.Roof
+                    ? "No wall there. Hover just outside a wall - the roof edge goes on the side the cursor is on."
+                    : $"No wall there. Hover inside a room near a wall - the {SketchNoun} edge goes on the face the cursor is on - or click in the middle of a room for all of it.");
             return false;
         }
 
@@ -915,18 +1147,35 @@ public partial class PlanView
 
         var closes = RoofSketch.Check(_sketch).IsValid;
         AfterSketchEdit(closes
-            ? $"The outline closes ({_sketch.Count} lines). Finish ✓ to make the roof, or pick more."
+            ? $"The outline closes ({_sketch.Count} lines). Finish ✓ to make the {SketchNoun}, or pick more."
             : $"{_sketch.Count} line{(_sketch.Count == 1 ? "" : "s")}. Pick the next wall.");
 
         return true;
+    }
+
+    /// <summary>The room round a point, as level sketch lines along its walls' faces - what a click inside it takes for a floor.</summary>
+    private List<RoofSketchLine> RoomOutlineAt(Point2D raw)
+    {
+        if (Document is null) return new List<RoofSketchLine>();
+        var boundary = RoomBoundary.Trace(Document, ActiveLevelId, raw);
+        if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return new List<RoofSketchLine>();
+
+        var points = boundary.Polygon;
+        return Enumerable.Range(0, points.Count)
+            .Select(i => new RoofSketchLine(points[i], points[(i + 1) % points.Count], new RoofEdge { DefinesSlope = false }))
+            .Where(line => line.Length > RoofSketch.JoinTolerance)
+            .ToList();
     }
 
     /// <summary>How far apart two line ends can be and still be joined as a corner.</summary>
     private double CornerReach()
     {
         var widest = Document?.Walls.Select(wall => Document.GetWallType(wall)?.Width ?? 0).DefaultIfEmpty(0).Max() ?? 0;
-        return Math.Max(1500, 3 * (widest + Math.Max(0, SketchOverhang)));
+        return Math.Max(1500, 3 * (widest + Math.Max(0, PickOffset)));
     }
+
+    /// <summary>How far a line picked off a wall stands from it: a roof's overhang, a floor's offset.</summary>
+    private double PickOffset => _sketchTarget == SketchTarget.Roof ? SketchOverhang : SketchSlabOffset;
 
     /// <summary>The lines a click here would add: the wall under the cursor, or its whole chain after TAB.</summary>
     private List<RoofSketchLine> PickPreview(Point2D raw)
@@ -944,16 +1193,16 @@ public partial class PlanView
             // drawn the other way round have that side on their other hand.
             var side = forward ? onLeft : !onLeft;
 
-            if (RoofSketch.LineOnWall(Document, member, side, SketchOverhang, SketchExtendToCore) is not var (start, end))
+            if (RoofSketch.LineOnWall(Document, member, side, PickOffset, SketchExtendToCore) is not var (start, end))
                 continue;
 
             var line = new RoofSketchLine(start, end, new RoofEdge
             {
-                DefinesSlope = SketchDefinesSlope,
+                DefinesSlope = _sketchTarget == SketchTarget.Roof && SketchDefinesSlope,
                 SlopeDegrees = ActiveRoofSlopeDegrees,
                 WallId = member.Id,
                 OnLeftOfWall = side,
-                Overhang = SketchOverhang,
+                Overhang = PickOffset,
                 ExtendToCore = SketchExtendToCore
             });
 
@@ -1049,7 +1298,7 @@ public partial class PlanView
 
     private RoofEdge NewDrawnEdge() => new()
     {
-        DefinesSlope = SketchDefinesSlope,
+        DefinesSlope = _sketchTarget == SketchTarget.Roof && SketchDefinesSlope,
         SlopeDegrees = ActiveRoofSlopeDegrees
     };
 
@@ -1112,7 +1361,7 @@ public partial class PlanView
 
         var closes = RoofSketch.Check(_sketch).IsValid;
         AfterSketchEdit(closes
-            ? "The outline closes. Finish ✓ to make the roof."
+            ? $"The outline closes. Finish ✓ to make the {SketchNoun}."
             : closedChain ? "Line added." : "Line added. Click the next point, or Esc to stop.");
         return true;
     }
@@ -1153,9 +1402,9 @@ public partial class PlanView
 
         _sketchStart = null;
         AfterSketchEdit(opening
-            ? "Opening added inside the outline - a hole through the roof. Finish ✓ to make it."
+            ? $"Opening added inside the outline - a hole through the {SketchNoun}. Finish ✓ to make it."
             : RoofSketch.Check(_sketch).IsValid
-                ? "The outline closes. Finish ✓ to make the roof."
+                ? $"The outline closes. Finish ✓ to make the {SketchNoun}."
                 : "Shape added.");
         return true;
     }
@@ -1209,7 +1458,8 @@ public partial class PlanView
 
     private RoofSketchLine? MarkerAt(Point2D raw)
     {
-        if (_sketch is null) return null;
+        // A floor's or ceiling's lines are level: no slope to turn on.
+        if (_sketch is null || _sketchTarget != SketchTarget.Roof) return null;
 
         var screen = ModelToScreen(raw);
 
@@ -1220,7 +1470,7 @@ public partial class PlanView
 
     // ---- hints --------------------------------------------------------------------------
 
-    private string SketchHint() => _sketchTool switch
+    private string SketchHint() => SketchEditingHint() ?? (_sketchTarget != SketchTarget.Roof ? SlabSketchHint() : _sketchTool switch
     {
         RoofSketchTool.PickWalls =>
             "Pick Walls: hover just outside a wall and click - the roof edge goes on that face, out by the overhang. " +
@@ -1245,7 +1495,25 @@ public partial class PlanView
         RoofSketchTool.AlignEaves =>
             "Align Eaves: each eave's height is shown beside it. Click the eave to match, then the eaves to bring to it - " +
             "by their plate height, or on the options bar by their overhang.",
-        _ => "Click a line to select it; Del deletes it. Click a △ to turn that line's slope on or off. Finish ✓ or Cancel ✗."
+        _ => "Click a line to select it, or drag a corner; Del deletes it. Click a △ to turn that line's slope on or off. Finish ✓ or Cancel ✗."
+    });
+
+    private string SlabSketchHint() => _sketchTool switch
+    {
+        RoofSketchTool.PickWalls =>
+            $"Pick Walls: hover inside a room near a wall and click - the {SketchNoun} edge goes on that face, off it by the offset. " +
+            "TAB picks the whole chain; a click in the middle of a room takes all of it. Finish ✓ when the outline closes.",
+        RoofSketchTool.Line => $"Line: click points round the {SketchNoun}'s edge. Shift keeps it straight; Esc stops.",
+        RoofSketchTool.Rectangle => "Rectangle: click two opposite corners. Drawn inside a closed outline, it is a hole through it.",
+        RoofSketchTool.Polygon => $"Polygon: click the centre, then a corner ({PolygonSides} sides).",
+        RoofSketchTool.Arc => "Arc: click its start, its end, then a point it passes through.",
+        RoofSketchTool.Circle => "Circle: click the centre, then a point on it. Inside a closed outline, it is a round hole.",
+        RoofSketchTool.PickLines => $"Pick Lines: click the edge of a floor, ceiling or roof, a wall's face or a grid line to take it as a {SketchNoun} line.",
+        RoofSketchTool.Offset => "Offset: type the distance on the options bar, then click a line on the side it should move toward.",
+        RoofSketchTool.TrimExtend => "Trim/Extend: click two lines, each on the part to keep - both are cut back or run on to meet at a corner.",
+        RoofSketchTool.Split => "Split: click a line where it should divide.",
+        RoofSketchTool.SpanDirection => "Span Direction: click a line of the outline - the floor spans along it, as its joists or deck run.",
+        _ => $"Click a line to select it, or drag a corner; Del deletes it. A loop drawn inside the outline is a hole through the {SketchNoun}. Finish ✓ or Cancel ✗."
     };
 
     // ---- drawing ------------------------------------------------------------------------
@@ -1266,8 +1534,12 @@ public partial class PlanView
                 : SketchPen;
 
             DrawSketchCurve(dc, pen, line.Facets);
-            DrawSlopeMarker(dc, line);
+            if (_sketchTarget == SketchTarget.Roof) DrawSlopeMarker(dc, line);
         }
+
+        // The floor's span, as it will be drawn on the floor.
+        if (_sketchTarget == SketchTarget.Floor && _sketchSpan is { } span && _sketch.Count > 0)
+            BIMDesigner.UI.Rendering.PlanRenderer.DrawSpanSymbol(dc, ModelToScreen(SketchCentre()), span, SketchPen);
 
         // The line ends, so a sketch that has not closed shows where.
         foreach (var line in _sketch)
@@ -1297,9 +1569,17 @@ public partial class PlanView
                 else
                     dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
             }
-            else if (_sketchTool is RoofSketchTool.Line or RoofSketchTool.SlopeArrow)
+            else if (_sketchTool is RoofSketchTool.Line or RoofSketchTool.SlopeArrow or RoofSketchTool.Mirror)
             {
                 dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
+            }
+            else if (_sketchTool == RoofSketchTool.Move)
+            {
+                // The selected lines where they would go.
+                var by = to - from;
+                dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
+                foreach (var line in _sketchSelection)
+                    DrawSketchCurve(dc, SketchPreviewPen, line.Facets.Select(point => point + by).ToList());
             }
             else
             {

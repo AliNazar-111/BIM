@@ -133,9 +133,9 @@ public static class BeamSystems
         var top = Top(document, system);
         var middle = Polygon2D.Centroid(system.Boundary, system.Boundary[0]);
         return document.Elements.OfType<Slab>()
-            .Where(slab => slab.Boundary.Count >= 3 && Stairs.IsFloorLike(document, slab) && slab.Contains(middle)
+            .Where(slab => slab.Boundary.Count >= 3 && Stairs.IsFloorLike(document, slab) && Polygon2D.Contains(slab.Boundary, middle)
                            && slab.GetTopElevation(document) >= top - 1 && slab.GetTopElevation(document) <= top + 600)
-            .SelectMany(slab => Stairs.Holes(document, slab).Concat(Shafts.Holes(document, slab)))
+            .SelectMany(slab => Stairs.Holes(document, slab).Concat(Shafts.Holes(document, slab)).Concat(slab.Holes))
             .Where(hole => hole.Count >= 3)
             .ToList();
     }

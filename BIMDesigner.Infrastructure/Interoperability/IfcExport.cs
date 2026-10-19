@@ -165,6 +165,9 @@ public static class IfcExport
             foreach (var slab in _document.Elements.OfType<Slab>()) ExportSlab(slab);
             foreach (var edge in _document.Elements.OfType<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
             foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
+            foreach (var slabEdge in _document.Elements.OfType<SlabEdge>())
+                if (SlabEdgeRuns.Mesh(_document, slabEdge) is { } edgeMesh)
+                    ExportMeshProxy(slabEdge, edgeMesh, _document.FindType<SlabEdgeType>(slabEdge.TypeId)?.Name ?? "Slab Edge", "Slab Edge");
             foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
             foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
             foreach (var stair in _document.Elements.OfType<Stair>()) ExportStair(stair);
@@ -433,8 +436,31 @@ public static class IfcExport
             AssignLayers(product, type.Id, type.Structure, flipped: false);
             AddSlabProperties(product, slab, type);
 
-            // The shafts through it: the whole slab with a void for each, as IFC keeps a hole,
-            // so a receiving application can move the shaft or fill it in.
+            // The holes sketched in it and the shafts through it: the whole slab with a void for
+            // each, as IFC keeps a hole, so a receiving application can move it or fill it in.
+            foreach (var sketched in slab.Holes)
+            {
+                var sketchedPlacement = New<IfcLocalPlacement>(p =>
+                {
+                    p.PlacementRelTo = placement;
+                    p.RelativePlacement = Placement(Point3D(0, 0, -1));
+                });
+
+                var opening = New<IfcOpeningElement>(o =>
+                {
+                    o.Name = "Opening";
+                    o.PredefinedType = IfcOpeningElementTypeEnum.OPENING;
+                    o.ObjectPlacement = sketchedPlacement;
+                    o.Representation = Extrude(sketched, thickness + 2);
+                });
+
+                New<IfcRelVoidsElement>(relation =>
+                {
+                    relation.RelatingBuildingElement = product;
+                    relation.RelatedOpeningElement = opening;
+                });
+            }
+
             foreach (var shaft in Shafts.Through(_document, slab))
             {
                 var voidPlacement = New<IfcLocalPlacement>(p =>
