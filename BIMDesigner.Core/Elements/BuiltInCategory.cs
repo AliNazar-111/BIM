@@ -100,7 +100,13 @@ public enum BuiltInCategory
     Callouts,
 
     /// <summary>View templates: named sets of view settings, applied to views or governing them.</summary>
-    ViewTemplates
+    ViewTemplates,
+
+    /// <summary>Revision clouds: round what a revision of the drawings changed.</summary>
+    RevisionClouds,
+
+    /// <summary>Keynote tags: an element's, a material's or a note's keynote, keyed to a legend.</summary>
+    KeynoteTags
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

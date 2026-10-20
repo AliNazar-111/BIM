@@ -6,7 +6,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/BIMDesigner.UI/bin/Debug/net10.0-windows/BIMDesigner.UI.exe",
+      "program": "${workspaceFolder}/BIMDesigner.UI/bin/Debug/net10.0-windows/BIMDesigner.exe",
       "args": [],
       "cwd": "${workspaceFolder}/BIMDesigner.UI",
       "console": "internalConsole",

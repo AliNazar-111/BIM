@@ -181,8 +181,71 @@ public static class IfcExport
             foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
+            ExportGrids();
 
             _ = building;
+        }
+
+        /// <summary>
+        /// The gridlines as one <c>IfcGrid</c> on the lowest storey: those running one way its U
+        /// axes, the rest its V axes, each named with its bubble's letter or number - what a
+        /// structural engineer's model and a setting-out survey are tied to.
+        /// </summary>
+        private void ExportGrids()
+        {
+            var grids = _document.Elements.OfType<Grid>().Where(grid => grid.Start.DistanceTo(grid.End) > 1).ToList();
+            if (grids.Count == 0 || _storeys.Count == 0) return;
+
+            var first = (grids[0].End - grids[0].Start).NormalisedOrDefault(Vector2D.UnitX);
+            IfcGridAxis Axis(Grid grid) => New<IfcGridAxis>(axis =>
+            {
+                axis.AxisTag = grid.Name;
+                axis.SameSense = true;
+                axis.AxisCurve = New<IfcPolyline>(line =>
+                {
+                    line.Points.Add(Point2Dto(grid.Start));
+                    line.Points.Add(Point2Dto(grid.End));
+                });
+            });
+
+            var lowest = _document.Levels.OrderBy(level => level.Elevation).First();
+            var storey = _storeys[lowest.Id];
+            var axes = grids.Select(grid => (Grid: grid, Axis: Axis(grid))).ToList();
+
+            var ifcGrid = New<IfcGrid>(g =>
+            {
+                g.GlobalId = Guid.NewGuid().ToIfc();
+                g.Name = "Grid";
+                g.ObjectPlacement = New<IfcLocalPlacement>(p =>
+                {
+                    p.PlacementRelTo = storey.ObjectPlacement;
+                    p.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+
+                foreach (var (grid, axis) in axes)
+                {
+                    var along = (grid.End - grid.Start).NormalisedOrDefault(Vector2D.UnitX);
+                    if (Math.Abs(along.Dot(first)) >= Math.Cos(Math.PI / 4)) g.UAxes.Add(axis);
+                    else g.VAxes.Add(axis);
+                }
+
+                g.Representation = New<IfcProductDefinitionShape>(shape => shape.Representations.Add(New<IfcShapeRepresentation>(r =>
+                {
+                    r.ContextOfItems = _context;
+                    r.RepresentationIdentifier = "FootPrint";
+                    r.RepresentationType = "GeometricCurveSet";
+                    r.Items.Add(New<IfcGeometricCurveSet>(set =>
+                    {
+                        foreach (var (_, axis) in axes) set.Elements.Add(axis.AxisCurve);
+                    }));
+                })));
+            });
+
+            New<IfcRelContainedInSpatialStructure>(relation =>
+            {
+                relation.RelatingStructure = storey;
+                relation.RelatedElements.Add(ifcGrid);
+            });
         }
 
         // ---- project, units and the spatial tree --------------------------------
@@ -338,6 +401,10 @@ public static class IfcExport
                     : ExtrudeTiers(wall, bodyStart, outline, height);
             });
 
+            // Its axis down the middle of its body, as IFC's views ask of a wall: what a receiving
+            // application lays it out by, and draws in plan.
+            ifcWall.Representation.Representations.Insert(0, WallAxis(wall, structure, bodyStart));
+
             _walls[wall.Id] = ifcWall;
 
             Contain(wall, ifcWall);
@@ -371,6 +438,24 @@ public static class IfcExport
                 ["ThermalTransmittance"] = type.HeatTransferCoefficient > 0
                     ? new IfcThermalTransmittanceMeasure(type.HeatTransferCoefficient)
                     : null
+            });
+        }
+
+        /// <summary>A wall's axis: the middle of its body from end to end, in its own frame - an arc as a run of points along it.</summary>
+        private IfcShapeRepresentation WallAxis(CoreWall wall, CompoundStructure structure, Point2D bodyStart)
+        {
+            var steps = wall.IsCurved ? 24 : 1;
+            var points = ToLocal(Enumerable.Range(0, steps + 1).Select(i => wall.PointAt(structure, wall.Length * i / steps, 0)).ToList(), bodyStart, wall.Direction);
+
+            return New<IfcShapeRepresentation>(r =>
+            {
+                r.ContextOfItems = _context;
+                r.RepresentationIdentifier = "Axis";
+                r.RepresentationType = "Curve2D";
+                r.Items.Add(New<IfcPolyline>(line =>
+                {
+                    foreach (var point in points) line.Points.Add(Point2Dto(point));
+                }));
             });
         }
 
@@ -1889,6 +1974,12 @@ public static class IfcExport
         {
             var storey = StoreyOf(component);
             var storeyElevation = _document.FindLevel(component.LevelId)?.Elevation ?? 0;
+
+            // Placed where it stands, turned as it is, its shape in its own frame: so a receiving
+            // application knows where and which way each one is, not only what it looks like.
+            var turn = component.Rotation * Math.PI / 180;
+            var (cos, sin) = (Math.Cos(turn), Math.Sin(turn));
+            var origin = component.Location;
             var product = New<T>(element =>
             {
                 element.GlobalId = component.Id.ToIfc();
@@ -1898,9 +1989,18 @@ public static class IfcExport
                 element.ObjectPlacement = New<IfcLocalPlacement>(placement =>
                 {
                     placement.PlacementRelTo = storey?.ObjectPlacement;
-                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                    placement.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
+                    {
+                        axis.Location = Point3D(origin.X, origin.Y, 0);
+                        axis.Axis = Direction(0, 0, 1);
+                        axis.RefDirection = Direction(cos, sin, 0);
+                    });
                 });
-                element.Representation = TessellatedBody(meshes, storeyElevation);
+                element.Representation = TessellatedBody(meshes, point =>
+                {
+                    var (dx, dy) = (point.X - origin.X, point.Y - origin.Y);
+                    return new BIMDesigner.Core.Geometry.Point3D(dx * cos + dy * sin, -dx * sin + dy * cos, point.Z - storeyElevation);
+                });
                 kind(element);
             });
 
@@ -1961,7 +2061,11 @@ public static class IfcExport
             return New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
         }
 
-        private IfcProductDefinitionShape TessellatedBody(IReadOnlyList<Mesh3D> meshes, double storeyElevation)
+        private IfcProductDefinitionShape TessellatedBody(IReadOnlyList<Mesh3D> meshes, double storeyElevation) =>
+            TessellatedBody(meshes, point => new BIMDesigner.Core.Geometry.Point3D(point.X, point.Y, point.Z - storeyElevation));
+
+        /// <summary>Meshes as triangulated face sets, each corner taken into the product's own frame.</summary>
+        private IfcProductDefinitionShape TessellatedBody(IReadOnlyList<Mesh3D> meshes, Func<BIMDesigner.Core.Geometry.Point3D, BIMDesigner.Core.Geometry.Point3D> local)
         {
             var representation = New<IfcShapeRepresentation>(r =>
             {
@@ -1972,8 +2076,8 @@ public static class IfcExport
                 {
                     var points = New<IfcCartesianPointList3D>(list =>
                     {
-                        foreach (var point in mesh.Positions)
-                            list.CoordList.GetAt(list.CoordList.Count).AddRange(new IfcLengthMeasure[] { point.X, point.Y, point.Z - storeyElevation });
+                        foreach (var point in mesh.Positions.Select(local))
+                            list.CoordList.GetAt(list.CoordList.Count).AddRange(new IfcLengthMeasure[] { point.X, point.Y, point.Z });
                     });
                     r.Items.Add(New<IfcTriangulatedFaceSet>(faces =>
                     {

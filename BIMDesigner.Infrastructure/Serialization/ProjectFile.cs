@@ -6,6 +6,7 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Schedules;
 using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
 
@@ -88,7 +89,8 @@ public static class ProjectFile
                 CutColour = material.CutColour.ToString(),
                 Manufacturer = material.Manufacturer,
                 ClassificationCode = material.ClassificationCode,
-                CostPerCubicMetre = material.CostPerCubicMetre
+                CostPerCubicMetre = material.CostPerCubicMetre,
+                Keynote = NullIfEmpty(material.Keynote)
             });
 
         foreach (var stacked in document.TypesOf<StackedWallType>())
@@ -127,6 +129,22 @@ public static class ProjectFile
                 Setback = sweepType.Setback,
                 Cost = sweepType.Cost,
                 Description = sweepType.Description
+            });
+
+        foreach (var style in document.TypesOf<DimensionType>())
+            dto.DimensionTypes.Add(new DimensionTypeDto
+            {
+                Id = style.Id, Name = style.Name, Tick = style.Tick.ToString(), TextSize = style.TextSize, TextOffset = style.TextOffset,
+                TextAlongLine = style.TextAlongLine, WitnessGap = style.WitnessGap, WitnessExtension = style.WitnessExtension,
+                LineExtension = style.LineExtension, Units = style.Units.ToString(), Decimals = style.Decimals, ShowUnits = style.ShowUnits,
+                AngleDecimals = style.AngleDecimals
+            });
+
+        foreach (var type in document.ElementTypes.OrderBy(type => type.Id))
+            dto.TypeIdentities.Add(new TypeIdentityDto
+            {
+                Id = type.Id, TypeMark = NullIfEmpty(type.TypeMark), AssemblyCode = NullIfEmpty(type.AssemblyCode), Keynote = NullIfEmpty(type.Keynote),
+                Manufacturer = NullIfEmpty(type.Manufacturer), Url = NullIfEmpty(type.Url), Description = NullIfEmpty(type.Description), Cost = type.Cost
             });
 
         foreach (var fascia in document.TypesOf<FasciaType>())
@@ -594,12 +612,28 @@ public static class ProjectFile
             {
                 Id = dimension.Id,
                 LevelId = dimension.LevelId,
+                TypeId = dimension.TypeId,
                 Start = WriteEnd(dimension.Start),
                 End = WriteEnd(dimension.End),
+                Between = dimension.Between.Count > 0 ? dimension.Between.Select(WriteEnd).ToList() : null,
                 Offset = dimension.Offset,
                 Override = dimension.Override,
                 Comments = dimension.Comments,
                 Workset = dimension.Workset
+            });
+
+        foreach (var angular in document.Elements.OfType<AngularDimension>())
+            dto.AngularDimensions.Add(new AngularDimensionDto
+            {
+                Id = angular.Id, LevelId = angular.LevelId, TypeId = angular.TypeId, First = WriteEnd(angular.First), Second = WriteEnd(angular.Second),
+                X = angular.Through.X, Y = angular.Through.Y, Override = angular.Override, Comments = angular.Comments
+            });
+
+        foreach (var radial in document.Elements.OfType<RadialDimension>())
+            dto.RadialDimensions.Add(new RadialDimensionDto
+            {
+                Id = radial.Id, LevelId = radial.LevelId, TypeId = radial.TypeId, Kind = radial.Kind.ToString(), Target = WriteEnd(radial.Target),
+                X = radial.Through.X, Y = radial.Through.Y, Override = radial.Override, Comments = radial.Comments
             });
 
         foreach (var tag in document.Elements.OfType<Tag>())
@@ -673,6 +707,51 @@ public static class ProjectFile
                 EyeHeight = walk.EyeHeight, Frames = walk.Frames, FramesPerSecond = walk.FramesPerSecond, Comments = walk.Comments
             });
 
+        dto.Revisions = document.Revisions.Select(revision => new RevisionDto
+        {
+            Id = revision.Id, Numbering = revision.Numbering.ToString(), Date = revision.Date, Description = revision.Description,
+            IssuedTo = revision.IssuedTo, IssuedBy = revision.IssuedBy, Issued = revision.Issued, Visibility = revision.Visibility.ToString()
+        }).ToList();
+
+        foreach (var cloud in document.Elements.OfType<RevisionCloud>())
+            dto.RevisionClouds.Add(new RevisionCloudDto
+            {
+                Id = cloud.Id, LevelId = cloud.LevelId, RevisionId = cloud.RevisionId,
+                Outline = cloud.Outline.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                TagX = cloud.TagAt?.X, TagY = cloud.TagAt?.Y, Mark = cloud.Mark, Comments = cloud.Comments, Workset = cloud.Workset
+            });
+
+        dto.Keynotes = new KeynoteTableDto
+        {
+            Source = document.Keynotes.Source,
+            Entries = document.Keynotes.Entries.Select(entry => new KeynoteEntryDto { Key = entry.Key, Text = entry.Text, Parent = NullIfEmpty(entry.Parent) }).ToList()
+        };
+
+        foreach (var keynote in document.Elements.OfType<KeynoteTag>())
+            dto.KeynoteTags.Add(new KeynoteTagDto
+            {
+                Id = keynote.Id, LevelId = keynote.LevelId, Source = keynote.Source.ToString(), TargetId = keynote.TargetId, MaterialId = keynote.MaterialId,
+                Key = keynote.Key, X = keynote.Position.X, Y = keynote.Position.Y, LeaderX = keynote.LeaderEnd?.X, LeaderY = keynote.LeaderEnd?.Y,
+                Display = keynote.Display.ToString(), Mark = keynote.Mark, Comments = keynote.Comments, Workset = keynote.Workset
+            });
+
+        dto.Schedules = document.Schedules.Select(schedule => new ScheduleDto
+        {
+            Id = schedule.Id, Name = schedule.Name, Category = schedule.Category.ToString(), Fields = schedule.Fields.ToList(),
+            Filters = schedule.Filters.Select(filter => new ScheduleFilterDto { Field = filter.Field, Comparison = filter.Comparison.ToString(), Value = filter.Value }).ToList(),
+            SortBy = schedule.SortBy, SortDescending = schedule.SortDescending, GroupBy = schedule.GroupBy, ShowTotals = schedule.ShowTotals,
+            Itemize = schedule.Itemize, NotTotalled = schedule.NotTotalled.OrderBy(field => field, StringComparer.Ordinal).ToList(),
+            Calculated = schedule.Calculated.Select(calculated => new CalculatedFieldDto
+            {
+                Name = calculated.Name, Kind = calculated.Kind.ToString(), Formula = calculated.Formula, PercentageOf = calculated.PercentageOf, ByGroup = calculated.ByGroup
+            }).ToList(),
+            Formats = schedule.Formats.Select(format => new ConditionalFormatDto
+            {
+                Field = format.Field, Test = format.Test.ToString(), Value = format.Value, Value2 = format.Value2, Background = format.Background.ToString()
+            }).ToList(),
+            ShowFormatsOnSheets = schedule.ShowFormatsOnSheets
+        }).ToList();
+
         foreach (var sheet in document.Elements.OfType<Sheet>())
             dto.Sheets.Add(new SheetDto
             {
@@ -685,6 +764,7 @@ public static class ProjectFile
                 CheckedBy = sheet.CheckedBy,
                 Revision = sheet.Revision,
                 IssuedOn = sheet.IssuedOn,
+                RevisionIds = sheet.RevisionIds.ToList(),
                 Comments = sheet.Comments,
                 Workset = sheet.Workset,
                 Viewports = sheet.Viewports.Select(viewport => new ViewportDto
@@ -1081,6 +1161,8 @@ public static class ProjectFile
         return dto;
     }
 
+    private static string? NullIfEmpty(string text) => string.IsNullOrEmpty(text) ? null : text;
+
     private static DimensionEndDto WriteEnd(DimensionReference reference) => new()
     {
         ElementId = reference.ElementId,
@@ -1231,7 +1313,8 @@ public static class ProjectFile
                 CutColour = ParseColour(material.CutColour, new ColourRgb(0x7A, 0x7A, 0x7A)),
                 Manufacturer = material.Manufacturer,
                 ClassificationCode = material.ClassificationCode,
-                CostPerCubicMetre = material.CostPerCubicMetre
+                CostPerCubicMetre = material.CostPerCubicMetre,
+                Keynote = material.Keynote ?? string.Empty
             });
 
         foreach (var type in dto.WallTypes)
@@ -1342,6 +1425,16 @@ public static class ProjectFile
                 Description = dtoSweep.Description
             });
         }
+
+        foreach (var style in dto.DimensionTypes)
+            document.AddType(new DimensionType(string.IsNullOrWhiteSpace(style.Name) ? "Linear" : style.Name)
+            {
+                Id = style.Id, Tick = ParseEnum(style.Tick, DimensionTick.Tick), TextSize = Within(style.TextSize, 0.5, 20, 2.5),
+                TextOffset = Within(style.TextOffset, 0, 10, 1), TextAlongLine = style.TextAlongLine, WitnessGap = Within(style.WitnessGap, 0, 20, 2),
+                WitnessExtension = Within(style.WitnessExtension, 0, 20, 2), LineExtension = Within(style.LineExtension, 0, 20, 2),
+                Units = ParseEnum(style.Units, DimensionUnits.Millimetres), Decimals = Math.Clamp(style.Decimals, 0, 4), ShowUnits = style.ShowUnits,
+                AngleDecimals = Math.Clamp(style.AngleDecimals, 0, 4)
+            });
 
         foreach (var fascia in dto.FasciaTypes)
             document.AddType(new FasciaType(fascia.Name)
@@ -2444,16 +2537,35 @@ public static class ProjectFile
             });
 
         foreach (var dimension in dto.Dimensions)
-            document.Add(new Dimension
+        {
+            var made = new Dimension
             {
                 Id = dimension.Id,
                 LevelId = dimension.LevelId,
+                TypeId = dimension.TypeId,
                 Start = ReadEnd(dimension.Start),
                 End = ReadEnd(dimension.End),
                 Offset = dimension.Offset,
                 Override = dimension.Override,
                 Comments = dimension.Comments,
                 Workset = dimension.Workset
+            };
+            made.Between.AddRange((dimension.Between ?? new List<DimensionEndDto>()).Select(ReadEnd));
+            document.Add(made);
+        }
+
+        foreach (var angular in dto.AngularDimensions.Where(saved => double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new AngularDimension
+            {
+                Id = angular.Id, LevelId = angular.LevelId, TypeId = angular.TypeId, First = ReadEnd(angular.First), Second = ReadEnd(angular.Second),
+                Through = new Point2D(angular.X, angular.Y), Override = angular.Override ?? string.Empty, Comments = angular.Comments ?? string.Empty
+            });
+
+        foreach (var radial in dto.RadialDimensions.Where(saved => double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new RadialDimension
+            {
+                Id = radial.Id, LevelId = radial.LevelId, TypeId = radial.TypeId, Kind = ParseEnum(radial.Kind, RadialKind.Radius), Target = ReadEnd(radial.Target),
+                Through = new Point2D(radial.X, radial.Y), Override = radial.Override ?? string.Empty, Comments = radial.Comments ?? string.Empty
             });
 
         foreach (var tag in dto.Tags)
@@ -2553,6 +2665,74 @@ public static class ProjectFile
             if (walk.Path.Count >= 2) document.Add(walk);
         }
 
+        foreach (var saved in dto.Revisions ?? new List<RevisionDto>())
+            document.Revisions.Add(new Revision
+            {
+                Id = saved.Id == Guid.Empty ? Guid.NewGuid() : saved.Id, Numbering = ParseEnum(saved.Numbering, RevisionNumbering.Preliminary), Date = saved.Date,
+                Description = saved.Description ?? string.Empty, IssuedTo = saved.IssuedTo ?? string.Empty, IssuedBy = saved.IssuedBy ?? string.Empty,
+                Issued = saved.Issued, Visibility = ParseEnum(saved.Visibility, RevisionVisibility.CloudsAndTags)
+            });
+
+        foreach (var saved in dto.RevisionClouds ?? new List<RevisionCloudDto>())
+        {
+            var cloud = new RevisionCloud
+            {
+                Id = saved.Id, LevelId = saved.LevelId, RevisionId = saved.RevisionId,
+                TagAt = saved.TagX is { } tx && saved.TagY is { } ty ? new Point2D(tx, ty) : null,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, Workset = saved.Workset ?? "Workset1"
+            };
+            var outline = saved.Outline ?? new List<double>();
+            cloud.Outline.AddRange(Enumerable.Range(0, outline.Count / 2).Select(i => new Point2D(outline[2 * i], outline[2 * i + 1])).Where(point => double.IsFinite(point.X) && double.IsFinite(point.Y)));
+            if (cloud.Outline.Count >= 2) document.Add(cloud);
+        }
+
+        // A file from before keynotes were kept opens with the starter set.
+        if (dto.Keynotes is null) document.Keynotes.CopyFrom(KeynoteTable.Starter());
+        else
+        {
+            document.Keynotes.Source = dto.Keynotes.Source ?? string.Empty;
+            document.Keynotes.Entries.AddRange((dto.Keynotes.Entries ?? new List<KeynoteEntryDto>())
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Key))
+                .Select(entry => new KeynoteEntry(entry.Key, entry.Text ?? string.Empty, entry.Parent ?? string.Empty)));
+        }
+
+        foreach (var saved in dto.KeynoteTags ?? new List<KeynoteTagDto>())
+            document.Add(new KeynoteTag
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Source = ParseEnum(saved.Source, KeynoteSource.Element), TargetId = saved.TargetId,
+                MaterialId = saved.MaterialId, Key = saved.Key ?? string.Empty, Position = new Point2D(saved.X, saved.Y),
+                LeaderEnd = saved.LeaderX is { } lx && saved.LeaderY is { } ly ? new Point2D(lx, ly) : null,
+                Display = ParseEnum(saved.Display, KeynoteDisplay.Key), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+                Workset = saved.Workset ?? "Workset1"
+            });
+
+        // A file from before schedules were kept opens with those a project starts with.
+        if (dto.Schedules is null) document.Schedules.AddRange(ScheduleDefinition.Defaults());
+        else
+            foreach (var saved in dto.Schedules)
+            {
+                var schedule = new ScheduleDefinition(saved.Name ?? "Schedule", ParseEnum(saved.Category, BuiltInCategory.Walls), (saved.Fields ?? new List<string>()).ToArray())
+                {
+                    Id = saved.Id == Guid.Empty ? Guid.NewGuid() : saved.Id,
+                    SortBy = saved.SortBy, SortDescending = saved.SortDescending, GroupBy = saved.GroupBy, ShowTotals = saved.ShowTotals,
+                    Itemize = saved.Itemize, ShowFormatsOnSheets = saved.ShowFormatsOnSheets
+                };
+                schedule.Filters.AddRange((saved.Filters ?? new List<ScheduleFilterDto>()).Select(filter =>
+                    new ScheduleFilter(filter.Field ?? string.Empty, ParseEnum(filter.Comparison, ScheduleOperator.Equals), filter.Value ?? string.Empty)));
+                foreach (var field in saved.NotTotalled ?? new List<string>()) schedule.NotTotalled.Add(field);
+                schedule.Calculated.AddRange((saved.Calculated ?? new List<CalculatedFieldDto>()).Select(calculated => new CalculatedField
+                {
+                    Name = calculated.Name ?? "Calculated", Kind = ParseEnum(calculated.Kind, CalculatedKind.Number), Formula = calculated.Formula ?? string.Empty,
+                    PercentageOf = calculated.PercentageOf ?? string.Empty, ByGroup = calculated.ByGroup
+                }));
+                schedule.Formats.AddRange((saved.Formats ?? new List<ConditionalFormatDto>()).Select(format => new ConditionalFormat
+                {
+                    Field = format.Field ?? string.Empty, Test = ParseEnum(format.Test, FormatTest.LessThan), Value = format.Value ?? string.Empty,
+                    Value2 = format.Value2 ?? string.Empty, Background = ParseColour(format.Background, new ColourRgb(0xF8, 0xC8, 0xC8))
+                }));
+                document.Schedules.Add(schedule);
+            }
+
         foreach (var dtoSheet in dto.Sheets)
         {
             var sheet = new Sheet
@@ -2569,6 +2749,7 @@ public static class ProjectFile
                 Comments = dtoSheet.Comments,
                 Workset = dtoSheet.Workset
             };
+            sheet.RevisionIds.AddRange(dtoSheet.RevisionIds ?? new List<Guid>());
 
             foreach (var dtoViewport in dtoSheet.Viewports)
             {
@@ -2605,6 +2786,19 @@ public static class ProjectFile
 
         // A project written before a category existed carries no types for it. Fill those
         // gaps so every tool in the build can actually be used on an older file.
+        // Every type's identity, whatever kind it is - its keynote above all, which most types' own records leave out.
+        foreach (var identity in dto.TypeIdentities)
+        {
+            if (document.ElementTypes.FirstOrDefault(type => type.Id == identity.Id) is not { } type) continue;
+            if (identity.TypeMark is { } mark) type.TypeMark = mark;
+            if (identity.AssemblyCode is { } code) type.AssemblyCode = code;
+            if (identity.Keynote is { } keynote) type.Keynote = keynote;
+            if (identity.Manufacturer is { } maker) type.Manufacturer = maker;
+            if (identity.Url is { } url) type.Url = url;
+            if (identity.Description is { } description) type.Description = description;
+            type.Cost = identity.Cost;
+        }
+
         document.EnsureDefaultTypes();
 
         var pinned = dto.PinnedIds.ToHashSet();

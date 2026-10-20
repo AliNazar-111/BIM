@@ -205,6 +205,14 @@ public class RoundTripAuditTests
         };
         document.Add(section);
 
+        // A revision, clouded and put on the sheet by hand; a keynote off the wall.
+        var revision = new Revision { Numbering = RevisionNumbering.Contractual, Date = new DateTime(2026, 2, 1), Description = "Audit issue", IssuedTo = "Client", IssuedBy = "AB", Visibility = RevisionVisibility.TagsOnly };
+        document.Revisions.Add(revision);
+        var cloud = new RevisionCloud { RevisionId = revision.Id, LevelId = ground.Id, TagAt = new Point2D(4200, 4200), Comments = "cloud comment" };
+        cloud.Outline.AddRange(new[] { new Point2D(0, 0), new Point2D(3000, 0), new Point2D(3000, 2000), new Point2D(0, 2000) });
+        document.Add(cloud);
+        document.Add(new KeynoteTag { Source = KeynoteSource.Element, TargetId = wall.Id, LevelId = ground.Id, Position = new Point2D(800, 1600), LeaderEnd = new Point2D(500, 0), Display = KeynoteDisplay.KeyAndText, Comments = "keynote comment" });
+
         var sheet = new Sheet
         {
             Number = "A-207",
@@ -217,6 +225,7 @@ public class RoundTripAuditTests
             IssuedOn = new DateTime(2026, 3, 4),
             Comments = "sheet comment"
         };
+        sheet.RevisionIds.Add(revision.Id);
 
         sheet.Add(new Viewport
         {

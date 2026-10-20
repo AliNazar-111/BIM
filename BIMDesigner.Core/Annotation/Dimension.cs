@@ -208,6 +208,12 @@ public sealed class Dimension : Element
     public DimensionReference End { get; set; } = DimensionReference.ToPoint(default);
 
     /// <summary>
+    /// What a dimension string measures to between its ends - each wall, face or gridline it
+    /// passes - so it is a run of dimensions, one after another, along one line.
+    /// </summary>
+    public List<DimensionReference> Between { get; } = new();
+
+    /// <summary>
     /// How far the dimension line sits off the line being measured, in millimetres. Positive
     /// is to the left of start-to-end.
     /// </summary>
@@ -263,11 +269,43 @@ public sealed class Dimension : Element
     }
 
     public string DisplayText(BimDocument document) =>
-        string.IsNullOrWhiteSpace(Override) ? Units.FormatLength(Measure(document)) : Override;
+        string.IsNullOrWhiteSpace(Override) ? DimensionTypes.Of(document, this).Format(Measure(document)) : Override;
+
+    /// <summary>
+    /// Where a string's references fall along what is measured: its ends, and each between,
+    /// taken square onto the line from end to end, in order along it.
+    /// </summary>
+    public IReadOnlyList<Point2D> Stations(BimDocument document)
+    {
+        var (from, to) = Ends(document);
+        if (Between.Count == 0) return new[] { from, to };
+
+        var along = (to - from).NormalisedOrDefault(Vector2D.UnitX);
+        var stations = new List<Point2D> { from, to };
+        foreach (var reference in Between)
+        {
+            // To a line square to the string, where it crosses it; otherwise where the point falls on it.
+            var at = reference.Line(document) is { } line && Math.Abs(line.Direction.Cross(along)) > 0.01
+                ? line.Point + line.Direction * ((from - line.Point).Cross(along) / line.Direction.Cross(along))
+                : reference.Resolve(document);
+            stations.Add(from + along * (at - from).Dot(along));
+        }
+
+        return stations.OrderBy(point => (point - from).Dot(along)).ToList();
+    }
+
+    /// <summary>Each stretch of a string, end to end, in millimetres - one for a single dimension.</summary>
+    public IReadOnlyList<double> Segments(BimDocument document)
+    {
+        var stations = Stations(document);
+        return Enumerable.Range(0, stations.Count - 1).Select(i => stations[i].DistanceTo(stations[i + 1])).ToList();
+    }
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         yield return ParameterValue.ReadOnly(DimensionParameters.Value, () => Measure(document));
+        if (Between.Count > 0)
+            yield return ParameterValue.ReadOnly(DimensionParameters.Segments, () => string.Join(" + ", Segments(document).Select(DimensionTypes.Of(document, this).Format)));
         yield return ParameterValue.ReadOnly(DimensionParameters.Associative, () => IsAssociative(document));
         yield return ParameterValue.Bind(DimensionParameters.Offset, () => Offset, v => Offset = v);
         yield return ParameterValue.Bind(DimensionParameters.Override, () => Override, v => Override = v);
@@ -291,4 +329,13 @@ public static class DimensionParameters
 
     public static readonly ParameterDefinition Override =
         new("Text Override", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Segments =
+        new("Segments", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Angle =
+        new("Angle", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition RadialKind =
+        new("Measures", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 }

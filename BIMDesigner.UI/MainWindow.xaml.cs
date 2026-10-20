@@ -130,6 +130,29 @@ public partial class MainWindow : Window
             Plan.Select(Section.SelectedElement);
         };
 
+        // With nothing selected, the view clicked into shows its own properties.
+        Section.GotKeyboardFocus += OnViewFocused;
+        Projected.GotKeyboardFocus += OnViewFocused;
+        Model3D.GotKeyboardFocus += OnViewFocused;
+        Plan.GotKeyboardFocus += OnViewFocused;
+
+        // A section's callout cropped by its corner: one step to undo.
+        Section.CalloutCropped += (_, cropped) =>
+        {
+            var (callout, before, after) = (cropped.Callout, cropped.Before, cropped.Callout.Region);
+            _history.Record(new DelegateCommand("Crop Callout", () => callout.Region = after, () => callout.Region = before));
+            AfterHistoryChange();
+            StatusHint.Text = $"{callout.Name} cropped to {after.Width / 1000:0.00} m by {after.Height / 1000:0.00} m.";
+        };
+
+        // Clicking something in an interior elevation selects it everywhere, as in 3D.
+        Projected.ElementClicked += (_, id) =>
+        {
+            var picked = id is { } found ? _document.FindElement(found) ?? CurtainPanel.Find(_document, found) : null;
+            if (picked is not null && picked.LevelId != Plan.ActiveLevelId && _document.FindLevel(picked.LevelId) is { } level) LevelPicker.SelectedItem = level;
+            Plan.Select(picked);
+        };
+
         SheetSurface.SelectionChanged += (_, _) => RefreshViewportControls();
 
         // Clicking something in 3D selects it everywhere, so its properties can be edited
@@ -430,7 +453,11 @@ public partial class MainWindow : Window
     {
         var path = (Application.Current as App)?.StartupProjectPath;
 
-        if (path is not null)
+        // An IFC file opened with BIMDesigner: read into a new project.
+        if (path is not null && string.Equals(Path.GetExtension(path), ".ifc", StringComparison.OrdinalIgnoreCase) && ImportIfc(path, quiet: false) is not null)
+            return;
+
+        if (path is not null && !string.Equals(Path.GetExtension(path), ".ifc", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -589,9 +616,7 @@ public partial class MainWindow : Window
         VisualStylePicker.ItemsSource = new[] { "Shaded", "Flat colours", "X-ray", "Wireframe", "Hidden line" };
         VisualStylePicker.SelectedIndex = 0;
 
-        var schedules = ScheduleDefinition.Defaults();
-        SchedulePicker.ItemsSource = schedules;
-        SchedulePicker.SelectedItem = schedules.FirstOrDefault();
+        RefreshSchedulePicker(_document.Schedules.FirstOrDefault());
 
         _loadingOptions = false;
 
@@ -634,7 +659,8 @@ public partial class MainWindow : Window
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
             or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
-            or PlanTool.InteriorElevation or PlanTool.Callout;
+            or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
+            or PlanTool.RevisionCloud or PlanTool.Keynote;
 
         WallOpeningOptions.Visibility = tool == PlanTool.WallOpening ? Visibility.Visible : Visibility.Collapsed;
         DormerOptions.Visibility = tool == PlanTool.Dormer ? Visibility.Visible : Visibility.Collapsed;
@@ -675,14 +701,25 @@ public partial class MainWindow : Window
         WallDrawOptions.Visibility = tool == PlanTool.Wall ? Visibility.Visible : Visibility.Collapsed;
         MirrorOptions.Visibility = tool == PlanTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
         ArrayOptions.Visibility = tool == PlanTool.Array ? Visibility.Visible : Visibility.Collapsed;
-        DimensionOptions.Visibility = tool == PlanTool.Dimension ? Visibility.Visible : Visibility.Collapsed;
-        if (tool == PlanTool.Dimension)
+        var dimensioning = tool is PlanTool.Dimension or PlanTool.AngularDimension or PlanTool.RadialDimension;
+        DimensionOptions.Visibility = dimensioning ? Visibility.Visible : Visibility.Collapsed;
+        if (dimensioning)
         {
             _loadingOptions = true;
             DimensionPreferPicker.ItemsSource ??= DimensionPreferences.Keys.ToList();
             DimensionPreferPicker.SelectedItem = DimensionPreferences.First(entry => entry.Value == Plan.DimensionPrefer).Key;
+            var styles = _document.TypesOf<DimensionType>().OrderBy(type => type.Name).ToList();
+            DimensionTypePicker.ItemsSource = styles;
+            DimensionTypePicker.SelectedItem = styles.FirstOrDefault(type => type.Id == Plan.ActiveDimensionTypeId) ?? _document.TypesOf<DimensionType>().FirstOrDefault();
+            DimensionStringBox.IsChecked = Plan.DimensionString;
+            DimensionStringBox.Visibility = tool == PlanTool.Dimension ? Visibility.Visible : Visibility.Collapsed;
             _loadingOptions = false;
         }
+
+        RevisionCloudOptions.Visibility = tool == PlanTool.RevisionCloud ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.RevisionCloud) ShowCloudOptions();
+        KeynoteOptions.Visibility = tool == PlanTool.Keynote ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Keynote) ShowKeynoteOptions();
 
         SplitGapOptions.Visibility = tool == PlanTool.SplitGap ? Visibility.Visible : Visibility.Collapsed;
         PaintOptions.Visibility = tool == PlanTool.Paint ? Visibility.Visible : Visibility.Collapsed;
@@ -2193,7 +2230,8 @@ public partial class MainWindow : Window
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool, SlabEdgeTool,
-        MassTool, WallByFaceTool, CurtainByFaceTool, FloorByFaceTool, RoofByFaceTool, CameraTool, WalkthroughTool, InteriorElevationTool, CalloutTool
+        MassTool, WallByFaceTool, CurtainByFaceTool, FloorByFaceTool, RoofByFaceTool, CameraTool, WalkthroughTool, InteriorElevationTool, CalloutTool,
+        AngularDimensionTool, RadialDimensionTool, DiameterDimensionTool, ArcLengthDimensionTool, KeynoteTool, RevisionCloudTool
     ];
 
     /// <summary>
@@ -2233,6 +2271,11 @@ public partial class MainWindow : Window
 
         // The ribbon being brought into line with the plan, not a tool being chosen.
         if (_loadingOptions) return;
+
+        // The three radial tools are one tool measuring three things.
+        if (ReferenceEquals(sender, RadialDimensionTool)) Plan.ActiveRadialKind = RadialKind.Radius;
+        if (ReferenceEquals(sender, DiameterDimensionTool)) Plan.ActiveRadialKind = RadialKind.Diameter;
+        if (ReferenceEquals(sender, ArcLengthDimensionTool)) Plan.ActiveRadialKind = RadialKind.ArcLength;
 
         // Picking another tool with a sketch open asks what to do with the sketch first.
         if (Plan.IsSketching && SketchToolButton().IsChecked != true && !LeaveRoofSketch())
@@ -2288,7 +2331,11 @@ public partial class MainWindow : Window
             : GridTool.IsChecked == true ? PlanTool.Grid
             : SectionTool.IsChecked == true ? PlanTool.Section
             : DimensionTool.IsChecked == true ? PlanTool.Dimension
+            : AngularDimensionTool.IsChecked == true ? PlanTool.AngularDimension
+            : RadialDimensionTool.IsChecked == true || DiameterDimensionTool.IsChecked == true || ArcLengthDimensionTool.IsChecked == true ? PlanTool.RadialDimension
             : TagTool.IsChecked == true ? PlanTool.Tag
+            : KeynoteTool.IsChecked == true ? PlanTool.Keynote
+            : RevisionCloudTool.IsChecked == true ? PlanTool.RevisionCloud
             : TextTool.IsChecked == true ? PlanTool.Text
             : SplitTool.IsChecked == true ? PlanTool.Split
             : SplitGapTool.IsChecked == true ? PlanTool.SplitGap
@@ -3851,24 +3898,60 @@ public partial class MainWindow : Window
     /// </summary>
     private void ShowViewProperties()
     {
-        var threeD = ModelCoversPlan;
+        // The view being worked in: the plan or a callout of it, a 3D view, or a section, an
+        // elevation or an interior elevation - each with its own properties and template.
+        var view = CurrentViewReference();
         var levelName = _document.FindLevel(Plan.ActiveLevelId)?.Name ?? "Floor Plan";
+        var plan = view.Kind == ViewKind.FloorPlan || (view.Kind == ViewKind.Callout && ViewTemplates.KindOf(_document, view) == ViewTemplateKind.Plan);
+        var threeD = view.Kind == ViewKind.Model3D;
+        var (family, icon) = view.Kind switch
+        {
+            ViewKind.Model3D => ("3D View", "Icon.View3D"),
+            ViewKind.Section => ("Section", "Icon.Section"),
+            ViewKind.Elevation => ("Elevation", "Icon.InteriorElevation"),
+            ViewKind.Callout => ("Callout", "Icon.Callout"),
+            _ => ("Floor Plan", "Icon.Plan")
+        };
+        var name = view.Kind == ViewKind.FloorPlan ? levelName : view.TitleIn(_document);
 
-        SelectedTypeImage.Source = TryFindResource(threeD ? "Icon.View3D" : "Icon.Plan") as System.Windows.Media.ImageSource;
-        SelectedFamilyName.Text = threeD ? "3D View" : "Floor Plan";
-        SelectedTypeName.Text = threeD ? Model3D.View.Name : levelName;
+        SelectedTypeImage.Source = TryFindResource(icon) as System.Windows.Media.ImageSource;
+        SelectedFamilyName.Text = family;
+        SelectedTypeName.Text = name;
         SelectedTypePicker.Visibility = Visibility.Collapsed;
 
         _loadingOptions = true;
-        PropertyCategoryPicker.ItemsSource = new[] { threeD ? $"3D View: {Model3D.View.Name}" : $"Floor Plan: {levelName}" };
+        PropertyCategoryPicker.ItemsSource = new[] { $"{family}: {name}" };
         PropertyCategoryPicker.SelectedIndex = 0;
         PropertyCategoryPicker.IsEnabled = false;
         _loadingOptions = false;
 
         EditTypeButton.IsEnabled = false;
-        InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { threeD ? ModelViewParameters() : PlanViewParameters(levelName) });
+        InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { threeD ? ModelViewParameters() : plan ? PlanViewParameters(levelName) : OtherViewParameters(view) });
         TypeSection.Visibility = Visibility.Collapsed;
         StructureSection.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>A section's, elevation's or detail callout's own properties: its name, the template governing it, its scale.</summary>
+    private IReadOnlyList<ParameterValue> OtherViewParameters(ViewReference view)
+    {
+        var scales = ViewScale.Common.Select(d => new ViewScale(d).ToString()).ToList();
+        var scale = ParameterValue.BindChoiceCommand(ViewScaleParameter,
+            () => new ViewScale(_document.ViewSettings.ScaleOf(view)).ToString(),
+            text => new SetViewScaleCommand(_document, view, ViewScale.Common[scales.IndexOf(text)]),
+            scales);
+
+        return new[]
+        {
+            ParameterValue.ReadOnly(ViewNameParameter, () => view.TitleIn(_document)),
+            ViewTemplateChoice(view),
+            ViewTemplates.Locks(_document, view, ViewTemplateSetting.Scale) ? ParameterValue.ReadOnly(ViewScaleParameter, () => scale.DisplayValue) : scale
+        };
+    }
+
+    /// <summary>With nothing selected, the view clicked into shows its properties.</summary>
+    private void OnViewFocused(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (Plan.SelectedElements.Count == 0) Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshProperties);
     }
 
     private static readonly ParameterDefinition ViewScaleParameter = new("View Scale", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4290,6 +4373,21 @@ public partial class MainWindow : Window
         if (callouts.Items.Count > 0) project.Items.Add(callouts);
 
         if (sections.Items.Count > 0) project.Items.Add(sections);
+
+        // The schedules: clicking one opens it; what else can be done to it, on its menu.
+        var schedules = new TreeViewItem { Header = "Schedules/Quantities", IsExpanded = false };
+        foreach (var schedule in _document.Schedules.OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var item = new TreeViewItem { Header = schedule.Name, Tag = schedule, ContextMenu = ScheduleMenu(schedule) };
+            item.MouseLeftButtonUp += (_, args) =>
+            {
+                ShowSchedule(schedule);
+                args.Handled = true;
+            };
+            schedules.Items.Add(item);
+        }
+
+        project.Items.Add(schedules);
         if (sheets.Items.Count > 0) project.Items.Add(sheets);
         project.Items.Add(families);
         project.Items.Add(materials);
@@ -4442,6 +4540,12 @@ public partial class MainWindow : Window
             if (Callouts.Reference(callout).ExistsIn(_document))
                 options.Add(new SheetViewOption($"{callout.Name} ({callout.Parent.TitleIn(_document)})", Callouts.Reference(callout)));
 
+        foreach (var schedule in _document.Schedules.OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase))
+            options.Add(new SheetViewOption($"Schedule: {schedule.Name}", ViewReference.Schedule(schedule)));
+
+        options.Add(new SheetViewOption("Keynote Legend (by sheet)", ViewReference.KeynoteLegend(bySheet: true)));
+        options.Add(new SheetViewOption("Keynote Legend (whole project)", ViewReference.KeynoteLegend(bySheet: false)));
+
         var current = (SheetViewPicker.SelectedItem as SheetViewOption)?.Display;
 
         _loadingSheets = true;
@@ -4485,7 +4589,8 @@ public partial class MainWindow : Window
             ? own
             : ViewScale.FittingInto(extent.Width, extent.Height, availableWidth, availableHeight);
 
-        var viewport = new Viewport { View = option.View, Scale = scale };
+        // A schedule, or a legend, carries its own title, in the table.
+        var viewport = new Viewport { View = option.View, Scale = scale, ShowTitle = option.View.Kind is not (ViewKind.Schedule or ViewKind.KeynoteLegend) };
         var size = viewport.PaperBounds(_document);
         viewport.Centre = sheet.NextFreePosition(_document, size.Width, size.Height);
 
@@ -4824,6 +4929,68 @@ public partial class MainWindow : Window
     private void OnWalkthroughBack(object sender, RoutedEventArgs e) => StepKeyFrame(-1);
 
     private void OnWalkthroughForward(object sender, RoutedEventArgs e) => StepKeyFrame(1);
+
+    /// <summary>
+    /// The walkthrough saved as a video: each frame shown in the 3D view and pictured, the pictures
+    /// written as a Motion-JPEG AVI at its frame rate. The window goes on answering as it goes.
+    /// </summary>
+    private async void OnExportWalkthrough(object sender, RoutedEventArgs e)
+    {
+        if (_shownWalkthrough is not { } walk) return;
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export Walkthrough",
+            Filter = "Video (*.avi)|*.avi",
+            DefaultExt = ".avi",
+            FileName = walk.Name + ".avi"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        await ExportWalkthrough(walk, dialog.FileName);
+    }
+
+    /// <summary>Every frame of a walkthrough, pictured and written to a video file.</summary>
+    private async Task ExportWalkthrough(Walkthrough walk, string path)
+    {
+        Model3D.StopPlaying();
+        ExportWalkthroughButton.IsEnabled = PlayButton.IsEnabled = false;
+        try
+        {
+            await using var file = File.Create(path);
+            System.Windows.Media.Imaging.BitmapSource? first = null;
+            Infrastructure.Interoperability.AviWriter? video = null;
+            for (var frame = 0; frame < walk.Frames; frame++)
+            {
+                Model3D.ShowFrame(walk, frame);
+                Model3D.UpdateLayout();
+                var picture = Model3D.RenderFrame();
+                first ??= picture;
+                video ??= new Infrastructure.Interoperability.AviWriter(file, first.PixelWidth, first.PixelHeight, walk.FramesPerSecond);
+
+                var encoder = new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 90 };
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(picture));
+                using var jpeg = new MemoryStream();
+                encoder.Save(jpeg);
+                video.Add(jpeg.ToArray());
+
+                StatusHint.Text = $"Exporting {walk.Name}: frame {frame + 1} of {walk.Frames}.";
+                await Dispatcher.Yield(DispatcherPriority.Background);
+            }
+
+            video?.Finish();
+            StatusHint.Text = $"{walk.Name} saved as a video: {walk.Frames} frames, {walk.Duration:0.#} seconds, {first?.PixelWidth}×{first?.PixelHeight}.";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, exception.Message, "Could not export the walkthrough", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            ExportWalkthroughButton.IsEnabled = PlayButton.IsEnabled = true;
+            Model3D.ShowFrame(walk, 0);
+        }
+    }
 
     /// <summary>To the frame at the next or last point of the path - a key frame.</summary>
     private void StepKeyFrame(int way)
@@ -5513,6 +5680,24 @@ public partial class MainWindow : Window
         WallFunctionsMenu.IsOpen = true;
     }
 
+    // ---- dimensions --------------------------------------------------------------
+
+    private void OnDimensionTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || DimensionTypePicker.SelectedItem is not DimensionType type) return;
+        Plan.ActiveDimensionTypeId = type.Id;
+    }
+
+    private void OnDimensionStringChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions) return;
+        Plan.DimensionString = DimensionStringBox.IsChecked == true;
+        Plan.CancelPendingOperation();
+        StatusHint.Text = Plan.DimensionString
+            ? "String: click each wall, face or gridline in turn, then double-click where the dimension line goes."
+            : "Click what to measure from, then what to measure to.";
+    }
+
     // ---- view templates --------------------------------------------------------
 
     private static readonly ParameterDefinition ViewTemplateParameter = new("View Template", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
@@ -5873,7 +6058,7 @@ public partial class MainWindow : Window
         {
             IfcExport.Save(_document, dialog.FileName, new IfcExportOptions
             {
-                ApplicationVersion = "0.1",
+                ApplicationVersion = AppVersion,
                 AuthorGivenName = Environment.UserName,
                 Organisation = _document.ProjectInformation.Client
             });
@@ -5907,7 +6092,7 @@ public partial class MainWindow : Window
         if (SheetSurface.Sheet is not { } sheet)
         {
             MessageBox.Show(this,
-                "Open a sheet first: Sheets â†’ New Sheet, or Ctrl+H.",
+                "Open a sheet first: View tab → New Sheet, or Ctrl+H.",
                 "Export to PDF", MessageBoxButton.OK, MessageBoxImage.Information);
 
             return;
@@ -6099,6 +6284,7 @@ public partial class MainWindow : Window
         Projected.Visibility = Visibility.Visible;
         Projected.Document = _document;
         Projected.View = view;
+        Projected.SetSelectionQuietly(Plan.SelectedElements.Select(element => element.Id));
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Projected.ZoomToFit());
 
         _loadingSections = true;
@@ -6270,6 +6456,7 @@ public partial class MainWindow : Window
         try
         {
             Section.SetSelectionQuietly(Plan.SelectedElements);
+            Projected.SetSelectionQuietly(Plan.SelectedElements.Select(element => element.Id));
         }
         finally
         {
@@ -6319,18 +6506,33 @@ public partial class MainWindow : Window
 
         ScheduleGrid.Columns.Clear();
 
+        // Cells coloured by the schedule's rules, on top of however the grid draws a cell.
+        var cellStyle = ScheduleGrid.CellStyle ?? TryFindResource(typeof(DataGridCell)) as Style;
+        var coloured = definition.Formats.Select(format => format.Field).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         foreach (var column in result.Columns)
         {
-            ScheduleGrid.Columns.Add(new DataGridTextColumn
+            var calculated = definition.CalculatedNamed(column.Field) is not null;
+            var gridColumn = new DataGridTextColumn
             {
-                Header = column.Field,
+                Header = calculated ? $"{column.Field} (calculated)" : column.Field,
                 IsReadOnly = column.IsReadOnly,
-                Binding = new Binding($"[{column.Field}]")
+                Binding = new Binding(ScheduleRowView.IndexPath(column.Field))
                 {
                     Mode = column.IsReadOnly ? BindingMode.OneWay : BindingMode.TwoWay,
                     UpdateSourceTrigger = UpdateSourceTrigger.LostFocus
                 }
-            });
+            };
+
+            if (coloured.Contains(column.Field))
+            {
+                var style = new Style(typeof(DataGridCell), cellStyle);
+                style.Setters.Add(new Setter(DataGridCell.BackgroundProperty, new Binding($"{nameof(ScheduleRowView.Colours)}{ScheduleRowView.IndexPath(column.Field)}")));
+                style.Setters.Add(new Setter(DataGridCell.ForegroundProperty, System.Windows.Media.Brushes.Black));
+                gridColumn.CellStyle = style;
+            }
+
+            ScheduleGrid.Columns.Add(gridColumn);
         }
 
         // Each group headed with what its rows add up to: "1 Kitchen  —  Count: 6     Total Cost: £1,020".
@@ -6350,7 +6552,7 @@ public partial class MainWindow : Window
         var rows = result.Rows
             .Select(row =>
             {
-                var view = new ScheduleRowView(row, definition.GroupBy, Heading);
+                var view = new ScheduleRowView(row, definition.GroupBy, Heading, coloured.Count == 0 ? null : result.BackgroundOf);
                 view.CellEdited += OnScheduleCellCommitted;
                 return view;
             })
@@ -6365,8 +6567,124 @@ public partial class MainWindow : Window
         ScheduleSummary.Text = result.Count == 1 ? "1 row" : $"{result.Count} rows";
         ScheduleTotals.Text = BuildTotalsLine(result);
 
+        // A formula that cannot be worked out says why, rather than leaving its column blank unexplained.
+        ScheduleProblem.Text = string.Join("   ", result.Problems.Select(problem => $"{problem.Key}: {problem.Value}"));
+        ScheduleProblem.Visibility = result.Problems.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+
         // Rebuilding the table drops the highlight, so put it back on whatever is selected.
         SyncScheduleToPlan();
+    }
+
+    /// <summary>The schedule picker filled from the project's schedules, one picked.</summary>
+    private void RefreshSchedulePicker(ScheduleDefinition? select)
+    {
+        var loading = _loadingOptions;
+        _loadingOptions = true;
+        SchedulePicker.ItemsSource = null;
+        SchedulePicker.ItemsSource = _document.Schedules.ToList();
+        SchedulePicker.SelectedItem = select is not null && _document.Schedules.Contains(select) ? select : _document.Schedules.FirstOrDefault();
+        _loadingOptions = loading;
+    }
+
+    /// <summary>A schedule opened in the schedule panel.</summary>
+    private void ShowSchedule(ScheduleDefinition schedule)
+    {
+        RefreshSchedulePicker(schedule);
+        SchedulePanel.Visibility = Visibility.Visible;
+        ScheduleSplitter.Visibility = Visibility.Visible;
+        ScheduleMenuItem.IsChecked = true;
+        RefreshSchedule();
+    }
+
+    /// <summary>The project's schedules changed: the picker, the browser, the sheets and what can go on them follow.</summary>
+    private void SchedulesChanged(ScheduleDefinition? select)
+    {
+        RefreshSchedulePicker(select);
+        RefreshSchedule();
+        RefreshProjectBrowser();
+        RefreshSheetViewOptions();
+        SheetSurface.Refresh();
+    }
+
+    /// <summary>
+    /// A schedule's properties edited in a copy, and put into the project as one step if OK'd.
+    /// <paramref name="accept"/> stands in for the dialog, where the window is driven without being shown.
+    /// </summary>
+    private bool EditSchedule(ScheduleDefinition schedule, bool isNew, Func<ScheduleEditorWindow, bool>? accept = null)
+    {
+        var working = isNew ? schedule : schedule.Copy(schedule.Name);
+        if (!isNew) working.Id = schedule.Id;
+        var editor = new ScheduleEditorWindow(_document, working);
+        if (accept is null) editor.Owner = this;
+        if (!(accept?.Invoke(editor) ?? editor.ShowDialog() == true)) return false;
+
+        _history.Execute(isNew
+            ? ScheduleCommands.Add(_document, editor.Schedule, $"New Schedule {editor.Schedule.Name}")
+            : ScheduleCommands.Change(schedule, editor.Schedule, $"Edit Schedule {editor.Schedule.Name}"));
+        SchedulesChanged(isNew ? editor.Schedule : schedule);
+        return true;
+    }
+
+    private void OnNewSchedule(object sender, RoutedEventArgs e)
+    {
+        // Of what is picked now, or walls; with its usual fields to start from.
+        var category = (SchedulePicker.SelectedItem as ScheduleDefinition)?.Category ?? BuiltInCategory.Walls;
+        var usual = ScheduleDefinition.Defaults().FirstOrDefault(schedule => schedule.Category == category)?.Fields.ToArray() ?? new[] { "Mark", "Type Name" };
+        var taken = _document.Schedules.Select(schedule => schedule.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var name = Enumerable.Range(1, 999).Select(i => $"Schedule {i}").First(candidate => !taken.Contains(candidate));
+        EditSchedule(new ScheduleDefinition(name, category, usual), isNew: true);
+    }
+
+    private void OnEditSchedule(object sender, RoutedEventArgs e)
+    {
+        if (SchedulePicker.SelectedItem is ScheduleDefinition schedule) EditSchedule(schedule, isNew: false);
+    }
+
+    private void OnDuplicateSchedule(object sender, RoutedEventArgs e)
+    {
+        if (SchedulePicker.SelectedItem is ScheduleDefinition schedule) DuplicateSchedule(schedule);
+    }
+
+    private ScheduleDefinition DuplicateSchedule(ScheduleDefinition schedule)
+    {
+        var taken = _document.Schedules.Select(other => other.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var name = Enumerable.Range(2, 998).Select(i => $"{schedule.Name} {i}").First(candidate => !taken.Contains(candidate));
+        var copy = schedule.Copy(name);
+        _history.Execute(ScheduleCommands.Add(_document, copy, $"Duplicate {schedule.Name}"));
+        SchedulesChanged(copy);
+        StatusHint.Text = $"{name}: a copy of {schedule.Name}, to change apart from it.";
+        return copy;
+    }
+
+    private void OnDeleteSchedule(object sender, RoutedEventArgs e)
+    {
+        if (SchedulePicker.SelectedItem is ScheduleDefinition schedule) DeleteSchedule(schedule);
+    }
+
+    private void DeleteSchedule(ScheduleDefinition schedule)
+    {
+        var sheets = _document.Elements.OfType<Sheet>().Count(sheet => sheet.Viewports.Any(viewport => ReferenceEquals(viewport.View.ScheduleIn(_document), schedule)));
+        _history.Execute(ScheduleCommands.Delete(_document, schedule));
+        SchedulesChanged(null);
+        StatusHint.Text = sheets == 0 ? $"Deleted {schedule.Name}." : $"Deleted {schedule.Name}, and took it off {sheets} {(sheets == 1 ? "sheet" : "sheets")}.";
+    }
+
+    /// <summary>What can be done to a schedule from the browser.</summary>
+    private ContextMenu ScheduleMenu(ScheduleDefinition schedule)
+    {
+        var menu = new ContextMenu();
+        void Item(string header, Action action)
+        {
+            var item = new MenuItem { Header = header };
+            item.Click += (_, _) => action();
+            menu.Items.Add(item);
+        }
+
+        Item("Open", () => ShowSchedule(schedule));
+        Item("Properties...", () => EditSchedule(schedule, isNew: false));
+        Item("Duplicate", () => DuplicateSchedule(schedule));
+        Item("Delete", () => DeleteSchedule(schedule));
+        return menu;
     }
 
     private static string BuildTotalsLine(ScheduleResult result)

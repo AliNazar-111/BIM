@@ -27,8 +27,23 @@ public class ProjectedView : FrameworkElement
     private Point _centre;
     private double _pixelsPerMm = 0.05;
     private bool _panning;
+    private bool _moved;
     private Point _panFrom;
     private Point _centreFrom;
+
+    /// <summary>Raised with the element clicked on - or null, for a click on nothing - to be selected everywhere.</summary>
+    public event EventHandler<Guid?>? ElementClicked;
+
+    /// <summary>Highlights what is selected elsewhere, without raising the click: the plan's selection, shown here too.</summary>
+    public void SetSelectionQuietly(IEnumerable<Guid> elements)
+    {
+        _renderer.Highlighted = elements.ToHashSet();
+        InvalidateVisual();
+    }
+
+    /// <summary>The element under a point of the view, nearest the eye. Public so it can be driven from tests.</summary>
+    public Guid? ElementAt(Point screen) =>
+        _drawing?.ElementAt(new Core.Geometry.Point2D(_centre.X + (screen.X - ActualWidth / 2) / _pixelsPerMm, _centre.Y - (screen.Y - ActualHeight / 2) / _pixelsPerMm));
 
     public ProjectedView()
     {
@@ -115,7 +130,7 @@ public class ProjectedView : FrameworkElement
     {
         base.OnMouseDown(e);
         Focus();
-        (_panning, _panFrom, _centreFrom) = (true, e.GetPosition(this), _centre);
+        (_panning, _moved, _panFrom, _centreFrom) = (true, false, e.GetPosition(this), _centre);
         CaptureMouse();
     }
 
@@ -124,6 +139,8 @@ public class ProjectedView : FrameworkElement
         base.OnMouseMove(e);
         if (!_panning) return;
         var moved = e.GetPosition(this) - _panFrom;
+        if (moved.Length > 4) _moved = true;
+        if (!_moved) return;
         _centre = new Point(_centreFrom.X - moved.X / _pixelsPerMm, _centreFrom.Y + moved.Y / _pixelsPerMm);
         InvalidateVisual();
     }
@@ -131,8 +148,12 @@ public class ProjectedView : FrameworkElement
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
+        var click = _panning && !_moved && e.ChangedButton == MouseButton.Left;
         _panning = false;
         ReleaseMouseCapture();
+
+        // A left click that did not drag picks what is under it.
+        if (click) ElementClicked?.Invoke(this, ElementAt(e.GetPosition(this)));
     }
 
     protected override void OnKeyDown(KeyEventArgs e)

@@ -1,0 +1,74 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    BIMDesigner for every user of the machine. The upgrade code stays the same for good, so a
+    newer installer replaces an older one; the product code is made new each build.
+  -->
+  <Package Name="BIMDesigner"
+           Manufacturer="BIMDesigner"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="5AE01580-9676-41CB-8531-79CBCFA34E24"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BIMDesigner is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="BIMDesigner.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="BIMDesigner.ico" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="BIMDesigner" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="BIMDesigner">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="FileTypes" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <!-- Everything dotnet publish made, but the program itself, which carries the shortcut. -->
+      <Files Include="$(var.PublishDir)**">
+        <Exclude Files="$(var.PublishDir)BIMDesigner.exe" />
+        <Exclude Files="$(var.PublishDir)**\*.pdb" />
+      </Files>
+
+      <Component Id="MainExecutable">
+        <File Id="BIMDesignerExe" Source="$(var.PublishDir)BIMDesigner.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="BIMDesigner"
+                    Description="BIM authoring: plans, sections, 3D, sheets and schedules"
+                    WorkingDirectory="INSTALLFOLDER" Icon="BIMDesigner.ico" Advertise="yes" />
+        </File>
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <!--
+      .bimx files open in BIMDesigner with its icon; IFC files list it under Open With, their own
+      default left as it was.
+    -->
+    <Component Id="FileTypes" Directory="INSTALLFOLDER" Guid="6C4F1D8E-2B3A-4E5F-9A7B-1C2D3E4F5A6B">
+      <RegistryKey Root="HKLM" Key="Software\Classes\.bimx">
+        <RegistryValue Type="string" Value="BIMDesigner.Project" KeyPath="yes" />
+        <RegistryValue Name="Content Type" Type="string" Value="application/x-bimdesigner-project" />
+        <RegistryValue Key="OpenWithProgids" Name="BIMDesigner.Project" Type="string" Value="" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\BIMDesigner.Project">
+        <RegistryValue Type="string" Value="BIMDesigner Project" />
+        <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]BIMDesigner.exe&quot;,0" />
+        <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]BIMDesigner.exe&quot; &quot;%1&quot;" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\.ifc\OpenWithProgids">
+        <RegistryValue Name="BIMDesigner.Ifc" Type="string" Value="" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\BIMDesigner.Ifc">
+        <RegistryValue Type="string" Value="IFC Model (BIMDesigner)" />
+        <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[INSTALLFOLDER]BIMDesigner.exe&quot;,0" />
+        <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[INSTALLFOLDER]BIMDesigner.exe&quot; &quot;%1&quot;" />
+      </RegistryKey>
+    </Component>
+  </Fragment>
+</Wix>

@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using BIMDesigner.Core.Annotation;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Schedules;
 using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
 
@@ -269,7 +271,80 @@ public sealed class SheetRenderer
                 _projection.SetTransform(ViewToScreen);
                 _projection.DrawContent(dc, Projections.Of(Document, viewport.View), labelLevels: false);
                 break;
+
+            // A schedule, or a keynote legend: its table as it now reports, the size its text is.
+            case ViewKind.Schedule or ViewKind.KeynoteLegend when viewport.Table(Document) is { } table:
+                DrawTable(dc, table, bounds);
+                break;
         }
+    }
+
+    /// <summary>
+    /// A table laid out on paper, its top-left corner at the top-left of a box: ruled round and
+    /// between its columns, its title and headings bold, its groups' headings and totals set
+    /// apart, numbers to the right, and cells coloured where formatting colours them.
+    /// </summary>
+    public void DrawTable(DrawingContext dc, ScheduleTable table, BoundingBox2D bounds)
+    {
+        var left = bounds.MinX;
+        var top = bounds.MaxY;
+        var thin = new Pen(_titleTextBrush, Math.Max(0.5, Paper(0.18)));
+        var heavy = new Pen(_titleTextBrush, Math.Max(0.8, Paper(0.35)));
+        thin.Freeze();
+        heavy.Freeze();
+
+        Rect Cell(double x0, double y0, double x1, double y1) => new(_toScreen(new Point2D(x0, y0)), _toScreen(new Point2D(x1, y1)));
+
+        var y = top;
+        foreach (var line in table.Lines)
+        {
+            var bottom = y - line.Height;
+            var size = Paper(line.Kind == ScheduleLineKind.Title ? ScheduleTable.TitleSize : ScheduleTable.TextSize);
+            var bold = line.Kind is ScheduleLineKind.Title or ScheduleLineKind.Header or ScheduleLineKind.GroupHeading or ScheduleLineKind.Total;
+
+            if (line.Spans)
+            {
+                var text = Text(line.Cells[0], size, _titleTextBrush, bold);
+                var row = Cell(left, y, left + table.Width, bottom);
+                var x = line.Kind == ScheduleLineKind.Title ? row.X + (row.Width - text.Width) / 2 : row.X + Paper(ScheduleTable.Padding);
+                dc.DrawText(text, new Point(x, row.Y + (row.Height - text.Height) / 2));
+            }
+            else
+            {
+                var x0 = left;
+                for (var i = 0; i < table.ColumnWidths.Count; i++)
+                {
+                    var x1 = x0 + table.ColumnWidths[i];
+                    var cell = Cell(x0, y, x1, bottom);
+                    if (i < line.Backgrounds.Count && line.Backgrounds[i] is { } colour)
+                        dc.DrawRectangle(RenderPens.Fill(Color.FromRgb(colour.R, colour.G, colour.B)), null, cell);
+
+                    if (i < line.Cells.Count && !string.IsNullOrEmpty(line.Cells[i]))
+                    {
+                        var text = Text(line.Cells[i], size, _titleTextBrush, bold);
+                        var pad = Paper(ScheduleTable.Padding);
+
+                        // Headings centred over their columns; numbers to the right; words to the left.
+                        var x = line.Kind == ScheduleLineKind.Header ? cell.X + (cell.Width - text.Width) / 2
+                            : table.Numeric[i] ? cell.Right - pad - text.Width
+                            : cell.X + pad;
+                        dc.PushClip(new RectangleGeometry(cell));
+                        dc.DrawText(text, new Point(x, cell.Y + (cell.Height - text.Height) / 2));
+                        dc.Pop();
+                    }
+
+                    if (i > 0) dc.DrawLine(thin, _toScreen(new Point2D(x0, y)), _toScreen(new Point2D(x0, bottom)));
+                    x0 = x1;
+                }
+            }
+
+            // Rules: heavy under the headings and over the total; light between rows.
+            var under = line.Kind is ScheduleLineKind.Header or ScheduleLineKind.Title ? heavy : thin;
+            dc.DrawLine(line.Kind == ScheduleLineKind.Subtotal ? heavy : under, _toScreen(new Point2D(left, bottom)), _toScreen(new Point2D(left + table.Width, bottom)));
+            y = bottom;
+        }
+
+        dc.DrawRectangle(null, heavy, Cell(left, top, left + table.Width, y));
     }
 
     private void DrawViewportTitle(DrawingContext dc, Viewport viewport, Rect frame)
@@ -277,7 +352,9 @@ public sealed class SheetRenderer
         if (Document is null) return;
 
         var title = Text(viewport.TitleIn(Document), Paper(3.6), _titleTextBrush, bold: true);
-        var scale = Text(viewport.Scale.ToString(), Paper(2.6), _titleMutedBrush);
+
+        // A schedule has no scale: it is the size its text is.
+        var scale = Text(viewport.IsTable ? string.Empty : viewport.Scale.ToString(), Paper(2.6), _titleMutedBrush);
 
         var baseline = frame.Bottom + Paper(3);
 
@@ -329,7 +406,7 @@ public sealed class SheetRenderer
         // The scales actually used on this sheet, which is what a reader needs before picking
         // up a rule - and it is wrong often enough on hand-kept title blocks to be worth
         // deriving rather than typing.
-        var scales = Sheet.Viewports.Select(viewport => viewport.Scale.ToString()).Distinct().ToList();
+        var scales = Sheet.Viewports.Where(viewport => !viewport.IsTable).Select(viewport => viewport.Scale.ToString()).Distinct().ToList();
 
         // What the sheet is, at the top; who is accountable for it, at the bottom. A title
         // block that bunched everything against the top edge would waste the strip and read
@@ -350,7 +427,9 @@ public sealed class SheetRenderer
             ("Scale", scales.Count == 0 ? "-" : string.Join("   ", scales), 2.4, 3.2),
             ("Paper", $"{Sheet.PaperSize} {Sheet.Orientation}", 2.4, 3.2),
             ("Drawing Number", Sheet.Number, 2.4, 5.4),
-            ("Revision", Sheet.Revision, 2.4, 3.6)
+
+            // The latest of the project's revisions on the sheet; or the one typed, where it has none.
+            ("Revision", Sheet.CurrentRevision(Document), 2.4, 3.6)
         });
 
         var gap = Paper(3);
@@ -364,6 +443,53 @@ public sealed class SheetRenderer
         dc.DrawLine(_titleBlockPen,
             new Point(frame.X, issueTop - gap),
             new Point(frame.X + frame.Width, issueTop - gap));
+
+        // The revision schedule over it: every revision on the sheet, the latest at the foot -
+        // as many as there is room for under what the sheet is, the latest kept.
+        var revisions = Revisions.OnSheet(Document, Sheet);
+        if (revisions.Count > 0)
+        {
+            var room = issueTop - gap * 2 - (frame.Y + padding + MeasureRows(identity, gap) + gap);
+            DrawRevisionSchedule(dc, revisions, frame.X + padding, issueTop - gap * 2, frame.Width - padding * 2, room);
+        }
+    }
+
+    /// <summary>The revision schedule in the title block: number, date, what it was and who issued it, a row each, its foot at a height on this surface.</summary>
+    private void DrawRevisionSchedule(DrawingContext dc, IReadOnlyList<Revision> revisions, double left, double bottom, double width, double room)
+    {
+        if (Document is null) return;
+        var rowHeight = Paper(5);
+        var fits = Math.Max(0, (int)(room / rowHeight) - 2);
+        var shown = revisions.Skip(Math.Max(0, revisions.Count - fits)).ToList();
+        if (shown.Count == 0) return;
+
+        var widths = new[] { 0.14, 0.25, 0.45, 0.16 }.Select(share => share * width).ToArray();
+        var rows = new List<string[]> { new[] { "Rev", "Date", "Description", "By" } };
+        rows.AddRange(shown.Select(revision => new[] { Revisions.NumberOf(Document, revision), Revisions.FormatDate(revision.Date), revision.Description, revision.IssuedBy }));
+
+        var top = bottom - rowHeight * rows.Count;
+        var caption = Text("REVISIONS", Paper(2.4), _titleMutedBrush);
+        dc.DrawText(caption, new Point(left, top - caption.Height - Paper(0.8)));
+
+        for (var r = 0; r < rows.Count; r++)
+        {
+            var y = top + r * rowHeight;
+            var x = left;
+            for (var c = 0; c < widths.Length; c++)
+            {
+                var cell = new Rect(x, y, widths[c], rowHeight);
+                dc.DrawRectangle(null, _titleBlockPen, cell);
+                if (rows[r][c] is { Length: > 0 } value)
+                {
+                    var text = Text(value, Paper(2.3), r == 0 ? _titleMutedBrush : _titleTextBrush, bold: r > 0 && c == 0);
+                    dc.PushClip(new RectangleGeometry(cell));
+                    dc.DrawText(text, new Point(x + Paper(1), y + (rowHeight - text.Height) / 2));
+                    dc.Pop();
+                }
+
+                x += widths[c];
+            }
+        }
     }
 
     /// <summary>A caption and its value, measured so a block of them can be placed as a unit.</summary>

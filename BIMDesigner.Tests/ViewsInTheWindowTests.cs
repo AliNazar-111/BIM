@@ -83,6 +83,23 @@ public class ViewsInTheWindowTests
             Assert.True(plan.FinishWalkthrough());
             Assert.Equal(Visibility.Visible, Field<FrameworkElement>(window, "WalkthroughBar").Visibility);
 
+            // Saved as a video, every frame of it.
+            var walk = Assert.Single(document.Elements.OfType<Walkthrough>());
+            walk.Frames = 4;
+            var path = Path.Combine(Path.GetTempPath(), $"walk-{Guid.NewGuid():N}.avi");
+            var export = (Task)Call(window, "ExportWalkthrough", walk, path)!;
+            while (!export.IsCompleted)
+            {
+                var frame = new System.Windows.Threading.DispatcherFrame();
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => frame.Continue = false);
+                System.Windows.Threading.Dispatcher.PushFrame(frame);
+            }
+
+            var video = File.ReadAllBytes(path);
+            File.Delete(path);
+            Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(video, 0, 4));
+            Assert.Equal(4, BitConverter.ToInt32(video, 48));
+
             // An interior elevation, opened under the plan.
             plan.SetTool(PlanTool.InteriorElevation);
             Assert.True(plan.PlaceInteriorElevation(new Point2D(5000, 4000)));

@@ -4,6 +4,7 @@ using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Schedules;
 
 namespace BIMDesigner.Core.Documents;
 
@@ -74,6 +75,21 @@ public sealed class BimDocument
 
     /// <summary>Everything placed in the project. Observable so views refresh themselves.</summary>
     public ObservableCollection<Element> Elements { get; } = new();
+
+    /// <summary>The project's schedules: those it starts with, changed or not, and those made in it.</summary>
+    public List<ScheduleDefinition> Schedules { get; } = new();
+
+    /// <summary>A schedule by its id, or null.</summary>
+    public ScheduleDefinition? FindSchedule(Guid id) => Schedules.FirstOrDefault(schedule => schedule.Id == id);
+
+    /// <summary>The revisions of the drawings, in the order they were made: what numbers them.</summary>
+    public List<Annotation.Revision> Revisions { get; } = new();
+
+    /// <summary>A revision by its id, or null.</summary>
+    public Annotation.Revision? FindRevision(Guid id) => Revisions.FirstOrDefault(revision => revision.Id == id);
+
+    /// <summary>The project's keynotes: the keys keynote tags carry, and what they say.</summary>
+    public Annotation.KeynoteTable Keynotes { get; } = new();
 
     public ObservableCollection<Level> Levels => _levels;
 
@@ -1804,6 +1820,15 @@ public sealed class BimDocument
         {
             document.AddType(type);
         }
+
+        // Dimension styles: millimetres with ticks, as UK building drawings are dimensioned, first.
+        foreach (var type in Annotation.DimensionTypes.Defaults()) document.AddType(type);
+
+        // The schedules a drawing set has, to change, copy or add to.
+        document.Schedules.AddRange(ScheduleDefinition.Defaults());
+
+        // Keynotes to start from, until an office's own file is loaded.
+        document.Keynotes.CopyFrom(Annotation.KeynoteTable.Starter());
 
         return document;
     }

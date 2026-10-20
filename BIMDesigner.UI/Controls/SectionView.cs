@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using BIMDesigner.Core;
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
@@ -250,6 +251,18 @@ public class SectionView : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        if (_croppedCallout is { } cropped && _document is not null)
+        {
+            // The corner followed: the one across from it stays.
+            var at = ToSection(e.GetPosition(this));
+            var corner = new[] { new Point2D(cropped.Region.MinX, cropped.Region.MinY), new Point2D(cropped.Region.MaxX, cropped.Region.MinY),
+                new Point2D(cropped.Region.MaxX, cropped.Region.MaxY), new Point2D(cropped.Region.MinX, cropped.Region.MaxY) }[_cropCorner];
+            var (_, follow) = ElementHandles.Drag(_document, cropped, new ElementHandle($"corner:{_cropCorner}", corner, 0, false, HandleShape.Corner), new Point2D(at.X, at.Y), 0);
+            _cropCorner = int.Parse(follow["corner:".Length..]);
+            InvalidateVisual();
+            return;
+        }
+
         if (_calloutStart is not null)
         {
             _calloutNow = e.GetPosition(this);
@@ -270,6 +283,14 @@ public class SectionView : FrameworkElement
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
+        if (_croppedCallout is { } cropped && e.ChangedButton == MouseButton.Left)
+        {
+            _croppedCallout = null;
+            ReleaseMouseCapture();
+            if (cropped.Region != _cropBefore) CalloutCropped?.Invoke(this, (cropped, _cropBefore));
+            return;
+        }
+
         if (_calloutStart is { } start && e.ChangedButton == MouseButton.Left)
         {
             _calloutStart = null;
@@ -304,8 +325,79 @@ public class SectionView : FrameworkElement
             return;
         }
 
+        // A corner of the selected callout's box: picked up, to crop it.
+        if (CalloutCornerAt(e.GetPosition(this)) is { } corner)
+        {
+            (_croppedCallout, _cropCorner, _cropBefore) = (corner.Callout, corner.Index, corner.Callout.Region);
+            CaptureMouse();
+            return;
+        }
+
         var point = ToSection(e.GetPosition(this));
-        Select(HitTest(point.X, point.Y));
+        Select(CalloutAt(e.GetPosition(this)) ?? HitTest(point.X, point.Y));
+    }
+
+    // ---- callouts of the section ------------------------------------------------------
+
+    private Callout? _croppedCallout;
+    private int _cropCorner;
+    private BoundingBox2D _cropBefore;
+
+    /// <summary>Raised when a callout's box has been cropped by a corner, with what it was: to record the change.</summary>
+    public event EventHandler<(Callout Callout, BoundingBox2D Before)>? CalloutCropped;
+
+    /// <summary>The callouts drawn on this section, but the one shown.</summary>
+    private IEnumerable<Callout> CalloutsHere() =>
+        _document is null || _marker is null
+            ? Enumerable.Empty<Callout>()
+            : Callouts.On(_document, ViewReference.Section(_marker.Id)).Where(callout => !ReferenceEquals(callout, _callout));
+
+    private Point[] CornersOf(Callout callout) => new[]
+    {
+        ToScreen(callout.Region.MinX, callout.Region.MinY), ToScreen(callout.Region.MaxX, callout.Region.MinY),
+        ToScreen(callout.Region.MaxX, callout.Region.MaxY), ToScreen(callout.Region.MinX, callout.Region.MaxY)
+    };
+
+    /// <summary>The callout whose box's edge is near a point of the screen.</summary>
+    private Callout? CalloutAt(Point screen)
+    {
+        foreach (var callout in CalloutsHere())
+        {
+            var corners = CornersOf(callout);
+            for (var i = 0; i < 4; i++)
+            {
+                var (a, b) = (corners[i], corners[(i + 1) % 4]);
+                var along = b - a;
+                var t = Math.Clamp(Vector.Multiply(screen - a, along) / Math.Max(along.LengthSquared, 1e-9), 0, 1);
+                if ((screen - (a + along * t)).Length <= 5) return callout;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>A corner of a selected callout's box under a point of the screen.</summary>
+    private (Callout Callout, int Index)? CalloutCornerAt(Point screen)
+    {
+        foreach (var callout in CalloutsHere().Where(callout => _highlighted.Contains(callout)))
+        {
+            var corners = CornersOf(callout);
+            for (var i = 0; i < 4; i++)
+                if ((corners[i] - screen).Length <= 7) return (callout, i);
+        }
+
+        return null;
+    }
+
+    private static readonly Brush GripFill = RenderPens.Fill(Colors.White);
+    private static readonly Pen GripPen = RenderPens.Solid(Color.FromRgb(0x1E, 0x90, 0xFF), 1.4);
+
+    /// <summary>The corners of the selected callouts' boxes, as handles.</summary>
+    private void DrawCalloutGrips(DrawingContext dc)
+    {
+        foreach (var callout in CalloutsHere().Where(callout => _highlighted.Contains(callout)))
+            foreach (var corner in CornersOf(callout))
+                dc.DrawRectangle(GripFill, GripPen, new Rect(corner.X - 4, corner.Y - 4, 8, 8));
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -374,6 +466,7 @@ public class SectionView : FrameworkElement
         }
 
         if (_calloutStart is { } start) dc.DrawRoundedRectangle(null, RenderPens.Solid(Color.FromRgb(0x5A, 0xAB, 0xFF), 1.4), new Rect(start, _calloutNow), 6, 6);
+        DrawCalloutGrips(dc);
 
         if (_drawing.IsEmpty)
             DrawMessage(dc, "Nothing stands on this line. Move the marker so it crosses the building.");

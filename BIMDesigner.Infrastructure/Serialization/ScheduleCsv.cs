@@ -93,15 +93,7 @@ public static class ScheduleCsv
     }
 
     /// <summary>A total formatted in its column's own units.</summary>
-    public static string ParameterTotalText(ScheduleColumn column, double value) => column.DataType switch
-    {
-        Core.Parameters.ParameterDataType.Length => Units.FormatLength(value),
-        Core.Parameters.ParameterDataType.Area => Units.FormatArea(value),
-        Core.Parameters.ParameterDataType.Volume => Units.FormatVolume(value),
-        Core.Parameters.ParameterDataType.Integer => ((long)Math.Round(value)).ToString(),
-        Core.Parameters.ParameterDataType.Currency => value.ToString("0.00"),
-        _ => value.ToString("0.###")
-    };
+    public static string ParameterTotalText(ScheduleColumn column, double value) => Schedule.TotalText(column, value);
 
     /// <summary>
     /// Quotes a field if it contains anything that would otherwise break the row. Areas and

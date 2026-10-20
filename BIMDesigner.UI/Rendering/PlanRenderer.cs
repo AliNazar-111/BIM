@@ -26,7 +26,7 @@ namespace BIMDesigner.UI.Rendering;
 /// It draws content only. Grips, snap rings and half-finished walls are editing affordances
 /// belonging to the editor, not to the drawing, and must never appear on a sheet.
 /// </summary>
-public sealed class PlanRenderer
+public sealed partial class PlanRenderer
 {
     /// <summary>
     /// Below this, the line between two layers is dropped and only the fills are drawn. This
@@ -371,11 +371,15 @@ public sealed class PlanRenderer
             foreach (var wall in OnActiveLevel<Wall>()) DrawWallLabel(dc, wall);
         foreach (var room in OnActiveLevel<Room>()) DrawRoomTag(dc, room);
 
-        foreach (var dimension in OnActiveLevel<Dimension>()) DrawDimension(dc, dimension);
+        foreach (var dimension in OnActiveLevel<Dimension>()) DrawStyledDimension(dc, dimension);
+        foreach (var angular in OnActiveLevel<AngularDimension>()) DrawAngularDimension(dc, angular);
+        foreach (var radial in OnActiveLevel<RadialDimension>()) DrawRadialDimension(dc, radial);
         foreach (var section in OnActiveLevel<SectionMarker>()) DrawSectionMarker(dc, section);
         DrawCallouts(dc);
         foreach (var tag in OnActiveLevel<Tag>()) DrawTag(dc, tag);
         foreach (var note in OnActiveLevel<TextNote>()) DrawTextNote(dc, note);
+        foreach (var keynote in OnActiveLevel<KeynoteTag>()) DrawKeynoteTag(dc, keynote);
+        foreach (var cloud in OnActiveLevel<RevisionCloud>()) DrawRevisionCloud(dc, cloud);
     }
 
     // ---- walls -----------------------------------------------------------------
@@ -2343,41 +2347,6 @@ public sealed class PlanRenderer
     /// different colour - the reader should be able to see which numbers will keep up with the
     /// building and which will not.
     /// </summary>
-    private void DrawDimension(DrawingContext dc, Dimension dimension)
-    {
-        if (Document is null) return;
-
-        var from = dimension.StartPoint(Document);
-        var to = dimension.EndPoint(Document);
-        if (from.DistanceTo(to) < 1) return;
-
-        var (lineFrom, lineTo) = dimension.GetDimensionLine(Document);
-        var isSelected = IsSelected(dimension);
-        var attached = dimension.IsAssociative(Document);
-
-        DrawDimensionGeometry(dc, from, to, lineFrom, lineTo,
-            isSelected ? _selectedPen : attached ? _dimensionPen : _looseDimensionPen,
-            attached ? _dimensionTextBrush : _looseDimensionBrush,
-            dimension.DisplayText(Document));
-    }
-
-    /// <summary>
-    /// The dimension being drawn, following the cursor with its measurement live.
-    ///
-    /// Seeing the number before committing is most of the value: a dimension is placed to find
-    /// out what something measures as often as to report it.
-    /// </summary>
-    public void DrawPendingDimension(DrawingContext dc, Point2D from, Point2D to)
-    {
-        if (from.DistanceTo(to) < 1) return;
-
-        // The same offset a placed dimension gets, so the preview shows where it will land.
-        var normal = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
-        const double offset = 600;
-
-        DrawDimensionGeometry(dc, from, to, from + normal * offset, to + normal * offset,
-            _previewPen, _dimensionTextBrush, Units.FormatLength(from.DistanceTo(to)));
-    }
 
     /// <summary>
     /// The parts of a dimension, shared by a placed one and the one being drawn.

@@ -125,6 +125,18 @@ public enum PlanTool
     /// <summary>Draws a callout's box: part of the plan, larger, as a view of its own.</summary>
     Callout,
 
+    /// <summary>Measures the angle between two walls or gridlines.</summary>
+    AngularDimension,
+
+    /// <summary>Measures a curved wall's radius, diameter or length along it.</summary>
+    RadialDimension,
+
+    /// <summary>Clouds what a revision changed: corner by corner, or two opposite corners.</summary>
+    RevisionCloud,
+
+    /// <summary>A keynote: an element's, a material's, or a key of its own, with a leader.</summary>
+    Keynote,
+
     /// <summary>Puts a roof window in the roof slope clicked, lined up with it.</summary>
     RoofWindow,
 
@@ -1187,7 +1199,11 @@ public partial class PlanView : FrameworkElement
         PlanTool.Window => "Click a wall where the window should go.",
         PlanTool.Grid => "Click to start a gridline, click again to finish it.",
         PlanTool.Section => "Click to start the cut line, click again to finish it.",
-        PlanTool.Dimension => "Click what to measure from, then what to measure to. Esc cancels.",
+        PlanTool.Dimension => "Click what to measure from, then what to measure to - or, with String ticked, each thing in turn and a double-click where its line goes. Esc cancels.",
+        PlanTool.AngularDimension => "Click a wall or gridline, then another, then where the arc goes - in the angle to measure.",
+        PlanTool.RadialDimension => "Click a curved wall, then where the dimension goes.",
+        PlanTool.RevisionCloud => "Click round what changed, corner by corner; double-click the last. Two corners make a rectangle.",
+        PlanTool.Keynote => "Click what the keynote is of, then where its box goes.",
         PlanTool.Tag => "Click an element to tag it.",
         PlanTool.Text => "Click where the note should go.",
         PlanTool.Room => "Click inside a space enclosed by walls.",
@@ -1372,6 +1388,8 @@ public partial class PlanView : FrameworkElement
                       | CancelMass()
                       | CancelCamera()
                       | CancelCallout()
+                      | CancelDimensionTools()
+                      | CancelRevisionTools()
                       | CancelSplitFace()
                       | CancelArcTools()
                       | CancelShapedWall()
@@ -1894,8 +1912,35 @@ public partial class PlanView : FrameworkElement
                 PlaceSectionPoint(SnapPoint(raw, null, out _));
                 return;
 
+            case PlanTool.Dimension when DimensionString:
+                if (e.ClickCount == 2 && FinishDimensionString(SnapPoint(raw, null, out _))) return;
+                ClickDimensionString(raw);
+                return;
+
             case PlanTool.Dimension:
                 PlaceDimensionPoint(raw);
+                return;
+
+            case PlanTool.AngularDimension:
+                ClickAngular(raw);
+                return;
+
+            case PlanTool.RadialDimension:
+                ClickRadial(raw);
+                return;
+
+            case PlanTool.RevisionCloud:
+                if (e.ClickCount == 2 && _cloudPoints.Count >= 2)
+                {
+                    FinishCloud();
+                    return;
+                }
+
+                ClickCloud(raw);
+                return;
+
+            case PlanTool.Keynote:
+                ClickKeynote(raw);
                 return;
 
             case PlanTool.Tag:
@@ -2394,6 +2439,18 @@ public partial class PlanView : FrameworkElement
                 var (from, to) = dimension.GetDimensionLine(Document);
                 return SegmentTouches(from, to, box);
 
+            case AngularDimension angular:
+                return Contains(box, angular.Through);
+
+            case RadialDimension radial:
+                return Contains(box, radial.Through);
+
+            case RevisionCloud cloud:
+                return cloud.Outline.Any(point => Contains(box, point));
+
+            case KeynoteTag keynote:
+                return Contains(box, keynote.Position);
+
             case Opening opening:
                 var host = Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId);
                 return host is not null && Contains(box, opening.GetCentre(host));
@@ -2585,7 +2642,7 @@ public partial class PlanView : FrameworkElement
         if (!_selection.Any(ElementTransforms.CanMove)) return;
 
         // A pinned element in the selection holds it all: nothing of it moves.
-        if (_selection.Any(element => element.Pinned))
+        if (_selection.Any(IsLocked))
         {
             RefusePinned(_selection, "moved");
             return;
@@ -3705,7 +3762,8 @@ public partial class PlanView : FrameworkElement
         {
             Start = _pendingDimension,
             End = ReferenceAt(point),
-            LevelId = ActiveLevelId
+            LevelId = ActiveLevelId,
+            TypeId = ActiveDimensionType()
         };
 
         if (dimension.Measure(Document) < 1)
@@ -5788,6 +5846,9 @@ public partial class PlanView : FrameworkElement
             if (DistanceToSegment(model, from, to) <= 6 / PixelsPerMm) yield return dimension;
         }
 
+        foreach (var other in OtherDimensionsAt(model)) yield return other;
+        foreach (var mark in RevisionMarksAt(model)) yield return mark;
+
         // A section marker crosses whatever it cuts, so it has to be picked from above the
         // walls - otherwise it could never be selected where it matters.
         foreach (var section in OnActiveLevel<SectionMarker>())
@@ -6004,6 +6065,8 @@ public partial class PlanView : FrameworkElement
         DrawGrips(dc);
         DrawPendingWall(dc);
         DrawPendingDimension(dc);
+        DrawPendingDimensionTools(dc);
+        DrawPendingRevisionTools(dc);
         DrawSnapMarker(dc);
         DrawBand(dc);
     }
@@ -6175,9 +6238,9 @@ public partial class PlanView : FrameworkElement
         if (_pendingDimension.WallLineSpan(Document) is { } first)
             dc.DrawLine(_selectedPen, ModelToScreen(first.From), ModelToScreen(first.To));
 
-        // Measured as it will be: square to a face or gridline.
+        // Measured as it will be: square to a face or gridline, in the style it will have.
         var (from, to) = new Dimension { Start = _pendingDimension, End = under }.Ends(Document);
-        _renderer.DrawPendingDimension(dc, from, to);
+        _renderer.DrawPendingDimension(dc, new[] { from, to }, 600, Document.FindType<DimensionType>(ActiveDimensionType()) ?? DimensionTypes.Defaults().First());
 
         // The end already fixed, so it is obvious which one is being dragged.
         if (from.DistanceTo(to) >= 1)

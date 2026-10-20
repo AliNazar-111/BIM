@@ -288,6 +288,20 @@ public partial class ModelView
         if (last) StopPlaying();
     }
 
+    /// <summary>
+    /// The view as it is now, as a picture: what a walkthrough's frames are exported from. Its sides
+    /// made even, as a video's frames are.
+    /// </summary>
+    public System.Windows.Media.Imaging.BitmapSource RenderFrame()
+    {
+        var width = Math.Max(2, (int)ActualWidth / 2 * 2);
+        var height = Math.Max(2, (int)ActualHeight / 2 * 2);
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(this);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
     /// <summary>The eye put where a camera is, looking where it looks.</summary>
     private void ShowCamera(Camera3D camera)
     {

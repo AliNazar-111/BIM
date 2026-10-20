@@ -52,7 +52,7 @@ public partial class ModelView
 
     /// <summary>The handles shown: asked for once each time something changes, not each time the view turns - and only on what is shown.</summary>
     private IReadOnlyList<ModelGrip> CurrentGrips() =>
-        _gripCache ??= _walking || _playing is not null
+        _gripCache ??= _walking || _playing is not null || _frameCamera is not null
             ? new List<ModelGrip>()
             : (Grips?.Invoke() ?? Array.Empty<ModelGrip>()).Where(grip => IsShown(grip.Element)).Concat(BoxGrips()).ToList();
 

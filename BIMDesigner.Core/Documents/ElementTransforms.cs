@@ -63,6 +63,8 @@ public static class ElementTransforms
         Callout { Parent.Kind: ViewKind.FloorPlan } => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
+        AngularDimension or RadialDimension => true,
+        RevisionCloud or KeynoteTag => true,
         _ => false
     };
 
@@ -201,6 +203,17 @@ public static class ElementTransforms
                 // already following that wall, and moving it as well would double the shift.
                 MoveReference(dimension.Start, delta);
                 MoveReference(dimension.End, delta);
+                foreach (var between in dimension.Between) MoveReference(between, delta);
+                break;
+
+            case AngularDimension angular:
+                MoveReference(angular.First, delta);
+                MoveReference(angular.Second, delta);
+                angular.Through += delta;
+                break;
+
+            case RadialDimension radial:
+                radial.Through += delta;
                 break;
 
             case Tag tag:
@@ -210,6 +223,16 @@ public static class ElementTransforms
             case TextNote note:
                 note.Position += delta;
                 if (note.LeaderEnd is { } leader) note.LeaderEnd = leader + delta;
+                break;
+
+            case RevisionCloud cloud:
+                for (var i = 0; i < cloud.Outline.Count; i++) cloud.Outline[i] += delta;
+                if (cloud.TagAt is { } tagAt) cloud.TagAt = tagAt + delta;
+                break;
+
+            case KeynoteTag keynote:
+                keynote.Position += delta;
+                if (keynote.LeaderEnd is { } end) keynote.LeaderEnd = end + delta;
                 break;
         }
     }
@@ -455,9 +478,20 @@ public static class ElementTransforms
             case Dimension dimension:
                 dimension.Start.FallbackPoint = ReflectPoint(dimension.Start.FallbackPoint, axis);
                 dimension.End.FallbackPoint = ReflectPoint(dimension.End.FallbackPoint, axis);
+                foreach (var between in dimension.Between) between.FallbackPoint = ReflectPoint(between.FallbackPoint, axis);
 
                 // The offset is measured along a perpendicular that has just turned over.
                 dimension.Offset = -dimension.Offset;
+                break;
+
+            case AngularDimension angular:
+                angular.First.FallbackPoint = ReflectPoint(angular.First.FallbackPoint, axis);
+                angular.Second.FallbackPoint = ReflectPoint(angular.Second.FallbackPoint, axis);
+                angular.Through = ReflectPoint(angular.Through, axis);
+                break;
+
+            case RadialDimension radial:
+                radial.Through = ReflectPoint(radial.Through, axis);
                 break;
 
             case Tag tag:
@@ -467,6 +501,16 @@ public static class ElementTransforms
             case TextNote note:
                 note.Position = Reflect(note.Position);
                 if (note.LeaderEnd is { } leader) note.LeaderEnd = Reflect(leader);
+                break;
+
+            case RevisionCloud cloud:
+                for (var i = 0; i < cloud.Outline.Count; i++) cloud.Outline[i] = Reflect(cloud.Outline[i]);
+                if (cloud.TagAt is { } tagAt) cloud.TagAt = Reflect(tagAt);
+                break;
+
+            case KeynoteTag keynote:
+                keynote.Position = Reflect(keynote.Position);
+                if (keynote.LeaderEnd is { } end) keynote.LeaderEnd = Reflect(end);
                 break;
         }
     }
@@ -671,7 +715,18 @@ public static class ElementTransforms
                 // grid follow what they measure to.
                 if (dimension.Start.Anchor == DimensionAnchor.Point) dimension.Start.FallbackPoint = map(dimension.Start.FallbackPoint);
                 if (dimension.End.Anchor == DimensionAnchor.Point) dimension.End.FallbackPoint = map(dimension.End.FallbackPoint);
+                foreach (var between in dimension.Between.Where(between => between.Anchor == DimensionAnchor.Point)) between.FallbackPoint = map(between.FallbackPoint);
                 dimension.Offset *= factor;
+                break;
+
+            case AngularDimension angular:
+                if (angular.First.Anchor == DimensionAnchor.Point) angular.First.FallbackPoint = map(angular.First.FallbackPoint);
+                if (angular.Second.Anchor == DimensionAnchor.Point) angular.Second.FallbackPoint = map(angular.Second.FallbackPoint);
+                angular.Through = map(angular.Through);
+                break;
+
+            case RadialDimension radial:
+                radial.Through = map(radial.Through);
                 break;
 
             case Tag tag:
@@ -681,6 +736,16 @@ public static class ElementTransforms
             case TextNote note:
                 note.Position = map(note.Position);
                 if (note.LeaderEnd is { } leader) note.LeaderEnd = map(leader);
+                break;
+
+            case RevisionCloud cloud:
+                for (var i = 0; i < cloud.Outline.Count; i++) cloud.Outline[i] = map(cloud.Outline[i]);
+                if (cloud.TagAt is { } tagAt) cloud.TagAt = map(tagAt);
+                break;
+
+            case KeynoteTag keynote:
+                keynote.Position = map(keynote.Position);
+                if (keynote.LeaderEnd is { } end) keynote.LeaderEnd = map(end);
                 break;
         }
     }

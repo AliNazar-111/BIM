@@ -150,11 +150,13 @@ public partial class ModelView : Border
         }
     }
 
-    /// <summary>The view as sheets and view settings know it: the plain 3D reference for {3D}.</summary>
+    /// <summary>The view as sheets and view settings know it: the plain 3D reference for {3D}; an elevation's own, standing as one.</summary>
     public ViewReference Reference =>
-        _document is not null && (ReferenceEquals(_view, _document.Default3D) || _document.Elements.Contains(_view))
-            ? Views3D.Reference(_document, _view)
-            : ViewReference.Model3D;
+        _elevation is { } side
+            ? ViewReference.Elevation(side)
+            : _document is not null && (ReferenceEquals(_view, _document.Default3D) || _document.Elements.Contains(_view))
+                ? Views3D.Reference(_document, _view)
+                : ViewReference.Model3D;
 
     public VisualStyle RenderStyle
     {

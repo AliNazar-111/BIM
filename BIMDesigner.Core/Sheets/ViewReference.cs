@@ -20,7 +20,10 @@ public enum ViewKind
     Elevation,
 
     /// <summary>A callout: part of a plan or section, larger, cropped to its box.</summary>
-    Callout
+    Callout,
+
+    /// <summary>A keynote legend: the keys tagged, and what they say - in the whole project, or (Index 1) in the views on its sheet.</summary>
+    KeynoteLegend
 }
 
 /// <summary>
@@ -49,9 +52,23 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
 
     public static ViewReference Section(Guid markerId) => new(ViewKind.Section, markerId, string.Empty);
 
-    public static ViewReference Schedule(string name) => new(ViewKind.Schedule, Guid.Empty, name);
+    /// <summary>A schedule of the project's, by its id - and its name, for files that knew it only by that.</summary>
+    public static ViewReference Schedule(Schedules.ScheduleDefinition schedule) => new(ViewKind.Schedule, schedule.Id, schedule.Name);
+
+    /// <summary>The schedule a reference is to: by its id, or by its name where it was placed before schedules had ids.</summary>
+    public Schedules.ScheduleDefinition? ScheduleIn(BimDocument document)
+    {
+        if (Kind != ViewKind.Schedule) return null;
+        var (id, name) = (TargetId, ScheduleName);
+        return id != Guid.Empty
+            ? document.FindSchedule(id)
+            : document.Schedules.FirstOrDefault(schedule => schedule.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+    }
 
     public static ViewReference Model3D => new(ViewKind.Model3D, Guid.Empty, string.Empty);
+
+    /// <summary>A keynote legend: of the keys tagged in the views on its sheet, or in the whole project.</summary>
+    public static ViewReference KeynoteLegend(bool bySheet) => new(ViewKind.KeynoteLegend, Guid.Empty, string.Empty) { Index = bySheet ? 1 : 0 };
 
     /// <summary>A 3D view kept by name: a camera's, or a copy of {3D}.</summary>
     public static ViewReference View3D(Guid viewId) => new(ViewKind.Model3D, viewId, string.Empty);
@@ -66,12 +83,13 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
         {
             ViewKind.FloorPlan => document.FindLevel(targetId) is not null,
             ViewKind.Section => document.Elements.OfType<SectionMarker>().Any(s => s.Id == targetId),
-            ViewKind.Schedule => !string.IsNullOrWhiteSpace(ScheduleName),
+            ViewKind.Schedule => ScheduleIn(document) is not null,
             ViewKind.Model3D => Views3D.Find(document, this) is not null,
             ViewKind.Elevation => targetId == Guid.Empty
                 ? Index is >= 0 and <= 3
                 : document.FindElement(targetId) is InteriorElevationMarker marker && marker.Looks(Index),
             ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout && callout.Parent.Kind != ViewKind.Callout && callout.Parent.ExistsIn(document),
+            ViewKind.KeynoteLegend => true,
             _ => false
         };
     }
@@ -92,7 +110,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                 ? $"Section {marker.Name}"
                 : "Section - missing marker",
 
-            ViewKind.Schedule => string.IsNullOrWhiteSpace(ScheduleName) ? "Schedule" : ScheduleName,
+            ViewKind.Schedule => ScheduleIn(document)?.Name ?? (string.IsNullOrWhiteSpace(ScheduleName) ? "Schedule - missing" : $"{ScheduleName} - missing"),
             ViewKind.Model3D => Views3D.Find(document, this)?.Name ?? "3D - missing view",
             ViewKind.Elevation => targetId == Guid.Empty
                 ? Elevations.Name((ElevationSide)Math.Clamp(Index, 0, 3))
@@ -100,6 +118,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                     ? marker.ViewName(Index)
                     : "Elevation - missing marker",
             ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout ? callout.Name : "Callout - missing",
+            ViewKind.KeynoteLegend => Index == 1 ? "Keynote Legend (by sheet)" : "Keynote Legend",
             _ => "View"
         };
     }
@@ -150,6 +169,31 @@ public static class ViewExtent
         // the walls - a gridline that ran off the edge of its own viewport would be useless.
         foreach (var grid in document.Elements.OfType<Grid>())
             box = box.Include(grid.Start).Include(grid.End);
+
+        // And the notes on the storey: a cloud, a keynote or a label clipped by its own viewport
+        // would say nothing.
+        foreach (var element in document.Elements.Where(element => element.LevelId == levelId))
+            switch (element)
+            {
+                case Annotation.RevisionCloud cloud:
+                    foreach (var point in cloud.Outline) box = box.Include(point);
+                    if (cloud.TagAt is { } tagAt) box = box.Include(tagAt);
+                    break;
+
+                case Annotation.KeynoteTag keynote:
+                    box = box.Include(keynote.Position);
+                    if (keynote.LeaderEnd is { } end) box = box.Include(end);
+                    break;
+
+                case Annotation.Tag tag:
+                    box = box.Include(tag.Position);
+                    break;
+
+                case Annotation.TextNote note:
+                    box = box.Include(note.Position);
+                    if (note.LeaderEnd is { } leader) box = box.Include(leader);
+                    break;
+            }
 
         return box.IsEmpty ? box : box.Expand(Margin);
     }

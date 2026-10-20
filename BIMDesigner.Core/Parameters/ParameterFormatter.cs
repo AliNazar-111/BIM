@@ -33,6 +33,7 @@ public static class ParameterFormatter
             or ParameterDataType.Number
             or ParameterDataType.Integer
             or ParameterDataType.Currency
+            or ParameterDataType.Percentage
                 ? NoValue
                 : string.Empty,
         _ => dataType switch
@@ -45,6 +46,7 @@ public static class ParameterFormatter
             ParameterDataType.Integer => Convert.ToInt32(value, Culture).ToString(Culture),
             ParameterDataType.Currency => Convert.ToDecimal(value, Culture).ToString("0.00", Culture),
             ParameterDataType.YesNo => Convert.ToBoolean(value, Culture) ? "Yes" : "No",
+            ParameterDataType.Percentage => Convert.ToDouble(value, Culture).ToString("0.##", Culture) + "%",
             _ => value.ToString() ?? string.Empty
         }
     };
@@ -95,6 +97,11 @@ public static class ParameterFormatter
             case ParameterDataType.Currency:
                 if (!decimal.TryParse(text, NumberStyles.Currency, Culture, out var money)) return false;
                 value = money;
+                return true;
+
+            case ParameterDataType.Percentage:
+                if (!double.TryParse(text.TrimEnd('%').Trim(), NumberStyles.Float, Culture, out var percent)) return false;
+                value = percent;
                 return true;
 
             case ParameterDataType.YesNo:

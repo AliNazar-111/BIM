@@ -49,6 +49,9 @@ public sealed class ScheduleDefinition
         Fields = fields.ToList();
     }
 
+    /// <summary>Which schedule this is, whatever it is renamed: what a sheet placing it holds on to.</summary>
+    public Guid Id { get; set; } = Guid.NewGuid();
+
     public string Name { get; set; }
 
     public BuiltInCategory Category { get; set; }
@@ -93,6 +96,54 @@ public sealed class ScheduleDefinition
     /// to distrust the ones that do mean something.
     /// </summary>
     public HashSet<string> NotTotalled { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The values worked out rather than read: each a column, named among <see cref="Fields"/>
+    /// where it is to be shown, worked out in this order - so one may use those before it.
+    /// </summary>
+    public List<CalculatedField> Calculated { get; } = new();
+
+    /// <summary>Cells coloured where they pass a test; the first that passes for a cell colours it.</summary>
+    public List<ConditionalFormat> Formats { get; } = new();
+
+    /// <summary>Whether the colours are printed on a sheet too, or only shown while working in the schedule.</summary>
+    public bool ShowFormatsOnSheets { get; set; }
+
+    /// <summary>The calculated field of a name, or null where the field is read from the elements.</summary>
+    public CalculatedField? CalculatedNamed(string field) =>
+        Calculated.FirstOrDefault(calculated => calculated.Name.Equals(field, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A copy to change apart from this one - a new schedule under another name.</summary>
+    public ScheduleDefinition Copy(string name)
+    {
+        var copy = new ScheduleDefinition(name, Category, Fields.ToArray())
+        {
+            SortBy = SortBy, SortDescending = SortDescending, GroupBy = GroupBy, ShowTotals = ShowTotals,
+            Itemize = Itemize, ShowFormatsOnSheets = ShowFormatsOnSheets
+        };
+        copy.Filters.AddRange(Filters.Select(filter => new ScheduleFilter(filter.Field, filter.Comparison, filter.Value)));
+        foreach (var field in NotTotalled) copy.NotTotalled.Add(field);
+        copy.Calculated.AddRange(Calculated.Select(calculated => calculated.Copy()));
+        copy.Formats.AddRange(Formats.Select(format => format.Copy()));
+        return copy;
+    }
+
+    /// <summary>Everything this definition says, made the same as another's - for undoing an edit to it.</summary>
+    public void CopyFrom(ScheduleDefinition other)
+    {
+        (Name, Category, SortBy, SortDescending, GroupBy, ShowTotals, Itemize, ShowFormatsOnSheets) =
+            (other.Name, other.Category, other.SortBy, other.SortDescending, other.GroupBy, other.ShowTotals, other.Itemize, other.ShowFormatsOnSheets);
+        Fields.Clear();
+        Fields.AddRange(other.Fields);
+        Filters.Clear();
+        Filters.AddRange(other.Filters.Select(filter => new ScheduleFilter(filter.Field, filter.Comparison, filter.Value)));
+        NotTotalled.Clear();
+        foreach (var field in other.NotTotalled) NotTotalled.Add(field);
+        Calculated.Clear();
+        Calculated.AddRange(other.Calculated.Select(calculated => calculated.Copy()));
+        Formats.Clear();
+        Formats.AddRange(other.Formats.Select(format => format.Copy()));
+    }
 
     /// <summary>Marks fields as not worth totalling, and returns the definition for chaining.</summary>
     public ScheduleDefinition WithoutTotals(params string[] fields)
@@ -223,7 +274,16 @@ public sealed class ScheduleDefinition
         RoomByRoom("Lighting Device Schedule", BuiltInCategory.LightingDevices),
         RoomByRoom("Electrical Equipment Schedule", BuiltInCategory.ElectricalEquipment),
         RoomByRoom("Mechanical Equipment Schedule", BuiltInCategory.MechanicalEquipment),
-        RoomByRoom("Fire Alarm Device Schedule", BuiltInCategory.FireAlarmDevices)
+        RoomByRoom("Fire Alarm Device Schedule", BuiltInCategory.FireAlarmDevices),
+
+        // The drawing set: every sheet by its number, with its revision and when it was issued -
+        // the list that goes on the front sheet, kept from the sheets themselves.
+        new ScheduleDefinition("Sheet List", BuiltInCategory.Sheets,
+                "Sheet Number", "Sheet Name", "Current Revision", "Current Revision Date", "Sheet Issue Date")
+            {
+                SortBy = "Sheet Number",
+                ShowTotals = false
+            }
     };
 
     /// <summary>A schedule counting each type in each room: its unit cost, and the cost of all of them.</summary>

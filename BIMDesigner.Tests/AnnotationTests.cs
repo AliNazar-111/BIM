@@ -49,6 +49,10 @@ public class AnnotationTests
         document.Add(dimension);
 
         Assert.Equal(5000, dimension.Measure(document), precision: 3);
+
+        // In millimetres, as UK building drawings are dimensioned - unless its style says metres.
+        Assert.Equal("5000", dimension.DisplayText(document));
+        dimension.TypeId = document.TypesOf<DimensionType>().First(type => type.Units == DimensionUnits.Automatic).Id;
         Assert.Equal("5.00 m", dimension.DisplayText(document));
     }
 

@@ -26,7 +26,10 @@ public enum ParameterDataType
     Currency,
     Url,
     Image,
-    MultilineText
+    MultilineText,
+
+    /// <summary>Stored in per cent: 25 is a quarter.</summary>
+    Percentage
 }
 
 /// <summary>

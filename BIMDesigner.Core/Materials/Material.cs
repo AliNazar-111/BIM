@@ -71,6 +71,9 @@ public sealed class Material
     /// <summary>Uniclass / OmniClass / MasterFormat code (section 7).</summary>
     public string ClassificationCode { get; set; } = string.Empty;
 
+    /// <summary>Its key in the project's keynotes: what a material keynote pointing at it reads.</summary>
+    public string Keynote { get; set; } = string.Empty;
+
     /// <summary>Cost per cubic metre, used by quantity takeoff.</summary>
     public decimal CostPerCubicMetre { get; set; }
 

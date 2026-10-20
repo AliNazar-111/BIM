@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Annotation;
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Materials;
@@ -57,12 +58,14 @@ public static class TypeDuplicates
         SlabEdgeType slabEdge => slabEdge.Duplicate(name),
         RoofWindowType roofWindow => roofWindow.Duplicate(name),
         WallSweepType sweep => sweep.Duplicate(name),
+        DimensionType dimension => dimension.Duplicate(name),
         _ => null
     };
 
     /// <summary>Whether a type can be duplicated here, rather than in the wall types window.</summary>
     public static bool CanDuplicate(ElementType type) =>
-        type is ComponentType or DoorType or WindowType or ChimneyType or StairType or RampType or RailingType or BeamType or FasciaType or GutterType or SoffitType or RoofWindowType or WallSweepType or SlabEdgeType;
+        type is ComponentType or DoorType or WindowType or ChimneyType or StairType or RampType or RailingType or BeamType or FasciaType or GutterType or SoffitType or RoofWindowType or WallSweepType or SlabEdgeType
+            or DimensionType;
 
     /// <summary>
     /// A type duplicated under a name - made unique if it is taken - added to the project, and

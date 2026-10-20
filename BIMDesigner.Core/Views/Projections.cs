@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Sheets;
@@ -9,8 +10,11 @@ namespace BIMDesigner.Core.Views;
 /// <summary>A face of a projected view, painted: its outline on the drawing, its colour, how solid it is.</summary>
 public sealed record ProjectedFill(IReadOnlyList<Point2D> Polygon, ColourRgb Colour, double Opacity);
 
-/// <summary>A line of a projected view: an edge, or as much of one as is not hidden.</summary>
-public readonly record struct ProjectedLine(Point2D From, Point2D To);
+/// <summary>A line of a projected view: an edge, or as much of one as is not hidden - and the element it is an edge of.</summary>
+public readonly record struct ProjectedLine(Point2D From, Point2D To, Guid ElementId = default);
+
+/// <summary>A face of a projected view as it lies on the drawing, how far each corner is from the eye, and whose it is: what a click picks.</summary>
+public sealed record ProjectedPick(Point2D A, Point2D B, Point2D C, double DepthA, double DepthB, double DepthC, Guid ElementId);
 
 /// <summary>A level across an elevation: its name, and how high it is on the drawing.</summary>
 public readonly record struct ProjectedLevel(string Name, double Elevation, double Y);
@@ -37,6 +41,31 @@ public sealed class ProjectedDrawing
 
     /// <summary>Where an interior elevation is cropped, to its room; null where nothing is.</summary>
     public BoundingBox2D? Crop { get; init; }
+
+    /// <summary>Every face, to pick from.</summary>
+    public IReadOnlyList<ProjectedPick> Picks { get; init; } = Array.Empty<ProjectedPick>();
+
+    /// <summary>The element whose face is nearest the eye at a point of the drawing, or null over nothing.</summary>
+    public Guid? ElementAt(Point2D at)
+    {
+        if (Crop is { } crop && (at.X < crop.MinX || at.X > crop.MaxX || at.Y < crop.MinY || at.Y > crop.MaxY)) return null;
+
+        (Guid Id, double Depth)? nearest = null;
+        foreach (var pick in Picks)
+        {
+            var det = (pick.B.Y - pick.C.Y) * (pick.A.X - pick.C.X) + (pick.C.X - pick.B.X) * (pick.A.Y - pick.C.Y);
+            if (Math.Abs(det) < 1e-9) continue;
+            var l1 = ((pick.B.Y - pick.C.Y) * (at.X - pick.C.X) + (pick.C.X - pick.B.X) * (at.Y - pick.C.Y)) / det;
+            var l2 = ((pick.C.Y - pick.A.Y) * (at.X - pick.C.X) + (pick.A.X - pick.C.X) * (at.Y - pick.C.Y)) / det;
+            var l3 = 1 - l1 - l2;
+            if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+
+            var depth = l1 * pick.DepthA + l2 * pick.DepthB + l3 * pick.DepthC;
+            if (nearest is null || depth < nearest.Value.Depth) nearest = (pick.ElementId, depth);
+        }
+
+        return nearest?.Id;
+    }
 
     public bool IsEmpty => Fills.Count == 0 && Lines.Count == 0;
 }
@@ -170,7 +199,7 @@ public static class Projections
 
         // Every face, flattened, with its depths; how solid and what colour it is drawn.
         var faces = new List<Face>();
-        var lines = new List<(Point3D A, Point3D B)>();
+        var lines = new List<(Point3D A, Point3D B, Guid Id)>();
         foreach (var mesh in inView)
         {
             var glass = mesh.Kind == MeshKind.Glazing || mesh.Opacity < 1;
@@ -186,35 +215,47 @@ public static class Projections
             for (var i = 0; i + 2 < indices.Count; i += 3)
             {
                 var (a, b, c) = (positions[indices[i]], positions[indices[i + 1]], positions[indices[i + 2]]);
-                faces.Add(new Face(a, b, c, Flat(a), Flat(b), Flat(c), Colour(mesh, a, b, c, style), opacity, mesh.Cut, Occludes: !glass && style is not (VisualStyle.Wireframe or VisualStyle.XRay)));
+                faces.Add(new Face(a, b, c, Flat(a), Flat(b), Flat(c), Colour(mesh, a, b, c, style), opacity, mesh.Cut, Occludes: !glass && style is not (VisualStyle.Wireframe or VisualStyle.XRay))
+                    { ElementId = mesh.ElementId });
             }
 
             if (mesh.Kind != MeshKind.Glazing || style == VisualStyle.Wireframe)
-                lines.AddRange(mesh.Edges);
+                lines.AddRange(mesh.Edges.Select(edge => (edge.From, edge.To, mesh.ElementId)));
         }
 
         var extent = BoundingBox2D.Empty;
         foreach (var face in faces) extent = extent.Include(face.FlatA).Include(face.FlatB).Include(face.FlatC);
-        foreach (var (a, b) in lines) extent = extent.Include(Flat(a)).Include(Flat(b));
+        foreach (var (a, b, _) in lines) extent = extent.Include(Flat(a)).Include(Flat(b));
         if (frame is { } framed) extent = framed;
         if (extent.IsEmpty) return ProjectedDrawing.Empty;
 
         var size = Math.Max(extent.Width, extent.Height);
 
-        // Faces painted far to near. What hides what: the solid faces, sorted over the drawing. A piece of face behind another
-        // is not painted at all - painting alone would put a layer just under a roof's finish over
-        // it in places - a piece partly hidden is cut smaller where it is, and an edge is drawn as
-        // far as nothing nearer covers it.
+        // What hides what: the solid faces, sorted over the drawing - what of each face shows is worked
+        // out from them, and each edge is drawn as far as nothing nearer covers it.
         var grid = new Grid(extent, faces.Where(face => face.Occludes).ToList(), perspective);
         var fills = new List<(double Depth, ProjectedFill Fill)>();
 
         // In hidden line only what is cut is painted, grey: the lines are what is seen, each worked out on its own.
+        // Each face is painted as exactly what of it shows: itself, less what the faces in front of
+        // it cover of it - so what is painted is right however the faces lie, and in no order. In
+        // X-ray nothing hides anything: everything is painted, far to near, see-through.
         foreach (var face in faces.Where(face => style == VisualStyle.HiddenLine ? face.Cut : face.Opacity > 0))
-            Paint(face, size / 8, grid, Flat, 0, fills);
+        {
+            if (style == VisualStyle.XRay)
+            {
+                Paint(face, size / 8, grid, Flat, 0, fills);
+                continue;
+            }
+
+            var depth = (face.A.Z + face.B.Z + face.C.Z) / 3;
+            foreach (var shows in grid.Visible(face))
+                fills.Add((depth, new ProjectedFill(shows, face.Colour, face.Opacity)));
+        }
 
         var step = size / 250;
         var shown = new List<ProjectedLine>();
-        foreach (var (a, b) in lines)
+        foreach (var (a, b, id) in lines)
         {
             var (fa, fb) = (Flat(a), Flat(b));
             if (fa.DistanceTo(fb) < 0.01) continue;
@@ -226,7 +267,7 @@ public static class Projections
                 if (seen && runStart is null) runStart = k;
                 if (seen || runStart is not { } start) continue;
 
-                shown.Add(new ProjectedLine(Flat(Along(a, b, (double)start / pieces)), Flat(Along(a, b, (double)k / pieces))));
+                shown.Add(new ProjectedLine(Flat(Along(a, b, (double)start / pieces)), Flat(Along(a, b, (double)k / pieces)), id));
                 runStart = null;
             }
         }
@@ -249,7 +290,9 @@ public static class Projections
         return new ProjectedDrawing
         {
             Fills = drawnFills, Lines = drawnLines, Levels = levels,
-            Extent = drawn, Crop = box is null ? null : frame
+            Extent = drawn, Crop = box is null ? null : frame,
+            Picks = faces.Where(face => face.ElementId != Guid.Empty)
+                .Select(face => new ProjectedPick(face.FlatA, face.FlatB, face.FlatC, face.A.Z, face.B.Z, face.C.Z, face.ElementId)).ToList()
         };
     }
 
@@ -343,11 +386,15 @@ public static class Projections
             else t1 = Math.Min(t1, t);
         }
 
-        return t0 >= t1 ? null : new ProjectedLine(line.From + d * t0, line.From + d * t1);
+        return t0 >= t1 ? null : new ProjectedLine(line.From + d * t0, line.From + d * t1, line.ElementId);
     }
 
     /// <summary>A triangle in the view's frame, and flattened onto the drawing.</summary>
-    private sealed record Face(Point3D A, Point3D B, Point3D C, Point2D FlatA, Point2D FlatB, Point2D FlatC, ColourRgb Colour, double Opacity, bool Cut, bool Occludes);
+    private sealed record Face(Point3D A, Point3D B, Point3D C, Point2D FlatA, Point2D FlatB, Point2D FlatC, ColourRgb Colour, double Opacity, bool Cut, bool Occludes)
+    {
+        /// <summary>Whose face it is.</summary>
+        public Guid ElementId { get; init; }
+    }
 
     /// <summary>The faces that hide what is behind them, sorted into cells over the drawing so a point asks only those over it.</summary>
     private sealed class Grid
@@ -357,9 +404,12 @@ public static class Projections
         private readonly List<Face>[] _cells = new List<Face>[Cells * Cells];
         private readonly bool _perspective;
 
+        private readonly IReadOnlyList<Face> _faces;
+
         public Grid(BoundingBox2D extent, IReadOnlyList<Face> faces, bool perspective)
         {
             (_extent, _perspective) = (extent, perspective);
+            _faces = faces;
             foreach (var face in faces)
             {
                 var (minX, maxX) = (Math.Min(face.FlatA.X, Math.Min(face.FlatB.X, face.FlatC.X)), Math.Max(face.FlatA.X, Math.Max(face.FlatB.X, face.FlatC.X)));
@@ -376,6 +426,175 @@ public static class Projections
             var (low, span) = across ? (_extent.MinX, _extent.Width) : (_extent.MinY, _extent.Height);
             return Math.Clamp((int)((value - low) / Math.Max(span, 1e-9) * Cells), 0, Cells - 1);
         }
+
+        /// <summary>
+        /// What of a face shows on the drawing: itself, less where each face in front of it lies over
+        /// it. Two faces that do not pass through each other are one in front of the other all over
+        /// where they overlap, so which is in front is told at the middle of the overlap.
+        /// </summary>
+        public IEnumerable<IReadOnlyList<Point2D>> Visible(Face face)
+        {
+            IReadOnlyList<Point2D> triangle = new[] { face.FlatA, face.FlatB, face.FlatC };
+            var area = Polygon2D.SignedArea(triangle);
+            if (Math.Abs(area) < 1e-6) yield break;
+            if (area < 0) triangle = new[] { face.FlatA, face.FlatC, face.FlatB };
+
+            var box = BoundingBox2D.Empty.Include(face.FlatA).Include(face.FlatB).Include(face.FlatC);
+            var farthest = Math.Max(face.A.Z, Math.Max(face.B.Z, face.C.Z));
+            var hidden = new List<IReadOnlyList<Point2D>>();
+            foreach (var other in Near(box))
+            {
+                if (ReferenceEquals(other, face)) continue;
+
+                // Clear of it on the drawing.
+                if (Math.Max(other.FlatA.X, Math.Max(other.FlatB.X, other.FlatC.X)) <= box.MinX || Math.Min(other.FlatA.X, Math.Min(other.FlatB.X, other.FlatC.X)) >= box.MaxX ||
+                    Math.Max(other.FlatA.Y, Math.Max(other.FlatB.Y, other.FlatC.Y)) <= box.MinY || Math.Min(other.FlatA.Y, Math.Min(other.FlatB.Y, other.FlatC.Y)) >= box.MaxY) continue;
+
+                // Wholly behind it: hides nothing of it.
+                if (Math.Min(other.A.Z, Math.Min(other.B.Z, other.C.Z)) >= farthest - Tolerance(farthest)) continue;
+
+                var overlap = Overlap(triangle, other);
+                if (overlap.Count < 3 || Math.Abs(Polygon2D.SignedArea(overlap)) < 1e-3) continue;
+
+                var middle = new Point2D(overlap.Average(p => p.X), overlap.Average(p => p.Y));
+                if (DepthAt(other, middle) is not { } there || DepthAt(face, middle) is not { } here) continue;
+                if (there >= here - Tolerance(here)) continue;
+
+                // Covered whole by one in front: none of it shows.
+                if (Math.Abs(Polygon2D.SignedArea(overlap)) >= Math.Abs(area) * (1 - 1e-9)) yield break;
+                hidden.Add(overlap);
+            }
+
+            if (hidden.Count == 0)
+            {
+                yield return triangle;
+                yield break;
+            }
+
+            // The biggest taken away first, so what is left is soon small. Every piece is convex, and
+            // so is every part taken away: one less the other is cut off it an edge at a time.
+            var left = new List<IReadOnlyList<Point2D>> { triangle };
+            foreach (var part in hidden.OrderByDescending(part => Math.Abs(Polygon2D.SignedArea(part))))
+            {
+                left = Without(left, part);
+                if (left.Count == 0) yield break;
+            }
+
+            foreach (var piece in left) yield return piece;
+        }
+
+        /// <summary>
+        /// Convex pieces less a convex part: each piece cut by the part's edges in turn - what is
+        /// outside an edge kept, what is inside it cut by the next - and what is inside them all gone.
+        /// </summary>
+        private static List<IReadOnlyList<Point2D>> Without(List<IReadOnlyList<Point2D>> pieces, IReadOnlyList<Point2D> part)
+        {
+            var box = BoundingBox2D.Empty;
+            foreach (var point in part) box = box.Include(point);
+
+            var left = new List<IReadOnlyList<Point2D>>(pieces.Count + 4);
+            foreach (var piece in pieces)
+            {
+                var (minX, maxX, minY, maxY) = (piece.Min(p => p.X), piece.Max(p => p.X), piece.Min(p => p.Y), piece.Max(p => p.Y));
+                if (maxX <= box.MinX || minX >= box.MaxX || maxY <= box.MinY || minY >= box.MaxY)
+                {
+                    left.Add(piece);
+                    continue;
+                }
+
+                IReadOnlyList<Point2D> inside = piece;
+                for (var k = 0; k < part.Count && inside.Count >= 3; k++)
+                {
+                    var (p, q) = (part[k], part[(k + 1) % part.Count]);
+                    if (p.DistanceTo(q) < 1e-6) continue;
+                    var outside = HalfOf(inside, p, q, keepLeft: false);
+                    if (outside.Count >= 3 && Math.Abs(Polygon2D.SignedArea(outside)) > 1e-3) left.Add(outside);
+                    inside = HalfOf(inside, p, q, keepLeft: true);
+                }
+            }
+
+            return left;
+        }
+
+        /// <summary>What of a convex outline lies to one side of the line through two points.</summary>
+        private static IReadOnlyList<Point2D> HalfOf(IReadOnlyList<Point2D> outline, Point2D p, Point2D q, bool keepLeft)
+        {
+            double Side(Point2D at)
+            {
+                var side = (q.X - p.X) * (at.Y - p.Y) - (q.Y - p.Y) * (at.X - p.X);
+                return keepLeft ? side : -side;
+            }
+
+            var kept = new List<Point2D>(outline.Count + 2);
+            for (var i = 0; i < outline.Count; i++)
+            {
+                var (a, b) = (outline[i], outline[(i + 1) % outline.Count]);
+                var (sa, sb) = (Side(a), Side(b));
+                if (sa >= 0) kept.Add(a);
+                if (sa >= 0 != sb >= 0) kept.Add(a + (b - a) * (sa / (sa - sb)));
+            }
+
+            return kept;
+        }
+
+        /// <summary>The faces that may lie over a box of the drawing: those sorted into the cells it covers.</summary>
+        private IEnumerable<Face> Near(BoundingBox2D box)
+        {
+            var seen = new HashSet<Face>(ReferenceEqualityComparer.Instance);
+            var (i0, j0, i1, j1) = (Cell(box.MinX, true), Cell(box.MinY, false), Cell(box.MaxX, true), Cell(box.MaxY, false));
+
+            // Over many cells, the same faces would come up over and over: all of them are looked at once instead.
+            if ((i1 - i0 + 1) * (j1 - j0 + 1) > 48)
+            {
+                foreach (var face in _faces) yield return face;
+                yield break;
+            }
+
+            for (var i = i0; i <= i1; i++)
+            for (var j = j0; j <= j1; j++)
+                if (_cells[i * Cells + j] is { } faces)
+                    foreach (var face in faces)
+                        if (seen.Add(face)) yield return face;
+        }
+
+        /// <summary>Where a triangle on the drawing and another face's overlap: one convex outline cut by the other.</summary>
+        private static IReadOnlyList<Point2D> Overlap(IReadOnlyList<Point2D> triangle, Face other)
+        {
+            var clip = new[] { other.FlatA, other.FlatB, other.FlatC };
+            if (Polygon2D.SignedArea(clip) < 0) clip = new[] { other.FlatA, other.FlatC, other.FlatB };
+
+            var points = triangle.ToList();
+            for (var k = 0; k < 3 && points.Count >= 3; k++)
+            {
+                var (p, q) = (clip[k], clip[(k + 1) % 3]);
+                double Side(Point2D at) => (q.X - p.X) * (at.Y - p.Y) - (q.Y - p.Y) * (at.X - p.X);
+                var next = new List<Point2D>(points.Count + 2);
+                for (var i = 0; i < points.Count; i++)
+                {
+                    var (a, b) = (points[i], points[(i + 1) % points.Count]);
+                    var (sa, sb) = (Side(a), Side(b));
+                    if (sa >= 0) next.Add(a);
+                    if (sa >= 0 != sb >= 0) next.Add(a + (b - a) * (sa / (sa - sb)));
+                }
+
+                points = next;
+            }
+
+            return points;
+        }
+
+        /// <summary>How far a face is from the eye at a point of the drawing over it; null off it.</summary>
+        private double? DepthAt(Face face, Point2D at)
+        {
+            var det = (face.FlatB.Y - face.FlatC.Y) * (face.FlatA.X - face.FlatC.X) + (face.FlatC.X - face.FlatB.X) * (face.FlatA.Y - face.FlatC.Y);
+            if (Math.Abs(det) < 1e-9) return null;
+            var l1 = ((face.FlatB.Y - face.FlatC.Y) * (at.X - face.FlatC.X) + (face.FlatC.X - face.FlatB.X) * (at.Y - face.FlatC.Y)) / det;
+            var l2 = ((face.FlatC.Y - face.FlatA.Y) * (at.X - face.FlatC.X) + (face.FlatA.X - face.FlatC.X) * (at.Y - face.FlatC.Y)) / det;
+            var l3 = 1 - l1 - l2;
+            return _perspective ? 1 / (l1 / face.A.Z + l2 / face.B.Z + l3 / face.C.Z) : l1 * face.A.Z + l2 * face.B.Z + l3 * face.C.Z;
+        }
+
+        private static double Tolerance(double depth) => 0.5 + Math.Abs(depth) * 1e-4;
 
         /// <summary>Whether a face nearer the eye is over a point.</summary>
         public bool Hides(Point3D point, Func<Point3D, Point2D> flat)

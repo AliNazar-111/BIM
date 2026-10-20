@@ -41,6 +41,22 @@ public class ProjectionTests
     }
 
     [Fact]
+    public void AShadedViewPaintsEachFaceAsFarAsItShowsAndNoFurther()
+    {
+        // Looking straight at a low wall standing in front of a tall one.
+        var document = BimDocument.CreateDefault();
+        Wall(document, new Point2D(2000, 0), new Point2D(4000, 0), 3000);
+        Wall(document, new Point2D(0, 5000), new Point2D(6000, 5000), 6000);
+        document.Default3D.Camera = new Camera3D(new Point3D(3000, -30000, 3000), new Point3D(3000, 5000, 3000), Perspective: false);
+        (document.Default3D.Perspective, document.Default3D.Style) = (false, VisualStyle.Shaded);
+
+        // What is painted is the tall wall's face, the low one before part of it: nothing painted twice.
+        var drawing = Projections.Of(document, ViewReference.Model3D);
+        var painted = drawing.Fills.Sum(fill => Math.Abs(Polygon2D.SignedArea(fill.Polygon)));
+        Assert.InRange(painted, 6000 * 6000 * 0.995, 6000 * 6000 * 1.005);
+    }
+
+    [Fact]
     public void AnInteriorElevationIsCroppedToItsRoomAndKept()
     {
         var document = BimDocument.CreateDefault();

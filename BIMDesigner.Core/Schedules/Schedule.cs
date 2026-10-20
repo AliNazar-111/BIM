@@ -1,6 +1,7 @@
 using System.Globalization;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
+using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
 
 namespace BIMDesigner.Core.Schedules;
@@ -26,7 +27,8 @@ public sealed class ScheduleColumn
         or ParameterDataType.Volume
         or ParameterDataType.Number
         or ParameterDataType.Integer
-        or ParameterDataType.Currency;
+        or ParameterDataType.Currency
+        or ParameterDataType.Percentage;
 
     /// <summary>True when nothing in this column can be edited from the schedule.</summary>
     public required bool IsReadOnly { get; init; }
@@ -75,7 +77,23 @@ public sealed class ScheduleResult
     /// <summary>Totals per totalled column, over every row in the schedule.</summary>
     public required IReadOnlyDictionary<string, double> Totals { get; init; }
 
+    /// <summary>Why a calculated field could not be worked out, by its name: the first row it failed on.</summary>
+    public IReadOnlyDictionary<string, string> Problems { get; init; } = new Dictionary<string, string>();
+
     public int Count => Rows.Count;
+
+    /// <summary>The colour a cell is given by the schedule's conditional formatting, or null.</summary>
+    public ColourRgb? BackgroundOf(ScheduleRow row, string field)
+    {
+        var cell = row[field];
+        foreach (var format in Definition.Formats)
+        {
+            if (!format.Field.Equals(field, StringComparison.OrdinalIgnoreCase)) continue;
+            if (format.Passes(cell?.DataType ?? ParameterDataType.Text, Schedule.Numeric(cell), row.Text(field))) return format.Background;
+        }
+
+        return null;
+    }
 }
 
 /// <summary>
@@ -92,6 +110,10 @@ public static class Schedule
         // Each room traced once for the whole schedule, however many rows ask which room they are in.
         using var rooms = new Architecture.RoomsOf.Outlines();
 
+        // Filters on what the elements hold first; on what is worked out from it once it is.
+        var read = definition.Filters.Where(filter => definition.CalculatedNamed(filter.Field) is null).ToList();
+        var worked = definition.Filters.Except(read).ToList();
+
         var rows = document.Elements
             .Where(element => element.Category == definition.Category)
             .Select(element =>
@@ -99,11 +121,18 @@ public static class Schedule
                 var cells = ParametersOf(document, element);
                 return new ScheduleRow { Element = element, Cells = Counted(cells, 1, Cost(cells)) };
             })
-            .Where(row => definition.Filters.All(filter => Passes(row, filter)))
+            .Where(row => read.All(filter => Passes(row, filter)))
             .ToList();
 
         // Not itemised: those alike in every field but the counted ones made one row, counted.
         if (!definition.Itemize) rows = Combined(rows, definition);
+
+        var problems = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (definition.Calculated.Count > 0)
+        {
+            rows = Calculate(rows, definition, problems);
+            rows = rows.Where(row => worked.All(filter => Passes(row, filter))).ToList();
+        }
 
         rows = Sort(rows, definition);
 
@@ -121,8 +150,121 @@ public static class Schedule
             Columns = columns,
             Rows = rows,
             Groups = groups,
-            Totals = Total(rows, columns)
+            Totals = Total(rows, columns),
+            Problems = problems
         };
+    }
+
+    // ---- calculated fields -----------------------------------------------------
+
+    /// <summary>What a calculated field holds, as a parameter's kind.</summary>
+    public static ParameterDataType DataTypeOf(CalculatedKind kind) => kind switch
+    {
+        CalculatedKind.Length => ParameterDataType.Length,
+        CalculatedKind.Area => ParameterDataType.Area,
+        CalculatedKind.Volume => ParameterDataType.Volume,
+        CalculatedKind.Currency => ParameterDataType.Currency,
+        CalculatedKind.YesNo => ParameterDataType.YesNo,
+        CalculatedKind.Percentage => ParameterDataType.Percentage,
+        _ => ParameterDataType.Number
+    };
+
+    /// <summary>A cell as a formula reads it: its number, Yes as 1 and No as 0, or text that is a number.</summary>
+    private static double? FormulaValue(ParameterValue? cell) => cell?.Value switch
+    {
+        bool flag => flag ? 1 : 0,
+        string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) => number,
+        _ => Numeric(cell)
+    };
+
+    /// <summary>
+    /// Each row given its calculated fields, in order: a formula over the row's fields and those
+    /// worked out before it; or a field's share of its total - the schedule's, or its group's.
+    /// A cell that cannot be worked out is left without a value, and why kept for the first.
+    /// </summary>
+    private static List<ScheduleRow> Calculate(List<ScheduleRow> rows, ScheduleDefinition definition, Dictionary<string, string> problems)
+    {
+        var cells = rows.Select(row => new Dictionary<string, ParameterValue>(row.Cells, StringComparer.OrdinalIgnoreCase)).ToList();
+
+        foreach (var calculated in definition.Calculated)
+        {
+            if (string.IsNullOrWhiteSpace(calculated.Name)) continue;
+            var parameter = new ParameterDefinition(calculated.Name, DataTypeOf(calculated.Kind), ParameterBinding.Instance, ParameterGroup.Other);
+
+            if (calculated.Kind == CalculatedKind.Percentage)
+            {
+                // Shares of the whole schedule, or of each group under its heading.
+                var groupBy = calculated.ByGroup ? definition.GroupBy : null;
+                string GroupOf(Dictionary<string, ParameterValue> row) =>
+                    string.IsNullOrWhiteSpace(groupBy) ? string.Empty : row.TryGetValue(groupBy, out var cell) ? cell.DisplayValue : string.Empty;
+                var totals = cells
+                    .GroupBy(GroupOf)
+                    .ToDictionary(group => group.Key, group => group.Sum(row => row.TryGetValue(calculated.PercentageOf, out var cell) ? Numeric(cell) ?? 0 : 0));
+
+                if (cells.Count > 0 && !cells.Any(row => row.ContainsKey(calculated.PercentageOf)))
+                    problems.TryAdd(calculated.Name, $"'{calculated.PercentageOf}' is not a field of this schedule.");
+
+                foreach (var row in cells)
+                {
+                    var total = totals[GroupOf(row)];
+                    double? share = row.TryGetValue(calculated.PercentageOf, out var cell) && Numeric(cell) is { } part && Math.Abs(total) > 1e-12
+                        ? part / total * 100
+                        : null;
+                    row[calculated.Name] = ParameterValue.ReadOnly(parameter, () => share);
+                }
+
+                continue;
+            }
+
+            foreach (var row in cells)
+            {
+                object? value;
+                try
+                {
+                    var result = ScheduleFormula.Evaluate(calculated.Formula, row.Keys, name => FormulaValue(row.GetValueOrDefault(name)));
+                    value = calculated.Kind switch
+                    {
+                        CalculatedKind.YesNo => Math.Abs(result) > 1e-12,
+                        CalculatedKind.Currency => (decimal)result,
+                        _ => result
+                    };
+                }
+                catch (FormulaException problem)
+                {
+                    problems.TryAdd(calculated.Name, problem.Message);
+                    value = null;
+                }
+                catch (OverflowException)
+                {
+                    problems.TryAdd(calculated.Name, "The answer is too large to hold.");
+                    value = null;
+                }
+
+                row[calculated.Name] = ParameterValue.ReadOnly(parameter, () => value);
+            }
+        }
+
+        return rows.Select((row, index) => new ScheduleRow { Element = row.Element, Cells = cells[index] }).ToList();
+    }
+
+    /// <summary>
+    /// Every field a schedule of a category can show: each parameter its elements in the project
+    /// have, and how many a row stands for and what they cost.
+    /// </summary>
+    public static IReadOnlyList<string> AvailableFields(BimDocument document, BuiltInCategory category)
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var types = new HashSet<Guid>();
+        foreach (var element in document.Elements.Where(element => element.Category == category))
+        {
+            // One of each type is enough to know what its elements report.
+            if (element.TypeId != Guid.Empty && !types.Add(element.TypeId)) continue;
+            foreach (var name in ParametersOf(document, element).Keys) names.Add(name);
+        }
+
+        names.Add(ScheduleDefinition.CountField);
+        names.Add(ScheduleDefinition.TotalCostField);
+        return names.ToList();
     }
 
     private static readonly ParameterDefinition CountDefinition =
@@ -204,13 +346,16 @@ public static class Schedule
             // The first row that has the field decides its type. An empty schedule still
             // shows its columns, as text, so the reader can see what it would report.
             var sample = rows.Select(row => row[field]).FirstOrDefault(cell => cell is not null);
+            var calculated = definition.CalculatedNamed(field);
 
             columns.Add(new ScheduleColumn
             {
                 Field = field,
-                DataType = sample?.DataType ?? ParameterDataType.Text,
+                DataType = sample?.DataType ?? (calculated is null ? ParameterDataType.Text : DataTypeOf(calculated.Kind)),
                 IsReadOnly = sample?.IsReadOnly ?? true,
-                Totalled = !definition.NotTotalled.Contains(field)
+
+                // Shares of each group add up to a hundred in each, and to nothing over them all.
+                Totalled = !definition.NotTotalled.Contains(field) && calculated is not { Kind: CalculatedKind.Percentage, ByGroup: true }
             });
         }
 
@@ -300,6 +445,18 @@ public static class Schedule
 
         return totals;
     }
+
+    /// <summary>A total written in its column's own units.</summary>
+    public static string TotalText(ScheduleColumn column, double value) => column.DataType switch
+    {
+        ParameterDataType.Length => Units.FormatLength(value),
+        ParameterDataType.Area => Units.FormatArea(value),
+        ParameterDataType.Volume => Units.FormatVolume(value),
+        ParameterDataType.Integer => ((long)Math.Round(value)).ToString(CultureInfo.InvariantCulture),
+        ParameterDataType.Currency => value.ToString("0.00", CultureInfo.InvariantCulture),
+        ParameterDataType.Percentage => value.ToString("0.##", CultureInfo.InvariantCulture) + "%",
+        _ => value.ToString("0.###", CultureInfo.InvariantCulture)
+    };
 
     /// <summary>The numeric value behind a cell, or null when it does not hold a number.</summary>
     public static double? Numeric(ParameterValue? cell) => cell?.Value switch

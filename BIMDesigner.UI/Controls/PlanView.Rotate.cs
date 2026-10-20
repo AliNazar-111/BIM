@@ -243,8 +243,17 @@ public partial class PlanView
     /// <summary>Whether any of these is pinned - and, if so, says it cannot be done and why.</summary>
     private bool RefusePinned(IEnumerable<Element> elements, string doing)
     {
-        var pinned = elements.Where(element => element.Pinned).ToList();
+        var pinned = elements.Where(IsLocked).ToList();
         if (pinned.Count == 0) return false;
+
+        // A cloud of an issued revision is locked with it: what was sent out stays as it was sent.
+        if (pinned.All(element => !element.Pinned))
+        {
+            var issued = $"{(pinned.Count == 1 ? "A revision cloud" : $"{pinned.Count} revision clouds")} of an issued revision cannot be {doing}: what was issued stays as it was. Untick Issued in Revisions to change it.";
+            HintChanged?.Invoke(this, issued);
+            PinnedRefused?.Invoke(this, issued);
+            return true;
+        }
 
         var what = pinned.Count == 1 ? $"A pinned {Describe(pinned[0])} cannot be {doing}" : $"{pinned.Count} pinned elements cannot be {doing}";
         var why = $"{what}. Unpin it first: Modify → Unpin, or P.";

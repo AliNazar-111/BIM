@@ -40,6 +40,11 @@ public sealed class ProjectionRenderer
     /// <summary>Whether the crop round an interior elevation is drawn: on screen, not on paper.</summary>
     public bool ShowCrop { get; set; }
 
+    /// <summary>The elements picked, their edges drawn in the selection's colour; none on paper.</summary>
+    public IReadOnlySet<Guid> Highlighted { get; set; } = new HashSet<Guid>();
+
+    private readonly Pen _highlightPen = RenderPens.Solid(Color.FromRgb(0x1E, 0x90, 0xFF), 2);
+
     /// <summary>Points the renderer at a surface: across and up the view, in its millimetres, to the surface.</summary>
     public void SetTransform(Func<double, double, Point> toScreen) => _toScreen = toScreen;
 
@@ -79,6 +84,11 @@ public sealed class ProjectionRenderer
 
         lines.Freeze();
         dc.DrawGeometry(null, _linePen, lines);
+
+        // What is picked, over the rest.
+        if (Highlighted.Count > 0)
+            foreach (var line in drawing.Lines.Where(line => Highlighted.Contains(line.ElementId)))
+                dc.DrawLine(_highlightPen, At(line.From), At(line.To));
 
         if (ShowCrop && drawing.Crop is { } crop)
             dc.DrawRectangle(null, _cropPen, new Rect(_toScreen(crop.MinX, crop.MaxY), _toScreen(crop.MaxX, crop.MinY)));

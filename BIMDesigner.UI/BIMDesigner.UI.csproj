@@ -5,12 +5,23 @@
     <ProjectReference Include="..\BIMDesigner.Infrastructure\BIMDesigner.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="netDxf" Version="2023.11.10" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+
+    <!-- What the installer, Explorer and an IFC file's header call it. -->
+    <AssemblyName>BIMDesigner</AssemblyName>
+    <RootNamespace>BIMDesigner.UI</RootNamespace>
+    <Product>BIMDesigner</Product>
+    <Version>0.5.0</Version>
+    <ApplicationIcon>Assets\BIMDesigner.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

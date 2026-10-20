@@ -226,13 +226,17 @@ public static class ElementCopy
             ViewDepth = section.ViewDepth
         }, section),
 
-        Dimension dimension => CarryCommon(new Dimension
+        Dimension dimension => CarryCommon(CloneDimension(dimension), dimension),
+
+        AngularDimension angular => CarryCommon(new AngularDimension
         {
-            Start = CloneReference(dimension.Start),
-            End = CloneReference(dimension.End),
-            Offset = dimension.Offset,
-            Override = dimension.Override
-        }, dimension),
+            First = CloneReference(angular.First), Second = CloneReference(angular.Second), Through = angular.Through, Override = angular.Override
+        }, angular),
+
+        RadialDimension radial => CarryCommon(new RadialDimension
+        {
+            Kind = radial.Kind, Target = CloneReference(radial.Target), Through = radial.Through, Override = radial.Override
+        }, radial),
 
         Tag tag => CarryCommon(new Tag
         {
@@ -248,6 +252,14 @@ public static class ElementCopy
             Position = note.Position,
             LeaderEnd = note.LeaderEnd
         }, note),
+
+        RevisionCloud cloud => CarryCommon(CloneCloud(cloud), cloud),
+
+        KeynoteTag keynote => CarryCommon(new KeynoteTag
+        {
+            Source = keynote.Source, TargetId = keynote.TargetId, MaterialId = keynote.MaterialId, Key = keynote.Key,
+            Position = keynote.Position, LeaderEnd = keynote.LeaderEnd, Display = keynote.Display
+        }, keynote),
 
         PlacedSweep placed => CarryPlacedSweep(placed),
         Fascia fascia => CarryRoofEdgeSweep(new Fascia(), fascia),
@@ -517,6 +529,24 @@ public static class ElementCopy
         return copy;
     }
 
+    /// <summary>A copied dimension measures to the same things - a string's between them too - offset and worded the same.</summary>
+    private static Dimension CloneDimension(Dimension original)
+    {
+        var copy = new Dimension
+        {
+            Start = CloneReference(original.Start), End = CloneReference(original.End), Offset = original.Offset, Override = original.Override
+        };
+        copy.Between.AddRange(original.Between.Select(CloneReference));
+        return copy;
+    }
+
+    private static RevisionCloud CloneCloud(RevisionCloud cloud)
+    {
+        var copy = new RevisionCloud { RevisionId = cloud.RevisionId, TagAt = cloud.TagAt };
+        copy.Outline.AddRange(cloud.Outline);
+        return copy;
+    }
+
     private static Element CarryCommon(Element copy, Element original)
     {
         copy.TypeId = original.TypeId;
@@ -597,6 +627,10 @@ public static class ElementCopy
                 roofWindow.RoofId = windowRoof;
                 break;
 
+            case KeynoteTag keynote when replacements.TryGetValue(keynote.TargetId, out var noted):
+                keynote.TargetId = noted;
+                break;
+
             case Downpipe pipe when replacements.TryGetValue(pipe.GutterId, out var pipeGutter):
                 pipe.GutterId = pipeGutter;
                 break;
@@ -625,6 +659,19 @@ public static class ElementCopy
                 if (replacements.TryGetValue(dimension.End.ElementId, out var end))
                     dimension.End.ElementId = end;
 
+                foreach (var between in dimension.Between)
+                    if (replacements.TryGetValue(between.ElementId, out var to))
+                        between.ElementId = to;
+
+                break;
+
+            case AngularDimension angular:
+                if (replacements.TryGetValue(angular.First.ElementId, out var first)) angular.First.ElementId = first;
+                if (replacements.TryGetValue(angular.Second.ElementId, out var second)) angular.Second.ElementId = second;
+                break;
+
+            case RadialDimension radial when replacements.TryGetValue(radial.Target.ElementId, out var wall):
+                radial.Target.ElementId = wall;
                 break;
         }
     }

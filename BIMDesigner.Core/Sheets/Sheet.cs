@@ -57,6 +57,12 @@ public sealed class Viewport
     /// </summary>
     public BoundingBox2D PaperBounds(BimDocument document)
     {
+        // A schedule, or a legend, is a table the size of its text, whatever the scale.
+        if (Table(document) is { } table)
+            return new BoundingBox2D(
+                Centre.X - table.Width / 2, Centre.Y - table.Height / 2,
+                Centre.X + table.Width / 2, Centre.Y + table.Height / 2);
+
         var content = ViewExtent.Of(document, View).OrAtLeast(1000);
 
         var halfWidth = Scale.ToPaper(content.Width) / 2;
@@ -66,6 +72,17 @@ public sealed class Viewport
             Centre.X - halfWidth, Centre.Y - halfHeight,
             Centre.X + halfWidth, Centre.Y + halfHeight);
     }
+
+    /// <summary>What a schedule or a keynote legend placed here lays out; null for a drawing.</summary>
+    public Schedules.ScheduleTable? Table(BimDocument document) => View.Kind switch
+    {
+        ViewKind.Schedule when View.ScheduleIn(document) is { } schedule => Schedules.ScheduleTable.Of(document, schedule),
+        ViewKind.KeynoteLegend => Annotation.Keynotes.LegendFor(document, this),
+        _ => null
+    };
+
+    /// <summary>Whether it is a table - a schedule or a legend - rather than a drawing at a scale.</summary>
+    public bool IsTable => View.Kind is ViewKind.Schedule or ViewKind.KeynoteLegend;
 
     /// <summary>Whether a point on the paper falls inside this viewport.</summary>
     public bool Contains(BimDocument document, Point2D paperPoint)
@@ -133,10 +150,17 @@ public sealed class Sheet : Element
 
     public IReadOnlyList<Viewport> Viewports => _viewports;
 
+    /// <summary>
+    /// Revisions put on the sheet by hand: a change with nothing on a plan to cloud - a title, a
+    /// note. Those clouded in a view on the sheet are on it anyway.
+    /// </summary>
+    public List<Guid> RevisionIds { get; } = new();
+
     /// <summary>Puts a view on the sheet, numbered after those on it already unless it has a number.</summary>
     public void Add(Viewport viewport)
     {
-        if (string.IsNullOrWhiteSpace(viewport.DetailNumber)) viewport.DetailNumber = NextDetailNumber();
+        // A schedule is not a drawing anything points to: it has no number.
+        if (string.IsNullOrWhiteSpace(viewport.DetailNumber) && !viewport.IsTable) viewport.DetailNumber = NextDetailNumber();
         _viewports.Add(viewport);
     }
 
@@ -372,10 +396,27 @@ public sealed class Sheet : Element
 
         yield return ParameterValue.Bind(SheetParameters.DrawnBy, () => DrawnBy, v => DrawnBy = v);
         yield return ParameterValue.Bind(SheetParameters.CheckedBy, () => CheckedBy, v => CheckedBy = v);
+        yield return ParameterValue.BindValidated(SheetParameters.IssueDate, () => Annotation.Revisions.FormatDate(IssuedOn), text =>
+        {
+            if (!Annotation.Revisions.TryParseDate(text, out var date)) return false;
+            IssuedOn = date;
+            return true;
+        });
+
+        // Its revision as the project's revisions have it; typed, where the project has none on it.
         yield return ParameterValue.Bind(SheetParameters.Revision, () => Revision, v => Revision = v);
+        yield return ParameterValue.ReadOnly(SheetParameters.CurrentRevision, () => CurrentRevision(document));
+        yield return ParameterValue.ReadOnly(SheetParameters.CurrentRevisionDate, () => Annotation.Revisions.FormatDate(Annotation.Revisions.CurrentOn(document, this)?.Date));
+        yield return ParameterValue.ReadOnly(SheetParameters.CurrentRevisionDescription, () => Annotation.Revisions.CurrentOn(document, this)?.Description ?? string.Empty);
+        yield return ParameterValue.ReadOnly(SheetParameters.RevisionsOnSheet, () =>
+            string.Join(", ", Annotation.Revisions.OnSheet(document, this).Select(revision => Annotation.Revisions.NumberOf(document, revision))));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
+
+    /// <summary>The latest of the project's revisions on the sheet; or, where none is, the revision typed on it.</summary>
+    public string CurrentRevision(BimDocument document) =>
+        Annotation.Revisions.CurrentOn(document, this) is { } current ? Annotation.Revisions.NumberOf(document, current) : Revision;
 
     public override string ToString() => $"{Number} - {Name}";
 }
@@ -450,4 +491,19 @@ public static class SheetParameters
 
     public static readonly ParameterDefinition Revision =
         new("Revision", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition IssueDate =
+        new("Sheet Issue Date", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition CurrentRevision =
+        new("Current Revision", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition CurrentRevisionDate =
+        new("Current Revision Date", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition CurrentRevisionDescription =
+        new("Current Revision Description", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition RevisionsOnSheet =
+        new("Revisions on Sheet", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

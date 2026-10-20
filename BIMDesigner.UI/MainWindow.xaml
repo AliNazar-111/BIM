@@ -367,6 +367,8 @@
                         <MenuItem Header="_Open Project..." Command="Open" InputGestureText="Ctrl+O">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Open}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
+                        <MenuItem Header="Open IF_C..." Click="OnImportIfc"
+                                  ToolTip="Read an IFC2x3 or IFC4 model into a new project: its storeys, walls with their layers, doors and windows, floors, roofs, ceilings, rooms and grids - and everything else as its shape"/>
                         <Separator/>
                         <MenuItem Header="_Save" Command="Save" InputGestureText="Ctrl+S">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Save}" Width="16"/></MenuItem.Icon>
@@ -383,6 +385,12 @@
                         <MenuItem Header="Export _IFC..." Click="OnExportIfc">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Export}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
+                        <MenuItem Header="Export IFC _2x3..." Click="OnExportIfc2x3"
+                                  ToolTip="The model as IFC2x3 Coordination View 2.0, for software that does not yet read IFC4"/>
+                        <MenuItem Header="Export Plan to D_XF..." Click="OnExportPlanDxf"
+                                  ToolTip="The plan shown, as a DXF drawing at full size in millimetres"/>
+                        <MenuItem Header="Export This Sheet to DX_F..." Click="OnExportSheetDxf"
+                                  ToolTip="The sheet open, as a DXF drawing at paper size in millimetres"/>
                         <MenuItem Header="_Export This Sheet to PDF..." Click="OnExportSheetPdf">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Pdf}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
@@ -390,6 +398,9 @@
                         <MenuItem Header="_Print..." Click="OnPrintSheets" InputGestureText="Ctrl+P">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Print}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
+                        <Separator/>
+                        <MenuItem Header="Open .bimx Files with This Copy" Click="OnRegisterFileTypes"
+                                  ToolTip="Double-clicking a project file opens it in this copy of BIMDesigner - for a copy run where it was built; the installer does this for everyone"/>
                         <Separator/>
                         <MenuItem Header="E_xit" Click="OnExit"/>
                     </ContextMenu>
@@ -763,8 +774,22 @@
                 <TabItem Header="Annotate" Style="{StaticResource RibbonTab}">
                     <StackPanel Orientation="Horizontal">
                         <HeaderedContentControl Header="Dimension" Style="{StaticResource RibbonPanel}">
-                            <RadioButton x:Name="DimensionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Dimension}"
-                                         Content="Aligned" Checked="OnToolChanged" ToolTip="Measure between two points or elements (M)"/>
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="DimensionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Dimension}"
+                                             Content="Aligned" Checked="OnToolChanged" ToolTip="Measure between two points or elements (M) - or, with String ticked on the options bar, through many in a row"/>
+                                <StackPanel>
+                                    <RadioButton x:Name="AngularDimensionTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.AngularDimension}"
+                                                 Content="Angular" Checked="OnToolChanged" ToolTip="The angle between two walls or gridlines"/>
+                                    <RadioButton x:Name="RadialDimensionTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.RadialDimension}"
+                                                 Content="Radial" Checked="OnToolChanged" ToolTip="A curved wall's radius"/>
+                                    <RadioButton x:Name="DiameterDimensionTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.RadialDimension}"
+                                                 Content="Diameter" Checked="OnToolChanged" ToolTip="A curved wall's diameter"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <RadioButton x:Name="ArcLengthDimensionTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.AngularDimension}"
+                                                 Content="Arc Length" Checked="OnToolChanged" ToolTip="A curved wall's length along it"/>
+                                </StackPanel>
+                            </StackPanel>
                         </HeaderedContentControl>
                         <HeaderedContentControl Header="Tag" Style="{StaticResource RibbonPanel}">
                             <RadioButton x:Name="TagTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Tag}"
@@ -773,6 +798,30 @@
                         <HeaderedContentControl Header="Text" Style="{StaticResource RibbonPanel}">
                             <RadioButton x:Name="TextTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Text}"
                                          Content="Text" Checked="OnToolChanged" ToolTip="Write a note on the drawing (E)"/>
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Header="Keynote" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="KeynoteTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Keynote}"
+                                             Content="Keynote" Checked="OnToolChanged"
+                                             ToolTip="A keynote with a leader: an element's type's, the material where it points, or a key of its own - picked on the options bar"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Keynote}" Content="Keynotes" Click="OnShowKeynotes"
+                                            ToolTip="The keynote table: load an office's file, or edit the keys; and each material's keynote"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                        <HeaderedContentControl Header="Revisions" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="RevisionCloudTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.RevisionCloud}"
+                                             Content="Cloud" Checked="OnToolChanged"
+                                             ToolTip="Cloud what a revision changed: click round it, double-click the last corner. Two corners make a rectangle"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Revisions}" Content="Revisions" Click="OnShowRevisions"
+                                            ToolTip="The project's revisions: their numbers, dates, descriptions, who they went to, and whether issued"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Revisions}" Content="On Sheet" Click="OnRevisionsOnSheet"
+                                            ToolTip="Revisions on Sheet: put revisions on the open sheet by hand - those clouded in its views are on it already"/>
+                                </StackPanel>
+                            </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>
                 </TabItem>
@@ -865,6 +914,7 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}"
                                             Content="Delete Sheet" Click="OnDeleteSheet"/>
                                 </StackPanel>
+
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -1898,9 +1948,33 @@
                 </StackPanel>
 
                 <StackPanel x:Name="DimensionOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Style" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="DimensionTypePicker" Style="{StaticResource OptionCombo}" MinWidth="170" DisplayMemberPath="Name"
+                              SelectionChanged="OnDimensionTypeChanged"
+                              ToolTip="The dimension style: its marks, text, witness lines and units. Edit Type on a dimension to change one"/>
+                    <CheckBox x:Name="DimensionStringBox" Content="String" VerticalAlignment="Center" Margin="0,0,12,0" Click="OnDimensionStringChanged"
+                              ToolTip="Measure through many walls and gridlines in a row: click each in turn, double-click where the line goes"/>
                     <TextBlock Text="Prefer" Style="{StaticResource OptionLabel}"/>
                     <ComboBox x:Name="DimensionPreferPicker" Style="{StaticResource OptionCombo}" MinWidth="130" SelectionChanged="OnDimensionPreferChanged"
                               ToolTip="What a click on a wall measures to: its centreline, the face nearer the click, the middle of its core, or the nearer face of its core"/>
+                </StackPanel>
+
+                <StackPanel x:Name="RevisionCloudOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Revision" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="CloudRevisionPicker" Style="{StaticResource OptionCombo}" MinWidth="240" SelectionChanged="OnCloudRevisionChanged"
+                              ToolTip="The revision the cloud is of. An issued revision cannot be clouded"/>
+                    <CheckBox x:Name="CloudTagBox" Content="Tag" VerticalAlignment="Center" Margin="0,0,12,0" Click="OnCloudTagChanged"
+                              ToolTip="A triangle with the revision's number beside the cloud"/>
+                    <Button Content="Revisions..." Padding="10,3" VerticalAlignment="Center" Click="OnShowRevisions"/>
+                </StackPanel>
+
+                <StackPanel x:Name="KeynoteOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Keynote of" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="KeynoteSourcePicker" Style="{StaticResource OptionCombo}" MinWidth="130" SelectionChanged="OnKeynoteSourceChanged"
+                              ToolTip="The element's type, the material where it points, or a key picked here"/>
+                    <TextBlock x:Name="KeynoteKeyLabel" Text="Key" Style="{StaticResource OptionLabel}"/>
+                    <ComboBox x:Name="KeynoteKeyPicker" Style="{StaticResource OptionCombo}" MinWidth="320" MaxDropDownHeight="420" SelectionChanged="OnKeynoteKeyChanged"/>
+                    <Button Content="Keynotes..." Padding="10,3" VerticalAlignment="Center" Click="OnShowKeynotes"/>
                 </StackPanel>
 
                 <StackPanel x:Name="OffsetOptions" Orientation="Horizontal" Visibility="Collapsed">
@@ -2275,6 +2349,9 @@
                                     <Button Content="Export PDF" Padding="12,5" Margin="0,0,8,0"
                                             Click="OnExportSheetPdf"
                                             ToolTip="Write this sheet out as a PDF"/>
+                                    <Button Content="Export DXF" Padding="12,5" Margin="0,0,8,0"
+                                            Click="OnExportSheetDxf"
+                                            ToolTip="Write this sheet out as a DXF drawing, at paper size in millimetres"/>
                                     <Button x:Name="RemoveViewportButton" Content="Remove View" Padding="12,5"
                                             Margin="0,0,8,0" IsEnabled="False" Click="OnRemoveViewport"/>
                                     <Button Content="Zoom to Fit" Padding="12,5" Margin="0,0,8,0"
@@ -2403,6 +2480,8 @@
                                         <Button Style="{StaticResource ViewControlButton}" Content="|&lt;" Click="OnWalkthroughFirst" ToolTip="The first frame"/>
                                         <Button Style="{StaticResource ViewControlButton}" Content="&lt;" Click="OnWalkthroughBack" ToolTip="Back a key frame"/>
                                         <Button Style="{StaticResource ViewControlButton}" Content="&gt;" Click="OnWalkthroughForward" ToolTip="On a key frame"/>
+                                        <Button x:Name="ExportWalkthroughButton" Style="{StaticResource ViewControlButton}" Content="Export Video"
+                                                Click="OnExportWalkthrough" ToolTip="Save the walkthrough as a video - a Motion-JPEG AVI - every frame of it, the size the 3D view is"/>
                                         <TextBlock x:Name="FrameText" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource Text.Muted}"/>
                                     </StackPanel>
                                     <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnZoom3DToFit"
@@ -2467,8 +2546,18 @@
                             <TextBlock Text="Schedule" Style="{StaticResource OptionLabel}"/>
                             <ComboBox x:Name="SchedulePicker" Style="{StaticResource OptionCombo}"
                                       MinWidth="220" SelectionChanged="OnScheduleChanged"/>
+                            <Button Content="New..." Padding="10,4" Margin="0,0,6,0" Click="OnNewSchedule"
+                                    ToolTip="A schedule of your own: its category, fields, filters, sorting, grouping, calculated values and colours"/>
+                            <Button Content="Edit..." Padding="10,4" Margin="0,0,6,0" Click="OnEditSchedule"
+                                    ToolTip="This schedule's fields, filters, sorting and grouping, calculated values and colours"/>
+                            <Button Content="Duplicate" Padding="10,4" Margin="0,0,6,0" Click="OnDuplicateSchedule"/>
+                            <Button Content="Delete" Padding="10,4" Margin="0,0,12,0" Click="OnDeleteSchedule"
+                                    ToolTip="Deletes the schedule, and takes it off any sheet it is on"/>
                             <TextBlock x:Name="ScheduleSummary" VerticalAlignment="Center"
                                        Foreground="{StaticResource Text.Muted}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="ScheduleProblem" VerticalAlignment="Center" Margin="12,0,0,0"
+                                       Foreground="#C0392B" Visibility="Collapsed"
                                        TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
 

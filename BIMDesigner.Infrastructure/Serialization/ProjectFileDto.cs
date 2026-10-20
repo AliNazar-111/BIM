@@ -38,6 +38,14 @@ internal sealed class ProjectFileDto
 
     /// <summary>Fascia and gutter types, and the fascias and gutters run along roof edges. Missing from older files.</summary>
     public List<FasciaTypeDto> FasciaTypes { get; set; } = new();
+
+    public List<DimensionTypeDto> DimensionTypes { get; set; } = new();
+
+    /// <summary>
+    /// Every type's identity - its mark, classification, keynote, maker, link, description and
+    /// cost - whatever kind it is, so none is lost by a type whose own record leaves it out.
+    /// </summary>
+    public List<TypeIdentityDto> TypeIdentities { get; set; } = new();
     public List<GutterTypeDto> GutterTypes { get; set; } = new();
     public List<SlabEdgeTypeDto> SlabEdgeTypes { get; set; } = new();
     public List<SlabEdgeDto> SlabEdges { get; set; } = new();
@@ -101,6 +109,10 @@ internal sealed class ProjectFileDto
 
     public List<DimensionDto> Dimensions { get; set; } = new();
 
+    public List<AngularDimensionDto> AngularDimensions { get; set; } = new();
+
+    public List<RadialDimensionDto> RadialDimensions { get; set; } = new();
+
     public List<TagDto> Tags { get; set; } = new();
 
     public List<TextNoteDto> TextNotes { get; set; } = new();
@@ -108,6 +120,17 @@ internal sealed class ProjectFileDto
     public List<SectionDto> Sections { get; set; } = new();
 
     public List<SheetDto> Sheets { get; set; } = new();
+
+    /// <summary>The project's schedules. Missing from older files, which open with the schedules a project starts with.</summary>
+    public List<ScheduleDto>? Schedules { get; set; }
+
+    /// <summary>The revisions of the drawings, in order, and the clouds round what they changed.</summary>
+    public List<RevisionDto> Revisions { get; set; } = new();
+    public List<RevisionCloudDto> RevisionClouds { get; set; } = new();
+
+    /// <summary>The project's keynotes. Missing from older files, which open with the starter set.</summary>
+    public KeynoteTableDto? Keynotes { get; set; }
+    public List<KeynoteTagDto> KeynoteTags { get; set; } = new();
 
     /// <summary>Views that leave something out. Missing from older files, where every view showed everything.</summary>
     public List<ViewSettingsDto> ViewSettings { get; set; } = new();
@@ -262,6 +285,9 @@ internal sealed class SheetDto
     public string Revision { get; set; } = "P1";
     public DateTime? IssuedOn { get; set; }
 
+    /// <summary>Revisions put on the sheet by hand.</summary>
+    public List<Guid> RevisionIds { get; set; } = new();
+
     public List<ViewportDto> Viewports { get; set; } = new();
 
     public string Comments { get; set; } = string.Empty;
@@ -333,13 +359,178 @@ internal sealed class DimensionEndDto
     public double Y { get; set; }
 }
 
+/// <summary>A dimension style.</summary>
+internal sealed class DimensionTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Linear";
+    public string Tick { get; set; } = "Tick";
+    public double TextSize { get; set; } = 2.5;
+    public double TextOffset { get; set; } = 1;
+    public bool TextAlongLine { get; set; } = true;
+    public double WitnessGap { get; set; } = 2;
+    public double WitnessExtension { get; set; } = 2;
+    public double LineExtension { get; set; } = 2;
+    public string Units { get; set; } = "Millimetres";
+    public int Decimals { get; set; }
+    public bool ShowUnits { get; set; }
+    public int AngleDecimals { get; set; }
+}
+
+internal sealed class RevisionDto
+{
+    public Guid Id { get; set; }
+    public string Numbering { get; set; } = "Preliminary";
+    public DateTime? Date { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string IssuedTo { get; set; } = string.Empty;
+    public string IssuedBy { get; set; } = string.Empty;
+    public bool Issued { get; set; }
+    public string Visibility { get; set; } = "CloudsAndTags";
+}
+
+internal sealed class RevisionCloudDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid RevisionId { get; set; }
+    public List<double> Outline { get; set; } = new();
+    public double? TagX { get; set; }
+    public double? TagY { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public string Workset { get; set; } = "Workset1";
+}
+
+internal sealed class KeynoteTableDto
+{
+    public string Source { get; set; } = string.Empty;
+    public List<KeynoteEntryDto> Entries { get; set; } = new();
+}
+
+internal sealed class KeynoteEntryDto
+{
+    public string Key { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
+    public string? Parent { get; set; }
+}
+
+internal sealed class KeynoteTagDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string Source { get; set; } = "Element";
+    public Guid TargetId { get; set; }
+    public Guid MaterialId { get; set; }
+    public string Key { get; set; } = string.Empty;
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double? LeaderX { get; set; }
+    public double? LeaderY { get; set; }
+    public string Display { get; set; } = "Key";
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public string Workset { get; set; } = "Workset1";
+}
+
+/// <summary>A schedule: what it reports, how, and what it works out and colours.</summary>
+internal sealed class ScheduleDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Schedule";
+    public string Category { get; set; } = "Walls";
+    public List<string> Fields { get; set; } = new();
+    public List<ScheduleFilterDto> Filters { get; set; } = new();
+    public string? SortBy { get; set; }
+    public bool SortDescending { get; set; }
+    public string? GroupBy { get; set; }
+    public bool ShowTotals { get; set; } = true;
+    public bool Itemize { get; set; } = true;
+    public List<string> NotTotalled { get; set; } = new();
+    public List<CalculatedFieldDto> Calculated { get; set; } = new();
+    public List<ConditionalFormatDto> Formats { get; set; } = new();
+    public bool ShowFormatsOnSheets { get; set; }
+}
+
+internal sealed class ScheduleFilterDto
+{
+    public string Field { get; set; } = string.Empty;
+    public string Comparison { get; set; } = "Equals";
+    public string Value { get; set; } = string.Empty;
+}
+
+internal sealed class CalculatedFieldDto
+{
+    public string Name { get; set; } = "Calculated";
+    public string Kind { get; set; } = "Number";
+    public string Formula { get; set; } = string.Empty;
+    public string PercentageOf { get; set; } = string.Empty;
+    public bool ByGroup { get; set; }
+}
+
+internal sealed class ConditionalFormatDto
+{
+    public string Field { get; set; } = string.Empty;
+    public string Test { get; set; } = "LessThan";
+    public string Value { get; set; } = string.Empty;
+    public string Value2 { get; set; } = string.Empty;
+    public string Background { get; set; } = "F8C8C8";
+}
+
+/// <summary>A type's identity, by its id.</summary>
+internal sealed class TypeIdentityDto
+{
+    public Guid Id { get; set; }
+    public string? TypeMark { get; set; }
+    public string? AssemblyCode { get; set; }
+    public string? Keynote { get; set; }
+    public string? Manufacturer { get; set; }
+    public string? Url { get; set; }
+    public string? Description { get; set; }
+    public decimal Cost { get; set; }
+}
+
+/// <summary>An angular dimension: its two lines and a point its arc passes through.</summary>
+internal sealed class AngularDimensionDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid TypeId { get; set; }
+    public DimensionEndDto First { get; set; } = new();
+    public DimensionEndDto Second { get; set; } = new();
+    public double X { get; set; }
+    public double Y { get; set; }
+    public string Override { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A radius, diameter or arc-length dimension: the curved wall's line it measures, and where it was placed.</summary>
+internal sealed class RadialDimensionDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid TypeId { get; set; }
+    public string Kind { get; set; } = "Radius";
+    public DimensionEndDto Target { get; set; } = new();
+    public double X { get; set; }
+    public double Y { get; set; }
+    public string Override { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
 internal sealed class DimensionDto
 {
     public Guid Id { get; set; }
     public Guid LevelId { get; set; }
 
+    /// <summary>Its style; missing from older files, where every dimension takes the project's first.</summary>
+    public Guid TypeId { get; set; }
+
     public DimensionEndDto Start { get; set; } = new();
     public DimensionEndDto End { get; set; } = new();
+
+    /// <summary>A string's references between its ends.</summary>
+    public List<DimensionEndDto>? Between { get; set; }
 
     public double Offset { get; set; } = 600;
     public string Override { get; set; } = string.Empty;
@@ -801,6 +992,7 @@ internal sealed class MaterialDto
     public string Manufacturer { get; set; } = string.Empty;
     public string ClassificationCode { get; set; } = string.Empty;
     public decimal CostPerCubicMetre { get; set; }
+    public string? Keynote { get; set; }
 }
 
 internal sealed class MaterialLayerDto
