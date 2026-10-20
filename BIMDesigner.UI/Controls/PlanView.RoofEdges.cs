@@ -11,7 +11,8 @@ public enum RoofEdgeKind
 {
     Fascia,
     Gutter,
-    Soffit
+    Soffit,
+    Eave
 }
 
 /// <summary>
@@ -30,6 +31,9 @@ public partial class PlanView
 
     /// <summary>The soffit type the Soffit tool puts under the eaves picked.</summary>
     public Guid ActiveSoffitTypeId { get; set; }
+
+    /// <summary>The eave type the Eave tool builds under the eaves picked.</summary>
+    public Guid ActiveEaveTypeId { get; set; }
 
     // The roof edge under the cursor, and the fascia, gutter or soffit the picks are adding to.
     private (Roof Roof, int Edge)? _edgeHover;
@@ -52,6 +56,7 @@ public partial class PlanView
         PlanTool.Fascia => RoofEdgeKind.Fascia,
         PlanTool.Gutter => RoofEdgeKind.Gutter,
         PlanTool.Soffit => RoofEdgeKind.Soffit,
+        PlanTool.Eave => RoofEdgeKind.Eave,
         _ => null
     };
 
@@ -59,6 +64,7 @@ public partial class PlanView
     {
         Gutter => RoofEdgeKind.Gutter,
         Soffit => RoofEdgeKind.Soffit,
+        Eave => RoofEdgeKind.Eave,
         _ => RoofEdgeKind.Fascia
     };
 
@@ -85,13 +91,21 @@ public partial class PlanView
         var what = Noun(kind);
         if (RoofEdgeAt(raw) is not var (roof, index))
         {
-            HintChanged?.Invoke(this, kind == RoofEdgeKind.Soffit
-                ? "Click the eave of a roof - the soffit closes the overhang under it."
-                : $"Click the edge of a roof - the {what} runs along it.");
+            HintChanged?.Invoke(this, kind switch
+            {
+                RoofEdgeKind.Soffit => "Click the eave of a roof - the soffit closes the overhang under it.",
+                RoofEdgeKind.Eave => "Click the eave of a roof - the eave is built under its overhang.",
+                _ => $"Click the edge of a roof - the {what} runs along it."
+            });
             return false;
         }
 
         var edge = roof.Edges[index];
+        if (kind == RoofEdgeKind.Eave && !edge.DefinesSlope)
+        {
+            HintChanged?.Invoke(this, "An eave goes under an edge the roof slopes up from. That edge is a verge or a flat roof's edge - a soffit closes under one of those.");
+            return false;
+        }
         if (kind == RoofEdgeKind.Soffit && edge.Overhang <= 1)
         {
             HintChanged?.Invoke(this, "A soffit goes under an eave or a verge that overhangs its wall. That edge has no overhang to close.");
@@ -112,6 +126,9 @@ public partial class PlanView
                 Apply(new DeleteElementsCommand(Document, new Element[] { current }));
                 _edgeSweep = null;
             }
+            else if (current is Eave eave && edges.Count > current.EdgeIds.Count)
+                Apply(new CompositeCommand(name, new IUndoableCommand[] { new SetRoofEdgeSweepEdgesCommand(current, edges, name) }
+                    .Concat(Eaves.TakeOver(Document, roof.Id, Document.FindType<EaveType>(eave.TypeId), new[] { edge.Id }))));
             else Apply(new SetRoofEdgeSweepEdgesCommand(current, edges, name));
 
             HintChanged?.Invoke(this, $"The {what} runs along {Plural(edges.Count, "edge")}. Click more edges of this roof, or Esc to finish it.");
@@ -122,7 +139,7 @@ public partial class PlanView
 
         var sweep = NewRoofEdgeSweep(roof, kind);
         sweep.EdgeIds.Add(edge.Id);
-        Apply(new AddElementCommand(Document, sweep, name));
+        Apply(Placing(sweep, name));
         _edgeSweep = sweep;
 
         HintChanged?.Invoke(this, $"A {what} along that edge. Click the next edges of the roof to carry it round them, or Esc to finish.");
@@ -144,6 +161,9 @@ public partial class PlanView
         {
             case RoofEdgeKind.Soffit:
                 return new Soffit { RoofId = roof.Id, LevelId = roof.LevelId, TypeId = TypeOr<SoffitType>(ActiveSoffitTypeId) };
+
+            case RoofEdgeKind.Eave:
+                return new Eave { RoofId = roof.Id, LevelId = roof.LevelId, TypeId = TypeOr<EaveType>(ActiveEaveTypeId) };
 
             case RoofEdgeKind.Gutter:
                 var gutterType = TypeOr<GutterType>(ActiveGutterTypeId);
@@ -188,6 +208,7 @@ public partial class PlanView
         {
             RoofEdgeKind.Gutter => RoofEdgeSweeps.GutterEdges(Document, roof),
             RoofEdgeKind.Soffit => RoofEdgeSweeps.SoffitEdges(Document, roof),
+            RoofEdgeKind.Eave => Eaves.EaveEdges(Document, roof),
             _ => RoofEdgeSweeps.FasciaEdges(Document, roof)
         };
         var taken = RoofEdgeSweeps.Of(Document, roof).Where(existing => KindOf(existing) == kind).SelectMany(existing => existing.EdgeIds).ToHashSet();
@@ -196,10 +217,20 @@ public partial class PlanView
 
         var sweep = NewRoofEdgeSweep(roof, kind);
         sweep.EdgeIds.AddRange(edges);
-        Apply(new AddElementCommand(Document, sweep, kind.ToString()));
+        Apply(Placing(sweep, kind.ToString()));
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return sweep;
+    }
+
+    /// <summary>Adding a fascia, gutter, soffit or eave - an eave taking over the soffits, and the fascias over exposed rafters, on its edges.</summary>
+    private IUndoableCommand Placing(RoofEdgeSweep sweep, string name)
+    {
+        var add = new AddElementCommand(Document!, sweep, name);
+        if (sweep is not Eave) return add;
+
+        var takeOver = Eaves.TakeOver(Document!, sweep.RoofId, Document!.FindType<EaveType>(sweep.TypeId), sweep.EdgeIds);
+        return takeOver.Count == 0 ? add : new CompositeCommand(name, takeOver.Prepend(add));
     }
 
     /// <summary>Esc with the Fascia, Gutter or Soffit tool: the one being picked is finished, and the next click starts another.</summary>

@@ -66,6 +66,9 @@ public sealed record CurtainMullion(
     bool IsVertical, bool IsBorder, double From, double To, double Bottom, double Top,
     double? BottomAtTo = null, double? TopAtTo = null)
 {
+    /// <summary>Its mullion type: its section, depth and offset, and what it is made of.</summary>
+    public MullionType? Type { get; init; }
+
     /// <summary>Whether its bottom or top slopes.</summary>
     public bool IsSloped => BottomAtTo is not null || TopAtTo is not null;
 
@@ -91,8 +94,9 @@ public sealed class CurtainLayout
 
     private CurtainLayout(CurtainWallType type, double length, double height,
         IReadOnlyList<double> verticals, IReadOnlyList<double> horizontals,
-        IReadOnlyList<CurtainCell> cells, IReadOnlyList<CurtainMullion> mullions, IReadOnlyList<Point2D>? topLine)
+        IReadOnlyList<CurtainCell> cells, IReadOnlyList<CurtainMullion> mullions, IReadOnlyList<Point2D>? topLine, double inset)
     {
+        _inset = inset;
         Type = type;
         Length = length;
         Height = height;
@@ -111,7 +115,9 @@ public sealed class CurtainLayout
     public IReadOnlyList<Point2D>? TopLine { get; }
 
     /// <summary>How far below the top the panes and mullions stop: the depth of the frame along it.</summary>
-    public double TopInset => TopLine is null ? 0 : Inset(Type);
+    public double TopInset => TopLine is null ? 0 : _inset;
+
+    private readonly double _inset;
 
     /// <summary>How high the wall goes this far along it.</summary>
     public double TopAt(double along) => TopOn(TopLine, Height, along);
@@ -130,8 +136,7 @@ public sealed class CurtainLayout
     public IReadOnlyList<(double From, double To, double Bottom, double TopFrom, double TopTo)> ClearPieces(CurtainCell cell) =>
         Under(cell.ClearFrom, cell.ClearTo, cell.ClearBottom, cell.ClearTop);
 
-    /// <summary>The frame along a sloping top: a border mullion's width, or nothing without one.</summary>
-    private static double Inset(CurtainWallType type) => type.BorderMullions && type.MullionWidth > 0 ? type.MullionWidth : 0;
+
 
     private static double TopOn(IReadOnlyList<Point2D>? line, double height, double along)
     {
@@ -247,11 +252,11 @@ public sealed class CurtainLayout
                 .SelectMany(ClearPieces)
                 .Sum(piece => (piece.To - piece.From) * ((piece.TopFrom + piece.TopTo) / 2 - piece.Bottom)) * Type.PanelThickness;
 
-            var section = Type.MullionProfile == MullionProfile.Circular
-                ? Math.PI * Type.MullionWidth * Type.MullionWidth / 4
-                : Type.MullionWidth * Type.MullionDepth;
+            var frame = Mullions.Sum(m => m.Type is { } type ? type.Section().Area * (m.IsVertical
+                ? (m.Top + m.TopAt(m.To)) / 2 - m.Bottom
+                : Math.Sqrt((m.To - m.From) * (m.To - m.From) + (m.TopAt(m.To) - m.Top) * (m.TopAt(m.To) - m.Top))) : 0);
 
-            return panels + MullionLength * section;
+            return panels + frame;
         }
     }
 
@@ -269,7 +274,8 @@ public sealed class CurtainLayout
 
         var top = WallProfile.CurtainTop(document, wall);
         var height = top is null ? wall.GetHeight(document) : top.Max(point => point.Y);
-        return Build(type, wall.Length, height, wall.CurtainGrid, wall.CurtainPanels, wall.CurtainGlass, top);
+        type.TakeDepth(document);
+        return Build(type, wall.Length, height, wall.CurtainGrid, wall.CurtainPanels, wall.CurtainGlass, top, document, wall.CurtainMullions);
     }
 
     /// <summary>The grid lines a type sets out along a wall of this length, or up one of this height.</summary>
@@ -280,9 +286,8 @@ public sealed class CurtainLayout
     public static CurtainLayout Build(
         CurtainWallType type, double length, double height, CurtainGrid? grid,
         IReadOnlyList<CurtainPanelOverride>? panels, CurtainGlass glazing = CurtainGlass.Clear,
-        IReadOnlyList<Point2D>? topLine = null)
+        IReadOnlyList<Point2D>? topLine = null, BimDocument? document = null, IReadOnlyList<CurtainMullionOverride>? chosen = null)
     {
-        var inset = topLine is null ? 0 : Inset(type);
         var verticals = Tidy(grid?.Verticals ?? TypeLines(type, true, length), length);
         var horizontals = Tidy(grid?.Horizontals ?? TypeLines(type, false, height), height);
 
@@ -291,22 +296,45 @@ public sealed class CurtainLayout
             .ToDictionary(g => g.Key, g => g.Last());
         var kinds = overrides.ToDictionary(e => e.Key, e => e.Value.Kind);
 
-        var w = type.MullionWidth;
-        var border = type.BorderMullions && w > 0;
-
-        // The faces of the mullion on each line: an interior one is centred on its line, a
-        // border one sits inside the edge.
-        (double Low, double High) Faces(IReadOnlyList<double> lines, int i)
-        {
-            if (w <= 0) return (lines[i], lines[i]);
-            if (i == 0) return border ? (lines[0], lines[0] + w) : (lines[0], lines[0]);
-            if (i == lines.Count - 1) return border ? (lines[i] - w, lines[i]) : (lines[i], lines[i]);
-            return (lines[i] - w / 2, lines[i] + w / 2);
-        }
-
-        // The stretches of line taken out: a vertical line in a row, a horizontal one in a column.
         var columns = verticals.Count - 1;
         var rows = horizontals.Count - 1;
+
+        // The mullion on each stretch of each line - between the lines crossing it: the wall's own
+        // choice there, or its type's - interior, or border at the start, end, bottom or top.
+        var picks = chosen ?? Array.Empty<CurtainMullionOverride>();
+        MullionType? TypeOn(bool vertical, int i, int stretch)
+        {
+            var lines = vertical ? verticals : horizontals;
+            var across = vertical ? horizontals : verticals;
+            if (i < 0 || i >= lines.Count || across.Count < 2) return null;
+            var s = Math.Clamp(stretch, 0, across.Count - 2);
+            foreach (var pick in picks)
+                if (pick.Covers(vertical, lines[i], across[s], across[s + 1]))
+                    return pick.TypeId is { } id && id != Guid.Empty ? document?.FindType<MullionType>(id) : null;
+
+            var (first, last) = (i == 0, i == lines.Count - 1);
+            var slot = vertical
+                ? first ? type.BorderVerticalStart : last ? type.BorderVerticalEnd : type.InteriorVertical
+                : first ? type.BorderHorizontalBottom : last ? type.BorderHorizontalTop : type.InteriorHorizontal;
+            return type.Resolve(document, slot, first || last);
+        }
+
+        // The faces of the mullion on a stretch of a line: an interior one so far each side of it, a
+        // border one inside the edge, its whole width; nothing where there is no mullion.
+        (double Low, double High) Faces(bool vertical, int i, int stretch)
+        {
+            var lines = vertical ? verticals : horizontals;
+            if (TypeOn(vertical, i, stretch) is not { } m) return (lines[i], lines[i]);
+            var w = m.FaceWidth;
+            if (i == 0) return (lines[0], lines[0] + w);
+            if (i == lines.Count - 1) return (lines[i] - w, lines[i]);
+            return m.IsCorner ? (lines[i] - w / 2, lines[i] + w / 2) : (lines[i] - m.Width1, lines[i] + m.Width2);
+        }
+
+        // Under a sloping top, the frame along it: the top border transom's width.
+        var inset = topLine is null ? 0 : TypeOn(false, horizontals.Count - 1, 0)?.FaceWidth ?? 0;
+
+        // The stretches of line taken out: a vertical line in a row, a horizontal one in a column.
         var removed = grid?.Removed ?? Array.Empty<CurtainSegment>();
         bool VerticalGone(int i, int r) =>
             i > 0 && i < columns && r >= 0 && r < rows &&
@@ -350,23 +378,27 @@ public sealed class CurtainLayout
             owner[(c, r)] = (c0, r0);
         CurtainPanelKind KindAt(int c, int r) => kinds.GetValueOrDefault(owner.GetValueOrDefault((c, r), (c, r)), CurtainPanelKind.Glazed);
 
+        // A panel's clear opening: inside the mullions round it, each stretch of them.
+        IEnumerable<int> Span(int from, int to) => Enumerable.Range(from, to - from + 1);
+
         var cells = new List<CurtainCell>();
         foreach (var (c0, c1, r0, r1) in panelsOf)
         {
             var kind = kinds.GetValueOrDefault((c0, r0), CurtainPanelKind.Glazed);
+            var left = Span(r0, r1).Max(r => Faces(true, c0, r).High);
+            var right = Span(r0, r1).Min(r => Faces(true, c1 + 1, r).Low);
+            var top = Span(c0, c1).Min(c => Faces(false, r1 + 1, c).Low);
 
             // A door stands on the floor: nothing across the bottom of it. A window does not - it
             // sits in its panel like any other pane.
-
-            var clearBottom = kind == CurtainPanelKind.Door && r0 == 0 ? horizontals[0] : Faces(horizontals, r0).High;
+            var clearBottom = kind == CurtainPanelKind.Door && r0 == 0 ? horizontals[0] : Span(c0, c1).Max(c => Faces(false, r0, c).High);
 
             // Wholly above a sloping top, there is no cell: nothing to fill, nothing to pick.
-            if (topLine is not null &&
-                Clip(topLine, height, inset, Faces(verticals, c0).High, Faces(verticals, c1 + 1).Low, clearBottom, Faces(horizontals, r1 + 1).Low).Count == 0)
+            if (topLine is not null && Clip(topLine, height, inset, left, right, clearBottom, top).Count == 0)
                 continue;
 
             cells.Add(new CurtainCell(c0, r0, verticals[c0], verticals[c1 + 1], horizontals[r0], horizontals[r1 + 1],
-                Faces(verticals, c0).High, Faces(verticals, c1 + 1).Low, clearBottom, Faces(horizontals, r1 + 1).Low, kind,
+                left, right, clearBottom, top, kind,
                 overrides.TryGetValue((c0, r0), out var panel) ? panel.OpeningTypeId : null,
                 overrides.TryGetValue((c0, r0), out var pane) ? pane.Glass : glazing,
                 overrides.TryGetValue((c0, r0), out var hung) && hung.FlipHand,
@@ -379,95 +411,114 @@ public sealed class CurtainLayout
         bool Inside(int i, int r) => i > 0 && i < columns && r >= 0 && r < rows && owner[(i - 1, r)] == owner[(i, r)];
         bool Across(int j, int c) => j > 0 && j < rows && c >= 0 && c < columns && owner[(c, j - 1)] == owner[(c, j)];
 
-        var mullions = new List<CurtainMullion>();
-        if (w > 0)
+        var verticalsRun = type.JoinCondition == CurtainJoin.VerticalContinuous;
+        bool BorderLine(int i) => i == 0 || i == verticals.Count - 1;
+        int ColumnBy(int i) => Math.Clamp(i, 0, Math.Max(columns - 1, 0));
+
+        // The mullion standing on a vertical line at a horizontal line's height: the one below or above it.
+        MullionType? UprightAt(int i, int j)
         {
-            for (var i = 0; i < verticals.Count; i++)
+            if (j < rows && !Inside(i, j) && TypeOn(true, i, j) is { } above) return above;
+            return j > 0 && !Inside(i, j - 1) ? TypeOn(true, i, j - 1) : null;
+        }
+
+        (double Low, double High) UprightFaces(int i, int j) => j < rows && !Inside(i, j) && TypeOn(true, i, j) is not null ? Faces(true, i, j) : Faces(true, i, Math.Max(j - 1, 0));
+
+        var mullions = new List<CurtainMullion>();
+        for (var i = 0; i < verticals.Count && rows > 0; i++)
+        {
+            var isBorder = BorderLine(i);
+
+            // Up the rows, stopping where a stretch of it is taken out, has none, or turns another type
+            // - and, with the transoms running through, at every transom, a border's frame aside.
+            for (var r = 0; r < rows;)
             {
-                var isBorder = i == 0 || i == verticals.Count - 1;
-                if (isBorder && !border) continue;
-
-                var (low, high) = Faces(verticals, i);
-
-                // Up the rows it runs through, stopping where a stretch of it is taken out.
-                for (var r = 0; r < rows;)
+                if (Inside(i, r) || TypeOn(true, i, r) is not { } m)
                 {
-                    if (Inside(i, r))
-                    {
-                        r++;
-                        continue;
-                    }
-
-                    var first = r;
-                    while (r < rows && !Inside(i, r)) r++;
-                    var (runBottom, runTop) = (horizontals[first], horizontals[r]);
-
-                    if (topLine is null)
-                    {
-                        mullions.Add(new CurtainMullion(true, isBorder, low, high, runBottom, runTop));
-                        continue;
-                    }
-
-                    // Up to the rake, and stopped there.
-                    var (topFrom, topTo) = (Math.Min(runTop, TopOn(topLine, height, low) - inset), Math.Min(runTop, TopOn(topLine, height, high) - inset));
-                    if (Math.Max(topFrom, topTo) > runBottom + MinimumPanel)
-                        mullions.Add(new CurtainMullion(true, isBorder, low, high, runBottom, Math.Max(topFrom, runBottom),
-                            TopAtTo: Math.Max(topTo, runBottom)));
-                }
-            }
-
-            // A sloping top has its frame along it: a mullion up each stretch of the rake.
-            if (topLine is not null && border)
-                for (var i = 0; i + 1 < topLine.Count; i++)
-                {
-                    var (a, b) = (topLine[i], topLine[i + 1]);
-                    if (b.X - a.X > MinimumPanel)
-                        mullions.Add(new CurtainMullion(false, true, a.X, b.X, a.Y - w, a.Y, b.Y - w, b.Y));
+                    r++;
+                    continue;
                 }
 
-            for (var j = 0; j < horizontals.Count; j++)
-            {
-                var isBorder = j == 0 || j == horizontals.Count - 1;
-                if (isBorder && !border) continue;
+                var first = r++;
+                if (verticalsRun || isBorder)
+                    while (r < rows && !Inside(i, r) && ReferenceEquals(TypeOn(true, i, r), m)) r++;
 
-                // Under a sloping top, the top of the grid is only its highest point: the rake is
-                // the frame there.
-                if (topLine is not null && j == horizontals.Count - 1) continue;
-
-                var (bottom, top) = Faces(horizontals, j);
-
-                // Along the columns it crosses, stopping where a stretch of it is taken out, and
-                // running on unbroken past a vertical line that has no mullion there to stop at.
-                bool Stops(int c) => Across(j, c) || (j == 0 && KindAt(c, 0) == CurtainPanelKind.Door);
-                bool Upright(int i) => (j > 0 && !Inside(i, j - 1)) || (j < rows && !Inside(i, j));
-
-                for (var c = 0; c < columns;)
+                var (low, high) = Faces(true, i, first);
+                var (runBottom, runTop) = (horizontals[first], horizontals[r]);
+                if (!verticalsRun && !isBorder)
                 {
-                    // No sill across a door.
-                    if (Stops(c))
-                    {
-                        c++;
-                        continue;
-                    }
-
-                    var first = c;
-                    while (c + 1 < columns && !Stops(c + 1) && !Upright(c + 1)) c++;
-                    var from = Faces(verticals, first).High;
-                    var to = Faces(verticals, c + 1).Low;
-                    c++;
-                    if (to - from <= MinimumPanel) continue;
-
-                    // Cut off where it runs into the rake.
-                    foreach (var piece in Clip(topLine, height, inset, from, to, bottom, top))
-                        if (piece.To - piece.From > MinimumPanel)
-                            mullions.Add(Math.Abs(piece.TopFrom - top) < 1e-6 && Math.Abs(piece.TopTo - top) < 1e-6
-                                ? new CurtainMullion(false, isBorder, piece.From, piece.To, bottom, top)
-                                : new CurtainMullion(false, isBorder, piece.From, piece.To, bottom, piece.TopFrom, TopAtTo: piece.TopTo));
+                    // Stopped at the transoms running through - the frame along the bottom and top
+                    // too, but not a door's threshold, which has none, nor a rake, which it meets.
+                    var onDoor = first == 0 && (KindAt(ColumnBy(i), 0) == CurtainPanelKind.Door || KindAt(ColumnBy(i - 1), 0) == CurtainPanelKind.Door);
+                    if (!onDoor && TypeOn(false, first, ColumnBy(i)) is not null) runBottom = Faces(false, first, ColumnBy(i)).High;
+                    if ((r < rows || topLine is null) && TypeOn(false, r, ColumnBy(i)) is not null) runTop = Faces(false, r, ColumnBy(i)).Low;
                 }
+
+                if (topLine is null)
+                {
+                    mullions.Add(new CurtainMullion(true, isBorder, low, high, runBottom, runTop) { Type = m });
+                    continue;
+                }
+
+                // Up to the rake, and stopped there.
+                var (topFrom, topTo) = (Math.Min(runTop, TopOn(topLine, height, low) - inset), Math.Min(runTop, TopOn(topLine, height, high) - inset));
+                if (Math.Max(topFrom, topTo) > runBottom + MinimumPanel)
+                    mullions.Add(new CurtainMullion(true, isBorder, low, high, runBottom, Math.Max(topFrom, runBottom),
+                        TopAtTo: Math.Max(topTo, runBottom)) { Type = m });
             }
         }
 
-        return new CurtainLayout(type, length, height, verticals, horizontals, cells, mullions, topLine);
+        // A sloping top has its frame along it: a mullion up each stretch of the rake.
+        if (topLine is not null && TypeOn(false, horizontals.Count - 1, 0) is { } rake)
+            for (var i = 0; i + 1 < topLine.Count; i++)
+            {
+                var (a, b) = (topLine[i], topLine[i + 1]);
+                if (b.X - a.X > MinimumPanel)
+                    mullions.Add(new CurtainMullion(false, true, a.X, b.X, a.Y - inset, a.Y, b.Y - inset, b.Y) { Type = rake });
+            }
+
+        for (var j = 0; j < horizontals.Count && columns > 0; j++)
+        {
+            var isBorder = j == 0 || j == horizontals.Count - 1;
+
+            // Under a sloping top, the top of the grid is only its highest point: the rake is
+            // the frame there.
+            if (topLine is not null && j == horizontals.Count - 1) continue;
+
+            // Along the columns it crosses, stopping where a stretch of it is taken out, has none or
+            // turns another type; at an upright where the verticals run through, at the borders' frame
+            // either way - and running on unbroken past a line with no mullion to stop at.
+            bool Stops(int c) => Across(j, c) || (j == 0 && KindAt(c, 0) == CurtainPanelKind.Door) || TypeOn(false, j, c) is null;
+            bool HeldAt(int i) => UprightAt(i, j) is not null && (verticalsRun || BorderLine(i));
+
+            for (var c = 0; c < columns;)
+            {
+                if (Stops(c))
+                {
+                    c++;
+                    continue;
+                }
+
+                var m = TypeOn(false, j, c)!;
+                var first = c;
+                while (c + 1 < columns && !Stops(c + 1) && !HeldAt(c + 1) && ReferenceEquals(TypeOn(false, j, c + 1), m)) c++;
+                var from = HeldAt(first) ? UprightFaces(first, j).High : verticals[first];
+                var to = HeldAt(c + 1) ? UprightFaces(c + 1, j).Low : verticals[c + 1];
+                c++;
+                if (to - from <= MinimumPanel) continue;
+
+                var (bottom, top) = Faces(false, j, first);
+
+                // Cut off where it runs into the rake.
+                foreach (var piece in Clip(topLine, height, inset, from, to, bottom, top))
+                    if (piece.To - piece.From > MinimumPanel)
+                        mullions.Add((Math.Abs(piece.TopFrom - top) < 1e-6 && Math.Abs(piece.TopTo - top) < 1e-6
+                            ? new CurtainMullion(false, isBorder, piece.From, piece.To, bottom, top)
+                            : new CurtainMullion(false, isBorder, piece.From, piece.To, bottom, piece.TopFrom, TopAtTo: piece.TopTo)) with { Type = m });
+            }
+        }
+
+        return new CurtainLayout(type, length, height, verticals, horizontals, cells, mullions, topLine, inset);
     }
 
     /// <summary>Interior lines for a layout rule over an extent.</summary>

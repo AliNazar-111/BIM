@@ -43,6 +43,12 @@ public abstract class Element
     /// <summary>Worksharing bucket (specification section 7). One default workset for now.</summary>
     public string Workset { get; set; } = "Workset1";
 
+    /// <summary>The design option it is part of; null for the main model, in every option.</summary>
+    public Guid? DesignOptionId { get; set; }
+
+    /// <summary>The values of the project's parameters on it, by the parameter's id.</summary>
+    public Dictionary<Guid, object?> ParameterValues { get; } = new();
+
     /// <summary>
     /// The parameters belonging to this placed element, as opposed to its type.
     /// The document is passed in so elements can resolve their level, materials and type.
@@ -67,6 +73,10 @@ public abstract class Element
             new[] { "None" }.Concat(EnumText.Choices<DesignPhase>()).ToArray());
 
         yield return ParameterValue.ReadOnly(CommonParameters.Workset, () => Workset);
+        if (DesignOptionId is not null || document.DesignOptionSets.Count > 0)
+            yield return ParameterValue.ReadOnly(CommonParameters.DesignOption, () => Views.DesignOptions.Describe(document, DesignOptionId));
+
+        foreach (var parameter in ProjectParameters.For(document, Category, ParameterBinding.Instance, ParameterValues)) yield return parameter;
     }
 }
 
@@ -87,4 +97,7 @@ public static class CommonParameters
 
     public static readonly ParameterDefinition Workset =
         new("Workset", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition DesignOption =
+        new("Design Option", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

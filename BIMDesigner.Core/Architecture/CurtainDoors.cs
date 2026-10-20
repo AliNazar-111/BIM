@@ -63,7 +63,7 @@ public static class CurtainDoors
 
         var length = layout.Length;
         var height = layout.Height;
-        var mullion = Math.Max(0, layout.Type.MullionWidth);
+        var mullion = Math.Max(0, layout.Mullions.Where(m => m.IsVertical && !m.IsBorder).Select(m => m.To - m.From).DefaultIfEmpty(layout.Type.MullionWidth).Max());
 
         if (layout.Cells.FirstOrDefault(c => c.Row == 0 && along >= c.From && along <= c.To) is not { } clicked) return null;
 

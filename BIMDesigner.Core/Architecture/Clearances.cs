@@ -445,6 +445,7 @@ public static class Clearances
             .Concat(SlabRules.Blocked(document, levelId, standard))
             .Concat(RoofEdgeRules.Blocked(document, levelId, standard))
             .Concat(ChimneyRules.Blocked(document, levelId, standard))
+            .Concat(StructureRules.Blocked(document, levelId, standard))
             .ToList();
 
     /// <summary>

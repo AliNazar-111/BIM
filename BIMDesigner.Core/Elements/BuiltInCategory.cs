@@ -106,7 +106,13 @@ public enum BuiltInCategory
     RevisionClouds,
 
     /// <summary>Keynote tags: an element's, a material's or a note's keynote, keyed to a legend.</summary>
-    KeynoteTags
+    KeynoteTags,
+
+    /// <summary>Eaves: what is built under a roof's overhang - rafter tails, soffits, friezes, mouldings and brackets.</summary>
+    Eaves,
+
+    /// <summary>Curtain wall mullions: the types of the bars on a curtain wall's grid lines.</summary>
+    CurtainWallMullions
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

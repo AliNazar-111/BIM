@@ -40,6 +40,30 @@ public abstract class ElementType
     /// <summary>Unit cost, the input to 5D quantity takeoff (section 9.3).</summary>
     public decimal Cost { get; set; }
 
+    /// <summary>Its code in the project's classification - Uniclass 2015 to start with: what IFC and COBie carry.</summary>
+    public string ClassificationCode { get; set; } = string.Empty;
+
+    /// <summary>The values of the project's parameters on its types, by the parameter's id.</summary>
+    public Dictionary<Guid, object?> ParameterValues { get; } = new();
+
+    /// <summary>
+    /// Every parameter it has: its own, its classification, and the project's parameters on its
+    /// category's types - what Type Properties lists and a schedule reads.
+    /// </summary>
+    public IEnumerable<ParameterValue> AllTypeParameters(BimDocument document)
+    {
+        foreach (var parameter in GetTypeParameters(document)) yield return parameter;
+
+        var codes = document.Classification.Entries.Select(entry => entry.Code).ToList();
+        yield return codes.Count == 0
+            ? ParameterValue.Bind(CommonTypeParameters.Classification, () => ClassificationCode, v => ClassificationCode = v?.Trim() ?? string.Empty)
+            : ParameterValue.BindChoice(CommonTypeParameters.Classification, () => ClassificationCode, v => ClassificationCode = v?.Trim() ?? string.Empty,
+                new[] { string.Empty }.Concat(codes).Append(ClassificationCode).Distinct().ToList());
+        yield return ParameterValue.ReadOnly(CommonTypeParameters.ClassificationTitle, () => document.Classification.Find(ClassificationCode)?.Title ?? string.Empty);
+
+        foreach (var parameter in ProjectParameters.For(document, Category, ParameterBinding.Type, ParameterValues)) yield return parameter;
+    }
+
     /// <summary>
     /// Gives a copy of this type the identity every type carries - its mark, classification,
     /// keynote, maker, link, description and cost - so a duplicate starts as this one is.
@@ -60,6 +84,9 @@ public abstract class ElementType
         Url = other.Url;
         Description = other.Description;
         Cost = other.Cost;
+        ClassificationCode = other.ClassificationCode;
+        ParameterValues.Clear();
+        foreach (var (id, value) in other.ParameterValues) ParameterValues[id] = value;
     }
 
     /// <summary>
@@ -91,6 +118,12 @@ public static class CommonTypeParameters
 
     public static readonly ParameterDefinition TypeMark =
         new("Type Mark", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Classification =
+        new("Classification", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition ClassificationTitle =
+        new("Classification Title", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
 
     public static readonly ParameterDefinition AssemblyCode =
         new("Assembly Code", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);

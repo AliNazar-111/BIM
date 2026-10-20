@@ -46,7 +46,8 @@ public static class RoofSolid
     public static IReadOnlyList<RoofPiece> Pieces(BimDocument document, Roof roof) =>
         // Falling to its drains, if it is flat and has them; trimmed where it runs into a roof it
         // is joined to, and opened for the dormers on it.
-        RoofJoin.Open(document, roof, RoofJoin.Trim(document, roof, RoofDrainage.Taper(document, roof, Uncut(document, roof))));
+        // Cut back to the rafters over its eaves, where it has them.
+        Eaves.CutBack(document, roof, RoofJoin.Open(document, roof, RoofJoin.Trim(document, roof, RoofDrainage.Taper(document, roof, Uncut(document, roof)))));
 
     /// <summary>The roof's pieces before any other roof has a say in them.</summary>
     private static IReadOnlyList<RoofPiece> Uncut(BimDocument document, Roof roof)

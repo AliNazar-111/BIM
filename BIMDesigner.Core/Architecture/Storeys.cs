@@ -201,7 +201,7 @@ public sealed class SplitWallAtFloorCommand : IUndoableCommand
     private readonly Wall _wall;
     private readonly (Guid? TopAttachedTo, Guid? TopLevelId, double UnconnectedHeight, IReadOnlyList<WallFaceRegion> Regions) _was;
     private readonly (double Height, IReadOnlyList<WallFaceRegion> Regions) _cut;
-    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _before, _under;
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels, IReadOnlyList<CurtainMullionOverride>? Mullions) _before, _under;
     private readonly List<(Opening Opening, double Sill, Guid Level)> _openings = new();
     private readonly List<(WallOpening Cut, double Sill)> _cuts = new();
     private readonly List<Wall> _standing = new();
@@ -240,7 +240,7 @@ public sealed class SplitWallAtFloorCommand : IUndoableCommand
         _linings.AddRange(document.Walls.Where(other => other.JoinedTo.Contains(wall.Id)));
 
         // A curtain wall keeps its grid where it was: the lines and panels under the floor stay, those over it go up with the part over it.
-        _before = (wall.CurtainGrid, wall.CurtainPanels);
+        _before = (wall.CurtainGrid, wall.CurtainPanels, wall.CurtainMullions);
         _under = _before;
         if (CurtainLayout.Of(document, wall) is { } layout)
         {
@@ -254,10 +254,29 @@ public sealed class SplitWallAtFloorCommand : IUndoableCommand
             var rowsUnder = Enumerable.Range(0, heights.Count - 1).Count(row => heights[row] < under - 1);
             var firstOver = Enumerable.Range(0, heights.Count - 1).Count(row => heights[row + 1] <= _rise + 1);
 
+            // A mullion chosen on its own goes with the part it is in: a transom by its height, an
+            // upright by its row - to both parts when the floor runs through that row.
+            var (mullionsUnder, mullionsOver) = (new List<CurtainMullionOverride>(), new List<CurtainMullionOverride>());
+            foreach (var chosen in wall.CurtainMullions ?? Array.Empty<CurtainMullionOverride>())
+            {
+                if (!chosen.Vertical)
+                {
+                    if (chosen.Line < under - 1) mullionsUnder.Add(chosen);
+                    else if (chosen.Line > _rise + 1) mullionsOver.Add(chosen with { Line = chosen.Line - _rise });
+                    continue;
+                }
+
+                var row = Enumerable.Range(0, heights.Count - 1).FirstOrDefault(r => chosen.At <= heights[r + 1] + 1e-6, heights.Count - 2);
+                var (low, high) = (heights[row], heights[row + 1]);
+                if (low < under - 1e-6) mullionsUnder.Add(chosen with { At = (low + Math.Min(high, under)) / 2 });
+                if (high > _rise + 1e-6) mullionsOver.Add(chosen with { At = (Math.Max(low, _rise) + high) / 2 - _rise });
+            }
+
             _under = (new CurtainGrid(inner, lines.Where(h => h < under - 1).ToList()).WithRemoved(removed
                     .Where(s => s.Vertical ? Math.Min(s.From, s.To) < under : s.Line < under)
                     .Select(s => s.Vertical ? s with { From = Math.Min(s.From, s.To), To = Math.Min(Math.Max(s.From, s.To), under) } : s)),
-                panels.Where(p => p.Row < rowsUnder).ToList());
+                panels.Where(p => p.Row < rowsUnder).ToList(), wall.CurtainMullions is null ? null : mullionsUnder);
+            Upper.CurtainMullions = wall.CurtainMullions is null ? null : mullionsOver;
             Upper.CurtainGrid = new CurtainGrid(inner, lines.Where(h => h > _rise + 1).Select(h => h - _rise).ToList()).WithRemoved(removed
                 .Where(s => s.Vertical ? Math.Max(s.From, s.To) > _rise : s.Line > _rise)
                 .Select(s => s.Vertical
@@ -299,7 +318,7 @@ public sealed class SplitWallAtFloorCommand : IUndoableCommand
     {
         _document.Add(Upper);
         (_wall.TopAttachedTo, _wall.TopLevelId, _wall.UnconnectedHeight, _wall.FaceRegions) = (Upper.BaseAttachedTo, null, _cut.Height, _cut.Regions);
-        (_wall.CurtainGrid, _wall.CurtainPanels) = _under;
+        (_wall.CurtainGrid, _wall.CurtainPanels, _wall.CurtainMullions) = _under;
         foreach (var lining in _linings) lining.JoinedTo.Add(Upper.Id);
         foreach (var (opening, sill, _) in _openings) (opening.HostWallId, opening.SillHeight, opening.LevelId) = (Upper.Id, Math.Max(0, sill - _rise), Upper.LevelId);
         foreach (var (cut, sill) in _cuts) (cut.HostWallId, cut.SillHeight) = (Upper.Id, Math.Max(0, sill - _rise));
@@ -312,7 +331,7 @@ public sealed class SplitWallAtFloorCommand : IUndoableCommand
         foreach (var (cut, sill) in _cuts) (cut.HostWallId, cut.SillHeight) = (_wall.Id, sill);
         foreach (var (opening, sill, level) in _openings) (opening.HostWallId, opening.SillHeight, opening.LevelId) = (_wall.Id, sill, level);
         foreach (var lining in _linings) lining.JoinedTo.Remove(Upper.Id);
-        (_wall.CurtainGrid, _wall.CurtainPanels) = _before;
+        (_wall.CurtainGrid, _wall.CurtainPanels, _wall.CurtainMullions) = _before;
         (_wall.TopAttachedTo, _wall.TopLevelId, _wall.UnconnectedHeight, _wall.FaceRegions) = _was;
         _document.Remove(Upper);
     }

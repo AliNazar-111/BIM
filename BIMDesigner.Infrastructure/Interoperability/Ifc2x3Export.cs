@@ -112,6 +112,47 @@ public static class Ifc2x3Export
             foreach (var group in ModelMeshBuilder.Build(_document).Where(mesh => !mesh.IsEmpty).GroupBy(mesh => mesh.OwnerId))
                 if (!_done.Contains(group.Key) && _document.FindElement(group.Key) is { } element)
                     ExportShape(element, group.ToList());
+
+            ExportClassifications();
+        }
+
+        /// <summary>Each element's classification, its type's or a room's own, as IFC2x3 keeps one: a reference to its code.</summary>
+        private void ExportClassifications()
+        {
+            var table = _document.Classification;
+            var products = _model.Instances.OfType<IfcRoot>().OfType<IfcObjectDefinition>()
+                .GroupBy(item => item.GlobalId.ToString()).ToDictionary(group => group.Key, group => group.First());
+            var coded = new Dictionary<string, List<IfcObjectDefinition>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var element in _document.Elements)
+            {
+                var code = element is Room room ? room.ClassificationCode : _document.ElementTypes.FirstOrDefault(type => type.Id == element.TypeId)?.ClassificationCode ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(code) || !products.TryGetValue(element.Id.ToIfc2x3().ToString(), out var item)) continue;
+                if (!coded.TryGetValue(code.Trim(), out var list)) coded[code.Trim()] = list = new List<IfcObjectDefinition>();
+                list.Add(item);
+            }
+
+            if (coded.Count == 0) return;
+            var system = New<Xbim.Ifc2x3.ExternalReferenceResource.IfcClassification>(c =>
+            {
+                c.Name = table.System;
+                c.Source = table.System.StartsWith("Uniclass", StringComparison.OrdinalIgnoreCase) ? "NBS" : "-";
+                c.Edition = string.IsNullOrWhiteSpace(table.Edition) ? "-" : table.Edition;
+            });
+
+            foreach (var (code, items) in coded.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+            {
+                var reference = New<Xbim.Ifc2x3.ExternalReferenceResource.IfcClassificationReference>(r =>
+                {
+                    r.ItemReference = code;
+                    r.Name = table.Find(code)?.Title;
+                    r.ReferencedSource = system;
+                });
+                New<IfcRelAssociatesClassification>(relation =>
+                {
+                    relation.RelatingClassification = reference;
+                    foreach (var item in items) relation.RelatedObjects.Add(item);
+                });
+            }
         }
 
         // ---- project and storeys --------------------------------------------------------

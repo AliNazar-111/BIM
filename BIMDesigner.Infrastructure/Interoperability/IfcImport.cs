@@ -4,6 +4,7 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Parameters;
 using Xbim.Common;
 using Xbim.Ifc;
 using Xbim.Ifc4.Interfaces;
@@ -69,6 +70,7 @@ public static class IfcImport
         private readonly IfcImportResult _result;
         private readonly Dictionary<int, Level> _levels = new();
         private readonly Dictionary<int, CoreWall> _walls = new();
+        private readonly Dictionary<int, Element> _made = new();
         private readonly HashSet<int> _handled = new();
         private readonly Dictionary<string, ElementType> _types = new();
         private readonly Dictionary<string, Guid> _materials = new(StringComparer.OrdinalIgnoreCase);
@@ -150,7 +152,39 @@ public static class IfcImport
                 ImportShape(product);
             }
 
+            ReadClassifications();
             return _result;
+        }
+
+        /// <summary>
+        /// Each classification reference, onto what it classifies: a room's own code; for anything
+        /// else, its type's - the first given - and the code into the project's table where it is not.
+        /// </summary>
+        private void ReadClassifications()
+        {
+            foreach (var relation in _model.Instances.OfType<IIfcRelAssociatesClassification>())
+            {
+                if (relation.RelatingClassification is not IIfcClassificationReference reference) continue;
+                var code = reference.Identification?.ToString();
+                if (string.IsNullOrWhiteSpace(code)) continue;
+                var title = reference.Name?.ToString() ?? string.Empty;
+                if (_document.Classification.Find(code) is null && title.Length > 0)
+                    _document.Classification.Entries.Add(new ClassificationEntry(code.Trim(), title));
+
+                var related = relation.RelatedObjects.OfType<IIfcObjectDefinition>().SelectMany(item => item is IIfcTypeObject type
+                    ? type.Types.SelectMany(typed => typed.RelatedObjects).Cast<IIfcObjectDefinition>()
+                    : new[] { item });
+                foreach (var item in related)
+                {
+                    if (!_made.TryGetValue(item.EntityLabel, out var element)) continue;
+                    if (element is Room room)
+                    {
+                        if (room.ClassificationCode.Length == 0) room.ClassificationCode = code.Trim();
+                    }
+                    else if (_document.ElementTypes.FirstOrDefault(type => type.Id == element.TypeId) is { ClassificationCode.Length: 0 } type)
+                        type.ClassificationCode = code.Trim();
+                }
+            }
         }
 
         /// <summary>One element read as itself, or - where that fails - left for the shapes.</summary>
@@ -417,6 +451,7 @@ public static class IfcImport
                 BaseOffset = Math.Round(bottom - level.Elevation, 3), UnconnectedHeight = Math.Round(top - bottom, 3), Mark = wall.Tag?.ToString() ?? string.Empty
             };
             _document.Add(created);
+            _made[wall.EntityLabel] = created;
             _walls[wall.EntityLabel] = created;
             _result.Count("Walls");
             return true;
@@ -494,6 +529,7 @@ public static class IfcImport
             opening.SillHeight = Math.Max(0, Math.Round(low - baseElevation, 3));
             opening.Mark = element.Tag?.ToString() ?? string.Empty;
             _document.Add(opening);
+            _made[element.EntityLabel] = opening;
             _result.Count(isWindow ? "Windows" : "Doors");
             return true;
         }
@@ -568,6 +604,7 @@ public static class IfcImport
             if (flat.Holes.Count > 0) made.SetHoles(flat.Holes);
             made.Mark = slab.Tag?.ToString() ?? string.Empty;
             _document.Add(made);
+            _made[slab.EntityLabel] = made;
             _result.Count(isRoof ? "Roofs" : "Floors");
             return true;
         }
@@ -583,6 +620,7 @@ public static class IfcImport
             made.SetBoundary(flat.Outline);
             made.SetEdges(flat.Outline.Select(_ => new RoofEdge()));
             _document.Add(made);
+            _made[roof.EntityLabel] = made;
             _result.Count("Roofs");
             return true;
         }
@@ -599,6 +637,7 @@ public static class IfcImport
             };
             ceiling.SetBoundary(flat.Outline);
             _document.Add(ceiling);
+            _made[covering.EntityLabel] = ceiling;
             _result.Count("Ceilings");
             return true;
         }
@@ -638,12 +677,14 @@ public static class IfcImport
 
             var level = LevelOf(space, bottom);
             var hasLongName = !string.IsNullOrWhiteSpace(space.LongName);
-            _document.Add(new Room
+            var room = new Room
             {
                 Location = location, LevelId = level.Id,
                 Name = hasLongName ? space.LongName!.ToString()! : space.Name?.ToString() ?? "Room",
                 Number = hasLongName ? space.Name?.ToString() ?? string.Empty : string.Empty
-            });
+            };
+            _document.Add(room);
+            _made[space.EntityLabel] = room;
             _result.Count("Rooms");
             return true;
         }
@@ -712,13 +753,15 @@ public static class IfcImport
             var middle = new Point3D((minX + maxX) / 2, (minY + maxY) / 2, mesh.Positions.Min(p => p.Z));
             var world = upright ? frame.Apply(middle) : middle;
             var level = LevelOf(product, world.Z);
-            _document.Add(new Component
+            var placed = new Component
             {
                 TypeId = componentType.Id, LevelId = level.Id, Location = Plan(world),
                 Rotation = upright ? Math.Round(frame.Rotation, 6) : 0,
                 Elevation = Math.Round(world.Z - level.Elevation, 3),
                 Mark = (product as IIfcElement)?.Tag?.ToString() ?? string.Empty
-            });
+            };
+            _document.Add(placed);
+            _made[product.EntityLabel] = placed;
             _result.Count(category switch
             {
                 BuiltInCategory.Furniture => "Furniture",

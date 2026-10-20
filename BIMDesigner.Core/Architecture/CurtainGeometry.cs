@@ -30,10 +30,10 @@ public static class CurtainGeometry
         return points;
     }
 
-    /// <summary>A round mullion's plan: a circle on the wall's centreline at a distance along it.</summary>
-    public static IReadOnlyList<Point2D> Circle(Wall wall, WallType body, double along, double radius)
+    /// <summary>A round mullion's plan: a circle on the wall's centreline at a distance along it - or so far out from it.</summary>
+    public static IReadOnlyList<Point2D> Circle(Wall wall, WallType body, double along, double radius, double across = 0)
     {
-        var centre = wall.PointAt(body.Structure, along, 0);
+        var centre = wall.PointAt(body.Structure, along, across);
         return Enumerable.Range(0, RoundSides)
             .Select(i => 2 * Math.PI * i / RoundSides)
             .Select(angle => new Point2D(centre.X + radius * Math.Cos(angle), centre.Y + radius * Math.Sin(angle)))

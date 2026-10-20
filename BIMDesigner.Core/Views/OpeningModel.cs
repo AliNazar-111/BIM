@@ -823,6 +823,41 @@ internal static class OpeningModel
             Box(_frame, -40, Width + 40, 0, WallHalf + 45, _sill - 35, _sill);
 
             var (u0, u1, z0, z1) = (f, Width - f, _sill + f, _head - f);
+            if (!WindowLights.Divided(window))
+            {
+                Light(window, window.Operation, u0, u1, z0, z1, whole: true, atStart: !_opening.FlipHand);
+                return;
+            }
+
+            // Divided: mullions up between its lights and a transom across - the frame's own
+            // section through its depth - and each light glazed, fixed or opening on its own,
+            // the whole mirrored when the window is handed the other way.
+            double Mirrored(double u) => _opening.FlipHand ? Width - u : u;
+            var bar = window.MullionWidth;
+            foreach (var at in WindowLights.Mullions(window))
+                Box(_frame, Mirrored(at) - bar / 2, Mirrored(at) + bar / 2, -depth, depth, z0, z1);
+            if (WindowLights.TransomAt(window) is { } transom)
+                Box(_frame, u0, u1, -depth, depth, _sill + transom - bar / 2, _sill + transom + bar / 2);
+
+            // Up from the window's bottom as the type has it - its top lights to its head, wherever that is.
+            double Up(double z) => z >= window.Height - f - 1e-6 ? z1 : _sill + z;
+            foreach (var light in WindowLights.Of(window))
+            {
+                var (a, b) = (Mirrored(light.From), Mirrored(light.To));
+                Light(window, light.Operation, Math.Min(a, b), Math.Max(a, b), Up(light.Bottom), Up(light.Top), whole: false,
+                    atStart: light.HingeAtStart != _opening.FlipHand);
+            }
+        }
+
+        /// <summary>
+        /// One light of a window, between these jambs, sill and head: fixed, or a sash opening as
+        /// the window does. The whole of an undivided window is its one light, hung as it always
+        /// was - a wide casement as a pair, an awning under a fixed light of its own; a light of a
+        /// divided one is one sash, hung on the side it is given.
+        /// </summary>
+        private void Light(WindowType window, WindowOperation operation, double u0, double u1, double z0, double z1, bool whole, bool atStart)
+        {
+            var depth = FrameDepth / 2;
 
             // A sash's panes are its own: six over six is six panes in each sash, not six in
             // the hole. So the bars are drawn with the sash that carries them.
@@ -835,11 +870,15 @@ internal static class OpeningModel
                 GlazingBars(place, inset, place.Width - inset, bottom + inset, top - inset, rows, columns);
             }
 
-            switch (window.Operation)
+            // Only a side-hung or turning sash swings out of its light when the window stands open.
+            SashPlace At(double from, double to, double across, bool? hinge = null) =>
+                operation is WindowOperation.Casement or WindowOperation.TiltAndTurn ? Placed(from, to, across, hinge) : new SashPlace(from, to - from, across, null);
+
+            switch (operation)
             {
                 case WindowOperation.Fixed:
                 {
-                    var light = Placed(u0, u1, 0);
+                    var light = At(u0, u1, 0);
                     Pane(light, 0, light.Width, z0, z1);
                     GlazingBars(light, 0, light.Width, z0, z1, rows, columns);
                     break;
@@ -849,19 +888,29 @@ internal static class OpeningModel
                 {
                     // A pair is hung one sash on each jamb, so they swing apart and their
                     // catches meet in the middle, as a French casement's do.
-                    var sashes = Width > 1000 ? 2 : 1;
+                    var sashes = whole && Width > 1000 ? 2 : 1;
                     var width = (u1 - u0) / sashes;
                     for (var i = 0; i < sashes; i++)
                     {
-                        var atStart = sashes == 1 ? !_opening.FlipHand : i == 0 != _opening.FlipHand;
-                        var sash = Placed(u0 + i * width, u0 + (i + 1) * width, SetIn(SashDepth), atStart);
+                        var hung = sashes == 1 ? atStart : i == 0 != _opening.FlipHand;
+                        var sash = At(u0 + i * width, u0 + (i + 1) * width, SetIn(SashDepth), hung);
 
                         Sash(sash, z0, z1);
                         Glazed(sash, z0, z1);
-                        WindowHandle(sash, atStart ? sash.Width - 60 : 60, (z0 + z1) / 2, vertical: true);
-                        SashHinges(sash, z0, z1, atStart);
+                        WindowHandle(sash, hung ? sash.Width - 60 : 60, (z0 + z1) / 2, vertical: true);
+                        SashHinges(sash, z0, z1, hung);
                     }
 
+                    break;
+                }
+
+                case WindowOperation.Awning when !whole:
+                {
+                    // A top-hung light - a fanlight over a transom - the whole of it one sash opening out from its head.
+                    var sash = At(u0, u1, 0);
+                    Sash(sash, z0, z1);
+                    Glazed(sash, z0, z1);
+                    WindowHandle(sash, sash.Width / 2, z0 + 70, vertical: false);
                     break;
                 }
 
@@ -871,11 +920,11 @@ internal static class OpeningModel
                     var split = z0 + (z1 - z0) * 0.55;
                     Box(_frame, u0, u1, -depth, depth, split - SashFace / 2, split + SashFace / 2);
 
-                    var light = Placed(u0, u1, 0);
+                    var light = At(u0, u1, 0);
                     Pane(light, 0, light.Width, split + SashFace / 2, z1);
                     GlazingBars(light, 0, light.Width, split + SashFace / 2, z1, rows, columns);
 
-                    var sash = Placed(u0, u1, 0);
+                    var sash = At(u0, u1, 0);
                     Sash(sash, z0, split - SashFace / 2);
                     Glazed(sash, z0, split - SashFace / 2);
                     WindowHandle(sash, sash.Width / 2, z0 + 70, vertical: false);
@@ -890,11 +939,11 @@ internal static class OpeningModel
                     var middle = (u0 + u1) / 2;
                     var run = _opening.IsOpen ? middle - u0 : 0;
 
-                    var fixedSash = Placed(u0, middle + SashFace / 2, 22);
+                    var fixedSash = At(u0, middle + SashFace / 2, 22);
                     Sash(fixedSash, z0, z1);
                     Glazed(fixedSash, z0, z1);
 
-                    var runner = Placed(middle - SashFace / 2 - run, u1 - run, -22);
+                    var runner = At(middle - SashFace / 2 - run, u1 - run, -22);
                     Sash(runner, z0, z1);
                     Glazed(runner, z0, z1);
                     WindowHandle(runner, SashFace * 1.5, (z0 + z1) / 2, vertical: true);
@@ -903,16 +952,16 @@ internal static class OpeningModel
 
                 case WindowOperation.TiltAndTurn:
                 {
-                    var sashes = Width > 1400 ? 2 : 1;
+                    var sashes = whole && Width > 1400 ? 2 : 1;
                     var width = (u1 - u0) / sashes;
                     for (var i = 0; i < sashes; i++)
                     {
-                        var sash = Placed(u0 + i * width, u0 + (i + 1) * width, SetIn(SashDepth));
+                        var sash = At(u0 + i * width, u0 + (i + 1) * width, SetIn(SashDepth), atStart);
 
                         Sash(sash, z0, z1);
                         Glazed(sash, z0, z1);
-                        WindowHandle(sash, _opening.FlipHand ? 60 : sash.Width - 60, (z0 + z1) / 2, vertical: true);
-                        SashHinges(sash, z0, z1, !_opening.FlipHand);
+                        WindowHandle(sash, atStart ? sash.Width - 60 : 60, (z0 + z1) / 2, vertical: true);
+                        SashHinges(sash, z0, z1, atStart);
                     }
 
                     break;
@@ -926,11 +975,11 @@ internal static class OpeningModel
                     var middle = (z0 + z1) / 2;
                     var lift = _opening.IsOpen ? middle - z0 : 0;
 
-                    var upper = Placed(u0, u1, 20);
+                    var upper = At(u0, u1, 20);
                     Sash(upper, middle - SashFace / 2, z1);
                     Glazed(upper, middle - SashFace / 2, z1);
 
-                    var lower = Placed(u0, u1, -20);
+                    var lower = At(u0, u1, -20);
                     Sash(lower, z0 + lift, middle + SashFace / 2 + lift);
                     Glazed(lower, z0 + lift, middle + SashFace / 2 + lift);
                     WindowHandle(lower, lower.Width / 2, middle + SashFace + lift, vertical: false);
@@ -940,7 +989,7 @@ internal static class OpeningModel
                 case WindowOperation.Hopper:
                 {
                     // Hinged along the bottom and opening in, so the catch is at the head.
-                    var sash = Placed(u0, u1, 0);
+                    var sash = At(u0, u1, 0);
                     Sash(sash, z0, z1);
                     Glazed(sash, z0, z1);
                     WindowHandle(sash, sash.Width / 2, z1 - 70, vertical: false);

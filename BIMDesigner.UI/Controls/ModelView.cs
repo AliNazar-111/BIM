@@ -222,6 +222,9 @@ public partial class ModelView : Border
 
         _allMeshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document, _document.ViewSettings.FilterFor(_document, Reference));
 
+        // As the view's phasing and filters draw them: faded, in a colour of their own; what is taken down red and faint.
+        if (_document is not null) Restyle(_allMeshes, _document.ViewSettings.StyleFor(_document, Reference));
+
         // Converted once per rebuild. Selecting something or changing the style only swaps
         // materials, and should not pay to copy every vertex again.
         _allGeometry.Clear();

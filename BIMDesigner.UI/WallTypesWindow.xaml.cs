@@ -71,6 +71,15 @@ public partial class WallTypesWindow : Window
         VerticalJustificationPicker.ItemsSource = EnumText.Choices<CurtainGridJustification>();
         HorizontalJustificationPicker.ItemsSource = EnumText.Choices<CurtainGridJustification>();
         MullionProfilePicker.ItemsSource = EnumText.Choices<MullionProfile>();
+
+        // Each line's mullion type: the one set out above, none, or one of the project's mullion types.
+        _mullionSlotChoices.Add(("The mullion above", null));
+        _mullionSlotChoices.Add(("None", Guid.Empty));
+        _mullionSlotChoices.AddRange(_document.TypesOf<MullionType>().OrderBy(type => type.Name).Select(type => (type.Name, (Guid?)type.Id)));
+        foreach (var picker in SlotPickers()) picker.ItemsSource = _mullionSlotChoices.Select(choice => choice.Name).ToList();
+        JoinPicker.ItemsSource = EnumText.Choices<CurtainJoin>();
+        SplicesPicker.ItemsSource = EnumText.Choices<MullionSplices>();
+
         var materials = _document.Materials.OrderBy(m => m.Name).ToList();
         GlassPicker.ItemsSource = materials;
         SolidPicker.ItemsSource = materials;
@@ -391,7 +400,7 @@ public partial class WallTypesWindow : Window
     {
         if (_curtain is not null)
         {
-            CurtainPreview.Show(CurtainDesign());
+            CurtainPreview.Show(CurtainDesign(), _document);
         }
         else if (_stacked is not null)
         {
@@ -682,7 +691,21 @@ public partial class WallTypesWindow : Window
         MullionMaterialPicker.SelectedValue = curtain.MullionMaterialId;
         BorderMullionsBox.IsChecked = curtain.BorderMullions;
         EmbedBox.IsChecked = curtain.AutomaticallyEmbed;
+
+        var slots = new[] { curtain.InteriorVertical, curtain.BorderVerticalStart, curtain.BorderVerticalEnd, curtain.InteriorHorizontal, curtain.BorderHorizontalBottom, curtain.BorderHorizontalTop };
+        foreach (var (picker, slot) in SlotPickers().Zip(slots))
+            picker.SelectedIndex = Math.Max(0, _mullionSlotChoices.FindIndex(choice => choice.Id == slot));
+        JoinPicker.SelectedItem = EnumText.Humanise(curtain.JoinCondition);
+        AnchorsBox.IsChecked = curtain.MullionAnchors;
+        SplicesPicker.SelectedItem = EnumText.Humanise(curtain.Splices);
+        StackJointBox.Text = Units.FormatLength(curtain.StackJoint);
     }
+
+    private readonly List<(string Name, Guid? Id)> _mullionSlotChoices = new();
+
+    /// <summary>The pickers for each line's mullion type, in the order of the type's slots: interior, border 1 and 2, up then across.</summary>
+    private ComboBox[] SlotPickers() =>
+        new[] { InteriorVerticalPicker, BorderVerticalStartPicker, BorderVerticalEndPicker, InteriorHorizontalPicker, BorderHorizontalBottomPicker, BorderHorizontalTopPicker };
 
     /// <summary>The curtain type as it stands in the editor, detached from the model, or null while a value will not read.</summary>
     private CurtainWallType? CurtainDesign()
@@ -726,6 +749,17 @@ public partial class WallTypesWindow : Window
         if (GlassPicker.SelectedValue is Guid glass) design.GlassMaterialId = glass;
         if (SolidPicker.SelectedValue is Guid solid) design.SolidMaterialId = solid;
         if (MullionMaterialPicker.SelectedValue is Guid metal) design.MullionMaterialId = metal;
+
+        Guid? Slot(ComboBox picker) => picker.SelectedIndex >= 0 && picker.SelectedIndex < _mullionSlotChoices.Count ? _mullionSlotChoices[picker.SelectedIndex].Id : null;
+        (design.InteriorVertical, design.BorderVerticalStart, design.BorderVerticalEnd) =
+            (Slot(InteriorVerticalPicker), Slot(BorderVerticalStartPicker), Slot(BorderVerticalEndPicker));
+        (design.InteriorHorizontal, design.BorderHorizontalBottom, design.BorderHorizontalTop) =
+            (Slot(InteriorHorizontalPicker), Slot(BorderHorizontalBottomPicker), Slot(BorderHorizontalTopPicker));
+        design.JoinCondition = Choice(JoinPicker, _curtain.JoinCondition);
+        design.MullionAnchors = AnchorsBox.IsChecked == true;
+        design.Splices = Choice(SplicesPicker, _curtain.Splices);
+        if (Length(StackJointBox) is { } joint && joint is >= 1 and <= 100) design.StackJoint = joint;
+        design.TakeDepth(_document);
         return design;
     }
 

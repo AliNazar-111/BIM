@@ -47,6 +47,9 @@ public sealed class Room : Element
 
     public string BaseFinish { get; set; } = string.Empty;
 
+    /// <summary>Its code in the project's classification - a space's, in Uniclass its SL table: what COBie and IFC carry.</summary>
+    public string ClassificationCode { get; set; } = string.Empty;
+
     /// <summary>Height of the room's volume, in millimetres.</summary>
     public double Height => Math.Max(0, UpperLimitOffset - BaseOffset);
 
@@ -149,6 +152,7 @@ public sealed class Room : Element
         yield return ParameterValue.Bind(RoomParameters.CeilingFinish, () => CeilingFinish, v => CeilingFinish = v);
         yield return ParameterValue.Bind(RoomParameters.BaseFinish, () => BaseFinish, v => BaseFinish = v);
 
+        yield return ParameterValue.Bind(RoomParameters.Classification, () => ClassificationCode, v => ClassificationCode = v?.Trim() ?? string.Empty);
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 
@@ -158,6 +162,9 @@ public sealed class Room : Element
 
 public static class RoomParameters
 {
+    public static readonly ParameterDefinition Classification =
+        new("Classification", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
     public static readonly ParameterDefinition Name =
         new("Name", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 

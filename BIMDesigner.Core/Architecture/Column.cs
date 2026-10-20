@@ -38,7 +38,16 @@ public enum ColumnShape
     Octagonal,
 
     /// <summary>A section drawn in the column editor rather than named here.</summary>
-    Custom
+    Custom,
+
+    /// <summary>A steel I: a universal column or beam, a wide flange - its flanges across its width, its web along its depth.</summary>
+    IBeam,
+
+    /// <summary>A steel hollow section, square or rectangular (SHS, RHS, HSS): a tube of its wall thickness.</summary>
+    HollowRectangular,
+
+    /// <summary>A steel hollow section, round (CHS, a pipe): a tube of its wall thickness.</summary>
+    HollowRound
 }
 
 /// <summary>
@@ -58,7 +67,34 @@ public sealed class ColumnType : ElementType
         Depth = depth;
     }
 
-    public override BuiltInCategory Category => BuiltInCategory.Columns;
+    /// <summary>
+    /// Whether this is a structural column - a steel section, a timber post, a concrete column
+    /// carrying what is over it - rather than an architectural one: a category of its own, its
+    /// own tool and schedule, and the rules for the structure it is part of.
+    /// </summary>
+    public bool Structural { get; set; }
+
+    public override BuiltInCategory Category => Structural ? BuiltInCategory.StructuralColumns : BuiltInCategory.Columns;
+
+    /// <summary>What a structural column is made of, for its weight, its colour and the rules it answers to.</summary>
+    public BeamMaterial StructuralMaterial { get; set; } = BeamMaterial.Steel;
+
+    /// <summary>An I-section's flanges and web, mm.</summary>
+    public double FlangeThickness { get; set; }
+
+    public double WebThickness { get; set; }
+
+    /// <summary>A hollow section's wall, mm.</summary>
+    public double WallThickness { get; set; }
+
+    /// <summary>How long it resists fire - its own, or what protects it: intumescent paint, boarding - as "30 min".</summary>
+    public string FireRating { get; set; } = string.Empty;
+
+    /// <summary>A timber column's: pressure-treated with preservative, or of a naturally durable wood.</summary>
+    public bool PreservativeTreated { get; set; }
+
+    /// <summary>A steel column's: given a shop coat of rust-inhibitive paint, or of a corrosion-resistant steel.</summary>
+    public bool RustProtected { get; set; } = true;
 
     public ColumnShape Shape { get; set; }
 
@@ -100,7 +136,16 @@ public sealed class ColumnType : ElementType
     public ColumnProfile Profile =>
         Shape == ColumnShape.Custom && CustomProfile is { IsEmpty: false } drawn
             ? drawn
-            : ColumnProfile.Of(Shape, Width, Depth);
+            : ColumnProfile.Of(Shape, Width, Depth, FlangeThickness, WebThickness, WallThickness);
+
+    /// <summary>A copy under another name, everything else the same - its shaping and drawn section with it.</summary>
+    public ColumnType Duplicate(string name) => WithCommonOf(new ColumnType(name, Shape, Width, Depth)
+    {
+        Structural = Structural, StructuralMaterial = StructuralMaterial, FlangeThickness = FlangeThickness, WebThickness = WebThickness,
+        WallThickness = WallThickness, FireRating = FireRating, PreservativeTreated = PreservativeTreated, RustProtected = RustProtected,
+        MaterialId = MaterialId, CoarseScaleFillColour = CoarseScaleFillColour, OffsetBase = OffsetBase, OffsetTop = OffsetTop,
+        CustomProfile = CustomProfile, Shaping = Shaping.Copy()
+    });
 
     /// <summary>The area of its section, which is what a volume is worked out from.</summary>
     public double SectionArea => Profile.Area;
@@ -134,6 +179,35 @@ public sealed class ColumnType : ElementType
             ColumnTypeParameters.OffsetTop, () => OffsetTop, v => { OffsetTop = v; return true; });
 
         yield return ParameterValue.ReadOnly(ColumnTypeParameters.SectionArea, () => SectionArea);
+
+        if (Shape == ColumnShape.IBeam)
+        {
+            yield return ParameterValue.BindValidated(ColumnTypeParameters.FlangeThickness, () => FlangeThickness,
+                v => { if (v <= 0 || 2 * v >= Depth) return false; FlangeThickness = v; return true; });
+            yield return ParameterValue.BindValidated(ColumnTypeParameters.WebThickness, () => WebThickness,
+                v => { if (v <= 0 || v >= Width) return false; WebThickness = v; return true; });
+        }
+
+        if (Shape is ColumnShape.HollowRectangular or ColumnShape.HollowRound)
+            yield return ParameterValue.BindValidated(ColumnTypeParameters.WallThickness, () => WallThickness,
+                v => { if (v <= 0 || 2 * v >= Math.Min(Width, Shape == ColumnShape.HollowRound ? Width : Depth)) return false; WallThickness = v; return true; });
+
+        // A structural column's: what it is made of, how long it resists fire, and how it is protected.
+        if (Structural)
+        {
+            yield return ParameterValue.BindChoice(ColumnTypeParameters.StructuralMaterial,
+                () => EnumText.Humanise(StructuralMaterial),
+                v => { if (EnumText.TryParse<BeamMaterial>(v, out var material)) StructuralMaterial = material; },
+                EnumText.Choices<BeamMaterial>());
+            yield return ParameterValue.ReadOnly(ColumnTypeParameters.Mass, () => Math.Round(SectionArea / 1e6 * BeamType.Density(StructuralMaterial), 1));
+            var section = Profile.Properties();
+            yield return ParameterValue.ReadOnly(ColumnTypeParameters.RadiusOfGyration, () => Math.Round(section.LeastRadiusOfGyration, 1));
+            yield return ParameterValue.Bind(ColumnTypeParameters.FireRating, () => FireRating, v => FireRating = v.Trim());
+            if (StructuralMaterial is BeamMaterial.Timber or BeamMaterial.Glulam)
+                yield return ParameterValue.Bind(ColumnTypeParameters.PreservativeTreated, () => PreservativeTreated, v => PreservativeTreated = v);
+            if (StructuralMaterial == BeamMaterial.Steel)
+                yield return ParameterValue.Bind(ColumnTypeParameters.RustProtected, () => RustProtected, v => RustProtected = v);
+        }
 
         // What it is made of, chosen from the project's materials - the same list the wall
         // types are built from, so a column can be the concrete the frame is.
@@ -203,7 +277,13 @@ public sealed class Column : Element
     /// <summary>How far a chain of attachments is followed before it is taken as circular.</summary>
     private const int MaxAttachmentChain = 8;
 
-    public override BuiltInCategory Category => BuiltInCategory.Columns;
+    /// <summary>
+    /// Whether it is a structural column - placed from a structural column type, as its type is.
+    /// Its category follows: a structural column is scheduled and filtered as one.
+    /// </summary>
+    public bool Structural { get; set; }
+
+    public override BuiltInCategory Category => Structural ? BuiltInCategory.StructuralColumns : BuiltInCategory.Columns;
 
     /// <summary>Where it stands: the middle of its section.</summary>
     public Point2D Location { get; set; }
@@ -470,6 +550,13 @@ public sealed class Column : Element
         yield return ParameterValue.ReadOnly(ColumnParameters.Volume,
             () => (type?.SectionArea ?? 0) * Math.Max(0, GetHeight(document)));
 
+        // What it carries, and the rules it answers to.
+        if (Structural)
+        {
+            yield return ParameterValue.ReadOnly(ColumnParameters.Load, () => Math.Round(Loads.OnColumn(document, this), 1));
+            yield return ParameterValue.ReadOnly(ColumnParameters.Regulations, () => StructureRules.Verdict(document, this));
+        }
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 }
@@ -523,6 +610,33 @@ public static class ColumnTypeParameters
 
     public static readonly ParameterDefinition CapitalHeight =
         new("Capital Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FlangeThickness =
+        new("Flange Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition WebThickness =
+        new("Web Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition WallThickness =
+        new("Wall Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition StructuralMaterial =
+        new("Structural Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+
+    public static readonly ParameterDefinition Mass =
+        new("Mass (kg/m)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition RadiusOfGyration =
+        new("Least Radius of Gyration", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition FireRating =
+        new("Fire Rating", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition PreservativeTreated =
+        new("Preservative Treated or Durable", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+
+    public static readonly ParameterDefinition RustProtected =
+        new("Rust-Inhibitive Paint", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
 }
 
 public static class ColumnParameters
@@ -583,4 +697,10 @@ public static class ColumnParameters
 
     public static readonly ParameterDefinition Volume =
         new("Volume", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Load =
+        new("Load Carried (kN)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition Regulations =
+        new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

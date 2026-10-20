@@ -26,7 +26,7 @@ public sealed class ProjectFileException : Exception
 /// asks for large-model performance and section 7 for worksharing - but replacing it later
 /// is a change to this one class, because everything else talks to <see cref="BimDocument"/>.
 /// </summary>
-public static class ProjectFile
+public static partial class ProjectFile
 {
     /// <summary>Raised by one when the format changes in a way older builds cannot read.</summary>
     public const int CurrentFormatVersion = 3;
@@ -71,7 +71,16 @@ public static class ProjectFile
                 Client = document.ProjectInformation.Client,
                 Address = document.ProjectInformation.Address,
                 BuildingType = document.ProjectInformation.BuildingType,
-                ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString()
+                ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString(),
+                Sprinklered = document.ProjectInformation.Sprinklered,
+                Ground = document.ProjectInformation.Ground.ToString(),
+                ClayShrinkage = document.ProjectInformation.ClayShrinkage.ToString(),
+                FrostDepth = document.ProjectInformation.FrostDepth,
+                GroundSnowLoad = document.ProjectInformation.GroundSnowLoad,
+                WindPressure = document.ProjectInformation.WindPressure,
+                BasicWindSpeed = document.ProjectInformation.BasicWindSpeed,
+                SiteAltitude = document.ProjectInformation.SiteAltitude,
+                Terrain = document.ProjectInformation.Terrain.ToString()
             }
         };
 
@@ -144,7 +153,8 @@ public static class ProjectFile
             dto.TypeIdentities.Add(new TypeIdentityDto
             {
                 Id = type.Id, TypeMark = NullIfEmpty(type.TypeMark), AssemblyCode = NullIfEmpty(type.AssemblyCode), Keynote = NullIfEmpty(type.Keynote),
-                Manufacturer = NullIfEmpty(type.Manufacturer), Url = NullIfEmpty(type.Url), Description = NullIfEmpty(type.Description), Cost = type.Cost
+                Manufacturer = NullIfEmpty(type.Manufacturer), Url = NullIfEmpty(type.Url), Description = NullIfEmpty(type.Description), Cost = type.Cost,
+                ClassificationCode = NullIfEmpty(type.ClassificationCode)
             });
 
         foreach (var fascia in document.TypesOf<FasciaType>())
@@ -390,6 +400,27 @@ public static class ProjectFile
                 Board = soffit.Board.ToString(), FreeAirArea = soffit.FreeAirArea
             });
 
+        foreach (var eave in document.TypesOf<EaveType>())
+            dto.EaveTypes.Add(new EaveTypeDto
+            {
+                Id = eave.Id, Name = eave.Name, TypeMark = eave.TypeMark, Kind = eave.Kind.ToString(),
+                RafterWidth = eave.RafterWidth, RafterDepth = eave.RafterDepth, RafterSpacing = eave.RafterSpacing, Tail = eave.Tail.ToString(),
+                DeckThickness = eave.DeckThickness, SoffitThickness = eave.SoffitThickness, Board = eave.Board.ToString(), FreeAirArea = eave.FreeAirArea,
+                FriezeDepth = eave.FriezeDepth, FriezeThickness = eave.FriezeThickness, Moulding = eave.Moulding.ToString(), MouldingSize = eave.MouldingSize,
+                Bracket = eave.Bracket.ToString(), BracketSpacing = eave.BracketSpacing, BracketHeight = eave.BracketHeight,
+                BracketDepth = eave.BracketDepth, BracketWidth = eave.BracketWidth, Underside = eave.Underside.ToString(),
+                MaterialId = eave.MaterialId, SoffitMaterialId = eave.SoffitMaterialId, Cost = eave.Cost, Description = eave.Description
+            });
+
+        foreach (var mullion in document.TypesOf<MullionType>())
+            dto.MullionTypes.Add(new MullionTypeDto
+            {
+                Id = mullion.Id, Name = mullion.Name, TypeMark = mullion.TypeMark, Shape = mullion.Shape.ToString(),
+                Width1 = mullion.Width1, Width2 = mullion.Width2, Thickness = mullion.Thickness, Offset = mullion.Offset,
+                Leg1 = mullion.Leg1, Leg2 = mullion.Leg2, CapDepth = mullion.CapDepth, WallThickness = mullion.WallThickness,
+                Material = mullion.Material.ToString(), MaterialId = mullion.MaterialId, Cost = mullion.Cost, Description = mullion.Description
+            });
+
         foreach (var type in document.TypesOf<RoofWindowType>())
             dto.RoofWindowTypes.Add(new RoofWindowTypeDto
             {
@@ -420,7 +451,7 @@ public static class ProjectFile
             dto.RoofEdgeSweeps.Add(new RoofEdgeSweepDto
             {
                 Id = sweep.Id,
-                Kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", _ => "Fascia" },
+                Kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", Eave => "Eave", _ => "Fascia" },
                 TypeId = sweep.TypeId,
                 LevelId = sweep.LevelId,
                 RoofId = sweep.RoofId,
@@ -428,7 +459,9 @@ public static class ProjectFile
                 HorizontalOffset = sweep.HorizontalOffset,
                 VerticalOffset = sweep.VerticalOffset,
                 Mark = sweep.Mark,
-                Comments = sweep.Comments
+                Comments = sweep.Comments,
+                FireStopped = (sweep as Eave)?.FireStopped,
+                FireBlocked = (sweep as Eave)?.FireBlocked
             });
 
         foreach (var opening in document.Elements.OfType<WallOpening>())
@@ -493,7 +526,19 @@ public static class ProjectFile
                 BorderMullions = curtain.BorderMullions,
                 AutomaticallyEmbed = curtain.AutomaticallyEmbed,
                 HeatTransferCoefficient = curtain.HeatTransferCoefficient,
-                SafetyGlazing = curtain.SafetyGlazing
+                SafetyGlazing = curtain.SafetyGlazing,
+                InteriorVertical = curtain.InteriorVertical,
+                BorderVerticalStart = curtain.BorderVerticalStart,
+                BorderVerticalEnd = curtain.BorderVerticalEnd,
+                InteriorHorizontal = curtain.InteriorHorizontal,
+                BorderHorizontalBottom = curtain.BorderHorizontalBottom,
+                BorderHorizontalTop = curtain.BorderHorizontalTop,
+                JoinCondition = curtain.JoinCondition.ToString(),
+                MullionAnchors = curtain.MullionAnchors,
+                Splices = curtain.Splices.ToString(),
+                SpliceAbove = curtain.SpliceAbove,
+                StackJoint = curtain.StackJoint,
+                AnchorCapacity = curtain.AnchorCapacity
             });
 
         foreach (var type in document.TypesOf<WallType>())
@@ -586,7 +631,12 @@ public static class ProjectFile
                 GlazingType = type.GlazingType,
                 GlazingRows = type.GlazingRows,
                 GlazingColumns = type.GlazingColumns,
-                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
+                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                Lights = type.Lights,
+                LightPattern = type.LightPattern,
+                TransomHeight = type.TransomHeight,
+                Fanlight = type.Fanlight.ToString(),
+                MullionWidth = type.MullionWidth
             };
 
             WriteOpeningType(windowType, type);
@@ -821,6 +871,8 @@ public static class ProjectFile
                 IncludeJoinDisplay = template.IncludeJoinDisplay, JoinDisplay = template.JoinDisplay.ToString(),
                 IncludeVisualStyle = template.IncludeVisualStyle, VisualStyle = template.VisualStyle.ToString(),
                 IncludeHiddenKinds = template.IncludeHiddenKinds, HiddenKinds = template.HiddenKinds.Select(k => k.ToString()).OrderBy(n => n).ToList(),
+                IncludeFilters = template.IncludeFilters, Filters = template.Filters.Count == 0 ? null : template.Filters.Select(FilterUseDto).ToList(),
+                IncludePhaseFilter = template.IncludePhaseFilter, PhaseFilter = template.PhaseFilter.ToString(),
                 Comments = template.Comments
             });
 
@@ -961,6 +1013,14 @@ public static class ProjectFile
                 BaseSpread = type.Shaping.BaseSpread,
                 CapitalHeight = type.Shaping.CapitalHeight,
                 CapitalSpread = type.Shaping.CapitalSpread,
+                Structural = type.Structural,
+                StructuralMaterial = type.StructuralMaterial.ToString(),
+                FlangeThickness = type.FlangeThickness,
+                WebThickness = type.WebThickness,
+                WallThickness = type.WallThickness,
+                FireRating = type.FireRating,
+                PreservativeTreated = type.PreservativeTreated,
+                RustProtected = type.RustProtected,
 
                 // A drawn section is stored as its loops, each a flat run of x, y pairs.
                 ProfileLoops = type.CustomProfile is { IsEmpty: false } profile
@@ -988,6 +1048,7 @@ public static class ProjectFile
                 TopLevelId = column.TopLevelId,
                 TopOffset = column.TopOffset,
                 UnconnectedHeight = column.UnconnectedHeight,
+                Structural = column.Structural,
                 TopAttachedTo = column.TopAttachedTo,
                 BaseAttachedTo = column.BaseAttachedTo,
                 MovesWithGrids = column.MovesWithGrids,
@@ -1004,6 +1065,28 @@ public static class ProjectFile
                 Workset = column.Workset,
                 PhaseCreated = column.PhaseCreated.ToString(),
                 PhaseDemolished = column.PhaseDemolished?.ToString()
+            });
+
+        foreach (var type in document.TypesOf<FootingType>())
+            dto.FootingTypes.Add(new FootingTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Kind = type.Kind.ToString(), Width = type.Width, Length = type.Length,
+                Thickness = type.Thickness, MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, AssemblyCode = type.AssemblyCode,
+                Cost = type.Cost, Description = type.Description
+            });
+
+        foreach (var footing in document.Elements.OfType<WallFooting>())
+            dto.WallFootings.Add(new WallFootingDto
+            {
+                Id = footing.Id, TypeId = footing.TypeId, LevelId = footing.LevelId, WallId = footing.WallId, Depth = footing.Depth,
+                Eccentricity = footing.Eccentricity, Mark = footing.Mark, Comments = footing.Comments
+            });
+
+        foreach (var pad in document.Elements.OfType<PadFooting>())
+            dto.PadFootings.Add(new PadFootingDto
+            {
+                Id = pad.Id, TypeId = pad.TypeId, LevelId = pad.LevelId, ColumnId = pad.ColumnId, X = pad.Location.X, Y = pad.Location.Y,
+                Rotation = pad.Rotation, Depth = pad.Depth, Mark = pad.Mark, Comments = pad.Comments
             });
 
         foreach (var type in document.TypesOf<ComponentType>())
@@ -1086,6 +1169,7 @@ public static class ProjectFile
                 WallFinish = room.WallFinish,
                 CeilingFinish = room.CeilingFinish,
                 BaseFinish = room.BaseFinish,
+                ClassificationCode = NullIfEmpty(room.ClassificationCode),
                 Comments = room.Comments,
                 Workset = room.Workset,
                 PhaseCreated = room.PhaseCreated.ToString()
@@ -1136,6 +1220,7 @@ public static class ProjectFile
                     .ToList(),
                 CurtainGlass = wall.CurtainGlass.ToString(),
                 CurtainPanels = wall.CurtainPanels?.Select(p => new CurtainPanelDto { Column = p.Column, Row = p.Row, Kind = p.Kind.ToString(), OpeningTypeId = p.OpeningTypeId, Glass = p.Glass.ToString(), FlipHand = p.FlipHand, FlipFacing = p.FlipFacing, IsOpen = p.IsOpen }).ToList(),
+                CurtainMullions = wall.CurtainMullions?.Select(m => new CurtainMullionDto { Vertical = m.Vertical, Line = m.Line, At = m.At, TypeId = m.TypeId }).ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
                 CrossSection = wall.CrossSection.ToString(),
@@ -1157,6 +1242,7 @@ public static class ProjectFile
 
         // What is pinned, by its id: one list for every kind of element.
         dto.PinnedIds.AddRange(document.Elements.Where(element => element.Pinned).Select(element => element.Id));
+        WriteRound6(document, dto);
 
         return dto;
     }
@@ -1298,6 +1384,15 @@ public static class ProjectFile
         document.ProjectInformation.Address = dto.Project.Address;
         document.ProjectInformation.BuildingType = dto.Project.BuildingType;
         document.ProjectInformation.ClearanceStandard = ParseEnum(dto.Project.ClearanceStandard, ClearanceStandard.ApprovedDocumentM);
+        document.ProjectInformation.Sprinklered = dto.Project.Sprinklered;
+        document.ProjectInformation.Ground = ParseEnum(dto.Project.Ground, GroundType.FirmClay);
+        document.ProjectInformation.ClayShrinkage = ParseEnum(dto.Project.ClayShrinkage, ClayShrinkage.None);
+        document.ProjectInformation.FrostDepth = double.IsFinite(dto.Project.FrostDepth) && dto.Project.FrostDepth > 0 ? dto.Project.FrostDepth : 0;
+        document.ProjectInformation.GroundSnowLoad = double.IsFinite(dto.Project.GroundSnowLoad) && dto.Project.GroundSnowLoad >= 0 ? dto.Project.GroundSnowLoad : 20;
+        document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
+        document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;
+        document.ProjectInformation.SiteAltitude = double.IsFinite(dto.Project.SiteAltitude) && dto.Project.SiteAltitude is >= -500 and <= 5000 ? dto.Project.SiteAltitude : 0;
+        document.ProjectInformation.Terrain = ParseEnum(dto.Project.Terrain, WindTerrain.OpenCountry);
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
@@ -1574,6 +1669,23 @@ public static class ProjectFile
                 FreeAirArea = double.IsFinite(soffit.FreeAirArea) && soffit.FreeAirArea > 0 ? soffit.FreeAirArea : 0
             });
 
+        static double Within(double value, double low, double high, double otherwise) => double.IsFinite(value) && value >= low && value <= high ? value : otherwise;
+        foreach (var eave in dto.EaveTypes ?? new List<EaveTypeDto>())
+            document.AddType(new EaveType(eave.Name)
+            {
+                Id = eave.Id, TypeMark = eave.TypeMark ?? string.Empty, Kind = ParseEnum(eave.Kind, EaveKind.Closed),
+                RafterWidth = Within(eave.RafterWidth, 20, 300, 47), RafterDepth = Within(eave.RafterDepth, 0, 600, 0),
+                RafterSpacing = Within(eave.RafterSpacing, 70, 1200, 400), Tail = ParseEnum(eave.Tail, RafterTail.Plumb),
+                DeckThickness = Within(eave.DeckThickness, 0, 50, 18), SoffitThickness = Within(eave.SoffitThickness, 0.1, 50, 12),
+                Board = ParseEnum(eave.Board, SoffitBoard.Solid), FreeAirArea = Within(eave.FreeAirArea, 0, 1e6, 0),
+                FriezeDepth = Within(eave.FriezeDepth, 0, 1000, 0), FriezeThickness = Within(eave.FriezeThickness, 5, 100, 22),
+                Moulding = ParseEnum(eave.Moulding, EaveMoulding.None), MouldingSize = Within(eave.MouldingSize, 10, 200, 45),
+                Bracket = ParseEnum(eave.Bracket, EaveBracket.None), BracketSpacing = Within(eave.BracketSpacing, 300, 6000, 1200),
+                BracketHeight = Within(eave.BracketHeight, 50, 1500, 300), BracketDepth = Within(eave.BracketDepth, 0, 1500, 0),
+                BracketWidth = Within(eave.BracketWidth, 20, 300, 75), Underside = ParseEnum(eave.Underside, EaveUnderside.Unprotected),
+                MaterialId = eave.MaterialId, SoffitMaterialId = eave.SoffitMaterialId, Cost = eave.Cost, Description = eave.Description ?? string.Empty
+            });
+
         foreach (var edgeType in dto.SlabEdgeTypes)
             document.AddType(new SlabEdgeType(edgeType.Name)
             {
@@ -1592,6 +1704,19 @@ public static class ProjectFile
                 LeafGuard = gutter.LeafGuard,
                 DownpipeShape = ParseEnum(gutter.DownpipeShape, DownpipeShape.Round),
                 DownpipeWidth = PositiveOr(gutter.DownpipeWidth, 68), DownpipeDepth = PositiveOr(gutter.DownpipeDepth, 68)
+            });
+
+        // Mullion types before the curtain wall types that put them on their lines.
+        foreach (var mullion in dto.MullionTypes ?? new List<MullionTypeDto>())
+            document.AddType(new MullionType(mullion.Name)
+            {
+                Id = mullion.Id, TypeMark = mullion.TypeMark ?? string.Empty, Shape = ParseEnum(mullion.Shape, MullionShape.Rectangular),
+                Width1 = Within(mullion.Width1, 1, 500, 25), Width2 = Within(mullion.Width2, 1, 500, 25),
+                Thickness = Within(mullion.Thickness, 5, 1000, 150), Offset = Within(mullion.Offset, -1000, 1000, 0),
+                Leg1 = Within(mullion.Leg1, 10, 1000, 100), Leg2 = Within(mullion.Leg2, 10, 1000, 100),
+                CapDepth = Within(mullion.CapDepth, 0, 200, 0), WallThickness = Within(mullion.WallThickness, 0, 50, 3),
+                Material = ParseEnum(mullion.Material, MullionMaterial.Aluminium), MaterialId = mullion.MaterialId,
+                Cost = mullion.Cost, Description = mullion.Description ?? string.Empty
             });
 
         foreach (var dtoCurtain in dto.CurtainWallTypes)
@@ -1622,8 +1747,21 @@ public static class ProjectFile
                 BorderMullions = dtoCurtain.BorderMullions,
                 AutomaticallyEmbed = dtoCurtain.AutomaticallyEmbed,
                 HeatTransferCoefficient = dtoCurtain.HeatTransferCoefficient is >= 0 and < 20 ? dtoCurtain.HeatTransferCoefficient.Value : 1.4,
-                SafetyGlazing = dtoCurtain.SafetyGlazing ?? true
+                SafetyGlazing = dtoCurtain.SafetyGlazing ?? true,
+                InteriorVertical = dtoCurtain.InteriorVertical,
+                BorderVerticalStart = dtoCurtain.BorderVerticalStart,
+                BorderVerticalEnd = dtoCurtain.BorderVerticalEnd,
+                InteriorHorizontal = dtoCurtain.InteriorHorizontal,
+                BorderHorizontalBottom = dtoCurtain.BorderHorizontalBottom,
+                BorderHorizontalTop = dtoCurtain.BorderHorizontalTop,
+                JoinCondition = ParseEnum(dtoCurtain.JoinCondition, CurtainJoin.VerticalContinuous),
+                MullionAnchors = dtoCurtain.MullionAnchors,
+                Splices = ParseEnum(dtoCurtain.Splices, MullionSplices.None),
+                SpliceAbove = dtoCurtain.SpliceAbove is >= 0 and <= 2000 ? dtoCurtain.SpliceAbove.Value : 300,
+                StackJoint = dtoCurtain.StackJoint is >= 1 and <= 100 ? dtoCurtain.StackJoint.Value : 20,
+                AnchorCapacity = double.IsFinite(dtoCurtain.AnchorCapacity) && dtoCurtain.AnchorCapacity is >= 0 and <= 500 ? dtoCurtain.AnchorCapacity : 0
             };
+            curtain.TakeDepth(document);
 
             // A type that could not be built from is put back to the storefront defaults' sizes.
             if (curtain.Problem() is not null)
@@ -1683,7 +1821,14 @@ public static class ProjectFile
                 // Saved before divided lights: one pane each way, which is what they all were.
                 GlazingRows = type.GlazingRows is > 0 and <= 12 ? type.GlazingRows : 1,
                 GlazingColumns = type.GlazingColumns is > 0 and <= 12 ? type.GlazingColumns : 1,
-                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
+                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+
+                // Saved before divided windows: one light, no transom.
+                Lights = type.Lights is > 0 and <= 8 ? type.Lights.Value : 1,
+                LightPattern = type.LightPattern ?? string.Empty,
+                TransomHeight = double.IsFinite(type.TransomHeight) && type.TransomHeight > 0 ? type.TransomHeight : 0,
+                Fanlight = ParseEnum(type.Fanlight, FanlightOperation.Fixed),
+                MullionWidth = type.MullionWidth is >= 20 and <= 250 ? type.MullionWidth.Value : 70
             };
 
             ReadOpeningType(windowType, type);
@@ -1736,6 +1881,10 @@ public static class ProjectFile
                         // Saved when only doors could be panels, the type was called the door type.
                         p.Column, p.Row, ParseEnum(p.Kind, CurtainPanelKind.Glazed), p.OpeningTypeId ?? p.DoorTypeId, ParseEnum(p.Glass, CurtainGlass.Clear),
                         p.FlipHand, p.FlipFacing, p.IsOpen))
+                    .ToList(),
+                CurtainMullions = wall.CurtainMullions?
+                    .Where(m => double.IsFinite(m.Line) && double.IsFinite(m.At))
+                    .Select(m => new CurtainMullionOverride(m.Vertical, m.Line, m.At, m.TypeId))
                     .ToList(),
                 TopAttachedTo = wall.TopAttachedTo,
                 BaseAttachedTo = wall.BaseAttachedTo,
@@ -2013,6 +2162,7 @@ public static class ProjectFile
             {
                 "Gutter" => new Gutter { Id = saved.Id },
                 "Soffit" => new Soffit { Id = saved.Id },
+                "Eave" => new Eave { Id = saved.Id, FireStopped = saved.FireStopped ?? true, FireBlocked = saved.FireBlocked ?? false },
                 _ => new Fascia { Id = saved.Id }
             };
             sweep.TypeId = saved.TypeId;
@@ -2379,6 +2529,14 @@ public static class ProjectFile
                     CapitalHeight = Math.Max(0, type.CapitalHeight),
                     CapitalSpread = type.CapitalSpread >= 0 ? type.CapitalSpread : 0.22
                 },
+                Structural = type.Structural,
+                StructuralMaterial = ParseEnum(type.StructuralMaterial, BeamMaterial.Steel),
+                FlangeThickness = double.IsFinite(type.FlangeThickness) && type.FlangeThickness > 0 ? type.FlangeThickness : 0,
+                WebThickness = double.IsFinite(type.WebThickness) && type.WebThickness > 0 ? type.WebThickness : 0,
+                WallThickness = double.IsFinite(type.WallThickness) && type.WallThickness > 0 ? type.WallThickness : 0,
+                FireRating = type.FireRating ?? string.Empty,
+                PreservativeTreated = type.PreservativeTreated,
+                RustProtected = type.RustProtected,
                 TypeMark = type.TypeMark,
                 AssemblyCode = type.AssemblyCode,
                 Keynote = type.Keynote,
@@ -2407,6 +2565,7 @@ public static class ProjectFile
                 TopLevelId = column.TopLevelId is { } topId && document.FindLevel(topId) is not null ? topId : null,
                 TopOffset = double.IsFinite(column.TopOffset) ? column.TopOffset : 0,
                 UnconnectedHeight = Size(column.UnconnectedHeight, 3000),
+                Structural = column.Structural,
                 TopAttachedTo = column.TopAttachedTo is { } top && slabs.Contains(top) ? top : null,
                 BaseAttachedTo = column.BaseAttachedTo is { } bottom && slabs.Contains(bottom) ? bottom : null,
                 MovesWithGrids = column.MovesWithGrids,
@@ -2425,6 +2584,35 @@ public static class ProjectFile
                 PhaseDemolished = string.IsNullOrEmpty(column.PhaseDemolished)
                     ? null
                     : ParseEnum(column.PhaseDemolished, DesignPhase.Existing)
+            });
+        }
+
+        // Footings: their types, then those under the walls and columns still there.
+        foreach (var type in dto.FootingTypes ?? new List<FootingTypeDto>())
+            document.AddType(new FootingType(type.Name, ParseEnum(type.Kind, FootingKind.Strip))
+            {
+                Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Width = Size(type.Width, 600), Length = Size(type.Length, 600),
+                Thickness = Size(type.Thickness, 225), MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId,
+                AssemblyCode = type.AssemblyCode ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
+            });
+        foreach (var footing in (dto.WallFootings ?? new List<WallFootingDto>()).Where(footing => document.Walls.Any(wall => wall.Id == footing.WallId)))
+            document.Add(new WallFooting
+            {
+                Id = footing.Id, TypeId = footing.TypeId, LevelId = footing.LevelId, WallId = footing.WallId,
+                Depth = double.IsFinite(footing.Depth) && footing.Depth > 0 ? footing.Depth : 1000,
+                Eccentricity = double.IsFinite(footing.Eccentricity) ? footing.Eccentricity : 0,
+                Mark = footing.Mark ?? string.Empty, Comments = footing.Comments ?? string.Empty
+            });
+        foreach (var pad in dto.PadFootings ?? new List<PadFootingDto>())
+        {
+            // A pad whose column is gone is left where it was, carrying nothing.
+            var carried = pad.ColumnId is { } id && document.FindElement(id) is Column ? id : (Guid?)null;
+            document.Add(new PadFooting
+            {
+                Id = pad.Id, TypeId = pad.TypeId, LevelId = pad.LevelId, ColumnId = carried,
+                Location = new Point2D(double.IsFinite(pad.X) ? pad.X : 0, double.IsFinite(pad.Y) ? pad.Y : 0),
+                Rotation = double.IsFinite(pad.Rotation) ? pad.Rotation : 0, Depth = double.IsFinite(pad.Depth) && pad.Depth > 0 ? pad.Depth : 1000,
+                Mark = pad.Mark ?? string.Empty, Comments = pad.Comments ?? string.Empty
             });
         }
 
@@ -2518,6 +2706,7 @@ public static class ProjectFile
                 WallFinish = room.WallFinish,
                 CeilingFinish = room.CeilingFinish,
                 BaseFinish = room.BaseFinish,
+                ClassificationCode = room.ClassificationCode ?? string.Empty,
                 Comments = room.Comments,
                 Workset = room.Workset,
                 PhaseCreated = ParseEnum(room.PhaseCreated, DesignPhase.New)
@@ -2635,8 +2824,11 @@ public static class ProjectFile
                 IncludeWallFunctions = saved.IncludeWallFunctions, IncludeJoinDisplay = saved.IncludeJoinDisplay,
                 JoinDisplay = ParseEnum(saved.JoinDisplay, WallJoinDisplay.CleanAllWallJoins),
                 IncludeVisualStyle = saved.IncludeVisualStyle, VisualStyle = ParseEnum(saved.VisualStyle, VisualStyle.HiddenLine),
-                IncludeHiddenKinds = saved.IncludeHiddenKinds, Comments = saved.Comments ?? string.Empty
+                IncludeHiddenKinds = saved.IncludeHiddenKinds, Comments = saved.Comments ?? string.Empty,
+                IncludeFilters = saved.IncludeFilters, IncludePhaseFilter = saved.IncludePhaseFilter,
+                PhaseFilter = ParseEnum(saved.PhaseFilter, PhaseFilter.ShowAll)
             };
+            template.Filters.AddRange((saved.Filters ?? new List<FilterOverrideDto>()).Select(FilterUse));
             foreach (var name in saved.HiddenWallFunctions ?? new List<string>())
                 if (Enum.TryParse<WallFunction>(name, out var function)) template.HiddenWallFunctions.Add(function);
             foreach (var name in saved.HiddenKinds ?? new List<string>())
@@ -2797,7 +2989,10 @@ public static class ProjectFile
             if (identity.Url is { } url) type.Url = url;
             if (identity.Description is { } description) type.Description = description;
             type.Cost = identity.Cost;
+            if (identity.ClassificationCode is { } classification) type.ClassificationCode = classification;
         }
+
+        ReadRound6(dto, document);
 
         document.EnsureDefaultTypes();
 

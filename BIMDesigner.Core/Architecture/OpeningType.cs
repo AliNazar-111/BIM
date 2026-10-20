@@ -232,7 +232,8 @@ public sealed class WindowType : OpeningType
     public WindowType Duplicate(string name) => WithCommonOf(WithOpeningOf(new WindowType(name, Width, Height)
     {
         Operation = Operation, GlazingType = GlazingType, GlazingRows = GlazingRows, GlazingColumns = GlazingColumns,
-        SolarHeatGainCoefficient = SolarHeatGainCoefficient
+        SolarHeatGainCoefficient = SolarHeatGainCoefficient,
+        Lights = Lights, LightPattern = LightPattern, TransomHeight = TransomHeight, Fanlight = Fanlight, MullionWidth = MullionWidth
     }));
 
     public override BuiltInCategory Category => BuiltInCategory.Windows;
@@ -249,9 +250,62 @@ public sealed class WindowType : OpeningType
     /// <summary>Solar heat gain coefficient, 0 to 1.</summary>
     public double SolarHeatGainCoefficient { get; set; } = 0.6;
 
+    /// <summary>How many lights it has side by side, mullions between them; one is a window undivided.</summary>
+    public int Lights { get; set; } = 1;
+
+    /// <summary>Which lights open, one letter each across - O opens as the window does, F is fixed: "OFO". Left empty, the usual way.</summary>
+    public string LightPattern { get; set; } = string.Empty;
+
+    /// <summary>Where the transom's middle is, up from the window's bottom, mm, fanlights over it; none at 0.</summary>
+    public double TransomHeight { get; set; }
+
+    /// <summary>How the fanlights over the transom open.</summary>
+    public FanlightOperation Fanlight { get; set; } = FanlightOperation.Fixed;
+
+    /// <summary>How wide its mullions and transom are seen face-on, mm: the frame's own section, through its depth.</summary>
+    public double MullionWidth { get; set; } = 70;
+
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
         foreach (var parameter in GetOpeningTypeParameters()) yield return parameter;
+
+        // Its lights: side by side between mullions, and fanlights over a transom.
+        if (Operation != WindowOperation.Bay)
+        {
+            yield return ParameterValue.BindValidated(WindowTypeParameters.Lights, () => Lights, v =>
+            {
+                if (v < 1 || v > 8) return false;
+                var was = Lights;
+                Lights = v;
+                if (v == 1 || WindowLights.MostLights(this) >= v) return true;
+                Lights = was;
+                return false;
+            });
+            if (Lights > 1)
+                yield return ParameterValue.BindValidated(WindowTypeParameters.LightPattern, () => WindowLights.Pattern(this), v =>
+                {
+                    var letters = (v ?? string.Empty).Trim().ToUpperInvariant();
+                    if (letters.Length > 0 && (letters.Length != Lights || letters.Any(letter => letter is not ('O' or 'F')))) return false;
+                    LightPattern = letters;
+                    return true;
+                });
+            yield return ParameterValue.BindValidated(WindowTypeParameters.TransomHeight, () => TransomHeight, v =>
+            {
+                if (v < 0 || v >= Height) return false;
+                TransomHeight = v;
+                return true;
+            });
+            if (WindowLights.TransomAt(this) is not null)
+                yield return ParameterValue.BindChoice(WindowTypeParameters.Fanlight, () => EnumText.Humanise(Fanlight),
+                    v => { if (EnumText.TryParse<FanlightOperation>(v, out var fanlight)) Fanlight = fanlight; }, EnumText.Choices<FanlightOperation>());
+            if (WindowLights.Divided(this))
+                yield return ParameterValue.BindValidated(WindowTypeParameters.MullionWidth, () => MullionWidth, v =>
+                {
+                    if (v < 20 || v > 250) return false;
+                    MullionWidth = v;
+                    return true;
+                });
+        }
 
         yield return ParameterValue.Bind(WindowTypeParameters.GlazingRows, () => GlazingRows, v => { if (v is > 0 and <= 12) GlazingRows = v; });
         yield return ParameterValue.Bind(WindowTypeParameters.GlazingColumns, () => GlazingColumns, v => { if (v is > 0 and <= 12) GlazingColumns = v; });
@@ -365,4 +419,19 @@ public static class WindowTypeParameters
 
     public static readonly ParameterDefinition SolarHeatGain =
         new("Solar Heat Gain (SHGC)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition Lights =
+        new("Lights Across", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LightPattern =
+        new("Opening Lights (O opens, F fixed)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition TransomHeight =
+        new("Transom Height (0 = none)", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Fanlight =
+        new("Fanlights", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition MullionWidth =
+        new("Mullion and Transom Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
 }

@@ -387,6 +387,8 @@
                         </MenuItem>
                         <MenuItem Header="Export IFC _2x3..." Click="OnExportIfc2x3"
                                   ToolTip="The model as IFC2x3 Coordination View 2.0, for software that does not yet read IFC4"/>
+                        <MenuItem Header="Export _COBie..." Click="OnExportCobie"
+                                  ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
                         <MenuItem Header="Export Plan to D_XF..." Click="OnExportPlanDxf"
                                   ToolTip="The plan shown, as a DXF drawing at full size in millimetres"/>
                         <MenuItem Header="Export This Sheet to DX_F..." Click="OnExportSheetDxf"
@@ -472,6 +474,11 @@
                                                  ToolTip="Roof: Soffit. Click a roof's eaves: a board closes the underside of the overhang, from the fascia back to the wall. Esc finishes it"/>
                                 </StackPanel>
                                 <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="EaveTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Eave}"
+                                                 Content="Eave" Checked="OnToolChanged"
+                                                 ToolTip="Eave: click a roof's eaves one after another and an eave is built under them, of the kind its type is - closed under a sloping soffit, open with its rafters on show, exposed rafter tails cut to a shape, a box cornice with frieze and moulding, or abbreviated close to the wall - with brackets, corbels or knee braces if it has them. The roof is cut back to its rafters over it. Esc finishes it"/>
+                                </StackPanel>
+                                <StackPanel Margin="2,0,0,0">
                                     <RadioButton x:Name="DownpipeTool" Style="{StaticResource RibbonSmallRadio}" Tag="{StaticResource Icon.Downpipe}"
                                                  Content="Downpipe" Checked="OnToolChanged"
                                                  ToolTip="Downpipe: click on a gutter - in plan or in 3D - and a downpipe takes the water from there: an outlet in the gutter's bottom, a swan neck back to the wall, down the wall to the ground and a shoe at its foot. A dormer's lets its water onto the roof below. Section and size come from the gutter's type"/>
@@ -507,6 +514,9 @@
                                 <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.WallTypes}"
                                         Content="Wall Types" Click="OnManageWallTypes"
                                         ToolTip="Layered, stacked and curtain wall types"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Mullion}"
+                                        Content="Mullion Types" Click="OnMullionTypes"
+                                        ToolTip="The mullion types curtain walls are framed with - boxes, capped, round, steel, timber and corner sections - their sizes, offset, cover cap and material, and how stiff each is. A curtain wall type puts one on each of its lines in its Type Properties; Curtain Grid changes one stretch of one line"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -555,12 +565,26 @@
                     <StackPanel Orientation="Horizontal">
                         <HeaderedContentControl Header="Framing" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="StructuralColumnTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.StructuralColumn}"
+                                             Content="Column" Checked="OnToolChanged"
+                                             ToolTip="Structural Column: click where it stands, or select gridlines and use At Grids. Steel universal columns, square and round hollow sections - 3 in Schedule 40 pipe the least the IRC takes - timber posts, glulam and concrete. Its Properties give the load it carries and the rules it meets: 30 minutes' fire resistance holding up a floor (Approved Document B), the IRC's sizes, rust paint and decay protection"/>
                                 <RadioButton x:Name="BeamTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Beam}"
                                              Content="Beam" Checked="OnToolChanged"
                                              ToolTip="Beam: click where it starts and where it ends - it hangs from this level, its top there, under the floor it carries, and the next starts where it ended. Steel universal beams and wide flanges, C24 timber, GL24h glulam and concrete. A stair's headroom is measured to its underside, and it says when it crosses a doorway below the door's head"/>
                                 <RadioButton x:Name="JoistsTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Joists}"
                                              Content="Joists" Checked="OnToolChanged"
                                              ToolTip="Joist layout: click the corners of the outline the joists fill. They run across the short way at the spacing on the option bar - 400 is usual - and stop short of a stairwell or shaft in the floor they carry, trimmers across its ends. Joist Direction in Properties turns them"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Foundation" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="PadFootingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.PadFooting}"
+                                             Content="Isolated" Checked="OnToolChanged"
+                                             ToolTip="Isolated Foundation: click a structural column and a pad goes under it with a pier up to it - sized for the load it brings down, on the ground the project stands on, and as deep as the rules ask - or click anywhere for a pad on its own"/>
+                                <RadioButton x:Name="WallFootingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallFooting}"
+                                             Content="Wall" Checked="OnToolChanged"
+                                             ToolTip="Wall Foundation: click a wall and a strip footing goes under it with the masonry up to it - as wide as Approved Document A's Table 10 or the IRC's Table R403.1 asks for the load and the ground, and as deep as frost, clay or the frost line asks. The ground is in the plan's Properties"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -956,10 +980,35 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Project Data" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="Project Parameters" Click="OnShowProjectParameters"
+                                            ToolTip="Parameters of the project's own on the categories you choose - or shared ones, from a shared parameter file"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Keynote}" Content="Classification" Click="OnShowClassification"
+                                            ToolTip="The codes types and rooms are classified by - Uniclass 2015 to start with, or a table loaded from a file"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Tile}" Content="Design Options" Click="OnShowDesignOptions"
+                                            ToolTip="Alternatives for part of the building, side by side: which each view shows, and which new work goes into"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Plan}" Content="View Filters" Click="OnShowViewFilters"
+                                            ToolTip="Pick things out by their parameters, and hide, colour or fade them in the view shown"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Export" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Export}"
                                         Content="IFC" Click="OnExportIfc" ToolTip="Export the model as IFC4"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Export}" Content="IFC 2x3" Click="OnExportIfc2x3"
+                                            ToolTip="The model as IFC2x3 Coordination View 2.0, for software that does not yet read IFC4"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="COBie" Click="OnExportCobie"
+                                            ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Plan}" Content="Plan DXF" Click="OnExportPlanDxf"
+                                            ToolTip="The plan shown as a DXF drawing, full size in millimetres"/>
+                                </StackPanel>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Pdf}"
                                         Content="PDF Set" Click="OnExportDrawingSetPdf" ToolTip="Every sheet to one PDF"/>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Print}"
@@ -1191,6 +1240,9 @@
                                 <Button x:Name="ContextAddSoffits" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Soffit}"
                                         Content="Soffits" Click="OnAddSoffitsAllRound"
                                         ToolTip="Soffits under every eave of the selected roof that overhangs its wall, closing the overhang back to the wall"/>
+                                <Button x:Name="ContextAddEaves" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Eave}"
+                                        Content="Eaves" Click="OnAddEavesAllRound"
+                                        ToolTip="An eave under every eave of the selected roof, of the eave type picked for the Eave tool: its rafters, and the soffit, frieze, moulding and brackets its kind has"/>
                                 <Button x:Name="ContextAddRoofDrain" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.RoofDrain}"
                                         Content="Roof Drain" Click="OnAddRoofDrain"
                                         ToolTip="Then click on the roof where a drain goes: the flat roof falls to its drains"/>
@@ -1207,6 +1259,12 @@
                                         Content="Dormer Opening" Click="OnDormerOpening"
                                         ToolTip="Then click a dormer's roof - joined to this one, on walls attached to it: this roof is cut away under the dormer, between its walls. Click the same dormer again to close the opening"/>
                             </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextFoundationPanel" Header="Foundation" Style="{StaticResource ContextRibbonPanel}">
+                            <Button x:Name="ContextAddFootings" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallFooting}"
+                                    Content="Footings" Click="OnAddFootings"
+                                    ToolTip="A strip footing under each selected wall and a pad under each selected structural column that has none - each as wide and deep as the rules ask for its load and the ground"/>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl x:Name="ContextColumnPanel" Header="Column" Style="{StaticResource ContextRibbonPanel}">

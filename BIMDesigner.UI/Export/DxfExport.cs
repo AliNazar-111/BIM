@@ -41,6 +41,7 @@ public static class DxfExport
             Document = document,
             ActiveLevelId = level.Id,
             Filter = document.ViewSettings.FilterFor(document, reference),
+            Style = document.ViewSettings.StyleFor(document, reference),
             DetailLevel = document.ViewSettings.DetailLevelOf(reference) ?? DetailLevel.Fine,
             ShowWallLabels = false,
             View = reference,

@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using BIMDesigner.Core;
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.UI.Controls;
@@ -17,6 +18,8 @@ namespace BIMDesigner.UI.Controls;
 ///
 /// Panel choices are kept by cell, so when a line is added the cell it splits passes its
 /// choice to both halves, and when one is taken away the two cells either side become one.
+/// A mullion chosen for a stretch of a line - another type, or none - is kept by where the
+/// stretch is, and goes with its line when the line is dragged.
 /// </summary>
 public sealed class CurtainGridEditor : FrameworkElement
 {
@@ -63,6 +66,8 @@ public sealed class CurtainGridEditor : FrameworkElement
     private List<double> _horizontals = new();
     private List<CurtainSegment> _removed = new();
     private Dictionary<(int Column, int Row), CurtainPanelOverride> _panels = new();
+    private List<CurtainMullionOverride> _mullions = new();
+    private BimDocument? _document;
 
     private (bool Vertical, int Index)? _dragging;
 
@@ -78,6 +83,9 @@ public sealed class CurtainGridEditor : FrameworkElement
 
     /// <summary>Raised with a sentence for the user when something asked for cannot be done.</summary>
     public event EventHandler<string>? Refused;
+
+    /// <summary>Raised when another line, or none, is selected.</summary>
+    public event EventHandler? SelectionChanged;
 
     /// <summary>What clicking a panel fills it with.</summary>
     public CurtainPanelKind FillWith { get; set; } = CurtainPanelKind.Glazed;
@@ -109,7 +117,24 @@ public sealed class CurtainGridEditor : FrameworkElement
     /// The line selected, if any: vertical or horizontal, by its place among the inner lines -
     /// and which stretch of it, between the lines crossing it, or null for all of it.
     /// </summary>
-    public (bool Vertical, int Index, int? Span)? Selected { get; private set; }
+    public (bool Vertical, int Index, int? Span)? Selected
+    {
+        get => _selected;
+        private set
+        {
+            if (_selected == value) return;
+            _selected = value;
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private (bool Vertical, int Index, int? Span)? _selected;
+
+    /// <summary>The mullions chosen stretch by stretch over what the type puts there.</summary>
+    public IReadOnlyList<CurtainMullionOverride> Mullions => _mullions;
+
+    /// <summary>Whether a mullion has been chosen, or a choice taken back, here.</summary>
+    public bool MullionsEdited { get; private set; }
 
     /// <summary>The stretches taken out of the lines.</summary>
     public IReadOnlyList<CurtainSegment> Removed => _removed;
@@ -134,10 +159,14 @@ public sealed class CurtainGridEditor : FrameworkElement
     public void Show(CurtainWallType type, double length, double height,
         IEnumerable<double> verticals, IEnumerable<double> horizontals, IEnumerable<CurtainPanelOverride> panels,
         IEnumerable<(double From, double To, double Sill, double Head)>? windows = null,
-        IReadOnlyList<Point2D>? topLine = null, IEnumerable<CurtainSegment>? removed = null)
+        IReadOnlyList<Point2D>? topLine = null, IEnumerable<CurtainSegment>? removed = null,
+        IEnumerable<CurtainMullionOverride>? mullions = null, BimDocument? document = null)
     {
         _type = type;
         _topLine = topLine;
+        _mullions = mullions?.ToList() ?? new List<CurtainMullionOverride>();
+        _document = document ?? _document;
+        MullionsEdited = false;
         _removed = removed?.ToList() ?? new List<CurtainSegment>();
         _windows = windows?.ToList() ?? new List<(double, double, double, double)>();
         _length = Math.Max(length, 1);
@@ -162,6 +191,14 @@ public sealed class CurtainGridEditor : FrameworkElement
             Refused?.Invoke(this, $"A line there would leave a panel narrower than {MinimumPanel:0} mm.");
             return false;
         }
+
+        // A mullion chosen on a stretch of a line crossing it that the new line splits stays on both halves.
+        _mullions = _mullions.SelectMany(m =>
+        {
+            if (m.Vertical == vertical) return new[] { m };
+            var (from, to) = Stretch(m.Vertical, StretchAt(m.Vertical, m.At));
+            return from < at && at < to ? new[] { m with { At = (from + at) / 2 }, m with { At = (at + to) / 2 } } : new[] { m };
+        }).ToList();
 
         // The cell the new line splits hands its choice to both halves; those beyond move up one.
         var split = lines.Count(x => x < at);
@@ -212,6 +249,7 @@ public sealed class CurtainGridEditor : FrameworkElement
 
         var line = lines[index];
         _removed.RemoveAll(segment => segment.Vertical == vertical && Math.Abs(segment.Line - line) < 0.5);
+        _mullions.RemoveAll(m => m.Vertical == vertical && Math.Abs(m.Line - line) < 0.5);
 
         // The line between cell index and index + 1: the second goes, the first takes its place.
         _panels = _panels
@@ -228,6 +266,47 @@ public sealed class CurtainGridEditor : FrameworkElement
         lines.RemoveAt(index);
         Selected = null;
         Changed(grid: true);
+    }
+
+    /// <summary>
+    /// Puts a mullion on what is selected - a stretch of a line, or all of it: a mullion type by
+    /// its id, none with an empty id, or back to what the type puts there with no id at all.
+    /// </summary>
+    public void SetSelectedMullion(Guid? typeId)
+    {
+        if (Selected is not var (vertical, index, span)) return;
+        var lines = vertical ? _verticals : _horizontals;
+        if (index < 0 || index >= lines.Count) return;
+
+        var line = lines[index];
+        var stretches = span is { } one ? new[] { one } : Enumerable.Range(0, Crossing(vertical).Count - 1).ToArray();
+        foreach (var stretch in stretches)
+        {
+            var (from, to) = Stretch(vertical, stretch);
+            _mullions.RemoveAll(m => m.Covers(vertical, line, from, to));
+            if (typeId is { } id) _mullions.Add(new CurtainMullionOverride(vertical, line, (from + to) / 2, id));
+        }
+
+        MullionsEdited = true;
+        Changed(grid: false);
+    }
+
+    /// <summary>The mullion chosen on what is selected: a type's id, an empty id for none, no id where it is the type's - or where its stretches differ.</summary>
+    public Guid? SelectedMullion
+    {
+        get
+        {
+            if (Selected is not var (vertical, index, span)) return null;
+            var lines = vertical ? _verticals : _horizontals;
+            if (index < 0 || index >= lines.Count) return null;
+            var stretches = span is { } one ? new[] { one } : Enumerable.Range(0, Crossing(vertical).Count - 1).ToArray();
+            var chosen = stretches.Select(stretch =>
+            {
+                var (from, to) = Stretch(vertical, stretch);
+                return _mullions.Where(m => m.Covers(vertical, lines[index], from, to)).Select(m => (Guid?)(m.TypeId ?? Guid.Empty)).FirstOrDefault();
+            }).Distinct().ToList();
+            return chosen.Count == 1 ? chosen[0] : null;
+        }
     }
 
     /// <summary>The lines crossing a line, both edges of the wall included: vertical lines are crossed by the horizontal ones.</summary>
@@ -376,12 +455,20 @@ public sealed class CurtainGridEditor : FrameworkElement
               (span is { } stretch
                   ? IsRemoved(vertical, (vertical ? _verticals : _horizontals)[index], stretch)
                       ? ", this stretch taken out. Delete puts it back."
-                      : ", the stretch between the lines crossing it. Delete takes out this stretch - the panels either side become one. Double-click the line for all of it; drag to move it."
-                  : ", all of it. Drag to move, Delete to take it away.")
+                      : $", the stretch between the lines crossing it{MullionSaid(SelectedMullion)}. Delete takes out this stretch - the panels either side become one. Double-click the line for all of it; drag to move it."
+                  : $", all of it{MullionSaid(SelectedMullion)}. Drag to move, Delete to take it away.")
             : "Click a panel to fill it. Click a line for the stretch between the lines crossing it, double-click for the whole line. Double-click elsewhere to add a vertical line, Shift for horizontal.";
         dc.DrawText(new FormattedText(hint, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface("Segoe UI"), 11, Selected is null ? MutedBrush : TextBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip), new Point(8, 4));
     }
+
+    /// <summary>The mullion chosen on what is selected, as the hint says it.</summary>
+    private string MullionSaid(Guid? chosen) => chosen switch
+    {
+        null => string.Empty,
+        { } id when id == Guid.Empty => ", no mullion on it",
+        { } id => $", its mullion {_document?.FindType<MullionType>(id)?.Name ?? "of a type no longer in the project"}"
+    };
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
@@ -438,8 +525,18 @@ public sealed class CurtainGridEditor : FrameworkElement
         if (high < low) return;
 
         var was = lines[index];
-        lines[index] = Math.Clamp(Math.Round((vertical ? along : up) / Snap) * Snap, low, high);
-        if (Math.Abs(lines[index] - was) < 1e-9) return;
+        var moved = Math.Clamp(Math.Round((vertical ? along : up) / Snap) * Snap, low, high);
+        if (Math.Abs(moved - was) < 1e-9) return;
+
+        // Mullions chosen on the lines crossing it stay on the stretches they were on, now longer or shorter.
+        var onStretch = _mullions.Select(m => StretchAt(m.Vertical, m.At)).ToList();
+        lines[index] = moved;
+        for (var k = 0; k < _mullions.Count; k++)
+        {
+            var (from, to) = Stretch(_mullions[k].Vertical, onStretch[k]);
+            _mullions[k] = _mullions[k] with { At = (from + to) / 2 };
+            if (_mullions[k].Vertical == vertical && Math.Abs(_mullions[k].Line - was) < 0.5) _mullions[k] = _mullions[k] with { Line = moved };
+        }
 
         // Its stretches taken out go with it.
         for (var k = 0; k < _removed.Count; k++)
@@ -519,7 +616,8 @@ public sealed class CurtainGridEditor : FrameworkElement
     }
 
     private CurtainLayout Layout() =>
-        CurtainLayout.Build(_type, _length, _height, new CurtainGrid(_verticals, _horizontals, _removed), Panels, topLine: _topLine);
+        CurtainLayout.Build(_type, _length, _height, new CurtainGrid(_verticals, _horizontals, _removed), Panels, topLine: _topLine,
+            document: _document, chosen: _mullions);
 
     private IReadOnlyList<Point2D>? _topLine;
 

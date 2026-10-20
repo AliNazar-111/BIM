@@ -32,7 +32,13 @@ public enum ViewTemplateSetting
     WallFunctions,
     JoinDisplay,
     VisualStyle,
-    HiddenKinds
+    HiddenKinds,
+
+    /// <summary>The view filters it has, and what each does.</summary>
+    Filters,
+
+    /// <summary>Its phase filter.</summary>
+    PhaseFilter
 }
 
 /// <summary>
@@ -73,6 +79,15 @@ public sealed class ViewTemplate : Element
 
     public HashSet<MeshKind> HiddenKinds { get; } = new();
 
+    public bool IncludeFilters { get; set; } = true;
+
+    /// <summary>The view filters it puts on its views, in order, and what each does.</summary>
+    public List<FilterOverride> Filters { get; } = new();
+
+    public bool IncludePhaseFilter { get; set; } = true;
+
+    public PhaseFilter PhaseFilter { get; set; } = PhaseFilter.ShowAll;
+
     /// <summary>Whether it sets a setting, and the setting means something for the views it is for.</summary>
     public bool Includes(ViewTemplateSetting setting) => setting switch
     {
@@ -82,6 +97,8 @@ public sealed class ViewTemplate : Element
         ViewTemplateSetting.JoinDisplay => IncludeJoinDisplay && For is ViewTemplateKind.Plan,
         ViewTemplateSetting.VisualStyle => IncludeVisualStyle && For == ViewTemplateKind.ThreeD,
         ViewTemplateSetting.HiddenKinds => IncludeHiddenKinds && For == ViewTemplateKind.ThreeD,
+        ViewTemplateSetting.Filters => IncludeFilters,
+        ViewTemplateSetting.PhaseFilter => IncludePhaseFilter,
         _ => false
     };
 
@@ -149,9 +166,11 @@ public static class ViewTemplates
         var template = new ViewTemplate
         {
             Name = NextName(document, kind), For = kind,
-            Scale = settings.ScaleOf(view), DetailLevel = settings.DetailLevelOf(view) ?? DetailLevel.Fine, JoinDisplay = settings.JoinDisplayOf(view)
+            Scale = settings.ScaleOf(view), DetailLevel = settings.DetailLevelOf(view) ?? DetailLevel.Fine, JoinDisplay = settings.JoinDisplayOf(view),
+            PhaseFilter = settings.PhaseFilterOf(view)
         };
         template.HiddenWallFunctions.UnionWith(settings.HiddenWallFunctions(view));
+        template.Filters.AddRange(settings.FiltersOf(view));
         if (Views3D.Find(document, view) is { } view3D)
         {
             template.VisualStyle = view3D.Style;
@@ -201,6 +220,8 @@ public static class ViewTemplates
         if (template.Includes(ViewTemplateSetting.WallFunctions))
             foreach (var function in Enum.GetValues<WallFunction>())
                 settings.SetWallFunctionVisible(view, function, !template.HiddenWallFunctions.Contains(function));
+        if (template.Includes(ViewTemplateSetting.Filters)) settings.SetFilters(view, template.Filters);
+        if (template.Includes(ViewTemplateSetting.PhaseFilter)) settings.SetPhaseFilter(view, template.PhaseFilter);
 
         if (Views3D.Find(document, view) is { } view3D)
         {
@@ -213,17 +234,21 @@ public static class ViewTemplates
         }
     }
 
-    private sealed record TemplateState(string Name, bool[] Includes, double Scale, DetailLevel Detail, WallFunction[] Walls, WallJoinDisplay Join, VisualStyle Style, MeshKind[] Kinds);
+    private sealed record TemplateState(string Name, bool[] Includes, double Scale, DetailLevel Detail, WallFunction[] Walls, WallJoinDisplay Join, VisualStyle Style, MeshKind[] Kinds,
+        FilterOverride[] Filters, PhaseFilter PhaseFilter);
 
     private static TemplateState Snapshot(ViewTemplate t) => new(t.Name,
-        new[] { t.IncludeScale, t.IncludeDetailLevel, t.IncludeWallFunctions, t.IncludeJoinDisplay, t.IncludeVisualStyle, t.IncludeHiddenKinds },
-        t.Scale, t.DetailLevel, t.HiddenWallFunctions.ToArray(), t.JoinDisplay, t.VisualStyle, t.HiddenKinds.ToArray());
+        new[] { t.IncludeScale, t.IncludeDetailLevel, t.IncludeWallFunctions, t.IncludeJoinDisplay, t.IncludeVisualStyle, t.IncludeHiddenKinds, t.IncludeFilters, t.IncludePhaseFilter },
+        t.Scale, t.DetailLevel, t.HiddenWallFunctions.ToArray(), t.JoinDisplay, t.VisualStyle, t.HiddenKinds.ToArray(), t.Filters.ToArray(), t.PhaseFilter);
 
     private static void Restore(ViewTemplate t, TemplateState s)
     {
         t.Name = s.Name;
-        (t.IncludeScale, t.IncludeDetailLevel, t.IncludeWallFunctions, t.IncludeJoinDisplay, t.IncludeVisualStyle, t.IncludeHiddenKinds) =
-            (s.Includes[0], s.Includes[1], s.Includes[2], s.Includes[3], s.Includes[4], s.Includes[5]);
+        (t.IncludeScale, t.IncludeDetailLevel, t.IncludeWallFunctions, t.IncludeJoinDisplay, t.IncludeVisualStyle, t.IncludeHiddenKinds, t.IncludeFilters, t.IncludePhaseFilter) =
+            (s.Includes[0], s.Includes[1], s.Includes[2], s.Includes[3], s.Includes[4], s.Includes[5], s.Includes[6], s.Includes[7]);
+        t.PhaseFilter = s.PhaseFilter;
+        t.Filters.Clear();
+        t.Filters.AddRange(s.Filters);
         (t.Scale, t.DetailLevel, t.JoinDisplay, t.VisualStyle) = (s.Scale, s.Detail, s.Join, s.Style);
         t.HiddenWallFunctions.Clear();
         t.HiddenWallFunctions.UnionWith(s.Walls);

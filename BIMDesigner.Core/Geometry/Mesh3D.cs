@@ -85,11 +85,11 @@ public sealed class Mesh3D
 
     public MeshKind Kind { get; }
 
-    public ColourRgb Colour { get; }
+    public ColourRgb Colour { get; set; }
 
     public string Description { get; }
 
-    private readonly double? _opacity;
+    private double? _opacity;
 
     /// <summary>
     /// Glass is seen through; everything else is solid. A mesh can say otherwise for itself:
@@ -98,7 +98,7 @@ public sealed class Mesh3D
     public double Opacity
     {
         get => _opacity ?? (Kind == MeshKind.Glazing ? 0.35 : 1.0);
-        init => _opacity = Math.Clamp(value, 0.05, 1);
+        set => _opacity = Math.Clamp(value, 0.05, 1);
     }
 
     public IReadOnlyList<Point3D> Positions => _positions;

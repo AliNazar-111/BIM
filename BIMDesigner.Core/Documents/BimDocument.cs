@@ -19,6 +19,44 @@ public sealed class ProjectInformation
 
     /// <summary>Whose rules the clear space round fittings is checked against: Approved Document M, or the ADA.</summary>
     public ClearanceStandard ClearanceStandard { get; set; } = ClearanceStandard.ApprovedDocumentM;
+
+    /// <summary>
+    /// Whether the building has a sprinkler system throughout - BS 9251 in England, IRC P2904 in
+    /// the US. It lets a side near the boundary have more windows (Approved Document B 11.21), and
+    /// a US house be built nearer its lot line (IRC Table R302.1(2)).
+    /// </summary>
+    public bool Sprinklered { get; set; }
+
+    /// <summary>What the ground under the building is - Approved Document A's type of ground and the IRC's class of soil in one - what its footings are sized for.</summary>
+    public GroundType Ground { get; set; } = GroundType.FirmClay;
+
+    /// <summary>How much a clay ground shrinks as it dries: what takes Approved Document A's footings down from 0.45 m to 0.75, 0.9 or 1.0 m.</summary>
+    public ClayShrinkage ClayShrinkage { get; set; }
+
+    /// <summary>The frost line for a US house, mm below the ground - its jurisdiction's, from Table R301.2; none set at 0.</summary>
+    public double FrostDepth { get; set; }
+
+    /// <summary>The ground snow load for a US house, psf - its jurisdiction's, from Table R301.2: what its roof and footings are sized for.</summary>
+    public double GroundSnowLoad { get; set; } = 20;
+
+    /// <summary>
+    /// The wind pressure on the cladding, kPa, where it is given rather than worked out from the
+    /// site: what a curtain wall's mullions are checked to with no basic wind speed set.
+    /// </summary>
+    public double WindPressure { get; set; } = 1.0;
+
+    /// <summary>
+    /// The site's basic wind speed: in England the map's, m/s (BS EN 1991-1-4 UK National Annex
+    /// Figure NA.1); in the US the design wind speed, mph (ASCE 7 Figure 26.5-1 for its risk
+    /// category). None set at 0, and the wind pressure is as given.
+    /// </summary>
+    public double BasicWindSpeed { get; set; }
+
+    /// <summary>How high the site is above sea level, m.</summary>
+    public double SiteAltitude { get; set; }
+
+    /// <summary>What lies upwind of the site.</summary>
+    public WindTerrain Terrain { get; set; } = WindTerrain.OpenCountry;
 }
 
 /// <summary>
@@ -49,7 +87,15 @@ public sealed class BimDocument
             }
 
             foreach (Element gone in change.OldItems ?? Array.Empty<Element>()) _byId.Remove(gone.Id);
-            foreach (Element added in change.NewItems ?? Array.Empty<Element>()) _byId[added.Id] = added;
+            foreach (Element added in change.NewItems ?? Array.Empty<Element>())
+            {
+                _byId[added.Id] = added;
+
+                // Drawn while a design option is being worked on, it is part of that option - the
+                // first time it comes in, not when an undo brings back what was there already.
+                if (_seen.Add(added.Id) && EditingDesignOption is { } option && added.DesignOptionId is null && !Views.Phasing.IsAnnotation(added.Category))
+                    added.DesignOptionId = option;
+            }
         };
 
         // A level standing on a floor is told where that floor's top is.
@@ -81,6 +127,24 @@ public sealed class BimDocument
 
     /// <summary>A schedule by its id, or null.</summary>
     public ScheduleDefinition? FindSchedule(Guid id) => Schedules.FirstOrDefault(schedule => schedule.Id == id);
+
+    /// <summary>Every element that has ever been in the project, by its id: what tells a new one from one an undo brings back.</summary>
+    private readonly HashSet<Guid> _seen = new();
+
+    /// <summary>The design option new elements go into while it is being worked on; null for the main model.</summary>
+    public Guid? EditingDesignOption { get; set; }
+
+    /// <summary>The project's view filters: what each view can hide, colour or fade by its parameters.</summary>
+    public List<Views.ParameterFilter> ParameterFilters { get; } = new();
+
+    /// <summary>The project's sets of design options.</summary>
+    public List<Views.DesignOptionSet> DesignOptionSets { get; } = new();
+
+    /// <summary>The project's own parameters, and the shared ones it has taken in.</summary>
+    public List<Parameters.ProjectParameter> ProjectParameters { get; } = new();
+
+    /// <summary>The classification its types and rooms are coded to.</summary>
+    public Parameters.ClassificationTable Classification { get; } = new();
 
     /// <summary>The revisions of the drawings, in the order they were made: what numbers them.</summary>
     public List<Annotation.Revision> Revisions { get; } = new();
@@ -239,24 +303,30 @@ public sealed class BimDocument
 
         // Fascias, gutters and soffits are a library too, added to as it grows - and so are
         // roofs: a project made when the only roof was a flat one gains a pitched build-up.
-        var roofEdgeTypes = _types.Values.Where(type => type is FasciaType or GutterType or SoffitType)
+        var roofEdgeTypes = _types.Values.Where(type => type is FasciaType or GutterType or SoffitType or EaveType)
             .Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofTypes = _types.Values.OfType<RoofType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var wallTypeNames = _types.Values.OfType<WallType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var roofWindowTypes = _types.Values.OfType<RoofWindowType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var footingTypes = _types.Values.OfType<FootingType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var mullionTypes = _types.Values.OfType<MullionType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var curtainTypes = _types.Values.OfType<CurtainWallType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var chimneyTypes = _types.Values.OfType<ChimneyType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var type in template.ElementTypes.Where(type => type switch
                  {
-                     CurtainWallType => !hasCurtain,
+                     // A curtain wall type framed in mullion types comes by name, as they do.
+                     CurtainWallType curtain => !hasCurtain || curtain.InteriorVertical is not null && !curtainTypes.Contains(curtain.Name),
+                     MullionType => !mullionTypes.Contains(type.Name),
                      OpeningType opening => !known.Contains(opening.Name),
                      ComponentType component => !families.Contains(component.Name),
                      ColumnType column => !columnTypes.Contains(column.Name),
-                     FasciaType or GutterType or SoffitType => !roofEdgeTypes.Contains(type.Name),
+                     FasciaType or GutterType or SoffitType or EaveType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
                      CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Party Wall - Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
+                     FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
                      _ => !present.Contains(type.Category)
                  }))
@@ -275,6 +345,23 @@ public sealed class BimDocument
             }
 
             AddType(type);
+        }
+
+        // A curtain wall type come from the library puts the project's own mullion types of the
+        // names it framed in on its lines, where the project had them already.
+        foreach (var curtain in _types.Values.OfType<CurtainWallType>())
+        {
+            Guid? Own(Guid? slot) =>
+                slot is { } id && id != Guid.Empty && FindType<MullionType>(id) is null &&
+                template.FindType<MullionType>(id) is { } library &&
+                _types.Values.OfType<MullionType>().FirstOrDefault(own => string.Equals(own.Name, library.Name, StringComparison.OrdinalIgnoreCase)) is { } same
+                    ? same.Id
+                    : slot;
+            (curtain.InteriorVertical, curtain.BorderVerticalStart, curtain.BorderVerticalEnd) =
+                (Own(curtain.InteriorVertical), Own(curtain.BorderVerticalStart), Own(curtain.BorderVerticalEnd));
+            (curtain.InteriorHorizontal, curtain.BorderHorizontalBottom, curtain.BorderHorizontalTop) =
+                (Own(curtain.InteriorHorizontal), Own(curtain.BorderHorizontalBottom), Own(curtain.BorderHorizontalTop));
+            curtain.TakeDepth(this);
         }
 
         // A library family saved while it was still a plain box - the wardrobe was one - or as
@@ -320,6 +407,20 @@ public sealed class BimDocument
             case SoffitType soffit when soffit.MaterialId == from:
                 soffit.MaterialId = to;
                 return true;
+            case FootingType footing when footing.MaterialId == from || footing.StemMaterialId == from:
+                if (footing.MaterialId == from) footing.MaterialId = to;
+                if (footing.StemMaterialId == from) footing.StemMaterialId = to;
+                return true;
+            case ColumnType column when column.MaterialId == from:
+                column.MaterialId = to;
+                return true;
+            case EaveType eave when eave.MaterialId == from || eave.SoffitMaterialId == from:
+                if (eave.MaterialId == from) eave.MaterialId = to;
+                if (eave.SoffitMaterialId == from) eave.SoffitMaterialId = to;
+                return true;
+            case MullionType mullion when mullion.MaterialId == from:
+                mullion.MaterialId = to;
+                return true;
             case FasciaType fascia when fascia.MaterialId == from:
                 fascia.MaterialId = to;
                 return true;
@@ -348,6 +449,9 @@ public sealed class BimDocument
         GutterType gutter => new[] { gutter.MaterialId },
         SlabEdgeType slabEdge => new[] { slabEdge.MaterialId },
         SoffitType soffit => new[] { soffit.MaterialId },
+        EaveType eave => new[] { eave.MaterialId, eave.SoffitMaterialId },
+        MullionType mullion => new[] { mullion.MaterialId },
+        FootingType footing => new[] { footing.MaterialId, footing.StemMaterialId },
         RoofWindowType roofWindow => new[] { roofWindow.FrameMaterialId, roofWindow.GlassMaterialId },
         ColumnType column => new[] { column.MaterialId },
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
@@ -849,6 +953,61 @@ public sealed class BimDocument
             Cost = 180m
         };
 
+        // Windows divided into lights by mullions and a transom: a three-light casement with its
+        // outer lights side-hung, a pair with top-hung fanlights over, a fixed light with a fanlight
+        // to open for air, and two double-hung windows mulled side by side as the US has them.
+        var threeLight = new WindowType("Casement 3-Light - 1770 x 1200", 1770, 1200)
+        {
+            TypeMark = "W13",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Casement,
+            Lights = 3,
+            LightPattern = "OFO",
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.4,
+            Cost = 690m
+        };
+        var fanlights = new WindowType("Casement 2-Light, Top-Hung Fanlights - 1200 x 1350", 1200, 1350)
+        {
+            TypeMark = "W14",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Casement,
+            Lights = 2,
+            LightPattern = "OF",
+            TransomHeight = 950,
+            Fanlight = FanlightOperation.TopHung,
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.4,
+            Cost = 640m
+        };
+        var fixedFanlight = new WindowType("Fixed with Top-Hung Fanlight - 900 x 1500", 900, 1500)
+        {
+            TypeMark = "W15",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.Fixed,
+            TransomHeight = 1100,
+            Fanlight = FanlightOperation.TopHung,
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "uPVC",
+            HeatTransferCoefficient = 1.4,
+            Cost = 420m
+        };
+        var twinDoubleHung = new WindowType("Double Hung Twin - 60 x 60 in", 1524, 1524)
+        {
+            TypeMark = "W16",
+            AssemblyCode = "B2020",
+            Operation = WindowOperation.DoubleHung,
+            Lights = 2,
+            LightPattern = "OO",
+            MullionWidth = 76,
+            GlazingType = "Double glazed, low-E",
+            FrameMaterial = "Vinyl",
+            HeatTransferCoefficient = 1.4,
+            Cost = 980m
+        };
+
         // Horizontal build-ups, layered from the upper surface downward. The ground floor: a
         // flowing screed on 100 of PIR on the slab - 0.17 W/m²K on the ground under a house, inside
         // the 0.18 Approved Document L allows.
@@ -1236,6 +1395,56 @@ public sealed class BimDocument
             Fascia("Fascia - Composite 25 mm, Grey", "F10", FasciaProfile.Square, 25, composite, 22m),
             Fascia("Fascia - Fibre Cement 12 mm", "F11", FasciaProfile.Square, 12, fibreCement, 18m)
         };
+        // Eaves of each kind - closed, open, exposed rafter, box, abbreviated - in softwood, their
+        // soffits in timber, uPVC or fibre cement: rafters 47 x 150 at 400 centres, as a cut roof
+        // is framed, the boarding over open ones 18 mm.
+        EaveType Eave(string name, string mark, EaveKind kind, Material soffit, SoffitBoard board, decimal cost, Action<EaveType>? more = null)
+        {
+            var eave = new EaveType(name)
+            {
+                MaterialId = softwood.Id, SoffitMaterialId = soffit.Id, Board = board, TypeMark = mark, Cost = cost,
+                FreeAirArea = kind is EaveKind.Open or EaveKind.ExposedRafters ? 10000 : SoffitType.TypicalFreeAirArea(board)
+            };
+            eave.ChangeKind(kind);
+            more?.Invoke(eave);
+            return eave;
+        }
+
+        var eaves = new[]
+        {
+            Eave("Eave - Closed, Vented uPVC Soffit", "E1", EaveKind.Closed, pvcWhite, SoffitBoard.Vented, 38m),
+            Eave("Eave - Closed, Timber Soffit", "E2", EaveKind.Closed, softwood, SoffitBoard.Solid, 44m),
+            Eave("Eave - Closed, 1-Hour Fire-Rated Underside", "E3", EaveKind.Closed, fibreCement, SoffitBoard.Solid, 58m,
+                eave => eave.Underside = EaveUnderside.OneHour),
+            Eave("Eave - Open, Rafters 47 x 150 at 400", "E4", EaveKind.Open, softwood, SoffitBoard.Solid, 32m),
+            Eave("Eave - Exposed Rafter Tails, Cove Cut", "E5", EaveKind.ExposedRafters, softwood, SoffitBoard.Solid, 46m),
+            Eave("Eave - Exposed Rafter Tails, Knee Braces", "E6", EaveKind.ExposedRafters, softwood, SoffitBoard.Solid, 72m, eave =>
+            {
+                eave.Tail = RafterTail.Scroll;
+                eave.Bracket = EaveBracket.KneeBrace;
+                eave.BracketSpacing = 2400;
+                eave.BracketHeight = 600;
+                eave.BracketWidth = 90;
+            }),
+            Eave("Eave - Box Cornice, Frieze and Bed Moulding", "E7", EaveKind.Box, softwood, SoffitBoard.CentreVented, 64m),
+            Eave("Eave - Box Cornice with Brackets", "E8", EaveKind.Box, softwood, SoffitBoard.CentreVented, 96m, eave =>
+            {
+                eave.Moulding = EaveMoulding.Ogee;
+                eave.FriezeDepth = 200;
+                eave.Bracket = EaveBracket.Bracket;
+                eave.BracketSpacing = 900;
+                eave.BracketHeight = 350;
+            }),
+            Eave("Eave - Box Cornice with Corbels", "E9", EaveKind.Box, softwood, SoffitBoard.CentreVented, 88m, eave =>
+            {
+                eave.Bracket = EaveBracket.Corbel;
+                eave.BracketSpacing = 1200;
+                eave.BracketHeight = 240;
+                eave.BracketWidth = 100;
+            }),
+            Eave("Eave - Abbreviated, Frieze Board", "E10", EaveKind.Abbreviated, softwood, SoffitBoard.Solid, 30m, eave => eave.MouldingSize = 30)
+        };
+
         var boxGutter = new GutterType("Gutter - Box 100 x 75")
         {
             Shape = GutterShape.Box, Width = 100, Depth = 75, WallThickness = 4, MaterialId = gutterPlastic.Id, TypeMark = "G2", Cost = 16m
@@ -1261,6 +1470,51 @@ public sealed class BimDocument
             SolidMaterialId = spandrel.Id,
             MullionMaterialId = aluminium.Id,
             Cost = 380m
+        };
+
+        // Mullion types to frame a curtain wall's lines with: aluminium boxes at a storefront's and
+        // a stick system's sizes, one with a cover cap on its pressure plate, a round tube, steel
+        // and timber, and the four corner sections for where two curtain walls meet.
+        MullionType Mullion(string name, string mark, MullionShape shape, double width, double thickness, Material finish, decimal cost,
+            MullionMaterial made = MullionMaterial.Aluminium, double wall = 3, double cap = 0, double leg = 0) => new(name)
+        {
+            Shape = shape, Width1 = width > 0 ? width / 2 : 25, Width2 = width > 0 ? width / 2 : 25, Thickness = thickness, CapDepth = cap, WallThickness = made == MullionMaterial.Timber ? 0 : wall,
+            Material = made, MaterialId = finish.Id, Leg1 = leg > 0 ? leg : 100, Leg2 = leg > 0 ? leg : 100, TypeMark = mark, AssemblyCode = "B2020", Cost = cost
+        };
+        var mullions = new[]
+        {
+            Mullion("Mullion - Rectangular 50 x 100", "MU1", MullionShape.Rectangular, 50, 100, aluminium, 38m),
+            Mullion("Mullion - Rectangular 50 x 150", "MU2", MullionShape.Rectangular, 50, 150, aluminium, 46m),
+            Mullion("Mullion - Rectangular 65 x 200", "MU3", MullionShape.Rectangular, 65, 200, aluminium, 64m, wall: 4),
+            Mullion("Mullion - Capped 50 x 150, Cover Cap 20", "MU4", MullionShape.Rectangular, 50, 130, aluminiumAnthracite, 58m, cap: 20),
+            Mullion("Mullion - Circular 50", "MU5", MullionShape.Circular, 50, 50, aluminium, 42m),
+            Mullion("Mullion - Steel 60 x 120", "MU6", MullionShape.Rectangular, 60, 120, galvanised, 72m, MullionMaterial.Steel, wall: 5),
+            Mullion("Mullion - Timber 60 x 140", "MU7", MullionShape.Rectangular, 60, 140, softwood, 40m, MullionMaterial.Timber),
+            Mullion("Mullion - L Corner 175 x 175", "MU8", MullionShape.CornerL, 0, 150, aluminium, 88m, leg: 175),
+            Mullion("Mullion - V Corner 175 x 175", "MU9", MullionShape.CornerV, 0, 150, aluminium, 92m, leg: 175),
+            Mullion("Mullion - Trapezoid Corner 175 x 175", "MU10", MullionShape.CornerTrapezoid, 0, 150, aluminium, 92m, leg: 175),
+            Mullion("Mullion - Quad Corner 150 x 150", "MU11", MullionShape.CornerQuad, 0, 150, aluminium, 84m, leg: 150)
+        };
+
+        // A stick system: capped mullions and transoms between panels, plain boxes round its edges.
+        var stickSystem = new CurtainWallType("Curtain Wall - Stick System 1500, Capped")
+        {
+            TypeMark = "CW3",
+            AssemblyCode = "B2020",
+            HorizontalSpacing = 1350,
+            GlassMaterialId = glass.Id,
+            SolidMaterialId = spandrel.Id,
+            MullionMaterialId = aluminium.Id,
+            InteriorVertical = mullions[3].Id,
+            InteriorHorizontal = mullions[3].Id,
+            BorderVerticalStart = mullions[1].Id,
+            BorderVerticalEnd = mullions[1].Id,
+            BorderHorizontalBottom = mullions[1].Id,
+            BorderHorizontalTop = mullions[1].Id,
+            MullionAnchors = true,
+            Splices = MullionSplices.EveryFloor,
+            StackJoint = 25,
+            Cost = 520m
         };
 
         // Sweeps and reveals to place on walls one by one, and a drawn profile for a dado rail.
@@ -1353,6 +1607,76 @@ public sealed class BimDocument
         };
 
         foreach (var column in columns) document.AddType(column);
+
+        // Structural columns: steel universal columns at their BS EN 10365 sizes and a W8x31, a
+        // square hollow section and 3 in Schedule 40 pipe - the least the IRC takes in steel -
+        // timber posts, glulam and concrete.
+        var structuralSteel = new Material("Steel, Structural (Primed)")
+        {
+            Density = 7850, ThermalConductivity = 50,
+            SurfaceColour = ColourRgb.FromHex("8B3A2F"), CutColour = ColourRgb.FromHex("6E2D25"), CostPerCubicMetre = 14000m
+        };
+        var glulam = new Material("Timber, Glulam GL24h")
+        {
+            Density = 420, ThermalConductivity = 0.13,
+            SurfaceColour = ColourRgb.FromHex("D8B886"), CutColour = ColourRgb.FromHex("C4A06C"), CostPerCubicMetre = 1500m
+        };
+        document.AddMaterial(structuralSteel);
+        document.AddMaterial(glulam);
+
+        ColumnType Structural(string name, string mark, ColumnShape shape, double width, double depth, BeamMaterial made, Material finish, decimal cost,
+            double flange = 0, double web = 0, double wall = 0, string fire = "", bool treated = false) =>
+            new(name, shape, width, depth)
+            {
+                Structural = true, StructuralMaterial = made, MaterialId = finish.Id, FlangeThickness = flange, WebThickness = web,
+                WallThickness = wall, FireRating = fire, PreservativeTreated = treated, TypeMark = mark, AssemblyCode = "B1010", Cost = cost
+            };
+
+        var structuralColumns = new[]
+        {
+            Structural("UC 152 x 152 x 23", "SC1", ColumnShape.IBeam, 152.2, 152.4, BeamMaterial.Steel, structuralSteel, 95m, 6.8, 5.8),
+            Structural("UC 152 x 152 x 30", "SC2", ColumnShape.IBeam, 152.9, 157.6, BeamMaterial.Steel, structuralSteel, 120m, 9.4, 6.5),
+            Structural("UC 203 x 203 x 46", "SC3", ColumnShape.IBeam, 203.6, 203.2, BeamMaterial.Steel, structuralSteel, 180m, 11.0, 7.2),
+            Structural("UC 203 x 203 x 46, Intumescent 30 min", "SC4", ColumnShape.IBeam, 203.6, 203.2, BeamMaterial.Steel, structuralSteel, 230m, 11.0, 7.2, fire: "30 min"),
+            Structural("SHS 100 x 100 x 5", "SC5", ColumnShape.HollowRectangular, 100, 100, BeamMaterial.Steel, structuralSteel, 70m, wall: 5),
+            Structural("CHS 88.9 x 5.5 - 3 in Schedule 40 Pipe", "SC6", ColumnShape.HollowRound, 88.9, 88.9, BeamMaterial.Steel, structuralSteel, 55m, wall: 5.49),
+            Structural("W8x31", "SC7", ColumnShape.IBeam, 203.1, 203.2, BeamMaterial.Steel, structuralSteel, 170m, 11.05, 7.24),
+            Structural("Timber Post C24 100 x 100", "SC8", ColumnShape.Rectangular, 100, 100, BeamMaterial.Timber, softwood, 25m),
+            Structural("Timber Post C24 150 x 150", "SC9", ColumnShape.Rectangular, 150, 150, BeamMaterial.Timber, softwood, 45m),
+            Structural("Timber Post 4x4, Treated", "SC10", ColumnShape.Rectangular, 89, 89, BeamMaterial.Timber, softwood, 20m, treated: true),
+            Structural("Timber Post 6x6, Treated", "SC11", ColumnShape.Rectangular, 140, 140, BeamMaterial.Timber, softwood, 38m, treated: true),
+            Structural("Glulam GL24h 140 x 140", "SC12", ColumnShape.Rectangular, 140, 140, BeamMaterial.Glulam, glulam, 60m),
+            Structural("Concrete 300 x 300", "SC13", ColumnShape.Rectangular, 300, 300, BeamMaterial.Concrete, concrete, 140m, fire: "60 min"),
+            Structural("Concrete Round 300", "SC14", ColumnShape.Round, 300, 300, BeamMaterial.Concrete, concrete, 150m, fire: "60 min")
+        };
+        foreach (var column in structuralColumns) document.AddType(column);
+
+        // Footings: strips of concrete under walls, blockwork on them up to the walls; pads under
+        // columns, a concrete pier on each up to its column.
+        FootingType Strip(string name, string mark, double width, double thickness, decimal cost) => new(name, FootingKind.Strip)
+        {
+            Width = width, Thickness = thickness, MaterialId = concrete.Id, StemMaterialId = block.Id, TypeMark = mark, AssemblyCode = "A1010", Cost = cost
+        };
+        FootingType Pad(string name, string mark, double width, double length, double thickness, decimal cost) => new(name, FootingKind.Pad)
+        {
+            Width = width, Length = length, Thickness = thickness, MaterialId = concrete.Id, StemMaterialId = concrete.Id, TypeMark = mark, AssemblyCode = "A1010", Cost = cost
+        };
+        foreach (var footing in new[]
+                 {
+                     Strip("Strip Footing - 450 x 225", "SF1", 450, 225, 55m),
+                     Strip("Strip Footing - 600 x 225", "SF2", 600, 225, 68m),
+                     Strip("Strip Footing - 750 x 300", "SF3", 750, 300, 92m),
+                     Strip("Strip Footing - 900 x 300", "SF4", 900, 300, 110m),
+                     Strip("Strip Footing - 1100 x 400", "SF5", 1100, 400, 150m),
+                     Strip("Footing - 16 x 8 in", "SF6", 406.4, 203.2, 50m),
+                     Strip("Footing - 24 x 10 in", "SF7", 609.6, 254, 70m),
+                     Pad("Pad Footing - 600 x 600 x 300", "PF1", 600, 600, 300, 60m),
+                     Pad("Pad Footing - 900 x 900 x 350", "PF2", 900, 900, 350, 110m),
+                     Pad("Pad Footing - 1200 x 1200 x 450", "PF3", 1200, 1200, 450, 190m),
+                     Pad("Pad Footing - 1500 x 1500 x 600", "PF4", 1500, 1500, 600, 290m),
+                     Pad("Pad Footing - 24 x 24 x 12 in", "PF5", 609.6, 609.6, 304.8, 62m)
+                 })
+            document.AddType(footing);
 
         // The component families a project starts with: the furniture, casework, sanitaryware
         // and planting a plan is laid out with. Most stand on a level; a wall cabinet or a wall
@@ -1807,12 +2131,15 @@ public sealed class BimDocument
                      soffits[4], soffits[5], soffits[6], soffits[7],
                      gutters[0], gutters[1], gutters[2], gutters[3], gutters[4], gutters[5], gutters[6], gutters[7], gutters[8],
                      fascias[0], fascias[1], fascias[2], fascias[3], fascias[4], fascias[5], fascias[6], fascias[7], fascias[8],
+                     eaves[0], eaves[1], eaves[2], eaves[3], eaves[4], eaves[5], eaves[6], eaves[7], eaves[8], eaves[9],
                      roofWindow, tallRoofWindow, escapeRoofWindow, fixedRooflight,
                      storefront, plainGlass,
+                     mullions[0], mullions[1], mullions[2], mullions[3], mullions[4], mullions[5], mullions[6], mullions[7], mullions[8],
+                     mullions[9], mullions[10], stickSystem,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
                      curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, garageDoor, usExterior,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
-                     tiltAndTurn, doubleHung, louvred, bay, rooflight,
+                     tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof,
                      thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling
@@ -1821,14 +2148,17 @@ public sealed class BimDocument
             document.AddType(type);
         }
 
+        foreach (var curtain in document.TypesOf<CurtainWallType>()) curtain.TakeDepth(document);
+
         // Dimension styles: millimetres with ticks, as UK building drawings are dimensioned, first.
         foreach (var type in Annotation.DimensionTypes.Defaults()) document.AddType(type);
 
         // The schedules a drawing set has, to change, copy or add to.
         document.Schedules.AddRange(ScheduleDefinition.Defaults());
 
-        // Keynotes to start from, until an office's own file is loaded.
+        // Keynotes to start from, until an office's own file is loaded; and Uniclass's codes for what is drawn here.
         document.Keynotes.CopyFrom(Annotation.KeynoteTable.Starter());
+        document.Classification.CopyFrom(Parameters.ClassificationTable.Starter());
 
         return document;
     }

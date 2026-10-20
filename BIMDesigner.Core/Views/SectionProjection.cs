@@ -142,6 +142,7 @@ public static class SectionProjection
     {
         shows ??= _ => true;
         using var heights = new Chimneys.Heights();
+        using var joins = Architecture.WallJoins.TakingPart(shows);
 
         var pieces = new List<SectionPiece>();
 
@@ -195,6 +196,10 @@ public static class SectionProjection
             foreach (var slabEdge in document.Elements.OfType<SlabEdge>().Where(slabEdge => shows(slabEdge)))
                 if (SlabEdgeRuns.Mesh(document, slabEdge) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
 
+            // Footings, the walls and piers on them, cut where the line crosses them.
+            foreach (var footing in document.Elements.Where(e => e is WallFooting or PadFooting).Where(e => shows(e)))
+                AddCut(marker, Footings.Meshes(document, footing), pieces);
+
             // Roof windows the cut goes through: the frame each side, the pane between.
             foreach (var window in document.Elements.OfType<RoofWindow>().Where(window => shows(window)))
                 AddRoofWindow(document, marker, window, pieces);
@@ -202,6 +207,13 @@ public static class SectionProjection
             // Fascias and gutters, where the cut goes through them: the profile as it slices it.
             foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(sweep => shows(sweep)))
             {
+                // An eave is cut as it is built: its rafters, soffit, frieze and moulding each in its own material.
+                if (sweep is Eave eave)
+                {
+                    AddCut(marker, Eaves.Meshes(document, eave, eave.LevelId), pieces);
+                    continue;
+                }
+
                 var material = document.FindMaterial(sweep switch
                 {
                     Fascia => document.FindType<FasciaType>(sweep.TypeId)?.MaterialId ?? Guid.Empty,
@@ -890,11 +902,16 @@ public static class SectionProjection
         var structure = body.Structure;
         var bottom = wall.GetBaseElevation(document);
         var panelHalf = type.PanelThickness / 2;
-        var mullionHalf = type.MullionThickness / 2;
 
         var glass = document.FindMaterial(type.GlassMaterialId);
         var solid = document.FindMaterial(type.SolidMaterialId);
-        var metal = document.FindMaterial(type.MullionMaterialId);
+        Material? Metal(CurtainMullion mullion) => document.FindMaterial(mullion.Type?.MaterialId ?? type.MullionMaterialId);
+
+        // A mullion's faces across the wall: its box out to its cover cap, about its offset.
+        (double Outer, double Inner) Across(CurtainMullion mullion) => mullion.Type is { } made
+            ? (made.Offset + (made.Shape == MullionShape.Circular ? made.FaceWidth : made.Thickness) / 2 + (made.Shape == MullionShape.Circular || made.IsCorner ? 0 : made.CapDepth),
+               made.Offset - (made.Shape == MullionShape.Circular ? made.FaceWidth : made.Thickness) / 2)
+            : (type.MullionThickness / 2, -type.MullionThickness / 2);
 
         SectionPiece Piece(double left, double right, double low, double high, SectionPart part, SectionDepth depth, Material? material, ColourRgb fallback) =>
             new(new SectionRect(Math.Min(left, right), bottom + low, Math.Max(left, right), bottom + high), part, depth,
@@ -917,8 +934,9 @@ public static class SectionProjection
                 var through = layout.Mullions.FirstOrDefault(m => m.IsVertical && s >= m.From && s <= m.To);
                 if (through is not null)
                 {
-                    pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), through.BottomAt(s), through.TopAt(s),
-                        SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
+                    var (outer, inner) = Across(through);
+                    pieces.Add(Piece(X(outer), X(inner), through.BottomAt(s), through.TopAt(s),
+                        SectionPart.Frame, SectionDepth.Cut, Metal(through), DefaultCut));
                     continue;
                 }
 
@@ -945,7 +963,10 @@ public static class SectionProjection
 
                 foreach (var transom in layout.Mullions.Where(m => !m.IsVertical && s >= m.From && s <= m.To))
                     if (transom.TopAt(s) - transom.BottomAt(s) > Epsilon)
-                        pieces.Add(Piece(X(mullionHalf), X(-mullionHalf), transom.BottomAt(s), transom.TopAt(s), SectionPart.Frame, SectionDepth.Cut, metal, DefaultCut));
+                    {
+                        var (outer, inner) = Across(transom);
+                        pieces.Add(Piece(X(outer), X(inner), transom.BottomAt(s), transom.TopAt(s), SectionPart.Frame, SectionDepth.Cut, Metal(transom), DefaultCut));
+                    }
             }
 
             return;
@@ -983,7 +1004,7 @@ public static class SectionProjection
 
         foreach (var mullion in layout.Mullions)
             pieces.Add(Face(mullion.From, mullion.To, mullion.Bottom, mullion.BottomAt(mullion.To), mullion.Top, mullion.TopAt(mullion.To),
-                SectionPart.Frame, metal, DefaultCut));
+                SectionPart.Frame, Metal(mullion), DefaultCut));
     }
 
     /// <summary>

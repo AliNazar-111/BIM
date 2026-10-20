@@ -49,7 +49,15 @@ public partial class EditCurtainGridWindow : Window
         WallCaption.Text = $"ELEVATION  -  {_type.Name.ToUpperInvariant()}, {Units.FormatLength(_length)} BY {Units.FormatLength(_height)}, ITS START ON THE LEFT";
 
         Editor.Show(_type, _length, _height, Inner(layout.Verticals), Inner(layout.Horizontals),
-            wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>(), _windows, _topLine, wall.CurtainGrid?.Removed);
+            wall.CurtainPanels ?? Array.Empty<CurtainPanelOverride>(), _windows, _topLine, wall.CurtainGrid?.Removed,
+            wall.CurtainMullions, document);
+
+        // The mullion on a line selected: the type's, none, or any mullion type in the project.
+        _mullionChoices = new List<(string, Guid?)> { ("As the type", null), ("None - the panels butted", Guid.Empty) };
+        _mullionChoices.AddRange(document.TypesOf<MullionType>().OrderBy(type => type.Name).Select(type => (type.Name, (Guid?)type.Id)));
+        MullionBox.ItemsSource = _mullionChoices.Select(choice => choice.Name).ToList();
+        MullionBox.IsEnabled = false;
+        Editor.SelectionChanged += (_, _) => ShowSelectedMullion();
         // Which door a door panel becomes: any door type in the project, as Revit picks a
         // curtain wall door in the Type Selector.
         var doorTypes = CurtainDoors.TypesFor(document);
@@ -76,6 +84,28 @@ public partial class EditCurtainGridWindow : Window
 
     /// <summary>The panels that are not glass.</summary>
     public IReadOnlyList<CurtainPanelOverride>? ResultPanels { get; private set; }
+
+    /// <summary>The mullions chosen stretch by stretch, or null where there are none - and whether they were touched.</summary>
+    public IReadOnlyList<CurtainMullionOverride>? ResultMullions { get; private set; }
+
+    private List<(string Name, Guid? Id)> _mullionChoices = new();
+    private bool _showingMullion;
+
+    /// <summary>The mullion choice follows the line selected.</summary>
+    private void ShowSelectedMullion()
+    {
+        _showingMullion = true;
+        MullionBox.IsEnabled = Editor.Selected is not null;
+        var chosen = Editor.SelectedMullion;
+        MullionBox.SelectedIndex = Editor.Selected is null ? -1 : Math.Max(0, _mullionChoices.FindIndex(choice => choice.Id == chosen));
+        _showingMullion = false;
+    }
+
+    private void OnMullionChosen(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_showingMullion || Editor is null || Editor.Selected is null || MullionBox.SelectedIndex < 0) return;
+        Editor.SetSelectedMullion(_mullionChoices[MullionBox.SelectedIndex].Id);
+    }
 
     /// <summary>The windows to cut into the wall, added here.</summary>
     public IReadOnlyList<(Guid TypeId, double DistanceAlongWall, double SillHeight)> ResultWindows { get; private set; } =
@@ -178,6 +208,7 @@ public partial class EditCurtainGridWindow : Window
         var ownGrid = Editor.GridEdited || (_hadOwnGrid && !_followType);
         ResultGrid = ownGrid ? new CurtainGrid(Editor.Verticals.ToList(), Editor.Horizontals.ToList()).WithRemoved(Editor.Removed) : null;
         ResultPanels = Editor.Panels.Count == 0 ? null : Editor.Panels;
+        ResultMullions = Editor.Mullions.ToList();
         ResultWindows = Editor.AddedWindows;
         DialogResult = true;
     }

@@ -279,10 +279,13 @@ public sealed partial class PlanRenderer
     {
         if (Document is null) return;
 
+        // Only the walls the view shows join: one it leaves out - demolished, filtered out - leaves no mark on those it met.
+        using var joins = WallJoins.TakingPart(Filter);
+
         // The ground first, under everything built on it: its contours, and its edge; then the regions laid on it.
-        foreach (var ground in OnActiveLevel<Toposurface>()) DrawTerrain(dc, ground, underlay);
-        foreach (var region in OnActiveLevel<GroundRegion>()) DrawGroundRegion(dc, region);
-        foreach (var pad in OnActiveLevel<SitePad>()) DrawSitePad(dc, pad);
+        foreach (var ground in OnActiveLevel<Toposurface>()) Styled(dc, ground, d => DrawTerrain(d, ground, underlay));
+        foreach (var region in OnActiveLevel<GroundRegion>()) Styled(dc, region, d => DrawGroundRegion(d, region));
+        foreach (var pad in OnActiveLevel<SitePad>()) Styled(dc, pad, d => DrawSitePad(d, pad));
 
         // Grids come through on every level: they are datums of the whole building, and
         // lining storeys up against them is the point of having them. An underlay leaves them
@@ -291,51 +294,56 @@ public sealed partial class PlanRenderer
             foreach (var grid in Document.Elements.OfType<Grid>()) DrawGrid(dc, grid);
 
         // Slabs are construction under everything else; rooms are the space above them.
-        foreach (var slab in OnActiveLevel<Slab>()) DrawSlab(dc, slab);
+        foreach (var slab in OnActiveLevel<Slab>()) Styled(dc, slab, d => DrawSlab(d, slab));
 
         // Fascias and gutters round the roofs: the strip each covers, seen from above.
-        foreach (var sweep in OnActiveLevel<RoofEdgeSweep>()) DrawRoofEdgeSweep(dc, sweep);
+        foreach (var sweep in OnActiveLevel<RoofEdgeSweep>()) Styled(dc, sweep, d => DrawRoofEdgeSweep(d, sweep));
 
         // Slab edges along the floors: under them dashed, as hidden; a kerb standing up out of one, drawn.
-        foreach (var slabEdge in OnActiveLevel<SlabEdge>()) DrawSlabEdge(dc, slabEdge);
-        foreach (var roofWindow in OnActiveLevel<RoofWindow>()) DrawRoofWindow(dc, roofWindow);
-        foreach (var shaft in ShaftsOnPlan()) DrawShaft(dc, shaft);
-        foreach (var pipe in DownpipesOnPlan()) DrawDownpipe(dc, pipe);
-        foreach (var drain in OnActiveLevel<RoofDrain>()) DrawRoofDrain(dc, drain);
+        foreach (var slabEdge in OnActiveLevel<SlabEdge>()) Styled(dc, slabEdge, d => DrawSlabEdge(d, slabEdge));
+        foreach (var roofWindow in OnActiveLevel<RoofWindow>()) Styled(dc, roofWindow, d => DrawRoofWindow(d, roofWindow));
+        foreach (var shaft in ShaftsOnPlan()) Styled(dc, shaft, d => DrawShaft(d, shaft));
+        foreach (var pipe in DownpipesOnPlan()) Styled(dc, pipe, d => DrawDownpipe(d, pipe));
+        foreach (var drain in OnActiveLevel<RoofDrain>()) Styled(dc, drain, d => DrawRoofDrain(d, drain));
         if (Document is not null)
         {
-            foreach (var drain in Document.Elements.OfType<RoofDrain>().Where(drain => Filter(drain))) DrawDrainPipe(dc, drain);
+            foreach (var drain in Document.Elements.OfType<RoofDrain>().Where(drain => Filter(drain))) Styled(dc, drain, d => DrawDrainPipe(d, drain));
             foreach (var chimney in Document.Elements.OfType<Chimney>().Where(chimney => Filter(chimney) && Chimneys.ShownOn(Document, chimney, ActiveLevelId)))
-                DrawChimney(dc, chimney);
+                Styled(dc, chimney, d => DrawChimney(d, chimney));
 
             // Walls shaped in plan, cut through their outline, in what they are made of.
             foreach (var shaped in Document.Elements.OfType<PolygonWall>().Where(shaped => Filter(shaped) && shaped.LevelId == ActiveLevelId))
-                dc.DrawGeometry(MaterialBrush(shaped.MaterialId), IsSelected(shaped) ? _selectedPen : _wallOutlinePen, BuildOutline(shaped.Outline));
+                Styled(dc, shaped, d => d.DrawGeometry(MaterialBrush(shaped.MaterialId), IsSelected(shaped) ? _selectedPen : _wallOutlinePen, BuildOutline(shaped.Outline)));
         }
 
         if (!underlay)
-            foreach (var room in OnActiveLevel<Room>()) DrawRoomFill(dc, room);
+            foreach (var room in OnActiveLevel<Room>()) Styled(dc, room, d => DrawRoomFill(d, room));
 
-        foreach (var wall in OnActiveLevel<Wall>()) DrawWall(dc, wall);
-        foreach (var opening in OnActiveLevel<Opening>()) DrawOpening(dc, opening);
+        // Footings are under the floor: drawn hidden, dashed, under the walls standing on them.
+        if (Document is not null)
+            foreach (var footing in Document.Elements.Where(element => element is WallFooting or PadFooting && Footings.LevelOf(Document, element) == ActiveLevelId))
+                Styled(dc, footing, d => DrawFooting(d, footing));
+
+        foreach (var wall in OnActiveLevel<Wall>()) Styled(dc, wall, d => DrawWall(d, wall));
+        foreach (var opening in OnActiveLevel<Opening>()) Styled(dc, opening, d => DrawOpening(d, opening));
 
         // A column is construction like a wall, and is drawn over it where it is built into one.
-        foreach (var column in OnActiveLevel<Column>()) DrawColumn(dc, column);
+        foreach (var column in OnActiveLevel<Column>()) Styled(dc, column, d => DrawColumn(d, column));
 
         // Components sit in the rooms and against the walls, so they are drawn over both.
-        foreach (var component in OnActiveLevel<Component>()) DrawComponent(dc, component);
+        foreach (var component in OnActiveLevel<Component>()) Styled(dc, component, d => DrawComponent(d, component));
 
         // Railings along balconies, terraces and floors' edges.
-        foreach (var railing in OnActiveLevel<Railing>()) DrawRailing(dc, railing);
+        foreach (var railing in OnActiveLevel<Railing>()) Styled(dc, railing, d => DrawRailing(d, railing));
 
         // Beams hung from this level, under its floor - and those over this storey, hung from the level above: both dashed, as hidden and overhead.
         if (Document is not null)
         {
             var above = Levels.Above(Document, ActiveLevelId)?.Id;
             foreach (var beam in Document.Elements.OfType<Beam>().Where(beam => (beam.LevelId == ActiveLevelId || beam.LevelId == above) && Filter(beam)))
-                DrawBeam(dc, beam, own: beam.LevelId == ActiveLevelId);
+                Styled(dc, beam, d => DrawBeam(d, beam, own: beam.LevelId == ActiveLevelId));
             foreach (var system in Document.Elements.OfType<BeamSystem>().Where(system => (system.LevelId == ActiveLevelId || system.LevelId == above) && Filter(system)))
-                DrawBeamSystem(dc, system, own: system.LevelId == ActiveLevelId);
+                Styled(dc, system, d => DrawBeamSystem(d, system, own: system.LevelId == ActiveLevelId));
         }
 
         // Stairs on their own storey, and seen down the stairwell from the one they come up to -
@@ -348,8 +356,8 @@ public sealed partial class PlanRenderer
                 var goingOn = flights.FirstOrDefault(flight => flight.LevelId == ActiveLevelId)?.Layout.Steps;
                 foreach (var flight in flights)
                 {
-                    if (flight.LevelId == ActiveLevelId) DrawStair(dc, stair, flight.Layout, own: true);
-                    else if (flight.TopLevelId == ActiveLevelId) DrawStair(dc, stair, flight.Layout, own: false, goingOn);
+                    if (flight.LevelId == ActiveLevelId) Styled(dc, stair, d => DrawStair(d, stair, flight.Layout, own: true));
+                    else if (flight.TopLevelId == ActiveLevelId) Styled(dc, stair, d => DrawStair(d, stair, flight.Layout, own: false, goingOn));
                 }
             }
 
@@ -357,8 +365,8 @@ public sealed partial class PlanRenderer
         if (Document is not null)
             foreach (var ramp in Document.Elements.OfType<Ramp>().Where(ramp => Filter(ramp)))
             {
-                if (ramp.LevelId == ActiveLevelId) DrawRamp(dc, ramp, own: true);
-                else if (ramp.TopLevelId == ActiveLevelId) DrawRamp(dc, ramp, own: false);
+                if (ramp.LevelId == ActiveLevelId) Styled(dc, ramp, d => DrawRamp(d, ramp, own: true));
+                else if (ramp.TopLevelId == ActiveLevelId) Styled(dc, ramp, d => DrawRamp(d, ramp, own: false));
             }
 
         if (underlay) return;
@@ -697,12 +705,27 @@ public sealed partial class PlanRenderer
             }
         }
 
-        foreach (var mullion in layout.Mullions.Where(m => m.IsVertical))
+        // Each upright in its own type's section - offset, capped - and at a corner with another
+        // curtain wall, the corner mullion, drawn by one of the two.
+        foreach (var mullion in layout.Mullions.Where(m => m.IsVertical && m.Type is not null))
         {
-            var outline = type.MullionProfile == MullionProfile.Circular
-                ? CurtainGeometry.Circle(wall, body, (mullion.From + mullion.To) / 2, type.MullionWidth / 2)
-                : CurtainGeometry.Band(wall, body, mullion.From, mullion.To, type.MullionDepth / 2, -type.MullionDepth / 2);
-            dc.DrawGeometry(MaterialBrush(type.MullionMaterialId), _wallOutlinePen, BuildOutline(outline));
+            var mullionType = mullion.Type!;
+            if (mullion.IsBorder && Document is not null && CurtainCorners.At(Document, wall, mullion.From <= 1) is { } corner)
+            {
+                if (corner.Builds)
+                    dc.DrawGeometry(MaterialBrush(corner.Type.MaterialId), _wallOutlinePen,
+                        BuildOutline(CurtainCorners.Outline(Document, wall, mullion.From <= 1, corner.Other, corner.OtherAtStart, corner.Type)));
+                continue;
+            }
+
+            var (outer, inner) = (mullionType.Offset + mullionType.Thickness / 2, mullionType.Offset - mullionType.Thickness / 2);
+            var outline = mullionType.Shape == MullionShape.Circular
+                ? CurtainGeometry.Circle(wall, body, (mullion.From + mullion.To) / 2, mullionType.FaceWidth / 2, mullionType.Offset)
+                : CurtainGeometry.Band(wall, body, mullion.From, mullion.To, outer, inner);
+            dc.DrawGeometry(MaterialBrush(mullionType.MaterialId), _wallOutlinePen, BuildOutline(outline));
+            if (mullionType.Shape != MullionShape.Circular && !mullionType.IsCorner && mullionType.CapDepth > 0)
+                dc.DrawGeometry(MaterialBrush(mullionType.MaterialId), _wallOutlinePen,
+                    BuildOutline(CurtainGeometry.Band(wall, body, mullion.From, mullion.To, outer + mullionType.CapDepth, outer)));
         }
 
         if (isSelected)
@@ -1135,6 +1158,48 @@ public sealed partial class PlanRenderer
         // Frame faces flush with the wall on both sides.
         dc.DrawLine(pen, ModelToScreen(jambFrom + across * wallHalf), ModelToScreen(jambTo + across * wallHalf));
         dc.DrawLine(pen, ModelToScreen(jambFrom - across * wallHalf), ModelToScreen(jambTo - across * wallHalf));
+
+        // Divided into lights: the glass, each mullion across the frame, and each side-hung
+        // light's own swing from the jamb or mullion it is hung on - the whole handed the other
+        // way when the window is.
+        if (WindowLights.Divided(type))
+        {
+            var span = jambFrom.DistanceTo(jambTo);
+            var scale = span / Math.Max(type.Width, 1);
+            Point2D At(double u) => jambFrom + along * ((opening.FlipHand ? type.Width - u : u) * scale);
+            var frameHalf = Math.Min(wallHalf, (type.Thickness > 0 ? type.Thickness : 100) / 2);
+
+            dc.DrawLine(_glassPen, ModelToScreen(jambFrom), ModelToScreen(jambTo));
+            foreach (var middle in WindowLights.Mullions(type))
+            {
+                var (a, b) = (At(middle - type.MullionWidth / 2), At(middle + type.MullionWidth / 2));
+                var bar = new StreamGeometry();
+                using (var context = bar.Open())
+                {
+                    context.BeginFigure(ModelToScreen(a + across * frameHalf), true, true);
+                    context.LineTo(ModelToScreen(b + across * frameHalf), true, false);
+                    context.LineTo(ModelToScreen(b - across * frameHalf), true, false);
+                    context.LineTo(ModelToScreen(a - across * frameHalf), true, false);
+                }
+
+                bar.Freeze();
+                dc.DrawGeometry(null, pen, bar);
+            }
+
+            foreach (var light in WindowLights.Of(type).Where(light => !light.Fanlight))
+            {
+                var (low, high) = opening.FlipHand ? (At(light.To), At(light.From)) : (At(light.From), At(light.To));
+                if (light.Operation is WindowOperation.Casement or WindowOperation.TiltAndTurn)
+                {
+                    var hungLow = light.HingeAtStart != opening.FlipHand;
+                    DrawLeafAndArc(dc, _swingPen, hungLow ? low : high, hungLow ? along : -along, facing, light.Width * scale, 60);
+                }
+                else if (light.Operation == WindowOperation.Awning)
+                    dc.DrawLine(_previewPen, ModelToScreen(low + facing * (wallHalf * 1.4)), ModelToScreen(high + facing * (wallHalf * 1.4)));
+            }
+
+            return;
+        }
 
         switch (type.Operation)
         {
@@ -1617,6 +1682,19 @@ public sealed partial class PlanRenderer
     /// which is what a column built into a wall actually is. Drawn finer, it is the material it
     /// is made of, the same way the wall beside it is drawn as its layers rather than its fill.
     /// </summary>
+    private readonly Pen _footingPen = RenderPens.Dashed(Color.FromRgb(0x5A, 0x5F, 0x66), 0.9, 4, 3);
+
+    /// <summary>A footing in plan: its outline, dashed - it is under the floor - and the pier on a pad.</summary>
+    private void DrawFooting(DrawingContext dc, Element footing)
+    {
+        if (Document is null) return;
+        var pen = IsSelected(footing) ? _selectedPen : _footingPen;
+        if (Kept($"footing {footing.Id}", () => Footings.Footprint(Document, footing)) is { Count: >= 3 } outline)
+            dc.DrawGeometry(null, pen, BuildOutline(outline));
+        if (footing is PadFooting pad && Kept($"pier {footing.Id}", () => Footings.PierOutline(Document, pad)) is { Count: >= 3 } pier)
+            dc.DrawGeometry(null, pen, BuildOutline(pier));
+    }
+
     private void DrawColumn(DrawingContext dc, Column column)
     {
         if (Document?.FindType<ColumnType>(column.TypeId) is not { } type) return;

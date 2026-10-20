@@ -528,6 +528,18 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="12"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="6"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
@@ -601,6 +613,48 @@
 
                     <CheckBox x:Name="EmbedBox" Grid.Row="20" Grid.ColumnSpan="5" Content="Automatically embed: drawn inside another wall, cut an opening in it"
                               Checked="OnDesignChanged" Unchecked="OnDesignChanged"/>
+
+                    <!-- Mullion types on each line -->
+                    <TextBlock Grid.Row="22" Grid.ColumnSpan="2" Text="VERTICAL MULLION TYPES" Style="{StaticResource Caption}"/>
+                    <TextBlock Grid.Row="22" Grid.Column="3" Grid.ColumnSpan="2" Text="HORIZONTAL MULLION TYPES (TRANSOMS)" Style="{StaticResource Caption}"/>
+
+                    <TextBlock Grid.Row="24" Text="Interior" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="InteriorVerticalPicker" Grid.Row="24" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="The mullions between panels: the mullion set out above, none - the glass butted - or one of the project's mullion types (Manage them with Mullion Types on the Architecture tab)"/>
+                    <TextBlock Grid.Row="24" Grid.Column="3" Text="Interior" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="InteriorHorizontalPicker" Grid.Row="24" Grid.Column="4" SelectionChanged="OnDesignChanged"
+                              ToolTip="The transoms between panels"/>
+
+                    <TextBlock Grid.Row="26" Text="Border 1" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="BorderVerticalStartPicker" Grid.Row="26" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="The mullion at the wall's start - a corner mullion here stands where another curtain wall meets this end"/>
+                    <TextBlock Grid.Row="26" Grid.Column="3" Text="Border 1" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="BorderHorizontalBottomPicker" Grid.Row="26" Grid.Column="4" SelectionChanged="OnDesignChanged"
+                              ToolTip="The transom along the bottom of the wall"/>
+
+                    <TextBlock Grid.Row="28" Text="Border 2" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="BorderVerticalEndPicker" Grid.Row="28" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="The mullion at the wall's end - a corner mullion here stands where another curtain wall meets this end"/>
+                    <TextBlock Grid.Row="28" Grid.Column="3" Text="Border 2" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="BorderHorizontalTopPicker" Grid.Row="28" Grid.Column="4" SelectionChanged="OnDesignChanged"
+                              ToolTip="The transom along the top of the wall"/>
+
+                    <TextBlock Grid.Row="32" Text="Fixings" Style="{StaticResource FieldLabel}"/>
+                    <StackPanel Grid.Row="32" Grid.Column="1" Grid.ColumnSpan="4" Orientation="Horizontal">
+                        <CheckBox x:Name="AnchorsBox" Content="Anchored at floors" VerticalAlignment="Center"
+                                  Checked="OnDesignChanged" Unchecked="OnDesignChanged"
+                                  ToolTip="A bracket holds each upright to every floor it passes, its base and its head: each takes the wind either side of it, the one at the foot of each length its weight too"/>
+                        <TextBlock Text="Splices" Style="{StaticResource FieldLabel}" Margin="16,0,8,0"/>
+                        <ComboBox x:Name="SplicesPicker" Width="130" SelectionChanged="OnDesignChanged"
+                                  ToolTip="Where each upright is joined to the next length: nowhere, a little above every floor, or every other"/>
+                        <TextBlock Text="Stack joint" Style="{StaticResource FieldLabel}" Margin="16,0,8,0"/>
+                        <TextBox x:Name="StackJointBox" Width="60" TextChanged="OnDesignChanged"
+                                 ToolTip="The gap at each splice for a length to grow with the heat and the floor's edge to deflect: 25 mm takes a 3 m aluminium storey"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="30" Text="Join" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="JoinPicker" Grid.Row="30" Grid.Column="1" SelectionChanged="OnDesignChanged"
+                              ToolTip="Which run through where they meet: the mullions, the transoms stopping at them - a stick system's usual way - or the transoms, the mullions stopping at them"/>
                 </Grid>
             </DockPanel>
         </Grid>

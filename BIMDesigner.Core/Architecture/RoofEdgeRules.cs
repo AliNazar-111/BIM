@@ -186,6 +186,7 @@ public static class RoofEdgeRules
         {
             Gutter gutter when !standard.IsUs() && document.FindType<GutterType>(gutter.TypeId) is { } type => GutterProblems(document, gutter, type, roof),
             Soffit soffit when document.FindType<SoffitType>(soffit.TypeId) is { } type => SoffitProblems(document, soffit, type, roof, standard),
+            Eave eave => Eaves.Problems(document, eave, standard),
             _ => Array.Empty<PlacementProblem>()
         };
     }
@@ -252,7 +253,7 @@ public static class RoofEdgeRules
         if (standard.IsUs())
         {
             // 1/300 of the loft's floor, half of it at the eaves, where it is vented high up as well; 1/150 at the eaves where it is not.
-            var eaves = RoofEdgeSweeps.Of(document, roof).OfType<Soffit>().Sum(soffit => soffit.Length(document));
+            var eaves = RoofEdgeSweeps.Of(document, roof).Where(sweep => sweep is Soffit or Eave).Sum(sweep => sweep.Length(document));
             if (eaves < 1) return null;
             return roof.HighLevelVents
                 ? (Polygon2D.Area(roof.Boundary) / 300 / 2 / (eaves / 1000), "The IRC (R806.2) asks for 1/300 of the loft's area in vents, half of them at the eaves and half high up")
@@ -307,10 +308,10 @@ public static class RoofEdgeRules
     {
         var roofs = document.Elements.OfType<Roof>().Where(roof => roof.LevelId == levelId).Select(roof => roof.Id).ToHashSet();
         return document.Elements.OfType<RoofEdgeSweep>()
-            .Where(sweep => roofs.Contains(sweep.RoofId) && sweep is Gutter or Soffit)
+            .Where(sweep => roofs.Contains(sweep.RoofId) && sweep is Gutter or Soffit or Eave)
             .SelectMany(sweep => Problems(document, sweep, standard)
-                .Select(problem => new BlockedClearance(new ClearanceZone(sweep, sweep is Gutter ? "its water" : "its air", problem.Outline, problem.Rule), string.Empty,
-                    document.FindType<ElementType>(sweep.TypeId)?.Name ?? (sweep is Gutter ? "A gutter" : "A soffit"), problem.Said)))
+                .Select(problem => new BlockedClearance(new ClearanceZone(sweep, sweep switch { Gutter => "its water", Eave => "the eave", _ => "its air" }, problem.Outline, problem.Rule), string.Empty,
+                    document.FindType<ElementType>(sweep.TypeId)?.Name ?? (sweep switch { Gutter => "A gutter", Eave => "An eave", _ => "A soffit" }), problem.Said)))
             .ToList();
     }
 }

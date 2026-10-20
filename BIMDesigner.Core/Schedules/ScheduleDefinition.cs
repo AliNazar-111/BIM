@@ -255,6 +255,19 @@ public sealed class ScheduleDefinition
             }
             .WithoutTotals("Height"),
 
+        // Every structural column and footing: what it carries, and whether it meets its rules.
+        new ScheduleDefinition("Structural Column Schedule", BuiltInCategory.StructuralColumns,
+                "Mark", "Type Name", "Base Level", "Top Level", "Load Carried (kN)", "Regulations")
+            {
+                SortBy = "Type Name"
+            },
+        new ScheduleDefinition("Structural Foundation Schedule", BuiltInCategory.StructuralFoundations,
+                "Mark", "Type Name", "Carries", "Depth below Ground", "Volume", "Regulations")
+            {
+                SortBy = "Type Name"
+            }
+            .WithoutTotals("Depth below Ground"),
+
         // Every beam: its section, how long it is and what it weighs, and whether it clears the doors under it.
         new ScheduleDefinition("Structural Framing Schedule", BuiltInCategory.StructuralFraming,
                 "Mark", "Type Name", "Reference Level", "Structural Usage", "Length", "Mass", "Clearances")

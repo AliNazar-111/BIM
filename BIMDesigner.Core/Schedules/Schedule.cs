@@ -327,7 +327,7 @@ public static class Schedule
         var type = document.ElementTypes.FirstOrDefault(candidate => candidate.Id == element.TypeId);
         if (type is not null)
         {
-            foreach (var parameter in type.GetTypeParameters(document))
+            foreach (var parameter in type.AllTypeParameters(document))
                 map.TryAdd(parameter.Name, parameter);
         }
 
@@ -364,9 +364,12 @@ public static class Schedule
 
     // ---- filtering -------------------------------------------------------------
 
-    private static bool Passes(ScheduleRow row, ScheduleFilter filter)
+    private static bool Passes(ScheduleRow row, ScheduleFilter filter) => Passes(row.Cells, filter);
+
+    /// <summary>Whether something's parameters pass a filter's test: a schedule's, or a view filter's rule.</summary>
+    public static bool Passes(IReadOnlyDictionary<string, ParameterValue> cells, ScheduleFilter filter)
     {
-        var cell = row[filter.Field];
+        var cell = cells.TryGetValue(filter.Field, out var found) ? found : null;
         var text = cell?.DisplayValue ?? string.Empty;
 
         return filter.Comparison switch

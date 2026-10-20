@@ -148,14 +148,99 @@ public sealed class CurtainWallType : ElementType
     /// <summary>Whether the edges of the wall are framed as well as the lines between panels.</summary>
     public bool BorderMullions { get; set; } = true;
 
+    // The mullion types on each line - Revit's Interior, Border 1 and Border 2 types, each way:
+    // none set, the type's own mullion above; Guid.Empty, none there; otherwise a mullion type.
+
+    /// <summary>The vertical mullions between panels.</summary>
+    public Guid? InteriorVertical { get; set; }
+
+    /// <summary>The vertical mullion at the wall's start, and at its end.</summary>
+    public Guid? BorderVerticalStart { get; set; }
+
+    public Guid? BorderVerticalEnd { get; set; }
+
+    /// <summary>The transoms between panels.</summary>
+    public Guid? InteriorHorizontal { get; set; }
+
+    /// <summary>The transom along the wall's bottom, and along its top.</summary>
+    public Guid? BorderHorizontalBottom { get; set; }
+
+    public Guid? BorderHorizontalTop { get; set; }
+
+    /// <summary>Which run through where they meet: the verticals, the transoms stopping at them - or the transoms.</summary>
+    public CurtainJoin JoinCondition { get; set; } = CurtainJoin.VerticalContinuous;
+
+    /// <summary>Whether each vertical mullion is anchored to the floors it passes, its base and its head - brackets drawn and their loads worked out.</summary>
+    public bool MullionAnchors { get; set; }
+
+    /// <summary>Where the vertical mullions are spliced: nowhere, one length the whole height; above every floor; above every other.</summary>
+    public MullionSplices Splices { get; set; } = MullionSplices.None;
+
+    /// <summary>How far above the floor a splice is, mm: just over the anchor there.</summary>
+    public double SpliceAbove { get; set; } = 300;
+
+    /// <summary>The stack joint at each splice, mm: the gap the length above stands off the one below by, for them to move in.</summary>
+    public double StackJoint { get; set; } = 20;
+
+    /// <summary>What one anchor is good for, kN, from its maker; none given at 0, and its loads are only said.</summary>
+    public double AnchorCapacity { get; set; }
+
+    private MullionType? _own;
+    private (MullionProfile, double, double, Guid)? _ownKey;
+
+    /// <summary>The type's own mullion, as its profile, width, depth and material say it: a box or a tube centred on its line. None at no width.</summary>
+    public MullionType? OwnMullion
+    {
+        get
+        {
+            if (MullionWidth <= 0) return null;
+            var key = (MullionProfile, MullionWidth, MullionDepth, MullionMaterialId);
+            if (_own is null || _ownKey != key)
+            {
+                _own = new MullionType($"{Name} mullion")
+                {
+                    Shape = MullionProfile == MullionProfile.Circular ? MullionShape.Circular : MullionShape.Rectangular,
+                    Width1 = MullionWidth / 2, Width2 = MullionWidth / 2, Thickness = MullionDepth, MaterialId = MullionMaterialId
+                };
+                _ownKey = key;
+            }
+
+            return _own;
+        }
+    }
+
+    /// <summary>
+    /// The mullion type a slot comes to: the type's own mullion where none is set - at a border only
+    /// with border mullions - none where it says none, and the project's type of that id otherwise.
+    /// With no project to look in, its own.
+    /// </summary>
+    public MullionType? Resolve(BimDocument? document, Guid? slot, bool border) => slot switch
+    {
+        null => border && !BorderMullions ? null : OwnMullion,
+        { } id when id == Guid.Empty => null,
+        { } id => document?.FindType<MullionType>(id) ?? (border && !BorderMullions ? null : OwnMullion)
+    };
+
+    /// <summary>Every mullion type its slots come to, in a project.</summary>
+    public IEnumerable<MullionType> MullionTypes(BimDocument? document) =>
+        new[] { (InteriorVertical, false), (BorderVerticalStart, true), (BorderVerticalEnd, true), (InteriorHorizontal, false), (BorderHorizontalBottom, true), (BorderHorizontalTop, true) }
+            .Select(slot => Resolve(document, slot.Item1, slot.Item2))
+            .OfType<MullionType>();
+
     /// <summary>
     /// Whether a wall of this type drawn inside another wall cuts itself an opening there, as a
     /// shopfront set into a brick wall does.
     /// </summary>
     public bool AutomaticallyEmbed { get; set; }
 
-    /// <summary>How deep the mullions reach through the wall: the thickness of a round one.</summary>
-    public double MullionThickness => MullionProfile == MullionProfile.Circular ? MullionWidth : MullionDepth;
+    /// <summary>How deep the mullions reach through the wall: the thickness of a round one - or of the deepest mullion type in its slots.</summary>
+    public double MullionThickness => Math.Max(MullionWidth > 0 ? (MullionProfile == MullionProfile.Circular ? MullionWidth : MullionDepth) : 0, _slotDepth);
+
+    private double _slotDepth;
+
+    /// <summary>Takes the depth of the mullion types in its slots, so the wall is as thick as its deepest - called as a project is built or read, and when its types change.</summary>
+    public void TakeDepth(BimDocument document) =>
+        _slotDepth = MullionTypes(document).Select(type => type.Depth + 2 * Math.Abs(type.Offset)).DefaultIfEmpty(0).Max();
 
     /// <summary>How thick the wall is for joining and bounding rooms: its mullions or its panels, whichever is more.</summary>
     public double Width => Math.Max(MullionWidth > 0 ? MullionThickness : 0, Math.Max(PanelThickness, 1));
@@ -223,6 +308,19 @@ public sealed class CurtainWallType : ElementType
         MullionDepth = MullionDepth,
         MullionMaterialId = MullionMaterialId,
         BorderMullions = BorderMullions,
+        InteriorVertical = InteriorVertical,
+        BorderVerticalStart = BorderVerticalStart,
+        BorderVerticalEnd = BorderVerticalEnd,
+        InteriorHorizontal = InteriorHorizontal,
+        BorderHorizontalBottom = BorderHorizontalBottom,
+        BorderHorizontalTop = BorderHorizontalTop,
+        JoinCondition = JoinCondition,
+        MullionAnchors = MullionAnchors,
+        Splices = Splices,
+        SpliceAbove = SpliceAbove,
+        StackJoint = StackJoint,
+        AnchorCapacity = AnchorCapacity,
+        _slotDepth = _slotDepth,
         AutomaticallyEmbed = AutomaticallyEmbed,
         CoarseScaleFillColour = CoarseScaleFillColour,
         HeatTransferCoefficient = HeatTransferCoefficient,
@@ -251,6 +349,19 @@ public sealed class CurtainWallType : ElementType
         MullionDepth = other.MullionDepth;
         MullionMaterialId = other.MullionMaterialId;
         BorderMullions = other.BorderMullions;
+        InteriorVertical = other.InteriorVertical;
+        BorderVerticalStart = other.BorderVerticalStart;
+        BorderVerticalEnd = other.BorderVerticalEnd;
+        InteriorHorizontal = other.InteriorHorizontal;
+        BorderHorizontalBottom = other.BorderHorizontalBottom;
+        BorderHorizontalTop = other.BorderHorizontalTop;
+        JoinCondition = other.JoinCondition;
+        MullionAnchors = other.MullionAnchors;
+        Splices = other.Splices;
+        SpliceAbove = other.SpliceAbove;
+        StackJoint = other.StackJoint;
+        AnchorCapacity = other.AnchorCapacity;
+        _slotDepth = other._slotDepth;
         AutomaticallyEmbed = other.AutomaticallyEmbed;
         HeatTransferCoefficient = other.HeatTransferCoefficient;
         SafetyGlazing = other.SafetyGlazing;
@@ -287,6 +398,42 @@ public sealed class CurtainWallType : ElementType
             : MullionProfile == MullionProfile.Circular
                 ? $"Round, {MullionWidth:0} mm"
                 : $"{MullionWidth:0} x {MullionDepth:0} mm");
+        // Each line's mullion type, chosen from the project's: its own, none, or a type.
+        if (document is not null)
+        {
+            var own = OwnMullion is { } mine ? $"<its own: {(mine.Shape == MullionShape.Circular ? $"round {MullionWidth:0}" : $"{MullionWidth:0} x {MullionDepth:0}")}>" : "<its own: none>";
+            var choices = new[] { own, "None" }.Concat(document.TypesOf<MullionType>().Select(type => type.Name).OrderBy(name => name)).ToArray();
+            ParameterValue Slot(ParameterDefinition definition, Func<Guid?> get, Action<Guid?> set) => ParameterValue.BindChoice(definition,
+                () => get() switch { null => own, { } id when id == Guid.Empty => "None", { } id => document.FindType<MullionType>(id)?.Name ?? own },
+                v =>
+                {
+                    set(v == own ? null : v == "None" ? Guid.Empty : document.TypesOf<MullionType>().FirstOrDefault(type => type.Name == v)?.Id);
+                    TakeDepth(document);
+                },
+                choices);
+            yield return Slot(CurtainWallTypeParameters.InteriorVertical, () => InteriorVertical, v => InteriorVertical = v);
+            yield return Slot(CurtainWallTypeParameters.BorderVerticalStart, () => BorderVerticalStart, v => BorderVerticalStart = v);
+            yield return Slot(CurtainWallTypeParameters.BorderVerticalEnd, () => BorderVerticalEnd, v => BorderVerticalEnd = v);
+            yield return Slot(CurtainWallTypeParameters.InteriorHorizontal, () => InteriorHorizontal, v => InteriorHorizontal = v);
+            yield return Slot(CurtainWallTypeParameters.BorderHorizontalBottom, () => BorderHorizontalBottom, v => BorderHorizontalBottom = v);
+            yield return Slot(CurtainWallTypeParameters.BorderHorizontalTop, () => BorderHorizontalTop, v => BorderHorizontalTop = v);
+            yield return ParameterValue.BindChoice(CurtainWallTypeParameters.JoinCondition, () => EnumText.Humanise(JoinCondition),
+                v => { if (EnumText.TryParse<CurtainJoin>(v, out var join)) JoinCondition = join; }, EnumText.Choices<CurtainJoin>());
+        }
+
+        // How the mullions are fixed to the building and joined up its height.
+        yield return ParameterValue.Bind(CurtainWallTypeParameters.MullionAnchors, () => MullionAnchors, v => MullionAnchors = v);
+        yield return ParameterValue.BindChoice(CurtainWallTypeParameters.Splices, () => EnumText.Humanise(Splices),
+            v => { if (EnumText.TryParse<MullionSplices>(v, out var splices)) Splices = splices; }, EnumText.Choices<MullionSplices>());
+        if (Splices != MullionSplices.None)
+        {
+            yield return ParameterValue.BindValidated(CurtainWallTypeParameters.SpliceAbove, () => SpliceAbove, v => { if (v < 0 || v > 2000) return false; SpliceAbove = v; return true; });
+            yield return ParameterValue.BindValidated(CurtainWallTypeParameters.StackJoint, () => StackJoint, v => { if (v < 1 || v > 100) return false; StackJoint = v; return true; });
+        }
+
+        if (MullionAnchors)
+            yield return ParameterValue.BindValidated(CurtainWallTypeParameters.AnchorCapacity, () => AnchorCapacity, v => { if (v < 0 || v > 500) return false; AnchorCapacity = v; return true; });
+
         yield return ParameterValue.ReadOnly(CurtainWallTypeParameters.AutomaticallyEmbed, () => AutomaticallyEmbed);
         yield return ParameterValue.BindValidated(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => { if (v < 0) return false; HeatTransferCoefficient = v; return true; });
         yield return ParameterValue.Bind(OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
@@ -314,4 +461,17 @@ public static class CurtainWallTypeParameters
 
     public static readonly ParameterDefinition AutomaticallyEmbed =
         new("Automatically Embed", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition InteriorVertical = new("Vertical Mullions: Interior Type", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition BorderVerticalStart = new("Vertical Mullions: Border 1 Type", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition BorderVerticalEnd = new("Vertical Mullions: Border 2 Type", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition InteriorHorizontal = new("Horizontal Mullions: Interior Type", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition BorderHorizontalBottom = new("Horizontal Mullions: Border 1 Type", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition BorderHorizontalTop = new("Horizontal Mullions: Border 2 Type", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition JoinCondition = new("Join Condition", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition MullionAnchors = new("Mullions Anchored at Floors", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Splices = new("Mullion Splices", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition SpliceAbove = new("Splice Above Floor", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition StackJoint = new("Stack Joint", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition AnchorCapacity = new("Anchor Capacity (kN, 0 = not checked)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 }

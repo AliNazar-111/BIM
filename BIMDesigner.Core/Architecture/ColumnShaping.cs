@@ -62,6 +62,13 @@ public sealed class ColumnShaping
 
     /// <summary>The unshaped column: a straight prism of one section, in one piece.</summary>
     public static ColumnShaping Plain => new();
+
+    /// <summary>The same shaping: every number of it the same - so a type's copy is shaped as it is.</summary>
+    public override bool Equals(object? obj) => obj is ColumnShaping other &&
+        (TopScale, Twist, SlantAcross, SlantAlong, Flutes, FluteDepth, BaseHeight, BaseSpread, CapitalHeight, CapitalSpread) ==
+        (other.TopScale, other.Twist, other.SlantAcross, other.SlantAlong, other.Flutes, other.FluteDepth, other.BaseHeight, other.BaseSpread, other.CapitalHeight, other.CapitalSpread);
+
+    public override int GetHashCode() => HashCode.Combine(TopScale, Twist, SlantAcross, SlantAlong, Flutes, FluteDepth, BaseHeight, CapitalHeight);
 }
 
 /// <summary>

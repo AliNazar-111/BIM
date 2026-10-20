@@ -116,7 +116,7 @@ public sealed class SplitWallCommand : IUndoableCommand
     private readonly WallSpline? _originalSpline;
     private readonly WallSpline? _firstSpline;
     private readonly (IReadOnlyList<Point2D>? Profile, double Length) _originalProfile, _firstProfile;
-    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _originalCurtain, _firstCurtain;
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels, IReadOnlyList<CurtainMullionOverride>? Mullions) _originalCurtain, _firstCurtain;
     private readonly IReadOnlyList<WallFaceRegion> _originalRegions, _firstRegions;
     private readonly Wall _remainder;
     private readonly List<(Opening Opening, double Distance)> _moved = new();
@@ -161,9 +161,9 @@ public sealed class SplitWallCommand : IUndoableCommand
         }
 
         // A curtain wall keeps its grid where it is: each half takes the lines and panels on its side.
-        _originalCurtain = (wall.CurtainGrid, wall.CurtainPanels);
+        _originalCurtain = (wall.CurtainGrid, wall.CurtainPanels, wall.CurtainMullions);
         _firstCurtain = _originalCurtain;
-        (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) secondCurtain = (null, null);
+        (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels, IReadOnlyList<CurtainMullionOverride>? Mullions) secondCurtain = (null, null, null);
         if (CurtainLayout.Of(document, wall) is { } layout)
         {
             var inner = layout.Verticals.Skip(1).SkipLast(1).ToList();
@@ -188,11 +188,29 @@ public sealed class SplitWallCommand : IUndoableCommand
                     : s with { From = Math.Max(Math.Min(s.From, s.To), _splitAlong) - _splitAlong, To = Math.Max(s.From, s.To) - _splitAlong })
                 .ToList();
 
+            // A mullion chosen on its own goes with the half it is in: an upright by its line, a
+            // transom by its bay - to both halves when the split runs through that bay.
+            var (nearMullions, farMullions) = (new List<CurtainMullionOverride>(), new List<CurtainMullionOverride>());
+            foreach (var chosen in wall.CurtainMullions ?? Array.Empty<CurtainMullionOverride>())
+            {
+                if (chosen.Vertical)
+                {
+                    if (chosen.Line < _splitAlong - 1) nearMullions.Add(chosen);
+                    else if (chosen.Line > _splitAlong + 1) farMullions.Add(chosen with { Line = chosen.Line - _splitAlong });
+                    continue;
+                }
+
+                var bay = Enumerable.Range(0, layout.Verticals.Count - 1).FirstOrDefault(i => chosen.At <= layout.Verticals[i + 1] + 1e-6, layout.Verticals.Count - 2);
+                var (from, to) = (layout.Verticals[bay], layout.Verticals[bay + 1]);
+                if (from < _splitAlong - 1e-6) nearMullions.Add(chosen with { At = (from + Math.Min(to, _splitAlong)) / 2 });
+                if (to > _splitAlong + 1e-6) farMullions.Add(chosen with { At = (Math.Max(from, _splitAlong) + to) / 2 - _splitAlong });
+            }
+
             _firstCurtain = (new CurtainGrid(inner.Where(v => v < _splitAlong).ToList(), horizontals).WithRemoved(nearRemoved),
-                panels.Where(p => p.Column < firstColumns).ToList());
+                panels.Where(p => p.Column < firstColumns).ToList(), wall.CurtainMullions is null ? null : nearMullions);
             secondCurtain = (new CurtainGrid(inner.Where(v => v > _splitAlong).Select(v => v - _splitAlong).ToList(), horizontals).WithRemoved(farRemoved),
                 panels.Where(p => p.Column >= farStart)
-                    .Select(p => p with { Column = p.Column - farStart }).ToList());
+                    .Select(p => p with { Column = p.Column - farStart }).ToList(), wall.CurtainMullions is null ? null : farMullions);
         }
 
         // Paint and split faces go with the half they are on; one across the split is cut there,
@@ -223,6 +241,7 @@ public sealed class SplitWallCommand : IUndoableCommand
             ProfileLength = secondProfile.Length,
             CurtainGrid = secondCurtain.Grid,
             CurtainPanels = secondCurtain.Panels,
+            CurtainMullions = secondCurtain.Mullions,
             FaceRegions = secondRegions,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
@@ -276,7 +295,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.Ellipse = _firstEllipse;
         _wall.Spline = _firstSpline;
         (_wall.Profile, _wall.ProfileLength) = _firstProfile;
-        (_wall.CurtainGrid, _wall.CurtainPanels) = _firstCurtain;
+        (_wall.CurtainGrid, _wall.CurtainPanels, _wall.CurtainMullions) = _firstCurtain;
         _wall.FaceRegions = _firstRegions;
         _wall.EndJoin = WallJoinKind.Auto;
         _document.Add(_remainder);
@@ -320,7 +339,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         _wall.Ellipse = _originalEllipse;
         _wall.Spline = _originalSpline;
         (_wall.Profile, _wall.ProfileLength) = _originalProfile;
-        (_wall.CurtainGrid, _wall.CurtainPanels) = _originalCurtain;
+        (_wall.CurtainGrid, _wall.CurtainPanels, _wall.CurtainMullions) = _originalCurtain;
         _wall.FaceRegions = _originalRegions;
         _wall.EndJoin = _originalEndJoin;
     }
@@ -976,21 +995,23 @@ public sealed class SetWallProfileCommand : IUndoableCommand
 public sealed class SetCurtainLayoutCommand : IUndoableCommand
 {
     private readonly Wall _wall;
-    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _old, _new;
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels, IReadOnlyList<CurtainMullionOverride>? Mullions) _old, _new;
 
-    public SetCurtainLayoutCommand(Wall wall, CurtainGrid? grid, IReadOnlyList<CurtainPanelOverride>? panels, string name = "Edit Curtain Grid")
+    /// <summary>Sets the grid and panels - and the mullions chosen on their own, kept as they are when none are given.</summary>
+    public SetCurtainLayoutCommand(Wall wall, CurtainGrid? grid, IReadOnlyList<CurtainPanelOverride>? panels, string name = "Edit Curtain Grid",
+        IReadOnlyList<CurtainMullionOverride>? mullions = null)
     {
         _wall = wall;
-        _old = (wall.CurtainGrid, wall.CurtainPanels);
-        _new = (grid, panels?.ToList());
+        _old = (wall.CurtainGrid, wall.CurtainPanels, wall.CurtainMullions);
+        _new = (grid, panels?.ToList(), mullions is null ? wall.CurtainMullions : mullions.Count == 0 ? null : mullions.ToList());
         Name = name;
     }
 
     public string Name { get; }
 
-    public void Redo() => (_wall.CurtainGrid, _wall.CurtainPanels) = _new;
+    public void Redo() => (_wall.CurtainGrid, _wall.CurtainPanels, _wall.CurtainMullions) = _new;
 
-    public void Undo() => (_wall.CurtainGrid, _wall.CurtainPanels) = _old;
+    public void Undo() => (_wall.CurtainGrid, _wall.CurtainPanels, _wall.CurtainMullions) = _old;
 }
 
 /// <summary>
@@ -1074,12 +1095,12 @@ public sealed class MergeWallsCommand : IUndoableCommand
             _sweeps.Add((sweep, sweep.HostWallIds.ToList(), hosts));
         }
 
-        _curtainBefore = (keep.CurtainGrid, keep.CurtainPanels);
+        _curtainBefore = (keep.CurtainGrid, keep.CurtainPanels, keep.CurtainMullions);
         _curtainAfter = MergedCurtain(document, keep, remove, line) ?? _curtainBefore;
     }
 
     // A curtain wall's own grid and panel choices, before and after.
-    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels) _curtainBefore, _curtainAfter;
+    private readonly (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels, IReadOnlyList<CurtainMullionOverride>? Mullions) _curtainBefore, _curtainAfter;
 
     /// <summary>
     /// Two curtain walls made one: each one's grid lines where they were along the one wall now,
@@ -1087,11 +1108,12 @@ public sealed class MergeWallsCommand : IUndoableCommand
     /// panel made a door, solid or glass of its own in the bay it now falls in. Null when neither
     /// has a grid or panel of its own, and the type's grid is set out along the whole wall.
     /// </summary>
-    private static (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels)? MergedCurtain(
+    private static (CurtainGrid? Grid, IReadOnlyList<CurtainPanelOverride>? Panels, IReadOnlyList<CurtainMullionOverride>? Mullions)? MergedCurtain(
         BimDocument document, Wall keep, Wall remove, WallCurve line)
     {
         if (keep.CurtainGrid is null && remove.CurtainGrid is null &&
-            (keep.CurtainPanels?.Count ?? 0) == 0 && (remove.CurtainPanels?.Count ?? 0) == 0)
+            (keep.CurtainPanels?.Count ?? 0) == 0 && (remove.CurtainPanels?.Count ?? 0) == 0 &&
+            (keep.CurtainMullions?.Count ?? 0) == 0 && (remove.CurtainMullions?.Count ?? 0) == 0)
             return null;
 
         var halves = new[] { keep, remove }
@@ -1133,7 +1155,15 @@ public sealed class MergeWallsCommand : IUndoableCommand
                 ? s with { Line = Along(half.Wall, s.Line) }
                 : s with { From = Along(half.Wall, s.From), To = Along(half.Wall, s.To) }));
 
-        return (new CurtainGrid(verticals, horizontals).WithRemoved(removed), panels.Values.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList());
+        // Mullions chosen on their own stay where they were along the one wall - but not the two
+        // borders at the joint, which is no line now.
+        var mullions = halves.SelectMany(half => (half.Wall.CurtainMullions ?? Array.Empty<CurtainMullionOverride>())
+                .Select(m => m.Vertical ? m with { Line = Along(half.Wall, m.Line) } : m with { At = Along(half.Wall, m.At) }))
+            .Where(m => !m.Vertical || m.Line <= 1 || m.Line >= line.Length - 1 || verticals.Any(v => Math.Abs(v - m.Line) < 0.5))
+            .ToList();
+
+        return (new CurtainGrid(verticals, horizontals).WithRemoved(removed), panels.Values.OrderBy(p => p.Column).ThenBy(p => p.Row).ToList(),
+            mullions.Count > 0 ? mullions : null);
     }
 
     public string Name => "Remove Wall Point";
@@ -1141,7 +1171,7 @@ public sealed class MergeWallsCommand : IUndoableCommand
     public void Redo()
     {
         (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _after;
-        (_keep.CurtainGrid, _keep.CurtainPanels) = _curtainAfter;
+        (_keep.CurtainGrid, _keep.CurtainPanels, _keep.CurtainMullions) = _curtainAfter;
         foreach (var (opening, _, _, distance) in _openings)
         {
             opening.HostWallId = _keep.Id;
@@ -1173,7 +1203,7 @@ public sealed class MergeWallsCommand : IUndoableCommand
         }
 
         (_keep.Start, _keep.End, _keep.StartJoin, _keep.EndJoin) = _before;
-        (_keep.CurtainGrid, _keep.CurtainPanels) = _curtainBefore;
+        (_keep.CurtainGrid, _keep.CurtainPanels, _keep.CurtainMullions) = _curtainBefore;
     }
 }
 

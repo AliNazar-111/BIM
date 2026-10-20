@@ -83,15 +83,79 @@ public sealed class ColumnProfile
     });
 
     /// <summary>The section a named shape and size make, which is what a plain column type is.</summary>
-    public static ColumnProfile Of(ColumnShape shape, double width, double depth) => shape switch
+    public static ColumnProfile Of(ColumnShape shape, double width, double depth) => Of(shape, width, depth, 0, 0, 0);
+
+    /// <summary>A named shape, a steel section's with its flanges, web or wall: a solid one where they are not given.</summary>
+    public static ColumnProfile Of(ColumnShape shape, double width, double depth, double flange, double web, double wall) => shape switch
     {
         ColumnShape.Round => Ellipse(width, depth),
         ColumnShape.LShaped => Corner(width, depth),
         ColumnShape.Triangular => Polygon(3, width, depth),
         ColumnShape.Hexagonal => Polygon(6, width, depth),
         ColumnShape.Octagonal => Polygon(8, width, depth),
+        ColumnShape.IBeam when flange > 0 && web > 0 && 2 * flange < depth && web < width => ISection(width, depth, flange, web),
+        ColumnShape.HollowRectangular when wall > 0 && 2 * wall < Math.Min(width, depth) => new ColumnProfile(Rectangle(width, depth).Outer, new[] { Rectangle(width - 2 * wall, depth - 2 * wall).Outer.Reverse().ToList() }),
+        ColumnShape.HollowRound when wall > 0 && 2 * wall < width => new ColumnProfile(Ellipse(width, width).Outer, new[] { Ellipse(width - 2 * wall, width - 2 * wall).Outer.Reverse().ToList() }),
+        ColumnShape.HollowRound => Ellipse(width, width),
         _ => Rectangle(width, depth)
     };
+
+    /// <summary>
+    /// A steel I: two flanges the width across, the web between them along the depth - a universal
+    /// column or beam, a wide flange. Its root radii are left out, as a beam's are.
+    /// </summary>
+    public static ColumnProfile ISection(double width, double depth, double flange, double web)
+    {
+        var (b, d, tf, tw) = (width / 2, depth / 2, flange, web / 2);
+        return new ColumnProfile(new[]
+        {
+            new Point2D(-b, -d), new Point2D(b, -d), new Point2D(b, -d + tf), new Point2D(tw, -d + tf),
+            new Point2D(tw, d - tf), new Point2D(b, d - tf), new Point2D(b, d), new Point2D(-b, d),
+            new Point2D(-b, d - tf), new Point2D(-tw, d - tf), new Point2D(-tw, -d + tf), new Point2D(-b, -d + tf)
+        });
+    }
+
+    /// <summary>What a section is as a structural member: its area, its second moments about its own centroid, and the least radius of gyration that buckling goes by.</summary>
+    public readonly record struct SectionProperties(double Area, double Ixx, double Iyy)
+    {
+        public double LeastRadiusOfGyration => Area <= 0 ? 0 : Math.Sqrt(Math.Min(Ixx, Iyy) / Area);
+    }
+
+    /// <summary>The section's area and second moments, the holes taken out - about its centroid, along its width and depth.</summary>
+    public SectionProperties Properties()
+    {
+        // Each loop's area, first moments and second moments about the origin, by the shoelace
+        // sums; a hole counts against the outline whichever way it is wound.
+        static (double A, double Sx, double Sy, double Ixx, double Iyy) Of(IReadOnlyList<Point2D> loop)
+        {
+            double a = 0, sx = 0, sy = 0, ixx = 0, iyy = 0;
+            for (var i = 0; i < loop.Count; i++)
+            {
+                var (p, q) = (loop[i], loop[(i + 1) % loop.Count]);
+                var cross = p.X * q.Y - q.X * p.Y;
+                a += cross / 2;
+                sx += (p.Y + q.Y) * cross / 6;
+                sy += (p.X + q.X) * cross / 6;
+                ixx += (p.Y * p.Y + p.Y * q.Y + q.Y * q.Y) * cross / 12;
+                iyy += (p.X * p.X + p.X * q.X + q.X * q.X) * cross / 12;
+            }
+
+            var sign = a < 0 ? -1 : 1;
+            return (a * sign, sx * sign, sy * sign, ixx * sign, iyy * sign);
+        }
+
+        var outer = Of(Outer);
+        var (area, firstX, firstY, secondX, secondY) = outer;
+        foreach (var hole in Holes)
+        {
+            var cut = Of(hole);
+            (area, firstX, firstY, secondX, secondY) = (area - cut.A, firstX - cut.Sx, firstY - cut.Sy, secondX - cut.Ixx, secondY - cut.Iyy);
+        }
+
+        if (area <= 0) return new SectionProperties(0, 0, 0);
+        var (cy, cx) = (firstX / area, firstY / area);
+        return new SectionProperties(area, secondX - area * cy * cy, secondY - area * cx * cx);
+    }
 
     // ---- editing ---------------------------------------------------------------
 

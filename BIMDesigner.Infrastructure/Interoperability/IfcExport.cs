@@ -25,6 +25,7 @@ using Xbim.Ifc4.ElectricalDomain;
 using Xbim.Ifc4.HvacDomain;
 using Xbim.Ifc4.PlumbingFireProtectionDomain;
 using Xbim.Ifc4.SharedBldgElements;
+using Xbim.Ifc4.SharedComponentElements;
 using Xbim.Ifc4.SharedFacilitiesElements;
 using Xbim.Ifc4.UtilityResource;
 using Xbim.IO;
@@ -174,6 +175,8 @@ public static class IfcExport
             foreach (var ramp in _document.Elements.OfType<Ramp>()) ExportRamp(ramp);
             foreach (var railing in _document.Elements.OfType<Railing>()) ExportRailing(railing);
             foreach (var beam in _document.Elements.OfType<Beam>()) ExportBeam(beam);
+            foreach (var column in _document.Elements.OfType<Column>()) ExportColumn(column);
+            foreach (var footing in _document.Elements.Where(element => element is WallFooting or PadFooting).ToList()) ExportFooting(footing);
             foreach (var ground in _document.Elements.OfType<Toposurface>()) ExportGround(ground);
             foreach (var system in _document.Elements.OfType<BeamSystem>()) ExportBeamSystem(system);
             foreach (var component in _document.Elements.OfType<Component>()) ExportComponent(component);
@@ -182,8 +185,59 @@ public static class IfcExport
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
             ExportGrids();
+            ExportClassifications();
 
             _ = building;
+        }
+
+        /// <summary>
+        /// Each element's classification - its type's code, or a room's own - as a reference into
+        /// the project's classification, Uniclass to start with: one reference to each code, related
+        /// to everything coded to it and to the types themselves.
+        /// </summary>
+        private void ExportClassifications()
+        {
+            var table = _document.Classification;
+            var objects = _model.Instances.OfType<IfcObjectDefinition>()
+                .GroupBy(item => item.GlobalId.ToString()).ToDictionary(group => group.Key, group => group.First());
+            var coded = new Dictionary<string, List<IfcObjectDefinition>>(StringComparer.OrdinalIgnoreCase);
+            void Code(string code, Guid id)
+            {
+                if (string.IsNullOrWhiteSpace(code) || !objects.TryGetValue(id.ToIfc().ToString(), out var item)) return;
+                if (!coded.TryGetValue(code.Trim(), out var list)) coded[code.Trim()] = list = new List<IfcObjectDefinition>();
+                if (!list.Contains(item)) list.Add(item);
+            }
+
+            foreach (var element in _document.Elements)
+            {
+                var code = element is Room room ? room.ClassificationCode : _document.ElementTypes.FirstOrDefault(type => type.Id == element.TypeId)?.ClassificationCode ?? string.Empty;
+                Code(code, element.Id);
+            }
+
+            foreach (var type in _document.ElementTypes) Code(type.ClassificationCode, type.Id);
+            if (coded.Count == 0) return;
+
+            var system = New<Xbim.Ifc4.ExternalReferenceResource.IfcClassification>(c =>
+            {
+                c.Name = table.System;
+                c.Source = table.System.StartsWith("Uniclass", StringComparison.OrdinalIgnoreCase) ? "NBS" : null;
+                if (!string.IsNullOrWhiteSpace(table.Edition)) c.Edition = table.Edition;
+            });
+
+            foreach (var (code, items) in coded.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+            {
+                var reference = New<Xbim.Ifc4.ExternalReferenceResource.IfcClassificationReference>(r =>
+                {
+                    r.Identification = code;
+                    r.Name = table.Find(code)?.Title;
+                    r.ReferencedSource = system;
+                });
+                New<IfcRelAssociatesClassification>(relation =>
+                {
+                    relation.RelatingClassification = reference;
+                    foreach (var item in items) relation.RelatedObjects.Add(item);
+                });
+            }
         }
 
         /// <summary>
@@ -827,6 +881,22 @@ public static class IfcExport
                     w.OverallHeight = height;
                     w.ObjectPlacement = placement;
                     w.Representation = Extrude(panel, height);
+
+                    // How it is divided into lights: across by mullions, up by a transom.
+                    if (type is WindowType divided)
+                    {
+                        var (across, up) = (WindowLights.Divided(divided) ? Math.Max(1, divided.Lights) : 1, WindowLights.TransomAt(divided) is null ? 1 : 2);
+                        w.PartitioningType = (across, up) switch
+                        {
+                            (1, 1) => IfcWindowTypePartitioningEnum.SINGLE_PANEL,
+                            (2, 1) => IfcWindowTypePartitioningEnum.DOUBLE_PANEL_VERTICAL,
+                            (1, 2) => IfcWindowTypePartitioningEnum.DOUBLE_PANEL_HORIZONTAL,
+                            (3, 1) => IfcWindowTypePartitioningEnum.TRIPLE_PANEL_VERTICAL,
+                            _ => IfcWindowTypePartitioningEnum.USERDEFINED
+                        };
+                        if (w.PartitioningType == IfcWindowTypePartitioningEnum.USERDEFINED)
+                            w.UserDefinedPartitioningType = $"{across} lights across{(up > 1 ? ", fanlights over a transom" : string.Empty)}";
+                    }
                 })
                 : New<IfcDoor>(d =>
                 {
@@ -1118,7 +1188,9 @@ public static class IfcExport
 
         /// <summary>
         /// A curtain wall as IFC has it: an <c>IfcCurtainWall</c> made up of its panels, as one
-        /// <c>IfcPlate</c>, and its mullions, as one <c>IfcMember</c>, each with its real shape.
+        /// <c>IfcPlate</c>, and each mullion and transom as an <c>IfcMember</c> of its own - named
+        /// for its mullion type, a corner one with the wall that builds it - and each anchor as an
+        /// <c>IfcDiscreteAccessory</c> bracket, each with its real shape.
         /// </summary>
         private void ExportCurtainWall(CoreWall wall, CurtainWallType type, Point2D bodyStart)
         {
@@ -1142,20 +1214,54 @@ public static class IfcExport
                 p.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
                 p.Representation = Tessellated(wall, bodyStart, MeshKind.Glazing, MeshKind.Wall, MeshKind.DoorLeaf);
             });
-            Aggregate(curtain, panels);
+            var parts = new List<IfcObjectDefinition> { panels };
 
-            if (type.MullionWidth > 0)
+            // Each mullion and transom of whatever type frames it, a corner one it builds among them;
+            // each anchor holding an upright to a floor.
+            if (ModelMeshBuilder.CurtainWallParts(_document, wall) is { } pieces)
             {
-                var mullions = New<IfcMember>(m =>
+                var index = 0;
+                foreach (var (mullion, made, mesh) in pieces.Mullions)
                 {
-                    m.GlobalId = IfcGloballyUniqueId.ConvertToBase64(PartId(wall.Id, 0x69, 0x96));
-                    m.Name = $"Mullions {wall.Mark}".Trim();
-                    m.PredefinedType = IfcMemberTypeEnum.MULLION;
-                    m.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
-                    m.Representation = Tessellated(wall, bodyStart, MeshKind.Mullion);
-                });
-                Aggregate(curtain, mullions);
+                    var number = index++;
+                    if (mesh.IsEmpty) continue;
+                    parts.Add(New<IfcMember>(m =>
+                    {
+                        m.GlobalId = IfcGloballyUniqueId.ConvertToBase64(Derived(wall.Id, "mullion", number));
+                        m.Name = made.Name;
+                        m.Description = mullion.IsVertical
+                            ? $"{(mullion.IsBorder ? "Border mullion" : "Mullion")} {(mullion.From + mullion.To) / 2:0} along"
+                            : $"{(mullion.IsBorder ? "Border transom" : "Transom")} {(mullion.Bottom + mullion.Top) / 2:0} up";
+                        m.Tag = wall.Mark;
+                        m.PredefinedType = IfcMemberTypeEnum.MULLION;
+                        m.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
+                        m.Representation = Tessellated(wall, bodyStart, new[] { mesh });
+                    }));
+                }
+
+                index = 0;
+                foreach (var (anchor, mesh) in pieces.Anchors)
+                {
+                    var number = index++;
+                    parts.Add(New<IfcDiscreteAccessory>(a =>
+                    {
+                        a.GlobalId = IfcGloballyUniqueId.ConvertToBase64(Derived(wall.Id, "anchor", number));
+                        a.Name = "Mullion anchor";
+                        a.Description = $"{anchor.Wind:0.00} kN of wind{(anchor.CarriesWeight ? $", {anchor.Dead:0.00} kN of weight" : ", slotted")}";
+                        a.Tag = wall.Mark;
+                        a.PredefinedType = IfcDiscreteAccessoryTypeEnum.BRACKET;
+                        a.ObjectPlacement = PlacementFor(wall, bodyStart, elevation);
+                        a.Representation = Tessellated(wall, bodyStart, new[] { mesh });
+                    }));
+                }
             }
+
+            // One whole of all its parts, as IFC decomposes an object once.
+            New<IfcRelAggregates>(relation =>
+            {
+                relation.RelatingObject = curtain;
+                relation.RelatedObjects.AddRange(parts);
+            });
 
             AddProperties(curtain, wall, "Pset_CurtainWallCommon", new Dictionary<string, IfcValue?>
             {
@@ -1235,7 +1341,7 @@ public static class IfcExport
             var mesh = RoofEdgeSweeps.Mesh(_document, sweep, sweep.LevelId);
             if (mesh.IsEmpty) return;
 
-            var kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", _ => "Fascia" };
+            var kind = sweep switch { Gutter => "Gutter", Soffit => "Soffit", Eave => "Eave", _ => "Fascia" };
             var proxy = ExportMeshProxy(sweep, mesh, _document.ElementTypes.FirstOrDefault(type => type.Id == sweep.TypeId)?.Name ?? kind, kind);
 
             // A soffit's board, and the air it lets into the roof - what eaves ventilation is checked by.
@@ -1245,6 +1351,19 @@ public static class IfcExport
                     ["Board"] = new IfcLabel(EnumText.Humanise(soffit.Board)),
                     ["FreeAirAreaPerMetre"] = new IfcReal(soffit.FreeAirArea),
                     ["FreeAirArea"] = new IfcAreaMeasure(soffit.FreeAirArea * sweep.Length(_document) / 1000 / 1e6)
+                });
+
+            // An eave's kind, its rafters, the air through it and its fire protection.
+            if (sweep is Eave eave && _document.FindType<EaveType>(sweep.TypeId) is { } type)
+                WriteSet(proxy, "Eave", new Dictionary<string, IfcValue?>
+                {
+                    ["Kind"] = new IfcLabel(EnumText.Humanise(type.Kind)),
+                    ["RafterTails"] = new IfcInteger(Eaves.RafterCount(_document, eave)),
+                    ["RafterSpacing"] = new IfcPositiveLengthMeasure(type.RafterSpacing),
+                    ["FreeAirAreaPerMetre"] = new IfcReal(Eaves.Air(_document, eave)),
+                    ["UndersideFireProtection"] = new IfcLabel(EnumText.Humanise(type.Underside)),
+                    ["FireStoppedAtPartyWalls"] = new IfcBoolean(eave.FireStopped),
+                    ["FireblockedAtWall"] = new IfcBoolean(eave.FireBlocked)
                 });
         }
 
@@ -1727,6 +1846,115 @@ public static class IfcExport
         /// A beam as an IfcBeam - a BEAM, a JOIST or a LINTEL, a purlin as one of its own - with its
         /// span and slope, load-bearing, and its section, material and weight.
         /// </summary>
+        /// <summary>A column as an IfcColumn - load-bearing where it is a structural one - its body the solid the 3D view draws.</summary>
+        private void ExportColumn(Column column)
+        {
+            var meshes = ModelMeshBuilder.BuildColumn(_document, column);
+            if (meshes.Count == 0) return;
+
+            var type = _document.FindType<ColumnType>(column.TypeId);
+            var storey = StoreyOf(column);
+            var storeyElevation = _document.FindLevel(column.LevelId)?.Elevation ?? 0;
+            var product = New<IfcColumn>(c =>
+            {
+                c.GlobalId = column.Id.ToIfc();
+                c.Name = type?.Name ?? "Column";
+                c.Tag = column.Mark;
+                c.PredefinedType = IfcColumnTypeEnum.COLUMN;
+                c.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+                });
+                c.Representation = TessellatedBody(meshes, storeyElevation);
+            });
+            Contain(column, product);
+
+            WriteSet(product, "Pset_ColumnCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = type is null ? null : new IfcIdentifier(type.Name),
+                ["LoadBearing"] = new IfcBoolean(column.Structural),
+                ["IsExternal"] = new IfcBoolean(false),
+                ["FireRating"] = type is { FireRating.Length: > 0 } ? new IfcLabel(type.FireRating) : null
+            });
+            if (column.Structural)
+                WriteSet(product, "StructuralColumn", new Dictionary<string, IfcValue?>
+                {
+                    ["Material"] = type is null ? null : new IfcLabel(EnumText.Humanise(type.StructuralMaterial)),
+                    ["LoadCarried"] = new IfcReal(Math.Round(Loads.OnColumn(_document, column), 1)),
+                    ["Regulations"] = new IfcText(StructureRules.Verdict(_document, column))
+                });
+        }
+
+        /// <summary>
+        /// A footing as an IfcFooting - a strip or a pad - its concrete its body; the wall or pier
+        /// standing on it, its own IfcWall or IfcColumn, from the footing's id turned over.
+        /// </summary>
+        private void ExportFooting(Element footing)
+        {
+            var meshes = Footings.Meshes(_document, footing);
+            if (meshes.Count == 0) return;
+
+            var type = _document.FindType<FootingType>(footing.TypeId);
+            var levelId = Footings.LevelOf(_document, footing);
+            var storey = _storeys.TryGetValue(levelId, out var own) ? own : StoreyOf(footing);
+            var storeyElevation = _document.FindLevel(levelId)?.Elevation ?? 0;
+            IfcObjectPlacement OnStorey() => New<IfcLocalPlacement>(placement =>
+            {
+                placement.PlacementRelTo = storey?.ObjectPlacement;
+                placement.RelativePlacement = Placement(Point3D(0, 0, 0));
+            });
+
+            var product = New<Xbim.Ifc4.StructuralElementsDomain.IfcFooting>(f =>
+            {
+                f.GlobalId = footing.Id.ToIfc();
+                f.Name = type?.Name ?? "Footing";
+                f.Tag = footing.Mark;
+                f.PredefinedType = footing is PadFooting ? IfcFootingTypeEnum.PAD_FOOTING : IfcFootingTypeEnum.STRIP_FOOTING;
+                f.ObjectPlacement = OnStorey();
+                f.Representation = TessellatedBody(new[] { meshes[0] }, storeyElevation);
+            });
+            Contain(footing, product);
+            WriteSet(product, "Pset_FootingCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = type is null ? null : new IfcIdentifier(type.Name),
+                ["LoadBearing"] = new IfcBoolean(true)
+            });
+            WriteSet(product, "Footing", new Dictionary<string, IfcValue?>
+            {
+                ["DepthBelowGround"] = new IfcLengthMeasure(Math.Round(footing switch
+                {
+                    WallFooting strip => Footings.DepthBelowGround(_document, strip) ?? 0,
+                    PadFooting pad => Footings.DepthBelowGround(_document, pad) ?? 0,
+                    _ => 0
+                })),
+                ["Regulations"] = new IfcText(StructureRules.Verdict(_document, footing))
+            });
+
+            if (meshes.Count < 2) return;
+            var bytes = footing.Id.ToByteArray();
+            bytes[15] ^= 0xFF;
+            var stemId = new Guid(bytes);
+            IfcProduct stem = footing is PadFooting
+                ? New<IfcColumn>(c =>
+                {
+                    c.GlobalId = stemId.ToIfc();
+                    c.Name = "Pier";
+                    c.PredefinedType = IfcColumnTypeEnum.COLUMN;
+                    c.ObjectPlacement = OnStorey();
+                    c.Representation = TessellatedBody(new[] { meshes[1] }, storeyElevation);
+                })
+                : New<IfcWall>(w =>
+                {
+                    w.GlobalId = stemId.ToIfc();
+                    w.Name = "Foundation Wall";
+                    w.PredefinedType = IfcWallTypeEnum.SOLIDWALL;
+                    w.ObjectPlacement = OnStorey();
+                    w.Representation = TessellatedBody(new[] { meshes[1] }, storeyElevation);
+                });
+            Contain(footing, stem);
+        }
+
         private void ExportBeam(Beam beam)
         {
             if (Beams.Mesh(_document, beam) is not { } mesh) return;
@@ -2163,7 +2391,17 @@ public static class IfcExport
         /// outline, so it is written as the triangles of its solids - the same ones the 3D view
         /// draws - in the wall's own coordinates.
         /// </summary>
-        private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, params MeshKind[] kinds)
+        /// <summary>A part's id, the same each time it is exported: its wall's, what it is and which.</summary>
+        private static Guid Derived(Guid wallId, string what, int index)
+        {
+            var hash = System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes($"{wallId:N}/{what}/{index}"));
+            return new Guid(hash);
+        }
+
+        private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, params MeshKind[] kinds) =>
+            Tessellated(wall, bodyStart, ModelMeshBuilder.BuildWall(_document, wall).Where(m => kinds.Length == 0 ? m.Kind == MeshKind.Wall : kinds.Contains(m.Kind)));
+
+        private IfcProductDefinitionShape Tessellated(CoreWall wall, Point2D bodyStart, IEnumerable<Mesh3D> meshes)
         {
             var baseElevation = wall.GetBaseElevation(_document);
             var direction = wall.Direction;
@@ -2175,7 +2413,7 @@ public static class IfcExport
                 r.RepresentationIdentifier = "Body";
                 r.RepresentationType = "Tessellation";
 
-                foreach (var mesh in ModelMeshBuilder.BuildWall(_document, wall).Where(m => kinds.Length == 0 ? m.Kind == MeshKind.Wall : kinds.Contains(m.Kind)))
+                foreach (var mesh in meshes)
                 {
                     var points = New<IfcCartesianPointList3D>(list =>
                     {

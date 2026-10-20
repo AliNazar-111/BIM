@@ -186,7 +186,7 @@ public static class Services
         var areas = new List<double>();
         foreach (var window in document.Elements.OfType<Window>())
         {
-            if (document.FindType<WindowType>(window.TypeId) is not { } type || type.Operation == WindowOperation.Fixed) continue;
+            if (document.FindType<WindowType>(window.TypeId) is not { } type || !WindowLights.Opens(type)) continue;
             if (document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
             if (document.GetWallType(wall) is not { } wallType) continue;
 

@@ -27,6 +27,7 @@ public static class ModelMeshBuilder
     {
         shows ??= _ => true;
         using var heights = new Chimneys.Heights();
+        using var joins = Architecture.WallJoins.TakingPart(shows);
 
         var meshes = new List<Mesh3D>();
 
@@ -35,6 +36,10 @@ public static class ModelMeshBuilder
 
         foreach (var column in document.Elements.OfType<Column>().Where(c => shows(c)))
             AddColumn(document, column, meshes);
+
+        // Footings under the walls and columns, with the walls and piers on them.
+        foreach (var footing in document.Elements.Where(e => e is WallFooting or PadFooting).Where(e => shows(e)))
+            meshes.AddRange(Footings.Meshes(document, footing));
 
         foreach (var component in document.Elements.OfType<Component>().Where(c => shows(c)))
             AddComponent(document, component, meshes);
@@ -47,7 +52,10 @@ public static class ModelMeshBuilder
         foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(s => shows(s)))
         {
             var levelId = document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId)?.LevelId ?? sweep.LevelId;
-            if (RoofEdgeSweeps.Mesh(document, sweep, levelId) is { IsEmpty: false } mesh) meshes.Add(mesh);
+
+            // An eave is built of several things - rafters, soffit, fire-stopping - each in its own material.
+            if (sweep is Eave eave) meshes.AddRange(Eaves.Meshes(document, eave, levelId));
+            else if (RoofEdgeSweeps.Mesh(document, sweep, levelId) is { IsEmpty: false } mesh) meshes.Add(mesh);
         }
 
         // The downpipes taking the water down from them.
@@ -575,7 +583,24 @@ public static class ModelMeshBuilder
     /// or nothing - and the mullions framing them, square or round, all following the wall
     /// round a curve.
     /// </summary>
-    private static void AddCurtainWall(BimDocument document, Wall wall, CurtainLayout layout, List<Mesh3D> meshes)
+    /// <summary>A curtain wall's mullions and anchors one by one, each its own mesh: what IFC has as members and brackets of their own.</summary>
+    public sealed class CurtainParts
+    {
+        public List<(CurtainMullion Mullion, MullionType Type, Mesh3D Mesh)> Mullions { get; } = new();
+
+        public List<(MullionAnchor Anchor, Mesh3D Mesh)> Anchors { get; } = new();
+    }
+
+    /// <summary>A curtain wall's mullions and anchors, each built on its own as the wall builds it; null for a wall that is not one.</summary>
+    public static CurtainParts? CurtainWallParts(BimDocument document, Wall wall)
+    {
+        if (wall.Length <= WallJoins.JoinTolerance || CurtainLayout.Of(document, wall) is not { } layout) return null;
+        var parts = new CurtainParts();
+        AddCurtainWall(document, wall, layout, new List<Mesh3D>(), parts);
+        return parts;
+    }
+
+    private static void AddCurtainWall(BimDocument document, Wall wall, CurtainLayout layout, List<Mesh3D> meshes, CurtainParts? parts = null)
     {
         var type = layout.Type;
         var body = type.Body;
@@ -623,7 +648,6 @@ public static class ModelMeshBuilder
             return mesh;
         }
         var doors = NewMesh(MeshKind.DoorLeaf, type.MullionMaterialId, LeafColour);
-        var frame = NewMesh(MeshKind.Mullion, type.MullionMaterialId, DefaultSurface);
 
         // Windows cut into the curtain wall itself, as against the panels that are windows.
         var cut = WallOpenings.Of(document, wall)
@@ -719,11 +743,54 @@ public static class ModelMeshBuilder
         foreach (var (opening, openingType, from, to, sill, head) in cut)
             OpeningModel.Add(wall, body, opening, openingType, from, to, bottom + sill, bottom + head, meshes);
 
-        var radius = type.MullionWidth / 2;
-        var depth = type.MullionDepth / 2;
+        // Each mullion in its own type's section and material: a box offset in or out with its
+        // cover cap on its face, or a tube - and where two curtain walls meet, the corner mullion
+        // between them, built by one of the two.
+        var frames = new Dictionary<Guid, Mesh3D>();
+        Mesh3D FrameOf(MullionType made) =>
+            frames.TryGetValue(made.MaterialId, out var kept) ? kept : frames[made.MaterialId] = NewMesh(MeshKind.Mullion, made.MaterialId, DefaultSurface);
+        var corners = new[] { true, false }.ToDictionary(atStart => atStart, atStart => CurtainCorners.At(document, wall, atStart));
+
+        // Built apart - for IFC - each mullion is a mesh of its own.
+        Mesh3D Frame(CurtainMullion mullion, MullionType made)
+        {
+            if (parts is null) return FrameOf(made);
+            var own = NewMesh(MeshKind.Mullion, made.MaterialId, DefaultSurface);
+            parts.Mullions.Add((mullion, made, own));
+            return own;
+        }
+
+        // Where its uprights are spliced, a stack joint's gap up each; and where they are anchored.
+        var (anchors, splices, _) = MullionFixings.Of(document, wall, layout);
+        List<(double, double)> Joints(CurtainMullion mullion) => splices
+            .Where(splice => splice.Mullion == mullion)
+            .Select(splice => (splice.Height - splice.Joint / 2, splice.Height + splice.Joint / 2))
+            .ToList();
 
         foreach (var mullion in layout.Mullions)
         {
+            if (mullion.Type is not { } mullionType) continue;
+            var radius = mullionType.FaceWidth / 2;
+            var (outer, inner) = (mullionType.Offset + mullionType.Thickness / 2, mullionType.Offset - mullionType.Thickness / 2);
+            var round = mullionType.Shape == MullionShape.Circular;
+            var cap = round || mullionType.IsCorner ? 0 : mullionType.CapDepth;
+
+            // At a corner with another curtain wall: the corner mullion, or nothing - the other wall builds it.
+            if (mullion.IsVertical && mullion.IsBorder && corners[mullion.From <= 1] is { } corner)
+            {
+                if (corner.Builds && !mullion.IsSloped)
+                {
+                    var built = Frame(mullion, corner.Type);
+                    var outline = CurtainCorners.Outline(document, wall, mullion.From <= 1, corner.Other, corner.OtherAtStart, corner.Type);
+                    foreach (var (low, high) in CurtainOpening.Gaps(mullion.Bottom, mullion.Top, Joints(mullion)))
+                        built.AddExtrusion(outline, bottom + low, bottom + high);
+                }
+
+                continue;
+            }
+
+            var frame = Frame(mullion, mullionType);
+
             // A window cut into the wall interrupts the mullions it crosses, rather than a bar
             // running through the middle of its glass.
             var crossing = holes
@@ -732,6 +799,7 @@ public static class ModelMeshBuilder
                     : hole.Sill < mullion.Top && hole.Head > mullion.Bottom)
                 .Select(hole => mullion.IsVertical ? (hole.Sill, hole.Head) : (hole.From, hole.To))
                 .ToList();
+            if (mullion.IsVertical) crossing.AddRange(Joints(mullion));
 
             // A vertical mullion at either end of the grid is the edge of the frame, so it moves
             // with the trim to stand at the end of the wall as built; every other one stays
@@ -760,10 +828,11 @@ public static class ModelMeshBuilder
                     : point => bottom + mullion.TopAt(Along(point));
 
                 frame.AddExtrusion(
-                    type.MullionProfile == MullionProfile.Circular && mullion.IsVertical
-                        ? CurtainGeometry.Circle(wall, body, (from + to) / 2, radius)
-                        : CurtainGeometry.Band(wall, body, from, to, depth, -depth),
+                    round && mullion.IsVertical
+                        ? CurtainGeometry.Circle(wall, body, (from + to) / 2, radius, mullionType.Offset)
+                        : CurtainGeometry.Band(wall, body, from, to, outer, inner),
                     low, high);
+                if (cap > 0) frame.AddExtrusion(CurtainGeometry.Band(wall, body, from, to, outer + cap, outer), low, high);
                 continue;
             }
 
@@ -778,17 +847,43 @@ public static class ModelMeshBuilder
                     : (low, high);
                 var (base_, top) = mullion.IsVertical ? (low, high) : (mullion.Bottom, mullion.Top);
 
-                if (type.MullionProfile == MullionProfile.Rectangular)
-                    frame.AddExtrusion(CurtainGeometry.Band(wall, body, from, to, depth, -depth), bottom + base_, bottom + top);
+                if (!round)
+                {
+                    frame.AddExtrusion(CurtainGeometry.Band(wall, body, from, to, outer, inner), bottom + base_, bottom + top);
+                    if (cap > 0) frame.AddExtrusion(CurtainGeometry.Band(wall, body, from, to, outer + cap, outer), bottom + base_, bottom + top);
+                }
                 else if (mullion.IsVertical)
-                    frame.AddExtrusion(CurtainGeometry.Circle(wall, body, (from + to) / 2, radius), bottom + base_, bottom + top);
+                    frame.AddExtrusion(CurtainGeometry.Circle(wall, body, (from + to) / 2, radius, mullionType.Offset), bottom + base_, bottom + top);
                 else
-                    AddTube(frame, CurtainGeometry.Path(wall, body, from, to), bottom + (base_ + top) / 2, radius);
+                    AddTube(frame, CurtainGeometry.Path(wall, body, from, to).Select(step => (step.Point + step.Across * mullionType.Offset, step.Across)).ToList(),
+                        bottom + (base_ + top) / 2, radius);
             }
         }
 
+        // The anchors: a bracket behind each upright at each floor it is held at, on the slab - under
+        // the one over its head - standing back from its inner face into the building.
+        if (anchors.Count > 0)
+        {
+            var steel = document.Materials.FirstOrDefault(material => material.Name.Contains("Galvanised", StringComparison.OrdinalIgnoreCase))?.Id ?? type.MullionMaterialId;
+            var brackets = NewMesh(MeshKind.Mullion, steel, DefaultSurface);
+            foreach (var anchor in anchors)
+            {
+                var made = anchor.Mullion.Type!;
+                var middle = Math.Clamp((anchor.Mullion.From + anchor.Mullion.To) / 2, 0, wall.Length);
+                var reach = Math.Max(made.FaceWidth, 40) / 2 + 15;
+                var face = made.Offset - (made.Shape == MullionShape.Circular ? made.FaceWidth : made.Thickness) / 2;
+                var (low, high) = anchor.Height >= layout.Height - 1 ? (anchor.Height - 100, anchor.Height) : (anchor.Height, anchor.Height + 100);
+                var bracket = parts is null ? brackets : NewMesh(MeshKind.Mullion, steel, DefaultSurface);
+                bracket.AddExtrusion(CurtainGeometry.Band(wall, body, Math.Max(0, middle - reach), Math.Min(wall.Length, middle + reach), face, face - 150),
+                    bottom + low, bottom + high);
+                parts?.Anchors.Add((anchor, bracket));
+            }
+
+            if (!brackets.IsEmpty) meshes.Add(brackets);
+        }
+
         meshes.AddRange(panes);
-        meshes.Add(frame);
+        meshes.AddRange(frames.Values.Where(mesh => !mesh.IsEmpty));
     }
 
     /// <summary>

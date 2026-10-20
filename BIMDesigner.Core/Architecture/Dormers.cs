@@ -672,11 +672,12 @@ public static class Dormers
         return new ChangeDormerCommand(before, after);
     }
 
-    /// <summary>The edges a fascia, gutter or soffit takes on a roof when put all round it.</summary>
+    /// <summary>The edges a fascia, gutter, soffit or eave takes on a roof when put all round it.</summary>
     private static IReadOnlyList<Guid> AllRound(BimDocument document, Roof roof, RoofEdgeSweep sweep) => sweep switch
     {
         Gutter => RoofEdgeSweeps.GutterEdges(document, roof),
         Soffit => RoofEdgeSweeps.SoffitEdges(document, roof),
+        Eave => Eaves.EaveEdges(document, roof),
         _ => RoofEdgeSweeps.FasciaEdges(document, roof)
     };
 

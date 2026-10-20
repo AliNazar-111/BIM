@@ -61,6 +61,7 @@ public static class ElementTransforms
         Walkthrough => true,
         InteriorElevationMarker => true,
         Callout { Parent.Kind: ViewKind.FloorPlan } => true,
+        PadFooting { ColumnId: null } => true,
         IHostedElement => false,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         AngularDimension or RadialDimension => true,
@@ -188,6 +189,10 @@ public static class ElementTransforms
                 column.Location += delta;
                 break;
 
+            case PadFooting pad:
+                pad.Location += delta;
+                break;
+
             case Grid grid:
                 grid.Start += delta;
                 grid.End += delta;
@@ -300,6 +305,10 @@ public static class ElementTransforms
 
             case Column column:
                 column.Location = Reflect(column.Location);
+                break;
+
+            case PadFooting pad:
+                pad.Location = Reflect(pad.Location);
                 break;
 
             case RoofWindow roofWindow:
@@ -596,6 +605,11 @@ public static class ElementTransforms
             case Column column:
                 column.Location = map(column.Location);
                 column.Rotation += degrees;
+                break;
+
+            case PadFooting pad:
+                pad.Location = map(pad.Location);
+                pad.Rotation += degrees;
                 break;
 
             case Component component:

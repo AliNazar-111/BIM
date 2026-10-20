@@ -57,19 +57,23 @@ public partial class TypePropertiesWindow : Window
         TypePicker.SelectedItem = type;
         _loading = false;
 
-        var placed = _document.ElementsOfType(type).Count();
+        // A mullion type is placed in the curtain walls framed with it.
+        var placed = type is Core.Architecture.MullionType mullion
+            ? _document.Walls.Count(wall => Core.Architecture.CurtainLayout.Of(_document, wall)?.Mullions.Any(m => m.Type == mullion) == true)
+            : _document.ElementsOfType(type).Count();
         Hint.Text = placed switch
         {
             0 => "Nothing is placed from this type yet.",
             1 => "One piece is placed from this type: a change here changes it.",
             _ => $"{placed} pieces are placed from this type: a change here changes them all. To change only the selected ones, Duplicate first - it makes a type of your own and gives it to them."
         };
-        DeleteButton.IsEnabled = placed == 0 && types.Count > 1;
+        DeleteButton.IsEnabled = placed == 0 && types.Count > 1 &&
+                                 !(type is Core.Architecture.MullionType framed && _document.TypesOf<Core.Architecture.CurtainWallType>().Any(curtain => curtain.MullionTypes(_document).Contains(framed)));
         EditFamilyButton.Visibility = type is Core.Architecture.ComponentType ? Visibility.Visible : Visibility.Collapsed;
 
         // In the order Revit lists them: constraints, dimensions, construction, materials, then identity.
         var rows = new List<ParameterRow>();
-        foreach (var parameter in type.GetTypeParameters(_document).OrderBy(parameter => (int)parameter.Group))
+        foreach (var parameter in type.AllTypeParameters(_document).OrderBy(parameter => (int)parameter.Group))
         {
             var row = new ParameterRow(parameter);
             row.ValueCommitted += OnCommitted;

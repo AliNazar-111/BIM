@@ -215,6 +215,9 @@ public sealed class Wall : Element
     /// <summary>The cells of a curtain wall filled with something other than glass.</summary>
     public IReadOnlyList<CurtainPanelOverride>? CurtainPanels { get; set; }
 
+    /// <summary>A curtain wall's own mullions on stretches of its grid lines: another mullion type, or none, over what its type puts there.</summary>
+    public IReadOnlyList<CurtainMullionOverride>? CurtainMullions { get; set; }
+
     /// <summary>What this curtain wall is glazed with, for every panel that does not say otherwise.</summary>
     public CurtainGlass CurtainGlass { get; set; } = CurtainGlass.Clear;
 
@@ -723,6 +726,8 @@ public sealed class Wall : Element
 
             yield return ParameterValue.ReadOnly(WallParameters.CurtainPanels, () => CurtainLayout.Of(document, this)?.PanelCount ?? 0);
             yield return ParameterValue.ReadOnly(WallParameters.MullionLength, () => CurtainLayout.Of(document, this)?.MullionLength ?? 0);
+            yield return ParameterValue.ReadOnly(WallParameters.MullionDeflection, () => MullionRules.Verdict(document, this));
+            yield return ParameterValue.ReadOnly(WallParameters.MullionFixings, () => MullionFixings.Verdict(document, this));
         }
 
         yield return ParameterValue.ReadOnly(WallParameters.Profile, () => WallProfile.Of(document, this) is null
@@ -810,6 +815,14 @@ public static class WallParameters
 
     public static readonly ParameterDefinition MullionLength =
         new("Mullion Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    /// <summary>How far its worst mullion or transom bends, against what it may.</summary>
+    public static readonly ParameterDefinition MullionDeflection =
+        new("Mullion Deflection", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    /// <summary>Its mullions' anchors and splices, and what they take.</summary>
+    public static readonly ParameterDefinition MullionFixings =
+        new("Mullion Anchors and Splices", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition CrossSection =
         new("Cross-Section", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);

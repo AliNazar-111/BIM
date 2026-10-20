@@ -107,17 +107,22 @@ public static class OpeningGuarding
             };
         }
 
-        var opens = type is WindowType { Operation: not WindowOperation.Fixed };
+        // A divided window opens where its lowest opening light is: a fixed light under a transom
+        // with an opener over it opens high - its fixed glass low down is the guarding then.
+        var opens = type is WindowType framed && WindowLights.Opens(framed);
         var sill = opening.SillHeight;
+        var openSill = type is WindowType divided && WindowLights.Divided(divided) && WindowLights.LowestOpening(divided) is { } lowest
+            ? sill + lowest - WindowRules.Frame
+            : sill;
         if (us)
         {
-            if (!opens || guarded || sill >= 610 || drop <= 1829) return Array.Empty<string>();
-            return new[] { $"It opens, its sill {sill:0} above the floor and {drop:0} over the ground outside: the IRC asks for a window opening control device, or a guard across it, where a window is less than 610 (24 in) above the floor and more than 1829 (72 in) up (R312.2)." };
+            if (!opens || guarded || openSill >= 610 || drop <= 1829) return Array.Empty<string>();
+            return new[] { $"It opens, its sill {openSill:0} above the floor and {drop:0} over the ground outside: the IRC asks for a window opening control device, or a guard across it, where a window is less than 610 (24 in) above the floor and more than 1829 (72 in) up (R312.2)." };
         }
 
         if (guarded || sill >= WindowGuard - 0.5 || drop <= 600) return Array.Empty<string>();
-        if (opens)
-            return new[] { $"It opens, its sill {sill:0} above the floor over a drop of {drop:0}: Approved Document K asks for guarding across it to 800 from the floor - a Juliet balcony or a rail - or a restrictor holding it all but shut." };
+        if (opens && openSill < WindowGuard - 0.5)
+            return new[] { $"It opens, its sill {openSill:0} above the floor over a drop of {drop:0}: Approved Document K asks for guarding across it to 800 from the floor - a Juliet balcony or a rail - or a restrictor holding it all but shut." };
         return type is WindowType window && window.GlazingType.Contains("lamin", StringComparison.OrdinalIgnoreCase)
             ? Array.Empty<string>()
             : new[] { $"Its sill is {sill:0} above the floor over a drop of {drop:0}: its glass below 800 is the guarding, and Approved Document K asks for it to be made as guarding - toughened laminated glass (BS 6180) - or a rail across it." };

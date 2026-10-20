@@ -50,6 +50,8 @@ internal sealed class ProjectFileDto
     public List<SlabEdgeTypeDto> SlabEdgeTypes { get; set; } = new();
     public List<SlabEdgeDto> SlabEdges { get; set; } = new();
     public List<SoffitTypeDto> SoffitTypes { get; set; } = new();
+    public List<EaveTypeDto> EaveTypes { get; set; } = new();
+    public List<MullionTypeDto> MullionTypes { get; set; } = new();
     public List<RoofEdgeSweepDto> RoofEdgeSweeps { get; set; } = new();
     public List<RoofWindowTypeDto> RoofWindowTypes { get; set; } = new();
     public List<ChimneyTypeDto> ChimneyTypes { get; set; } = new();
@@ -71,6 +73,21 @@ internal sealed class ProjectFileDto
 
     /// <summary>The elements pinned where they are.</summary>
     public List<Guid> PinnedIds { get; set; } = new();
+
+    /// <summary>Every element's phases where they are not the default - built new, never demolished - whatever kind it is.</summary>
+    public List<ElementPhaseDto> ElementPhases { get; set; } = new();
+
+    /// <summary>The view filters, the design option sets and which elements are in an option.</summary>
+    public List<ParameterFilterDto> ParameterFilters { get; set; } = new();
+    public List<DesignOptionSetDto> DesignOptionSets { get; set; } = new();
+    public List<OptionMemberDto> DesignOptionMembers { get; set; } = new();
+
+    /// <summary>The project's own parameters, and their values on elements and types.</summary>
+    public List<ProjectParameterDto> ProjectParameters { get; set; } = new();
+    public List<ParameterValueDto> ParameterValues { get; set; } = new();
+
+    /// <summary>The classification. Missing from older files, which open with the Uniclass starter set.</summary>
+    public ClassificationDto? Classification { get; set; }
     public List<RoofWindowDto> RoofWindows { get; set; } = new();
     public List<ShaftOpeningDto> ShaftOpenings { get; set; } = new();
     public List<DownpipeDto> Downpipes { get; set; } = new();
@@ -100,6 +117,9 @@ internal sealed class ProjectFileDto
     /// <summary>Architectural columns and their types. Missing from older files.</summary>
     public List<ColumnTypeDto> ColumnTypes { get; set; } = new();
     public List<ColumnDto> Columns { get; set; } = new();
+    public List<FootingTypeDto> FootingTypes { get; set; } = new();
+    public List<WallFootingDto> WallFootings { get; set; } = new();
+    public List<PadFootingDto> PadFootings { get; set; } = new();
 
     public List<SlabTypeDto> SlabTypes { get; set; } = new();
 
@@ -168,6 +188,10 @@ internal sealed class ViewTemplateDto
     public string VisualStyle { get; set; } = "HiddenLine";
     public bool IncludeHiddenKinds { get; set; } = true;
     public List<string>? HiddenKinds { get; set; }
+    public bool IncludeFilters { get; set; } = true;
+    public List<FilterOverrideDto>? Filters { get; set; }
+    public bool IncludePhaseFilter { get; set; } = true;
+    public string? PhaseFilter { get; set; }
     public string Comments { get; set; } = string.Empty;
 }
 
@@ -264,6 +288,103 @@ internal sealed class ViewSettingsDto
 
     /// <summary>The view template governing the view, where one does.</summary>
     public Guid? Template { get; set; }
+
+    /// <summary>Its phase and phase filter, where not new construction and Show All.</summary>
+    public string? Phase { get; set; }
+    public string? PhaseFilter { get; set; }
+
+    /// <summary>The view filters added to it, in order.</summary>
+    public List<FilterOverrideDto>? Filters { get; set; }
+
+    /// <summary>The design option it shows of a set, where not the primary.</summary>
+    public List<OptionChoiceDto>? Options { get; set; }
+}
+
+internal sealed class FilterOverrideDto
+{
+    public Guid FilterId { get; set; }
+    public bool Visible { get; set; } = true;
+    public string? Colour { get; set; }
+    public bool Halftone { get; set; }
+}
+
+internal sealed class OptionChoiceDto
+{
+    public Guid Set { get; set; }
+    public Guid Option { get; set; }
+}
+
+internal sealed class ElementPhaseDto
+{
+    public Guid ElementId { get; set; }
+    public string Created { get; set; } = "New";
+    public string? Demolished { get; set; }
+}
+
+internal sealed class ParameterFilterDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Filter";
+    public List<string> Categories { get; set; } = new();
+    public List<ScheduleFilterDto> Rules { get; set; } = new();
+    public bool MatchAny { get; set; }
+}
+
+internal sealed class DesignOptionSetDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Option Set";
+    public List<DesignOptionDto> Options { get; set; } = new();
+}
+
+internal sealed class DesignOptionDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Option";
+    public bool IsPrimary { get; set; }
+}
+
+internal sealed class OptionMemberDto
+{
+    public Guid ElementId { get; set; }
+    public Guid OptionId { get; set; }
+}
+
+internal sealed class ProjectParameterDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Parameter";
+    public string DataType { get; set; } = "Text";
+    public string Binding { get; set; } = "Instance";
+    public string Group { get; set; } = "IdentityData";
+    public List<string> Categories { get; set; } = new();
+    public bool Shared { get; set; }
+    public string? SharedGroup { get; set; }
+    public string? Description { get; set; }
+}
+
+/// <summary>A project parameter's value on an element or a type: as text, a number, a whole number, yes or no, or money.</summary>
+internal sealed class ParameterValueDto
+{
+    public Guid OwnerId { get; set; }
+    public Guid ParameterId { get; set; }
+    public string Kind { get; set; } = "Text";
+    public string? Text { get; set; }
+    public double? Number { get; set; }
+    public bool? Flag { get; set; }
+}
+
+internal sealed class ClassificationDto
+{
+    public string System { get; set; } = "Uniclass 2015";
+    public string? Edition { get; set; }
+    public List<ClassificationEntryDto> Entries { get; set; } = new();
+}
+
+internal sealed class ClassificationEntryDto
+{
+    public string Code { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -488,6 +609,7 @@ internal sealed class TypeIdentityDto
     public string? Url { get; set; }
     public string? Description { get; set; }
     public decimal Cost { get; set; }
+    public string? ClassificationCode { get; set; }
 }
 
 /// <summary>An angular dimension: its two lines and a point its arc passes through.</summary>
@@ -767,6 +889,16 @@ internal sealed class ColumnTypeDto
     public double CapitalHeight { get; set; }
     public double CapitalSpread { get; set; } = 0.22;
 
+    /// <summary>A structural column type's: its section's flanges, web or wall, what it is made of, its fire rating and protection. Absent in older files, where every column was architectural.</summary>
+    public bool Structural { get; set; }
+    public string? StructuralMaterial { get; set; }
+    public double FlangeThickness { get; set; }
+    public double WebThickness { get; set; }
+    public double WallThickness { get; set; }
+    public string? FireRating { get; set; }
+    public bool PreservativeTreated { get; set; }
+    public bool RustProtected { get; set; } = true;
+
     public string TypeMark { get; set; } = string.Empty;
     public string AssemblyCode { get; set; } = string.Empty;
     public string Keynote { get; set; } = string.Empty;
@@ -794,6 +926,9 @@ internal sealed class ColumnDto
     public Guid? TopLevelId { get; set; }
     public double TopOffset { get; set; }
     public double UnconnectedHeight { get; set; } = 3000;
+
+    /// <summary>Whether it is a structural column. Absent in older files, where none was.</summary>
+    public bool Structural { get; set; }
 
     public Guid? TopAttachedTo { get; set; }
     public Guid? BaseAttachedTo { get; set; }
@@ -931,6 +1066,7 @@ internal sealed class RoomDto
     public string WallFinish { get; set; } = string.Empty;
     public string CeilingFinish { get; set; } = string.Empty;
     public string BaseFinish { get; set; } = string.Empty;
+    public string? ClassificationCode { get; set; }
 
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
@@ -969,6 +1105,67 @@ internal sealed class ProjectInformationDto
 
     /// <summary>Whose rules clearances are checked against; none in a file from before, for Approved Document M.</summary>
     public string? ClearanceStandard { get; set; }
+
+    public bool Sprinklered { get; set; }
+
+    /// <summary>The ground the footings are sized for, and how far the frost and snow go. Absent in older files: firm clay, no shrinkage set, no frost line, 20 psf.</summary>
+    public string? Ground { get; set; }
+    public string? ClayShrinkage { get; set; }
+    public double FrostDepth { get; set; }
+    public double GroundSnowLoad { get; set; } = 20;
+
+    /// <summary>The wind pressure on the cladding, kPa; 1 kPa in older files.</summary>
+    public double WindPressure { get; set; } = 1.0;
+
+    /// <summary>The site's basic wind speed, altitude and terrain; none in older files.</summary>
+    public double BasicWindSpeed { get; set; }
+    public double SiteAltitude { get; set; }
+    public string? Terrain { get; set; }
+}
+
+/// <summary>A footing's type: a strip or a pad, its sizes, and what it and what stands on it are made of.</summary>
+internal sealed class FootingTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Footing";
+    public string TypeMark { get; set; } = string.Empty;
+    public string? Kind { get; set; }
+    public double Width { get; set; } = 600;
+    public double Length { get; set; } = 600;
+    public double Thickness { get; set; } = 225;
+    public Guid MaterialId { get; set; }
+    public Guid StemMaterialId { get; set; }
+    public string? AssemblyCode { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>A strip footing: the wall it is under, how deep, and how far off its middle.</summary>
+internal sealed class WallFootingDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid WallId { get; set; }
+    public double Depth { get; set; } = 1000;
+    public double Eccentricity { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+/// <summary>A pad footing: the column it carries, or where it stands, and how deep.</summary>
+internal sealed class PadFootingDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid? ColumnId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Rotation { get; set; }
+    public double Depth { get; set; } = 1000;
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
 }
 
 internal sealed class LevelDto
@@ -1067,6 +1264,42 @@ internal sealed class CurtainWallTypeDto
     /// <summary>Its U-value and whether its glass is safety glass; none in a file from before.</summary>
     public double? HeatTransferCoefficient { get; set; }
     public bool? SafetyGlazing { get; set; }
+
+    /// <summary>The mullion type on each line: none saved, its own mullion; an empty id, none there. Absent in older files.</summary>
+    public Guid? InteriorVertical { get; set; }
+    public Guid? BorderVerticalStart { get; set; }
+    public Guid? BorderVerticalEnd { get; set; }
+    public Guid? InteriorHorizontal { get; set; }
+    public Guid? BorderHorizontalBottom { get; set; }
+    public Guid? BorderHorizontalTop { get; set; }
+    public string? JoinCondition { get; set; }
+
+    /// <summary>Its mullions' anchors and splices; none in older files.</summary>
+    public bool MullionAnchors { get; set; }
+    public string? Splices { get; set; }
+    public double? SpliceAbove { get; set; }
+    public double? StackJoint { get; set; }
+    public double AnchorCapacity { get; set; }
+}
+
+internal sealed class MullionTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Mullion";
+    public string TypeMark { get; set; } = string.Empty;
+    public string? Shape { get; set; }
+    public double Width1 { get; set; } = 25;
+    public double Width2 { get; set; } = 25;
+    public double Thickness { get; set; } = 150;
+    public double Offset { get; set; }
+    public double Leg1 { get; set; } = 100;
+    public double Leg2 { get; set; } = 100;
+    public double CapDepth { get; set; }
+    public double WallThickness { get; set; } = 3;
+    public string? Material { get; set; }
+    public Guid MaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
 }
 
 internal sealed class CurtainSegmentDto
@@ -1075,6 +1308,19 @@ internal sealed class CurtainSegmentDto
     public double Line { get; set; }
     public double From { get; set; }
     public double To { get; set; }
+}
+
+internal sealed class CurtainMullionDto
+{
+    public bool Vertical { get; set; }
+
+    /// <summary>The line: along the wall for an upright, up it for a transom.</summary>
+    public double Line { get; set; }
+
+    /// <summary>A point in the stretch: up the wall for an upright, along it for a transom.</summary>
+    public double At { get; set; }
+
+    public Guid? TypeId { get; set; }
 }
 
 internal sealed class CurtainPanelDto
@@ -1218,6 +1464,13 @@ internal sealed class WindowTypeDto : OpeningTypeDto
     public int GlazingRows { get; set; }
     public int GlazingColumns { get; set; }
     public double SolarHeatGainCoefficient { get; set; }
+
+    /// <summary>Its lights side by side, which open, its transom and fanlights, and its mullions' width; absent in files from before divided windows.</summary>
+    public int? Lights { get; set; }
+    public string? LightPattern { get; set; }
+    public double TransomHeight { get; set; }
+    public string? Fanlight { get; set; }
+    public double? MullionWidth { get; set; }
 }
 
 /// <summary>
@@ -1335,6 +1588,9 @@ internal sealed class WallDto
 
     public List<CurtainPanelDto>? CurtainPanels { get; set; }
 
+    /// <summary>Mullions chosen on their own: a stretch of a line, and the mullion type on it - none when no type is given.</summary>
+    public List<CurtainMullionDto>? CurtainMullions { get; set; }
+
     /// <summary>What the whole curtain wall is glazed with, for panels that do not say otherwise.</summary>
     public string? CurtainGlass { get; set; }
 
@@ -1431,6 +1687,37 @@ internal sealed class SoffitTypeDto
     public string Description { get; set; } = string.Empty;
     public string? Board { get; set; }
     public double FreeAirArea { get; set; }
+}
+
+/// <summary>An eave's type: its kind and what it is built of.</summary>
+internal sealed class EaveTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Eave";
+    public string TypeMark { get; set; } = string.Empty;
+    public string? Kind { get; set; }
+    public double RafterWidth { get; set; } = 47;
+    public double RafterDepth { get; set; }
+    public double RafterSpacing { get; set; } = 400;
+    public string? Tail { get; set; }
+    public double DeckThickness { get; set; } = 18;
+    public double SoffitThickness { get; set; } = 12;
+    public string? Board { get; set; }
+    public double FreeAirArea { get; set; }
+    public double FriezeDepth { get; set; }
+    public double FriezeThickness { get; set; } = 22;
+    public string? Moulding { get; set; }
+    public double MouldingSize { get; set; } = 45;
+    public string? Bracket { get; set; }
+    public double BracketSpacing { get; set; } = 1200;
+    public double BracketHeight { get; set; } = 300;
+    public double BracketDepth { get; set; }
+    public double BracketWidth { get; set; } = 75;
+    public string? Underside { get; set; }
+    public Guid MaterialId { get; set; }
+    public Guid SoffitMaterialId { get; set; }
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
 }
 
 internal sealed class GutterTypeDto
@@ -1940,6 +2227,10 @@ internal sealed class RoofEdgeSweepDto
     public double VerticalOffset { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>An eave's: whether it is fire-stopped where party walls meet it, and fireblocked at the wall.</summary>
+    public bool? FireStopped { get; set; }
+    public bool? FireBlocked { get; set; }
 }
 
 internal sealed class RoofWindowTypeDto

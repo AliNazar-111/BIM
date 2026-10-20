@@ -1,4 +1,5 @@
 using BIMDesigner.Core.Documents;
+using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 
@@ -39,6 +40,25 @@ namespace BIMDesigner.Core.Architecture;
 /// </summary>
 public static class WallJoins
 {
+    /// <summary>The walls a view shows, while it is drawn: only they join - one a view leaves out leaves no mark on those it met.</summary>
+    [ThreadStatic] private static Func<Element, bool>? _takingPart;
+
+    /// <summary>Joins worked out among the walls a view shows alone, until disposed.</summary>
+    public static IDisposable TakingPart(Func<Element, bool> shows)
+    {
+        var was = _takingPart;
+        _takingPart = shows;
+        return new Scope(() => _takingPart = was);
+    }
+
+    private sealed class Scope(Action end) : IDisposable
+    {
+        public void Dispose() => end();
+    }
+
+    private static IEnumerable<Wall> WallsOf(BimDocument document) =>
+        _takingPart is { } shows ? document.Walls.Where(wall => shows(wall)) : document.Walls;
+
     /// <summary>Endpoints closer than this are treated as the same point. Millimetres.</summary>
     public const double JoinTolerance = 1.0;
 
@@ -283,7 +303,7 @@ public static class WallJoins
         var curve = wall.LocationCurve;
         var half = type.Width / 2;
 
-        foreach (var other in document.Walls)
+        foreach (var other in WallsOf(document))
         {
             if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId) continue;
             if (document.GetWallType(other) is not { } otherType) continue;
@@ -346,7 +366,7 @@ public static class WallJoins
         var structure = type.Structure;
         var curve = wall.LocationCurve;
 
-        foreach (var other in document.Walls)
+        foreach (var other in WallsOf(document))
         {
             if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId) continue;
             if (document.GetWallType(other) is not { } otherType) continue;
@@ -453,7 +473,7 @@ public static class WallJoins
 
     /// <summary>Every other wall on this level with an end at this point that is willing to join.</summary>
     private static List<Wall> PartnersAt(BimDocument document, Wall wall, Point2D joint) =>
-        document.Walls
+        WallsOf(document)
             .Where(candidate => candidate.Id != wall.Id)
             .Where(candidate => candidate.LevelId == wall.LevelId)
             .Where(candidate => TouchesAt(candidate, joint))
@@ -516,7 +536,7 @@ public static class WallJoins
     /// <summary>A wall whose body passes through the joint without ending there.</summary>
     private static Wall? FindPassingWall(BimDocument document, Wall wall, Point2D joint)
     {
-        foreach (var candidate in document.Walls)
+        foreach (var candidate in WallsOf(document))
         {
             if (candidate.Id == wall.Id) continue;
             if (candidate.LevelId != wall.LevelId) continue;
@@ -782,7 +802,7 @@ public static class WallJoins
         var curve = wall.LocationCurve;
         var half = type.Width / 2;
 
-        foreach (var other in document.Walls)
+        foreach (var other in WallsOf(document))
         {
             if (ReferenceEquals(other, wall) || other.IsCurved) continue;
             if (document.GetWallType(other) is not { } otherType) continue;

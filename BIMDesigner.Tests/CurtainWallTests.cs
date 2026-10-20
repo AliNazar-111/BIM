@@ -5,6 +5,8 @@ using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Views;
 using BIMDesigner.Infrastructure.Interoperability;
 using BIMDesigner.Infrastructure.Serialization;
+using Xbim.Ifc4.Interfaces;
+using Xbim.Ifc4.Kernel;
 using Xbim.Ifc4.SharedBldgElements;
 
 namespace BIMDesigner.Tests;
@@ -192,8 +194,10 @@ public class CurtainWallTests
         var mullionLength = 5 * 3000 + layout.Mullions.Where(m => !m.IsVertical).Sum(m => m.To - m.From);
         Assert.Equal(mullionLength, layout.MullionLength, precision: 6);
 
+        // Its mullions are aluminium boxes 50 by 150 with 3 mm walls: their metal is what is in them.
         var panels = layout.Cells.Sum(c => (c.ClearTo - c.ClearFrom) * (c.ClearTop - c.ClearBottom)) * type.PanelThickness;
-        Assert.Equal(panels + mullionLength * 50 * 150, wall.GetVolume(document), precision: 1);
+        Assert.Equal(50 * 150 - 44 * 144, type.OwnMullion!.Section().Area, precision: 6);
+        Assert.Equal(panels + mullionLength * (50 * 150 - 44 * 144), wall.GetVolume(document), precision: 1);
     }
 
     [Fact]
@@ -275,8 +279,9 @@ public class CurtainWallTests
 
         document.EnsureDefaultTypes();
 
+        // The storefront and plain glass, and the stick system framed in mullion types.
         var added = document.TypesOf<CurtainWallType>().ToList();
-        Assert.Equal(2, added.Count);
+        Assert.Equal(3, added.Count);
         Assert.All(added, t => Assert.NotNull(document.FindMaterial(t.GlassMaterialId)));
     }
 
@@ -321,7 +326,14 @@ public class CurtainWallTests
 
         Assert.Single(model.Instances.OfType<IfcCurtainWall>());
         Assert.Single(model.Instances.OfType<IfcPlate>());
-        Assert.Single(model.Instances.OfType<IfcMember>());
         Assert.Empty(model.Instances.OfType<IfcWall>());
+
+        // Each mullion and transom a member of its own: five uprights, twelve transoms - all parts of the one wall.
+        var curtain = model.Instances.OfType<IfcCurtainWall>().Single();
+        var members = model.Instances.OfType<IfcMember>().ToList();
+        Assert.Equal(17, members.Count);
+        Assert.All(members, member => Assert.Equal(IfcMemberTypeEnum.MULLION, member.PredefinedType));
+        var whole = Assert.Single(model.Instances.OfType<IfcRelAggregates>(), relation => relation.RelatingObject == curtain);
+        Assert.Equal(18, whole.RelatedObjects.Count);
     }
 }

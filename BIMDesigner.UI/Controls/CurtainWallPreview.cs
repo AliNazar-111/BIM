@@ -21,11 +21,12 @@ public sealed class CurtainWallPreview : FrameworkElement
 
     private CurtainLayout? _layout;
 
-    public void Show(CurtainWallType? design)
+    /// <summary>The type to show - with the project it is in, for the mullion types on its lines.</summary>
+    public void Show(CurtainWallType? design, BIMDesigner.Core.Documents.BimDocument? document = null)
     {
         _layout = design is null || design.Problem() is not null
             ? null
-            : CurtainLayout.Build(design, SampleLength, SampleHeight, null, null);
+            : CurtainLayout.Build(design, SampleLength, SampleHeight, null, null, document: document);
         InvalidateVisual();
     }
 

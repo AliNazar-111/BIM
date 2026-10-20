@@ -105,6 +105,7 @@ public static class ElementCopy
             FaceRegions = wall.FaceRegions.ToList(),
             CurtainGrid = wall.CurtainGrid,
             CurtainPanels = wall.CurtainPanels,
+            CurtainMullions = wall.CurtainMullions,
             CrossSection = wall.CrossSection,
             SlantAngle = wall.SlantAngle,
             LockedToJoined = wall.LockedToJoined,
@@ -177,8 +178,13 @@ public static class ElementCopy
             OffsetFromAttachmentAtBase = column.OffsetFromAttachmentAtBase,
             RoomBounding = column.RoomBounding,
             CutByWalls = column.CutByWalls,
-            MovesWithGrids = column.MovesWithGrids
+            MovesWithGrids = column.MovesWithGrids,
+            Structural = column.Structural
         }, column),
+
+        WallFooting strip => CarryCommon(new WallFooting { WallId = strip.WallId, Depth = strip.Depth, Eccentricity = strip.Eccentricity }, strip),
+
+        PadFooting pad => CarryCommon(new PadFooting { ColumnId = pad.ColumnId, Location = pad.Location, Rotation = pad.Rotation, Depth = pad.Depth }, pad),
 
         Component component => CarryCommon(new Component
         {
@@ -205,7 +211,8 @@ public static class ElementCopy
             FloorFinish = room.FloorFinish,
             WallFinish = room.WallFinish,
             CeilingFinish = room.CeilingFinish,
-            BaseFinish = room.BaseFinish
+            BaseFinish = room.BaseFinish,
+            ClassificationCode = room.ClassificationCode
         }, room),
 
         Grid grid => CarryCommon(new Grid
@@ -265,6 +272,7 @@ public static class ElementCopy
         Fascia fascia => CarryRoofEdgeSweep(new Fascia(), fascia),
         Gutter gutter => CarryRoofEdgeSweep(new Gutter(), gutter),
         Soffit soffit => CarryRoofEdgeSweep(new Soffit(), soffit),
+        Eave eave => CarryRoofEdgeSweep(new Eave { FireStopped = eave.FireStopped, FireBlocked = eave.FireBlocked }, eave),
         RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location, Own = roofWindow.Own }, roofWindow),
         Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location, Distributor = pipe.Distributor }, pipe),
         SlabEdge slabEdge => CloneSlabEdge(slabEdge),
@@ -514,10 +522,12 @@ public static class ElementCopy
             IncludeScale = original.IncludeScale, Scale = original.Scale,
             IncludeDetailLevel = original.IncludeDetailLevel, DetailLevel = original.DetailLevel,
             IncludeWallFunctions = original.IncludeWallFunctions, IncludeJoinDisplay = original.IncludeJoinDisplay, JoinDisplay = original.JoinDisplay,
-            IncludeVisualStyle = original.IncludeVisualStyle, VisualStyle = original.VisualStyle, IncludeHiddenKinds = original.IncludeHiddenKinds
+            IncludeVisualStyle = original.IncludeVisualStyle, VisualStyle = original.VisualStyle, IncludeHiddenKinds = original.IncludeHiddenKinds,
+            IncludeFilters = original.IncludeFilters, IncludePhaseFilter = original.IncludePhaseFilter, PhaseFilter = original.PhaseFilter
         };
         copy.HiddenWallFunctions.UnionWith(original.HiddenWallFunctions);
         copy.HiddenKinds.UnionWith(original.HiddenKinds);
+        copy.Filters.AddRange(original.Filters);
         return copy;
     }
 
@@ -555,6 +565,8 @@ public static class ElementCopy
         copy.Workset = original.Workset;
         copy.PhaseCreated = original.PhaseCreated;
         copy.PhaseDemolished = original.PhaseDemolished;
+        copy.DesignOptionId = original.DesignOptionId;
+        foreach (var (id, value) in original.ParameterValues) copy.ParameterValues[id] = value;
 
         return copy;
     }
@@ -625,6 +637,14 @@ public static class ElementCopy
 
             case RoofWindow roofWindow when replacements.TryGetValue(roofWindow.RoofId, out var windowRoof):
                 roofWindow.RoofId = windowRoof;
+                break;
+
+            case WallFooting strip when replacements.TryGetValue(strip.WallId, out var footingWall):
+                strip.WallId = footingWall;
+                break;
+
+            case PadFooting { ColumnId: { } carried } pad when replacements.TryGetValue(carried, out var footingColumn):
+                pad.ColumnId = footingColumn;
                 break;
 
             case KeynoteTag keynote when replacements.TryGetValue(keynote.TargetId, out var noted):

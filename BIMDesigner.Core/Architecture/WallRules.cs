@@ -63,6 +63,10 @@ public static class WallRules
                 yield return Problem("a pane over 9 sq ft comes down below 18 in (457), not safety glass.", "IRC R308.4.3 makes such a pane a hazardous location: safety glazing.");
         }
 
+        // Its mullions and transoms: how far the wind bends them, and the glass on a transom - and how they are fixed and spliced.
+        foreach (var (said, rule) in MullionRules.Problems(document, wall, us).Concat(MullionFixings.Problems(document, wall)))
+            yield return Problem(said, rule);
+
         if (type.Function != WallFunction.Exterior) yield break;
         foreach (var cell in layout.Cells.Where(cell => cell.Kind == CurtainPanelKind.Door))
         {

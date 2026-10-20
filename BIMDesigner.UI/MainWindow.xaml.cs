@@ -589,7 +589,7 @@ public partial class MainWindow : Window
         ComponentTypePicker.ItemsSource = families;
         ComponentTypePicker.SelectedItem = families.FirstOrDefault();
 
-        var columnTypes = _document.TypesOf<ColumnType>().OrderBy(t => t.Name).ToList();
+        var columnTypes = _document.TypesOf<ColumnType>().Where(t => !t.Structural).OrderBy(t => t.Name).ToList();
         ColumnTypePicker.ItemsSource = columnTypes;
         ColumnTypePicker.SelectedItem = columnTypes.FirstOrDefault();
 
@@ -626,6 +626,7 @@ public partial class MainWindow : Window
         Plan.ActiveWindowTypeId = windowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveComponentTypeId = (ComponentTypePicker.SelectedItem as ComponentFamilyChoice)?.Type.Id ?? Guid.Empty;
         Plan.ActiveColumnTypeId = (ColumnTypePicker.SelectedItem as ColumnType)?.Id ?? Guid.Empty;
+        Plan.ActiveStructuralColumnTypeId = _document.TypesOf<ColumnType>().Where(t => t.Structural).OrderBy(t => t.Name).FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveFloorTypeId = _document.TypesOf<FloorType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveCeilingTypeId = _document.TypesOf<CeilingType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveRoofTypeId = _document.TypesOf<RoofType>().FirstOrDefault()?.Id ?? Guid.Empty;
@@ -647,7 +648,7 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Select && Plan.SelectedElements.Count > 0) RefreshContextTab();
         var isSlab = tool is PlanTool.Floor or PlanTool.Ceiling or PlanTool.Roof or PlanTool.RoofExtrusion or PlanTool.FloorByFace or PlanTool.RoofByFace;
         var isSweep = tool is PlanTool.Sweep or PlanTool.Reveal;
-        var isRoofEdge = tool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit or PlanTool.SlabEdge;
+        var isRoofEdge = tool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit or PlanTool.Eave or PlanTool.SlabEdge or PlanTool.WallFooting or PlanTool.PadFooting;
 
         // Grids, sections, annotation and the editing tools are not built from a type, so
         // offering one would be asking a question the tool never reads the answer to.
@@ -739,7 +740,7 @@ public partial class MainWindow : Window
         var selecting = tool == PlanTool.Select;
         ModifyCaption.Visibility = selecting ? Visibility.Visible : Visibility.Collapsed;
 
-        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.RoofWindow or PlanTool.Component or PlanTool.Column || isSlab || isSweep || isRoofEdge || typeless || selecting
+        WallTypePicker.Visibility = tool is PlanTool.Door or PlanTool.Window or PlanTool.RoofWindow or PlanTool.Component or PlanTool.Column or PlanTool.StructuralColumn || isSlab || isSweep || isRoofEdge || typeless || selecting
             ? Visibility.Collapsed : Visibility.Visible;
         TypeLabel.Visibility = typeless || selecting ? Visibility.Collapsed : Visibility.Visible;
         DoorTypePicker.Visibility = tool == PlanTool.Door ? Visibility.Visible : Visibility.Collapsed;
@@ -748,7 +749,8 @@ public partial class MainWindow : Window
         RoofWindowTypePicker.Visibility = tool == PlanTool.RoofWindow ? Visibility.Visible : Visibility.Collapsed;
         ComponentTypePicker.Visibility = tool == PlanTool.Component ? Visibility.Visible : Visibility.Collapsed;
         ColumnTypePicker.Visibility = ColumnOptions.Visibility =
-            tool == PlanTool.Column ? Visibility.Visible : Visibility.Collapsed;
+            tool is PlanTool.Column or PlanTool.StructuralColumn ? Visibility.Visible : Visibility.Collapsed;
+        if (tool is PlanTool.Column or PlanTool.StructuralColumn) LoadColumnTypes(tool == PlanTool.StructuralColumn);
         SlabTypePicker.Visibility = isSlab ? Visibility.Visible : Visibility.Collapsed;
         RoofOptions.Visibility = tool == PlanTool.Roof || Plan.IsSketching && tool is PlanTool.Floor or PlanTool.Ceiling ? Visibility.Visible : Visibility.Collapsed;
 
@@ -820,16 +822,23 @@ public partial class MainWindow : Window
             PlanTool.Gutter => _document.TypesOf<GutterType>().Cast<ElementType>(),
             PlanTool.SlabEdge => _document.TypesOf<SlabEdgeType>().Cast<ElementType>(),
             PlanTool.Soffit => _document.TypesOf<SoffitType>().Cast<ElementType>(),
+            PlanTool.Eave => _document.TypesOf<EaveType>().Cast<ElementType>(),
+            PlanTool.WallFooting => _document.TypesOf<FootingType>().Where(t => t.Kind == FootingKind.Strip).Cast<ElementType>(),
+            PlanTool.PadFooting => _document.TypesOf<FootingType>().Where(t => t.Kind == FootingKind.Pad).Cast<ElementType>(),
             _ => _document.TypesOf<FasciaType>().Cast<ElementType>()
         }).OrderBy(t => t.Name).Select(t => new RoofEdgeTypeChoice(t.Name, t.Id, tool)).ToList();
 
         // A fascia can be left to stand out against whatever walls and roof it is put on.
         if (tool == PlanTool.Fascia) types.Insert(0, new RoofEdgeTypeChoice("Automatic - stands out from the walls and roof", Guid.Empty, tool));
+        if (tool is PlanTool.WallFooting or PlanTool.PadFooting) types.Insert(0, new RoofEdgeTypeChoice("Automatic - the size the rules ask", Guid.Empty, tool));
 
         var active = tool switch
         {
             PlanTool.Gutter => Plan.ActiveGutterTypeId,
             PlanTool.Soffit => Plan.ActiveSoffitTypeId,
+            PlanTool.Eave => Plan.ActiveEaveTypeId,
+            PlanTool.WallFooting => Plan.ActiveWallFootingTypeId,
+            PlanTool.PadFooting => Plan.ActivePadFootingTypeId,
             PlanTool.SlabEdge => Plan.ActiveSlabEdgeTypeId,
             _ => Plan.ActiveFasciaTypeId
         };
@@ -846,6 +855,9 @@ public partial class MainWindow : Window
         {
             case PlanTool.Gutter: Plan.ActiveGutterTypeId = choice.Id; break;
             case PlanTool.Soffit: Plan.ActiveSoffitTypeId = choice.Id; break;
+            case PlanTool.Eave: Plan.ActiveEaveTypeId = choice.Id; break;
+            case PlanTool.WallFooting: Plan.ActiveWallFootingTypeId = choice.Id; break;
+            case PlanTool.PadFooting: Plan.ActivePadFootingTypeId = choice.Id; break;
             case PlanTool.SlabEdge: Plan.ActiveSlabEdgeTypeId = choice.Id; break;
             default: Plan.ActiveFasciaTypeId = choice.Id; break;
         }
@@ -859,6 +871,19 @@ public partial class MainWindow : Window
 
     /// <summary>Roof panel: soffits under every overhanging eave of each selected roof.</summary>
     private void OnAddSoffitsAllRound(object sender, RoutedEventArgs e) => AddRoofEdgesAllRound(RoofEdgeKind.Soffit);
+
+    /// <summary>Roof panel: an eave under every eave of each selected roof.</summary>
+    private void OnAddEavesAllRound(object sender, RoutedEventArgs e) => AddRoofEdgesAllRound(RoofEdgeKind.Eave);
+
+    /// <summary>Foundation panel: footings under the selected walls and structural columns that have none.</summary>
+    private void OnAddFootings(object sender, RoutedEventArgs e)
+    {
+        var added = Plan.AddFootings(Plan.SelectedElements.ToList());
+        AfterHistoryChange();
+        StatusHint.Text = added == 0
+            ? "Every selected wall and structural column has a footing already - or none was selected."
+            : $"{added} footing{(added == 1 ? "" : "s")} put in, each as wide and deep as the rules ask for its load on {StructureRules.Describe(_document.ProjectInformation.Ground)}. Select one for its Regulations.";
+    }
 
     private void AddRoofEdgesAllRound(RoofEdgeKind kind)
     {
@@ -887,12 +912,14 @@ public partial class MainWindow : Window
                         "This roof does not stand out past its walls, so there is no overhang underneath to close. " +
                         "Give it one: set Overhang in Properties - 450 mm, say - then add soffits.",
                     RoofEdgeKind.Soffit => "Every overhanging eave of that roof has a soffit already.",
+                    RoofEdgeKind.Eave => "Every eave of that roof has an eave already - or it has no eaves, being flat or all verges.",
                     _ => "That roof has a fascia all round already."
                 }
             : kind switch
             {
                 RoofEdgeKind.Gutter => $"Gutters hung along {edges} eaves. Select one to change its type or move it with its offsets.",
                 RoofEdgeKind.Soffit => $"Soffits under {edges} eaves, closing the overhang back to the walls. Select one to change its type.",
+                RoofEdgeKind.Eave => $"An eave under {edges} eaves, the roof cut back to its rafters over it. Select it to change its type - closed, open, exposed rafter, box or abbreviated.",
                 _ => $"A fascia round {edges} edges. Select it to change its type; Fascia on the ribbon picks edges one by one."
             };
     }
@@ -2308,6 +2335,10 @@ public partial class MainWindow : Window
             : RoofByFaceTool.IsChecked == true ? PlanTool.RoofByFace
             : SlabEdgeTool.IsChecked == true ? PlanTool.SlabEdge
             : SoffitTool.IsChecked == true ? PlanTool.Soffit
+            : StructuralColumnTool.IsChecked == true ? PlanTool.StructuralColumn
+            : WallFootingTool.IsChecked == true ? PlanTool.WallFooting
+            : PadFootingTool.IsChecked == true ? PlanTool.PadFooting
+            : EaveTool.IsChecked == true ? PlanTool.Eave
             : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
             : ShaftTool.IsChecked == true ? PlanTool.Shaft
             : CameraTool.IsChecked == true ? PlanTool.Camera
@@ -2699,7 +2730,25 @@ public partial class MainWindow : Window
     private void OnActiveColumnTypeChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loadingOptions || Plan is null) return;
-        if (ColumnTypePicker.SelectedItem is ColumnType type) Plan.ActiveColumnTypeId = type.Id;
+        if (ColumnTypePicker.SelectedItem is not ColumnType type) return;
+        if (type.Structural) Plan.ActiveStructuralColumnTypeId = type.Id;
+        else Plan.ActiveColumnTypeId = type.Id;
+    }
+
+    /// <summary>The column types on the options bar: the structural ones for the structural Column tool, the architectural ones for the other.</summary>
+    private void LoadColumnTypes(bool structural)
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<ColumnType>().Where(type => type.Structural == structural).OrderBy(type => type.Name).ToList();
+        var active = structural ? Plan.ActiveStructuralColumnTypeId : Plan.ActiveColumnTypeId;
+        ColumnTypePicker.ItemsSource = types;
+        ColumnTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == active) ?? types.FirstOrDefault();
+        _loadingOptions = false;
+        if (ColumnTypePicker.SelectedItem is ColumnType chosen)
+        {
+            if (structural) Plan.ActiveStructuralColumnTypeId = chosen.Id;
+            else Plan.ActiveColumnTypeId = chosen.Id;
+        }
     }
 
     /// <summary>
@@ -3280,7 +3329,7 @@ public partial class MainWindow : Window
         // Its doors hung to open to a side they have room to: not up into the soffit under the eaves.
         var commands = new List<IUndoableCommand>
         {
-            new SetCurtainLayoutCommand(wall, dialog.ResultGrid, DoorSwing.Settled(_document, wall, dialog.ResultGrid, dialog.ResultPanels))
+            new SetCurtainLayoutCommand(wall, dialog.ResultGrid, DoorSwing.Settled(_document, wall, dialog.ResultGrid, dialog.ResultPanels), mullions: dialog.ResultMullions)
         };
 
         foreach (var (typeId, along, sill) in dialog.ResultWindows)
@@ -3406,6 +3455,7 @@ public partial class MainWindow : Window
         // Framing for walls and their frames; parts for walls and the parts made of them.
         var framingOrWalls = selected.All(element => element is Wall or WallFraming);
         ContextFramingPanel.Visibility = framingOrWalls ? Visibility.Visible : Visibility.Collapsed;
+        ContextFoundationPanel.Visibility = selected.Any(element => element is Wall || element is Column { Structural: true }) ? Visibility.Visible : Visibility.Collapsed;
         ContextFrameWalls.Content = selected.OfType<Wall>().Any() && selected.OfType<Wall>().All(wall => WallFramings.Of(_document, wall) is not null)
             ? "Edit Frame" : "Frame Walls";
         ContextFrameWalls.Visibility = selected.OfType<Wall>().Any() ? Visibility.Visible : Visibility.Collapsed;
@@ -3437,7 +3487,7 @@ public partial class MainWindow : Window
         ContextSlabPanel.Visibility = selected is [Floor] or [Ceiling] ? Visibility.Visible : Visibility.Collapsed;
         ContextMassPanel.Visibility = selected is [Mass] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
-        ContextAddFascia.Visibility = ContextAddGutters.Visibility = ContextAddSoffits.Visibility =
+        ContextAddFascia.Visibility = ContextAddGutters.Visibility = ContextAddSoffits.Visibility = ContextAddEaves.Visibility =
             selected is [Roof { IsExtrusion: false }] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;
         ContextAddRoofWindow.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
         ContextAddShaft.Visibility = ContextAddRoofWindow.Visibility;
@@ -3705,6 +3755,31 @@ public partial class MainWindow : Window
         StatusHint.Text = $"{type.Name}: edit its type parameters in the Properties panel. A change there applies to every one of this type.";
     }
 
+    /// <summary>
+    /// Mullion Types: the project's mullion types to edit, duplicate and rename - starting at the
+    /// one between the panels of the selected curtain wall, where one is selected.
+    /// </summary>
+    private void OnMullionTypes(object sender, RoutedEventArgs e)
+    {
+        var start = Plan.SelectedElements.OfType<Wall>()
+                        .Select(wall => _document.FindType<CurtainWallType>(wall.TypeId))
+                        .OfType<CurtainWallType>()
+                        .SelectMany(type => type.MullionTypes(_document))
+                        .FirstOrDefault(type => _document.FindType<MullionType>(type.Id) is not null)
+                    ?? _document.TypesOf<MullionType>().OrderBy(type => type.Name).FirstOrDefault();
+        if (start is null)
+        {
+            StatusHint.Text = "This project has no mullion types.";
+            return;
+        }
+
+        var dialog = new TypePropertiesWindow(_document, _history, start, Array.Empty<Element>()) { Owner = this };
+        dialog.Changed += (_, _) => AfterTypesChanged();
+        dialog.ShowDialog();
+        AfterTypesChanged();
+        RefreshProperties();
+    }
+
     /// <summary>Edit Type for the selected wall, opened at its bands.</summary>
     private void OnWallBands(object sender, RoutedEventArgs e)
     {
@@ -3854,7 +3929,7 @@ public partial class MainWindow : Window
             elements.Select(e => (IReadOnlyList<ParameterValue>)e.GetInstanceParameters(_document).ToList()).ToList());
 
         // Type parameters when the selection shares one type; several types have no one set of them.
-        var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.GetTypeParameters(_document).ToList() });
+        var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.AllTypeParameters(_document).ToList() });
         TypeParameterList.ItemsSource = typeRows;
         TypeSection.Visibility = type is null ? Visibility.Collapsed : Visibility.Visible;
         EditTypeButton.IsEnabled = type is not null;
@@ -3926,7 +4001,8 @@ public partial class MainWindow : Window
         _loadingOptions = false;
 
         EditTypeButton.IsEnabled = false;
-        InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { threeD ? ModelViewParameters() : plan ? PlanViewParameters(levelName) : OtherViewParameters(view) });
+        var own = threeD ? ModelViewParameters() : plan ? PlanViewParameters(levelName) : OtherViewParameters(view);
+        InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)own.Concat(PhasingParameters(view)).ToList() });
         TypeSection.Visibility = Visibility.Collapsed;
         StructureSection.Visibility = Visibility.Collapsed;
     }
@@ -3960,6 +4036,28 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition UnderlayParameter = new("Show Storey Below", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearancesParameter = new("Show Clearances", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearanceStandardParameter = new("Clearance Standard", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition GroundParameter = new("Ground", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition ClayShrinkageParameter = new("Clay Shrinkage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition FrostDepthParameter = new("Frost Line (US, 0 = none)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition GroundSnowParameter = new("Ground Snow Load (US, psf)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>The wind's pressure on the cladding, that curtain wall mullions are checked against: from the wind map and the building's height and exposure.</summary>
+    private static readonly ParameterDefinition WindPressureParameter = new("Wind Pressure on Cladding (kPa, with no wind speed)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>The site's basic wind speed, which the wind on its cladding is worked out from: the UK map's in m/s (BS EN 1991-1-4 NA Figure NA.1), the US's in mph (ASCE 7 Figure 26.5-1).</summary>
+    private static readonly ParameterDefinition WindSpeedParameter = new("Basic Wind Speed (UK m/s, US mph; 0 = not set)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    private static readonly ParameterDefinition SiteAltitudeParameter = new("Site Altitude (m above sea level)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    private static readonly ParameterDefinition TerrainParameter = new("Terrain Upwind", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    private static readonly ParameterDefinition WindVerdictParameter = new("Wind on Cladding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>The ground as the plan's Properties offer it: what it is, Approved Document A's type, the IRC's bearing value.</summary>
+    private static string GroundLabel(GroundType ground) =>
+        $"{char.ToUpperInvariant(StructureRules.Describe(ground)[0])}{StructureRules.Describe(ground)[1..]} (type {StructureRules.AdaType(ground)}" +
+        (StructureRules.Bearing(ground) is { } psf ? $", {psf:#,0} psf)" : ", soils investigation)");
     private static readonly ParameterDefinition DwellingSizeParameter = new("Dwelling Size (NDSS)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition VisualStyleParameter = new("Visual Style", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition EdgesParameter = new("Show Edges", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4008,6 +4106,66 @@ public partial class MainWindow : Window
                     if (Plan.ShowClearances) ShowClearances(true);
                 },
                 Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
+            ParameterValue.Bind(SprinkleredParameter, () => _document.ProjectInformation.Sprinklered, sprinklered =>
+            {
+                _document.ProjectInformation.Sprinklered = sprinklered;
+                Plan.RefreshModel();
+                if (Plan.ShowClearances) ShowClearances(true);
+            }),
+            ParameterValue.BindChoice(GroundParameter,
+                () => GroundLabel(_document.ProjectInformation.Ground),
+                text =>
+                {
+                    _document.ProjectInformation.Ground = Enum.GetValues<GroundType>().FirstOrDefault(ground => GroundLabel(ground) == text, _document.ProjectInformation.Ground);
+                    Plan.RefreshModel();
+                    if (Plan.ShowClearances) ShowClearances(true);
+                },
+                Enum.GetValues<GroundType>().Select(GroundLabel).ToArray()),
+            ParameterValue.BindChoice(ClayShrinkageParameter,
+                () => EnumText.Humanise(_document.ProjectInformation.ClayShrinkage),
+                text =>
+                {
+                    if (!EnumText.TryParse<ClayShrinkage>(text, out var shrinkage)) return;
+                    _document.ProjectInformation.ClayShrinkage = shrinkage;
+                    Plan.RefreshModel();
+                    if (Plan.ShowClearances) ShowClearances(true);
+                },
+                EnumText.Choices<ClayShrinkage>()),
+            ParameterValue.Bind(FrostDepthParameter, () => _document.ProjectInformation.FrostDepth, depth =>
+            {
+                _document.ProjectInformation.FrostDepth = Math.Max(0, depth);
+                Plan.RefreshModel();
+            }),
+            ParameterValue.Bind(GroundSnowParameter, () => _document.ProjectInformation.GroundSnowLoad, snow =>
+            {
+                _document.ProjectInformation.GroundSnowLoad = Math.Max(0, snow);
+                Plan.RefreshModel();
+            }),
+            ParameterValue.Bind(WindSpeedParameter, () => _document.ProjectInformation.BasicWindSpeed, speed =>
+            {
+                _document.ProjectInformation.BasicWindSpeed = Math.Clamp(speed, 0, 300);
+                if (Plan.ShowClearances) ShowClearances(true);
+            }),
+            ParameterValue.Bind(SiteAltitudeParameter, () => _document.ProjectInformation.SiteAltitude, altitude =>
+            {
+                _document.ProjectInformation.SiteAltitude = Math.Clamp(altitude, -500, 5000);
+                if (Plan.ShowClearances) ShowClearances(true);
+            }),
+            ParameterValue.BindChoice(TerrainParameter,
+                () => EnumText.Humanise(_document.ProjectInformation.Terrain),
+                text =>
+                {
+                    if (!EnumText.TryParse<WindTerrain>(text, out var terrain)) return;
+                    _document.ProjectInformation.Terrain = terrain;
+                    if (Plan.ShowClearances) ShowClearances(true);
+                },
+                EnumText.Choices<WindTerrain>()),
+            ParameterValue.Bind(WindPressureParameter, () => _document.ProjectInformation.WindPressure, pressure =>
+            {
+                _document.ProjectInformation.WindPressure = Math.Clamp(pressure, 0.1, 10);
+                if (Plan.ShowClearances) ShowClearances(true);
+            }),
+            ParameterValue.ReadOnly(WindVerdictParameter, () => Wind.Verdict(_document)),
             ParameterValue.ReadOnly(DwellingSizeParameter, () => Dwellings.Verdict(_document) ?? "No bedrooms to size it by"),
             ParameterValue.ReadOnly(LevelParameter, () => levelName),
             ParameterValue.ReadOnly(ViewNameParameter, () => $"Floor Plan: {levelName}")
@@ -4059,6 +4217,10 @@ public partial class MainWindow : Window
         Fascia => "Icon.Fascia",
         Gutter => "Icon.Gutter",
         Soffit => "Icon.Soffit",
+        Column { Structural: true } => "Icon.StructuralColumn",
+        WallFooting => "Icon.WallFooting",
+        PadFooting => "Icon.PadFooting",
+        Eave => "Icon.Eave",
         RoofWindow => "Icon.RoofWindow",
         ShaftOpening => "Icon.Shaft",
         Railing => "Icon.Railing",
@@ -4084,6 +4246,16 @@ public partial class MainWindow : Window
         FasciaType => "Fascia",
         GutterType => "Gutter",
         SoffitType => "Soffit",
+        ColumnType { Structural: true } => "Structural Column",
+        FootingType { Kind: FootingKind.Pad } => "Isolated Foundation",
+        FootingType => "Wall Foundation",
+        EaveType => "Eave",
+        MullionType { Shape: MullionShape.CornerL } => "L Corner Mullion",
+        MullionType { Shape: MullionShape.CornerV } => "V Corner Mullion",
+        MullionType { Shape: MullionShape.CornerTrapezoid } => "Trapezoid Corner Mullion",
+        MullionType { Shape: MullionShape.CornerQuad } => "Quad Corner Mullion",
+        MullionType { Shape: MullionShape.Circular } => "Circular Mullion",
+        MullionType => "Rectangular Mullion",
         RoofWindowType => "Roof Window",
         ChimneyType => "Chimney",
         WallSweepType => "Wall Sweep",

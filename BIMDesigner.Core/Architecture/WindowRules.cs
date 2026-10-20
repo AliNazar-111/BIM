@@ -18,6 +18,10 @@ namespace BIMDesigner.Core.Architecture;
 /// 15 to 30 degrees (Table 1.4); the IRC its glass to be 8% of its floor area and an opening 4%
 /// (R303.1).
 ///
+/// A window divided by mullions and a transom gives each of these light by light: its clear
+/// opening is the best one light gives - a mullion stands in the way of climbing through two -
+/// what it opens for air is every opening light's together, and its panes are each a pane.
+///
 /// Its glass: safety glass below 800 from the floor and within 300 of a door's edge below 1500
 /// (Approved Document K, Diagram 5.1); the IRC's hazardous locations - within 24 in of a door's
 /// edge below 60 in, a pane over 9 sq ft low and tall, within 60 in of a bath (R308.4). And its
@@ -35,6 +39,14 @@ public static class WindowRules
     /// </summary>
     public static (double Width, double Height, bool Fully, bool Opens) Opening(WindowType type)
     {
+        // Divided: the best one light gives - wholly open before part way, then the bigger.
+        if (WindowLights.Divided(type))
+            return WindowLights.Of(type).Where(light => light.Opens)
+                .Select(light => Opening(light.Operation, light.Width, light.Height))
+                .OrderByDescending(open => open.Fully).ThenByDescending(open => open.Width * open.Height)
+                .DefaultIfEmpty((0, 0, false, false))
+                .First();
+
         var (width, height) = (Math.Max(0, type.Width - 2 * Frame), Math.Max(0, type.Height - 2 * Frame));
         return type.Operation switch
         {
@@ -47,12 +59,48 @@ public static class WindowRules
         };
     }
 
+    /// <summary>The clear opening one light gives, by how it opens: a single sash, the light's whole width.</summary>
+    private static (double Width, double Height, bool Fully, bool Opens) Opening(WindowOperation operation, double width, double height) => operation switch
+    {
+        WindowOperation.Fixed => (0, 0, false, false),
+        WindowOperation.Casement or WindowOperation.TiltAndTurn or WindowOperation.Bay => (width, height, true, true),
+        WindowOperation.Sliding => (width / 2 - 30, height, true, true),
+        WindowOperation.DoubleHung => (width, height / 2 - 30, true, true),
+        _ => (width, height, false, true)
+    };
+
+    /// <summary>What one light opens for air, mm²: a slider or sash half of it, a fixed one nothing, the rest the whole.</summary>
+    private static double OpenArea(WindowLight light) => light.Operation switch
+    {
+        WindowOperation.Fixed => 0,
+        WindowOperation.Sliding or WindowOperation.DoubleHung => light.Area / 2,
+        _ => light.Area
+    };
+
+    /// <summary>
+    /// What a window opens for air, m², wholly - side-hung, turning, sliding - and only part way,
+    /// top- or bottom-hung or louvred: Approved Document F counts the first at a twentieth of the
+    /// floor, the second at a tenth.
+    /// </summary>
+    public static (double Fully, double PartWay) OpenAreas(WindowType type)
+    {
+        if (!WindowLights.Divided(type))
+            return Opening(type).Fully ? (OpenArea(type), 0) : (0, OpenArea(type));
+
+        var (fully, partWay) = (0.0, 0.0);
+        foreach (var light in WindowLights.Of(type).Where(light => light.Opens))
+            if (Opening(light.Operation, light.Width, light.Height).Fully) fully += OpenArea(light) / 1e6;
+            else partWay += OpenArea(light) / 1e6;
+        return (fully, partWay);
+    }
+
     /// <summary>
     /// The area a window opens, m², for a room's air: every sash of a casement or bay, half a slider
     /// or sash window, the whole of a top- or bottom-hung light or louvres.
     /// </summary>
     public static double OpenArea(WindowType type)
     {
+        if (WindowLights.Divided(type)) return WindowLights.Of(type).Sum(OpenArea) / 1e6;
         var (width, height) = (Math.Max(0, type.Width - 2 * Frame), Math.Max(0, type.Height - 2 * Frame));
         return type.Operation switch
         {
@@ -62,19 +110,30 @@ public static class WindowRules
         };
     }
 
-    /// <summary>Its glass's area, m²: the light inside its frame.</summary>
-    public static double GlassArea(WindowType type) => Math.Max(0, type.Width - 2 * Frame) * Math.Max(0, type.Height - 2 * Frame) / 1e6;
+    /// <summary>Its glass's area, m²: the light inside its frame - each light's, the mullions and transom left out.</summary>
+    public static double GlassArea(WindowType type) => WindowLights.Divided(type)
+        ? WindowLights.Of(type).Sum(light => light.Area) / 1e6
+        : Math.Max(0, type.Width - 2 * Frame) * Math.Max(0, type.Height - 2 * Frame) / 1e6;
 
-    /// <summary>Whether a window opens far enough to escape through and gives the clear opening asked, its bottom low enough.</summary>
+    /// <summary>Whether a window opens far enough to escape through and gives the clear opening asked, its bottom low enough - through one light of a divided one.</summary>
     public static bool Escapes(WindowType type, double sill, bool us, bool ground)
     {
+        if (WindowLights.Divided(type))
+            return WindowLights.Of(type).Where(light => light.Opens).Any(light =>
+            {
+                var (clearWidth, clearHeight, wholly, _) = Opening(light.Operation, light.Width, light.Height);
+                return wholly && Escapes(clearWidth, clearHeight, sill + light.Bottom, us, ground);
+            });
+
         var (width, height, fully, _) = Opening(type);
         if (!fully) return false;
-        var bottom = sill + Frame;
-        return us
-            ? width * height >= (ground ? 464500 : 529500) && height >= 610 - 0.5 && width >= 508 - 0.5 && bottom <= 1118 + 0.5
-            : width * height >= 330000 && width >= 450 - 0.5 && height >= 450 - 0.5 && bottom <= 1100 + 0.5;
+        return Escapes(width, height, sill + Frame, us, ground);
     }
+
+    /// <summary>Whether a clear opening this big, its bottom this high, is an escape window's.</summary>
+    private static bool Escapes(double width, double height, double bottom, bool us, bool ground) => us
+        ? width * height >= (ground ? 464500 : 529500) && height >= 610 - 0.5 && width >= 508 - 0.5 && bottom <= 1118 + 0.5
+        : width * height >= 330000 && width >= 450 - 0.5 && height >= 450 - 0.5 && bottom <= 1100 + 0.5;
 
     /// <summary>
     /// Whether a roof window gives an escape: top-hung, so it stays open on its own, its opening
@@ -154,6 +213,12 @@ public static class WindowRules
             if (us)
             {
                 var pane = GlassArea(type);
+
+                // The pane low enough and big enough to be a hazard: each light of a divided window a pane of its own, as the IRC counts the individual pane.
+                var (lowPane, lowBottom) = WindowLights.Divided(type)
+                    ? WindowLights.Of(type).Where(light => light.Area > 836000 && sill + light.Bottom < 457 && sill + light.Top > 914)
+                        .Select(light => (light.Area / 1e6, sill + light.Bottom)).FirstOrDefault()
+                    : pane > 0.836 && glassBottom < 457 && sill + height - Frame > 914 ? (pane, glassBottom) : (0.0, 0.0);
                 var wet = document.Elements.OfType<Component>()
                     .Where(piece => piece.LevelId == wall.LevelId && document.FindType<ComponentType>(piece.TypeId)?.Form is ComponentForm.Bath or ComponentForm.Shower)
                     .Select(piece => Kitchens.Apart(ComponentModel.Footprint(document.FindType<ComponentType>(piece.TypeId)!, ComponentModel.FrameOf(piece, 0)), outline))
@@ -161,8 +226,8 @@ public static class WindowRules
                     .Min();
                 if (nearDoor <= 610 && glassBottom < 1524)
                     Add($"its glass is {nearDoor:0} from a door's edge, {glassBottom:0} off the floor.", "IRC R308.4.2 makes glass within 24 in (610) of a door's edge and under 60 in (1524) up a hazardous location: safety glazing.");
-                else if (pane > 0.836 && glassBottom < 457 && sill + height - Frame > 914)
-                    Add($"its pane of {pane:0.0} m² comes down to {glassBottom:0} off the floor.", "IRC R308.4.3 makes a pane over 9 sq ft whose bottom is under 18 in (457) and top over 36 in a hazardous location: safety glazing.");
+                else if (lowPane > 0)
+                    Add($"its pane of {lowPane:0.0} m² comes down to {lowBottom:0} off the floor.", "IRC R308.4.3 makes an individual pane over 9 sq ft whose bottom is under 18 in (457) and top over 36 in a hazardous location: safety glazing.");
                 else if (wet <= 1524 && glassBottom < 1524)
                     Add($"its glass is {wet:0} from a bath or shower, {glassBottom:0} off the floor.", "IRC R308.4.5 makes glass within 60 in (1524) of a bath or shower and under 60 in up a hazardous location: safety glazing.");
             }
@@ -184,7 +249,8 @@ public static class WindowRules
         if (document.FindType<WindowType>(window.TypeId) is not { } type) return string.Empty;
         var problems = Problems(document, window, document.ProjectInformation.ClearanceStandard);
         var (width, height, fully, opens) = Opening(type);
-        var opening = !opens ? "Fixed" : fully ? $"Opens {width:0} x {height:0} clear ({OpenArea(type):0.00} m²)" : $"Opens part way ({OpenArea(type):0.00} m²)";
+        var lights = WindowLights.Divided(type) ? $"{WindowLights.Of(type).Count} lights, " : string.Empty;
+        var opening = !opens ? $"{lights}Fixed" : fully ? $"{lights}Opens {width:0} x {height:0} clear{(lights.Length > 0 ? " through one" : string.Empty)} ({OpenArea(type):0.00} m²)" : $"{lights}Opens part way ({OpenArea(type):0.00} m²)";
         return problems.Count == 0 ? opening : $"{opening} - {string.Join(" ", problems.Select(problem => $"{char.ToUpperInvariant(problem.Said[0])}{problem.Said[1..]} {problem.Rule}"))}";
     }
 
@@ -238,7 +304,7 @@ public static class WindowRules
 
         // Its air - and, in the US, its light.
         var open = windows.Sum(entry => OpenArea(entry.Type)) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
-        var wide = windows.Where(entry => Opening(entry.Type).Fully).Sum(entry => OpenArea(entry.Type)) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
+        var wide = windows.Sum(entry => OpenAreas(entry.Type).Fully) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
         if (us)
         {
             var glass = windows.Sum(entry => GlassArea(entry.Type)) + doors.Where(entry => Architecture.Doors.Glazed(entry.Type)).Sum(entry => Math.Max(0, entry.Type.Width - 200) * Math.Max(0, entry.Type.Height - 200) / 1e6 * 0.6);

@@ -201,9 +201,12 @@ public abstract class RoofEdgeSweep : Element, IHostedElement
     public double VerticalOffset { get; set; }
 
     /// <summary>How long it is, along every run of it, up the slopes too.</summary>
-    public double Length(BimDocument document) => this is Soffit
-        ? RoofEdgeSweeps.SoffitPieces(document, this).Sum(piece => piece.Length)
-        : RoofEdgeSweeps.Runs(document, this).Sum(run => run.Segments.Sum(segment => segment.Length));
+    public double Length(BimDocument document) => this switch
+    {
+        Soffit => RoofEdgeSweeps.SoffitPieces(document, this).Sum(piece => piece.Length),
+        Eave eave => Eaves.Strips(document, eave).Sum(strip => strip.Length),
+        _ => RoofEdgeSweeps.Runs(document, this).Sum(run => run.Segments.Sum(segment => segment.Length))
+    };
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
@@ -373,11 +376,11 @@ public static class RoofEdgeSweepParameters
     public static readonly ParameterDefinition InstanceFreeAirArea = new("Free Air Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Construction);
 
     /// <summary>What a fascia, gutter or soffit type is made of, chosen from the project's materials.</summary>
-    public static ParameterValue? MaterialOf(BimDocument? document, Func<Guid> get, Action<Guid> set) =>
+    public static ParameterValue? MaterialOf(BimDocument? document, Func<Guid> get, Action<Guid> set, ParameterDefinition? definition = null) =>
         document is null
             ? null
             : ParameterValue.BindChoice(
-                Material,
+                definition ?? Material,
                 () => document.FindMaterial(get())?.Name ?? "<by category>",
                 v => set(document.Materials.FirstOrDefault(m => m.Name == v)?.Id ?? Guid.Empty),
                 new[] { "<by category>" }.Concat(document.Materials.Select(m => m.Name).OrderBy(name => name)).ToArray());
@@ -439,7 +442,7 @@ public static class RoofEdgeSweeps
     /// </summary>
     public static IReadOnlyList<RoofEdgeRun> Runs(BimDocument document, RoofEdgeSweep sweep)
     {
-        if (sweep is Soffit) return Array.Empty<RoofEdgeRun>();
+        if (sweep is Soffit or Eave) return Array.Empty<RoofEdgeRun>();
         if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId) is not { } roof) return Array.Empty<RoofEdgeRun>();
         if (roof.IsExtrusion || roof.Boundary.Count < 3 || roof.Edges.Count != roof.Boundary.Count) return Array.Empty<RoofEdgeRun>();
 
@@ -541,6 +544,10 @@ public static class RoofEdgeSweeps
                 var edgeDepth = thickness * stretch / Math.Sqrt(1 + rise * rise);
                 if (roof.Edges[edge].DefinesSlope && roof.RafterCut != RafterCut.PlumbCut && (face?.Plane.Rise ?? 0) > 1e-6)
                     edgeDepth = Math.Min(roof.FasciaDepth, edgeDepth);
+
+                // Over an open eave the roof's edge is its covering and the rafters' ends under it.
+                if (Eaves.OpenDepth(document, roof, roof.Edges[edge].Id) is { } open)
+                    edgeDepth = open * stretch / Math.Sqrt(1 + rise * rise);
 
                 var profile = Profile(document, sweep, edgeDepth)
                     .Select(point => new Point2D(point.X + sweep.HorizontalOffset, point.Y + sweep.VerticalOffset))
@@ -863,6 +870,7 @@ public static class RoofEdgeSweeps
     /// <summary>A fascia or gutter as a solid: each stretch a mitred prism of its profile, capped where a run ends.</summary>
     public static Mesh3D Mesh(BimDocument document, RoofEdgeSweep sweep, Guid levelId)
     {
+        if (sweep is Eave eave) return Eaves.Mesh(document, eave, levelId);
         if (sweep is Soffit)
         {
             var board = document.FindMaterial(document.FindType<SoffitType>(sweep.TypeId)?.MaterialId ?? Guid.Empty);
@@ -871,13 +879,8 @@ public static class RoofEdgeSweeps
             var kind = document.FindType<SoffitType>(sweep.TypeId)?.Board ?? SoffitBoard.Solid;
             foreach (var piece in SoffitPieces(document, sweep))
             {
-                if (piece.TopAt is { } top)
-                {
-                    soffit.AddExtrusion(piece.Outline, piece.BottomAt, top);
-                    continue;
-                }
-
-                soffit.AddExtrusion(piece.Outline, piece.Bottom, piece.Top);
+                if (piece.TopAt is { } top) soffit.AddExtrusion(piece.Outline, piece.BottomAt, top);
+                else soffit.AddExtrusion(piece.Outline, piece.Bottom, piece.Top);
                 Face(soffit, piece, kind);
             }
 
@@ -942,15 +945,15 @@ public static class RoofEdgeSweeps
     private const double PlankWidth = 100;
 
     /// <summary>
-    /// What shows on a soffit's underside, drawn as lines just below it: rows of slots across a
-    /// vented board, a band of them down the middle of a centre-vented one, the joints between
-    /// the planks of a hollow one. A solid board is plain.
+    /// What shows on a soffit's underside, drawn as lines just below it - sloping with it, where
+    /// it slopes: rows of slots across a vented board, a band of them down the middle of a
+    /// centre-vented one, the joints between the planks of a hollow one. A solid board is plain.
     /// </summary>
-    private static void Face(Mesh3D mesh, SoffitPiece piece, SoffitBoard board)
+    internal static void Face(Mesh3D mesh, SoffitPiece piece, SoffitBoard board)
     {
         if (board == SoffitBoard.Solid) return;
 
-        var z = piece.Bottom - 0.5;
+        Point3D Under(Point2D at) => Point3D.On(at, piece.BottomAt(at) - 0.5);
         var along = piece.Outline.Select(point => (point - piece.From).Dot(piece.Along)).ToList();
         var (start, end) = (along.Min(), along.Max());
         var depth = piece.Outline.Max(point => (point - piece.From).Dot(piece.Inward));
@@ -973,7 +976,7 @@ public static class RoofEdgeSweeps
             {
                 // A joint the length of the board, where it is under the board.
                 foreach (var (from, to) in Inside(piece.Outline, At(start, w), At(end, w)))
-                    mesh.AddEdge(Point3D.On(from, z), Point3D.On(to, z));
+                    mesh.AddEdge(Under(from), Under(to));
                 continue;
             }
 
@@ -983,7 +986,7 @@ public static class RoofEdgeSweeps
             {
                 var (from, to) = (At(s - SlotLength / 2, w), At(s + SlotLength / 2, w));
                 if (Polygon2D.Contains(piece.Outline, from) && Polygon2D.Contains(piece.Outline, to))
-                    mesh.AddEdge(Point3D.On(from, z), Point3D.On(to, z));
+                    mesh.AddEdge(Under(from), Under(to));
             }
         }
     }
@@ -1074,6 +1077,12 @@ public static class RoofEdgeSweeps
     /// <summary>A fascia or gutter in plan: the ground each stretch of it covers, seen from above.</summary>
     public static IEnumerable<IReadOnlyList<Point2D>> Footprints(BimDocument document, RoofEdgeSweep sweep)
     {
+        if (sweep is Eave eave)
+        {
+            foreach (var footprint in Eaves.Footprints(document, eave)) yield return footprint;
+            yield break;
+        }
+
         foreach (var piece in SoffitPieces(document, sweep)) yield return piece.Outline;
 
         foreach (var run in Runs(document, sweep))

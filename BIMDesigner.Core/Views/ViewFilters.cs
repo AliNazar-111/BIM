@@ -24,6 +24,76 @@ public sealed class ViewSettings
     private readonly Dictionary<ViewReference, WallJoinDisplay> _joinDisplays = new();
     private readonly Dictionary<ViewReference, DetailLevel> _detailLevels = new();
     private readonly Dictionary<ViewReference, Guid> _templates = new();
+    private readonly Dictionary<ViewReference, DesignPhase> _phases = new();
+    private readonly Dictionary<ViewReference, PhaseFilter> _phaseFilters = new();
+    private readonly Dictionary<ViewReference, List<FilterOverride>> _filters = new();
+    private readonly Dictionary<ViewReference, Dictionary<Guid, Guid>> _options = new();
+
+    /// <summary>The phase a view shows the building in: new construction, unless set.</summary>
+    public DesignPhase PhaseOf(ViewReference view) => _phases.TryGetValue(view, out var phase) ? phase : DesignPhase.New;
+
+    public void SetPhase(ViewReference view, DesignPhase phase)
+    {
+        Version++;
+        if (phase == DesignPhase.New) _phases.Remove(view);
+        else _phases[view] = phase;
+    }
+
+    /// <summary>Every view in a phase of its own, for saving.</summary>
+    public IEnumerable<(ViewReference View, DesignPhase Phase)> Phased => _phases.Select(entry => (entry.Key, entry.Value));
+
+    /// <summary>What a view shows of what is there in its phase, and how: Show All, unless set.</summary>
+    public PhaseFilter PhaseFilterOf(ViewReference view) => _phaseFilters.TryGetValue(view, out var filter) ? filter : PhaseFilter.ShowAll;
+
+    public void SetPhaseFilter(ViewReference view, PhaseFilter filter)
+    {
+        Version++;
+        if (filter == PhaseFilter.ShowAll) _phaseFilters.Remove(view);
+        else _phaseFilters[view] = filter;
+    }
+
+    /// <summary>Every view with a phase filter of its own, for saving.</summary>
+    public IEnumerable<(ViewReference View, PhaseFilter Filter)> PhaseFiltered => _phaseFilters.Select(entry => (entry.Key, entry.Value));
+
+    /// <summary>The view filters added to a view, in order: a later one's colour over an earlier's.</summary>
+    public IReadOnlyList<FilterOverride> FiltersOf(ViewReference view) =>
+        _filters.TryGetValue(view, out var uses) ? uses : Array.Empty<FilterOverride>();
+
+    public void SetFilters(ViewReference view, IEnumerable<FilterOverride> uses)
+    {
+        Version++;
+        var list = uses.ToList();
+        if (list.Count == 0) _filters.Remove(view);
+        else _filters[view] = list;
+    }
+
+    /// <summary>Every view with filters of its own, for saving.</summary>
+    public IEnumerable<(ViewReference View, IReadOnlyList<FilterOverride> Filters)> WithFilters => _filters.Select(entry => (entry.Key, (IReadOnlyList<FilterOverride>)entry.Value));
+
+    /// <summary>The option a view has been set to show of a set; null where it shows the primary.</summary>
+    public Guid? OptionShownIn(ViewReference view, Guid set) =>
+        _options.TryGetValue(view, out var shown) && shown.TryGetValue(set, out var option) ? option : null;
+
+    public void SetOptionShown(ViewReference view, Guid set, Guid? option)
+    {
+        Version++;
+        if (!_options.TryGetValue(view, out var shown))
+        {
+            if (option is null) return;
+            _options[view] = shown = new Dictionary<Guid, Guid>();
+        }
+
+        if (option is { } id) shown[set] = id;
+        else shown.Remove(set);
+        if (shown.Count == 0) _options.Remove(view);
+    }
+
+    /// <summary>Every view showing an option other than a set's primary, for saving.</summary>
+    public IEnumerable<(ViewReference View, Guid Set, Guid Option)> OptionsShown =>
+        _options.SelectMany(entry => entry.Value.Select(choice => (entry.Key, choice.Key, choice.Value)));
+
+    /// <summary>Something every view draws from changed - a filter's rules, the design options: what is kept of them is out of date.</summary>
+    public void Touch() => Version++;
 
     /// <summary>The view template governing a view, where one does.</summary>
     public Guid? TemplateOf(ViewReference view) => _templates.TryGetValue(view, out var id) ? id : null;
@@ -39,7 +109,8 @@ public sealed class ViewSettings
     public IEnumerable<(ViewReference View, Guid Template)> Templated => _templates.Select(entry => (entry.Key, entry.Value));
 
     /// <summary>Everything set on one view: what a change to it is put back to.</summary>
-    public sealed record ViewState(ViewReference View, double? Scale, DetailLevel? Detail, WallJoinDisplay? Join, WallFunction[] Hidden, Guid? Template);
+    public sealed record ViewState(ViewReference View, double? Scale, DetailLevel? Detail, WallJoinDisplay? Join, WallFunction[] Hidden, Guid? Template,
+        DesignPhase Phase, PhaseFilter PhaseFilter, FilterOverride[] Filters, (Guid Set, Guid Option)[] Options);
 
     public ViewState Capture(ViewReference view) => new(
         view,
@@ -47,7 +118,11 @@ public sealed class ViewSettings
         DetailLevelOf(view),
         _joinDisplays.TryGetValue(view, out var join) ? join : null,
         HiddenWallFunctions(view).ToArray(),
-        TemplateOf(view));
+        TemplateOf(view),
+        PhaseOf(view),
+        PhaseFilterOf(view),
+        FiltersOf(view).ToArray(),
+        _options.TryGetValue(view, out var shown) ? shown.Select(entry => (entry.Key, entry.Value)).ToArray() : Array.Empty<(Guid, Guid)>());
 
     public void Restore(ViewState state)
     {
@@ -56,6 +131,11 @@ public sealed class ViewSettings
         SetJoinDisplay(state.View, state.Join ?? WallJoinDisplay.CleanAllWallJoins);
         foreach (var function in Enum.GetValues<WallFunction>()) SetWallFunctionVisible(state.View, function, !state.Hidden.Contains(function));
         SetTemplate(state.View, state.Template);
+        SetPhase(state.View, state.Phase);
+        SetPhaseFilter(state.View, state.PhaseFilter);
+        SetFilters(state.View, state.Filters);
+        _options.Remove(state.View);
+        foreach (var (set, option) in state.Options) SetOptionShown(state.View, set, option);
     }
 
     /// <summary>How much detail a view is drawn in, where it has been set: a plan, a callout. Null where it never was.</summary>
@@ -141,8 +221,81 @@ public sealed class ViewSettings
     /// </summary>
     public Func<Element, bool> FilterFor(BimDocument document, ViewReference view)
     {
+        var walls = WallFilter(document, view);
+        var phase = PhaseOf(view);
+        var phaseFilter = PhaseFilterOf(view);
+
+        // The filters hiding what they pick out, and the option of each set the view shows.
+        var hiding = FiltersOf(view).Where(use => !use.Visible)
+            .Select(use => document.ParameterFilters.FirstOrDefault(filter => filter.Id == use.FilterId)).OfType<ParameterFilter>().ToList();
+        var shownOf = new Dictionary<Guid, Guid?>();
+        foreach (var set in document.DesignOptionSets)
+        {
+            var shown = DesignOptions.ShownIn(document, view, set);
+            foreach (var option in set.Options) shownOf[option.Id] = shown;
+        }
+
+        if (walls is null && hiding.Count == 0 && shownOf.Count == 0 && phase == DesignPhase.New && phaseFilter is not (PhaseFilter.ShowPrevious or PhaseFilter.ShowPreviousAndDemolition)
+            && !document.Elements.Any(element => element.PhaseCreated != DesignPhase.New || element.PhaseDemolished is not null))
+            return _ => true;
+
+        var picked = new Dictionary<Guid, bool>();
+        bool Shows(Element element)
+        {
+            if (walls is not null && !walls(element)) return false;
+            if (!Phasing.IsAnnotation(element.Category))
+            {
+                if (Phasing.StatusIn(element, phase) is not { } status || Phasing.Display(phaseFilter, status) == PhaseDisplay.NotDisplayed) return false;
+            }
+            else if (element is IHostedElement { HostId: var host } && host != element.Id && document.FindElement(host) is { } target && !Phasing.IsAnnotation(target.Category))
+            {
+                // A tag goes with what it labels.
+                if (!Shows(target)) return false;
+            }
+
+            if (element.DesignOptionId is { } option && shownOf.TryGetValue(option, out var shown) && shown != option) return false;
+            if (hiding.Count > 0)
+            {
+                if (!picked.TryGetValue(element.Id, out var hidden))
+                    picked[element.Id] = hidden = hiding.Any(filter => filter.Picks(document, element));
+                if (hidden) return false;
+            }
+
+            return true;
+        }
+
+        return Shows;
+    }
+
+    /// <summary>
+    /// How a view draws each element it shows, beyond how it is drawn anyway: the phasing's
+    /// overrides for what is existing, demolished or temporary, then each filter's colour or fading
+    /// for what it picks out - a later filter's colour over an earlier's.
+    /// </summary>
+    public Func<Element, ElementStyle> StyleFor(BimDocument document, ViewReference view)
+    {
+        var phase = PhaseOf(view);
+        var phaseFilter = PhaseFilterOf(view);
+        var styling = FiltersOf(view).Where(use => use.Visible && (use.Colour is not null || use.Halftone))
+            .Select(use => (Filter: document.ParameterFilters.FirstOrDefault(filter => filter.Id == use.FilterId), Use: use))
+            .Where(entry => entry.Filter is not null).ToList();
+
+        return element =>
+        {
+            var style = default(ElementStyle);
+            if (!Phasing.IsAnnotation(element.Category) && Phasing.StatusIn(element, phase) is { } status && Phasing.Display(phaseFilter, status) == PhaseDisplay.Overridden)
+                style = Phasing.Override(status);
+            foreach (var (filter, use) in styling)
+                if (filter!.Picks(document, element)) style = style.Then(new ElementStyle(use.Halftone, use.Colour));
+            return style;
+        };
+    }
+
+    /// <summary>The walls this view hides by their function, and what they carry; null where it hides none.</summary>
+    private Func<Element, bool>? WallFilter(BimDocument document, ViewReference view)
+    {
         var hidden = HiddenWallFunctions(view);
-        if (hidden.Count == 0) return _ => true;
+        if (hidden.Count == 0) return null;
 
         var hiddenWalls = document.Walls
             .Where(wall => document.GetWallType(wall) is { } type && hidden.Contains(type.Function))

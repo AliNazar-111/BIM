@@ -55,6 +55,10 @@ public static class TypeDuplicates
         FasciaType fascia => fascia.Duplicate(name),
         GutterType gutter => gutter.Duplicate(name),
         SoffitType soffit => soffit.Duplicate(name),
+        EaveType eave => eave.Duplicate(name),
+        MullionType mullion => mullion.Duplicate(name),
+        ColumnType column => column.Duplicate(name),
+        FootingType footing => footing.Duplicate(name),
         SlabEdgeType slabEdge => slabEdge.Duplicate(name),
         RoofWindowType roofWindow => roofWindow.Duplicate(name),
         WallSweepType sweep => sweep.Duplicate(name),
@@ -64,7 +68,8 @@ public static class TypeDuplicates
 
     /// <summary>Whether a type can be duplicated here, rather than in the wall types window.</summary>
     public static bool CanDuplicate(ElementType type) =>
-        type is ComponentType or DoorType or WindowType or ChimneyType or StairType or RampType or RailingType or BeamType or FasciaType or GutterType or SoffitType or RoofWindowType or WallSweepType or SlabEdgeType
+        type is ComponentType or DoorType or WindowType or ChimneyType or StairType or RampType or RailingType or BeamType or FasciaType or GutterType or SoffitType or EaveType or RoofWindowType or WallSweepType or SlabEdgeType
+            or ColumnType or FootingType or MullionType
             or DimensionType;
 
     /// <summary>

@@ -106,6 +106,10 @@
                 <Button Content="Delete Selected" Padding="12,5" HorizontalAlignment="Left" Margin="0,0,0,16" Click="OnDeleteLine"
                         ToolTip="Take out the stretch of line selected - the panels either side become one - or the whole line when it is all selected (double-click a line). A stretch already taken out is put back"/>
 
+                <TextBlock Text="MULLION ON THE SELECTED LINE" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                <ComboBox x:Name="MullionBox" Margin="0,0,0,16" SelectionChanged="OnMullionChosen"
+                          ToolTip="The mullion on the stretch of line selected - or the whole line, double-clicked: what the type puts there, none with the panels butted, or another mullion type"/>
+
                 <TextBlock Text="START AGAIN" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
                 <Button Content="Follow the Type" Padding="12,5" HorizontalAlignment="Left" Click="OnFollowType"
                         ToolTip="Put back the grid the wall type sets out, with every panel glass"/>

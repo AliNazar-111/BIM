@@ -92,6 +92,18 @@ public enum PlanTool
     /// <summary>Closes the underside of the overhang along the roof eaves clicked.</summary>
     Soffit,
 
+    /// <summary>Builds an eave - closed, open, exposed rafter, box or abbreviated - under the roof eaves clicked.</summary>
+    Eave,
+
+    /// <summary>Stands a structural column - steel, timber or concrete - where it is clicked.</summary>
+    StructuralColumn,
+
+    /// <summary>Puts a strip footing under each wall clicked.</summary>
+    WallFooting,
+
+    /// <summary>Puts a pad footing under each structural column clicked, or on its own.</summary>
+    PadFooting,
+
     /// <summary>Runs a slab edge - a thickened edge, an edge beam, a kerb - along floor edges picked one after another.</summary>
     SlabEdge,
 
@@ -1209,6 +1221,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.Room => "Click inside a space enclosed by walls.",
         PlanTool.Component => "Click where the component should go; on a wall for one fixed to a face. Space turns it.",
         PlanTool.Column => "Click where the column should stand. Space turns it a quarter turn.",
+        PlanTool.StructuralColumn => "Click where the structural column stands - or select gridlines and use At Grids. Space turns it a quarter turn.",
+        PlanTool.WallFooting => "Click a wall: a strip footing goes under it, as wide and as deep as the rules ask, the masonry on it up to the wall.",
+        PlanTool.PadFooting => "Click a structural column: a pad goes under it, sized for the load it brings down and as deep as the rules ask - or click anywhere for a pad on its own.",
         PlanTool.Floor => "Pick the walls round the floor, or click inside a room for all of it; draw holes inside. Finish ✓ makes the floor.",
         PlanTool.Ceiling => "Pick the walls round the ceiling, or click inside a room for all of it; draw holes inside. Finish ✓ makes the ceiling.",
         PlanTool.Roof => "Pick Walls: hover just outside a wall and click - the roof edge goes on that face. Finish ✓ when the outline closes.",
@@ -1230,6 +1245,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Dormer => "Click on a roof's slope where the dormer's front wall should be. Shape and size are on the options bar.",
         PlanTool.Fascia => "Click a roof's edges one after another: the fascia runs along them all, round the corners. Esc finishes it.",
         PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
+        PlanTool.Eave => "Click a roof's eaves one after another: the eave is built under them all - its rafters, and the soffit, frieze, moulding and brackets its type has - the roof cut back to its rafters over it. Esc finishes it.",
         PlanTool.Soffit => "Click a roof's eaves or verges one after another: the soffit closes the overhang under them, back to the wall - under a verge sloping with the roof. Esc finishes it.",
         PlanTool.SlabEdge => "Click a floor's edges one after another: the slab edge runs along them all, round the corners. Click one again to take it off; Esc finishes it.",
         PlanTool.Mass => "Draw the mass's footprint - a box by two corners, a circle by its centre and a point on it, or an outline by its corners - so high and so topped as the option bar says.",
@@ -1699,7 +1715,7 @@ public partial class PlanView : FrameworkElement
             // Roof by Extrusion locks onto wall corners as well, and names what it found.
             ExtrusionHover(raw);
         }
-        else if (ActiveTool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit)
+        else if (ActiveTool is PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit or PlanTool.Eave)
         {
             RoofEdgeHover(raw);
             _cursorModel = raw;
@@ -1975,8 +1991,16 @@ public partial class PlanView : FrameworkElement
                 PlaceComponent(raw);
                 return;
 
-            case PlanTool.Column:
+            case PlanTool.Column or PlanTool.StructuralColumn:
                 PlaceColumn(raw);
+                return;
+
+            case PlanTool.WallFooting:
+                PlaceWallFootingAt(raw);
+                return;
+
+            case PlanTool.PadFooting:
+                PlacePadFootingAt(raw);
                 return;
 
             case PlanTool.Floor:
@@ -2055,7 +2079,7 @@ public partial class PlanView : FrameworkElement
                 DormerAt(raw);
                 return;
 
-            case PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit:
+            case PlanTool.Fascia or PlanTool.Gutter or PlanTool.Soffit or PlanTool.Eave:
                 PickRoofEdgeAt(raw);
                 return;
 
@@ -5075,7 +5099,7 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null) return;
 
-        if (Document.FindType<ColumnType>(ActiveColumnTypeId) is not { } type)
+        if (Document.FindType<ColumnType>(ActiveTool == PlanTool.StructuralColumn ? ActiveStructuralColumnTypeId : ActiveColumnTypeId) is not { } type)
         {
             HintChanged?.Invoke(this, "Pick a column type on the options bar first.");
             return;
@@ -5109,7 +5133,8 @@ public partial class PlanView : FrameworkElement
             TypeId = type.Id,
             LevelId = ActiveLevelId,
             Location = at,
-            Rotation = ColumnRotation
+            Rotation = ColumnRotation,
+            Structural = type.Structural
         };
 
         if (ColumnTopLevelId is not { } chosen) return column;
@@ -5137,7 +5162,7 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null) return false;
 
-        if (Document.FindType<ColumnType>(ActiveColumnTypeId) is not { } type)
+        if (Document.FindType<ColumnType>(ActiveTool == PlanTool.StructuralColumn ? ActiveStructuralColumnTypeId : ActiveColumnTypeId) is not { } type)
         {
             HintChanged?.Invoke(this, "Pick a column type on the options bar first.");
             return true;
@@ -5174,7 +5199,7 @@ public partial class PlanView : FrameworkElement
     /// <summary>Turns the column about to be placed a quarter turn, as Space does for a component.</summary>
     public bool TurnColumn()
     {
-        if (ActiveTool != PlanTool.Column) return false;
+        if (ActiveTool is not (PlanTool.Column or PlanTool.StructuralColumn)) return false;
 
         ColumnRotation = (ColumnRotation + 90) % 360;
         HintChanged?.Invoke(this, $"Next column turned to {ColumnRotation:0}°.");
@@ -5738,6 +5763,11 @@ public partial class PlanView : FrameworkElement
                 ring = slab.Boundary;
                 break;
 
+            case WallFooting or PadFooting:
+                if (Footings.Footprint(Document, element) is { Count: >= 3 } footingOutline)
+                    DrawModelPolyline(dc, _hoverPen, footingOutline.Append(footingOutline[0]).ToList());
+                return;
+
             case RoofEdgeSweep edgeSweep:
                 foreach (var footprint in RoofEdgeSweeps.Footprints(Document, edgeSweep).Where(footprint => footprint.Count >= 3))
                     DrawModelPolyline(dc, _hoverPen, footprint.Append(footprint[0]).ToList());
@@ -5953,6 +5983,7 @@ public partial class PlanView : FrameworkElement
         foreach (var slab in OnActiveLevel<Slab>().Where(slab => slab.Contains(model)).Reverse())
             yield return slab;
         foreach (var line in PropertyLinesAt(model)) yield return line;
+        foreach (var footing in FootingsAt(model)) yield return footing;
         foreach (var pad in PadsAt(model)) yield return pad;
         foreach (var region in RegionsAt(model)) yield return region;
         foreach (var ground in GroundsAt(model)) yield return ground;
@@ -6090,6 +6121,7 @@ public partial class PlanView : FrameworkElement
         // A roof, floor or ceiling whose outline is open for editing is not drawn: its sketch stands in for it.
         var editing = SketchedElement;
         _renderer.Filter = editing is null ? _shows : element => !ReferenceEquals(element, editing) && _shows(element);
+        _renderer.Style = Document is null ? _ => default : Document.ViewSettings.StyleFor(Document, CurrentView);
         _renderer.Document = Document;
         _renderer.DetailLevel = EffectiveDetailLevel;
         _renderer.View = CurrentView;
@@ -6123,6 +6155,7 @@ public partial class PlanView : FrameworkElement
         _underlayRenderer.SetSelection(null);
         _underlayRenderer.ActiveLevelId = below.Id;
         _underlayRenderer.Filter = Document.ViewSettings.FilterFor(Document, ViewReference.FloorPlan(below.Id));
+        _underlayRenderer.Style = Document.ViewSettings.StyleFor(Document, ViewReference.FloorPlan(below.Id));
         _underlayRenderer.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         _underlayRenderer.PixelsPerPaperMm = PlanRenderer.ScreenPixelsPerPaperMm;
         _underlayRenderer.SetTransform(ModelToScreen, PixelsPerMm);

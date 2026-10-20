@@ -60,8 +60,55 @@ public class SpaceSeparationTests
         Assert.Contains(WallRules.Problems(document, east, standard), wallProblem => wallProblem.Rule.Contains("Diagram 11.7"));
         Assert.Contains("East 1.5 m: 5.8 m² open, 5.6 m² allowed", SpaceSeparation.Summary(document));
 
-        // The US codes measure fire separation their own way.
+        // Sprinklered throughout, the more of double the area or the area twice as far off (11.21): 18 m² at 1.5 m.
+        Assert.Equal(18, SpaceSeparation.Allowed(1.5, sprinklered: true));
+        Assert.Equal(30, SpaceSeparation.Allowed(2.5, sprinklered: true));
+        Assert.Null(SpaceSeparation.Allowed(3, sprinklered: true));
+        Assert.Equal(0, SpaceSeparation.Allowed(0.8, sprinklered: true));
+        document.ProjectInformation.Sprinklered = true;
+        Assert.Empty(SpaceSeparation.Problems(document, east, standard));
+        Assert.Contains("East 1.5 m: 5.8 m² open, 18 m² allowed", SpaceSeparation.Summary(document));
+    }
+
+    [Fact]
+    public void TheIrcHoldsAWallNearTheLotLineToItsRatingAndItsOpenings()
+    {
+        var (document, walls) = Plot();
+        var (south, east, west) = (walls[0], walls[1], walls[3]);
+        var half = document.GetWallType(east)!.Structure.TotalWidth / 2;
+        Assert.Equal(1500, SpaceSeparation.FireSeparationDistance(document, east)!.Value, 1);
+
+        // The south wall runs square to the side lot lines: it is measured to the one it faces.
+        Assert.Equal(10000 - half, SpaceSeparation.FireSeparationDistance(document, south)!.Value, 1);
+
+        // 4.9 ft from the line: rated two hours, and openings up to a quarter of the wall - 4.05 m² of its 16.2.
+        Windows(document, east, 2);
         Assert.Empty(SpaceSeparation.Problems(document, east, ClearanceStandard.Irc));
+        Windows(document, east, 1);
+        var problem = Assert.Single(SpaceSeparation.Problems(document, east, ClearanceStandard.Irc));
+        Assert.Contains("its openings 4.3 m² of its 16.2 m²", problem.Said);
+        Assert.Contains("25% of its area", problem.Rule);
+
+        // Not rated, it wants an hour, from both sides.
+        var unrated = document.GetWallType(east)!.Duplicate("Exterior - Unrated");
+        unrated.FireRating = string.Empty;
+        document.AddType(unrated);
+        east.TypeId = unrated.Id;
+        Assert.Contains(SpaceSeparation.Problems(document, east, ClearanceStandard.Irc), found => found.Rule.Contains("rated 1 hour, tested with exposure from both sides"));
+
+        // Sprinklered throughout, 3 ft is enough: neither the rating nor the share of openings is asked.
+        document.ProjectInformation.Sprinklered = true;
+        Assert.Empty(SpaceSeparation.Problems(document, east, ClearanceStandard.Irc));
+
+        // 2.6 ft from the line: no openings at all, sprinklers or not.
+        Windows(document, west, 1);
+        Assert.Contains(SpaceSeparation.Problems(document, west, ClearanceStandard.Irc), found => found.Rule.Contains("no openings"));
+        document.ProjectInformation.Sprinklered = false;
+        Assert.Contains(SpaceSeparation.Problems(document, west, ClearanceStandard.Irc), found => found.Rule.Contains("no openings"));
+
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
+        Assert.Contains("East 4.9 ft: 1-hour walls, openings up to 25%", SpaceSeparation.Summary(document));
+        Assert.Contains("West 2.6 ft: 1-hour walls, no openings", SpaceSeparation.Summary(document));
     }
 
     [Fact]
