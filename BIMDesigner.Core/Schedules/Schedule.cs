@@ -118,8 +118,9 @@ public static class Schedule
             .Where(element => element.Category == definition.Category)
             .Select(element =>
             {
+                // What it costs: its quantity at its type's rate - each, by the metre, by the square metre.
                 var cells = ParametersOf(document, element);
-                return new ScheduleRow { Element = element, Cells = Counted(cells, 1, Cost(cells)) };
+                return new ScheduleRow { Element = element, Cells = Counted(cells, 1, Coordination.CostPlanning.CostOf(document, element)) };
             })
             .Where(row => read.All(filter => Passes(row, filter)))
             .ToList();

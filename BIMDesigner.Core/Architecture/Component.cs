@@ -541,6 +541,24 @@ public sealed class Component : Element, IHostedElement
         yield return ParameterValue.ReadOnly(ComponentParameters.Room,
             () => RoomsOf.Containing(document, LevelId, Location) is { } room ? RoomsOf.Label(room) : string.Empty);
 
+        // A person: their eyes, what they see from where they stand, and their view out.
+        if (Views.Walker.IsPerson(type))
+        {
+            var us = document.ProjectInformation.ClearanceStandard.IsUs();
+            yield return ParameterValue.ReadOnly(ComponentParameters.EyeHeight, () => Views.Walker.Of(type!, us).EyeHeight);
+            yield return ParameterValue.ReadOnly(ComponentParameters.Sees, () =>
+            {
+                var (_, area, rooms, openings) = Views.Sight.Of(document, this);
+                var named = openings.Select(opening => string.IsNullOrWhiteSpace(opening.Mark) ? opening.Category == BuiltInCategory.Doors ? "a door" : "a window" : opening.Mark).ToList();
+                return $"{area:0} m² in sight{(rooms.Count > 0 ? $"; {string.Join(", ", rooms)}" : string.Empty)}{(named.Count > 0 ? $"; {named.Count} door{(named.Count == 1 ? "" : "s")} and windows: {string.Join(", ", named.Take(12))}" : string.Empty)}";
+            });
+            yield return ParameterValue.ReadOnly(ComponentParameters.ViewOut, () =>
+            {
+                var meshes = Views.ModelMeshBuilder.Build(document, element => element.Id != Id);
+                return Views.ViewOut.From(document, LevelId, Location, Views.Walker.Of(type!, us).EyeHeight, meshes, new HashSet<Guid> { Id }).Said;
+            });
+        }
+
         // What its elevation is measured from: the top of the floor it stands on, or its level.
         yield return ParameterValue.ReadOnly(ComponentParameters.StandsOn, () =>
             StandsOn is { } floor && document.Elements.FirstOrDefault(element => element.Id == floor) is { } slab
@@ -627,6 +645,18 @@ public static class ComponentTypeParameters
 
 public static class ComponentParameters
 {
+    /// <summary>A person's eyes, over what they stand on.</summary>
+    public static readonly ParameterDefinition EyeHeight =
+        new("Eye Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    /// <summary>What a person sees from where they stand: the area in sight, the rooms, the doors and windows.</summary>
+    public static readonly ParameterDefinition Sees =
+        new("What They See", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    /// <summary>A person's view out from where they stand, as BS EN 17037 grades it.</summary>
+    public static readonly ParameterDefinition ViewOut =
+        new("View Out (BS EN 17037)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
     public static readonly ParameterDefinition Family =
         new("Family and Type", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 

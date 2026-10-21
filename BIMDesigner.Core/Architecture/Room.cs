@@ -144,6 +144,9 @@ public sealed class Room : Element
         if (Architecture.WindowRules.Verdict(document, this) is { } windows)
             yield return ParameterValue.ReadOnly(RoomParameters.Windows, () => windows);
 
+        // Its view out, seated in its middle, as BS EN 17037 grades it.
+        yield return ParameterValue.ReadOnly(RoomParameters.ViewOut, () => Views.ViewOut.OfRoom(document, this)?.Said ?? string.Empty);
+
         yield return ParameterValue.ReadOnly(RoomParameters.BoundingWalls, () => boundary.BoundingWalls.Count);
 
         // Finishes - what a finishes schedule reports
@@ -236,6 +239,10 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition Windows =
         new("Windows", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    /// <summary>The room's view out, seated in its middle, as BS EN 17037 grades it.</summary>
+    public static readonly ParameterDefinition ViewOut =
+        new("View Out (BS EN 17037)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition BoundingWalls =
         new("Bounding Walls", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);

@@ -103,6 +103,8 @@ public partial class MainWindow : Window
             AfterHistoryChange();
         };
         Model3D.MovingChanged += (_, _) => SyncMoving();
+        Model3D.WalkStopped += (_, why) => StatusHint.Text = why;
+        FillWalkAsPicker();
 
         // Interior elevations open from their arrows on the plan; callouts from their boxes,
         // and a callout drawn on a section is made there.
@@ -484,6 +486,10 @@ public partial class MainWindow : Window
         _document = document;
         _path = path;
 
+        // A project opened is shown whole, not as built on a date of the last one's programme.
+        Model3D.ConstructionDate = null;
+        Dispatcher.BeginInvoke(RaiseCoordinationChanged);
+
         // Its sheets are not projected again at every move of the mouse: what was projected is kept till it changes.
         Projections.Keep(document);
 
@@ -504,6 +510,7 @@ public partial class MainWindow : Window
 
             Projections.Forget(_document);
             RefreshTitle();
+            RaiseCoordinationChanged();
             CommandManager.InvalidateRequerySuggested();
 
             // Every edit reaches here, undo and redo included - and the section is a cut
@@ -3494,6 +3501,8 @@ public partial class MainWindow : Window
         ContextAddRoofDrain.Visibility = selected is [Roof flatRoof] && RoofDrainage.CanDrain(_document, flatRoof) ? Visibility.Visible : Visibility.Collapsed;
         ContextColumnPanel.Visibility = selected.Count > 0 && selected.All(element => element is Column)
             ? Visibility.Visible : Visibility.Collapsed;
+        ContextPersonPanel.Visibility = selected is [Core.Architecture.Component someone] && Walker.IsPerson(_document.FindType<ComponentType>(someone.TypeId))
+            ? Visibility.Visible : Visibility.Collapsed;
         ContextGuardPanel.Visibility = selected is [Slab walkedOn] && walkedOn is not Ceiling && FloorSurfaces.IsStoodOn(_document, walkedOn)
             ? Visibility.Visible : Visibility.Collapsed;
         ContextStoreyPanel.Visibility = ContextGuardPanel.Visibility;
@@ -5011,6 +5020,7 @@ public partial class MainWindow : Window
     /// <summary>Walk and Play show what is going on.</summary>
     private void SyncMoving()
     {
+        LeavePersonWhereWalked();
         WalkToggle.IsChecked = Model3D.IsWalking;
         PlayButton.Content = Model3D.Playing is not null ? "Stop" : "Play";
         ModelHelp.Text = Model3D.IsWalking

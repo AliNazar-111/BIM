@@ -220,10 +220,21 @@ public partial class ModelView : Border
         _viewport.Camera = IsOrtho ? _ortho : _camera;
         if (_hasFitted) UpdateCamera();
 
-        _allMeshes = _document is null ? Array.Empty<Mesh3D>() : ModelMeshBuilder.Build(_document, _document.ViewSettings.FilterFor(_document, Reference));
+        // As the view's filters and phasing have them - and, on a date of the construction programme, as built by then.
+        PrepareConstruction();
+        if (_document is null) _allMeshes = Array.Empty<Mesh3D>();
+        else
+        {
+            var shows = _document.ViewSettings.FilterFor(_document, Reference);
+            _allMeshes = ModelMeshBuilder.Build(_document, element => shows(element) && StandsOn(element) && element.Id != _walkingAs);
+        }
 
         // As the view's phasing and filters draw them: faded, in a colour of their own; what is taken down red and faint.
-        if (_document is not null) Restyle(_allMeshes, _document.ViewSettings.StyleFor(_document, Reference));
+        if (_document is not null)
+        {
+            var styled = _document.ViewSettings.StyleFor(_document, Reference);
+            Restyle(_allMeshes, element => styled(element).Then(ConstructionStyle(element)));
+        }
 
         // Converted once per rebuild. Selecting something or changing the style only swaps
         // materials, and should not pay to copy every vertex again.
@@ -748,6 +759,16 @@ public partial class ModelView : Border
         if (_elevation is not null || _walking) return;
         _yaw += yawDegrees;
         _pitch = Math.Clamp(_pitch + pitchDegrees, -MaxPitch, MaxPitch);
+        UpdateCamera();
+    }
+
+    /// <summary>Turns to look at a point in the model from so far off, mm, keeping the direction it looks from.</summary>
+    public void LookAt(CorePoint3D point, double distance = 6000)
+    {
+        if (_elevation is not null || _walking) return;
+        _target = new MediaPoint3D(point.X / MillimetresPerUnit, point.Y / MillimetresPerUnit, point.Z / MillimetresPerUnit);
+        _distance = Math.Clamp(distance / MillimetresPerUnit, 0.5, 5000);
+        _hasFitted = true;
         UpdateCamera();
     }
 

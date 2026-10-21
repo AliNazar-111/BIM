@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Views;
 
@@ -91,9 +92,52 @@ public partial class ModelView
 
         if (feet is not { } standing) return "Look at the building first: walking starts a few paces back from what is in the middle of the view.";
 
+        return Walk(stand, standing, heading);
+    }
+
+    private Guid? _walkingAs;
+
+    /// <summary>The person in the model being walked as: not drawn while they are, being the eyes the view is seen through.</summary>
+    public Guid? WalkingAs
+    {
+        get => _walkingAs;
+        set
+        {
+            if (_walkingAs == value) return;
+            _walkingAs = value;
+            Rebuild();
+        }
+    }
+
+    /// <summary>Where the last walk ended - the feet, and the way they faced.</summary>
+    public (CorePoint3D Feet, double Heading)? LastWalk { get; private set; }
+
+    /// <summary>Who is walking: their eye height, the steps and slopes they can take, how wide they are.</summary>
+    public Walker Walker { get; set; } = Walker.For(WalkerKind.Adult, false);
+
+    /// <summary>Where the walker stands - their feet - and which way they face, while walking.</summary>
+    public (CorePoint3D Feet, double Heading)? WalkerAt => _walking ? (new CorePoint3D(_eye.X, _eye.Y, _feet), _lookYaw) : null;
+
+    /// <summary>Raised with why a step was not taken: a wall in the way, a step too high for a wheelchair, a slope too steep.</summary>
+    public event EventHandler<string>? WalkStopped;
+
+    private string? _stoppedBy;
+
+    /// <summary>Starts walking from a place - feet at a height, facing a way - as whoever <see cref="Walker"/> is.</summary>
+    public string? StartWalkingAt(Point2D at, double feet, double heading)
+    {
+        if (_elevation is not null) return "An elevation is not walked through: open a 3D view.";
+        if (_document is null) return "There is nothing to walk through.";
+        StopMoving();
+        return Walk(at, feet, heading);
+    }
+
+    private string? Walk(Point2D stand, double standing, double heading)
+    {
         _frameCamera = null;
+        _stoppedBy = null;
         (_walking, _feet, _lookYaw, _lookPitch) = (true, standing, heading, 0);
-        _eye = new CorePoint3D(stand.X, stand.Y, standing + Views3D.EyeHeight);
+        _eye = new CorePoint3D(stand.X, stand.Y, standing + Walker.EyeHeight);
         _viewport.Camera = _camera;
         _camera.FieldOfView = 60;
         RefreshGrips();
@@ -108,6 +152,7 @@ public partial class ModelView
     public void StopWalking()
     {
         if (!_walking) return;
+        LastWalk = (new CorePoint3D(_eye.X, _eye.Y, _feet), _lookYaw);
         _walking = false;
         _held.Clear();
 
@@ -220,15 +265,58 @@ public partial class ModelView
         UpdateCamera();
     }
 
-    /// <summary>A stride, if nothing is in the way: the feet onto whatever is underfoot where it lands.</summary>
+    /// <summary>
+    /// A stride, if nothing is in the way and the walker can take it: the feet onto whatever is
+    /// underfoot where it lands - not up or down a step higher than they can manage, nor up or
+    /// down a slope steeper than they can.
+    /// </summary>
     private void Step(Vector2D stride)
     {
         var from = new Point2D(_eye.X, _eye.Y);
         var to = from + stride;
-        if (Walking.Blocked(_allMeshes, from, to, _feet, Views3D.EyeHeight)) return;
+        var walker = Walker;
+        if (Walking.Blocked(_allMeshes, from, to, _feet, walker.EyeHeight, walker.Width))
+        {
+            Stopped(walker.Width > 0 ? $"Something is in the way of {walker.Name} {walker.Width:0} wide - a wall, a narrow doorway, furniture." : "Something is in the way.");
+            return;
+        }
 
-        _feet = Walking.FloorUnder(_allMeshes, to, _feet) ?? _feet;
-        _eye = new CorePoint3D(to.X, to.Y, _feet + Views3D.EyeHeight);
+        var next = Walking.FloorUnder(_allMeshes, to, _feet, walker.StepUp) ?? _feet;
+        if (walker.Kind == WalkerKind.WheelchairUser)
+        {
+            var higher = Walking.FloorUnder(_allMeshes, to, _feet, Walking.StepUp);
+            var rise = (higher ?? next) - _feet;
+            var us = _document?.ProjectInformation.ClearanceStandard.IsUs() == true;
+            var rule = us ? "the ADA allows 1/2 in, bevelled, at a change of level (303.3)" : "Approved Document M allows a threshold of 15 mm at most";
+            if (rise > walker.StepUp + 0.5)
+            {
+                Stopped($"A step up of {rise:0} mm: {walker.Name} cannot get up it - {rule}. A ramp, or a level threshold, is needed.");
+                return;
+            }
+
+            if (next < _feet - walker.StepUp - 0.5)
+            {
+                Stopped($"A step down of {_feet - next:0} mm: {walker.Name} cannot get down it - {rule}.");
+                return;
+            }
+
+            if (Math.Abs(next - _feet) / Math.Max(stride.Length, 1) > walker.Steepest + 0.004)
+            {
+                Stopped($"Steeper than 1:12: too steep for {walker.Name} - the most a ramp may be ({(us ? "ADA 405.2" : "Approved Document M")}).");
+                return;
+            }
+        }
+
+        _stoppedBy = null;
+        _feet = next;
+        _eye = new CorePoint3D(to.X, to.Y, _feet + walker.EyeHeight);
+    }
+
+    private void Stopped(string why)
+    {
+        if (why == _stoppedBy) return;
+        _stoppedBy = why;
+        WalkStopped?.Invoke(this, why);
     }
 
     /// <summary>The wheel while walking: a stride forward or back.</summary>

@@ -1,5 +1,6 @@
 using BIMDesigner.Core;
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Coordination;
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
@@ -28,6 +29,7 @@ using Xbim.Ifc4.SharedBldgElements;
 using Xbim.Ifc4.SharedComponentElements;
 using Xbim.Ifc4.SharedFacilitiesElements;
 using Xbim.Ifc4.UtilityResource;
+using Xbim.Ifc4.DateTimeResource;
 using Xbim.IO;
 
 using CoreMaterial = BIMDesigner.Core.Materials.Material;
@@ -186,6 +188,7 @@ public static class IfcExport
             foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
             ExportGrids();
             ExportClassifications();
+            ExportProgramme();
 
             _ = building;
         }
@@ -195,6 +198,98 @@ public static class IfcExport
         /// the project's classification, Uniclass to start with: one reference to each code, related
         /// to everything coded to it and to the types themselves.
         /// </summary>
+        /// <summary>
+        /// The construction programme (4D) as IFC4 has it: an IfcWorkSchedule controlling an
+        /// IfcTask for each task - its planned and actual dates, duration, float, completion and
+        /// whether it is critical in an IfcTaskTime - IfcRelSequence for each finish-to-start link
+        /// and its lag, and IfcRelAssignsToProcess for what each task builds or takes down.
+        /// </summary>
+        private void ExportProgramme()
+        {
+            var schedule = _document.Construction;
+            if (schedule.Tasks.Count == 0) return;
+
+            static string When(DateOnly date, bool end) => date.ToDateTime(end ? new TimeOnly(17, 0) : new TimeOnly(8, 0)).ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+            static string Days(int days) => $"P{Math.Max(0, days)}D";
+            var times = ConstructionPlanning.Time(schedule);
+            var work = New<Xbim.Ifc4.ProcessExtension.IfcWorkSchedule>(plan =>
+            {
+                plan.GlobalId = IfcGloballyUniqueId.ConvertToBase64(PartId(schedule.Tasks[0].Id, 0x4D, 0xD4));
+                plan.Name = "Construction programme";
+                plan.CreationDate = new IfcDateTime(DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture));
+                plan.StartTime = new IfcDateTime(When(ConstructionPlanning.FirstDay(schedule), false));
+                plan.FinishTime = new IfcDateTime(When(ConstructionPlanning.Finish(schedule), true));
+                plan.PredefinedType = schedule.Tasks.Any(task => task.BaselineStart is not null) ? Xbim.Ifc4.Interfaces.IfcWorkScheduleTypeEnum.BASELINE : Xbim.Ifc4.Interfaces.IfcWorkScheduleTypeEnum.PLANNED;
+            });
+
+            var tasks = new Dictionary<Guid, Xbim.Ifc4.ProcessExtension.IfcTask>();
+            foreach (var timed in times)
+            {
+                var task = timed.Task;
+                var time = New<Xbim.Ifc4.DateTimeResource.IfcTaskTime>(taskTime =>
+                {
+                    taskTime.DurationType = Xbim.Ifc4.Interfaces.IfcTaskDurationEnum.WORKTIME;
+                    taskTime.ScheduleDuration = new IfcDuration(Days(task.Duration));
+                    taskTime.ScheduleStart = new IfcDateTime(When(timed.Start, false));
+                    taskTime.ScheduleFinish = new IfcDateTime(When(timed.Finish, true));
+                    taskTime.EarlyStart = new IfcDateTime(When(timed.Start, false));
+                    taskTime.LateStart = new IfcDateTime(When(ConstructionPlanning.DateOf(schedule, timed.LateStart), false));
+                    taskTime.TotalFloat = new IfcDuration(Days(timed.TotalFloat));
+                    taskTime.IsCritical = timed.Critical;
+                    if (task.ActualStart is { } began) taskTime.ActualStart = new IfcDateTime(When(began, false));
+                    if (task.ActualFinish is { } ended) taskTime.ActualFinish = new IfcDateTime(When(ended, true));
+                    if (task.PercentComplete > 0) taskTime.Completion = new IfcPositiveRatioMeasure(task.PercentComplete / 100);
+                });
+                tasks[task.Id] = New<Xbim.Ifc4.ProcessExtension.IfcTask>(each =>
+                {
+                    each.GlobalId = task.Id.ToIfc();
+                    each.Name = task.Name;
+                    each.IsMilestone = task.Duration == 0;
+                    each.TaskTime = time;
+                    each.Status = task.ActualFinish is not null ? "Completed" : task.ActualStart is not null ? "Started" : "Not started";
+                    each.PredefinedType = task.Kind switch
+                    {
+                        TaskKind.Demolish => Xbim.Ifc4.Interfaces.IfcTaskTypeEnum.DEMOLITION,
+                        TaskKind.Temporary => Xbim.Ifc4.Interfaces.IfcTaskTypeEnum.USERDEFINED,
+                        _ => Xbim.Ifc4.Interfaces.IfcTaskTypeEnum.CONSTRUCTION
+                    };
+                    if (task.Kind == TaskKind.Temporary) each.ObjectType = "Temporary works";
+                });
+            }
+
+            New<IfcRelAssignsToControl>(relation =>
+            {
+                relation.RelatingControl = work;
+                relation.RelatedObjects.AddRange(tasks.Values);
+            });
+
+            foreach (var timed in times)
+            foreach (var link in timed.Task.Predecessors.Where(link => tasks.ContainsKey(link.Predecessor)))
+                New<Xbim.Ifc4.ProcessExtension.IfcRelSequence>(sequence =>
+                {
+                    sequence.RelatingProcess = tasks[link.Predecessor];
+                    sequence.RelatedProcess = tasks[timed.Task.Id];
+                    sequence.SequenceType = Xbim.Ifc4.Interfaces.IfcSequenceEnum.FINISH_START;
+                    if (link.Lag != 0)
+                        sequence.TimeLag = New<Xbim.Ifc4.DateTimeResource.IfcLagTime>(lag =>
+                        {
+                            lag.LagValue = new IfcDuration(Days(link.Lag));
+                            lag.DurationType = Xbim.Ifc4.Interfaces.IfcTaskDurationEnum.WORKTIME;
+                        });
+                });
+
+            foreach (var timed in times)
+            {
+                var built = ConstructionPlanning.Elements(_document, timed.Task).Select(element => _products.GetValueOrDefault(element.Id)).OfType<IfcProduct>().ToList();
+                if (built.Count == 0) continue;
+                New<IfcRelAssignsToProcess>(relation =>
+                {
+                    relation.RelatingProcess = tasks[timed.Task.Id];
+                    relation.RelatedObjects.AddRange(built);
+                });
+            }
+        }
+
         private void ExportClassifications()
         {
             var table = _document.Classification;
@@ -395,8 +490,12 @@ public static class IfcExport
             _storeys.TryGetValue(element.LevelId, out var storey) ? storey : _storeys.Values.FirstOrDefault();
 
         /// <summary>Puts a product on its storey, which is how a viewer's tree is built.</summary>
+        // What each element went out as, for the programme's tasks to name what they build.
+        private readonly Dictionary<Guid, IfcProduct> _products = new();
+
         private void Contain(Element element, IfcProduct product)
         {
+            _products.TryAdd(element.Id, product);
             if (StoreyOf(element) is not { } storey) return;
 
             New<IfcRelContainedInSpatialStructure>(relation =>

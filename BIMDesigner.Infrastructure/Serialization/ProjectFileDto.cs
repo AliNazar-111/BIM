@@ -144,6 +144,11 @@ internal sealed class ProjectFileDto
     /// <summary>The project's schedules. Missing from older files, which open with the schedules a project starts with.</summary>
     public List<ScheduleDto>? Schedules { get; set; }
 
+    /// <summary>The clash tests and their clashes, the construction programme and the cost plan's additions; none in older files.</summary>
+    public List<ClashTestDto>? ClashTests { get; set; }
+    public ConstructionScheduleDto? Construction { get; set; }
+    public CostSettingsDto? CostSettings { get; set; }
+
     /// <summary>The revisions of the drawings, in order, and the clouds round what they changed.</summary>
     public List<RevisionDto> Revisions { get; set; } = new();
     public List<RevisionCloudDto> RevisionClouds { get; set; } = new();

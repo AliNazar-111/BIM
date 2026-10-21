@@ -1020,6 +1020,39 @@
 
                 <!-- ====================== MODIFY | CATEGORY ====================== -->
                 <!-- Shown only while something is selected, holding what can be done to it. -->
+                <TabItem Header="Coordinate" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Clashes" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Clash}"
+                                        Content="Clash Detective" Click="OnClashDetective"
+                                        ToolTip="Clash tests between categories - hard, clearance, duplicates and the programme's sequence - each clash kept as an issue with its status, who has it and when it is due; reported as BCF, a web page or a spreadsheet"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Clash}"
+                                            Content="Run All Tests" Click="OnRunClashTests"
+                                            ToolTip="Run every clash test now: what is found again keeps its status, what is gone is resolved"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Time (4D)" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Programme}"
+                                        Content="Programme" Click="OnConstructionProgramme"
+                                        ToolTip="The construction programme: tasks made from the model or read from Microsoft Project, Primavera P6 or Asta, the critical path, a bar chart, earned value against a baseline - and the building played through day by day in the 3D view"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Cost (5D)" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CostPlan}"
+                                        Content="Cost Plan" Click="OnCostPlan"
+                                        ToolTip="The model measured and costed at its types' rates, set out by NRM1 in England or UniFormat II in the US, with preliminaries, overheads and profit, fees, risk and inflation - and its spend over the programme"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
                 <TabItem x:Name="ContextTab" Header="Modify" Style="{StaticResource ContextRibbonTab}" Visibility="Collapsed">
                     <StackPanel Orientation="Horizontal">
                         <HeaderedContentControl Header="Select" Style="{StaticResource ContextRibbonPanel}">
@@ -1275,6 +1308,14 @@
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Profile}"
                                         Content="Edit Section" Click="OnEditColumnProfile"
                                         ToolTip="Draw the column's cross-section: cut shapes out of it, add shapes to it, and watch it in 3D as you go"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextPersonPanel" Header="Person" Style="{StaticResource ContextRibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Walkthrough}"
+                                        Content="Walk As Them" Click="OnWalkAsThem"
+                                        ToolTip="See through their eyes in 3D and walk where they can - a wheelchair user stopped by steps, steep slopes and narrow doorways. They go where you go: when you stop, they are left standing there"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -2529,6 +2570,9 @@
                                     <ToggleButton x:Name="WalkToggle" Style="{StaticResource ViewControlToggle}" Content="Walk"
                                                   Click="OnToggleWalk"
                                                   ToolTip="Walk through the model at eye height: W A S D or the arrows, Shift to hurry, drag to look round, Esc to stop"/>
+                                    <ComboBox x:Name="WalkAsPicker" Style="{StaticResource ViewControlCombo}" Width="130"
+                                              SelectionChanged="OnWalkAsChanged"
+                                              ToolTip="Who walks: an adult, eyes at 1750; a child, at 1100; or a wheelchair user, eyes at 1200 - stopped by any step over 15 mm (1/2 in under US codes), anything steeper than 1:12 and any doorway narrower than 700"/>
                                     <Button x:Name="SaveViewButton" Style="{StaticResource ViewControlButton}" Content="Save View"
                                             Click="OnSave3DView"
                                             ToolTip="Keep this view by a name of its own - its camera, style, section box and what it shows - to open again or place on a sheet"/>

@@ -302,6 +302,21 @@ public static class WindowRules
                     : "no escape window - Approved Document B (2.2, 2.10) asks for one in every habitable room up here: 0.33 m² clear, 450 by 450, its bottom 1100 up at most");
         }
 
+        // The living room's principal window, low enough to see out of sitting down: its glass no
+        // higher than 850 off the floor - or no higher than guarding to Part K makes it (Approved
+        // Document M, M4(2) 2.24, and the same in a wheelchair user dwelling, M4(3)).
+        var living = pieces.Any(type => type.Form is ComponentForm.Sofa or ComponentForm.CornerSofa) ||
+                     new[] { "living", "lounge", "sitting", "family room", "reception" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+        if (!us && living && windows.Count > 0)
+        {
+            var principal = windows.MaxBy(entry => GlassArea(entry.Type));
+            var glass = principal.Sill + Frame;
+            var guarded = OpeningGuarding.Drop(document, document.Walls.First(wall => wall.Id == principal.Window.HostWallId), principal.Window.DistanceAlongWall) > 600;
+            var highest = guarded ? Math.Max(850, OpeningGuarding.WindowGuard + Frame) : 850;
+            if (glass > highest + 0.5)
+                said.Add($"its principal window's glass starts {glass:0} up - Approved Document M (M4(2) 2.24, and M4(3) the same) asks for it to start no higher than 850 above the floor, to be seen out of sitting down{(guarded ? ", or as low as guarding allows" : string.Empty)}");
+        }
+
         // Its air - and, in the US, its light.
         var open = windows.Sum(entry => OpenArea(entry.Type)) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);
         var wide = windows.Sum(entry => OpenAreas(entry.Type).Fully) + doors.Sum(entry => entry.Type.Width * entry.Type.Height / 1e6);

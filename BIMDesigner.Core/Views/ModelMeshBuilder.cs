@@ -28,11 +28,27 @@ public static class ModelMeshBuilder
         shows ??= _ => true;
         using var heights = new Chimneys.Heights();
         using var joins = Architecture.WallJoins.TakingPart(shows);
+        var was = _shows;
+        _shows = shows;
+        try
+        {
+            return BuildShown(document, shows);
+        }
+        finally
+        {
+            _shows = was;
+        }
+    }
 
+    // What the model is being built to show, for a wall to leave a door or window not shown as the hole it is in.
+    [ThreadStatic] private static Func<Element, bool>? _shows;
+
+    private static IReadOnlyList<Mesh3D> BuildShown(BimDocument document, Func<Element, bool> shows)
+    {
         var meshes = new List<Mesh3D>();
 
         foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, wall, meshes);
-        foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, slab, meshes);
+        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => shows(slab))) AddSlab(document, slab, meshes);
 
         foreach (var column in document.Elements.OfType<Column>().Where(c => shows(c)))
             AddColumn(document, column, meshes);
@@ -430,7 +446,7 @@ public static class ModelMeshBuilder
 
         foreach (var (opening, openingType, from, to, sill, head) in openings)
         {
-            if (opening is null || openingType is null) continue;
+            if (opening is null || openingType is null || _shows?.Invoke(opening) == false) continue;
 
             var infill = meshes.Count;
             OpeningModel.Add(wall, planType, opening, openingType, from, to, sill, head, meshes);
@@ -740,7 +756,7 @@ public static class ModelMeshBuilder
 
         // The windows themselves, built where they were put and carrying their own ids, so one
         // can be clicked, sized and moved like a window in any other wall.
-        foreach (var (opening, openingType, from, to, sill, head) in cut)
+        foreach (var (opening, openingType, from, to, sill, head) in cut.Where(entry => _shows?.Invoke(entry.Opening) != false))
             OpeningModel.Add(wall, body, opening, openingType, from, to, bottom + sill, bottom + head, meshes);
 
         // Each mullion in its own type's section and material: a box offset in or out with its

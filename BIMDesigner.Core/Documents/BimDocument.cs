@@ -155,6 +155,15 @@ public sealed class BimDocument
     /// <summary>The project's keynotes: the keys keynote tags carry, and what they say.</summary>
     public Annotation.KeynoteTable Keynotes { get; } = new();
 
+    /// <summary>The clash tests run on the model, each with what it found and how each clash stands.</summary>
+    public List<Coordination.ClashTest> ClashTests { get; } = new();
+
+    /// <summary>The construction programme the model is built to (4D).</summary>
+    public Coordination.ConstructionSchedule Construction { get; } = new();
+
+    /// <summary>The additions the cost plan carries on its building works (5D).</summary>
+    public Coordination.CostSettings CostSettings { get; } = new();
+
     public ObservableCollection<Level> Levels => _levels;
 
     public IReadOnlyCollection<Material> Materials => _materials.Values;
@@ -2155,6 +2164,9 @@ public sealed class BimDocument
 
         // The schedules a drawing set has, to change, copy or add to.
         document.Schedules.AddRange(ScheduleDefinition.Defaults());
+
+        // The clash tests a project starts with.
+        document.ClashTests.AddRange(Coordination.ClashDetective.Defaults());
 
         // Keynotes to start from, until an office's own file is loaded; and Uniclass's codes for what is drawn here.
         document.Keynotes.CopyFrom(Annotation.KeynoteTable.Starter());

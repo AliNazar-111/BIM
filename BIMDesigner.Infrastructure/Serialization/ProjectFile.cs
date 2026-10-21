@@ -1243,6 +1243,7 @@ public static partial class ProjectFile
         // What is pinned, by its id: one list for every kind of element.
         dto.PinnedIds.AddRange(document.Elements.Where(element => element.Pinned).Select(element => element.Id));
         WriteRound6(document, dto);
+        WriteCoordination(document, dto);
 
         return dto;
     }
@@ -2993,6 +2994,7 @@ public static partial class ProjectFile
         }
 
         ReadRound6(dto, document);
+        ReadCoordination(dto, document);
 
         document.EnsureDefaultTypes();
 

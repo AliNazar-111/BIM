@@ -6047,6 +6047,7 @@ public partial class PlanView : FrameworkElement
         // between repaints, where nothing it shows has changed.
         // A callout is its part of the plan only: the rest is cropped away.
         if (ActiveCallout is { } callout) dc.PushClip(new RectangleGeometry(CropRect(callout)));
+        DrawSight(dc);
         DrawModel(dc);
         DrawClearances(dc);
         if (ActiveCallout is not null)

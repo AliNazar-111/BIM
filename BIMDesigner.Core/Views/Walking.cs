@@ -29,10 +29,10 @@ public static class Walking
     /// The top of what is underfoot at a point - the highest floor, tread, ramp or ground no more
     /// than a step above the feet - or null over nothing at all.
     /// </summary>
-    public static double? FloorUnder(IReadOnlyList<Mesh3D> meshes, Point2D at, double feet)
+    public static double? FloorUnder(IReadOnlyList<Mesh3D> meshes, Point2D at, double feet, double stepUp = StepUp)
     {
         double? best = null;
-        var reach = feet + StepUp;
+        var reach = feet + stepUp;
         foreach (var mesh in meshes)
         {
             if (!Ground.Contains(mesh.Kind) || mesh.Bounds() is not { } bounds) continue;
@@ -72,15 +72,20 @@ public static class Walking
     /// Whether a stride from one point to another, the feet at a height, runs into something -
     /// tested at the knee, the chest and the eye, and a body's reach ahead.
     /// </summary>
-    public static bool Blocked(IReadOnlyList<Mesh3D> meshes, Point2D from, Point2D to, double feet, double eyeHeight)
+    public static bool Blocked(IReadOnlyList<Mesh3D> meshes, Point2D from, Point2D to, double feet, double eyeHeight, double width = 0)
     {
         var stride = to - from;
         if (stride.Length < 1e-6) return false;
-        var ahead = to + stride.NormalisedOrDefault(Vector2D.UnitX) * Reach;
+        var way = stride.NormalisedOrDefault(Vector2D.UnitX);
+        var ahead = to + way * Reach;
 
-        foreach (var height in new[] { StepUp + 50, eyeHeight * 0.75, eyeHeight })
+        // Down the middle - and, for someone with a width, down each side as well.
+        var sides = width > 0 ? new[] { 0.0, width / 2, -width / 2 } : new[] { 0.0 };
+        foreach (var side in sides)
+        foreach (var height in new[] { Math.Min(StepUp + 50, Math.Max(300, eyeHeight * 0.3)), eyeHeight * 0.75, eyeHeight })
         {
-            var (p, q) = (Point3D.On(from, feet + height), Point3D.On(ahead, feet + height));
+            var offset = way.PerpendicularLeft() * side;
+            var (p, q) = (Point3D.On(from + offset, feet + height), Point3D.On(ahead + offset, feet + height));
             foreach (var mesh in meshes)
             {
                 if (!Solid.Contains(mesh.Kind) || mesh.Bounds() is not { } bounds) continue;
