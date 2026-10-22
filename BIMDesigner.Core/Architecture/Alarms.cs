@@ -27,7 +27,7 @@ public static class Alarms
 
     /// <summary>The pieces of one form on a storey, where they are.</summary>
     private static List<(Component Piece, ComponentType Type)> All(BimDocument document, Guid levelId, Func<ComponentType, bool> which) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type is not null && which(entry.Type))
@@ -44,7 +44,7 @@ public static class Alarms
             .Select(entry => (entry.Type.Name, entry.Piece.Location))
             .ToList();
 
-        foreach (var chimney in document.Elements.OfType<Chimney>())
+        foreach (var chimney in document.All<Chimney>())
         {
             var fireplace = chimney.LevelId == levelId ? chimney.Fireplace : chimney.FireplaceOn(levelId);
             if (fireplace == ChimneyFireplace.None) continue;
@@ -60,9 +60,9 @@ public static class Alarms
     public static IReadOnlyList<Point2D> Doors(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
     {
         var doors = new List<Point2D>();
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
             if (document.GetWallType(wall) is not { } type) continue;
 
             var reach = type.Structure.TotalWidth / 2 + 150;
@@ -133,7 +133,7 @@ public static class Alarms
                     problems.Add(new PlacementProblem(piece, $"it is {cooker:0} from the cooker.",
                         "IRC R314.3.1 keeps a smoke alarm 6 ft (1828) from a cooking appliance - a photoelectric one; an ionization one 20 ft.", footprint));
 
-                var bathroomDoor = document.Elements.OfType<Room>()
+                var bathroomDoor = document.All<Room>()
                     .Where(other => other.LevelId == piece.LevelId)
                     .Select(other => (Room: other, Boundary: other.GetBoundary(document)))
                     .Where(other => other.Boundary.IsEnclosed && All(document, piece.LevelId, t => t.Form is ComponentForm.Bath or ComponentForm.Shower)
@@ -167,7 +167,7 @@ public static class Alarms
 
     /// <summary>Every alarm's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .SelectMany(piece => Problems(document, piece, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(piece, "its place", problem.Outline, problem.Rule), string.Empty,
@@ -217,7 +217,7 @@ public static class Alarms
         }
 
         // A heat alarm in the kitchen of a house of three storeys or more: LD2.
-        var storeys = document.Levels.Count(level => document.Elements.OfType<Room>().Any(other => other.LevelId == level.Id));
+        var storeys = document.Levels.Count(level => document.All<Room>().Any(other => other.LevelId == level.Id));
         if (!us && kitchen && storeys >= 3 && !Has(ComponentForm.HeatAlarm))
             wanting.Add("no heat alarm in the kitchen - Approved Document B (1.7) asks for an LD2 system, with one, in a house of three storeys or more");
 

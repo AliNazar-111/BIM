@@ -975,7 +975,7 @@ public static class Ramps
         // the other run of a switchback beside it.
         var under = new List<double>();
         if (Terrains.GroundAt(document, beside) is { } ground) under.Add(ground);
-        foreach (var floor in document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3 && slab.Contains(beside) && FloorSurfaces.IsStoodOn(document, slab)))
+        foreach (var floor in document.All<Slab>().Where(slab => slab.Boundary.Count >= 3 && slab.Contains(beside) && FloorSurfaces.IsStoodOn(document, slab)))
         {
             var top = FloorSurfaces.TopAt(document, floor, beside);
             if (top <= height + Stairs.FloorReach) under.Add(top);
@@ -989,7 +989,7 @@ public static class Ramps
     public static double? SurfaceAt(BimDocument document, Point2D at, double height, double reach)
     {
         double? highest = null;
-        foreach (var ramp in document.Elements.OfType<Ramp>())
+        foreach (var ramp in document.All<Ramp>())
         {
             if (Layout(document, ramp).PieceAt(at) is not { } piece) continue;
             var top = piece.HeightAt(at);
@@ -1098,7 +1098,7 @@ public static class Ramps
     public static double? SurfaceOn(BimDocument document, Guid levelId, Point2D at)
     {
         double? highest = null;
-        foreach (var ramp in document.Elements.OfType<Ramp>().Where(ramp => ramp.LevelId == levelId))
+        foreach (var ramp in document.All<Ramp>().Where(ramp => ramp.LevelId == levelId))
             if (Layout(document, ramp).PieceAt(at) is { } piece && (highest is null || piece.HeightAt(at) > highest)) highest = piece.HeightAt(at);
         return highest;
     }
@@ -1146,7 +1146,7 @@ public static class Ramps
             if (clear > 0 && (least is not { } known || clear < known.Clear)) least = (clear, by);
         }
 
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3 && Over(slab.Boundary) && Stairs.IsFloorLike(document, slab)))
+        foreach (var slab in document.All<Slab>().Where(slab => slab.Boundary.Count >= 3 && Over(slab.Boundary) && Stairs.IsFloorLike(document, slab)))
         {
             var underside = slab.GetBottomElevation(document);
             if (underside <= layout.Bottom + 1) continue;
@@ -1156,15 +1156,15 @@ public static class Ramps
                     Consider(underside, surface, slab);
         }
 
-        var framing = document.Elements.OfType<Beam>().Where(beam => Over(new[] { beam.Start, beam.End })).Select(beam => (Beam: beam, By: (Element)beam))
-            .Concat(document.Elements.OfType<BeamSystem>().Where(system => Over(system.Boundary))
+        var framing = document.All<Beam>().Where(beam => Over(new[] { beam.Start, beam.End })).Select(beam => (Beam: beam, By: (Element)beam))
+            .Concat(document.All<BeamSystem>().Where(system => Over(system.Boundary))
                 .SelectMany(system => BeamSystems.Members(document, system).Select(joist => (Beam: joist, By: (Element)system))));
         foreach (var (beam, by) in framing)
         foreach (var piece in layout.Pieces)
             if (Beams.LowestOver(document, beam, piece.Outline) is { } underside && underside > piece.High)
                 Consider(underside, piece.High, by);
 
-        foreach (var roof in document.Elements.OfType<Roof>().Where(roof => roof.Boundary.Count >= 3 && Over(roof.Boundary) && !Stairs.IsFloorLike(document, roof)))
+        foreach (var roof in document.All<Roof>().Where(roof => roof.Boundary.Count >= 3 && Over(roof.Boundary) && !Stairs.IsFloorLike(document, roof)))
         {
             var surface = roof.Surface(document);
             var openings = RoofJoin.Openings(document, roof);
@@ -1193,7 +1193,7 @@ public static class Ramps
                 var underside = piece.HeightAt(at) - type.Thickness;
                 var floor = new List<double>();
                 if (Terrains.GroundAt(document, at) is { } ground) floor.Add(ground);
-                floor.AddRange(document.Elements.OfType<Slab>()
+                floor.AddRange(document.All<Slab>()
                     .Where(slab => slab.Boundary.Count >= 3 && slab.Contains(at) && FloorSurfaces.IsStoodOn(document, slab))
                     .Select(slab => FloorSurfaces.TopAt(document, slab, at)).Where(top => top < underside));
                 var space = underside - (floor.Count > 0 ? floor.Max() : GroundUnder(document, at));
@@ -1286,10 +1286,10 @@ public static class Ramps
     /// </summary>
     public static bool UpToADoorOut(BimDocument document, Ramp ramp, RampLayout layout)
     {
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
             if (document.FindType<DoorType>(door.TypeId) is not { } type || !Doors.External(document, door, type)) continue;
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall) continue;
             if (Math.Abs(wall.GetBaseElevation(document) + door.SillHeight - layout.Top) > 300) continue;
             if ((wall.Start + wall.Direction * door.DistanceAlongWall).DistanceTo(layout.Head) <= Math.Max(ramp.TopLanding, 0) + 1500) return true;
         }
@@ -1425,7 +1425,7 @@ public static class Ramps
 
     /// <summary>Whether there are steps near it - a stair on its storey whose foot or head is within 20 m of its own.</summary>
     private static bool StepsBeside(BimDocument document, Ramp ramp, RampLayout layout) =>
-        document.Elements.OfType<Stair>().Any(stair =>
+        document.All<Stair>().Any(stair =>
             (stair.LevelId == ramp.LevelId || stair.TopLevelId == ramp.LevelId)
             && Math.Min(stair.Start.DistanceTo(layout.Foot), stair.Start.DistanceTo(layout.Head)) < 20000);
 

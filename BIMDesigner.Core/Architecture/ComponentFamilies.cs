@@ -478,7 +478,7 @@ public sealed class FamilyDefinition
         type.Solids.AddRange(Solids.Select(solid => solid.Copy()));
         type.Mesh = Mesh;
 
-        foreach (var component in document.Elements.OfType<Component>().Where(component => component.TypeId == type.Id))
+        foreach (var component in document.All<Component>().Where(component => component.TypeId == type.Id))
             component.TypeKind = Kind;
     }
 

@@ -32,7 +32,7 @@ public static class Bathrooms
     private static List<(string Name, IReadOnlyList<Point2D> Outline, double Rim)> Wet(BimDocument document, Component near)
     {
         var room = RoomsOf.Containing(document, near.LevelId, near.Location);
-        return document.Elements.OfType<Component>()
+        return document.All<Component>()
             .Where(piece => piece.LevelId == near.LevelId && (room is null || RoomsOf.Containing(document, piece.LevelId, piece.Location) == room))
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type?.Form is ComponentForm.Bath or ComponentForm.Shower)
@@ -82,7 +82,7 @@ public static class Bathrooms
 
             case ComponentForm.Basin when us:
             {
-                var sockets = document.Elements.OfType<Component>()
+                var sockets = document.All<Component>()
                     .Where(other => other.LevelId == piece.LevelId && document.FindType<ComponentType>(other.TypeId)?.Form == ComponentForm.Socket)
                     .Select(other => ComponentModel.Footprint(document.FindType<ComponentType>(other.TypeId)!, ComponentModel.FrameOf(other, 0)));
                 if (!sockets.Any(socket => Kitchens.Apart(socket, footprint) <= 914 + 0.5))
@@ -102,7 +102,7 @@ public static class Bathrooms
 
     /// <summary>Every bathroom fitting's, socket's, switch's and light's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .SelectMany(piece => Problems(document, piece, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(piece, "its place", problem.Outline, problem.Rule), string.Empty,
@@ -117,9 +117,9 @@ public static class Bathrooms
     {
         var through = new List<Room>();
         var doors = 0;
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
             if (document.GetWallType(wall) is not { } type) continue;
 
             var reach = type.Structure.TotalWidth / 2 + 150;
@@ -136,7 +136,7 @@ public static class Bathrooms
 
     /// <summary>What is in a room, by form: the components on its storey standing in it.</summary>
     private static List<ComponentType> In(BimDocument document, Room room, IReadOnlyList<Point2D> outline) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(outline, piece.Location))
             .Select(piece => document.FindType<ComponentType>(piece.TypeId))
             .OfType<ComponentType>()

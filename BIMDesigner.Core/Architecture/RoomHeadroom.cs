@@ -45,7 +45,7 @@ public static class RoomHeadroom
     {
         var floor = Floor(document, room);
         var bounds = Bounds(outline);
-        return document.Elements.OfType<Slab>()
+        return document.All<Slab>()
             .Where(slab => slab.Boundary.Count >= 3 && Overlaps(bounds, Bounds(slab.Boundary)))
             .Where(slab => slab switch
             {

@@ -171,7 +171,7 @@ public static class SlabEdgeRuns
     public const double Tolerance = 1;
 
     public static Floor? FloorOf(BimDocument document, SlabEdge edge) =>
-        document.Elements.OfType<Floor>().FirstOrDefault(floor => floor.Id == edge.FloorId);
+        document.Find<Floor>(edge.FloorId);
 
     public static SlabEdgeType? TypeOf(BimDocument document, SlabEdge edge) => document.FindType<SlabEdgeType>(edge.TypeId);
 
@@ -333,7 +333,7 @@ public static class SlabEdgeRuns
     public static IReadOnlyList<Element> Following(BimDocument document, IReadOnlyList<Element> moving)
     {
         var floors = moving.OfType<Floor>().Select(floor => floor.Id).ToHashSet();
-        return document.Elements.OfType<SlabEdge>().Where(edge => floors.Contains(edge.FloorId) && !moving.Contains(edge)).Cast<Element>().ToList();
+        return document.All<SlabEdge>().Where(edge => floors.Contains(edge.FloorId) && !moving.Contains(edge)).Cast<Element>().ToList();
     }
 
     /// <summary>A slab edge's own points moved the way its floor is.</summary>

@@ -103,9 +103,9 @@ public static class Ifc2x3Export
             foreach (var material in _document.Materials) _materials[material.Id] = New<IfcMaterial>(m => m.Name = material.Name);
 
             foreach (var wall in _document.Walls) ExportWall(wall);
-            foreach (var slab in _document.Elements.OfType<Slab>().Where(slab => slab is not Roof)) ExportSlab(slab);
+            foreach (var slab in _document.All<Slab>().Where(slab => slab is not Roof)) ExportSlab(slab);
             foreach (var opening in _document.Openings) ExportOpening(opening);
-            foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
+            foreach (var room in _document.All<Room>()) ExportRoom(room);
             ExportGrids();
 
             // Everything else as the 3D view draws it, a faceted solid to each.
@@ -310,7 +310,7 @@ public static class Ifc2x3Export
 
         private void ExportOpening(Opening opening)
         {
-            if (_document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is not { } wall || !_walls.TryGetValue(wall.Id, out var ifcWall)) return;
+            if (_document.Find<Wall>(opening.HostWallId) is not { } wall || !_walls.TryGetValue(wall.Id, out var ifcWall)) return;
             if (_document.FindType<OpeningType>(opening.TypeId) is not { } type || _document.GetWallType(wall) is not { } wallType) return;
 
             var structure = wallType.Structure;
@@ -385,7 +385,7 @@ public static class Ifc2x3Export
 
         private void ExportGrids()
         {
-            var grids = _document.Elements.OfType<Grid>().Where(grid => grid.Start.DistanceTo(grid.End) > 1).ToList();
+            var grids = _document.All<Grid>().Where(grid => grid.Start.DistanceTo(grid.End) > 1).ToList();
             if (grids.Count == 0 || _storeys.Count == 0) return;
             var storey = _storeys[_document.Levels.OrderBy(level => level.Elevation).First().Id];
             var first = (grids[0].End - grids[0].Start).NormalisedOrDefault(Vector2D.UnitX);

@@ -181,7 +181,7 @@ public static class RoofEdgeRules
     /// <summary>What a gutter, its downpipes or a soffit falls short of, as the project's standard asks.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, RoofEdgeSweep sweep, ClearanceStandard standard)
     {
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId) is not { } roof) return Array.Empty<PlacementProblem>();
+        if (document.Find<Roof>(sweep.RoofId) is not { } roof) return Array.Empty<PlacementProblem>();
         return sweep switch
         {
             Gutter gutter when !standard.IsUs() && document.FindType<GutterType>(gutter.TypeId) is { } type => GutterProblems(document, gutter, type, roof),
@@ -287,7 +287,7 @@ public static class RoofEdgeRules
         var rules = string.Join(" ", problems.Select(problem => problem.Rule).Distinct());
 
         if (sweep is Gutter gutter && document.FindType<GutterType>(gutter.TypeId) is { } type
-            && document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == gutter.RoofId) is { } roof)
+            && document.Find<Roof>(gutter.RoofId) is { } roof)
         {
             if (standard.IsUs()) return "Not sized by the IRC";
             var area = Channels(document, gutter, roof).Sum(channel => channel.Area);
@@ -295,7 +295,7 @@ public static class RoofEdgeRules
             return problems.Count == 0 ? $"{head} - big enough" : $"{head} - {said} {rules}";
         }
 
-        if (sweep is Soffit && document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId) is { } over)
+        if (sweep is Soffit && document.Find<Roof>(sweep.RoofId) is { } over)
             return EavesAirAsked(document, over, standard) is var (asked, _)
                 ? problems.Count == 0 ? $"Airs the cold roof over it: {asked:#,0} mm² a metre asked" : $"{said} {rules}"
                 : "The roof over it is not a cold roof: no air asked";
@@ -306,8 +306,8 @@ public static class RoofEdgeRules
     /// <summary>Every gutter's and soffit's problems over a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard)
     {
-        var roofs = document.Elements.OfType<Roof>().Where(roof => roof.LevelId == levelId).Select(roof => roof.Id).ToHashSet();
-        return document.Elements.OfType<RoofEdgeSweep>()
+        var roofs = document.All<Roof>().Where(roof => roof.LevelId == levelId).Select(roof => roof.Id).ToHashSet();
+        return document.All<RoofEdgeSweep>()
             .Where(sweep => roofs.Contains(sweep.RoofId) && sweep is Gutter or Soffit or Eave)
             .SelectMany(sweep => Problems(document, sweep, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(sweep, sweep switch { Gutter => "its water", Eave => "the eave", _ => "its air" }, problem.Outline, problem.Rule), string.Empty,

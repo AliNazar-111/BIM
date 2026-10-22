@@ -56,8 +56,34 @@ public static class WallJoins
         public void Dispose() => end();
     }
 
+    /// <summary>The walls taking part just now, as a key to what is kept of them: what joins depends on it.</summary>
+    internal static object? TakingPartNow => _takingPart;
+
     private static IEnumerable<Wall> WallsOf(BimDocument document) =>
         _takingPart is { } shows ? document.Walls.Where(wall => shows(wall)) : document.Walls;
+
+    /// <summary>
+    /// The walls taking part whose line comes into a box: while the model is drawn, found from a
+    /// grid of the plan; otherwise every one of them, to be looked at in turn.
+    /// </summary>
+    private static IEnumerable<Wall> WallsNear(BimDocument document, BoundingBox2D box) =>
+        ModelCache.Of(document) is { } cache ? cache.Near(TakingPartIn(document, cache), box) : WallsOf(document);
+
+    /// <summary>The walls near enough to this one to stop against it or cross it: within the widest wall's reach of its line.</summary>
+    private static IEnumerable<Wall> WallsAround(BimDocument document, Wall wall, WallType type)
+    {
+        if (ModelCache.Of(document) is not { } cache) return WallsOf(document);
+
+        var walls = TakingPartIn(document, cache);
+        var widest = cache.Keep("widest wall", walls, null, null, () => walls.Select(other => document.GetWallType(other)?.Width ?? 0).DefaultIfEmpty().Max());
+        return cache.Near(walls, ModelCache.Bounds(wall).Expand(type.Width / 2 + widest + type.Width + JoinTolerance + 1));
+    }
+
+    private static IReadOnlyList<Wall> TakingPartIn(BimDocument document, ModelCache cache) =>
+        cache.Keep("walls taking part", document, _takingPart, null, () => WallsOf(document).ToList());
+
+    /// <summary>A point's surroundings, as far as two ends can be apart and still meet.</summary>
+    private static BoundingBox2D Around(Point2D point) => BoundingBox2D.Empty.Include(point).Expand(JoinTolerance + 1);
 
     /// <summary>Endpoints closer than this are treated as the same point. Millimetres.</summary>
     public const double JoinTolerance = 1.0;
@@ -107,7 +133,12 @@ public static class WallJoins
     }
 
     /// <summary>How each end of the wall is cut, and what kind of end it is.</summary>
-    public static (WallCut Start, WallCut End) GetEndCuts(BimDocument document, Wall wall, WallType type)
+    public static (WallCut Start, WallCut End) GetEndCuts(BimDocument document, Wall wall, WallType type) =>
+        ModelCache.Of(document) is { } cache
+            ? cache.Keep("end cuts", wall, type, _takingPart, () => EndCuts(document, wall, type))
+            : EndCuts(document, wall, type);
+
+    private static (WallCut Start, WallCut End) EndCuts(BimDocument document, Wall wall, WallType type)
     {
         var start = ComputeEnd(document, wall, type, atStart: true);
         var end = ComputeEnd(document, wall, type, atStart: false);
@@ -303,7 +334,7 @@ public static class WallJoins
         var curve = wall.LocationCurve;
         var half = type.Width / 2;
 
-        foreach (var other in WallsOf(document))
+        foreach (var other in WallsAround(document, wall, type))
         {
             if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId) continue;
             if (document.GetWallType(other) is not { } otherType) continue;
@@ -366,7 +397,7 @@ public static class WallJoins
         var structure = type.Structure;
         var curve = wall.LocationCurve;
 
-        foreach (var other in WallsOf(document))
+        foreach (var other in WallsNear(document, ModelCache.Bounds(wall).Expand(1)))
         {
             if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId) continue;
             if (document.GetWallType(other) is not { } otherType) continue;
@@ -473,7 +504,7 @@ public static class WallJoins
 
     /// <summary>Every other wall on this level with an end at this point that is willing to join.</summary>
     private static List<Wall> PartnersAt(BimDocument document, Wall wall, Point2D joint) =>
-        WallsOf(document)
+        WallsNear(document, Around(joint))
             .Where(candidate => candidate.Id != wall.Id)
             .Where(candidate => candidate.LevelId == wall.LevelId)
             .Where(candidate => TouchesAt(candidate, joint))
@@ -536,7 +567,7 @@ public static class WallJoins
     /// <summary>A wall whose body passes through the joint without ending there.</summary>
     private static Wall? FindPassingWall(BimDocument document, Wall wall, Point2D joint)
     {
-        foreach (var candidate in WallsOf(document))
+        foreach (var candidate in WallsNear(document, Around(joint)))
         {
             if (candidate.Id == wall.Id) continue;
             if (candidate.LevelId != wall.LevelId) continue;
@@ -602,7 +633,7 @@ public static class WallJoins
                 return Square(WallEndCondition.Overlap);
 
             // Against a curved wall, stop on its face as it curves, not on the tangent.
-            var real = document.Walls.FirstOrDefault(w => w.Id == passing.Id);
+            var real = document.FindElement(passing.Id) as Wall;
             if (real is not { IsCurved: true } || document.GetWallType(real) is not { } realType) return butt;
 
             var faceAcross = real.Locate(realType.Structure, butt.Line.Origin).Across;
@@ -795,14 +826,19 @@ public static class WallJoins
     /// face to as deep as it goes - and over the height that wall stands. The layers of this
     /// wall it passes through are cut away there.
     /// </summary>
-    public static IReadOnlyList<WallIntrusion> Intrusions(BimDocument document, Wall wall, WallType type)
+    public static IReadOnlyList<WallIntrusion> Intrusions(BimDocument document, Wall wall, WallType type) =>
+        ModelCache.Of(document) is { } cache
+            ? cache.Keep("intrusions", wall, type, _takingPart, () => IntrusionsInto(document, wall, type))
+            : IntrusionsInto(document, wall, type);
+
+    private static IReadOnlyList<WallIntrusion> IntrusionsInto(BimDocument document, Wall wall, WallType type)
     {
         var intrusions = new List<WallIntrusion>();
         var structure = type.Structure;
         var curve = wall.LocationCurve;
         var half = type.Width / 2;
 
-        foreach (var other in WallsOf(document))
+        foreach (var other in WallsAround(document, wall, type))
         {
             if (ReferenceEquals(other, wall) || other.IsCurved) continue;
             if (document.GetWallType(other) is not { } otherType) continue;

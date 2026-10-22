@@ -165,27 +165,27 @@ public static class IfcExport
             foreach (var material in _document.Materials) _materials[material.Id] = CreateMaterial(material);
 
             foreach (var wall in _document.Walls) ExportWall(wall);
-            foreach (var slab in _document.Elements.OfType<Slab>()) ExportSlab(slab);
-            foreach (var edge in _document.Elements.OfType<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
-            foreach (var pipe in _document.Elements.OfType<Downpipe>()) ExportDownpipe(pipe);
-            foreach (var slabEdge in _document.Elements.OfType<SlabEdge>())
+            foreach (var slab in _document.All<Slab>()) ExportSlab(slab);
+            foreach (var edge in _document.All<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
+            foreach (var pipe in _document.All<Downpipe>()) ExportDownpipe(pipe);
+            foreach (var slabEdge in _document.All<SlabEdge>())
                 if (SlabEdgeRuns.Mesh(_document, slabEdge) is { } edgeMesh)
                     ExportMeshProxy(slabEdge, edgeMesh, _document.FindType<SlabEdgeType>(slabEdge.TypeId)?.Name ?? "Slab Edge", "Slab Edge");
-            foreach (var drain in _document.Elements.OfType<RoofDrain>()) ExportRoofDrain(drain);
-            foreach (var chimney in _document.Elements.OfType<Chimney>()) ExportChimney(chimney);
-            foreach (var stair in _document.Elements.OfType<Stair>()) ExportStair(stair);
-            foreach (var ramp in _document.Elements.OfType<Ramp>()) ExportRamp(ramp);
-            foreach (var railing in _document.Elements.OfType<Railing>()) ExportRailing(railing);
-            foreach (var beam in _document.Elements.OfType<Beam>()) ExportBeam(beam);
-            foreach (var column in _document.Elements.OfType<Column>()) ExportColumn(column);
+            foreach (var drain in _document.All<RoofDrain>()) ExportRoofDrain(drain);
+            foreach (var chimney in _document.All<Chimney>()) ExportChimney(chimney);
+            foreach (var stair in _document.All<Stair>()) ExportStair(stair);
+            foreach (var ramp in _document.All<Ramp>()) ExportRamp(ramp);
+            foreach (var railing in _document.All<Railing>()) ExportRailing(railing);
+            foreach (var beam in _document.All<Beam>()) ExportBeam(beam);
+            foreach (var column in _document.All<Column>()) ExportColumn(column);
             foreach (var footing in _document.Elements.Where(element => element is WallFooting or PadFooting).ToList()) ExportFooting(footing);
-            foreach (var ground in _document.Elements.OfType<Toposurface>()) ExportGround(ground);
-            foreach (var system in _document.Elements.OfType<BeamSystem>()) ExportBeamSystem(system);
-            foreach (var component in _document.Elements.OfType<Component>()) ExportComponent(component);
-            foreach (var shaped in _document.Elements.OfType<PolygonWall>()) ExportPolygonWall(shaped);
-            foreach (var roofWindow in _document.Elements.OfType<RoofWindow>()) ExportRoofWindow(roofWindow);
+            foreach (var ground in _document.All<Toposurface>()) ExportGround(ground);
+            foreach (var system in _document.All<BeamSystem>()) ExportBeamSystem(system);
+            foreach (var component in _document.All<Component>()) ExportComponent(component);
+            foreach (var shaped in _document.All<PolygonWall>()) ExportPolygonWall(shaped);
+            foreach (var roofWindow in _document.All<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
-            foreach (var room in _document.Elements.OfType<Room>()) ExportRoom(room);
+            foreach (var room in _document.All<Room>()) ExportRoom(room);
             ExportGrids();
             ExportClassifications();
             ExportProgramme();
@@ -342,7 +342,7 @@ public static class IfcExport
         /// </summary>
         private void ExportGrids()
         {
-            var grids = _document.Elements.OfType<Grid>().Where(grid => grid.Start.DistanceTo(grid.End) > 1).ToList();
+            var grids = _document.All<Grid>().Where(grid => grid.Start.DistanceTo(grid.End) > 1).ToList();
             if (grids.Count == 0 || _storeys.Count == 0) return;
 
             var first = (grids[0].End - grids[0].Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -894,7 +894,7 @@ public static class IfcExport
         /// </summary>
         private void ExportOpening(Opening opening)
         {
-            if (_document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is not { } wall) return;
+            if (_document.Find<Wall>(opening.HostWallId) is not { } wall) return;
             if (!_walls.TryGetValue(wall.Id, out var ifcWall)) return;
             if (_document.FindType<OpeningType>(opening.TypeId) is not { } type) return;
             if (_document.GetWallType(wall) is not { } wallType) return;
@@ -1471,7 +1471,7 @@ public static class IfcExport
         {
             if (Downpipes.Mesh(_document, pipe) is not { } mesh) return;
 
-            var gutter = _document.Elements.OfType<Gutter>().FirstOrDefault(candidate => candidate.Id == pipe.GutterId);
+            var gutter = _document.Find<Gutter>(pipe.GutterId);
             var type = gutter is null ? null : _document.FindType<GutterType>(gutter.TypeId);
             var proxy = ExportMeshProxy(pipe, mesh, type is null ? "Downpipe" : $"Downpipe {Downpipes.Size(type)}", "Downpipe");
 
@@ -2428,7 +2428,7 @@ public static class IfcExport
             if (RoofDrainage.Mesh(_document, drain) is not { } mesh) return;
 
             var proxy = ExportMeshProxy(drain, mesh, $"Roof Drain {drain.OutletDiameter:0}", "Roof Drain");
-            var roof = _document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == drain.RoofId);
+            var roof = _document.Find<Roof>(drain.RoofId);
             WriteSet(proxy, "RoofDrain", new Dictionary<string, IfcValue?>
             {
                 ["OutletDiameter"] = new IfcLengthMeasure(drain.OutletDiameter),

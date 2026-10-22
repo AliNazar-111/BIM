@@ -127,7 +127,7 @@ public static class Revisions
 
     /// <summary>The revisions clouded in the views on a sheet, by their ids.</summary>
     public static IEnumerable<Guid> Clouded(BimDocument document, Sheet sheet) =>
-        document.Elements.OfType<RevisionCloud>()
+        document.All<RevisionCloud>()
             .Where(cloud => sheet.Viewports.Any(viewport => Shows(document, viewport.View, cloud)))
             .Select(cloud => cloud.RevisionId)
             .Distinct();

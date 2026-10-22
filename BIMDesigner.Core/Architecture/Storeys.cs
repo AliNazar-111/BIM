@@ -63,7 +63,7 @@ public static class Storeys
             // Not through a door or a window: one the floor would cut across stays as it is, its wall whole.
             var (low, high) = (under - foot, top - foot);
             if (WallOpenings.Of(document, wall).Any(opening => opening.SillHeight < high - 1 && opening.SillHeight + opening.HeightOf(document.FindType<OpeningType>(opening.TypeId)) > low + 1)
-                || document.Elements.OfType<WallOpening>().Any(cut => cut.HostWallId == wall.Id && cut.SillHeight < high - 1 && cut.SillHeight + cut.Height > low + 1)) continue;
+                || document.All<WallOpening>().Any(cut => cut.HostWallId == wall.Id && cut.SillHeight < high - 1 && cut.SillHeight + cut.Height > low + 1)) continue;
             walls.Add(wall);
         }
 
@@ -121,7 +121,7 @@ public static class Storeys
 
         var steps = new List<IUndoableCommand>();
         var said = new List<string>();
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => FloorSurfaces.IsStoodOn(document, slab)).OrderBy(slab => slab.GetTopElevation(document)).ToList())
+        foreach (var slab in document.All<Slab>().Where(slab => FloorSurfaces.IsStoodOn(document, slab)).OrderBy(slab => slab.GetTopElevation(document)).ToList())
         {
             // At a floor that changed, every wall through it - and the walls built on it; at any
             // other, only the walls that changed, and what is left of them over a floor under it.
@@ -288,7 +288,7 @@ public sealed class SplitWallAtFloorCommand : IUndoableCommand
         // Doors and windows over the floor's underside go up with the part over it, on its storey, their sills from its base.
         foreach (var opening in WallOpenings.Of(document, wall).Where(opening => opening.SillHeight >= under - 1))
             _openings.Add((opening, opening.SillHeight, opening.LevelId));
-        foreach (var cut in document.Elements.OfType<WallOpening>().Where(cut => cut.HostWallId == wall.Id && cut.SillHeight >= under - 1))
+        foreach (var cut in document.All<WallOpening>().Where(cut => cut.HostWallId == wall.Id && cut.SillHeight >= under - 1))
             _cuts.Add((cut, cut.SillHeight));
 
         // What stood on its top stands on the top of the part over the floor.

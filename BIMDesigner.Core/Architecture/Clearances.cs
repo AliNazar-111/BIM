@@ -347,7 +347,7 @@ public static class Clearances
     /// sizes the principal one - then the one in the biggest room, then the first put down.
     /// </summary>
     public static Component? PrincipalBed(BimDocument document) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Select((piece, order) => (Piece: piece, Order: order, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type is { Form: ComponentForm.Bed, Width: >= 1200 })
             .OrderByDescending(entry => Math.Round(entry.Type!.Width))
@@ -423,13 +423,13 @@ public static class Clearances
 
     /// <summary>Every zone on a storey that something is standing in, and what - the fittings', then the doors'.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(component => component.LevelId == levelId)
             .SelectMany(component => Of(document, component, standard)
                 .Where(zone => zone.In.Count > 0)
                 .Select(zone => new BlockedClearance(zone.Zone, string.Join(", ", zone.In), document.FindType<ComponentType>(component.TypeId)?.Name ?? "A fitting")))
-            .Concat(document.Elements.OfType<Door>()
-                .Where(door => document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId)?.LevelId == levelId)
+            .Concat(document.All<Door>()
+                .Where(door => document.Find<Wall>(door.HostWallId)?.LevelId == levelId)
                 .SelectMany(door => Swings(document, door)
                     .Where(zone => zone.In.Count > 0)
                     .Select(zone => new BlockedClearance(zone.Zone, string.Join(", ", zone.In), DoorName(document, door)))))
@@ -456,7 +456,7 @@ public static class Clearances
     /// </summary>
     public static IReadOnlyList<BlockedClearance> Overlaps(BimDocument document, Guid levelId)
     {
-        var pieces = document.Elements.OfType<Component>()
+        var pieces = document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type is not null && entry.Type.Kind is not (BuiltInCategory.Planting or BuiltInCategory.Entourage) || entry.Type?.Form == ComponentForm.Car)
@@ -541,11 +541,11 @@ public static class Clearances
     /// </summary>
     public static IReadOnlyList<(ClearanceZone Zone, IReadOnlyList<string> In)> Swings(BimDocument document, Door door)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
+        if (document.Find<Wall>(door.HostWallId) is not { } wall) return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
 
         var floor = document.FindLevel(wall.LevelId)?.Elevation ?? 0;
         var standing = new List<Obstacle>();
-        foreach (var piece in document.Elements.OfType<Component>().Where(piece => piece.LevelId == wall.LevelId))
+        foreach (var piece in document.All<Component>().Where(piece => piece.LevelId == wall.LevelId))
         {
             if (document.FindType<ComponentType>(piece.TypeId) is not { } type) continue;
 
@@ -557,9 +557,9 @@ public static class Clearances
         }
 
         // Another door whose leaf sweeps the same floor: the two meet, opening - said of the one put in later.
-        foreach (var other in document.Elements.OfType<Door>().TakeWhile(other => other != door))
+        foreach (var other in document.All<Door>().TakeWhile(other => other != door))
         {
-            if (document.Walls.FirstOrDefault(candidate => candidate.Id == other.HostWallId)?.LevelId != wall.LevelId) continue;
+            if (document.Find<Wall>(other.HostWallId)?.LevelId != wall.LevelId) continue;
             foreach (var sweep in DoorSwing.Sweeps(document, other))
                 standing.Add(new Obstacle(string.IsNullOrWhiteSpace(other.Mark) ? "another door's swing" : $"door {other.Mark}'s swing", sweep, null));
         }
@@ -603,7 +603,7 @@ public static class Clearances
             ? RunOf(document, component)
             : new HashSet<Component> { component };
 
-        foreach (var other in document.Elements.OfType<Component>().Where(other => other.LevelId == component.LevelId && !run.Contains(other)))
+        foreach (var other in document.All<Component>().Where(other => other.LevelId == component.LevelId && !run.Contains(other)))
         {
             if (document.FindType<ComponentType>(other.TypeId) is not { } type || OffTheFloor(document, other, type)) continue;
 
@@ -619,7 +619,7 @@ public static class Clearances
     /// <summary>A kitchen piece and every piece of the run it is in: those touching it, and those touching them.</summary>
     private static HashSet<Component> RunOf(BimDocument document, Component component)
     {
-        var pieces = document.Elements.OfType<Component>()
+        var pieces = document.All<Component>()
             .Where(other => other.LevelId == component.LevelId)
             .Select(other => (Component: other, Type: document.FindType<ComponentType>(other.TypeId)))
             .Where(other => other.Type is not null && ComponentPlacing.InRun(other.Type) && !OffTheFloor(document, other.Component, other.Type))

@@ -180,7 +180,7 @@ public static partial class ProjectFile
                 Depth = edgeType.Depth, FootWidth = edgeType.FootWidth, MaterialId = edgeType.MaterialId, Cost = edgeType.Cost, Description = edgeType.Description
             });
 
-        foreach (var slabEdge in document.Elements.OfType<SlabEdge>())
+        foreach (var slabEdge in document.All<SlabEdge>())
             dto.SlabEdges.Add(new SlabEdgeDto
             {
                 Id = slabEdge.Id, TypeId = slabEdge.TypeId, FloorId = slabEdge.FloorId, LevelId = slabEdge.LevelId,
@@ -188,14 +188,14 @@ public static partial class ProjectFile
                 HorizontalOffset = slabEdge.HorizontalOffset, VerticalOffset = slabEdge.VerticalOffset, Mark = slabEdge.Mark, Comments = slabEdge.Comments
             });
 
-        foreach (var drain in document.Elements.OfType<RoofDrain>())
+        foreach (var drain in document.All<RoofDrain>())
             dto.RoofDrains.Add(new RoofDrainDto
             {
                 Id = drain.Id, RoofId = drain.RoofId, LevelId = drain.LevelId, X = drain.Location.X, Y = drain.Location.Y,
                 OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge.ToString(), Mark = drain.Mark, Comments = drain.Comments
             });
 
-        foreach (var shaped in document.Elements.OfType<PolygonWall>())
+        foreach (var shaped in document.All<PolygonWall>())
             dto.PolygonWalls.Add(new PolygonWallDto
             {
                 Id = shaped.Id, LevelId = shaped.LevelId, Kind = shaped.Kind.ToString(),
@@ -206,7 +206,7 @@ public static partial class ProjectFile
                 UnconnectedHeight = shaped.UnconnectedHeight, BaseAttachedTo = shaped.BaseAttachedTo, Mark = shaped.Mark, Comments = shaped.Comments
             });
 
-        foreach (var framing in document.Elements.OfType<WallFraming>())
+        foreach (var framing in document.All<WallFraming>())
             dto.WallFramings.Add(new WallFramingDto
             {
                 Id = framing.Id, HostId = framing.HostId, LevelId = framing.LevelId, Material = framing.Material.ToString(),
@@ -214,7 +214,7 @@ public static partial class ProjectFile
                 FromEnd = framing.FromEnd, Mark = framing.Mark, Comments = framing.Comments
             });
 
-        foreach (var part in document.Elements.OfType<Part>())
+        foreach (var part in document.All<Part>())
             dto.Parts.Add(new PartDto
             {
                 Id = part.Id, HostId = part.HostId, LevelId = part.LevelId, Layer = part.Layer, From = part.From, To = part.To,
@@ -222,7 +222,7 @@ public static partial class ProjectFile
                 Mark = part.Mark, Comments = part.Comments
             });
 
-        foreach (var chimney in document.Elements.OfType<Chimney>())
+        foreach (var chimney in document.All<Chimney>())
             dto.Chimneys.Add(new ChimneyDto
             {
                 Id = chimney.Id, TypeId = chimney.TypeId, LevelId = chimney.LevelId, X = chimney.Location.X, Y = chimney.Location.Y, Width = chimney.Width,
@@ -256,7 +256,7 @@ public static partial class ProjectFile
                 Colour = type.Colour.ToString(), MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description
             });
 
-        foreach (var stair in document.Elements.OfType<Stair>())
+        foreach (var stair in document.All<Stair>())
             dto.Stairs.Add(new StairDto
             {
                 Id = stair.Id, TypeId = stair.TypeId, LevelId = stair.LevelId, X = stair.Start.X, Y = stair.Start.Y, Angle = stair.Angle,
@@ -279,7 +279,7 @@ public static partial class ProjectFile
                 Colour = type.Colour.ToString(), MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description
             });
 
-        foreach (var ramp in document.Elements.OfType<Ramp>())
+        foreach (var ramp in document.All<Ramp>())
             dto.Ramps.Add(new RampDto
             {
                 Id = ramp.Id, TypeId = ramp.TypeId, LevelId = ramp.LevelId, X = ramp.Start.X, Y = ramp.Start.Y, Angle = ramp.Angle,
@@ -306,7 +306,7 @@ public static partial class ProjectFile
                 LineLoad = type.LineLoad, PointLoad = type.PointLoad
             });
 
-        foreach (var ground in document.Elements.OfType<Toposurface>())
+        foreach (var ground in document.All<Toposurface>())
             dto.Toposurfaces.Add(new ToposurfaceDto
             {
                 Id = ground.Id, LevelId = ground.LevelId, Points = ground.Points.SelectMany(point => new[] { point.X, point.Y, point.Z }).ToList(),
@@ -314,7 +314,7 @@ public static partial class ProjectFile
                 MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval, Mark = ground.Mark, Comments = ground.Comments
             });
 
-        foreach (var region in document.Elements.OfType<GroundRegion>())
+        foreach (var region in document.All<GroundRegion>())
             dto.GroundRegions.Add(new GroundRegionDto
             {
                 Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
@@ -323,7 +323,7 @@ public static partial class ProjectFile
                 PathWidth = region.PathWidth
             });
 
-        foreach (var mass in document.Elements.OfType<Mass>())
+        foreach (var mass in document.All<Mass>())
             dto.Masses.Add(new MassDto
             {
                 Id = mass.Id, LevelId = mass.LevelId, Boundary = mass.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
@@ -334,7 +334,7 @@ public static partial class ProjectFile
                 Mark = mass.Mark, Comments = mass.Comments
             });
 
-        foreach (var pad in document.Elements.OfType<SitePad>())
+        foreach (var pad in document.All<SitePad>())
             dto.SitePads.Add(new SitePadDto
             {
                 Id = pad.Id, LevelId = pad.LevelId, Boundary = pad.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
@@ -342,17 +342,17 @@ public static partial class ProjectFile
                 Surface = pad.Surface.ToString(), MaterialId = pad.MaterialId, Mark = pad.Mark, Comments = pad.Comments
             });
 
-        foreach (var line in document.Elements.OfType<PropertyLine>())
+        foreach (var line in document.All<PropertyLine>())
             dto.PropertyLines.Add(new PropertyLineDto
             {
                 Id = line.Id, LevelId = line.LevelId, Boundary = line.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 Setback = line.Setback, Mark = line.Mark, Comments = line.Comments
             });
 
-        foreach (var spot in document.Elements.OfType<SpotElevation>())
+        foreach (var spot in document.All<SpotElevation>())
             dto.SpotElevations.Add(new SpotElevationDto { Id = spot.Id, LevelId = spot.LevelId, X = spot.Location.X, Y = spot.Location.Y, Mark = spot.Mark, Comments = spot.Comments });
 
-        foreach (var system in document.Elements.OfType<BeamSystem>())
+        foreach (var system in document.All<BeamSystem>())
             dto.BeamSystems.Add(new BeamSystemDto
             {
                 Id = system.Id, TypeId = system.TypeId, LevelId = system.LevelId, Boundary = system.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
@@ -367,7 +367,7 @@ public static partial class ProjectFile
                 MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description
             });
 
-        foreach (var beam in document.Elements.OfType<Beam>())
+        foreach (var beam in document.All<Beam>())
             dto.Beams.Add(new BeamDto
             {
                 Id = beam.Id, TypeId = beam.TypeId, LevelId = beam.LevelId, StartX = beam.Start.X, StartY = beam.Start.Y, EndX = beam.End.X, EndY = beam.End.Y,
@@ -375,7 +375,7 @@ public static partial class ProjectFile
                 Mark = beam.Mark, Comments = beam.Comments
             });
 
-        foreach (var railing in document.Elements.OfType<Railing>())
+        foreach (var railing in document.All<Railing>())
             dto.Railings.Add(new RailingDto
             {
                 Id = railing.Id, TypeId = railing.TypeId, LevelId = railing.LevelId,
@@ -385,7 +385,7 @@ public static partial class ProjectFile
                 Mark = railing.Mark, Comments = railing.Comments
             });
 
-        foreach (var pipe in document.Elements.OfType<Downpipe>())
+        foreach (var pipe in document.All<Downpipe>())
             dto.Downpipes.Add(new DownpipeDto
             {
                 Id = pipe.Id, GutterId = pipe.GutterId, LevelId = pipe.LevelId, X = pipe.Location.X, Y = pipe.Location.Y,
@@ -429,7 +429,7 @@ public static partial class ProjectFile
                 FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
             });
 
-        foreach (var window in document.Elements.OfType<RoofWindow>())
+        foreach (var window in document.All<RoofWindow>())
             dto.RoofWindows.Add(new RoofWindowDto
             {
                 Id = window.Id, TypeId = window.TypeId, LevelId = window.LevelId, RoofId = window.RoofId,
@@ -438,7 +438,7 @@ public static partial class ProjectFile
                 FrameMaterialId = window.FrameMaterialId, GlassMaterialId = window.GlassMaterialId
             });
 
-        foreach (var shaft in document.Elements.OfType<ShaftOpening>())
+        foreach (var shaft in document.All<ShaftOpening>())
             dto.ShaftOpenings.Add(new ShaftOpeningDto
             {
                 Id = shaft.Id, LevelId = shaft.LevelId, X = shaft.Location.X, Y = shaft.Location.Y,
@@ -447,7 +447,7 @@ public static partial class ProjectFile
                 UnconnectedHeight = shaft.UnconnectedHeight, Mark = shaft.Mark, Comments = shaft.Comments
             });
 
-        foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>())
+        foreach (var sweep in document.All<RoofEdgeSweep>())
             dto.RoofEdgeSweeps.Add(new RoofEdgeSweepDto
             {
                 Id = sweep.Id,
@@ -464,7 +464,7 @@ public static partial class ProjectFile
                 FireBlocked = (sweep as Eave)?.FireBlocked
             });
 
-        foreach (var opening in document.Elements.OfType<WallOpening>())
+        foreach (var opening in document.All<WallOpening>())
             dto.WallOpenings.Add(new WallOpeningDto
             {
                 Id = opening.Id,
@@ -478,7 +478,7 @@ public static partial class ProjectFile
                 Comments = opening.Comments
             });
 
-        foreach (var placed in document.Elements.OfType<PlacedSweep>())
+        foreach (var placed in document.All<PlacedSweep>())
             dto.PlacedSweeps.Add(new PlacedSweepDto
             {
                 Id = placed.Id,
@@ -643,21 +643,21 @@ public static partial class ProjectFile
             dto.WindowTypes.Add(windowType);
         }
 
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
             var doorDto = new DoorDto { SwingAngle = door.SwingAngle, FrameType = door.FrameType, FrameMaterial = door.FrameMaterial, Finish = door.Finish };
             WriteOpening(doorDto, door);
             dto.Doors.Add(doorDto);
         }
 
-        foreach (var window in document.Elements.OfType<Window>())
+        foreach (var window in document.All<Window>())
         {
             var windowDto = new WindowDto();
             WriteOpening(windowDto, window);
             dto.Windows.Add(windowDto);
         }
 
-        foreach (var dimension in document.Elements.OfType<Dimension>())
+        foreach (var dimension in document.All<Dimension>())
             dto.Dimensions.Add(new DimensionDto
             {
                 Id = dimension.Id,
@@ -672,21 +672,21 @@ public static partial class ProjectFile
                 Workset = dimension.Workset
             });
 
-        foreach (var angular in document.Elements.OfType<AngularDimension>())
+        foreach (var angular in document.All<AngularDimension>())
             dto.AngularDimensions.Add(new AngularDimensionDto
             {
                 Id = angular.Id, LevelId = angular.LevelId, TypeId = angular.TypeId, First = WriteEnd(angular.First), Second = WriteEnd(angular.Second),
                 X = angular.Through.X, Y = angular.Through.Y, Override = angular.Override, Comments = angular.Comments
             });
 
-        foreach (var radial in document.Elements.OfType<RadialDimension>())
+        foreach (var radial in document.All<RadialDimension>())
             dto.RadialDimensions.Add(new RadialDimensionDto
             {
                 Id = radial.Id, LevelId = radial.LevelId, TypeId = radial.TypeId, Kind = radial.Kind.ToString(), Target = WriteEnd(radial.Target),
                 X = radial.Through.X, Y = radial.Through.Y, Override = radial.Override, Comments = radial.Comments
             });
 
-        foreach (var tag in document.Elements.OfType<Tag>())
+        foreach (var tag in document.All<Tag>())
             dto.Tags.Add(new TagDto
             {
                 Id = tag.Id,
@@ -700,7 +700,7 @@ public static partial class ProjectFile
                 Workset = tag.Workset
             });
 
-        foreach (var note in document.Elements.OfType<TextNote>())
+        foreach (var note in document.All<TextNote>())
             dto.TextNotes.Add(new TextNoteDto
             {
                 Id = note.Id,
@@ -714,7 +714,7 @@ public static partial class ProjectFile
                 Workset = note.Workset
             });
 
-        foreach (var section in document.Elements.OfType<SectionMarker>())
+        foreach (var section in document.All<SectionMarker>())
             dto.Sections.Add(new SectionDto
             {
                 Id = section.Id,
@@ -733,8 +733,8 @@ public static partial class ProjectFile
         // The {3D} view is the project's own: no id of its own to keep.
         dto.Default3D = View3DToDto(document.Default3D);
         dto.Default3D.Id = Guid.Empty;
-        foreach (var view in document.Elements.OfType<View3D>()) dto.Views3D.Add(View3DToDto(view));
-        foreach (var callout in document.Elements.OfType<Callout>())
+        foreach (var view in document.All<View3D>()) dto.Views3D.Add(View3DToDto(view));
+        foreach (var callout in document.All<Callout>())
             dto.Callouts.Add(new CalloutDto
             {
                 Id = callout.Id, LevelId = callout.LevelId, Name = callout.Name,
@@ -743,14 +743,14 @@ public static partial class ProjectFile
                 Comments = callout.Comments
             });
 
-        foreach (var marker in document.Elements.OfType<InteriorElevationMarker>())
+        foreach (var marker in document.All<InteriorElevationMarker>())
             dto.InteriorElevations.Add(new InteriorElevationDto
             {
                 Id = marker.Id, LevelId = marker.LevelId, Name = marker.Name, X = marker.Location.X, Y = marker.Location.Y, Rotation = marker.Rotation,
                 Up = marker.LooksUp, Right = marker.LooksRight, Down = marker.LooksDown, Left = marker.LooksLeft, Comments = marker.Comments
             });
 
-        foreach (var walk in document.Elements.OfType<Walkthrough>())
+        foreach (var walk in document.All<Walkthrough>())
             dto.Walkthroughs.Add(new WalkthroughDto
             {
                 Id = walk.Id, LevelId = walk.LevelId, Name = walk.Name, Path = walk.Path.SelectMany(point => new[] { point.X, point.Y }).ToList(),
@@ -763,7 +763,7 @@ public static partial class ProjectFile
             IssuedTo = revision.IssuedTo, IssuedBy = revision.IssuedBy, Issued = revision.Issued, Visibility = revision.Visibility.ToString()
         }).ToList();
 
-        foreach (var cloud in document.Elements.OfType<RevisionCloud>())
+        foreach (var cloud in document.All<RevisionCloud>())
             dto.RevisionClouds.Add(new RevisionCloudDto
             {
                 Id = cloud.Id, LevelId = cloud.LevelId, RevisionId = cloud.RevisionId,
@@ -777,7 +777,7 @@ public static partial class ProjectFile
             Entries = document.Keynotes.Entries.Select(entry => new KeynoteEntryDto { Key = entry.Key, Text = entry.Text, Parent = NullIfEmpty(entry.Parent) }).ToList()
         };
 
-        foreach (var keynote in document.Elements.OfType<KeynoteTag>())
+        foreach (var keynote in document.All<KeynoteTag>())
             dto.KeynoteTags.Add(new KeynoteTagDto
             {
                 Id = keynote.Id, LevelId = keynote.LevelId, Source = keynote.Source.ToString(), TargetId = keynote.TargetId, MaterialId = keynote.MaterialId,
@@ -802,7 +802,7 @@ public static partial class ProjectFile
             ShowFormatsOnSheets = schedule.ShowFormatsOnSheets
         }).ToList();
 
-        foreach (var sheet in document.Elements.OfType<Sheet>())
+        foreach (var sheet in document.All<Sheet>())
             dto.Sheets.Add(new SheetDto
             {
                 Id = sheet.Id,
@@ -861,7 +861,7 @@ public static partial class ProjectFile
                 Template = document.ViewSettings.TemplateOf(view)
             });
 
-        foreach (var template in document.Elements.OfType<ViewTemplate>())
+        foreach (var template in document.All<ViewTemplate>())
             dto.ViewTemplates.Add(new ViewTemplateDto
             {
                 Id = template.Id, Name = template.Name, For = template.For.ToString(),
@@ -876,7 +876,7 @@ public static partial class ProjectFile
                 Comments = template.Comments
             });
 
-        foreach (var grid in document.Elements.OfType<Grid>())
+        foreach (var grid in document.All<Grid>())
             dto.Grids.Add(new GridDto
             {
                 Id = grid.Id,
@@ -918,7 +918,7 @@ public static partial class ProjectFile
                 }).ToList()
             });
 
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
             dto.Slabs.Add(new SlabDto
             {
                 Id = slab.Id,
@@ -1035,7 +1035,7 @@ public static partial class ProjectFile
                 Cost = type.Cost
             });
 
-        foreach (var column in document.Elements.OfType<Column>())
+        foreach (var column in document.All<Column>())
             dto.Columns.Add(new ColumnDto
             {
                 Id = column.Id,
@@ -1075,14 +1075,14 @@ public static partial class ProjectFile
                 Cost = type.Cost, Description = type.Description
             });
 
-        foreach (var footing in document.Elements.OfType<WallFooting>())
+        foreach (var footing in document.All<WallFooting>())
             dto.WallFootings.Add(new WallFootingDto
             {
                 Id = footing.Id, TypeId = footing.TypeId, LevelId = footing.LevelId, WallId = footing.WallId, Depth = footing.Depth,
                 Eccentricity = footing.Eccentricity, Mark = footing.Mark, Comments = footing.Comments
             });
 
-        foreach (var pad in document.Elements.OfType<PadFooting>())
+        foreach (var pad in document.All<PadFooting>())
             dto.PadFootings.Add(new PadFootingDto
             {
                 Id = pad.Id, TypeId = pad.TypeId, LevelId = pad.LevelId, ColumnId = pad.ColumnId, X = pad.Location.X, Y = pad.Location.Y,
@@ -1130,7 +1130,7 @@ public static partial class ProjectFile
                 Cost = type.Cost
             });
 
-        foreach (var component in document.Elements.OfType<Component>())
+        foreach (var component in document.All<Component>())
             dto.Components.Add(new ComponentDto
             {
                 Id = component.Id,
@@ -1151,7 +1151,7 @@ public static partial class ProjectFile
                 PhaseDemolished = component.PhaseDemolished?.ToString()
             });
 
-        foreach (var room in document.Elements.OfType<Room>())
+        foreach (var room in document.All<Room>())
             dto.Rooms.Add(new RoomDto
             {
                 Id = room.Id,
@@ -1914,7 +1914,7 @@ public static partial class ProjectFile
         // in the middle of the panel they were filling, which is where they were drawn.
         foreach (var saved in dto.Walls.Where(w => w.CurtainPanels is { Count: > 0 }))
         {
-            var wall = document.Walls.FirstOrDefault(w => w.Id == saved.Id);
+            var wall = document.Find<Wall>(saved.Id);
             if (wall is null || CurtainLayout.Of(document, wall) is not { } layout) continue;
 
             foreach (var panel in saved.CurtainPanels!.Where(p => string.Equals(p.Kind, "Window", StringComparison.OrdinalIgnoreCase)))
@@ -2156,7 +2156,7 @@ public static partial class ProjectFile
         }
 
         // A fascia or gutter whose roof is gone has nothing to run along.
-        var roofIds = document.Elements.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
+        var roofIds = document.All<Roof>().Select(roof => roof.Id).ToHashSet();
         foreach (var saved in dto.RoofEdgeSweeps.Where(saved => roofIds.Contains(saved.RoofId)))
         {
             RoofEdgeSweep sweep = saved.Kind switch
@@ -2193,7 +2193,7 @@ public static partial class ProjectFile
         static double? Own(double? value) => value is { } number && double.IsFinite(number) && number >= 0 ? number : null;
 
         // A slab edge is on its floor; one whose floor is gone runs along nothing.
-        var edgeFloors = document.Elements.OfType<Floor>().Select(floor => floor.Id).ToHashSet();
+        var edgeFloors = document.All<Floor>().Select(floor => floor.Id).ToHashSet();
         foreach (var saved in dto.SlabEdges.Where(saved => edgeFloors.Contains(saved.FloorId)))
         {
             var slabEdge = new SlabEdge
@@ -2209,7 +2209,7 @@ public static partial class ProjectFile
         }
 
         // A roof drain is in its roof; one whose roof is gone has nothing to drain.
-        var drainRoofs = document.Elements.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
+        var drainRoofs = document.All<Roof>().Select(roof => roof.Id).ToHashSet();
         foreach (var saved in dto.RoofDrains.Where(saved => drainRoofs.Contains(saved.RoofId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
             document.Add(new RoofDrain
             {
@@ -2481,7 +2481,7 @@ public static partial class ProjectFile
             });
 
         // A downpipe hangs off its gutter; one whose gutter is gone has nothing to drain.
-        var gutterIds = document.Elements.OfType<Gutter>().Select(gutter => gutter.Id).ToHashSet();
+        var gutterIds = document.All<Gutter>().Select(gutter => gutter.Id).ToHashSet();
         foreach (var saved in dto.Downpipes.Where(saved => gutterIds.Contains(saved.GutterId) && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
             document.Add(new Downpipe
             {
@@ -2553,7 +2553,7 @@ public static partial class ProjectFile
 
             // An attachment to something that is no longer there is dropped, and the column
             // falls back on its levels - the same rule a wall's attachment follows.
-            var slabs = document.Elements.OfType<Slab>().Select(slab => slab.Id).ToHashSet();
+            var slabs = document.All<Slab>().Select(slab => slab.Id).ToHashSet();
 
             document.Add(new Column
             {

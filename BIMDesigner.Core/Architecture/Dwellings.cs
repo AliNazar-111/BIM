@@ -56,7 +56,7 @@ public static class Dwellings
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return null;
 
-        var rooms = document.Elements.OfType<Room>()
+        var rooms = document.All<Room>()
             .Select(room => (Room: room, Boundary: room.GetBoundary(document)))
             .Where(entry => entry.Boundary.IsEnclosed)
             .ToList();
@@ -73,7 +73,7 @@ public static class Dwellings
 
         // A one-bedroom flat for one with a shower room, not a bath: 37 m².
         var showerRoom = bedrooms == 1 && bedspaces == 1 && storeys == 1
-            && !document.Elements.OfType<Component>().Any(piece => document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.Bath);
+            && !document.All<Component>().Any(piece => document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.Bath);
         var wanting = new List<string>();
         if ((showerRoom ? 37 : AreaAsked(bedrooms, bedspaces, storeys)) is { } asked && area < asked - 0.05)
             wanting.Add($"the Nationally Described Space Standard asks {asked:0} m² of gross internal area, which takes in the walls between the rooms - short if they do not make up the {asked - area:0.0} m²");

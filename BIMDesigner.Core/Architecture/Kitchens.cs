@@ -41,7 +41,7 @@ public static class Kitchens
         var across = piece.Across * side;
         var back = piece.Location - piece.Facing * (type.Depth / 2);
         var floor = ComponentHosting.BaseElevation(document, piece, type);
-        var others = document.Elements.OfType<Component>()
+        var others = document.All<Component>()
             .Where(other => other != piece && other.LevelId == piece.LevelId && other.Facing.Dot(piece.Facing) > 0.999)
             .Select(other => (Piece: other, Type: document.FindType<ComponentType>(other.TypeId)))
             .Where(other => other.Type is not null && ComponentPlacing.InRun(other.Type)
@@ -133,7 +133,7 @@ public static class Kitchens
 
             case ComponentForm.Dishwasher when us:
             {
-                var sinks = document.Elements.OfType<Component>()
+                var sinks = document.All<Component>()
                     .Where(other => other.LevelId == piece.LevelId && document.FindType<ComponentType>(other.TypeId)?.Form == ComponentForm.Sink)
                     .Select(other => ComponentModel.Footprint(document.FindType<ComponentType>(other.TypeId)!, ComponentModel.FrameOf(other, 0)))
                     .ToList();
@@ -150,7 +150,7 @@ public static class Kitchens
 
     /// <summary>Every kitchen piece's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .SelectMany(piece => Problems(document, piece, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(piece, "its place in the kitchen", problem.Outline, problem.Rule), string.Empty,
@@ -160,7 +160,7 @@ public static class Kitchens
     /// <summary>What hangs over a piece - its type and the height of its underside - wall units, shelves, a hood.</summary>
     private static IEnumerable<(Component Piece, ComponentType Type, double Bottom)> Over(BimDocument document, Component piece, IReadOnlyList<Point2D> footprint)
     {
-        foreach (var other in document.Elements.OfType<Component>().Where(other => other != piece && other.LevelId == piece.LevelId))
+        foreach (var other in document.All<Component>().Where(other => other != piece && other.LevelId == piece.LevelId))
         {
             if (document.FindType<ComponentType>(other.TypeId) is not { } type || ComponentPlacing.InRun(type) && !type.IsHosted && type.Form != ComponentForm.WallUnit) continue;
             if (type.Kind is BuiltInCategory.LightingFixtures or BuiltInCategory.ElectricalFixtures or BuiltInCategory.LightingDevices) continue;
@@ -174,10 +174,10 @@ public static class Kitchens
     /// <summary>A window that opens over a hob - in a wall within 400 of it - by its type's name, or null.</summary>
     private static string? OpeningWindowOver(BimDocument document, Component piece, IReadOnlyList<Point2D> footprint)
     {
-        foreach (var window in document.Elements.OfType<Window>())
+        foreach (var window in document.All<Window>())
         {
             if (document.FindType<WindowType>(window.TypeId) is not { } type || !WindowLights.Opens(type)) continue;
-            if (document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId) is not { } wall || wall.LevelId != piece.LevelId) continue;
+            if (document.Find<Wall>(window.HostWallId) is not { } wall || wall.LevelId != piece.LevelId) continue;
             if (document.GetWallType(wall) is not { } wallType) continue;
 
             var (from, to) = window.GetSpan(type);
@@ -201,7 +201,7 @@ public static class Kitchens
 
     /// <summary>The bedspaces a project has, by its beds: two in a double or a bunk bed, one in a single.</summary>
     public static int Bedspaces(BimDocument document) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Select(piece => document.FindType<ComponentType>(piece.TypeId))
             .Sum(type => type?.Form switch
             {
@@ -233,7 +233,7 @@ public static class Kitchens
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
 
         var standard = document.ProjectInformation.ClearanceStandard;
-        var pieces = document.Elements.OfType<Component>()
+        var pieces = document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location))
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)!))
             .Where(entry => entry.Type is not null)

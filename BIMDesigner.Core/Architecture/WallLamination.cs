@@ -85,10 +85,17 @@ public static class WallLamination
     }
 
     /// <summary>The walls joined face to face with this one, whichever of the two holds the join.</summary>
-    public static IReadOnlyList<Wall> Partners(BimDocument document, Wall wall) =>
-        document.Walls
+    public static IReadOnlyList<Wall> Partners(BimDocument document, Wall wall)
+    {
+        // While the model is drawn, a wall joined to nothing - most of them - is known to be, without looking at every other.
+        if (ModelCache.Of(document) is { } cache &&
+            !cache.Keep("walls joined face to face", document, null, null, () => document.Walls.Where(w => w.JoinedTo.Count > 0).SelectMany(w => w.JoinedTo.Append(w.Id)).ToHashSet()).Contains(wall.Id))
+            return Array.Empty<Wall>();
+
+        return document.Walls
             .Where(other => !ReferenceEquals(other, wall) && (wall.JoinedTo.Contains(other.Id) || other.JoinedTo.Contains(wall.Id)))
             .ToList();
+    }
 
     /// <summary>
     /// Everything that moves with a wall because of locked joins, the wall itself included:
@@ -131,7 +138,7 @@ public static class WallHoles
             .ToList();
 
         // Openings cut through the wall on their own.
-        holes.AddRange(document.Elements.OfType<WallOpening>().Where(o => o.HostWallId == wall.Id).Select(o => o.Hole(wall)).Where(h => h.To - h.From > WallJoins.JoinTolerance));
+        holes.AddRange(document.All<WallOpening>().Where(o => o.HostWallId == wall.Id).Select(o => o.Hole(wall)).Where(h => h.To - h.From > WallJoins.JoinTolerance));
 
         if (!WallLamination.CanJoin(document, wall) || document.GetWallType(wall) is not { } type) return holes;
 

@@ -210,7 +210,7 @@ public partial class ModelView
 
             // The gridlines facing the elevation: their planes run toward the eye.
             var (right, look) = _view.ElevationAxes();
-            foreach (var grid in document.Elements.OfType<Grid>())
+            foreach (var grid in document.All<Grid>())
             {
                 var direction = (grid.End - grid.Start).NormalisedOrDefault(Core.Geometry.Vector2D.UnitX);
                 if (Math.Abs(direction.X * look.X + direction.Y * look.Y) < 0.94) continue;

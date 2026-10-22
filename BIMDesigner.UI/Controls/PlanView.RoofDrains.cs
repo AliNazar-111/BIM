@@ -45,7 +45,7 @@ public partial class PlanView
 
     /// <summary>A click on a flat roof in the 3D view with the Roof Drain tool: a drain there.</summary>
     public bool PlaceRoofDrainIn3D(Guid roofId, Point3D at) =>
-        Document?.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == roofId) is { } roof && PlaceRoofDrain(roof, new Point2D(at.X, at.Y));
+        Document?.Find<Roof>(roofId) is { } roof && PlaceRoofDrain(roof, new Point2D(at.X, at.Y));
 
     private bool PlaceRoofDrain(Roof roof, Point2D at)
     {

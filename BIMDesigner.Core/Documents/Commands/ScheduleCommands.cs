@@ -23,7 +23,7 @@ public static class ScheduleCommands
     public static IUndoableCommand Delete(BimDocument document, ScheduleDefinition schedule)
     {
         var index = document.Schedules.IndexOf(schedule);
-        var placed = document.Elements.OfType<Sheet>()
+        var placed = document.All<Sheet>()
             .SelectMany(sheet => sheet.Viewports.Where(viewport => ReferenceEquals(viewport.View.ScheduleIn(document), schedule))
                 .Select(viewport => (IUndoableCommand)new RemoveViewportCommand(sheet, viewport)))
             .ToList();

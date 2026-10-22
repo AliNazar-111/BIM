@@ -211,7 +211,7 @@ public abstract class RoofEdgeSweep : Element, IHostedElement
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.Roof,
-            () => document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == RoofId) is { } roof
+            () => document.Find<Roof>(RoofId) is { } roof
                 ? document.FindType<SlabType>(roof.TypeId)?.Name ?? "Roof"
                 : "<none>");
         yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.Edges, () => EdgeIds.Count);
@@ -433,7 +433,7 @@ public static class RoofEdgeSweeps
 {
     /// <summary>The fascias and gutters along a roof's edges.</summary>
     public static IEnumerable<RoofEdgeSweep> Of(BimDocument document, Roof roof) =>
-        document.Elements.OfType<RoofEdgeSweep>().Where(sweep => sweep.RoofId == roof.Id);
+        document.All<RoofEdgeSweep>().Where(sweep => sweep.RoofId == roof.Id);
 
     /// <summary>
     /// Every run of a fascia or gutter: the edges it is on, taken in order round the roof and
@@ -443,7 +443,7 @@ public static class RoofEdgeSweeps
     public static IReadOnlyList<RoofEdgeRun> Runs(BimDocument document, RoofEdgeSweep sweep)
     {
         if (sweep is Soffit or Eave) return Array.Empty<RoofEdgeRun>();
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId) is not { } roof) return Array.Empty<RoofEdgeRun>();
+        if (document.Find<Roof>(sweep.RoofId) is not { } roof) return Array.Empty<RoofEdgeRun>();
         if (roof.IsExtrusion || roof.Boundary.Count < 3 || roof.Edges.Count != roof.Boundary.Count) return Array.Empty<RoofEdgeRun>();
 
         var count = roof.Boundary.Count;
@@ -473,7 +473,7 @@ public static class RoofEdgeSweeps
     /// <summary>The roof one is carried back into and trimmed against - a dormer's main roof - if it is.</summary>
     private static Roof? CarriedInto(BimDocument document, Roof roof) =>
         roof.JoinedTo is { } joined
-            ? document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof) && !other.IsExtrusion)
+            ? document.All<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof) && !other.IsExtrusion)
             : null;
 
     /// <summary>
@@ -1126,7 +1126,7 @@ public static class RoofEdgeSweeps
     public static IReadOnlyList<SoffitPiece> SoffitPieces(BimDocument document, RoofEdgeSweep sweep)
     {
         if (sweep is not Soffit) return Array.Empty<SoffitPiece>();
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId) is not { } roof) return Array.Empty<SoffitPiece>();
+        if (document.Find<Roof>(sweep.RoofId) is not { } roof) return Array.Empty<SoffitPiece>();
         if (roof.IsExtrusion || roof.Boundary.Count < 3 || roof.Edges.Count != roof.Boundary.Count) return Array.Empty<SoffitPiece>();
 
         var boundary = roof.Boundary;
@@ -1281,7 +1281,7 @@ public static class RoofEdgeSweeps
         var walls = new List<ColourRgb>();
         foreach (var edge in roof.Edges.Where(edge => edge.WallId is not null))
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == edge.WallId) is not { } wall || document.GetWallType(wall) is not { } type) continue;
+            if (document.Find<Wall>(edge.WallId) is not { } wall || document.GetWallType(wall) is not { } type) continue;
             var layers = type.Structure.Layers;
             if (layers.Count == 0) continue;
 
@@ -1315,7 +1315,7 @@ public static class RoofEdgeSweeps
     private static IEnumerable<int> OpenEdges(BimDocument document, Roof roof)
     {
         var count = roof.Boundary.Count;
-        var target = document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == roof.JoinedTo);
+        var target = document.Find<Roof>(roof.JoinedTo);
 
         for (var i = 0; i < count && i < roof.Edges.Count; i++)
         {

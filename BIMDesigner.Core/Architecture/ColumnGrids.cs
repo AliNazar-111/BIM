@@ -59,7 +59,7 @@ public static class ColumnGrids
     public static IReadOnlyList<Column> AtIntersections(
         BimDocument document, IEnumerable<Grid> grids, ColumnType type, Guid levelId, Guid? topLevelId = null)
     {
-        var taken = document.Elements.OfType<Column>()
+        var taken = document.All<Column>()
             .Where(column => column.LevelId == levelId)
             .Select(column => column.Location)
             .ToList();
@@ -93,7 +93,7 @@ public static class ColumnGrids
 
         var already = moving.Select(element => element.Id).ToHashSet();
 
-        return document.Elements.OfType<Column>()
+        return document.All<Column>()
             .Where(column => column.MovesWithGrids && !already.Contains(column.Id))
             .Where(column => document.FindType<ColumnType>(column.TypeId) is { } type &&
                              grids.Any(grid => IsOn(grid, column, type)))

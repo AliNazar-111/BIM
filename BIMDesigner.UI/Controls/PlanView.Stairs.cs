@@ -312,7 +312,7 @@ public partial class PlanView
     {
         if (Document is null) yield break;
 
-        foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => _shows(stair)))
+        foreach (var stair in Document.All<Stair>().Where(stair => _shows(stair)))
             if (Stairs.Flights(Document, stair).Any(flight => (flight.LevelId == ActiveLevelId || flight.TopLevelId == ActiveLevelId)
                                                               && flight.Layout.Steps.Any(step => Polygon2D.Contains(step.Outline, model))))
                 yield return stair;

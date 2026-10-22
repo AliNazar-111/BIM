@@ -58,6 +58,11 @@ public static class CurtainEmbedding
     {
         if (document.IsCurtainWall(host) || host.IsCurved) return Array.Empty<EmbeddedHole>();
 
+        // While the model is drawn, every curtain wall is found in its host once, not once for every wall.
+        if (ModelCache.Of(document) is { } cache)
+            return cache.Keep("embedded curtain walls", document, null, null, () => Embedded(document)).GetValueOrDefault(host)
+                   ?? (IReadOnlyList<EmbeddedHole>)Array.Empty<EmbeddedHole>();
+
         return document.Walls
             .Where(wall => !ReferenceEquals(wall, host) && wall.LevelId == host.LevelId)
             .Select(wall => Of(document, wall))
@@ -66,6 +71,14 @@ public static class CurtainEmbedding
             .OrderBy(hole => hole.From)
             .ToList();
     }
+
+    /// <summary>Every wall with curtain walls in it, and the holes they make, in order along it.</summary>
+    private static Dictionary<Wall, IReadOnlyList<EmbeddedHole>> Embedded(BimDocument document) =>
+        document.Walls
+            .Select(wall => Of(document, wall))
+            .OfType<(Wall Host, EmbeddedHole Hole)>()
+            .GroupBy(found => found.Host)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<EmbeddedHole>)group.Select(found => found.Hole).OrderBy(hole => hole.From).ToList());
 
     /// <summary>Whether a wall sits inside another as an embedded curtain wall - and so is not joined to it.</summary>
     public static bool IsEmbedded(BimDocument document, Wall wall) => Of(document, wall) is not null;

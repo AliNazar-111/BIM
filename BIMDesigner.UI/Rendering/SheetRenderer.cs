@@ -221,7 +221,7 @@ public sealed class SheetRenderer
 
             case ViewKind.Section:
             {
-                var marker = Document.Elements.OfType<SectionMarker>()
+                var marker = Document.All<SectionMarker>()
                     .FirstOrDefault(m => m.Id == viewport.View.TargetId);
 
                 if (marker is null) return;
@@ -255,7 +255,7 @@ public sealed class SheetRenderer
                     _plan.SetTransform(point => ViewToScreen(point.X, point.Y), pixelsPerModelMm);
                     _plan.DrawContent(dc);
                 }
-                else if (Document.Elements.OfType<SectionMarker>().FirstOrDefault(m => m.Id == callout.Parent.TargetId) is { } cut)
+                else if (Document.Find<SectionMarker>(callout.Parent.TargetId) is { } cut)
                 {
                     _section.SetSelection(null);
                     _section.PixelsPerDip = PixelsPerDip;

@@ -26,6 +26,67 @@ internal readonly record struct V(double X, double Y, double Z)
 /// An element's shape as a clash check sees it: its triangles, each with its own box, and the
 /// box round them all.
 /// </summary>
+/// <summary>
+/// Solids in squares of the plan, each in every square its box - grown by how near counts - is
+/// over: so a solid is tried against those near it, not against every other in the building.
+/// </summary>
+internal sealed class ClashGrid
+{
+    private const double Cell = 4000;
+
+    // More squares than this to a solid, and it is put down as near everything.
+    private const long MostCells = 4096;
+
+    private readonly Dictionary<(long X, long Y), List<int>> _cells = new();
+    private readonly List<int> _everywhere = new();
+    private readonly int _count;
+
+    public ClashGrid(IReadOnlyList<ClashSolid> solids, double reach)
+    {
+        _count = solids.Count;
+        for (var i = 0; i < solids.Count; i++)
+        {
+            if (Cells(solids[i].Min, solids[i].Max, reach + 1) is not (var x0, var y0, var x1, var y1))
+            {
+                _everywhere.Add(i);
+                continue;
+            }
+
+            for (var x = x0; x <= x1; x++)
+            for (var y = y0; y <= y1; y++)
+            {
+                if (!_cells.TryGetValue((x, y), out var cell)) _cells[(x, y)] = cell = new List<int>();
+                cell.Add(i);
+            }
+        }
+    }
+
+    /// <summary>Where in the list the solids are that may come within reach of this one, in the list's order.</summary>
+    public IReadOnlyList<int> Near(ClashSolid solid)
+    {
+        if (Cells(solid.Min, solid.Max, 0) is not (var x0, var y0, var x1, var y1)) return Enumerable.Range(0, _count).ToArray();
+
+        var found = new HashSet<int>(_everywhere);
+        for (var x = x0; x <= x1; x++)
+        for (var y = y0; y <= y1; y++)
+            if (_cells.TryGetValue((x, y), out var cell)) found.UnionWith(cell);
+
+        var order = found.ToArray();
+        Array.Sort(order);
+        return order;
+    }
+
+    private static (long, long, long, long)? Cells(V min, V max, double grow)
+    {
+        if (!double.IsFinite(min.X) || !double.IsFinite(min.Y) || !double.IsFinite(max.X) || !double.IsFinite(max.Y) || min.X > max.X || min.Y > max.Y)
+            return null;
+
+        var (x0, y0) = ((long)Math.Floor((min.X - grow) / Cell), (long)Math.Floor((min.Y - grow) / Cell));
+        var (x1, y1) = ((long)Math.Floor((max.X + grow) / Cell), (long)Math.Floor((max.Y + grow) / Cell));
+        return (x1 - x0 + 1) * (y1 - y0 + 1) > MostCells ? null : (x0, y0, x1, y1);
+    }
+}
+
 internal sealed class ClashSolid
 {
     private readonly V[] _a, _b, _c;

@@ -28,6 +28,7 @@ public static class ModelMeshBuilder
         shows ??= _ => true;
         using var heights = new Chimneys.Heights();
         using var joins = Architecture.WallJoins.TakingPart(shows);
+        using var cache = ModelCache.Begin(document);
         var was = _shows;
         _shows = shows;
         try
@@ -47,83 +48,92 @@ public static class ModelMeshBuilder
     {
         var meshes = new List<Mesh3D>();
 
-        foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, wall, meshes);
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => shows(slab))) AddSlab(document, slab, meshes);
+        // Each element's solids built in turn, and one that cannot be built left out - and said
+        // so - with whatever it had got as far as, rather than the whole model with it.
+        void Each<T>(IEnumerable<T> elements, Action<T> add) where T : Element
+        {
+            foreach (var element in elements)
+            {
+                if (!shows(element)) continue;
+                var before = meshes.Count;
+                if (!DrawFailures.Guard(element, () => add(element))) meshes.RemoveRange(before, meshes.Count - before);
+            }
+        }
 
-        foreach (var column in document.Elements.OfType<Column>().Where(c => shows(c)))
-            AddColumn(document, column, meshes);
+        Each(document.Walls, wall => AddWall(document, wall, meshes));
+        Each(document.All<Slab>(), slab => AddSlab(document, slab, meshes));
+        Each(document.All<Column>(), column => AddColumn(document, column, meshes));
 
         // Footings under the walls and columns, with the walls and piers on them.
-        foreach (var footing in document.Elements.Where(e => e is WallFooting or PadFooting).Where(e => shows(e)))
-            meshes.AddRange(Footings.Meshes(document, footing));
+        Each(document.Elements.Where(e => e is WallFooting or PadFooting), footing => meshes.AddRange(Footings.Meshes(document, footing)));
 
-        foreach (var component in document.Elements.OfType<Component>().Where(c => shows(c)))
-            AddComponent(document, component, meshes);
+        Each(document.All<Component>(), component => AddComponent(document, component, meshes));
 
         // Roof windows in the roofs, on the storey of their roof.
-        foreach (var window in document.Elements.OfType<RoofWindow>().Where(w => shows(w)))
-            meshes.AddRange(RoofWindows.Meshes(document, window));
+        Each(document.All<RoofWindow>(), window => meshes.AddRange(RoofWindows.Meshes(document, window)));
 
         // Fascias and gutters along the roofs' edges, on the storey of the roof they follow.
-        foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(s => shows(s)))
+        Each(document.All<RoofEdgeSweep>(), sweep =>
         {
-            var levelId = document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == sweep.RoofId)?.LevelId ?? sweep.LevelId;
+            var levelId = document.Find<Roof>(sweep.RoofId)?.LevelId ?? sweep.LevelId;
 
             // An eave is built of several things - rafters, soffit, fire-stopping - each in its own material.
             if (sweep is Eave eave) meshes.AddRange(Eaves.Meshes(document, eave, levelId));
             else if (RoofEdgeSweeps.Mesh(document, sweep, levelId) is { IsEmpty: false } mesh) meshes.Add(mesh);
-        }
+        });
 
         // The downpipes taking the water down from them.
-        foreach (var pipe in document.Elements.OfType<Downpipe>().Where(p => shows(p)))
+        Each(document.All<Downpipe>(), pipe =>
+        {
             if (Downpipes.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
-        foreach (var slabEdge in document.Elements.OfType<SlabEdge>().Where(e => shows(e)))
+        });
+        Each(document.All<SlabEdge>(), slabEdge =>
+        {
             if (SlabEdgeRuns.Mesh(document, slabEdge) is { } edgeMesh) meshes.Add(edgeMesh);
+        });
 
         // And the drains in flat roofs, with the pipes taking their water away.
-        foreach (var drain in document.Elements.OfType<RoofDrain>().Where(d => shows(d)))
+        Each(document.All<RoofDrain>(), drain =>
         {
             if (RoofDrainage.Mesh(document, drain) is { } drainMesh) meshes.Add(drainMesh);
             if (RoofDrainage.PipeMesh(document, drain) is { } pipeMesh) meshes.Add(pipeMesh);
-        }
+        });
 
         // Chimneys, through the roofs they rise through.
-        foreach (var chimney in document.Elements.OfType<Chimney>().Where(c => shows(c)))
-            meshes.AddRange(Chimneys.Meshes(document, chimney));
+        Each(document.All<Chimney>(), chimney => meshes.AddRange(Chimneys.Meshes(document, chimney)));
 
         // Stairs, up through the openings they cut.
-        foreach (var stair in document.Elements.OfType<Stair>().Where(s => shows(s)))
-            meshes.AddRange(StairModel.Meshes(document, stair));
+        Each(document.All<Stair>(), stair => meshes.AddRange(StairModel.Meshes(document, stair)));
 
         // Ramps, up to the doors and terraces they serve.
-        foreach (var ramp in document.Elements.OfType<Ramp>().Where(r => shows(r)))
-            meshes.AddRange(RampModel.Meshes(document, ramp));
+        Each(document.All<Ramp>(), ramp => meshes.AddRange(RampModel.Meshes(document, ramp)));
 
         // Railings round balconies, terraces and floors' edges.
-        foreach (var railing in document.Elements.OfType<Railing>().Where(r => shows(r)))
-            meshes.AddRange(RailingModel.Meshes(document, railing));
+        Each(document.All<Railing>(), railing => meshes.AddRange(RailingModel.Meshes(document, railing)));
 
         // The ground, cut away under the building.
-        foreach (var ground in document.Elements.OfType<Toposurface>().Where(g => shows(g)))
+        Each(document.All<Toposurface>(), ground =>
             meshes.AddRange(Terrains.Meshes(document, ground).Where(mesh => mesh.ElementId == ground.Id
-                || document.Elements.OfType<GroundRegion>().Any(region => region.Id == mesh.ElementId && shows(region))
-                || document.Elements.OfType<SitePad>().Any(pad => pad.Id == mesh.ElementId && shows(pad))));
+                || document.All<GroundRegion>().Any(region => region.Id == mesh.ElementId && shows(region))
+                || document.All<SitePad>().Any(pad => pad.Id == mesh.ElementId && shows(pad)))));
 
         // Beams, under the floors and roofs they carry.
-        foreach (var beam in document.Elements.OfType<Beam>().Where(b => shows(b)))
+        Each(document.All<Beam>(), beam =>
+        {
             if (Beams.Mesh(document, beam) is { } beamMesh) meshes.Add(beamMesh);
+        });
 
         // Joist layouts: their joists and trimmers.
-        foreach (var system in document.Elements.OfType<BeamSystem>().Where(s => shows(s)))
-            meshes.AddRange(BeamSystems.Meshes(document, system));
+        Each(document.All<BeamSystem>(), system => meshes.AddRange(BeamSystems.Meshes(document, system)));
 
         // Masses, see-through: the shape of the building before it is one.
-        foreach (var mass in document.Elements.OfType<Mass>().Where(m => shows(m) && m.Boundary.Count >= 3))
-            meshes.Add(Masses.Mesh(document, mass));
+        Each(document.All<Mass>().Where(m => m.Boundary.Count >= 3), mass => meshes.Add(Masses.Mesh(document, mass)));
 
         // Walls shaped in plan - trapezoids and polygons - stood up from their outlines.
-        foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(w => shows(w)))
+        Each(document.All<PolygonWall>(), shaped =>
+        {
             if (PolygonWalls.Mesh(document, shaped) is { } shapedMesh) meshes.Add(shapedMesh);
+        });
 
         return Finished(meshes);
     }

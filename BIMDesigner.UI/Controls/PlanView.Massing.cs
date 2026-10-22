@@ -116,7 +116,7 @@ public partial class PlanView
     private IEnumerable<(Mass Mass, IReadOnlyList<IReadOnlyList<Point2D>> Cut, bool Floor)> MassesOnPlan()
     {
         if (Document?.FindLevel(ActiveLevelId) is not { } level) yield break;
-        foreach (var mass in Document.Elements.OfType<Mass>().Where(mass => mass.Boundary.Count >= 3 && _shows(mass)))
+        foreach (var mass in Document.All<Mass>().Where(mass => mass.Boundary.Count >= 3 && _shows(mass)))
         {
             var cut = Masses.Section(Document, mass, level.Elevation + 1);
             if (cut.Count > 0) yield return (mass, cut, mass.FloorLevels.Contains(level.Id));

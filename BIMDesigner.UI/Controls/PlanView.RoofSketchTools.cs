@@ -343,7 +343,7 @@ public partial class PlanView
         var inset = SketchBearingInset(line);
 
         if (SketchAlignByOverhang && line.Edge.WallId is { } wallId &&
-            Document.Walls.FirstOrDefault(wall => wall.Id == wallId) is { } wall)
+            Document.Find<Wall>(wallId) is { } wall)
         {
             // The plate stays; the edge runs out until, falling at its pitch, it reaches the target.
             var reach = (line.Edge.PlateOffset - target) / rise;

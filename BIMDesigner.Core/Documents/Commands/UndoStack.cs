@@ -33,11 +33,36 @@ public sealed class UndoStack
     /// <summary>Raised whenever the history or the modified state changes.</summary>
     public event EventHandler? Changed;
 
-    /// <summary>Applies a change and records it.</summary>
+    /// <summary>
+    /// Applies a change and records it. One that goes wrong part-way is taken back as far as it
+    /// will go and not recorded - the model is not left half changed with nothing to undo - and
+    /// what went wrong is passed on, to be told.
+    /// </summary>
     public void Execute(IUndoableCommand command)
     {
-        command.Redo();
+        try
+        {
+            command.Redo();
+        }
+        catch (Exception failure)
+        {
+            TakeBack(command.Undo);
+            throw new EditFailedException(command.Name, failure);
+        }
+
         Record(command);
+    }
+
+    /// <summary>Undoes what a step that went wrong had done, as far as it can: it is the step's own failure that is told, not this.</summary>
+    private void TakeBack(Action undo)
+    {
+        _isReplaying = true;
+        try { undo(); }
+        catch (Exception)
+        {
+            // Nothing more can be done for it here.
+        }
+        finally { _isReplaying = false; }
     }
 
     /// <summary>
@@ -66,12 +91,19 @@ public sealed class UndoStack
         if (!CanUndo) return;
 
         var command = _done[^1];
-        _done.RemoveAt(_done.Count - 1);
 
+        // An undo that goes wrong part-way is put back as it was, still there to undo.
         _isReplaying = true;
         try { command.Undo(); }
+        catch (Exception failure)
+        {
+            _isReplaying = false;
+            TakeBack(command.Redo);
+            throw new EditFailedException($"Undo {command.Name}", failure);
+        }
         finally { _isReplaying = false; }
 
+        _done.RemoveAt(_done.Count - 1);
         _undone.Add(command);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -81,13 +113,29 @@ public sealed class UndoStack
         if (!CanRedo) return;
 
         var command = _undone[^1];
-        _undone.RemoveAt(_undone.Count - 1);
 
         _isReplaying = true;
         try { command.Redo(); }
+        catch (Exception failure)
+        {
+            _isReplaying = false;
+            TakeBack(command.Undo);
+            throw new EditFailedException($"Redo {command.Name}", failure);
+        }
         finally { _isReplaying = false; }
 
+        _undone.RemoveAt(_undone.Count - 1);
         _done.Add(command);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// That the model has changes not in any file, whatever the history says: a project brought
+    /// back after a crash is in no file until it is saved.
+    /// </summary>
+    public void MarkModified()
+    {
+        _cleanDepth = -1;
         Changed?.Invoke(this, EventArgs.Empty);
     }
 

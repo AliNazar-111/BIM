@@ -117,7 +117,7 @@ public static class ChimneyRules
 
     /// <summary>Every chimney's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Chimney>()
+        document.All<Chimney>()
             .Where(chimney => chimney.LevelId == levelId)
             .SelectMany(chimney => Problems(document, chimney, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(chimney, "its flue", problem.Outline, problem.Rule), string.Empty,

@@ -32,8 +32,7 @@ public static class WallSweeps
 
     /// <summary>The sweeps and reveals placed on this wall on their own - not the ones its type carries - and which element each is.</summary>
     public static IReadOnlyList<(WallSweep Sweep, Guid ElementId)> Placed(BimDocument document, Wall wall) =>
-        document.Elements
-            .OfType<PlacedSweep>()
+        document.All<PlacedSweep>()
             .Where(placed => placed.HostWallIds.Contains(wall.Id))
             .Select(placed => (Sweep: placed.On(document, wall), placed.Id))
             .Where(entry => entry.Sweep is not null)

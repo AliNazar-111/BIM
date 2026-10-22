@@ -111,7 +111,7 @@ public static class CobieExport
         sheets.Add(floor);
 
         // ---- Space ----
-        var rooms = document.Elements.OfType<Room>()
+        var rooms = document.All<Room>()
             .Select(room => (Room: room, Boundary: room.GetBoundary(document)))
             .Where(entry => entry.Boundary.IsEnclosed)
             .ToList();
@@ -296,7 +296,7 @@ public static class CobieExport
             case Component component:
                 return (Point3D.On(component.Location, level + component.Elevation), component.Rotation);
 
-            case Opening opening when document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is { } wall:
+            case Opening opening when document.Find<Wall>(opening.HostWallId) is { } wall:
                 var centre = opening.GetCentre(wall);
                 var direction = wall.Direction;
                 return (Point3D.On(centre, level + wall.BaseOffset + opening.SillHeight), Math.Atan2(direction.Y, direction.X) * 180 / Math.PI);

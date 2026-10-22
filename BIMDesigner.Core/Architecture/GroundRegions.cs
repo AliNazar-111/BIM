@@ -147,7 +147,7 @@ public static class GroundRegions
     {
         if (region.Boundary.Count < 3) return null;
         var middle = Polygon2D.Centroid(region.Boundary, region.Boundary[0]);
-        return document.Elements.OfType<Toposurface>().Where(ground => ground.LevelId == region.LevelId)
+        return document.All<Toposurface>().Where(ground => ground.LevelId == region.LevelId)
             .FirstOrDefault(ground => Terrains.HeightAt(document, ground, middle) is not null);
     }
 
@@ -252,7 +252,7 @@ public static class GroundRegions
     public static Ramp? RampOver(BimDocument document, GroundRegion region)
     {
         if (region.Boundary.Count < 3) return null;
-        foreach (var ramp in document.Elements.OfType<Ramp>())
+        foreach (var ramp in document.All<Ramp>())
         {
             var footprint = Ramps.Layout(document, ramp).Footprint;
             if (footprint.Count < 3) continue;

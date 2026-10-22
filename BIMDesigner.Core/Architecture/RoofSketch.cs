@@ -592,7 +592,7 @@ public static class RoofSketch
     {
         var changed = false;
 
-        foreach (var roof in document.Elements.OfType<Roof>())
+        foreach (var roof in document.All<Roof>())
             changed |= Follow(document, roof);
 
         return changed;
@@ -612,7 +612,7 @@ public static class RoofSketch
             var drawn = (roof.Boundary[i], roof.Boundary[(i + 1) % count]);
 
             lines[i] = edge.WallId is { } id &&
-                       document.Walls.FirstOrDefault(candidate => candidate.Id == id) is { } wall &&
+                       document.Find<Wall>(id) is { } wall &&
                        LineOnWall(document, wall, edge.OnLeftOfWall, edge.Overhang, edge.ExtendToCore) is { } placed
                 ? placed
                 : drawn;

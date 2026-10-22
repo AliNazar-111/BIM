@@ -85,7 +85,7 @@ public sealed class PolygonWall : Element
     public Guid? BaseAttachedTo { get; set; }
 
     public double GetBaseElevation(BimDocument document) =>
-        BaseAttachedTo is { } id && document.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == id) is { } slab
+        BaseAttachedTo is { } id && document.Find<Slab>(id) is { } slab
             ? FloorSurfaces.TopAt(document, slab, new Point2D(Outline.Average(point => point.X), Outline.Average(point => point.Y)))
             : (document.FindLevel(LevelId)?.Elevation ?? 0) + BaseOffset;
 

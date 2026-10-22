@@ -88,7 +88,7 @@ public static class ComponentHosting
         }
 
         // Standing on a floor built up above its level: from that floor's top, wherever it is.
-        if (component.StandsOn is { } floorId && document.Elements.OfType<Slab>().FirstOrDefault(candidate => candidate.Id == floorId) is { } floor)
+        if (component.StandsOn is { } floorId && document.Find<Slab>(floorId) is { } floor)
             return FloorSurfaces.TopAt(document, floor, component.Location) + component.Elevation;
 
         var level = document.Levels.FirstOrDefault(l => l.Id == component.LevelId);
@@ -173,7 +173,7 @@ public static class ComponentHosting
     /// one on the level already does that - Work Plane, or simply placing it there.
     /// </summary>
     public static Slab? SlabAt(BimDocument document, Point2D at, Guid levelId) =>
-        document.Elements.OfType<Slab>()
+        document.All<Slab>()
             .Where(slab => slab.LevelId == levelId && slab.Contains(at))
             .OrderByDescending(slab => slab is Ceiling ? 2 : slab is Roof ? 1 : 0)
             .FirstOrDefault();

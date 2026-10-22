@@ -44,7 +44,7 @@ public partial class ViewTemplatesWindow : System.Windows.Window
         var keep = select ?? Selected;
         _loading = true;
         TemplateList.Items.Clear();
-        foreach (var template in _document.Elements.OfType<ViewTemplate>().OrderBy(t => t.For).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var template in _document.All<ViewTemplate>().OrderBy(t => t.For).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
         {
             var item = new ListBoxItem { Content = $"{template.Name}  —  {Kind(template.For)}", Tag = template };
             TemplateList.Items.Add(item);

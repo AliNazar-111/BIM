@@ -60,7 +60,7 @@ public static class Callouts
 
     public static string NextName(BimDocument document)
     {
-        var names = document.Elements.OfType<Callout>().Select(callout => callout.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = document.All<Callout>().Select(callout => callout.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var i = 1; ; i++)
             if (!names.Contains($"Callout {i}")) return $"Callout {i}";
     }
@@ -68,7 +68,7 @@ public static class Callouts
     /// <summary>The sheet a view is placed on and its detail number there, or null where it is on none.</summary>
     public static (string Detail, string Sheet)? PlacedOn(BimDocument document, ViewReference view)
     {
-        foreach (var sheet in document.Elements.OfType<Sheet>())
+        foreach (var sheet in document.All<Sheet>())
             if (sheet.Viewports.FirstOrDefault(viewport => viewport.View == view) is { } placed)
                 return (placed.DetailNumber, sheet.Number);
         return null;
@@ -76,7 +76,7 @@ public static class Callouts
 
     /// <summary>The callouts drawn on a view.</summary>
     public static IEnumerable<Callout> On(BimDocument document, ViewReference view) =>
-        document.Elements.OfType<Callout>().Where(callout => callout.Parent == view);
+        document.All<Callout>().Where(callout => callout.Parent == view);
 
     /// <summary>
     /// A callout drawn on a view round a box: named, its view at the scale callouts of its kind are

@@ -183,9 +183,9 @@ public static class WallFramings
     private static readonly double[] SteelHeaders = { 152, 203, 254, 305 };
 
     public static WallFraming? Of(BimDocument document, Wall wall) =>
-        document.Elements.OfType<WallFraming>().FirstOrDefault(framing => framing.HostId == wall.Id);
+        document.All<WallFraming>().FirstOrDefault(framing => framing.HostId == wall.Id);
 
-    public static Wall? Host(BimDocument document, WallFraming framing) => document.Walls.FirstOrDefault(wall => wall.Id == framing.HostId);
+    public static Wall? Host(BimDocument document, WallFraming framing) => document.Find<Wall>(framing.HostId);
 
     /// <summary>Why a wall cannot be framed, or null: a straight wall of one layered type, with a core to frame and no edited outline.</summary>
     public static string? WhyNot(BimDocument document, Wall wall)

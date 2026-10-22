@@ -155,7 +155,7 @@ public static class WindowRules
     {
         var floor = document.FindLevel(room.LevelId)?.Elevation ?? 0;
         var next = document.Levels.Where(level => level.Elevation > floor + 1).Select(level => level.Elevation).DefaultIfEmpty(floor + 6000).Min();
-        return document.Elements.OfType<RoofWindow>()
+        return document.All<RoofWindow>()
             .Select(window => RoofWindows.Frame(document, window))
             .OfType<RoofWindowFrame>()
             .Where(frame => Polygon2D.Contains(outline, frame.Centre) && frame.Corners.Min(frame.Top) is var low && low > floor + 1 && low < next)
@@ -167,9 +167,9 @@ public static class WindowRules
     {
         var windows = new List<(Window, WindowType, double)>();
         var doors = new List<(Door, DoorType)>();
-        foreach (var opening in document.Elements.OfType<Opening>())
+        foreach (var opening in document.All<Opening>())
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
+            if (document.Find<Wall>(opening.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
             if (document.GetWallType(wall) is not { } wallType) continue;
 
             var reach = wallType.Structure.TotalWidth / 2 + 150;
@@ -188,7 +188,7 @@ public static class WindowRules
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Window window, ClearanceStandard standard)
     {
         if (document.FindType<WindowType>(window.TypeId) is not { } type) return Array.Empty<PlacementProblem>();
-        if (document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType)
+        if (document.Find<Wall>(window.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType)
             return Array.Empty<PlacementProblem>();
 
         var us = standard.IsUs();
@@ -203,7 +203,7 @@ public static class WindowRules
         if (!type.SafetyGlazing && GlassArea(type) > 0)
         {
             var glassBottom = sill + Frame;
-            var nearDoor = document.Elements.OfType<Door>()
+            var nearDoor = document.All<Door>()
                 .Where(door => door.HostWallId == wall.Id && document.FindType<DoorType>(door.TypeId) is not null)
                 .Select(door => door.GetSpan(document.FindType<DoorType>(door.TypeId)!))
                 .Select(span => Math.Max(0, Math.Max(span.From - to, from - span.To)))
@@ -219,7 +219,7 @@ public static class WindowRules
                     ? WindowLights.Of(type).Where(light => light.Area > 836000 && sill + light.Bottom < 457 && sill + light.Top > 914)
                         .Select(light => (light.Area / 1e6, sill + light.Bottom)).FirstOrDefault()
                     : pane > 0.836 && glassBottom < 457 && sill + height - Frame > 914 ? (pane, glassBottom) : (0.0, 0.0);
-                var wet = document.Elements.OfType<Component>()
+                var wet = document.All<Component>()
                     .Where(piece => piece.LevelId == wall.LevelId && document.FindType<ComponentType>(piece.TypeId)?.Form is ComponentForm.Bath or ComponentForm.Shower)
                     .Select(piece => Kitchens.Apart(ComponentModel.Footprint(document.FindType<ComponentType>(piece.TypeId)!, ComponentModel.FrameOf(piece, 0)), outline))
                     .DefaultIfEmpty(double.MaxValue)
@@ -256,8 +256,8 @@ public static class WindowRules
 
     /// <summary>Every window's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Window>()
-            .Where(window => document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId)?.LevelId == levelId)
+        document.All<Window>()
+            .Where(window => document.Find<Wall>(window.HostWallId)?.LevelId == levelId)
             .SelectMany(window => Problems(document, window, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(window, "its place", problem.Outline, problem.Rule), string.Empty,
                     $"{document.FindType<WindowType>(window.TypeId)?.Name ?? "A window"}{(string.IsNullOrWhiteSpace(window.Mark) ? string.Empty : $" ({window.Mark})")}", problem.Said)))
@@ -273,7 +273,7 @@ public static class WindowRules
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
 
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
-        var pieces = document.Elements.OfType<Component>()
+        var pieces = document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location))
             .Select(piece => document.FindType<ComponentType>(piece.TypeId))
             .OfType<ComponentType>()

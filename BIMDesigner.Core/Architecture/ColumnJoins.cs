@@ -159,7 +159,7 @@ public static class ColumnJoins
         var crossings = new List<(double, double, WallCut, WallCut)>();
         var half = type.Width / 2;
 
-        foreach (var column in document.Elements.OfType<Column>())
+        foreach (var column in document.All<Column>())
         {
             if (column.LevelId != wall.LevelId) continue;
             if (document.FindType<ColumnType>(column.TypeId) is not { } columnType) continue;

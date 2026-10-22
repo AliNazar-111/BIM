@@ -183,7 +183,7 @@ public static class ComponentPlacing
         var foot = ComponentHosting.BaseElevation(document, component, type);
 
         double? best = null;
-        foreach (var other in document.Elements.OfType<Component>().Where(other => other != component && other.LevelId == component.LevelId))
+        foreach (var other in document.All<Component>().Where(other => other != component && other.LevelId == component.LevelId))
         {
             if (document.FindType<ComponentType>(other.TypeId) is not { } otherType || !InRun(otherType)) continue;
             if (other.Facing.Dot(component.Facing) < 0.999) continue;
@@ -215,7 +215,7 @@ public static class ComponentPlacing
     {
         var footprint = Footprint(hood, type);
         double? top = null;
-        foreach (var cooker in document.Elements.OfType<Component>().Where(other => other != hood && other.LevelId == hood.LevelId))
+        foreach (var cooker in document.All<Component>().Where(other => other != hood && other.LevelId == hood.LevelId))
         {
             if (document.FindType<ComponentType>(cooker.TypeId) is not { Form: ComponentForm.Cooker } cookerType) continue;
             if (Overlap(footprint, Footprint(cooker, cookerType)) <= 100) continue;
@@ -237,7 +237,7 @@ public static class ComponentPlacing
     {
         var footprint = Footprint(unit, type);
         double? top = null;
-        foreach (var counter in document.Elements.OfType<Component>().Where(other => other != unit && other.LevelId == unit.LevelId))
+        foreach (var counter in document.All<Component>().Where(other => other != unit && other.LevelId == unit.LevelId))
         {
             if (document.FindType<ComponentType>(counter.TypeId) is not { } counterType || !HasWorktop(counterType)) continue;
             if (Overlap(footprint, Footprint(counter, counterType)) <= 100) continue;
@@ -340,7 +340,7 @@ public static class RoomsOf
 
     /// <summary>The room on a storey round a point, or null where there is none.</summary>
     public static Room? Containing(BimDocument document, Guid levelId, Point2D at) =>
-        document.Elements.OfType<Room>()
+        document.All<Room>()
             .Where(room => room.LevelId == levelId)
             .FirstOrDefault(room => Outline(document, room) is { Count: >= 3 } outline && Polygon2D.Contains(outline, at));
 

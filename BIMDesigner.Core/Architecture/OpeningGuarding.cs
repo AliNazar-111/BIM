@@ -36,7 +36,7 @@ public static class OpeningGuarding
         double DropOn(double side)
         {
             var beside = wall.PointAt(body.Structure, Math.Clamp(along, 0, wall.Length), side * (body.Structure.TotalWidth / 2 + 600));
-            var below = document.Elements.OfType<Slab>()
+            var below = document.All<Slab>()
                 .Where(slab => slab is not Ceiling && slab is not Roof { IsExtrusion: true } && slab.Boundary.Count >= 3 && slab.Contains(beside))
                 .Select(slab => FloorSurfaces.TopAt(document, slab, beside))
                 .Where(top => top <= floor + Stairs.FloorReach)
@@ -79,7 +79,7 @@ public static class OpeningGuarding
             var (a, b) = (wall.PointAt(body.Structure, first, side * face), wall.PointAt(body.Structure, last, side * face));
 
             // Its own Juliet balcony first - so long as it is still across it, the opening not moved away from under it.
-            var railings = document.Elements.OfType<Railing>().OrderByDescending(railing => opening is not null && railing.HostOpeningId == opening.Id);
+            var railings = document.All<Railing>().OrderByDescending(railing => opening is not null && railing.HostOpeningId == opening.Id);
             if (railings.FirstOrDefault(railing => Spans(railing, a, b)) is { } found) return found;
         }
 
@@ -89,7 +89,7 @@ public static class OpeningGuarding
     /// <summary>What about a door or window over a drop falls short as guarding - or nothing.</summary>
     public static IReadOnlyList<string> Problems(BimDocument document, Opening opening)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type)
+        if (document.Find<Wall>(opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type)
             return Array.Empty<string>();
 
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
@@ -172,7 +172,7 @@ public static class OpeningGuarding
 
     private static string Guarded(BimDocument document, Opening opening)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } wall) return "In no wall";
+        if (document.Find<Wall>(opening.HostWallId) is not { } wall) return "In no wall";
         var drop = Drop(document, wall, opening.DistanceAlongWall);
         if (drop <= 600) return "Not over a drop";
         var type = document.FindType<OpeningType>(opening.TypeId);

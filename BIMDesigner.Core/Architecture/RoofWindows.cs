@@ -164,7 +164,7 @@ public sealed class RoofWindow : Element, IHostedElement
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
-        var roof = document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == RoofId);
+        var roof = document.Find<Roof>(RoofId);
         var type = document.FindType<RoofWindowType>(TypeId);
 
         yield return ParameterValue.ReadOnly(RoofWindowParameters.Roof,
@@ -307,11 +307,11 @@ public static class RoofWindows
     public const double Margin = 100;
 
     public static IEnumerable<RoofWindow> On(BimDocument document, Roof roof) =>
-        document.Elements.OfType<RoofWindow>().Where(window => window.RoofId == roof.Id);
+        document.All<RoofWindow>().Where(window => window.RoofId == roof.Id);
 
     /// <summary>Where a roof window is on its roof now, or null where it is not on a face of one.</summary>
     public static RoofWindowFrame? Frame(BimDocument document, RoofWindow window) =>
-        document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == window.RoofId) is { } roof &&
+        document.Find<Roof>(window.RoofId) is { } roof &&
         document.FindType<RoofWindowType>(window.TypeId) is { } type
             ? FrameOn(document, roof, window.Built(type), window.Location)
             : null;
@@ -444,7 +444,7 @@ public static class RoofWindows
         var roofs = moving.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
         return roofs.Count == 0
             ? Array.Empty<Element>()
-            : document.Elements.OfType<RoofWindow>().Where(window => roofs.Contains(window.RoofId) && !moving.Contains(window)).ToList();
+            : document.All<RoofWindow>().Where(window => roofs.Contains(window.RoofId) && !moving.Contains(window)).ToList();
     }
 
     private static readonly ColourRgb FrameColour = new(0x3A, 0x3F, 0x46);

@@ -22,7 +22,7 @@ public static class Bedrooms
     /// <summary>What a room is as a bedroom, or null for one with no bed in it.</summary>
     public static Kind? Of(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
     {
-        var beds = document.Elements.OfType<Component>()
+        var beds = document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(outline, piece.Location))
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type?.Form is ComponentForm.Bed or ComponentForm.BunkBed)

@@ -223,7 +223,7 @@ public sealed class PlacedSweep : Element, IHostedElement
     /// <summary>How long it runs: along its walls, or up a wall when vertical.</summary>
     public double Length(BimDocument document)
     {
-        var walls = HostWallIds.Select(id => document.Walls.FirstOrDefault(w => w.Id == id)).OfType<Wall>().ToList();
+        var walls = HostWallIds.Select(id => document.Find<Wall>(id)).OfType<Wall>().ToList();
         if (walls.Count == 0) return 0;
         return Vertical ? walls[0].GetHeight(document) : walls.Sum(w => w.Length);
     }

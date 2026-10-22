@@ -104,7 +104,7 @@ public static class Loads
         var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
         var middle = wall.Start.MidpointTo(wall.End);
         var total = 0.0;
-        foreach (var floor in document.Elements.OfType<Floor>())
+        foreach (var floor in document.All<Floor>())
         {
             if (floor.Boundary.Count < 3 || document.FindType<SlabType>(floor.TypeId) is not { } type) continue;
             var top = floor.GetTopElevation(document);
@@ -159,7 +159,7 @@ public static class Loads
         }
 
         // The columns holding it up, on its line.
-        foreach (var other in document.Elements.OfType<Column>().Where(other => other.Structural && !ReferenceEquals(other, column)))
+        foreach (var other in document.All<Column>().Where(other => other.Structural && !ReferenceEquals(other, column)))
         {
             var ahead = (other.Location - from).Dot(way);
             if (ahead <= 50 || Math.Abs((other.Location - from).Cross(way)) > 600) continue;
@@ -191,7 +191,7 @@ public static class Loads
         var total = 0.0;
         var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
         var top = wall.GetTopElevation(document);
-        foreach (var roof in document.Elements.OfType<Roof>())
+        foreach (var roof in document.All<Roof>())
         {
             if (roof.IsExtrusion || roof.Boundary.Count < 3 || roof.Edges.Count != roof.Boundary.Count) continue;
             if (document.FindType<SlabType>(roof.TypeId) is not { } type) continue;
@@ -236,7 +236,7 @@ public static class Loads
         var across = column.Across;
         var along = across.PerpendicularLeft();
 
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab is Floor or Roof))
+        foreach (var slab in document.All<Slab>().Where(slab => slab is Floor or Roof))
         {
             if (slab.Boundary.Count < 3 || !slab.Contains(column.Location)) continue;
             if (document.FindType<SlabType>(slab.TypeId) is not { } slabType) continue;
@@ -253,7 +253,7 @@ public static class Loads
         }
 
         // A column standing on this one brings its load down through it.
-        foreach (var upper in document.Elements.OfType<Column>().Where(upper => upper.Structural && !ReferenceEquals(upper, column) &&
+        foreach (var upper in document.All<Column>().Where(upper => upper.Structural && !ReferenceEquals(upper, column) &&
                      upper.Location.DistanceTo(column.Location) < 100 && Math.Abs(upper.GetBaseElevation(document) - top) < 600))
             total += OnColumn(document, upper, depth + 1);
 

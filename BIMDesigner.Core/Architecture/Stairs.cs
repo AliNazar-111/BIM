@@ -311,7 +311,7 @@ public sealed class StairType : ElementType
         {
             if (v < least || v > most) return null;
             var before = get();
-            return new StairRelaidCommand(document, document.Elements.OfType<Stair>().Where(stair => stair.TypeId == Id),
+            return new StairRelaidCommand(document, document.All<Stair>().Where(stair => stair.TypeId == Id),
                 new SettingCommand($"Change {definition.Name}", () => set(v), () => set(before)));
         };
         return ParameterValue.BindCommand(definition, get, change);
@@ -1652,7 +1652,7 @@ public static class Stairs
     {
         var level = document.FindLevel(levelId)?.Elevation ?? 0;
         (double Gap, double Top)? nearest = null;
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
         {
             if (slab.Boundary.Count < 3 || !FloorSurfaces.IsStoodOn(document, slab)) continue;
             var boundary = slab.Boundary;
@@ -1759,7 +1759,7 @@ public static class Stairs
     /// </summary>
     public static IEnumerable<IReadOnlyList<Point2D>> Holes(BimDocument document, Slab slab)
     {
-        foreach (var stair in document.Elements.OfType<Stair>())
+        foreach (var stair in document.All<Stair>())
         foreach (var flight in Flights(document, stair))
         foreach (var hole in Openings(document, stair, slab, flight.Layout))
             yield return hole;
@@ -1895,7 +1895,7 @@ public static class Stairs
     public static string CutsThrough(BimDocument document, Stair stair)
     {
         var flights = Flights(document, stair);
-        var cut = document.Elements.OfType<Slab>()
+        var cut = document.All<Slab>()
             .Where(slab => flights.Any(flight => Openings(document, stair, slab, flight.Layout).Count > 0))
             .Select(slab => $"{(slab is Roof && !IsFloorLike(document, slab) ? "Roof" : slab is Roof ? "Flat roof" : slab.Category == BuiltInCategory.Ceilings ? "Ceiling" : "Floor")} on {document.FindLevel(slab.LevelId)?.Name}")
             .ToList();
@@ -1934,7 +1934,7 @@ public static class Stairs
     /// guarded round the stairwell on the floor above.
     /// </summary>
     public static IEnumerable<(Slab Floor, IReadOnlyList<Point2D> Hole)> Stairwells(BimDocument document, Stair stair, StairLayout layout) =>
-        document.Elements.OfType<Slab>()
+        document.All<Slab>()
             .Where(slab => slab is not Ceiling && IsFloorLike(document, slab) && Math.Abs(slab.GetTopElevation(document) - layout.Top) < 600)
             .SelectMany(floor => Openings(document, stair, floor, layout).Select(hole => (Floor: floor, Hole: hole)));
 
@@ -1992,7 +1992,7 @@ public static class Stairs
         bool Under(Slab slab, StairStep step) =>
             PolygonBoolean.Combine(slab.Boundary, step.Outline, BooleanOperation.Intersection).Sum(piece => piece.Area) >= 1000;
 
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3 && Over(slab.Boundary) && IsFloorLike(document, slab)))
+        foreach (var slab in document.All<Slab>().Where(slab => slab.Boundary.Count >= 3 && Over(slab.Boundary) && IsFloorLike(document, slab)))
         {
             if (slab.GetTopElevation(document) <= layout.Bottom + 1) continue;
             var underside = slab.GetBottomElevation(document);
@@ -2010,8 +2010,8 @@ public static class Stairs
         }
 
         // A beam over it - or a joist of a layout - measured to its underside where it passes over each step, where it crosses the stair, or runs along over it.
-        var framing = document.Elements.OfType<Beam>().Where(beam => Over(new[] { beam.Start, beam.End })).Select(beam => (Beam: beam, By: (Element)beam))
-            .Concat(document.Elements.OfType<BeamSystem>().Where(system => Over(system.Boundary))
+        var framing = document.All<Beam>().Where(beam => Over(new[] { beam.Start, beam.End })).Select(beam => (Beam: beam, By: (Element)beam))
+            .Concat(document.All<BeamSystem>().Where(system => Over(system.Boundary))
                 .SelectMany(system => BeamSystems.Members(document, system).Select(joist => (Beam: joist, By: (Element)system))));
         foreach (var (beam, by) in framing)
         foreach (var step in layout.Steps)
@@ -2022,7 +2022,7 @@ public static class Stairs
         }
 
         // A pitched roof is not cut for it: measured round the edge of each step - where a roof's underside comes lowest - wherever the roof is over it and not opened.
-        foreach (var roof in document.Elements.OfType<Roof>().Where(roof => roof.Boundary.Count >= 3 && Over(roof.Boundary) && !IsFloorLike(document, roof)))
+        foreach (var roof in document.All<Roof>().Where(roof => roof.Boundary.Count >= 3 && Over(roof.Boundary) && !IsFloorLike(document, roof)))
         {
             if (!layout.Steps.Any(step => Under(roof, step))) continue;
             var surface = roof.Surface(document);
@@ -2078,26 +2078,26 @@ public static class Stairs
     /// </summary>
     private static bool StepsToEveryDoor(BimDocument document, StairLayout layout)
     {
-        var outside = document.Elements.OfType<Door>()
+        var outside = document.All<Door>()
             .Where(door => document.FindType<DoorType>(door.TypeId) is { } type && Doors.External(document, door, type))
             .ToList();
         if (outside.Count == 0) return false;
 
-        var arrivals = document.Elements.OfType<Stair>().Where(other => other.Outside)
+        var arrivals = document.All<Stair>().Where(other => other.Outside)
             .SelectMany(other => Flights(document, other))
             .SelectMany(flight => flight.Layout.Arrivals.Select(arrival => (Middle: arrival.From.MidpointTo(arrival.To), flight.Layout.Top)))
             .ToList();
 
         bool Stepped(Door door)
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) return false;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall) return false;
             var at = wall.PointAt(document.GetWallType(wall)?.Structure ?? new Materials.CompoundStructure(), door.DistanceAlongWall, 0);
             var sill = wall.GetBaseElevation(document) + door.SillHeight;
             return arrivals.Any(arrival => Math.Abs(arrival.Top - sill) < 150 && arrival.Middle.DistanceTo(at) < 2000);
         }
 
         var mine = layout.Arrivals.Select(arrival => arrival.From.MidpointTo(arrival.To)).ToList();
-        var servesOne = outside.Any(door => Stepped(door) && document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is { } wall
+        var servesOne = outside.Any(door => Stepped(door) && document.Find<Wall>(door.HostWallId) is { } wall
             && mine.Any(middle => middle.DistanceTo(wall.PointAt(document.GetWallType(wall)?.Structure ?? new Materials.CompoundStructure(), door.DistanceAlongWall, 0)) < 2000));
         return servesOne && outside.All(Stepped);
     }
@@ -2467,10 +2467,10 @@ public static class Stairs
     public static IReadOnlyList<IReadOnlyList<Point2D>> DoorSwings(BimDocument document, double floor, double reach = FloorReach)
     {
         var swings = new List<IReadOnlyList<Point2D>>();
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
             if (document.FindType<DoorType>(door.TypeId) is not { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } type) continue;
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall) continue;
             if (Math.Abs(wall.GetBaseElevation(document) + door.SillHeight - floor) > reach) continue;
             if (document.GetWallType(wall) is not { } wallType) continue;
 

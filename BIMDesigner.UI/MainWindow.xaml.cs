@@ -498,6 +498,7 @@ public partial class MainWindow : Window
         if (PlanGroundPicker.SelectedIndex < 0) PlanGroundPicker.SelectedIndex = 0;
 
         _history = new UndoStack();
+        WatchForWorkToKeep();
         _history.Changed += (_, _) =>
         {
             // Roof edges picked off walls go wherever their walls now are - after a move, a
@@ -902,7 +903,7 @@ public partial class MainWindow : Window
         }
 
         // A main roof's dormers too: their eaves want the same as its own.
-        roofs = roofs.Concat(roofs.SelectMany(roof => _document.Elements.OfType<Roof>().Where(dormer => dormer.JoinedTo == roof.Id)))
+        roofs = roofs.Concat(roofs.SelectMany(roof => _document.All<Roof>().Where(dormer => dormer.JoinedTo == roof.Id)))
             .Distinct().ToList();
 
         var added = roofs.Select(roof => Plan.AddAllRound(roof, kind)).OfType<RoofEdgeSweep>().ToList();
@@ -1534,7 +1535,7 @@ public partial class MainWindow : Window
     {
         var openings = Plan.SelectedElements.OfType<Opening>().ToList();
         var made = openings
-            .Where(opening => !_document.Elements.OfType<Railing>().Any(railing => railing.HostOpeningId == opening.Id))
+            .Where(opening => !_document.All<Railing>().Any(railing => railing.HostOpeningId == opening.Id))
             .Select(opening => Railings.Juliet(_document, opening))
             .OfType<Railing>()
             .ToList();
@@ -1743,10 +1744,10 @@ public partial class MainWindow : Window
     {
         var selected = Plan.SelectedElements;
         var roofs = selected.OfType<Roof>().ToList();
-        roofs = roofs.Concat(roofs.SelectMany(roof => _document.Elements.OfType<Roof>().Where(dormer => dormer.JoinedTo == roof.Id))).Distinct().ToList();
+        roofs = roofs.Concat(roofs.SelectMany(roof => _document.All<Roof>().Where(dormer => dormer.JoinedTo == roof.Id))).Distinct().ToList();
 
         var gutters = selected.OfType<Gutter>()
-            .Concat(_document.Elements.OfType<Gutter>().Where(gutter => roofs.Any(roof => roof.Id == gutter.RoofId)))
+            .Concat(_document.All<Gutter>().Where(gutter => roofs.Any(roof => roof.Id == gutter.RoofId)))
             .Distinct()
             .ToList();
 
@@ -2082,9 +2083,11 @@ public partial class MainWindow : Window
         {
             LoadDocument(ProjectFile.Load(dialog.FileName), dialog.FileName, seedExample: false);
             StatusHint.Text = $"Opened {Path.GetFileName(dialog.FileName)}";
+            Infrastructure.Diagnostics.AppLog.Info($"Opened {dialog.FileName}.");
         }
         catch (ProjectFileException exception)
         {
+            Infrastructure.Diagnostics.AppLog.Warning($"Could not open {dialog.FileName}.", exception);
             MessageBox.Show(this, exception.Message, "Could not open project",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -2120,6 +2123,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            Infrastructure.Diagnostics.AppLog.Warning($"Could not save {path}.", exception);
             MessageBox.Show(this, exception.Message, "Could not save project",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
@@ -2127,6 +2131,10 @@ public partial class MainWindow : Window
 
         _path = path;
         _history.MarkClean();
+
+        // Saved: the recovery copy is not wanted any more.
+        _recovery.Discard();
+        Infrastructure.Diagnostics.AppLog.Info($"Saved {path}.");
         RefreshTitle();
         StatusHint.Text = $"Saved {Path.GetFileName(path)}";
         return true;
@@ -3210,7 +3218,7 @@ public partial class MainWindow : Window
         StatusHint.Text =
             $"{type.Name} is now {ParameterFormatter.Format(ParameterDataType.Length, width)} by " +
             $"{ParameterFormatter.Format(ParameterDataType.Length, depth)}. " +
-            $"{Plural(_document.Elements.OfType<Column>().Count(c => c.TypeId == type.Id), "column")} changed with it.";
+            $"{Plural(_document.All<Column>().Count(c => c.TypeId == type.Id), "column")} changed with it.";
     }
 
     /// <summary>
@@ -3221,7 +3229,7 @@ public partial class MainWindow : Window
         .Select(element => element switch
         {
             Wall wall => wall,
-            CurtainPanel panel => _document.Walls.FirstOrDefault(wall => wall.Id == panel.HostWallId),
+            CurtainPanel panel => _document.Find<Wall>(panel.HostWallId),
             _ => null
         })
         .OfType<Wall>()
@@ -4407,7 +4415,7 @@ public partial class MainWindow : Window
         // exactly the same sense: a cut through the model, made when it is looked at.
         var sections = new TreeViewItem { Header = "Sections", IsExpanded = true };
 
-        foreach (var marker in _document.Elements.OfType<SectionMarker>().OrderBy(s => s.Name))
+        foreach (var marker in _document.All<SectionMarker>().OrderBy(s => s.Name))
         {
             var item = new TreeViewItem
             {
@@ -4440,7 +4448,7 @@ public partial class MainWindow : Window
             elevations.Items.Add(item);
         }
 
-        foreach (var marker in _document.Elements.OfType<InteriorElevationMarker>().OrderBy(marker => marker.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var marker in _document.All<InteriorElevationMarker>().OrderBy(marker => marker.Name, StringComparer.OrdinalIgnoreCase))
             foreach (var arrow in marker.Arrows)
             {
                 var reference = ViewReference.InteriorElevation(marker.Id, arrow);
@@ -4456,7 +4464,7 @@ public partial class MainWindow : Window
         // The drawing set. Clicking a sheet opens it, the way clicking a plan switches storey.
         var sheets = new TreeViewItem { Header = "Sheets", IsExpanded = true };
 
-        foreach (var sheet in _document.Elements.OfType<Sheet>()
+        foreach (var sheet in _document.All<Sheet>()
                      .OrderBy(sheet => sheet.Number, StringComparer.OrdinalIgnoreCase))
         {
             var views = sheet.Viewports.Count == 1 ? "1 view" : $"{sheet.Viewports.Count} views";
@@ -4519,7 +4527,7 @@ public partial class MainWindow : Window
         project.Items.Add(views3D);
 
         var walkthroughs = new TreeViewItem { Header = "Walkthroughs", IsExpanded = true };
-        foreach (var walk in _document.Elements.OfType<Walkthrough>().OrderBy(walk => walk.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var walk in _document.All<Walkthrough>().OrderBy(walk => walk.Name, StringComparer.OrdinalIgnoreCase))
         {
             var item = new TreeViewItem { Header = $"{walk.Name}  —  {walk.Length / 1000:0.0} m, {walk.Duration:0} s", Tag = walk };
             item.MouseLeftButtonUp += (_, args) =>
@@ -4535,7 +4543,7 @@ public partial class MainWindow : Window
 
         // Callouts: the parts of plans and sections drawn larger as views of their own.
         var callouts = new TreeViewItem { Header = "Callouts", IsExpanded = true };
-        foreach (var callout in _document.Elements.OfType<Callout>().Where(c => Callouts.Reference(c).ExistsIn(_document)).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var callout in _document.All<Callout>().Where(c => Callouts.Reference(c).ExistsIn(_document)).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
         {
             var item = new TreeViewItem
             {
@@ -4597,7 +4605,7 @@ public partial class MainWindow : Window
 
         RefreshSheetPicker();
 
-        var sheets = _document.Elements.OfType<Sheet>().ToList();
+        var sheets = _document.All<Sheet>().ToList();
 
         // Opening the sheet view with no sheets at all should produce one rather than an
         // empty frame the user has to work out how to fill. Otherwise it comes back to
@@ -4679,7 +4687,7 @@ public partial class MainWindow : Window
 
     private void RefreshSheetPicker()
     {
-        var sheets = _document.Elements.OfType<Sheet>()
+        var sheets = _document.All<Sheet>()
             .OrderBy(sheet => sheet.Number, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -4704,20 +4712,20 @@ public partial class MainWindow : Window
         foreach (var level in _document.Levels.OrderByDescending(level => level.Elevation))
             options.Add(new SheetViewOption($"{level.Name} Plan", ViewReference.FloorPlan(level.Id)));
 
-        foreach (var marker in _document.Elements.OfType<SectionMarker>().OrderBy(marker => marker.Name))
+        foreach (var marker in _document.All<SectionMarker>().OrderBy(marker => marker.Name))
             options.Add(new SheetViewOption($"Section {marker.Name}", ViewReference.Section(marker.Id)));
 
         foreach (var side in Elevations.All)
             options.Add(new SheetViewOption(Elevations.Name(side), ViewReference.Elevation(side)));
 
-        foreach (var marker in _document.Elements.OfType<InteriorElevationMarker>().OrderBy(marker => marker.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var marker in _document.All<InteriorElevationMarker>().OrderBy(marker => marker.Name, StringComparer.OrdinalIgnoreCase))
             foreach (var arrow in marker.Arrows)
                 options.Add(new SheetViewOption($"Interior {marker.ViewName(arrow)}", ViewReference.InteriorElevation(marker.Id, arrow)));
 
         foreach (var view in Views3D.All(_document))
             options.Add(new SheetViewOption($"3D: {view.Name}", Views3D.Reference(_document, view)));
 
-        foreach (var callout in _document.Elements.OfType<Callout>().OrderBy(callout => callout.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var callout in _document.All<Callout>().OrderBy(callout => callout.Name, StringComparer.OrdinalIgnoreCase))
             if (Callouts.Reference(callout).ExistsIn(_document))
                 options.Add(new SheetViewOption($"{callout.Name} ({callout.Parent.TitleIn(_document)})", Callouts.Reference(callout)));
 
@@ -6212,7 +6220,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnExportIfc(object sender, RoutedEventArgs e)
     {
-        if (!_document.Walls.Any() && !_document.Elements.OfType<Slab>().Any())
+        if (!_document.Walls.Any() && !_document.All<Slab>().Any())
         {
             MessageBox.Show(this,
                 "There is nothing to export yet. Draw some walls first.",
@@ -6260,7 +6268,7 @@ public partial class MainWindow : Window
 
         var counts =
             $"{_document.Walls.Count()} walls, " +
-            $"{_document.Elements.OfType<Slab>().Count()} slabs, " +
+            $"{_document.All<Slab>().Count()} slabs, " +
             $"{_document.Openings.Count()} openings, " +
             $"{_document.Levels.Count} storeys";
 
@@ -6300,7 +6308,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Every sheet, in drawing-number order. That is the order a set is issued in.</summary>
-    private List<Sheet> SheetsInOrder() => _document.Elements.OfType<Sheet>()
+    private List<Sheet> SheetsInOrder() => _document.All<Sheet>()
         .OrderBy(sheet => sheet.Number, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
@@ -6497,7 +6505,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_document.Elements.OfType<SectionMarker>().FirstOrDefault(m => m.Id == callout.Parent.TargetId) is not { } marker) return;
+        if (_document.Find<SectionMarker>(callout.Parent.TargetId) is not { } marker) return;
         ShowSection(marker);
         Section.Callout = callout;
         StatusHint.Text = $"{callout.Name}: a detail of Section {marker.Name}. Place it on a sheet with Place View.";
@@ -6549,7 +6557,7 @@ public partial class MainWindow : Window
 
     private void RefreshSectionPicker()
     {
-        var markers = _document.Elements.OfType<SectionMarker>().OrderBy(s => s.Name).ToList();
+        var markers = _document.All<SectionMarker>().OrderBy(s => s.Name).ToList();
         var current = SectionPicker.SelectedItem as SectionMarker;
 
         _loadingSections = true;
@@ -6845,7 +6853,7 @@ public partial class MainWindow : Window
 
     private void DeleteSchedule(ScheduleDefinition schedule)
     {
-        var sheets = _document.Elements.OfType<Sheet>().Count(sheet => sheet.Viewports.Any(viewport => ReferenceEquals(viewport.View.ScheduleIn(_document), schedule)));
+        var sheets = _document.All<Sheet>().Count(sheet => sheet.Viewports.Any(viewport => ReferenceEquals(viewport.View.ScheduleIn(_document), schedule)));
         _history.Execute(ScheduleCommands.Delete(_document, schedule));
         SchedulesChanged(null);
         StatusHint.Text = sheets == 0 ? $"Deleted {schedule.Name}." : $"Deleted {schedule.Name}, and took it off {sheets} {(sheets == 1 ? "sheet" : "sheets")}.";

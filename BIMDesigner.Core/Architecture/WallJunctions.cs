@@ -143,7 +143,13 @@ public static class WallJunctions
     /// </summary>
     public static bool IsClean(BimDocument document, ViewReference view, Wall wall, Point2D point, double reach)
     {
-        var ends = document.Walls
+        // While the model is drawn, only the walls on the storey near the point are looked at.
+        var near = ModelCache.Of(document) is { } cache
+            ? cache.Near(cache.Keep("walls on a storey", document, wall.LevelId, null, () => document.Walls.Where(w => w.LevelId == wall.LevelId).ToList()),
+                BoundingBox2D.Empty.Include(point).Expand(reach + 1))
+            : document.Walls;
+
+        var ends = near
             .Where(w => w.LevelId == wall.LevelId)
             .SelectMany(w => new[] { (Wall: w, AtStart: true, At: w.Start), (Wall: w, AtStart: false, At: w.End) })
             .Where(e => e.At.DistanceTo(point) <= reach)

@@ -246,7 +246,7 @@ public partial class PlanView
     {
         if (Document is null || KindOf(ActiveTool) is null) return;
 
-        if (_edgeSweep is { } current && Document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == current.RoofId) is { } picked)
+        if (_edgeSweep is { } current && Document.Find<Roof>(current.RoofId) is { } picked)
         {
             var count = picked.Boundary.Count;
             for (var i = 0; i < count && i < picked.Edges.Count; i++)

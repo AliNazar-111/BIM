@@ -140,7 +140,7 @@ public partial class PlanView
         var profile = (Start: extrusion.Profile[0].X, Width: extrusion.Profile[^1].X - extrusion.Profile[0].X);
         if (Document is null) return profile;
 
-        var along = WallsUnder(extrusion.Footprint(), Document.Elements.OfType<Wall>().Where(wall => wall.LevelId == roof.LevelId))
+        var along = WallsUnder(extrusion.Footprint(), Document.All<Wall>().Where(wall => wall.LevelId == roof.LevelId))
             .SelectMany(wall => new[] { wall.Start, wall.End })
             .Select(point => (point - extrusion.Origin).Dot(extrusion.Direction))
             .ToList();

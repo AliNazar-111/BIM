@@ -132,7 +132,7 @@ public sealed class RevisionsWindow : System.Windows.Window
     public string? Delete(Revision revision)
     {
         if (revision.Issued) return Say("An issued revision cannot be deleted: it went out.");
-        var clouds = _document.Elements.OfType<RevisionCloud>().Count(cloud => cloud.RevisionId == revision.Id);
+        var clouds = _document.All<RevisionCloud>().Count(cloud => cloud.RevisionId == revision.Id);
         if (clouds > 0) return Say($"It has {clouds} {(clouds == 1 ? "cloud" : "clouds")}: give {(clouds == 1 ? "it" : "them")} another revision, or delete {(clouds == 1 ? "it" : "them")}, first.");
         _working.Remove(revision);
         Refresh();

@@ -253,7 +253,7 @@ public sealed partial class PlanRenderer
     private IEnumerable<T> OnActiveLevel<T>() where T : Element =>
         Document is null
             ? Enumerable.Empty<T>()
-            : Document.Elements.OfType<T>().Where(element => element is Grid || (element.LevelId == ActiveLevelId && Filter(element)));
+            : Document.All<T>().Where(element => element is Grid || (element.LevelId == ActiveLevelId && Filter(element)));
 
     /// <summary>The view's filters: what it leaves out. Everything is shown unless set.</summary>
     public Func<Element, bool> Filter { get; set; } = _ => true;
@@ -281,6 +281,7 @@ public sealed partial class PlanRenderer
 
         // Only the walls the view shows join: one it leaves out - demolished, filtered out - leaves no mark on those it met.
         using var joins = WallJoins.TakingPart(Filter);
+        using var cache = ModelCache.Begin(Document);
 
         // The ground first, under everything built on it: its contours, and its edge; then the regions laid on it.
         foreach (var ground in OnActiveLevel<Toposurface>()) Styled(dc, ground, d => DrawTerrain(d, ground, underlay));
@@ -291,7 +292,7 @@ public sealed partial class PlanRenderer
         // lining storeys up against them is the point of having them. An underlay leaves them
         // to the storey above, which is drawing the same ones.
         if (!underlay)
-            foreach (var grid in Document.Elements.OfType<Grid>()) DrawGrid(dc, grid);
+            foreach (var grid in Document.All<Grid>()) DrawGrid(dc, grid);
 
         // Slabs are construction under everything else; rooms are the space above them.
         foreach (var slab in OnActiveLevel<Slab>()) Styled(dc, slab, d => DrawSlab(d, slab));
@@ -307,12 +308,12 @@ public sealed partial class PlanRenderer
         foreach (var drain in OnActiveLevel<RoofDrain>()) Styled(dc, drain, d => DrawRoofDrain(d, drain));
         if (Document is not null)
         {
-            foreach (var drain in Document.Elements.OfType<RoofDrain>().Where(drain => Filter(drain))) Styled(dc, drain, d => DrawDrainPipe(d, drain));
-            foreach (var chimney in Document.Elements.OfType<Chimney>().Where(chimney => Filter(chimney) && Chimneys.ShownOn(Document, chimney, ActiveLevelId)))
+            foreach (var drain in Document.All<RoofDrain>().Where(drain => Filter(drain))) Styled(dc, drain, d => DrawDrainPipe(d, drain));
+            foreach (var chimney in Document.All<Chimney>().Where(chimney => Filter(chimney) && Chimneys.ShownOn(Document, chimney, ActiveLevelId)))
                 Styled(dc, chimney, d => DrawChimney(d, chimney));
 
             // Walls shaped in plan, cut through their outline, in what they are made of.
-            foreach (var shaped in Document.Elements.OfType<PolygonWall>().Where(shaped => Filter(shaped) && shaped.LevelId == ActiveLevelId))
+            foreach (var shaped in Document.All<PolygonWall>().Where(shaped => Filter(shaped) && shaped.LevelId == ActiveLevelId))
                 Styled(dc, shaped, d => d.DrawGeometry(MaterialBrush(shaped.MaterialId), IsSelected(shaped) ? _selectedPen : _wallOutlinePen, BuildOutline(shaped.Outline)));
         }
 
@@ -340,9 +341,9 @@ public sealed partial class PlanRenderer
         if (Document is not null)
         {
             var above = Levels.Above(Document, ActiveLevelId)?.Id;
-            foreach (var beam in Document.Elements.OfType<Beam>().Where(beam => (beam.LevelId == ActiveLevelId || beam.LevelId == above) && Filter(beam)))
+            foreach (var beam in Document.All<Beam>().Where(beam => (beam.LevelId == ActiveLevelId || beam.LevelId == above) && Filter(beam)))
                 Styled(dc, beam, d => DrawBeam(d, beam, own: beam.LevelId == ActiveLevelId));
-            foreach (var system in Document.Elements.OfType<BeamSystem>().Where(system => (system.LevelId == ActiveLevelId || system.LevelId == above) && Filter(system)))
+            foreach (var system in Document.All<BeamSystem>().Where(system => (system.LevelId == ActiveLevelId || system.LevelId == above) && Filter(system)))
                 Styled(dc, system, d => DrawBeamSystem(d, system, own: system.LevelId == ActiveLevelId));
         }
 
@@ -350,7 +351,7 @@ public sealed partial class PlanRenderer
         // storey by storey for one repeated up a stairwell. Where one storey's flight goes on up
         // from the floor another comes up to, that one's guarding round the stairwell is drawn with it.
         if (Document is not null)
-            foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => Filter(stair)))
+            foreach (var stair in Document.All<Stair>().Where(stair => Filter(stair)))
             {
                 var flights = Kept($"flights {stair.Id}", () => Stairs.Flights(Document, stair));
                 var goingOn = flights.FirstOrDefault(flight => flight.LevelId == ActiveLevelId)?.Layout.Steps;
@@ -363,7 +364,7 @@ public sealed partial class PlanRenderer
 
         // Ramps on their own storey, and seen from the one their head comes up to.
         if (Document is not null)
-            foreach (var ramp in Document.Elements.OfType<Ramp>().Where(ramp => Filter(ramp)))
+            foreach (var ramp in Document.All<Ramp>().Where(ramp => Filter(ramp)))
             {
                 if (ramp.LevelId == ActiveLevelId) Styled(dc, ramp, d => DrawRamp(d, ramp, own: true));
                 else if (ramp.TopLevelId == ActiveLevelId) Styled(dc, ramp, d => DrawRamp(d, ramp, own: false));
@@ -949,7 +950,7 @@ public sealed partial class PlanRenderer
     {
         if (Document is null) return;
 
-        var wall = Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId);
+        var wall = Document.Find<Wall>(opening.HostWallId);
         if (wall is null) return;
 
         // Up in a wall above the cut, a door or window is not seen in this plan.
@@ -1455,7 +1456,7 @@ public sealed partial class PlanRenderer
     private IEnumerable<Downpipe> DownpipesOnPlan() =>
         Document is null
             ? Enumerable.Empty<Downpipe>()
-            : Document.Elements.OfType<Downpipe>().Where(pipe => Filter(pipe) &&
+            : Document.All<Downpipe>().Where(pipe => Filter(pipe) &&
                 (pipe.LevelId == ActiveLevelId ||
                  (Document.FindLevel(ActiveLevelId) is { } level && Kept($"downpipe {pipe.Id}", () => Downpipes.Path(Document, pipe)) is { } path &&
                   level.Elevation >= path.Bottom - 1 && level.Elevation < path.Points[0].Z)));
@@ -1464,7 +1465,7 @@ public sealed partial class PlanRenderer
     private IEnumerable<ShaftOpening> ShaftsOnPlan() =>
         Document is null
             ? Enumerable.Empty<ShaftOpening>()
-            : Document.Elements.OfType<ShaftOpening>().Where(shaft => Shafts.ShownOn(Document, shaft, ActiveLevelId) && Filter(shaft));
+            : Document.All<ShaftOpening>().Where(shaft => Shafts.ShownOn(Document, shaft, ActiveLevelId) && Filter(shaft));
 
     private void DrawSlabEdge(DrawingContext dc, SlabEdge slabEdge)
     {
@@ -2534,7 +2535,7 @@ public sealed partial class PlanRenderer
         return element switch
         {
             Wall wall => wall.Start.MidpointTo(wall.End),
-            Opening opening when Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is { } host
+            Opening opening when Document.Find<Wall>(opening.HostWallId) is { } host
                 => opening.GetCentre(host),
             Room room => room.GetBoundary(Document) is { IsEnclosed: true } boundary
                 ? boundary.Centroid

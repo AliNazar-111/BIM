@@ -49,7 +49,7 @@ public partial class PlanView
 
     /// <summary>A click on a roof in 3D with the Chimney tool: a stack there, from the roof's storey up through it.</summary>
     public bool PlaceChimneyIn3D(Guid roofId, Point3D at) =>
-        Document?.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == roofId) is { IsExtrusion: false } roof &&
+        Document?.Find<Roof>(roofId) is { IsExtrusion: false } roof &&
         PlaceChimney(NewChimney(roof.LevelId, new Point2D(at.X, at.Y)));
 
     private bool PlaceChimney(Chimney chimney)

@@ -134,7 +134,7 @@ public static class ViewTemplates
     /// <summary>The templates that can govern a view.</summary>
     public static IEnumerable<ViewTemplate> For(BimDocument document, ViewReference view) =>
         KindOf(document, view) is { } kind
-            ? document.Elements.OfType<ViewTemplate>().Where(template => template.For == kind).OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
+            ? document.All<ViewTemplate>().Where(template => template.For == kind).OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
             : Enumerable.Empty<ViewTemplate>();
 
     /// <summary>The template governing a view, if one does and it is still there.</summary>
@@ -153,7 +153,7 @@ public static class ViewTemplates
     public static string NextName(BimDocument document, ViewTemplateKind kind)
     {
         var stem = kind switch { ViewTemplateKind.ThreeD => "3D View", _ => EnumText.Humanise(kind) } + " Template";
-        var names = document.Elements.OfType<ViewTemplate>().Select(template => template.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = document.All<ViewTemplate>().Select(template => template.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (var i = 1; ; i++)
             if (!names.Contains($"{stem} {i}")) return $"{stem} {i}";
     }

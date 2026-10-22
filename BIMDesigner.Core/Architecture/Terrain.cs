@@ -177,7 +177,7 @@ public static class Terrains
     /// <summary>How far a region laid on it is raised over it, or sunk into it, at a point: a planting bed, a sunken patio.</summary>
     private static double RegionOffset(BimDocument document, Toposurface surface, Point2D at)
     {
-        foreach (var region in document.Elements.OfType<GroundRegion>())
+        foreach (var region in document.All<GroundRegion>())
             if (region.Offset != 0 && region.LevelId == surface.LevelId && region.Boundary.Count >= 3 && Polygon2D.Contains(region.Boundary, at))
                 return region.Offset;
         return 0;
@@ -380,14 +380,14 @@ public static class Terrains
 
     /// <summary>The ground over a point in plan near a height - the highest, where surfaces lie one over another; none where there is no ground there near it.</summary>
     public static double? GroundNear(BimDocument document, double height, Point2D at, double reach = Reach) =>
-        document.Elements.OfType<Toposurface>()
+        document.All<Toposurface>()
             .Select(surface => HeightAt(document, surface, at))
             .Where(ground => ground is { } value && Math.Abs(value - height) <= reach)
             .Max();
 
     /// <summary>The ground over a point in plan, wherever it is; none where there is none.</summary>
     public static double? GroundAt(BimDocument document, Point2D at) =>
-        document.Elements.OfType<Toposurface>().Select(surface => HeightAt(document, surface, at)).Where(ground => ground is not null).Max();
+        document.All<Toposurface>().Select(surface => HeightAt(document, surface, at)).Where(ground => ground is not null).Max();
 
     /// <summary>Its area in plan: its triangles'.</summary>
     public static double Area(Toposurface surface)
@@ -401,13 +401,13 @@ public static class Terrains
         PadFloors(document, surface).Select(floor => floor.Boundary).ToList();
 
     private static IReadOnlyList<Floor> PadFloors(BimDocument document, Toposurface surface) =>
-        document.Elements.OfType<Floor>().Where(floor => floor.LevelId == surface.LevelId && floor.Boundary.Count >= 3).ToList();
+        document.All<Floor>().Where(floor => floor.LevelId == surface.LevelId && floor.Boundary.Count >= 3).ToList();
 
     private static bool InPad(IReadOnlyList<IReadOnlyList<Point2D>> pads, Point2D at) => pads.Any(pad => Polygon2D.Contains(pad, at));
 
     /// <summary>The regions laid on it: lawns, paths, paving, gravel, planting.</summary>
     public static IReadOnlyList<GroundRegion> Regions(BimDocument document, Toposurface surface) =>
-        document.Elements.OfType<GroundRegion>().Where(region => region.Boundary.Count >= 3 && ReferenceEquals(GroundRegions.Host(document, region), surface)).ToList();
+        document.All<GroundRegion>().Where(region => region.Boundary.Count >= 3 && ReferenceEquals(GroundRegions.Host(document, region), surface)).ToList();
 
     /// <summary>
     /// Its contours: at each multiple of its interval between its lowest and highest points, the
@@ -598,7 +598,7 @@ public static class Terrains
 
         // A basement's floor under the storey the ground is on: dug down to its underside.
         var storey = document.FindLevel(surface.LevelId)?.Elevation ?? 0;
-        var basements = document.Elements.OfType<Floor>()
+        var basements = document.All<Floor>()
             .Where(floor => floor.Boundary.Count >= 3 && (document.FindLevel(floor.LevelId)?.Elevation ?? 0) < storey - 1)
             .Select(floor => (floor.Boundary, Formation: floor.GetBottomElevation(document))).ToList();
 
@@ -720,7 +720,7 @@ public static class Terrains
 
                     // The floor inside, across the wall: the pad's top there, or the level.
                     var inside = wall.PointAt(type.Structure, along, -side * (half + 300));
-                    var floor = document.Elements.OfType<Floor>().Where(candidate => candidate.LevelId == surface.LevelId && candidate.Contains(inside))
+                    var floor = document.All<Floor>().Where(candidate => candidate.LevelId == surface.LevelId && candidate.Contains(inside))
                         .Select(candidate => candidate.GetTopElevation(document)).DefaultIfEmpty(level).Max();
                     var kept = floor - ground;
                     if (worstKept is not { } known || kept < known) worstKept = kept;
@@ -735,7 +735,7 @@ public static class Terrains
                     }
 
                     // Timber framing in the wall, its foot near the ground outside.
-                    if (document.Elements.OfType<WallFraming>().Any(framing => framing.HostId == wall.Id && framing.Material == FramingMaterial.Timber))
+                    if (document.All<WallFraming>().Any(framing => framing.HostId == wall.Id && framing.Material == FramingMaterial.Timber))
                     {
                         var clear = wall.GetBaseElevation(document) - ground;
                         if (worstTimber is not { } closest || clear < closest) worstTimber = clear;
@@ -778,7 +778,7 @@ public static class Terrains
             if (held <= limit + 0.5) continue;
             var middle = wall.LocationCurve.PointAt(wall.Length / 2);
             var reach = type.Structure.TotalWidth / 2 + 600;
-            if (document.Elements.OfType<Railing>().Any(railing => Railings.Lengths(railing).Any(length => Line2D.DistanceFromSegment(middle, length.From, length.To) < reach))) continue;
+            if (document.All<Railing>().Any(railing => Railings.Lengths(railing).Any(length => Line2D.DistanceFromSegment(middle, length.From, length.To) < reach))) continue;
             problems.Add(us
                 ? $"Its retaining wall ({type.Name}) holds back {held:0}, with nothing along its top: the IRC asks for a guard where it drops more than 30 in (762)."
                 : $"Its retaining wall ({type.Name}) holds back {held:0}, with nothing along its top: Approved Document K asks for guarding where it drops more than 600.");
@@ -795,7 +795,7 @@ public static class Terrains
 
     /// <summary>Whether the ground at a point is laid hard: paving or a path, a region or a pad.</summary>
     private static bool Hard(BimDocument document, Toposurface surface, Point2D at) =>
-        document.Elements.OfType<GroundRegion>().Any(region => region.LevelId == surface.LevelId && region.Surface is GroundSurface.Paving or GroundSurface.Path
+        document.All<GroundRegion>().Any(region => region.LevelId == surface.LevelId && region.Surface is GroundSurface.Paving or GroundSurface.Path
                                                                && region.Boundary.Count >= 3 && Polygon2D.Contains(region.Boundary, at))
         || SitePads.On(document, surface.LevelId).Any(pad => pad.Surface is GroundSurface.Paving or GroundSurface.Path && Polygon2D.Contains(pad.Boundary, at));
 

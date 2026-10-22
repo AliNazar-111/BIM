@@ -84,8 +84,7 @@ public static class Grids
     /// </summary>
     public static string NextName(BimDocument document, bool isVertical)
     {
-        var used = document.Elements
-            .OfType<Grid>()
+        var used = document.All<Grid>()
             .Where(grid => grid.IsVertical == isVertical)
             .Select(grid => grid.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -113,7 +112,7 @@ public static class Grids
     /// <summary>Every point where two gridlines cross, which is where columns are set out.</summary>
     public static IEnumerable<Point2D> Intersections(BimDocument document)
     {
-        var grids = document.Elements.OfType<Grid>().ToList();
+        var grids = document.All<Grid>().ToList();
 
         for (var i = 0; i < grids.Count; i++)
         for (var j = i + 1; j < grids.Count; j++)

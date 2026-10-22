@@ -466,8 +466,9 @@ public partial class ModelView : Border
     /// <summary>Accumulates edge crosses into one mesh, so the whole model's lines cost one model.</summary>
     private sealed class EdgeMesh
     {
-        private readonly Point3DCollection _positions = new();
-        private readonly Int32Collection _indices = new();
+        // Gathered in plain lists and handed to WPF once: its own collections tell every listener of every point added.
+        private readonly List<MediaPoint3D> _positions = new();
+        private readonly List<int> _indices = new();
 
         public bool IsEmpty => _indices.Count == 0;
 
@@ -500,12 +501,17 @@ public partial class ModelView : Border
             _positions.Add(to - offset);
             _positions.Add(from - offset);
 
-            foreach (var index in new[] { 0, 1, 2, 0, 2, 3 }) _indices.Add(start + index);
+            _indices.Add(start);
+            _indices.Add(start + 1);
+            _indices.Add(start + 2);
+            _indices.Add(start);
+            _indices.Add(start + 2);
+            _indices.Add(start + 3);
         }
 
         public MeshGeometry3D ToGeometry()
         {
-            var geometry = new MeshGeometry3D { Positions = _positions, TriangleIndices = _indices };
+            var geometry = new MeshGeometry3D { Positions = new Point3DCollection(_positions), TriangleIndices = new Int32Collection(_indices) };
             geometry.Freeze();
             return geometry;
         }
@@ -517,9 +523,14 @@ public partial class ModelView : Border
 
     private static MeshGeometry3D ToGeometry(Mesh3D mesh)
     {
-        var positions = new Point3DCollection(mesh.Positions.Count);
-        foreach (var p in mesh.Positions)
-            positions.Add(new MediaPoint3D(p.X / MillimetresPerUnit, p.Y / MillimetresPerUnit, p.Z / MillimetresPerUnit));
+        var points = new MediaPoint3D[mesh.Positions.Count];
+        for (var i = 0; i < points.Length; i++)
+        {
+            var p = mesh.Positions[i];
+            points[i] = new MediaPoint3D(p.X / MillimetresPerUnit, p.Y / MillimetresPerUnit, p.Z / MillimetresPerUnit);
+        }
+
+        var positions = new Point3DCollection(points);
 
         var indices = new Int32Collection(mesh.Indices);
 
@@ -529,9 +540,7 @@ public partial class ModelView : Border
         // as the curve; otherwise the faces' own directions are used.
         if (mesh.Normals is { } normals && normals.Count == mesh.Positions.Count)
         {
-            var directions = new Vector3DCollection(normals.Count);
-            foreach (var n in normals) directions.Add(new Vector3D(n.X, n.Y, n.Z));
-            geometry.Normals = directions;
+            geometry.Normals = new Vector3DCollection(normals.Select(n => new Vector3D(n.X, n.Y, n.Z)).ToArray());
         }
 
         geometry.Freeze();

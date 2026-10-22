@@ -123,19 +123,19 @@ public sealed class DeleteLevelCommand : IUndoableCommand
             .ToList();
 
         // A shaft up to the level keeps the height it has, as a wall does.
-        _releasedShafts = document.Elements.OfType<ShaftOpening>()
+        _releasedShafts = document.All<ShaftOpening>()
             .Where(shaft => shaft.TopLevelId == level.Id && !_hosted.Contains(shaft))
             .Select(shaft => (shaft, shaft.TopElevation(document) - shaft.BaseElevation(document), shaft.UnconnectedHeight))
             .ToList();
 
         // A column up to it the same.
-        _releasedColumns = document.Elements.OfType<Column>()
+        _releasedColumns = document.All<Column>()
             .Where(column => column.TopLevelId == level.Id && !_hosted.Contains(column))
             .Select(column => (column, column.GetHeight(document), column.UnconnectedHeight))
             .ToList();
 
         // A stair up to it keeps the height it climbs; one repeated up to it stops at the highest level left above its own top.
-        _releasedStairs = document.Elements.OfType<Stair>()
+        _releasedStairs = document.All<Stair>()
             .Where(stair => !_hosted.Contains(stair) && (stair.TopLevelId == level.Id || stair.RepeatToLevelId == level.Id))
             .Select(stair =>
             {
@@ -151,7 +151,7 @@ public sealed class DeleteLevelCommand : IUndoableCommand
             .ToList();
 
         // A ramp up to it keeps the height it rises.
-        _releasedRamps = document.Elements.OfType<Ramp>()
+        _releasedRamps = document.All<Ramp>()
             .Where(ramp => !_hosted.Contains(ramp) && ramp.TopLevelId == level.Id)
             .Select(ramp => (ramp, Ramps.Top(document, ramp) - Ramps.Bottom(document, ramp), ramp.UnconnectedHeight))
             .ToList();

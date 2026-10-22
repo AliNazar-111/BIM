@@ -88,11 +88,11 @@ public static class Parts
     /// <summary>A bound further than this is open: it runs to the edge.</summary>
     private const double Far = 1e6;
 
-    public static Wall? Host(BimDocument document, Part part) => document.Walls.FirstOrDefault(wall => wall.Id == part.HostId);
+    public static Wall? Host(BimDocument document, Part part) => document.Find<Wall>(part.HostId);
 
     /// <summary>The parts a wall is shown as - none for a wall shown whole.</summary>
     public static IReadOnlyList<Part> Of(BimDocument document, Wall wall) =>
-        document.Elements.OfType<Part>().Where(part => part.HostId == wall.Id).ToList();
+        document.All<Part>().Where(part => part.HostId == wall.Id).ToList();
 
     /// <summary>Why a wall cannot be made into parts, or null: a layered wall of one type, without an edited outline.</summary>
     public static string? WhyNot(BimDocument document, Wall wall)

@@ -75,10 +75,14 @@ public sealed class BimDocument
     /// <summary>Every element by its id, kept in step with <see cref="Elements"/>: a level asks where its floor is far too often to search.</summary>
     private readonly Dictionary<Guid, Element> _byId = new();
 
+    /// <summary>Every element of each kind, kept until the elements change: asked for on every wall drawn, and looked for among them all once.</summary>
+    private readonly Dictionary<Type, Array> _ofKind = new();
+
     public BimDocument()
     {
         Elements.CollectionChanged += (_, change) =>
         {
+            _ofKind.Clear();
             if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
             {
                 _byId.Clear();
@@ -110,6 +114,12 @@ public sealed class BimDocument
 
     /// <summary>An element by its id, or null.</summary>
     public Element? FindElement(Guid id) => _byId.GetValueOrDefault(id);
+
+    /// <summary>An element of a kind by its id, or null where there is none, or it is something else.</summary>
+    public T? Find<T>(Guid id) where T : class => _byId.GetValueOrDefault(id) as T;
+
+    /// <summary>An element of a kind by its id, or null where there is no id, no element, or it is something else.</summary>
+    public T? Find<T>(Guid? id) where T : class => id is { } value ? Find<T>(value) : null;
 
     public ProjectInformation ProjectInformation { get; } = new();
 
@@ -170,9 +180,28 @@ public sealed class BimDocument
 
     public IReadOnlyCollection<ElementType> ElementTypes => _types.Values;
 
-    public IEnumerable<Wall> Walls => Elements.OfType<Wall>();
+    public IEnumerable<Wall> Walls => All<Wall>();
 
-    public IEnumerable<Opening> Openings => Elements.OfType<Opening>();
+    public IEnumerable<Opening> Openings => All<Opening>();
+
+    /// <summary>
+    /// Every element of a kind, in the order they were placed - as they are whenever it is looked
+    /// through, like the elements themselves, so one kept and looked through again after a change sees it.
+    /// </summary>
+    public IEnumerable<T> All<T>() where T : class
+    {
+        foreach (var element in Kept<T>()) yield return element;
+    }
+
+    /// <summary>Every element of a kind as they are now: the list is not changed by changes after it, which make a new one.</summary>
+    public IReadOnlyList<T> Kept<T>() where T : class
+    {
+        if (_ofKind.TryGetValue(typeof(T), out var kept)) return (T[])kept;
+
+        var now = Elements.OfType<T>().ToArray();
+        _ofKind[typeof(T)] = now;
+        return now;
+    }
 
     // ---- lookups ---------------------------------------------------------------
 

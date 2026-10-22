@@ -33,7 +33,7 @@ public sealed class Downpipe : Element, IHostedElement
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
-        var gutter = document.Elements.OfType<Gutter>().FirstOrDefault(candidate => candidate.Id == GutterId);
+        var gutter = document.Find<Gutter>(GutterId);
         var type = gutter is null ? null : document.FindType<GutterType>(gutter.TypeId);
 
         yield return ParameterValue.ReadOnly(DownpipeParameters.Gutter, () => type?.Name ?? "<none>");
@@ -84,7 +84,7 @@ public static class Downpipes
     public const double AboveRoofBelow = 50;
 
     public static IEnumerable<Downpipe> On(BimDocument document, RoofEdgeSweep gutter) =>
-        document.Elements.OfType<Downpipe>().Where(pipe => pipe.GutterId == gutter.Id);
+        document.All<Downpipe>().Where(pipe => pipe.GutterId == gutter.Id);
 
     /// <summary>A downpipe's size as it is written: "68" for a round one, "65 x 65", "65 x 100".</summary>
     public static string Size(GutterType type) => type.DownpipeShape switch
@@ -146,9 +146,9 @@ public static class Downpipes
     /// <summary>Where a downpipe runs, or null where its gutter or roof is gone.</summary>
     public static DownpipePath? Path(BimDocument document, Downpipe pipe)
     {
-        if (document.Elements.OfType<Gutter>().FirstOrDefault(candidate => candidate.Id == pipe.GutterId) is not { } gutter) return null;
+        if (document.Find<Gutter>(pipe.GutterId) is not { } gutter) return null;
         if (document.FindType<GutterType>(gutter.TypeId) is not { } type) return null;
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == gutter.RoofId) is not { } roof) return null;
+        if (document.Find<Roof>(gutter.RoofId) is not { } roof) return null;
         var segments = Segments(document, gutter);
         if (Nearest(segments, pipe.Location) is not var (segment, along, _)) return null;
 
@@ -204,7 +204,7 @@ public static class Downpipes
     /// </summary>
     private static Roof? RoofBelow(BimDocument document, Roof roof) =>
         roof.JoinedTo is { } joined
-            ? document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof) && !other.IsExtrusion)
+            ? document.All<Roof>().FirstOrDefault(other => other.Id == joined && !ReferenceEquals(other, roof) && !other.IsExtrusion)
             : null;
 
     /// <summary>
@@ -318,7 +318,7 @@ public static class Downpipes
     public static IReadOnlyList<Point2D> AtEnds(BimDocument document, RoofEdgeSweep gutter)
     {
         var type = document.FindType<GutterType>(gutter.TypeId);
-        var roof = document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == gutter.RoofId);
+        var roof = document.Find<Roof>(gutter.RoofId);
         var half = type is not null ? type.DownpipeWidth / 2 : 35;
         var below = roof is null ? null : RoofBelow(document, roof);
         bool Clear(RoofEdgeSegment segment, double along) => type is null || roof is null || At(document, gutter, type, roof, segment, along) is not null;
@@ -385,8 +385,8 @@ public static class Downpipes
         var roofs = moving.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
         if (roofs.Count == 0) return Array.Empty<Element>();
 
-        var gutters = document.Elements.OfType<Gutter>().Where(gutter => roofs.Contains(gutter.RoofId)).Select(gutter => gutter.Id).ToHashSet();
-        return document.Elements.OfType<Downpipe>().Where(pipe => gutters.Contains(pipe.GutterId) && !moving.Contains(pipe)).ToList();
+        var gutters = document.All<Gutter>().Where(gutter => roofs.Contains(gutter.RoofId)).Select(gutter => gutter.Id).ToHashSet();
+        return document.All<Downpipe>().Where(pipe => gutters.Contains(pipe.GutterId) && !moving.Contains(pipe)).ToList();
     }
 
     private static readonly ColourRgb PipeColour = ColourRgb.FromHex("2E3136");
@@ -396,7 +396,7 @@ public static class Downpipes
     {
         if (Path(document, pipe) is not { } path || path.Points.Count < 2) return null;
 
-        var gutter = document.Elements.OfType<Gutter>().First(candidate => candidate.Id == pipe.GutterId);
+        var gutter = document.All<Gutter>().First(candidate => candidate.Id == pipe.GutterId);
         var material = document.FindMaterial(document.FindType<GutterType>(gutter.TypeId)?.MaterialId ?? Guid.Empty);
         var mesh = new Mesh3D(pipe.Id, gutter.LevelId, MeshKind.Sweep, material?.SurfaceColour ?? PipeColour, material?.Name ?? "Downpipe");
 

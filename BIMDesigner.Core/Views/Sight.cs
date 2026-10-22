@@ -203,7 +203,7 @@ public static class Sight
         var eye = feet + walker.EyeHeight;
         var area = VisibleArea(SliceAt(meshes, eye), person.Location);
 
-        var rooms = document.Elements.OfType<Room>()
+        var rooms = document.All<Room>()
             .Where(room => room.LevelId == person.LevelId && room.GetBoundary(document) is { IsEnclosed: true } boundary &&
                            Polygon2D.Contains(area, Polygon2D.Centroid(boundary.Polygon, boundary.Polygon[0])))
             .Select(RoomsOf.Label).ToList();
@@ -211,7 +211,7 @@ public static class Sight
         var openings = new List<Element>();
         foreach (var opening in document.Openings.Where(opening => opening.LevelId == person.LevelId || document.Walls.Any(wall => wall.Id == opening.HostWallId && wall.LevelId == person.LevelId)))
         {
-            if (document.FindType<OpeningType>(opening.TypeId) is not { } openingType || document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } host) continue;
+            if (document.FindType<OpeningType>(opening.TypeId) is not { } openingType || document.Find<Wall>(opening.HostWallId) is not { } host) continue;
             var middle = host.LocationCurve.PointAt(Math.Clamp(opening.DistanceAlongWall, 0, host.Length));
             var height = host.GetBaseElevation(document) + opening.SillHeight + openingType.Height / 2;
             if (person.Location.DistanceTo(middle) > 30000) continue;
@@ -309,7 +309,7 @@ public static class ViewOut
         var (distance, sky, landscape, groundSeen, seen) = (0.0, false, false, false, 0);
 
         // Inside is over a floor of the storey; outside, past the glass, is not.
-        var floors = document.Elements.OfType<Floor>().Where(floor => floor.LevelId == levelId && floor.Boundary.Count >= 3).Select(floor => floor.Boundary).ToList();
+        var floors = document.All<Floor>().Where(floor => floor.LevelId == levelId && floor.Boundary.Count >= 3).Select(floor => floor.Boundary).ToList();
         bool Inside(Point2D point) => floors.Any(outline => Polygon2D.Contains(outline, point));
 
         foreach (var found in Panes(document, levelId))

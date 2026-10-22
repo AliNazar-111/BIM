@@ -472,7 +472,7 @@ public partial class PlanView : FrameworkElement
         _shows = Document is null ? _ => true : Document.ViewSettings.FilterFor(Document, CurrentView);
 
     private IEnumerable<T> OnActiveLevel<T>() where T : Element =>
-        Document?.Elements.OfType<T>().Where(IsOnActiveLevel) ?? Enumerable.Empty<T>();
+        Document?.All<T>().Where(IsOnActiveLevel) ?? Enumerable.Empty<T>();
 
     /// <summary>The location line new walls are drawn to.</summary>
     public WallLocationLine ActiveLocationLine { get; set; } = WallLocationLine.WallCentreline;
@@ -1121,7 +1121,7 @@ public partial class PlanView : FrameworkElement
 
         if (SweepEdit == SweepEditMode.ModifyReturns)
         {
-            var walls = sweep.HostWallIds.Select(id => Document.Walls.FirstOrDefault(w => w.Id == id)).OfType<Wall>().ToList();
+            var walls = sweep.HostWallIds.Select(id => Document.Find<Wall>(id)).OfType<Wall>().ToList();
             if (walls.Count == 0) return true;
 
             // The sweep's own two ends: where its first wall starts and its last wall ends.
@@ -1156,7 +1156,7 @@ public partial class PlanView : FrameworkElement
 
         foreach (var id in placed.HostWallIds)
         {
-            if (Document.Walls.FirstOrDefault(w => w.Id == id) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
+            if (Document.Find<Wall>(id) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
             if (placed.On(Document, wall) is not { } sweep) continue;
 
             var (along, across) = wall.Locate(type.Structure, model);
@@ -1502,7 +1502,7 @@ public partial class PlanView : FrameworkElement
             for (var i = 0; i <= 16; i++) yield return curve.PointAt(curve.Length * i / 16);
         }
 
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
         foreach (var point in slab.Boundary) yield return point;
 
         foreach (var element in document.Elements)
@@ -1613,7 +1613,7 @@ public partial class PlanView : FrameworkElement
         // A terrace that is the roof of the storey below, or a balcony set down, is at this level's height whatever level it is on.
         var above = Levels.Above(Document, ActiveLevelId)?.Id;
         var height = Document.FindLevel(ActiveLevelId)?.Elevation ?? 0;
-        var slabs = Document.Elements.OfType<Slab>().Where(slab => slab.Boundary.Count >= 3
+        var slabs = Document.All<Slab>().Where(slab => slab.Boundary.Count >= 3
             && (slab.LevelId == ActiveLevelId || slab.LevelId == above || Math.Abs(slab.GetTopElevation(Document) - height) <= Stairs.FloorReach)).ToList();
         foreach (var slab in slabs)
             foreach (var corner in slab.Boundary) Consider(corner);
@@ -1627,7 +1627,7 @@ public partial class PlanView : FrameworkElement
         }
 
         foreach (var column in OnActiveLevel<Column>()) Consider(column.Location);
-        foreach (var stair in Document.Elements.OfType<Stair>().Where(stair => stair.LevelId == ActiveLevelId || stair.TopLevelId == ActiveLevelId))
+        foreach (var stair in Document.All<Stair>().Where(stair => stair.LevelId == ActiveLevelId || stair.TopLevelId == ActiveLevelId))
             foreach (var (from, to) in Stairs.Layout(Document, stair).Arrivals)
             {
                 Consider(from);
@@ -2476,7 +2476,7 @@ public partial class PlanView : FrameworkElement
                 return Contains(box, keynote.Position);
 
             case Opening opening:
-                var host = Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId);
+                var host = Document.Find<Wall>(opening.HostWallId);
                 return host is not null && Contains(box, opening.GetCentre(host));
 
             case Slab slab:
@@ -3281,7 +3281,7 @@ public partial class PlanView : FrameworkElement
 
         foreach (var cut in OnActiveLevel<WallOpening>())
         {
-            if (Document.Walls.FirstOrDefault(w => w.Id == cut.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
+            if (Document.Find<Wall>(cut.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) continue;
 
             var hole = cut.Hole(wall);
             var (along, across) = wall.Locate(type.Structure, model);
@@ -3292,7 +3292,7 @@ public partial class PlanView : FrameworkElement
     /// <summary>The opening's footprint in plan: where it runs through its wall, face to face.</summary>
     private IReadOnlyList<Point2D>? OpeningOutline(WallOpening cut)
     {
-        if (Document?.Walls.FirstOrDefault(w => w.Id == cut.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return null;
+        if (Document?.Find<Wall>(cut.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return null;
 
         var hole = cut.Hole(wall);
         var half = type.Width / 2;
@@ -4478,9 +4478,9 @@ public partial class PlanView : FrameworkElement
         if (Document is null || ActiveTool is not (PlanTool.Door or PlanTool.Window)) return false;
 
         // The wall itself, or the curtain wall a clicked panel belongs to.
-        var wall = Document.Walls.FirstOrDefault(w => w.Id == elementId)
+        var wall = Document.Find<Wall>(elementId)
                    ?? (CurtainPanel.Find(Document, elementId) is { } panel
-                       ? Document.Walls.FirstOrDefault(w => w.Id == panel.HostWallId)
+                       ? Document.Find<Wall>(panel.HostWallId)
                        : null);
         if (wall is null) return false;
 
@@ -4508,7 +4508,7 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     public bool FlipCurtainPanel(CurtainPanel panel, bool hand)
     {
-        if (Document is null || Document.Walls.FirstOrDefault(w => w.Id == panel.HostWallId) is not { } wall) return false;
+        if (Document is null || Document.Find<Wall>(panel.HostWallId) is not { } wall) return false;
 
         if (panel.Cell(Document) is not { Kind: CurtainPanelKind.Door })
         {
@@ -4576,7 +4576,7 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     public bool OpenCurtainPanel(CurtainPanel panel, bool open)
     {
-        if (Document is null || Document.Walls.FirstOrDefault(w => w.Id == panel.HostWallId) is not { } wall) return false;
+        if (Document is null || Document.Find<Wall>(panel.HostWallId) is not { } wall) return false;
 
         if (panel.Cell(Document) is not { Kind: CurtainPanelKind.Door })
         {
@@ -4606,7 +4606,7 @@ public partial class PlanView : FrameworkElement
     /// <summary>A tag of an opening's mark, set off the wall on the side away from its swing, clear of the leaf and its controls.</summary>
     private Tag? TagBeside(Opening opening)
     {
-        if (Document?.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return null;
+        if (Document?.Find<Wall>(opening.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return null;
 
         var side = opening.FlipFacing ? 1.0 : -1.0;
         return new Tag
@@ -4653,7 +4653,7 @@ public partial class PlanView : FrameworkElement
     private IReadOnlyList<(Point2D At, Vector2D Direction, bool Facing)> OpeningFlipControls()
     {
         if (Document is null || _selection.Count != 1 || _selection[0] is not Opening opening) return Array.Empty<(Point2D, Vector2D, bool)>();
-        if (Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return Array.Empty<(Point2D, Vector2D, bool)>();
+        if (Document.Find<Wall>(opening.HostWallId) is not { } wall || Document.GetWallType(wall) is not { } type) return Array.Empty<(Point2D, Vector2D, bool)>();
         if (Document.FindType<OpeningType>(opening.TypeId) is not { } openingType) return Array.Empty<(Point2D, Vector2D, bool)>();
 
         var side = opening.FlipFacing ? -1.0 : 1.0;
@@ -4752,7 +4752,7 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null || _attachingColumns is not { } pending) return false;
 
-        var target = Document.Elements.OfType<Slab>()
+        var target = Document.All<Slab>()
             .Where(slab => slab.LevelId == ActiveLevelId && slab.Contains(raw))
             .OrderByDescending(slab => slab.GetTopElevation(Document))
             .FirstOrDefault();
@@ -4938,7 +4938,7 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        var number = Document.Elements.OfType<Room>().Count() + 1;
+        var number = Document.All<Room>().Count() + 1;
         var room = new Room
         {
             Location = raw,
@@ -4993,7 +4993,7 @@ public partial class PlanView : FrameworkElement
         // it, at its height under the storey above. Never on a wall.
         if (ComponentModel.HangsFromCeiling(type))
         {
-            var ceiling = Document.Elements.OfType<Ceiling>()
+            var ceiling = Document.All<Ceiling>()
                 .Where(candidate => candidate.LevelId == ActiveLevelId && candidate.Contains(component.Location))
                 .OrderBy(candidate => candidate.GetBottomElevation(Document))
                 .FirstOrDefault();
@@ -5211,7 +5211,7 @@ public partial class PlanView : FrameworkElement
     private Column? ColumnAt(Point2D raw) =>
         Document is null
             ? null
-            : Document.Elements.OfType<Column>()
+            : Document.All<Column>()
                 .Where(column => column.LevelId == ActiveLevelId)
                 .LastOrDefault(column =>
                     Document.FindType<ColumnType>(column.TypeId) is { } type &&
@@ -5221,7 +5221,7 @@ public partial class PlanView : FrameworkElement
     private Component? ComponentAt(Point2D raw) =>
         Document is null
             ? null
-            : Document.Elements.OfType<Component>()
+            : Document.All<Component>()
                 .Where(component => component.LevelId == ActiveLevelId)
                 .LastOrDefault(component =>
                     Document.FindType<ComponentType>(component.TypeId) is { } type &&
@@ -5268,8 +5268,7 @@ public partial class PlanView : FrameworkElement
 
         // One of each kind per space: two floors stacked in one room would both report their
         // area, and every takeoff downstream would count that floor twice.
-        var existing = Document.Elements
-            .OfType<Slab>()
+        var existing = Document.All<Slab>()
             .FirstOrDefault(slab =>
                 slab.LevelId == ActiveLevelId &&
                 slab.Category == type.Category &&
@@ -5471,7 +5470,7 @@ public partial class PlanView : FrameworkElement
         Document is null
             ? null
             : Document.Openings.FirstOrDefault(opening =>
-                Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is { } wall &&
+                Document.Find<Wall>(opening.HostWallId) is { } wall &&
                 Document.GetWallType(wall) is { } type &&
                 opening.LevelId == ActiveLevelId &&
                 wall.Locate(type.Structure, raw) is var (along, across) &&
@@ -5741,7 +5740,7 @@ public partial class PlanView : FrameworkElement
                 ring = WallJoins.GetBandOutline(Document, wall, type, type.Width / 2, -type.Width / 2);
                 break;
 
-            case Opening opening when Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId) is { } host &&
+            case Opening opening when Document.Find<Wall>(opening.HostWallId) is { } host &&
                                       Document.GetWallType(host) is { } hostType &&
                                       Document.FindType<OpeningType>(opening.TypeId) is { } openingType:
             {
@@ -5788,7 +5787,7 @@ public partial class PlanView : FrameworkElement
 
             case WallFraming framing:
             {
-                var framed = Document.Walls.FirstOrDefault(w => w.Id == framing.HostId);
+                var framed = Document.Find<Wall>(framing.HostId);
                 ring = framed is null ? null : Document.GetWallType(framed) is { } framedType
                     ? WallJoins.GetBandOutline(Document, framed, framedType, framedType.Width / 2, -framedType.Width / 2)
                     : null;
@@ -5797,7 +5796,7 @@ public partial class PlanView : FrameworkElement
 
             case Part part:
             {
-                var host = Document.Walls.FirstOrDefault(w => w.Id == part.HostId);
+                var host = Document.Find<Wall>(part.HostId);
                 ring = host is null ? null : Parts.PlanAt(Document, part, host.GetBaseElevation(Document) + StackedWallType.PlanCutHeight).FirstOrDefault();
                 break;
             }
@@ -5888,23 +5887,23 @@ public partial class PlanView : FrameworkElement
             if (Polygon2D.Contains(shaped.Outline, model)) yield return shaped;
 
         // A stud of a wall's frame picks the frame.
-        foreach (var framing in Document.Elements.OfType<WallFraming>())
+        foreach (var framing in Document.All<WallFraming>())
         {
-            if (Document.Walls.FirstOrDefault(w => w.Id == framing.HostId) is not { } framed || !IsOnActiveLevel(framed)) continue;
+            if (Document.Find<Wall>(framing.HostId) is not { } framed || !IsOnActiveLevel(framed)) continue;
             if (WallFramings.PlanAt(Document, framing, StackedWallType.PlanCutHeight).Any(stud => Polygon2D.Contains(stud, model))) yield return framing;
         }
 
         // A part of a wall, where the plan cuts it, before the wall it is a part of.
-        foreach (var part in Document.Elements.OfType<Part>())
+        foreach (var part in Document.All<Part>())
         {
-            if (Document.Walls.FirstOrDefault(w => w.Id == part.HostId) is not { } host || !IsOnActiveLevel(host)) continue;
+            if (Document.Find<Wall>(part.HostId) is not { } host || !IsOnActiveLevel(host)) continue;
             var cut = host.GetBaseElevation(Document) + StackedWallType.PlanCutHeight;
             if (Parts.PlanAt(Document, part, cut).Any(outline => Polygon2D.Contains(outline, model))) yield return part;
         }
 
         foreach (var opening in OnActiveLevel<Opening>())
         {
-            var wall = Document.Walls.FirstOrDefault(w => w.Id == opening.HostWallId);
+            var wall = Document.Find<Wall>(opening.HostWallId);
             var wallType = wall is null ? null : Document.GetWallType(wall);
             var type = Document.FindType<OpeningType>(opening.TypeId);
             if (wall is null || wallType is null || type is null) continue;

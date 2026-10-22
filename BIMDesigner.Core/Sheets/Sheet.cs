@@ -450,7 +450,7 @@ public static class Sheets
     {
         var highest = 100;
 
-        foreach (var sheet in document.Elements.OfType<Sheet>())
+        foreach (var sheet in document.All<Sheet>())
         {
             var digits = new string(sheet.Number.SkipWhile(c => !char.IsDigit(c)).TakeWhile(char.IsDigit).ToArray());
             if (int.TryParse(digits, out var number) && number > highest) highest = number;

@@ -73,7 +73,7 @@ public partial class MainWindow
         var chosen = Plan.SelectedElements.OfType<WallFraming>()
             .Concat(Plan.SelectedElements.OfType<Wall>().Select(wall => WallFramings.Of(_document, wall)).OfType<WallFraming>())
             .Distinct().ToList();
-        var frames = chosen.Count > 0 ? chosen : _document.Elements.OfType<WallFraming>().ToList();
+        var frames = chosen.Count > 0 ? chosen : _document.All<WallFraming>().ToList();
         if (frames.Count == 0)
         {
             StatusHint.Text = "No walls are framed yet: select walls and Frame Walls first.";

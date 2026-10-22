@@ -44,7 +44,7 @@ public partial class PlanView
     /// <summary>A click in an elevation or the 3D view with Paint: the face it lands on, where it lands. Public so the window can pass clicks on.</summary>
     public bool PaintIn3D(Guid elementId, Point3D at)
     {
-        if (Document?.Walls.FirstOrDefault(wall => wall.Id == elementId) is not { } wall) return false;
+        if (Document?.Find<Wall>(elementId) is not { } wall) return false;
         if (WallPaint.Locate(Document, wall, at) is not var (face, along, height))
         {
             HintChanged?.Invoke(this, "Click on a wall's face - its inside or outside, not its top or end.");
@@ -94,7 +94,7 @@ public partial class PlanView
     /// </summary>
     public bool SplitFaceIn3D(Guid elementId, Point3D at)
     {
-        if (Document?.Walls.FirstOrDefault(wall => wall.Id == elementId) is not { } wall) return false;
+        if (Document?.Find<Wall>(elementId) is not { } wall) return false;
         if (CurtainLayout.Of(Document, wall) is not null)
         {
             HintChanged?.Invoke(this, "A curtain wall is glass and panels, not a face to split: change its grid instead.");

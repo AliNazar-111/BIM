@@ -108,7 +108,7 @@ public partial class PlanView
             {
                 if (Lower(Ramps.Layout(Document, ramp).Foot, floor) is not { } lower)
                 {
-                    why = Document.Elements.OfType<Toposurface>().Any()
+                    why = Document.All<Toposurface>().Any()
                         ? "There is nothing lower than the floor here for a ramp to go down to. Give its Rise on the option bar, or draw it from somewhere higher."
                         : "The floor here is level with the ground - with no ground modelled, the ground is taken to be at the lowest level - so there is nothing for a ramp to go down to. Model the ground outside lower with a Toposurface, or give its Rise on the option bar.";
                     return null;
@@ -140,7 +140,7 @@ public partial class PlanView
             if (onto is { } top) (ramp.TopLevelId, ramp.TopOffset) = (level.Id, Math.Round(top - level.Elevation));
             var layout = Ramps.Layout(Document, ramp);
             var beyond = layout.Head + layout.HeadUp * 300;
-            var floors = Document.Elements.OfType<Slab>()
+            var floors = Document.All<Slab>()
                 .Where(slab => slab.Boundary.Count >= 3 && slab is not Ceiling && slab.Contains(beyond) && FloorSurfaces.IsStoodOn(Document, slab))
                 .Select(slab => FloorSurfaces.TopAt(Document, slab, beyond))
                 .Where(height => height > under + Ramps.MinimumRise && height < under + 10000)
@@ -153,7 +153,7 @@ public partial class PlanView
 
         if (onto is null)
         {
-            why = Document.Elements.OfType<Toposurface>().Any()
+            why = Document.All<Toposurface>().Any()
                 ? "There is nothing higher here for a ramp to come up to. Point it at the floor it is to reach, or give its Rise on the option bar."
                 : "The floor here is level with the ground - with no ground modelled, the ground is taken to be at the lowest level - so there is nothing for a ramp to come up to. Model the ground outside lower with a Toposurface, or give its Rise on the option bar.";
             return null;
@@ -166,7 +166,7 @@ public partial class PlanView
     private double? Lower(Point2D at, double than)
     {
         if (Document is null) return null;
-        var lower = Document.Elements.OfType<Slab>()
+        var lower = Document.All<Slab>()
             .Where(slab => slab.Boundary.Count >= 3 && slab is not Ceiling && slab.Contains(at) && FloorSurfaces.IsStoodOn(Document, slab))
             .Select(slab => FloorSurfaces.TopAt(Document, slab, at))
             .Append(Ramps.GroundUnder(Document, at))
@@ -349,7 +349,7 @@ public partial class PlanView
     private IEnumerable<Ramp> RampsAt(Point2D model)
     {
         if (Document is null) yield break;
-        foreach (var ramp in Document.Elements.OfType<Ramp>().Where(ramp => _shows(ramp) && (ramp.LevelId == ActiveLevelId || ramp.TopLevelId == ActiveLevelId)))
+        foreach (var ramp in Document.All<Ramp>().Where(ramp => _shows(ramp) && (ramp.LevelId == ActiveLevelId || ramp.TopLevelId == ActiveLevelId)))
             if (Ramps.Layout(Document, ramp).PieceAt(model) is not null)
                 yield return ramp;
     }

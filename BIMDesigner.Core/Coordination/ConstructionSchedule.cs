@@ -294,7 +294,7 @@ public static class ConstructionPlanning
     /// <summary>Whether an element is on the side asked: a wall by its type's function, a door or window by its wall's.</summary>
     private static bool SideOf(BimDocument document, Element element, WallSide side)
     {
-        var wall = element as Wall ?? (element is Opening opening ? document.Walls.FirstOrDefault(host => host.Id == opening.HostWallId) : null);
+        var wall = element as Wall ?? (element is Opening opening ? document.Find<Wall>(opening.HostWallId) : null);
         if (wall is null) return side == WallSide.Interior;
         var exterior = document.IsCurtainWall(wall)
             ? document.FindType<CurtainWallType>(wall.TypeId)?.Function == WallFunction.Exterior

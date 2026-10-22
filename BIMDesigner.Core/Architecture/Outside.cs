@@ -137,7 +137,7 @@ public static class Outside
 
     /// <summary>Every tree's, shrub's and bay's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .SelectMany(piece => Problems(document, piece, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(piece, "its place", problem.Outline, problem.Rule), string.Empty,

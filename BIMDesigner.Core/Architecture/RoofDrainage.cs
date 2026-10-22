@@ -42,7 +42,7 @@ public sealed class RoofDrain : Element, IHostedElement
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
-        var roof = document.Elements.OfType<Roof>().FirstOrDefault(candidate => candidate.Id == RoofId);
+        var roof = document.Find<Roof>(RoofId);
 
         yield return ParameterValue.ReadOnly(RoofDrainParameters.Roof,
             () => roof is null ? "<none>" : document.FindType<SlabType>(roof.TypeId)?.Name ?? "Roof");
@@ -105,7 +105,7 @@ public static class RoofDrainage
     public const double EdgeClearance = 150, DrainSpacing = 500;
 
     public static IEnumerable<RoofDrain> On(BimDocument document, Roof roof) =>
-        document.Elements.OfType<RoofDrain>().Where(drain => drain.RoofId == roof.Id);
+        document.All<RoofDrain>().Where(drain => drain.RoofId == roof.Id);
 
     /// <summary>Whether a roof is one that drains to outlets: flat, drawn by footprint, with a drain in it.</summary>
     public static bool Drains(BimDocument document, Roof roof) =>
@@ -321,7 +321,7 @@ public static class RoofDrainage
         var roofs = moving.OfType<Roof>().Select(roof => roof.Id).ToHashSet();
         return roofs.Count == 0
             ? Array.Empty<Element>()
-            : document.Elements.OfType<RoofDrain>().Where(drain => roofs.Contains(drain.RoofId) && !moving.Contains(drain)).ToList();
+            : document.All<RoofDrain>().Where(drain => roofs.Contains(drain.RoofId) && !moving.Contains(drain)).ToList();
     }
 
     /// <summary>
@@ -436,7 +436,7 @@ public static class RoofDrainage
     /// </summary>
     public static DrainPipe? Pipe(BimDocument document, RoofDrain drain)
     {
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == drain.RoofId) is not { } roof) return null;
+        if (document.Find<Roof>(drain.RoofId) is not { } roof) return null;
 
         var down = new Vector3(0, 0, 1);
         var start = new Vector3(drain.Location.X, drain.Location.Y, roof.TopAt(document, drain.Location) - 40);
@@ -486,10 +486,10 @@ public static class RoofDrainage
     {
         if (slab is Roof) yield break;
 
-        foreach (var drain in document.Elements.OfType<RoofDrain>().Where(drain => drain.Discharge == DrainDischarge.Internal))
+        foreach (var drain in document.All<RoofDrain>().Where(drain => drain.Discharge == DrainDischarge.Internal))
         {
             if (!slab.Contains(drain.Location)) continue;
-            if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == drain.RoofId) is not { } roof) continue;
+            if (document.Find<Roof>(drain.RoofId) is not { } roof) continue;
 
             // Under the roof, and above the foot of the pipe.
             var bottom = (document.Levels.Count > 0 ? document.Levels.Min(level => level.Elevation) : 0) - BelowGround;
@@ -531,7 +531,7 @@ public static class RoofDrainage
     /// <summary>A drain as the 3D view draws it: a flange on the roof's top and a domed grate over the outlet.</summary>
     public static Mesh3D? Mesh(BimDocument document, RoofDrain drain)
     {
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == drain.RoofId) is not { } roof) return null;
+        if (document.Find<Roof>(drain.RoofId) is not { } roof) return null;
 
         var top = roof.TopAt(document, drain.Location);
         var mesh = new Mesh3D(drain.Id, roof.LevelId, MeshKind.Sweep, Grate, "Roof Drain");

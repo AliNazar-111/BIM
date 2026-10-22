@@ -20,15 +20,19 @@ public sealed partial class PlanRenderer
 
     private void Styled(DrawingContext dc, Element element, Action<DrawingContext> draw)
     {
+        // Drawn on its own first: one that cannot be drawn is left out - and said so - with
+        // whatever it had got as far as, rather than the rest of the plan with it.
+        var drawn = new DrawingGroup();
+        bool done;
+        using (var inner = drawn.Open()) done = DrawFailures.Guard(element, () => draw(inner));
+        if (!done) return;
+
         var style = Style(element);
         if (style.IsPlain)
         {
-            draw(dc);
+            dc.DrawDrawing(drawn);
             return;
         }
-
-        var drawn = new DrawingGroup();
-        using (var inner = drawn.Open()) draw(inner);
 
         // A copy to restyle: what is drawn can be a drawing kept from before, frozen.
         var group = drawn.CloneCurrentValue();

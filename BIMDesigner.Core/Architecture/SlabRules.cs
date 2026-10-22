@@ -59,7 +59,7 @@ public static class SlabRules
 
         // A ceiling under it, its insulation on it: the loft's ceiling is what keeps the heat in.
         var middle = Polygon2D.Centroid(roof.Boundary, roof.Boundary[0]);
-        var under = document.Elements.OfType<Ceiling>()
+        var under = document.All<Ceiling>()
             .Where(ceiling => ceiling.Contains(middle) && ceiling.GetBottomElevation(document) < roof.GetBottomElevation(document) + 1)
             .Select(ceiling => document.FindType<SlabType>(ceiling.TypeId))
             .Select(ceilingType => ceilingType is null ? null : Thermal.UValue(document, ceilingType.Structure, Thermal.Flow.Upward) is { } u ? 1 / u - 0.10 - 0.04 : (double?)null)
@@ -145,7 +145,7 @@ public static class SlabRules
         if (slab is Roof roof)
         {
             if (UValue(document, roof) is { } roofU && roofU > Thermal.RoofLimit + 0.005)
-                Add($"its U-value is {roofU:0.00}{(document.Elements.OfType<Ceiling>().Any() ? ", with the ceiling under it" : string.Empty)}.",
+                Add($"its U-value is {roofU:0.00}{(document.All<Ceiling>().Any() ? ", with the ceiling under it" : string.Empty)}.",
                     "Approved Document L (Table 4.1) limits a new dwelling's roof to a U-value of 0.16 W/m²K - with a cold loft, its ceiling's insulation counted.");
 
             // A cold roof pitched steeply or spanning far is aired high up as well as at its eaves.
@@ -170,7 +170,7 @@ public static class SlabRules
 
     /// <summary>Every floor's and roof's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Slab>()
+        document.All<Slab>()
             .Where(slab => slab.LevelId == levelId && slab is Floor or Roof)
             .SelectMany(slab => Problems(document, slab, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(slab, "its build-up", problem.Outline, problem.Rule), string.Empty,

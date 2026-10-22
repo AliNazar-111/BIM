@@ -102,7 +102,7 @@ public static class SlabEdges
         if (slab.GetTopElevation(document) <= grounded + 50) return lips;
 
         // A dormer's walls stand on the roof they rise out of, its eaves running on past them.
-        var dormers = document.Elements.OfType<Roof>().SelectMany(roof => roof.DormerWalls).ToHashSet();
+        var dormers = document.All<Roof>().SelectMany(roof => roof.DormerWalls).ToHashSet();
         var (min, max) = (new Point2D(slab.Boundary.Min(point => point.X), slab.Boundary.Min(point => point.Y)), new Point2D(slab.Boundary.Max(point => point.X), slab.Boundary.Max(point => point.Y)));
         foreach (var wall in document.Walls)
         {

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace BIMDesigner.UI;
 
@@ -48,10 +49,18 @@ public partial class App : Application
             return;
         }
 
+        // From here on, whatever goes wrong is logged and said, the work kept - not the program closed.
+        ErrorReporting.Attach(this);
+
         // Light or dark, as last chosen: the palette has to be in place before any window is built.
         AppTheme.Apply(this);
 
-        new MainWindow().Show();
+        var window = new MainWindow();
+        window.Show();
+
+        // Unsaved work kept every few minutes - and work a session that stopped left behind, offered back once the window is up.
+        window.StartKeepingWork();
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => window.OfferRecovery());
     }
 
     /// <summary>

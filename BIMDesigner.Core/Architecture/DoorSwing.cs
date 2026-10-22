@@ -38,7 +38,7 @@ public static class DoorSwing
         if (opening is not Door || document.FindType<DoorType>(opening.TypeId) is not
                 { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } door)
             return null;
-        if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } host) return null;
+        if (document.Find<Wall>(opening.HostWallId) is not { } host) return null;
 
         var (from, to) = opening.GetSpan(door);
         var (sill, height) = opening.Placed(document, door, host);
@@ -62,8 +62,8 @@ public static class DoorSwing
         var face = structure.TotalWidth / 2;
         var side = toExterior ? 1.0 : -1.0;
 
-        var soffits = document.Elements.OfType<Soffit>().SelectMany(soffit => RoofEdgeSweeps.SoffitPieces(document, soffit)).ToList();
-        var roofs = document.Elements.OfType<Roof>().Select(roof => (Roof: roof, Surface: roof.Surface(document))).ToList();
+        var soffits = document.All<Soffit>().SelectMany(soffit => RoofEdgeSweeps.SoffitPieces(document, soffit)).ToList();
+        var roofs = document.All<Roof>().Select(roof => (Roof: roof, Surface: roof.Surface(document))).ToList();
 
         bool InTheWay(double underside) => underside > sill && head > underside + Tolerance;
 
@@ -88,7 +88,7 @@ public static class DoorSwing
     public static IReadOnlyList<IReadOnlyList<Point2D>> Sweeps(BimDocument document, Door door)
     {
         if (document.FindType<DoorType>(door.TypeId) is not { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } type ||
-            document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall ||
+            document.Find<Wall>(door.HostWallId) is not { } wall ||
             document.GetWallType(wall) is not { } wallType)
             return Array.Empty<IReadOnlyList<Point2D>>();
 

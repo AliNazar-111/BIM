@@ -50,12 +50,12 @@ public static class Doors
     /// <summary>Whether a door leads outside: an exterior door's type, or in an outside wall.</summary>
     public static bool External(BimDocument document, Door door, DoorType type) =>
         type.Function == DoorFunction.Exterior
-        || document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is { } wall && document.GetWallType(wall) is { Function: WallFunction.Exterior };
+        || document.Find<Wall>(door.HostWallId) is { } wall && document.GetWallType(wall) is { Function: WallFunction.Exterior };
 
     /// <summary>The rooms either side of a door, where there are rooms there: on its swing side first.</summary>
     public static (Room? Swing, Room? Other) RoomsBeside(BimDocument document, Door door)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } type) return (null, null);
+        if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } type) return (null, null);
 
         var reach = type.Structure.TotalWidth / 2 + 150;
         var side = door.FlipFacing ? -1.0 : 1.0;
@@ -66,12 +66,12 @@ public static class Doors
     /// <summary>Whether a room is a garage: called one, or with a car in it.</summary>
     public static bool Garage(BimDocument document, Room room) =>
         room.Name.Contains("garage", StringComparison.OrdinalIgnoreCase)
-        || room.GetBoundary(document) is { IsEnclosed: true } boundary && document.Elements.OfType<Component>()
+        || room.GetBoundary(document) is { IsEnclosed: true } boundary && document.All<Component>()
             .Any(piece => piece.LevelId == room.LevelId && document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.Car && Polygon2D.Contains(boundary.Polygon, piece.Location));
 
     /// <summary>Whether a room is a bathroom or a WC - not a habitable room.</summary>
     private static bool Wet(BimDocument document, Room room) =>
-        room.GetBoundary(document) is { IsEnclosed: true } boundary && document.Elements.OfType<Component>()
+        room.GetBoundary(document) is { IsEnclosed: true } boundary && document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location))
             .Select(piece => document.FindType<ComponentType>(piece.TypeId))
             .Any(type => type is not null && (Bathrooms.IsWc(type) || type.Form is ComponentForm.Bath or ComponentForm.Shower));
@@ -83,7 +83,7 @@ public static class Doors
     public static HashSet<Room> StairRooms(BimDocument document)
     {
         var rooms = new HashSet<Room>();
-        foreach (var stair in document.Elements.OfType<Stair>())
+        foreach (var stair in document.All<Stair>())
         {
             var walk = Stairs.Layout(document, stair).WalkingLine;
             if (walk.Count < 2) continue;
@@ -97,7 +97,7 @@ public static class Doors
     /// <summary>Whether a dwelling has a storey whose floor is more than 4.5 m above the ground: one that wants a protected stair.</summary>
     public static bool HasHighStorey(BimDocument document)
     {
-        var withRooms = document.Levels.Where(level => document.Elements.OfType<Room>().Any(room => room.LevelId == level.Id)).ToList();
+        var withRooms = document.Levels.Where(level => document.All<Room>().Any(room => room.LevelId == level.Id)).ToList();
         if (withRooms.Count == 0) return false;
         var ground = document.Levels.Min(level => level.Elevation);
         return withRooms.Any(level => level.Elevation - ground > 4500 + 0.5);
@@ -109,7 +109,7 @@ public static class Doors
     /// </summary>
     public static double? Nib(BimDocument document, Door door, DoorType type)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
+        if (document.Find<Wall>(door.HostWallId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
 
         var others = document.Walls
             .Where(wall => wall != host && wall.LevelId == host.LevelId && document.GetWallType(wall) is { } t && t.Structure.TotalWidth > 0)
@@ -130,7 +130,7 @@ public static class Doors
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Door door, ClearanceStandard standard)
     {
         if (document.FindType<DoorType>(door.TypeId) is not { } type || type.CurtainPanel) return Array.Empty<PlacementProblem>();
-        if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType)
+        if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType)
             return Array.Empty<PlacementProblem>();
 
         var (from, to) = door.GetSpan(type);
@@ -164,17 +164,17 @@ public static class Doors
         }
 
         // The US's egress door: one at least, side-hinged, 32 in by 78 in clear.
-        if (standard.IsUs() && external && swings && !document.Elements.OfType<Door>().Any(other =>
+        if (standard.IsUs() && external && swings && !Kept(document, "egress door", () => document.All<Door>().Any(other =>
                 document.FindType<DoorType>(other.TypeId) is { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } otherType
-                && External(document, other, otherType) && ClearWidth(otherType) >= 813 - 0.5 && otherType.Height - Frame >= 1981 - 0.5))
+                && External(document, other, otherType) && ClearWidth(otherType) >= 813 - 0.5 && otherType.Height - Frame >= 1981 - 0.5)))
             Add("no door out of the dwelling is 32 in (813) clear and 78 in (1981) high.",
                 "IRC R311.2 asks for one side-hinged egress door 32 in clear, 78 in high, at the least.");
 
         // A nib beside its leading edge, on the side it opens to: every external door, and every door on the entrance storey under M4(2); every door under M4(3).
-        var entranceStorey = document.Elements.OfType<Door>()
+        var entranceStorey = Kept(document, "entrance storey", () => document.All<Door>()
             .Where(other => document.FindType<DoorType>(other.TypeId) is { } otherType && External(document, other, otherType))
-            .Select(other => document.Walls.FirstOrDefault(candidate => candidate.Id == other.HostWallId)?.LevelId)
-            .FirstOrDefault();
+            .Select(other => document.Find<Wall>(other.HostWallId)?.LevelId)
+            .FirstOrDefault());
         var wantsNib = standard == ClearanceStandard.ApprovedDocumentM3 || standard == ClearanceStandard.ApprovedDocumentM && (external || wall.LevelId == entranceStorey);
         if (wantsNib && swings && !pair && Nib(document, door, type) is { } nib && nib < 300 - 0.5)
             Add($"its leading edge is {nib:0} from the wall beside it.",
@@ -192,9 +192,9 @@ public static class Doors
                     ? "IRC R302.5.1 asks for a door between a garage and the house to be solid, or rated 20 minutes, and self-closing and self-latching."
                     : "Approved Document B (5.6, Table C1 item 11a, C5) asks for a door between a house and its garage of FD30S - 30 minutes - and self-closing.");
 
-        if (!standard.IsUs() && !garage && swingRoom is not null && otherRoom is not null && HasHighStorey(document) && minutes < 20)
+        if (!standard.IsUs() && !garage && swingRoom is not null && otherRoom is not null && Kept(document, "high storey", () => HasHighStorey(document)) && minutes < 20)
         {
-            var stair = StairRooms(document);
+            var stair = Kept(document, "stair rooms", () => StairRooms(document));
             var onto = stair.Contains(swingRoom) ? otherRoom : stair.Contains(otherRoom) ? swingRoom : null;
             if (onto is not null && !stair.Contains(onto) && !Wet(document, onto))
                 Add($"it opens off the stair, which a storey more than 4.5 m up makes a protected stairway, {(minutes > 0 ? $"rated {minutes} minutes" : "not fire-rated")}.",
@@ -218,6 +218,10 @@ public static class Doors
         return problems;
     }
 
+    /// <summary>A fact about the whole building, the same for every door: while the model is drawn, found once.</summary>
+    private static T Kept<T>(BimDocument document, string what, Func<T> work) =>
+        ModelCache.Of(document) is { } cache ? cache.Keep($"doors: {what}", document, null, null, work) : work();
+
     /// <summary>What a door comes to as its rules see it - its clear width, and what it falls short of.</summary>
     public static string Verdict(BimDocument document, Door door)
     {
@@ -230,8 +234,8 @@ public static class Doors
 
     /// <summary>Every door's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Door>()
-            .Where(door => document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId)?.LevelId == levelId)
+        document.All<Door>()
+            .Where(door => document.Find<Wall>(door.HostWallId)?.LevelId == levelId)
             .SelectMany(door => Problems(document, door, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(door, "its place", problem.Outline, problem.Rule), string.Empty,
                     $"{document.FindType<DoorType>(door.TypeId)?.Name ?? "A door"}{(string.IsNullOrWhiteSpace(door.Mark) ? string.Empty : $" ({door.Mark})")}", problem.Said)))

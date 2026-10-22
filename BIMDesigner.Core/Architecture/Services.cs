@@ -56,7 +56,7 @@ public static class Services
     /// </summary>
     public static double? FromCorner(BimDocument document, Component piece, ComponentType type)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == piece.HostId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
+        if (document.Find<Wall>(piece.HostId) is not { } host || document.GetWallType(host) is not { } hostType) return null;
 
         var others = document.Walls
             .Where(wall => wall != host && wall.LevelId == host.LevelId && document.GetWallType(wall) is { } t && t.Structure.TotalWidth > 0)
@@ -89,13 +89,13 @@ public static class Services
     /// </summary>
     public static double? CeilingOver(BimDocument document, Guid levelId, Point2D at)
     {
-        if (document.Elements.OfType<Ceiling>().Where(ceiling => ceiling.LevelId == levelId && ceiling.Contains(at))
+        if (document.All<Ceiling>().Where(ceiling => ceiling.LevelId == levelId && ceiling.Contains(at))
                 .Select(ceiling => (double?)ceiling.GetBottomElevation(document)).Min() is { } ceiling)
             return ceiling;
 
         var level = document.FindLevel(levelId);
         var above = document.Levels.Where(other => level is not null && other.Elevation > level.Elevation + 1).OrderBy(other => other.Elevation).FirstOrDefault();
-        return above is null ? null : document.Elements.OfType<Floor>()
+        return above is null ? null : document.All<Floor>()
             .Where(floor => floor.LevelId == above.Id && floor.Contains(at))
             .Select(floor => (double?)floor.GetBottomElevation(document))
             .Min();
@@ -149,12 +149,12 @@ public static class Services
     /// <summary>The height of the sill of a window in the wall a radiator is on, over it; null where there is none.</summary>
     private static double? UnderWindow(BimDocument document, Component piece, ComponentType type)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == piece.HostId) is not { } wall || document.GetWallType(wall) is not { } wallType) return null;
+        if (document.Find<Wall>(piece.HostId) is not { } wall || document.GetWallType(wall) is not { } wallType) return null;
 
         var (along, _) = wall.Locate(wallType.Structure, piece.Location);
         var (from, to) = (along - type.Width / 2, along + type.Width / 2);
         var bottom = wall.GetBaseElevation(document);
-        return document.Elements.OfType<Window>()
+        return document.All<Window>()
             .Where(window => window.HostWallId == wall.Id && document.FindType<WindowType>(window.TypeId) is not null)
             .Select(window => (Window: window, Span: window.GetSpan(document.FindType<WindowType>(window.TypeId)!)))
             .Where(entry => entry.Span.From < to - 1 && entry.Span.To > from + 1)
@@ -164,7 +164,7 @@ public static class Services
 
     /// <summary>Every service fitting's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == levelId)
             .SelectMany(piece => Problems(document, piece, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(piece, "its place", problem.Outline, problem.Rule), string.Empty,
@@ -173,7 +173,7 @@ public static class Services
 
     /// <summary>What a room has in it, by type, and where.</summary>
     private static List<(Component Piece, ComponentType Type)> In(BimDocument document, Room room, IReadOnlyList<Point2D> outline) =>
-        document.Elements.OfType<Component>()
+        document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(outline, piece.Location))
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type is not null)
@@ -184,10 +184,10 @@ public static class Services
     private static IReadOnlyList<double> OpeningWindows(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
     {
         var areas = new List<double>();
-        foreach (var window in document.Elements.OfType<Window>())
+        foreach (var window in document.All<Window>())
         {
             if (document.FindType<WindowType>(window.TypeId) is not { } type || !WindowLights.Opens(type)) continue;
-            if (document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
+            if (document.Find<Wall>(window.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
             if (document.GetWallType(wall) is not { } wallType) continue;
 
             var reach = wallType.Structure.TotalWidth / 2 + 150;
@@ -289,9 +289,9 @@ public static class Services
 
         // The doorways in it break it into wall spaces.
         var breaks = new List<(double From, double To)>();
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall || wall.LevelId != room.LevelId) continue;
             if (document.GetWallType(wall) is not { } wallType || document.FindType<DoorType>(door.TypeId) is not { } doorType) continue;
 
             var (from, to) = door.GetSpan(doorType);

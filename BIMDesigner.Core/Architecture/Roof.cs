@@ -282,7 +282,7 @@ public sealed class Roof : Slab
         var inset = edge.BearingInset;
         if (edge.WallId is not { } id || Bearing == RoofBearing.Truss) return inset;
 
-        if (document.Walls.FirstOrDefault(wall => wall.Id == id) is not { } wall || document.GetWallType(wall) is not { } type)
+        if (document.Find<Wall>(id) is not { } wall || document.GetWallType(wall) is not { } type)
             return inset;
 
         var structure = type.Structure;

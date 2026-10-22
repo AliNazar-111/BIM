@@ -86,7 +86,7 @@ public static class InteriorElevations
     /// <summary>The next free marker number.</summary>
     public static string NextName(BimDocument document)
     {
-        var names = document.Elements.OfType<InteriorElevationMarker>().Select(marker => marker.Name).ToHashSet();
+        var names = document.All<InteriorElevationMarker>().Select(marker => marker.Name).ToHashSet();
         for (var i = 1; ; i++)
             if (!names.Contains(i.ToString())) return i.ToString();
     }
@@ -106,7 +106,7 @@ public static class InteriorElevations
         var camera = new Camera3D(eye, Point3D.On(marker.Location + look, floor), Perspective: false);
 
         var traced = RoomBoundary.Trace(document, marker.LevelId, marker.Location);
-        var room = document.Elements.OfType<Room>().FirstOrDefault(r => r.LevelId == marker.LevelId &&
+        var room = document.All<Room>().FirstOrDefault(r => r.LevelId == marker.LevelId &&
                                                                       r.GetBoundary(document) is { IsEnclosed: true } b && Polygon2D.Contains(b.Polygon, marker.Location));
         var above = document.Levels.Where(level => level.Elevation > floor + 1).Select(level => level.Elevation - floor).DefaultIfEmpty(3000).Min();
         var height = room?.UpperLimitOffset ?? CeilingOver(document, marker) ?? above;
@@ -124,7 +124,7 @@ public static class InteriorElevations
     private static double? CeilingOver(BimDocument document, InteriorElevationMarker marker)
     {
         var floor = document.FindLevel(marker.LevelId)?.Elevation ?? 0;
-        var ceilings = document.Elements.OfType<Ceiling>()
+        var ceilings = document.All<Ceiling>()
             .Where(ceiling => ceiling.LevelId == marker.LevelId && ceiling.Contains(marker.Location))
             .Select(ceiling => ceiling.GetBottomElevation(document) - floor)
             .Where(height => height > 0)

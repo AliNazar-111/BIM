@@ -76,7 +76,7 @@ public static class Approaches
 
     /// <summary>The paving or path laid against a path, 1500 square or more, that it can be passed on.</summary>
     private static int PassingPlaces(BimDocument document, GroundRegion path) =>
-        document.Elements.OfType<GroundRegion>()
+        document.All<GroundRegion>()
             .Where(other => !ReferenceEquals(other, path) && other.LevelId == path.LevelId && other.Surface is GroundSurface.Path or GroundSurface.Paving && other.Boundary.Count >= 3)
             .Count(other => Polygon2D.Area(other.Boundary) >= 1500 * 1500 - 1
                             && PolygonBoolean.Combine(other.Boundary, path.Boundary, BooleanOperation.Union).Count == 1);
@@ -92,9 +92,9 @@ public static class Approaches
     public static bool IsApproachedEntrance(BimDocument document, Door door)
     {
         if (document.FindType<DoorType>(door.TypeId) is not { } type || !Doors.External(document, door, type)) return false;
-        if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall) return false;
+        if (document.Find<Wall>(door.HostWallId) is not { } wall) return false;
         var at = wall.PointAt(document.GetWallType(wall)?.Structure ?? new Materials.CompoundStructure(), door.DistanceAlongWall, 0);
-        return document.Elements.OfType<GroundRegion>().Any(region => region.Approach && region.Boundary.Count >= 3
+        return document.All<GroundRegion>().Any(region => region.Approach && region.Boundary.Count >= 3
             && Enumerable.Range(0, region.Boundary.Count).Min(i => Line2D.DistanceFromSegment(at, region.Boundary[i], region.Boundary[(i + 1) % region.Boundary.Count])) < 2000);
     }
 
@@ -102,7 +102,7 @@ public static class Approaches
     public static IReadOnlyList<(string Said, string Rule)> EntranceProblems(BimDocument document, Door door, ClearanceStandard standard)
     {
         if (standard.IsUs() || !IsApproachedEntrance(document, door)) return Array.Empty<(string, string)>();
-        if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) return Array.Empty<(string, string)>();
+        if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) return Array.Empty<(string, string)>();
 
         var wheelchair = standard == ClearanceStandard.ApprovedDocumentM3;
         var (size, coverWidth, coverDepth, paragraph) = wheelchair ? (1500.0, 1200.0, 1200.0, "M4(3) 3.22") : (1200.0, 900.0, 600.0, "M4(2) 2.20");
@@ -121,7 +121,7 @@ public static class Approaches
         // Covered: a roof or floor over it, a canopy or porch, over the width and depth asked.
         var head = wall.GetBaseElevation(document) + door.SillHeight + door.HeightOf(document.FindType<DoorType>(door.TypeId));
         var cover = InFront(face, outward, coverWidth, coverDepth);
-        var covered = document.Elements.OfType<Slab>().Where(slab => slab is Roof or Floor && slab.GetBottomElevation(document) > head - 1)
+        var covered = document.All<Slab>().Where(slab => slab is Roof or Floor && slab.GetBottomElevation(document) > head - 1)
             .Any(slab => cover.All(slab.Contains) || cover.All(point => Polygon2D.Contains(slab.Boundary, point)));
         if (!covered)
             problems.Add(("nothing covers the landing outside it.",

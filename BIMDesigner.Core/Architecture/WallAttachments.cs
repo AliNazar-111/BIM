@@ -22,7 +22,7 @@ public static class WallAttachments
     {
         var bottom = wall.GetBaseElevation(document);
 
-        return document.Elements.OfType<Slab>()
+        return document.All<Slab>()
             .Where(slab => slab.GetBottomElevation(document) > bottom + 1)
             .Where(slab => IsOver(document, slab, wall))
             .OrderBy(slab => slab.GetBottomElevation(document))
@@ -37,7 +37,7 @@ public static class WallAttachments
     {
         var top = wall.GetTopElevation(document);
 
-        var floors = document.Elements.OfType<Floor>()
+        var floors = document.All<Floor>()
             .Where(floor => floor.GetTopElevation(document) < top - 1)
             .Where(floor => IsOver(document, floor, wall))
             .Select(floor => (Slab: (Slab)floor, Top: floor.GetTopElevation(document)));
@@ -45,7 +45,7 @@ public static class WallAttachments
         // A pitched roof the wall rises through and comes out above - a dormer's walls, on the
         // roof they stand on. A wall under a roof, whose top it never comes out of, is not on it.
         var middle = wall.LocationCurve.PointAt(wall.Length / 2);
-        var roofs = document.Elements.OfType<Roof>()
+        var roofs = document.All<Roof>()
             .Where(roof => roof.Contains(middle) && !roof.Surface(document).IsFlat)
             .Select(roof => (Slab: (Slab)roof, Top: roof.TopAt(document, middle)))
             .Where(roof => roof.Top < top - 1 && roof.Top > wall.GetBaseElevation(document) - 1);
@@ -141,7 +141,7 @@ public static class ColumnAttachments
     {
         var bottom = column.GetBaseElevation(document);
 
-        return document.Elements.OfType<Slab>()
+        return document.All<Slab>()
             .Where(slab => slab.GetBottomElevation(document) > bottom + 1 && slab.Contains(column.Location))
             .OrderBy(slab => slab.GetBottomElevation(document))
             .FirstOrDefault();
@@ -156,7 +156,7 @@ public static class ColumnAttachments
         var foot = (document.FindLevel(column.LevelId)?.Elevation ?? 0) + column.BaseOffset;
         if (FloorSurfaces.Burying(document, foot, column.Location) is Roof flat) return flat;
 
-        return document.Elements.OfType<Floor>()
+        return document.All<Floor>()
             .Where(floor => floor.GetTopElevation(document) < top - 1 && floor.Contains(column.Location))
             .OrderByDescending(floor => floor.GetTopElevation(document))
             .Cast<Slab>()

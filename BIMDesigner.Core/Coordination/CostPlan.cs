@@ -115,7 +115,7 @@ public static class CostPlanning
             return Math.Max(0, gross - holes);
         }
 
-        if (unit == CostUnit.Length && element is WallFooting footing && document.Walls.FirstOrDefault(host => host.Id == footing.WallId) is { } under)
+        if (unit == CostUnit.Length && element is WallFooting footing && document.Find<Wall>(footing.WallId) is { } under)
             return under.Length;
 
         var name = unit switch { CostUnit.Length => "Length", CostUnit.Area => "Area", _ => "Volume" };
@@ -154,7 +154,7 @@ public static class CostPlanning
 
     private static bool Outside(BimDocument document, Element element)
     {
-        var wall = element as Wall ?? (element is Opening opening ? document.Walls.FirstOrDefault(host => host.Id == opening.HostWallId) : null);
+        var wall = element as Wall ?? (element is Opening opening ? document.Find<Wall>(opening.HostWallId) : null);
         if (wall is null) return false;
         return document.IsCurtainWall(wall)
             ? document.FindType<CurtainWallType>(wall.TypeId)?.Function != WallFunction.Interior
@@ -296,7 +296,7 @@ public static class CostPlanning
 
     /// <summary>The floor area the cost is spread over, m²: every floor's.</summary>
     public static double FloorArea(BimDocument document) =>
-        document.Elements.OfType<Floor>().Where(Costed).Sum(floor => InUnits(Measure(document, floor, CostUnit.Area), CostUnit.Area));
+        document.All<Floor>().Where(Costed).Sum(floor => InUnits(Measure(document, floor, CostUnit.Area), CostUnit.Area));
 
     /// <summary>
     /// The cost plan: each cost element and its lines under its group, each group's subtotal, the

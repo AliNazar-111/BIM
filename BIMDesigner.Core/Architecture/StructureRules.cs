@@ -323,7 +323,7 @@ public static class StructureRules
         if (bottom < -1000) return IrcFoundation.Basement;
         var middle = wall.Start.MidpointTo(wall.End);
         var across = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
-        var slab = document.Elements.OfType<Floor>().Any(floor => Math.Abs(floor.GetTopElevation(document) - bottom) < 600 &&
+        var slab = document.All<Floor>().Any(floor => Math.Abs(floor.GetTopElevation(document) - bottom) < 600 &&
             (floor.Contains(middle + across * 400) || floor.Contains(middle - across * 400)) &&
             document.FindType<SlabType>(floor.TypeId) is { } type &&
             type.Structure.Layers.Any(layer => layer.Function == Materials.LayerFunction.Structure && (document.FindMaterial(layer.MaterialId)?.Density ?? 0) >= 1800));
@@ -356,7 +356,7 @@ public static class StructureRules
     private static IReadOnlyList<(string Said, string Rule)> StripProblems(BimDocument document, WallFooting footing, ClearanceStandard standard)
     {
         var problems = new List<(string, string)>();
-        if (document.Walls.FirstOrDefault(wall => wall.Id == footing.WallId) is not { } wall || document.FindType<FootingType>(footing.TypeId) is not { } type) return problems;
+        if (document.Find<Wall>(footing.WallId) is not { } wall || document.FindType<FootingType>(footing.TypeId) is not { } type) return problems;
         var project = document.ProjectInformation;
         var thickness = Footings.WallThickness(document, wall);
         var projection = (type.Width - thickness) / 2;
@@ -488,14 +488,14 @@ public static class StructureRules
     public static bool HoldsFloor(BimDocument document, Column column)
     {
         var top = column.GetTopElevation(document);
-        return document.Elements.OfType<Floor>().Any(floor => floor.Contains(column.Location) && Math.Abs(floor.GetBottomElevation(document) - top) < 600)
-               || document.Elements.OfType<Column>().Any(upper => upper.Structural && !ReferenceEquals(upper, column) &&
+        return document.All<Floor>().Any(floor => floor.Contains(column.Location) && Math.Abs(floor.GetBottomElevation(document) - top) < 600)
+               || document.All<Column>().Any(upper => upper.Structural && !ReferenceEquals(upper, column) &&
                                                                   upper.Location.DistanceTo(column.Location) < 100 && Math.Abs(upper.GetBaseElevation(document) - top) < 600);
     }
 
     /// <summary>Whether something is over a point to keep the weather off what stands there: a floor or a roof above it.</summary>
     private static bool Covered(BimDocument document, Point2D at, double above) =>
-        document.Elements.OfType<Slab>().Any(slab => slab is Floor or Roof && slab.Boundary.Count >= 3 && slab.Contains(at) && slab.GetBottomElevation(document) > above + 100);
+        document.All<Slab>().Any(slab => slab is Floor or Roof && slab.Boundary.Count >= 3 && slab.Contains(at) && slab.GetBottomElevation(document) > above + 100);
 
     /// <summary>Whether a column stands at the bottom of the building, on the ground or a floor cast on it, rather than on a floor or beam over a storey.</summary>
     private static bool OnTheGround(BimDocument document, Column column)
@@ -562,7 +562,7 @@ public static class StructureRules
         var project = document.ProjectInformation;
         switch (element)
         {
-            case WallFooting strip when document.Walls.FirstOrDefault(wall => wall.Id == strip.WallId) is { } wall:
+            case WallFooting strip when document.Find<Wall>(strip.WallId) is { } wall:
                 if (!standard.IsUs())
                     return Table10(project.Ground, Loads.OnWall(document, wall), Footings.WallThickness(document, wall)).Width is { } width
                         ? $"Carries {Loads.OnWall(document, wall):0.0} kN/m on {Describe(project.Ground)}: Table 10 asks {width:0} wide - it is wide, thick and deep enough"

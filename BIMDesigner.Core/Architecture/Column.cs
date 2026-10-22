@@ -415,7 +415,7 @@ public sealed class Column : Element
     public double GetHeight(BimDocument document) => GetTopElevation(document) - GetBaseElevation(document);
 
     private static Slab? FindSlab(BimDocument document, Guid id) =>
-        document.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == id);
+        document.Find<Slab>(id);
 
     /// <summary>What its top is held by, as Properties says it.</summary>
     public string DescribeTop(BimDocument document) =>

@@ -325,7 +325,7 @@ public static class Beams
 
     private static Point2D Trimmed(BimDocument document, Beam beam, Point2D end, Point2D other, double top, double bottom)
     {
-        foreach (var column in document.Elements.OfType<Column>())
+        foreach (var column in document.All<Column>())
         {
             if (document.FindType<ColumnType>(column.TypeId) is not { } type) continue;
             if (column.GetBaseElevation(document) >= top || column.GetTopElevation(document) <= bottom) continue;
@@ -333,7 +333,7 @@ public static class Beams
             if (outline.Count >= 3 && Polygon2D.Contains(outline, end)) return Exit(outline, end, other) ?? end;
         }
 
-        foreach (var carrier in document.Elements.OfType<Beam>())
+        foreach (var carrier in document.All<Beam>())
         {
             if (ReferenceEquals(carrier, beam) || FramesInto(document, end, other, carrier, top, bottom) is not { } face) continue;
             return Exit(face, end, other) ?? end;
@@ -387,7 +387,7 @@ public static class Beams
     public static string? CarriedBy(BimDocument document, Beam beam, Point2D end)
     {
         var bottom = Bottom(document, beam, Along(beam, end));
-        foreach (var column in document.Elements.OfType<Column>())
+        foreach (var column in document.All<Column>())
         {
             if (document.FindType<ColumnType>(column.TypeId) is not { } type) continue;
             var outline = column.Outline(type);
@@ -400,7 +400,7 @@ public static class Beams
         if (StairModel.WallBands(document).Any(wall => On(wall) && wall.Top >= bottom - 50 && wall.Base < bottom)) return "a wall";
 
         // On a beam under it - up to its underside, not one far below in another storey.
-        foreach (var carrier in document.Elements.OfType<Beam>().Where(other => !ReferenceEquals(other, beam) && other.Length >= 1))
+        foreach (var carrier in document.All<Beam>().Where(other => !ReferenceEquals(other, beam) && other.Length >= 1))
             if (Polygon2D.Contains(Band(carrier.Start, carrier.End, TypeOf(document, carrier).Width / 2 + 1), end)
                 && UndersideAt(document, carrier, end) < bottom + TypeOf(document, beam).Depth
                 && Top(document, carrier, Along(carrier, end)) >= bottom - 50)
@@ -445,9 +445,9 @@ public static class Beams
         if (type.Depth > 0 && beam.Length > ratio * type.Depth + 0.5)
             problems.Add($"It spans {beam.Length / 1000:0.0} m on a section {type.Depth:0} deep - more than the {ratio} times its depth a floor's {EnumText.Humanise(type.Material).ToLowerInvariant()} beam is first sized at: have an engineer check it, or take a deeper section.");
 
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } wallType) continue;
             if (document.FindType<DoorType>(door.TypeId) is not { } doorType) continue;
             var (from, to) = door.GetSpan(doorType);
             var half = wallType.Structure.TotalWidth / 2 + 1;
@@ -516,7 +516,7 @@ public static class Beams
     {
         var top = Beams.Top(document, beam, Along(beam, at));
         var middle = beam.Start.MidpointTo(beam.End);
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
         {
             if (slab.Boundary.Count < 3 || !slab.Contains(middle) || slab is Roof { IsExtrusion: true }) continue;
             if (slab is Roof roof && !roof.Surface(document).IsFlat) continue;

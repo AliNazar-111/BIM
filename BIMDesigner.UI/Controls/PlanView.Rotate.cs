@@ -415,7 +415,7 @@ public partial class PlanView
 
         var moving = _selection.Where(ElementTransforms.CanMove).ToList();
         var walls = moving.OfType<Wall>().Select(wall => wall.Id).ToHashSet();
-        var hosted = Document.Elements.OfType<Opening>().Where(opening => walls.Contains(opening.HostWallId) && !moving.Contains(opening));
+        var hosted = Document.All<Opening>().Where(opening => walls.Contains(opening.HostWallId) && !moving.Contains(opening));
 
         foreach (var element in moving.Concat(hosted))
         {
@@ -444,7 +444,7 @@ public partial class PlanView
     private IReadOnlyList<Point2D>? OpeningRing(Opening opening)
     {
         if (Document is null) return null;
-        if (Document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } host || Document.GetWallType(host) is not { } hostType) return null;
+        if (Document.Find<Wall>(opening.HostWallId) is not { } host || Document.GetWallType(host) is not { } hostType) return null;
         if (Document.FindType<OpeningType>(opening.TypeId) is not { } type) return null;
 
         var (from, to) = opening.GetSpan(type);

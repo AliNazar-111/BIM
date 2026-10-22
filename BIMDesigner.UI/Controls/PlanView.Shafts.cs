@@ -45,7 +45,7 @@ public partial class PlanView
     /// <summary>A click on a roof, floor or ceiling in 3D with the Shaft tool: a hole through it there.</summary>
     public bool PlaceShaftIn3D(Guid slabId, Point3D at)
     {
-        if (Document?.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == slabId) is not { } slab)
+        if (Document?.Find<Slab>(slabId) is not { } slab)
         {
             HintChanged?.Invoke(this, "Click on a roof, floor or ceiling: the shaft is cut through it there.");
             return false;
@@ -119,7 +119,7 @@ public partial class PlanView
 
     /// <summary>A click on a roof in 3D with the Opening by Face tool: an opening square to its face there.</summary>
     public bool PlaceFaceOpeningIn3D(Guid roofId, Point3D at) =>
-        Document?.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == roofId) is { } roof && PlaceFaceOpening(roof, new Point2D(at.X, at.Y));
+        Document?.Find<Roof>(roofId) is { } roof && PlaceFaceOpening(roof, new Point2D(at.X, at.Y));
 
     private bool PlaceFaceOpening(Roof roof, Point2D at)
     {

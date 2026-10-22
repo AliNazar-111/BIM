@@ -174,9 +174,24 @@ public static class ClashDetective
         BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings or BuiltInCategory.Entourage);
 
     /// <summary>Each element's solid, from its 3D meshes - a curtain panel's with its wall.</summary>
-    internal static Dictionary<Guid, ClashSolid> Solids(BimDocument document, IReadOnlyList<Mesh3D>? meshes = null)
+    // What one build of the model is made into for clash tests, kept with it: the tests run on it in turn find it made.
+    private sealed record Prepared(BimDocument Document, Dictionary<Guid, ClashSolid> Solids, Lazy<Func<Guid, Guid, bool>> Related);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyList<Mesh3D>, Prepared> PreparedFor = new();
+
+    private static Prepared Prepare(BimDocument document, IReadOnlyList<Mesh3D>? meshes)
     {
-        meshes ??= ModelMeshBuilder.Build(document);
+        Prepared Make(IReadOnlyList<Mesh3D> built) => new(document, SolidsOf(document, built), new Lazy<Func<Guid, Guid, bool>>(() => Related(document)));
+        if (meshes is null) return Make(ModelMeshBuilder.Build(document));
+
+        var prepared = PreparedFor.GetValue(meshes, Make);
+        return ReferenceEquals(prepared.Document, document) ? prepared : Make(meshes);
+    }
+
+    internal static Dictionary<Guid, ClashSolid> Solids(BimDocument document, IReadOnlyList<Mesh3D>? meshes = null) => Prepare(document, meshes).Solids;
+
+    private static Dictionary<Guid, ClashSolid> SolidsOf(BimDocument document, IReadOnlyList<Mesh3D> meshes)
+    {
         return meshes
             .Where(mesh => !mesh.IsEmpty)
             .GroupBy(mesh => document.FindElement(mesh.ElementId) is not null ? mesh.ElementId : mesh.OwnerId)
@@ -290,7 +305,7 @@ public static class ClashDetective
     /// <summary>The grid lines nearest a point, one each way - "C-3" - or none where the project has no grid.</summary>
     public static string GridLocation(BimDocument document, Point2D point)
     {
-        var grids = document.Elements.OfType<Grid>().Where(grid => grid.Length > 1).ToList();
+        var grids = document.All<Grid>().Where(grid => grid.Length > 1).ToList();
         string? Nearest(bool upright) => grids
             .Where(grid => grid.IsVertical == upright)
             .OrderBy(grid => Math.Abs((point - grid.Start).Cross(grid.Direction)))
@@ -323,8 +338,9 @@ public static class ClashDetective
             yield break;
         }
 
-        var solids = Solids(document, meshes);
-        var related = test.IgnoreHosted ? Related(document) : (_, _) => false;
+        var prepared = Prepare(document, meshes);
+        var solids = prepared.Solids;
+        var related = test.IgnoreHosted ? prepared.Related.Value : (_, _) => false;
         var setA = test.SelectionA.ToHashSet();
         var setB = test.SelectionB.ToHashSet();
         var elements = solids.Keys.Select(id => document.FindElement(id)!).ToList();
@@ -333,8 +349,11 @@ public static class ClashDetective
         var seen = new HashSet<(Guid, Guid)>();
         var reach = test.Kind == ClashKind.Clearance ? test.Tolerance : Touch;
 
+        // Each tried only against those near it in plan, in the order they would all have been tried in.
+        var near = new ClashGrid(right.Select(element => solids[element.Id]).ToList(), reach);
+
         foreach (var a in left)
-        foreach (var b in right)
+        foreach (var b in near.Near(solids[a.Id]).Select(index => right[index]))
         {
             if (a.Id == b.Id || related(a.Id, b.Id)) continue;
             var key = a.Id.CompareTo(b.Id) < 0 ? (a.Id, b.Id) : (b.Id, a.Id);

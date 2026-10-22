@@ -367,7 +367,7 @@ public sealed class Eave : RoofEdgeSweep
     {
         var type = document.FindType<EaveType>(TypeId);
         yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.Roof,
-            () => document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == RoofId) is { } roof
+            () => document.Find<Roof>(RoofId) is { } roof
                 ? document.FindType<SlabType>(roof.TypeId)?.Name ?? "Roof"
                 : "<none>");
         yield return ParameterValue.ReadOnly(RoofEdgeSweepParameters.Edges, () => EdgeIds.Count);
@@ -451,7 +451,7 @@ public static class Eaves
 {
     /// <summary>The eaves along a roof.</summary>
     public static IEnumerable<Eave> Of(BimDocument document, Roof roof) =>
-        document.Elements.OfType<Eave>().Where(eave => eave.RoofId == roof.Id);
+        document.All<Eave>().Where(eave => eave.RoofId == roof.Id);
 
     /// <summary>The edges an eave goes along by itself: the roof's eaves - the edges it slopes up from.</summary>
     public static IReadOnlyList<Guid> EaveEdges(BimDocument document, Roof roof) =>
@@ -466,7 +466,7 @@ public static class Eaves
     {
         var taken = edges.ToHashSet();
         var steps = new List<Documents.Commands.IUndoableCommand>();
-        foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>()
+        foreach (var sweep in document.All<RoofEdgeSweep>()
                      .Where(sweep => sweep.RoofId == roofId && (sweep is Soffit || sweep is Fascia && type is { Kind: EaveKind.ExposedRafters }))
                      .ToList())
         {
@@ -482,7 +482,7 @@ public static class Eaves
 
     /// <summary>The strips of an eave, one under each of its edges the roof slopes up from.</summary>
     public static IReadOnlyList<EaveStrip> Strips(BimDocument document, Eave eave) =>
-        document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == eave.RoofId) is { } roof
+        document.Find<Roof>(eave.RoofId) is { } roof
             ? Strips(document, roof, eave.EdgeIds.ToHashSet())
             : Array.Empty<EaveStrip>();
 
@@ -929,7 +929,7 @@ public static class Eaves
     public static IReadOnlyList<Mesh3D> Meshes(BimDocument document, Eave eave, Guid levelId)
     {
         if (document.FindType<EaveType>(eave.TypeId) is not { } type) return Array.Empty<Mesh3D>();
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == eave.RoofId) is not { } roof) return Array.Empty<Mesh3D>();
+        if (document.Find<Roof>(eave.RoofId) is not { } roof) return Array.Empty<Mesh3D>();
         if (document.FindType<SlabType>(roof.TypeId) is not { } roofType) return Array.Empty<Mesh3D>();
 
         var strips = Strips(document, eave);
@@ -1107,7 +1107,7 @@ public static class Eaves
     /// </summary>
     public static IReadOnlyList<RoofPiece> CutBack(BimDocument document, Roof roof, IReadOnlyList<RoofPiece> pieces)
     {
-        if (!document.Elements.OfType<Eave>().Any(eave => eave.RoofId == roof.Id)) return pieces;
+        if (!document.All<Eave>().Any(eave => eave.RoofId == roof.Id)) return pieces;
         if (document.FindType<SlabType>(roof.TypeId) is not { } type) return pieces;
 
         var layers = type.Structure.Layers;
@@ -1162,7 +1162,7 @@ public static class Eaves
     /// <summary>How near the eave's edge comes to the property line, mm - nothing where it reaches over it; null with no property line.</summary>
     public static double? DistanceToBoundary(BimDocument document, Eave eave)
     {
-        if (document.Elements.OfType<PropertyLine>().FirstOrDefault(line => line.Boundary.Count >= 3) is not { } property) return null;
+        if (document.All<PropertyLine>().FirstOrDefault(line => line.Boundary.Count >= 3) is not { } property) return null;
         var strips = Strips(document, eave);
         if (strips.Count == 0) return null;
 
@@ -1191,7 +1191,7 @@ public static class Eaves
     /// <summary>What an eave falls short of, as the project's standard asks.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Eave eave, ClearanceStandard standard)
     {
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == eave.RoofId) is not { } roof) return Array.Empty<PlacementProblem>();
+        if (document.Find<Roof>(eave.RoofId) is not { } roof) return Array.Empty<PlacementProblem>();
         if (document.FindType<EaveType>(eave.TypeId) is not { } type) return Array.Empty<PlacementProblem>();
 
         var outlines = Footprints(document, eave).ToList();
@@ -1242,7 +1242,7 @@ public static class Eaves
             return $"{said} {string.Join(" ", problems.Select(problem => problem.Rule).Distinct())}";
         }
 
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == eave.RoofId) is not { } roof) return "Nothing asked";
+        if (document.Find<Roof>(eave.RoofId) is not { } roof) return "Nothing asked";
         var parts = new List<string>();
         parts.Add(RoofEdgeRules.EavesAirAsked(document, roof, standard) is var (asked, _)
             ? $"Airs the cold roof over it: {asked:#,0} mm² a metre asked"

@@ -220,7 +220,7 @@ public partial class PlanView
                 .Select(edge => edge.WallId)
                 .OfType<Guid>()
                 .Distinct()
-                .Select(id => Document.Walls.FirstOrDefault(wall => wall.Id == id))
+                .Select(id => Document.Find<Wall>(id))
                 .OfType<Wall>();
 
         return candidates
@@ -561,7 +561,7 @@ public partial class PlanView
             .Select(line => line.Edge.WallId)
             .OfType<Guid>()
             .Distinct()
-            .Select(id => Document.Walls.FirstOrDefault(wall => wall.Id == id))
+            .Select(id => Document.Find<Wall>(id))
             .OfType<Wall>()
             .Select(wall => wall.GetTopElevation(Document))
             .ToList();
@@ -678,7 +678,7 @@ public partial class PlanView
             // whole length. Anything else about a line leaves it where it is.
             if (Math.Abs(line.Edge.Overhang - overhang) < 1e-9 && line.Edge.ExtendToCore == toCore) continue;
 
-            if (line.Edge.WallId is { } id && Document.Walls.FirstOrDefault(wall => wall.Id == id) is { } wall &&
+            if (line.Edge.WallId is { } id && Document.Find<Wall>(id) is { } wall &&
                 RoofSketch.LineOnWall(Document, wall, line.Edge.OnLeftOfWall, line.Edge.Overhang, line.Edge.ExtendToCore) is var (a, b))
             {
                 line.Start = OntoLine(line.Start, a, b);

@@ -78,13 +78,13 @@ public sealed class CurtainPanel : Element
 
     /// <summary>The cell this panel stands for, as the wall's grid currently sets it out.</summary>
     public CurtainCell? Cell(BimDocument document) =>
-        document.Walls.FirstOrDefault(w => w.Id == HostWallId) is { } wall && CurtainLayout.Of(document, wall) is { } layout
+        document.Find<Wall>(HostWallId) is { } wall && CurtainLayout.Of(document, wall) is { } layout
             ? layout.Cells.FirstOrDefault(c => c.Column == Column && c.Row == Row)
             : null;
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
-        var wall = document.Walls.FirstOrDefault(w => w.Id == HostWallId);
+        var wall = document.Find<Wall>(HostWallId);
 
         // Read afresh every time rather than held: a parameter that answered from a snapshot
         // taken when the palette was built would report the old value after its own edit, and
@@ -210,7 +210,7 @@ public sealed class CurtainPanel : Element
     private bool Resize(BimDocument document, bool across, double clear)
     {
         if (clear <= 0) return false;
-        if (document.Walls.FirstOrDefault(w => w.Id == HostWallId) is not { } wall) return false;
+        if (document.Find<Wall>(HostWallId) is not { } wall) return false;
         if (CurtainLayout.Of(document, wall) is not { } layout || Cell(document) is not { } cell) return false;
 
         var verticals = layout.Verticals.ToList();
@@ -267,7 +267,7 @@ public sealed class CurtainPanel : Element
     /// </summary>
     private bool Slide(BimDocument document, double middle)
     {
-        if (document.Walls.FirstOrDefault(w => w.Id == HostWallId) is not { } wall) return false;
+        if (document.Find<Wall>(HostWallId) is not { } wall) return false;
         if (CurtainLayout.Of(document, wall) is not { } layout || Cell(document) is not { } cell) return false;
 
         var verticals = layout.Verticals.ToList();
@@ -302,7 +302,7 @@ public sealed class CurtainPanel : Element
     /// </summary>
     private void Set(BimDocument document, Func<CurtainPanelOverride, CurtainPanelOverride> change)
     {
-        if (document.Walls.FirstOrDefault(w => w.Id == HostWallId) is not { } wall) return;
+        if (document.Find<Wall>(HostWallId) is not { } wall) return;
         wall.CurtainPanels = Changed(wall, change);
     }
 

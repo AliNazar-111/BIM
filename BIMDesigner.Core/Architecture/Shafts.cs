@@ -264,7 +264,7 @@ public static class Shafts
     /// <summary>How far past the top of a roof a shaft put through it is taken, mm, so it clears it at every point.</summary>
     public const double ClearAbove = 150;
 
-    public static IEnumerable<ShaftOpening> All(BimDocument document) => document.Elements.OfType<ShaftOpening>();
+    public static IEnumerable<ShaftOpening> All(BimDocument document) => document.All<ShaftOpening>();
 
     /// <summary>
     /// Whether a shaft passes through a slab: over it in plan, and reaching into it from above or
@@ -355,7 +355,7 @@ public static class Shafts
     /// <summary>What a shaft passes through, for the property panel: "1 roof, 2 floors".</summary>
     public static string CutSummary(BimDocument document, ShaftOpening shaft)
     {
-        var cut = document.Elements.OfType<Slab>().Where(slab => Cuts(document, shaft, slab)).ToList();
+        var cut = document.All<Slab>().Where(slab => Cuts(document, shaft, slab)).ToList();
         if (cut.Count == 0) return "Nothing";
 
         string Count(int count, string one) => count == 1 ? $"1 {one}" : $"{count} {one}s";
@@ -415,7 +415,7 @@ public static class Shafts
     {
         var points = outline.Append(Centre(outline)).ToList();
 
-        var tops = document.Elements.OfType<Roof>()
+        var tops = document.All<Roof>()
             .Where(roof => roof.LevelId == levelId && !roof.IsExtrusion)
             .SelectMany(roof => points.Where(roof.Contains).Select(point => roof.TopAt(document, point)))
             .ToList();

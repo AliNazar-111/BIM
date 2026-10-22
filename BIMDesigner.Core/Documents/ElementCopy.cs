@@ -49,7 +49,7 @@ public static class ElementCopy
         for (var added = true; added;)
         {
             added = false;
-            foreach (var hosted in document.Elements.OfType<IHostedElement>())
+            foreach (var hosted in document.All<IHostedElement>())
             {
                 if (!seen.Contains(hosted.HostId)) continue;
 

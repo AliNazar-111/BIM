@@ -401,10 +401,10 @@ public sealed class Wall : Element
     }
 
     private static Slab? FindSlab(BimDocument document, Guid id) =>
-        document.Elements.OfType<Slab>().FirstOrDefault(slab => slab.Id == id);
+        document.Find<Slab>(id);
 
     private static Wall? FindWall(BimDocument document, Guid id) =>
-        document.Walls.FirstOrDefault(wall => wall.Id == id);
+        document.Find<Wall>(id);
 
     /// <summary>The name shown for a wall with no top level.</summary>
     public const string Unconnected = "Unconnected";

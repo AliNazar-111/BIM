@@ -83,7 +83,7 @@ public partial class PlanView
             return false;
         }
 
-        var names = Document.Elements.OfType<Walkthrough>().Select(walk => walk.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = Document.All<Walkthrough>().Select(walk => walk.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var number = 1;
         while (names.Contains($"Walkthrough {number}")) number++;
 

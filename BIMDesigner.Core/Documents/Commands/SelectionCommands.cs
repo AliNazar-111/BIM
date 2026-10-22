@@ -77,15 +77,14 @@ public sealed class DeleteElementsCommand : IUndoableCommand
         var ids = doomed.Select(element => element.Id).ToHashSet();
 
         foreach (var roof in _targets.OfType<Roof>())
-        foreach (var dormer in _document.Elements.OfType<Roof>().Where(other => other.Dormer is not null && other.JoinedTo == roof.Id).ToList())
+        foreach (var dormer in _document.All<Roof>().Where(other => other.Dormer is not null && other.JoinedTo == roof.Id).ToList())
         foreach (var part in Dormers.Parts(_document, dormer))
             if (ids.Add(part.Id)) doomed.Add(part);
 
         // Everything hosted by any of those, and by what that hosts in turn: a roof's gutters and their downpipes.
         for (var added = true; added;)
         {
-            var more = _document.Elements
-                .OfType<IHostedElement>()
+            var more = _document.All<IHostedElement>()
                 .Where(hosted => ids.Contains(hosted.HostId))
                 .Cast<Element>()
                 .Where(element => ids.Add(element.Id))
@@ -374,7 +373,7 @@ public sealed class RotateElementsCommand : IUndoableCommand
         carried.AddRange(SlabEdgeRuns.Following(document, elements));
 
         var walls = elements.OfType<Wall>().Select(wall => wall.Id).ToHashSet();
-        carried.AddRange(document.Elements.OfType<Component>()
+        carried.AddRange(document.All<Component>()
             .Where(component => component.IsHosted && walls.Contains(component.HostId) && !elements.Contains(component)));
         return carried.Distinct();
     }

@@ -60,7 +60,7 @@ public partial class PlanView
 
     /// <summary>A click on a gutter in the 3D view with the Downpipe tool: a downpipe where it was clicked.</summary>
     public bool PlaceDownpipeIn3D(Guid gutterId, Point3D at) =>
-        Document?.Elements.OfType<Gutter>().FirstOrDefault(gutter => gutter.Id == gutterId) is { } gutter &&
+        Document?.Find<Gutter>(gutterId) is { } gutter &&
         PlaceDownpipe(gutter, new Point2D(at.X, at.Y));
 
     private bool PlaceDownpipe(Gutter gutter, Point2D near)

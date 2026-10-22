@@ -57,7 +57,7 @@ public partial class PlanView
 
     /// <summary>A click on a roof in the 3D view with the Roof Window tool: a roof window where it was clicked.</summary>
     public bool PlaceRoofWindowIn3D(Guid roofId, Point3D at) =>
-        Document?.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == roofId) is { } roof && PlaceRoofWindow(roof, new Point2D(at.X, at.Y));
+        Document?.Find<Roof>(roofId) is { } roof && PlaceRoofWindow(roof, new Point2D(at.X, at.Y));
 
     private bool PlaceRoofWindow(Roof roof, Point2D at)
     {
@@ -97,7 +97,7 @@ public partial class PlanView
     private (RoofWindow Window, Point2D From)? _roofWindowDrag;
 
     /// <summary>Whether an element can be dragged across the model in 3D: a roof window, along its roof.</summary>
-    public bool CanDragIn3D(Guid id) => Document?.Elements.OfType<RoofWindow>().Any(window => window.Id == id) == true;
+    public bool CanDragIn3D(Guid id) => Document?.All<RoofWindow>().Any(window => window.Id == id) == true;
 
     /// <summary>
     /// A roof window dragged in 3D, to where the line of sight through the cursor meets its roof.
@@ -107,8 +107,8 @@ public partial class PlanView
     /// </summary>
     public bool DragRoofWindowIn3D(Guid id, Point3D from, Point3D through)
     {
-        if (Document?.Elements.OfType<RoofWindow>().FirstOrDefault(window => window.Id == id) is not { } window) return false;
-        if (Document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == window.RoofId) is not { } roof) return false;
+        if (Document?.Find<RoofWindow>(id) is not { } window) return false;
+        if (Document.Find<Roof>(window.RoofId) is not { } roof) return false;
         if (Document.FindType<RoofWindowType>(window.TypeId) is not { } type) return false;
 
         if (_roofWindowDrag is not { } drag || !ReferenceEquals(drag.Window, window)) _roofWindowDrag = (window, window.Location);

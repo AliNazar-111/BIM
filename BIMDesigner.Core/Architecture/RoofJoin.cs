@@ -26,7 +26,7 @@ public static class RoofJoin
     /// <summary>The roof a roof is joined to, while it still exists.</summary>
     public static Roof? JoinedTarget(BimDocument document, Roof roof) =>
         roof.JoinedTo is { } id
-            ? document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == id && !ReferenceEquals(other, roof))
+            ? document.All<Roof>().FirstOrDefault(other => other.Id == id && !ReferenceEquals(other, roof))
             : null;
 
     /// <summary>Each face of a roof: its outline in plan, its top - the weathering surface - and its underside.</summary>
@@ -206,7 +206,7 @@ public static class RoofJoin
 
         foreach (var id in roof.DormerOpenings)
         {
-            if (document.Elements.OfType<Roof>().FirstOrDefault(other => other.Id == id && !ReferenceEquals(other, roof)) is not { } dormer)
+            if (document.All<Roof>().FirstOrDefault(other => other.Id == id && !ReferenceEquals(other, roof)) is not { } dormer)
                 continue;
 
             openings.AddRange(OpeningFor(document, roof, dormer));

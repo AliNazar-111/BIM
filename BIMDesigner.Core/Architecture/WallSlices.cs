@@ -81,7 +81,12 @@ public static class WallSlices
     /// Every solid stretch of the wall, with its doors and windows taken out and any heavier
     /// wall crossing it cut through.
     /// </summary>
-    public static IReadOnlyList<WallSlice> Solid(BimDocument document, Wall wall, WallType type)
+    public static IReadOnlyList<WallSlice> Solid(BimDocument document, Wall wall, WallType type) =>
+        ModelCache.Of(document) is { } cache
+            ? cache.Keep("solid slices", wall, type, WallJoins.TakingPartNow, () => SolidNow(document, wall, type))
+            : SolidNow(document, wall, type);
+
+    private static IReadOnlyList<WallSlice> SolidNow(BimDocument document, Wall wall, WallType type)
     {
         var (startCut, endCut) = WallJoins.GetEndCuts(document, wall, type);
 

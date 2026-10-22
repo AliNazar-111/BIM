@@ -95,7 +95,7 @@ public static class RoomBoundary
         var boundary = Trace(document, levelId, point);
         if (!boundary.IsEnclosed) return null;
 
-        foreach (var room in document.Elements.OfType<Room>())
+        foreach (var room in document.All<Room>())
         {
             if (room.LevelId != levelId) continue;
 
@@ -108,9 +108,17 @@ public static class RoomBoundary
         return null;
     }
 
-    public static RoomBoundaryResult Trace(BimDocument document, Guid levelId, Point2D seed)
+    public static RoomBoundaryResult Trace(BimDocument document, Guid levelId, Point2D seed) =>
+        ModelCache.Of(document) is { } cache
+            ? cache.Keep("room traced", document, levelId, seed, () => Traced(document, levelId, seed, cache))
+            : Traced(document, levelId, seed, null);
+
+    private static RoomBoundaryResult Traced(BimDocument document, Guid levelId, Point2D seed, ModelCache? cache)
     {
-        var segments = SplitAtCrossings(Collect(document, levelId));
+        // While the model is drawn, the storey's walls are split where they cross once, not once for every room traced on it.
+        var segments = cache is null
+            ? SplitAtCrossings(Collect(document, levelId))
+            : cache.Keep("room-bounding lines", document, levelId, null, () => SplitAtCrossings(Collect(document, levelId)));
         if (segments.Count == 0) return RoomBoundaryResult.NotEnclosed;
 
         var start = FindEdgeFacing(segments, seed);
@@ -156,7 +164,7 @@ public static class RoomBoundary
     {
         var inside = new List<(Column, IReadOnlyList<Point2D>)>();
 
-        foreach (var column in document.Elements.OfType<Column>())
+        foreach (var column in document.All<Column>())
         {
             if (!column.RoomBounding || column.LevelId != levelId) continue;
             if (document.FindType<ColumnType>(column.TypeId) is not { } type) continue;

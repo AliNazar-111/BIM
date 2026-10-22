@@ -143,18 +143,27 @@ public static class SectionProjection
         shows ??= _ => true;
         using var heights = new Chimneys.Heights();
         using var joins = Architecture.WallJoins.TakingPart(shows);
+        using var cache = ModelCache.Begin(document);
 
         var pieces = new List<SectionPiece>();
 
+        // One element cut at a time: one that cannot be cut is left out - and said so - with
+        // whatever it had got as far as, rather than the whole section with it.
+        void Guarded(Element element, Action cut)
+        {
+            var before = pieces.Count;
+            if (!DrawFailures.Guard(element, cut)) pieces.RemoveRange(before, pieces.Count - before);
+        }
+
         if (marker.Length > Epsilon)
         {
-            foreach (var wall in document.Walls.Where(wall => shows(wall))) AddWall(document, marker, wall, pieces);
-            foreach (var slab in document.Elements.OfType<Slab>()) AddSlab(document, marker, slab, pieces);
-            foreach (var mass in document.Elements.OfType<Mass>().Where(mass => shows(mass) && mass.Boundary.Count >= 3))
+            foreach (var wall in document.Walls.Where(wall => shows(wall))) Guarded(wall, () => AddWall(document, marker, wall, pieces));
+            foreach (var slab in document.All<Slab>()) Guarded(slab, () => AddSlab(document, marker, slab, pieces));
+            foreach (var mass in document.All<Mass>().Where(mass => shows(mass) && mass.Boundary.Count >= 3))
                 AddCut(marker, new[] { Masses.Mesh(document, mass) }, pieces);
 
             // A wall shaped in plan is cut through where the line crosses its outline.
-            foreach (var shaped in document.Elements.OfType<PolygonWall>().Where(shaped => shows(shaped)))
+            foreach (var shaped in document.All<PolygonWall>().Where(shaped => shows(shaped)))
             {
                 var material = document.FindMaterial(shaped.MaterialId);
                 var (bottom, top) = (shaped.GetBaseElevation(document), shaped.GetTopElevation(document));
@@ -163,37 +172,37 @@ public static class SectionProjection
                         material?.CutColour ?? DefaultCut, material?.Name ?? "Wall", shaped.Id));
             }
 
-            foreach (var column in document.Elements.OfType<Column>().Where(column => shows(column)))
-                AddColumn(document, marker, column, pieces);
+            foreach (var column in document.All<Column>().Where(column => shows(column)))
+                Guarded(column, () => AddColumn(document, marker, column, pieces));
 
             // What is built only as a solid - a chimney with its breasts, flues, damper, cap and
             // pots; a piece of furniture; a downpipe; a roof drain's pipe - is cut as it is built.
             // Only those near enough the line to be cut are built: building a solid costs more than cutting it.
-            foreach (var chimney in document.Elements.OfType<Chimney>().Where(chimney => shows(chimney) && Near(marker, chimney.Location, Math.Max(chimney.Width, chimney.Depth) + 2500)))
+            foreach (var chimney in document.All<Chimney>().Where(chimney => shows(chimney) && Near(marker, chimney.Location, Math.Max(chimney.Width, chimney.Depth) + 2500)))
                 AddCut(marker, Chimneys.Meshes(document, chimney), pieces);
 
             // Stairs, their flights and landings, strings and handrails, cut where the line crosses them.
-            foreach (var stair in document.Elements.OfType<Stair>().Where(stair => shows(stair) && Near(marker, stair.Start, 9000)))
+            foreach (var stair in document.All<Stair>().Where(stair => shows(stair) && Near(marker, stair.Start, 9000)))
                 AddCut(marker, StairModel.Meshes(document, stair), pieces);
-            foreach (var ramp in document.Elements.OfType<Ramp>().Where(ramp => shows(ramp) && Ramps.Layout(document, ramp).Footprint.Any(point => Near(marker, point, 3000))))
+            foreach (var ramp in document.All<Ramp>().Where(ramp => shows(ramp) && Ramps.Layout(document, ramp).Footprint.Any(point => Near(marker, point, 3000))))
                 AddCut(marker, RampModel.Meshes(document, ramp), pieces);
-            foreach (var railing in document.Elements.OfType<Railing>().Where(railing => shows(railing) && railing.Path.Any(point => Near(marker, point, Railings.Length(railing) + 500))))
+            foreach (var railing in document.All<Railing>().Where(railing => shows(railing) && railing.Path.Any(point => Near(marker, point, Railings.Length(railing) + 500))))
                 AddCut(marker, RailingModel.Meshes(document, railing), pieces);
-            foreach (var ground in document.Elements.OfType<Toposurface>().Where(ground => shows(ground)))
+            foreach (var ground in document.All<Toposurface>().Where(ground => shows(ground)))
                 AddCut(marker, Terrains.Meshes(document, ground), pieces);
-            foreach (var beam in document.Elements.OfType<Beam>().Where(beam => shows(beam) && Near(marker, beam.Start, beam.Length + 500)))
+            foreach (var beam in document.All<Beam>().Where(beam => shows(beam) && Near(marker, beam.Start, beam.Length + 500)))
                 if (Beams.Mesh(document, beam) is { } beamMesh) AddCut(marker, new[] { beamMesh }, pieces);
-            foreach (var system in document.Elements.OfType<BeamSystem>().Where(system => shows(system) && system.Boundary.Any(point => Near(marker, point, 20000))))
+            foreach (var system in document.All<BeamSystem>().Where(system => shows(system) && system.Boundary.Any(point => Near(marker, point, 20000))))
                 AddCut(marker, BeamSystems.Meshes(document, system), pieces);
-            foreach (var component in document.Elements.OfType<Component>().Where(component => shows(component)))
+            foreach (var component in document.All<Component>().Where(component => shows(component)))
                 if (document.FindType<ComponentType>(component.TypeId) is { } componentType && Near(marker, component.Location, Math.Max(componentType.Width, componentType.Depth)))
-                    AddCut(marker, ModelMeshBuilder.BuildComponent(document, component), pieces);
-            foreach (var pipe in document.Elements.OfType<Downpipe>().Where(pipe => shows(pipe)))
+                    Guarded(component, () => AddCut(marker, ModelMeshBuilder.BuildComponent(document, component), pieces));
+            foreach (var pipe in document.All<Downpipe>().Where(pipe => shows(pipe)))
                 if (Downpipes.Path(document, pipe) is { } path && path.Points.Any(point => Near(marker, point.Plan, 300)) && Downpipes.Mesh(document, pipe) is { } mesh)
                     AddCut(marker, new[] { mesh }, pieces);
-            foreach (var drain in document.Elements.OfType<RoofDrain>().Where(drain => shows(drain)))
+            foreach (var drain in document.All<RoofDrain>().Where(drain => shows(drain)))
                 if (RoofDrainage.Mesh(document, drain) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
-            foreach (var slabEdge in document.Elements.OfType<SlabEdge>().Where(slabEdge => shows(slabEdge)))
+            foreach (var slabEdge in document.All<SlabEdge>().Where(slabEdge => shows(slabEdge)))
                 if (SlabEdgeRuns.Mesh(document, slabEdge) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
 
             // Footings, the walls and piers on them, cut where the line crosses them.
@@ -201,11 +210,11 @@ public static class SectionProjection
                 AddCut(marker, Footings.Meshes(document, footing), pieces);
 
             // Roof windows the cut goes through: the frame each side, the pane between.
-            foreach (var window in document.Elements.OfType<RoofWindow>().Where(window => shows(window)))
+            foreach (var window in document.All<RoofWindow>().Where(window => shows(window)))
                 AddRoofWindow(document, marker, window, pieces);
 
             // Fascias and gutters, where the cut goes through them: the profile as it slices it.
-            foreach (var sweep in document.Elements.OfType<RoofEdgeSweep>().Where(sweep => shows(sweep)))
+            foreach (var sweep in document.All<RoofEdgeSweep>().Where(sweep => shows(sweep)))
             {
                 // An eave is cut as it is built: its rafters, soffit, frieze and moulding each in its own material.
                 if (sweep is Eave eave)
@@ -246,7 +255,7 @@ public static class SectionProjection
 
         // The grid lines the cut crosses, where it crosses them.
         var grids = new List<SectionGridLine>();
-        foreach (var grid in document.Elements.OfType<Grid>().Where(grid => shows(grid)))
+        foreach (var grid in document.All<Grid>().Where(grid => shows(grid)))
         {
             var run = grid.End - grid.Start;
             var denominator = marker.Direction.Cross(run);

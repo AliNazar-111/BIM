@@ -356,7 +356,7 @@ public static class Keynotes
     /// <summary>The keys a legend lists: those tagged anywhere, or in the views on a sheet - in the table's order.</summary>
     public static IReadOnlyList<KeynoteEntry> Used(BimDocument document, Sheet? sheet)
     {
-        var tags = document.Elements.OfType<KeynoteTag>()
+        var tags = document.All<KeynoteTag>()
             .Where(tag => sheet is null || sheet.Viewports.Any(viewport => Shows(document, viewport.View, tag)));
         var keys = tags.Select(tag => tag.KeyIn(document)).Where(key => key.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -374,7 +374,7 @@ public static class Keynotes
     /// <summary>A legend on a sheet: the sheet it is on, whether it lists that sheet's keys alone, and its table.</summary>
     public static ScheduleTable LegendFor(BimDocument document, Viewport viewport)
     {
-        var sheet = document.Elements.OfType<Sheet>().FirstOrDefault(candidate => candidate.Viewports.Contains(viewport));
+        var sheet = document.All<Sheet>().FirstOrDefault(candidate => candidate.Viewports.Contains(viewport));
         return Legend(document, sheet, viewport.View.Index == 1);
     }
 }

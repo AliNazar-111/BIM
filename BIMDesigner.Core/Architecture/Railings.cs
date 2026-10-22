@@ -572,7 +572,7 @@ public static class Railings
         var gaps = new List<IReadOnlyList<Point2D>>();
         var lengths = Lengths(railing);
         if (lengths.Count == 0) return gaps;
-        foreach (var stair in document.Elements.OfType<Stair>())
+        foreach (var stair in document.All<Stair>())
         foreach (var flight in Stairs.Flights(document, stair))
         foreach (var (from, to, off) in SteppedOffAt(flight.Layout))
         {
@@ -646,7 +646,7 @@ public static class Railings
 
     /// <summary>The opening a Juliet balcony guards, its wall, and the floor inside it - the wall's foot.</summary>
     public static (Opening Opening, Wall Wall, double Floor)? Host(BimDocument document, Railing railing) =>
-        railing.HostOpeningId is { } id && document.FindElement(id) is Opening opening && document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is { } wall
+        railing.HostOpeningId is { } id && document.FindElement(id) is Opening opening && document.Find<Wall>(opening.HostWallId) is { } wall
             ? (opening, wall, wall.GetBaseElevation(document))
             : null;
 
@@ -846,7 +846,7 @@ public static class Railings
 
         // The other railings close enough to either end to be what it stops at.
         var ends = new[] { lengths[0].From, lengths[^1].To };
-        var near = document.Elements.OfType<Railing>()
+        var near = document.All<Railing>()
             .Where(other => !ReferenceEquals(other, railing))
             .Select(other => (Railing: other, Lengths: Lengths(other), Type: TypeOf(document, other)))
             .Where(other => other.Lengths.Any(length => ends.Any(end => Line2D.DistanceFromSegment(end, length.From, length.To) < 400)))
@@ -953,7 +953,7 @@ public static class Railings
     /// </summary>
     public static Railing? Juliet(BimDocument document, Opening opening, Guid? typeId = null)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == opening.HostWallId) is not { } wall || document.GetWallType(wall) is not { } body) return null;
+        if (document.Find<Wall>(opening.HostWallId) is not { } wall || document.GetWallType(wall) is not { } body) return null;
         var size = document.FindType<OpeningType>(opening.TypeId);
         var (from, to) = (opening.DistanceAlongWall - opening.WidthOf(size) / 2, opening.DistanceAlongWall + opening.WidthOf(size) / 2);
 
@@ -1018,13 +1018,13 @@ public static class Railings
         var walls = StairModel.WallBands(document);
         var limit = GuardedDrop(document, building);
         var lowest = document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
-        var arrivals = document.Elements.OfType<Stair>()
+        var arrivals = document.All<Stair>()
             .SelectMany(stair => Stairs.Flights(document, stair))
             .SelectMany(flight => flight.Layout.Arrivals.Select(arrival => (arrival.From, arrival.To, flight.Layout.Top)))
-            .Concat(document.Elements.OfType<Ramp>().Select(ramp => Ramps.Layout(document, ramp)).Select(layout => (layout.HeadEdge.From, layout.HeadEdge.To, layout.Top)))
+            .Concat(document.All<Ramp>().Select(ramp => Ramps.Layout(document, ramp)).Select(layout => (layout.HeadEdge.From, layout.HeadEdge.To, layout.Top)))
             .ToList();
-        var railings = document.Elements.OfType<Railing>().ToList();
-        var others = document.Elements.OfType<Slab>().Where(other => !ReferenceEquals(other, slab) && other.Boundary.Count >= 3 && FloorSurfaces.IsStoodOn(document, other)).ToList();
+        var railings = document.All<Railing>().ToList();
+        var others = document.All<Slab>().Where(other => !ReferenceEquals(other, slab) && other.Boundary.Count >= 3 && FloorSurfaces.IsStoodOn(document, other)).ToList();
 
         // How far out the drop is looked for: just past the edge - under the IRC, anywhere within 36 in of it (R312.1.1).
         var reaches = document.ProjectInformation.ClearanceStandard.IsUs() ? new[] { 60.0, 305, 610, 914 } : new[] { 60.0 };
@@ -1227,12 +1227,12 @@ public static class Railings
         bool Near(double height) => Math.Abs(height - top) < Stairs.FloorReach;
 
         // A stair coming up onto it.
-        foreach (var stair in document.Elements.OfType<Stair>())
+        foreach (var stair in document.All<Stair>())
         foreach (var flight in Stairs.Flights(document, stair))
             if (Near(flight.Layout.Top) && Stairs.SteppedOff(flight.Layout) is { } off && slab.Contains(off)) return true;
 
         // A storey's walls standing on it, as on its floor - not a dormer's cheeks, nor a parapet; a door out onto it.
-        var dormerWalls = document.Elements.OfType<Roof>().SelectMany(roof => roof.DormerWalls).ToHashSet();
+        var dormerWalls = document.All<Roof>().SelectMany(roof => roof.DormerWalls).ToHashSet();
         foreach (var wall in document.Walls)
         {
             if (dormerWalls.Contains(wall.Id) || wall.GetTopElevation(document) - wall.GetBaseElevation(document) < 2000) continue;
@@ -1240,16 +1240,16 @@ public static class Railings
             if (Near(wall.GetBaseElevation(document)) && slab.Contains(middle)) return true;
         }
 
-        foreach (var door in document.Elements.OfType<Door>())
+        foreach (var door in document.All<Door>())
         {
-            if (document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } type) continue;
+            if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } type) continue;
             if (!Near(wall.GetBaseElevation(document) + door.SillHeight)) continue;
             var half = type.Structure.TotalWidth / 2 + 300;
             if (slab.Contains(wall.PointAt(type.Structure, door.DistanceAlongWall, half)) || slab.Contains(wall.PointAt(type.Structure, door.DistanceAlongWall, -half))) return true;
         }
 
         // A railing on it already.
-        return document.Elements.OfType<Railing>().Any(railing => railing.Path.Any(slab.Contains) && Near(Base(document, railing, railing.Path[0]) - railing.BaseOffset));
+        return document.All<Railing>().Any(railing => railing.Path.Any(slab.Contains) && Near(Base(document, railing, railing.Path[0]) - railing.BaseOffset));
     }
 
     /// <summary>

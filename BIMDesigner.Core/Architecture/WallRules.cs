@@ -28,7 +28,7 @@ public static class WallRules
 
     /// <summary>Whether a room is a bedroom or has a WC in it: one whose walls keep sound in.</summary>
     private static bool Quiet(BimDocument document, Room room) =>
-        room.GetBoundary(document) is { IsEnclosed: true } boundary && document.Elements.OfType<Component>()
+        room.GetBoundary(document) is { IsEnclosed: true } boundary && document.All<Component>()
             .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location))
             .Select(piece => document.FindType<ComponentType>(piece.TypeId))
             .Any(type => type is not null && (Bathrooms.IsWc(type) || type.Form is ComponentForm.Bed or ComponentForm.BunkBed));
@@ -156,7 +156,7 @@ public static class WallRules
     public static double? ShortOfRoof(BimDocument document, Wall wall)
     {
         var middle = wall.Start.MidpointTo(wall.End);
-        var roofs = document.Elements.OfType<Roof>().Where(roof => !roof.IsExtrusion && roof.Contains(middle)).ToList();
+        var roofs = document.All<Roof>().Where(roof => !roof.IsExtrusion && roof.Contains(middle)).ToList();
         if (roofs.Count == 0) return null;
 
         // The party walls on the same line, storey above storey: the highest of them is the one to reach the roof.

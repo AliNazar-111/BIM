@@ -15,8 +15,7 @@ public static class WallOpenings
 {
     /// <summary>Every opening hosted in this wall, in order along it.</summary>
     public static IReadOnlyList<Opening> Of(BimDocument document, Wall wall) =>
-        document.Elements
-            .OfType<Opening>()
+        ModelCache.Of(document)?.OpeningsIn(wall.Id) ?? document.All<Opening>()
             .Where(opening => opening.HostWallId == wall.Id)
             .OrderBy(opening => opening.DistanceAlongWall)
             .ToList();
@@ -188,7 +187,7 @@ public static class WallOpenings
 
         // Standing on a roof, as a dormer's wall does, it keeps a little wall under its sill
         // for the roof to be flashed up to.
-        var sillMargin = document.Elements.OfType<Roof>().Any(roof => roof.Id == wall.BaseAttachedTo) ? FitMargin : 0;
+        var sillMargin = document.All<Roof>().Any(roof => roof.Id == wall.BaseAttachedTo) ? FitMargin : 0;
 
         (double Along, double Sill, double Width, double Height)? At(double scale) => Sized(width * scale, height * scale);
 
@@ -250,7 +249,7 @@ public static class WallOpenings
 public static class OpeningMarks
 {
     public static string Next<T>(BimDocument document) where T : Opening =>
-        (document.Elements.OfType<T>()
+        (document.All<T>()
             .Select(o => int.TryParse(o.Mark, out var n) ? n : 0)
             .DefaultIfEmpty(0)
             .Max() + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);

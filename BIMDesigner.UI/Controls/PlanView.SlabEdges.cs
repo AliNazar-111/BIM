@@ -125,7 +125,7 @@ public partial class PlanView
     {
         if (Document is null || ActiveTool != PlanTool.SlabEdge) return;
 
-        if (_slabEdgePicking is { } current && Document.Elements.OfType<Floor>().FirstOrDefault(floor => floor.Id == current.FloorId) is { } picked)
+        if (_slabEdgePicking is { } current && Document.Find<Floor>(current.FloorId) is { } picked)
             foreach (var (from, to) in current.Edges)
                 dc.DrawLine(EdgeTakenPen, ModelToScreen(from), ModelToScreen(to));
 

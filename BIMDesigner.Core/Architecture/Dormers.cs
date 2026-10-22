@@ -146,7 +146,7 @@ public static class Dormers
                 return WallsOf(document, roof).Any() ? roof : null;
 
             case Wall wall:
-                var roofs = document.Elements.OfType<Roof>().ToList();
+                var roofs = document.All<Roof>().ToList();
                 return roofs.FirstOrDefault(roof => roof.Dormer is not null && roof.DormerWalls.Contains(wall.Id))
                        ?? (roofs.FirstOrDefault(roof => roof.Id == wall.TopAttachedTo) is { JoinedTo: { } main } carried &&
                            wall.BaseAttachedTo == main
@@ -168,7 +168,7 @@ public static class Dormers
         var add = new AddElementsCommand(document, copies, name);
         var openings = copies.OfType<Roof>()
             .Where(copy => copy.Dormer is not null)
-            .Select(copy => (Copy: copy, Main: document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == copy.JoinedTo)))
+            .Select(copy => (Copy: copy, Main: document.Find<Roof>(copy.JoinedTo)))
             .Where(pair => pair.Main is not null && pair.Main.LevelId == pair.Copy.LevelId &&
                            pair.Main.Contains(Polygon2D.Centroid(pair.Copy.Boundary, pair.Copy.Boundary[0])))
             .Select(pair => (IUndoableCommand)new SetDormerOpeningCommand(pair.Main!, pair.Copy.Id, open: true))
@@ -203,7 +203,7 @@ public static class Dormers
     public static double HeightOf(BimDocument document, Roof dormer)
     {
         var front = dormer.DormerWalls.Count == 3 ? document.Walls.FirstOrDefault(wall => wall.Id == dormer.DormerWalls[1]) : null;
-        var main = document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == dormer.JoinedTo);
+        var main = document.Find<Roof>(dormer.JoinedTo);
 
         return front is not null && main is not null
             ? dormer.BaseElevation(document) - main.TopAt(document, front.LocationCurve.PointAt(front.Length / 2))
@@ -222,7 +222,7 @@ public static class Dormers
     public static bool FollowRoofs(BimDocument document)
     {
         var changed = false;
-        foreach (var dormer in document.Elements.OfType<Roof>().Where(roof => roof.Dormer is not null && roof.JoinedTo is not null).ToList())
+        foreach (var dormer in document.All<Roof>().Where(roof => roof.Dormer is not null && roof.JoinedTo is not null).ToList())
             changed |= Follow(document, dormer);
 
         return changed;
@@ -230,10 +230,10 @@ public static class Dormers
 
     private static bool Follow(BimDocument document, Roof dormer)
     {
-        if (document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == dormer.JoinedTo) is not { } main) return false;
+        if (document.Find<Roof>(dormer.JoinedTo) is not { } main) return false;
         if (dormer.DormerWalls.Count != 3 || dormer.Boundary.Count != 4 || dormer.Edges.Count != 4) return false;
 
-        var walls = dormer.DormerWalls.Select(id => document.Walls.FirstOrDefault(wall => wall.Id == id)).ToList();
+        var walls = dormer.DormerWalls.Select(id => document.Find<Wall>(id)).ToList();
         if (walls.Any(wall => wall is null)) return false;
         var (left, front, right) = (walls[0]!, walls[1]!, walls[2]!);
 
@@ -306,7 +306,7 @@ public static class Dormers
         // changed in Properties: one made small for a low dormer is not left small in a tall one.
         if (Math.Abs(before.HeightOffset - offset) > 1 || relaid.Count > 0)
             foreach (var wall in walls)
-            foreach (var window in document.Elements.OfType<Window>().Where(window => window.HostWallId == wall!.Id).ToList())
+            foreach (var window in document.All<Window>().Where(window => window.HostWallId == wall!.Id).ToList())
                 SuitTo(document, wall!, window);
 
         return moved || relaid.Count > 0 || Math.Abs(before.HeightOffset - offset) > 1e-6 ||
@@ -559,8 +559,8 @@ public static class Dormers
     {
         message = null;
 
-        var main = document.Elements.OfType<Roof>().FirstOrDefault(roof => roof.Id == dormer.JoinedTo);
-        var found = dormer.DormerWalls.Select(id => document.Walls.FirstOrDefault(wall => wall.Id == id)).ToList();
+        var main = document.Find<Roof>(dormer.JoinedTo);
+        var found = dormer.DormerWalls.Select(id => document.Find<Wall>(id)).ToList();
         if (dormer.Dormer is null || main is null || found.Count != 3 || found.Any(wall => wall is null || wall.IsCurved))
         {
             message = "Only a dormer made by the Dormer tool, with its three walls still standing, changes as one. Change its walls and roof one at a time.";
@@ -642,7 +642,7 @@ public static class Dormers
         }
 
         foreach (var wall in walls)
-        foreach (var window in document.Elements.OfType<Window>().Where(window => window.HostWallId == wall.Id).ToList())
+        foreach (var window in document.All<Window>().Where(window => window.HostWallId == wall.Id).ToList())
             SuitTo(document, wall, window);
 
         // Asked for more than there is room for, and already as much as there is.
@@ -728,11 +728,11 @@ public static class Dormers
         var wallsWere = walls.Select(wall => (Wall: wall, wall.Start, wall.End, wall.UnconnectedHeight)).ToList();
 
         var hosts = walls.Select(wall => wall.Id).ToHashSet();
-        var openings = document.Elements.OfType<Opening>()
+        var openings = document.All<Opening>()
             .Where(opening => hosts.Contains(opening.HostWallId))
             .Select(opening => (Opening: opening, opening.DistanceAlongWall, opening.SillHeight, opening.WidthOverride, opening.HeightOverride))
             .ToList();
-        var cuts = document.Elements.OfType<WallOpening>()
+        var cuts = document.All<WallOpening>()
             .Where(cut => hosts.Contains(cut.HostWallId))
             .Select(cut => (Cut: cut, cut.DistanceAlongWall))
             .ToList();

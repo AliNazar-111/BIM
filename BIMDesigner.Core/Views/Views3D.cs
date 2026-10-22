@@ -206,7 +206,7 @@ public static class Views3D
     {
         if (reference.Kind != ViewKind.Model3D) return null;
         var id = reference.TargetId;
-        return id == Guid.Empty ? document.Default3D : document.Elements.OfType<View3D>().FirstOrDefault(view => view.Id == id);
+        return id == Guid.Empty ? document.Default3D : document.All<View3D>().FirstOrDefault(view => view.Id == id);
     }
 
     /// <summary>The reference to a 3D view: the plain 3D reference for the {3D} view.</summary>
@@ -215,7 +215,7 @@ public static class Views3D
 
     /// <summary>Every 3D view, the {3D} view first.</summary>
     public static IEnumerable<View3D> All(BimDocument document) =>
-        new[] { document.Default3D }.Concat(document.Elements.OfType<View3D>().OrderBy(view => view.Name, StringComparer.OrdinalIgnoreCase));
+        new[] { document.Default3D }.Concat(document.All<View3D>().OrderBy(view => view.Name, StringComparer.OrdinalIgnoreCase));
 
     /// <summary>The next free name of a kind: "3D View 1", "3D View 2" ...</summary>
     public static string NextName(BimDocument document, string stem = "3D View")

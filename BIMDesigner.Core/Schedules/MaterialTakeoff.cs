@@ -79,7 +79,7 @@ public static class MaterialTakeoff
         }
 
         // A wall shaped in plan is one material through: its footprint by its height.
-        foreach (var shaped in document.Elements.OfType<PolygonWall>())
+        foreach (var shaped in document.All<PolygonWall>())
         {
             var material = document.FindMaterial(shaped.MaterialId);
             var volume = PolygonWalls.Volume(document, shaped);
@@ -91,7 +91,7 @@ public static class MaterialTakeoff
             });
         }
 
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
         {
             var type = document.FindType<SlabType>(slab.TypeId);
             if (type is null) continue;

@@ -228,7 +228,7 @@ public sealed class SplitWallCommand : IUndoableCommand
         // Doors and windows beyond the split belong to the far half now.
         foreach (var opening in WallOpenings.Of(document, wall).Where(o => o.DistanceAlongWall > _splitAlong))
             _moved.Add((opening, opening.DistanceAlongWall));
-        _movedCuts.AddRange(document.Elements.OfType<WallOpening>().Where(o => o.HostWallId == wall.Id && o.DistanceAlongWall > _splitAlong));
+        _movedCuts.AddRange(document.All<WallOpening>().Where(o => o.HostWallId == wall.Id && o.DistanceAlongWall > _splitAlong));
 
         _remainder = new Wall
         {
@@ -1089,7 +1089,7 @@ public sealed class MergeWallsCommand : IUndoableCommand
                 Math.Clamp(line.Locate(at).Along, 0, line.Length)));
         }
 
-        foreach (var sweep in document.Elements.OfType<PlacedSweep>().Where(s => s.HostWallIds.Contains(remove.Id)))
+        foreach (var sweep in document.All<PlacedSweep>().Where(s => s.HostWallIds.Contains(remove.Id)))
         {
             var hosts = sweep.HostWallIds.Select(id => id == remove.Id ? keep.Id : id).Distinct().ToList();
             _sweeps.Add((sweep, sweep.HostWallIds.ToList(), hosts));

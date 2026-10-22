@@ -61,8 +61,8 @@ public partial class PlanView
 
         var extent = new List<Point2D>();
         foreach (var wall in Document.Walls.Where(wall => wall.LevelId == ActiveLevelId)) extent.AddRange(new[] { wall.Start, wall.End });
-        foreach (var slab in Document.Elements.OfType<Core.Architecture.Slab>().Where(slab => slab.LevelId == ActiveLevelId && slab is not Core.Architecture.Ceiling)) extent.AddRange(slab.Boundary);
-        foreach (var ramp in Document.Elements.OfType<Ramp>().Where(ramp => ramp.LevelId == ActiveLevelId)) extent.AddRange(Ramps.Layout(Document, ramp).Footprint);
+        foreach (var slab in Document.All<Core.Architecture.Slab>().Where(slab => slab.LevelId == ActiveLevelId && slab is not Core.Architecture.Ceiling)) extent.AddRange(slab.Boundary);
+        foreach (var ramp in Document.All<Ramp>().Where(ramp => ramp.LevelId == ActiveLevelId)) extent.AddRange(Ramps.Layout(Document, ramp).Footprint);
         if (extent.Count == 0)
         {
             HintChanged?.Invoke(this, $"Nothing on {level.Name} to put the ground round: draw the building first, or click spot levels with Toposurface.");

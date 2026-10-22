@@ -302,8 +302,7 @@ public sealed class ViewSettings
             .Select(wall => wall.Id)
             .ToHashSet();
 
-        var hiddenHosted = document.Elements
-            .OfType<Opening>()
+        var hiddenHosted = document.All<Opening>()
             .Where(opening => hiddenWalls.Contains(opening.HostWallId))
             .Select(opening => opening.Id)
             .ToHashSet();

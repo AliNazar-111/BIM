@@ -122,12 +122,12 @@ public sealed class WallFooting : Element, IHostedElement
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         var type = document.FindType<FootingType>(TypeId);
-        yield return ParameterValue.ReadOnly(FootingParameters.Host, () => document.Walls.FirstOrDefault(wall => wall.Id == WallId) is { } wall
+        yield return ParameterValue.ReadOnly(FootingParameters.Host, () => document.Find<Wall>(WallId) is { } wall
             ? document.GetWallType(wall)?.Name ?? "Wall" : "<none>");
         yield return ParameterValue.BindValidated(FootingParameters.Depth, () => Depth, v => { if (v < (type?.Thickness ?? 0) || v > 10000) return false; Depth = v; return true; });
         yield return ParameterValue.Bind(FootingParameters.Eccentricity, () => Eccentricity, v => Eccentricity = v);
         yield return ParameterValue.ReadOnly(FootingParameters.BelowGround, () => Math.Round(Footings.DepthBelowGround(document, this) ?? 0));
-        yield return ParameterValue.ReadOnly(FootingParameters.LineLoad, () => document.Walls.FirstOrDefault(wall => wall.Id == WallId) is { } wall ? Math.Round(Loads.OnWall(document, wall), 1) : 0);
+        yield return ParameterValue.ReadOnly(FootingParameters.LineLoad, () => document.Find<Wall>(WallId) is { } wall ? Math.Round(Loads.OnWall(document, wall), 1) : 0);
         yield return ParameterValue.ReadOnly(FootingParameters.Volume, () => Footings.Volume(document, this));
         yield return ParameterValue.ReadOnly(FootingParameters.Regulations, () => StructureRules.Verdict(document, this));
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
@@ -200,11 +200,11 @@ public static class Footings
 {
     /// <summary>The footing under a wall, if it has one.</summary>
     public static WallFooting? Under(BimDocument document, Wall wall) =>
-        document.Elements.OfType<WallFooting>().FirstOrDefault(footing => footing.WallId == wall.Id);
+        document.All<WallFooting>().FirstOrDefault(footing => footing.WallId == wall.Id);
 
     /// <summary>The pad under a column, if it has one.</summary>
     public static PadFooting? Under(BimDocument document, Column column) =>
-        document.Elements.OfType<PadFooting>().FirstOrDefault(pad => pad.ColumnId == column.Id);
+        document.All<PadFooting>().FirstOrDefault(pad => pad.ColumnId == column.Id);
 
     /// <summary>How thick a wall is, mm: its type's whole build-up.</summary>
     public static double WallThickness(BimDocument document, Wall wall) => document.GetWallType(wall)?.Structure.TotalWidth ?? 0;
@@ -221,7 +221,7 @@ public static class Footings
     /// </summary>
     public static IReadOnlyList<Point2D>? Outline(BimDocument document, WallFooting footing)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == footing.WallId) is not { } wall || wall.IsCurved || wall.Length < 1) return null;
+        if (document.Find<Wall>(footing.WallId) is not { } wall || wall.IsCurved || wall.Length < 1) return null;
         if (document.FindType<FootingType>(footing.TypeId) is not { } type || document.GetWallType(wall) is not { } wallType) return null;
 
         var along = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -238,7 +238,7 @@ public static class Footings
     /// <summary>The masonry from a strip footing up to its wall's base, in plan: the wall's thickness, run on into the walls it joins.</summary>
     public static IReadOnlyList<Point2D>? StemOutline(BimDocument document, WallFooting footing)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == footing.WallId) is not { } wall || wall.IsCurved || wall.Length < 1) return null;
+        if (document.Find<Wall>(footing.WallId) is not { } wall || wall.IsCurved || wall.Length < 1) return null;
         if (document.GetWallType(wall) is not { } wallType) return null;
         var along = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
         var middle = wall.PointAt(wallType.Structure, 0, 0);
@@ -289,7 +289,7 @@ public static class Footings
     /// <summary>A strip footing's underside and top, mm.</summary>
     public static (double Bottom, double Top)? Heights(BimDocument document, WallFooting footing)
     {
-        if (document.Walls.FirstOrDefault(wall => wall.Id == footing.WallId) is not { } wall || document.FindType<FootingType>(footing.TypeId) is not { } type) return null;
+        if (document.Find<Wall>(footing.WallId) is not { } wall || document.FindType<FootingType>(footing.TypeId) is not { } type) return null;
         var bottom = LevelOf(document, wall, wall.LevelId) - footing.Depth;
         return (bottom, bottom + type.Thickness);
     }
@@ -309,7 +309,7 @@ public static class Footings
     /// </summary>
     public static double GroundAt(BimDocument document, Point2D at, double level)
     {
-        foreach (var surface in document.Elements.OfType<Toposurface>())
+        foreach (var surface in document.All<Toposurface>())
             if (Terrains.HeightAt(surface, at) is { } height) return height;
         return level;
     }
@@ -318,7 +318,7 @@ public static class Footings
     public static double? DepthBelowGround(BimDocument document, WallFooting footing)
     {
         if (Heights(document, footing) is not var (bottom, _) || Outline(document, footing) is not { } outline) return null;
-        var level = document.Walls.FirstOrDefault(wall => wall.Id == footing.WallId) is { } wall ? document.FindLevel(wall.LevelId)?.Elevation ?? 0 : 0;
+        var level = document.Find<Wall>(footing.WallId) is { } wall ? document.FindLevel(wall.LevelId)?.Elevation ?? 0 : 0;
         return outline.Min(point => GroundAt(document, point, level)) - bottom;
     }
 
@@ -353,7 +353,7 @@ public static class Footings
             case WallFooting strip when Outline(document, strip) is { } outline && Heights(document, strip) is var (bottom, top):
             {
                 mesh.AddExtrusion(outline, bottom, top);
-                if (document.Walls.FirstOrDefault(wall => wall.Id == strip.WallId) is { } wall && StemOutline(document, strip) is { } wallOutline)
+                if (document.Find<Wall>(strip.WallId) is { } wall && StemOutline(document, strip) is { } wallOutline)
                     stem.AddExtrusion(wallOutline, top, wall.GetBaseElevation(document));
                 break;
             }
@@ -467,7 +467,7 @@ public static class Footings
     /// <summary>The level a footing is drawn on: its wall's, its column's, or its own.</summary>
     public static Guid LevelOf(BimDocument document, Element footing) => footing switch
     {
-        WallFooting strip when document.Walls.FirstOrDefault(wall => wall.Id == strip.WallId) is { } wall => wall.LevelId,
+        WallFooting strip when document.Find<Wall>(strip.WallId) is { } wall => wall.LevelId,
         PadFooting { ColumnId: { } id } when document.FindElement(id) is Column column => column.LevelId,
         _ => footing.LevelId
     };

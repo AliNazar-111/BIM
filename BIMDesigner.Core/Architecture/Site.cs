@@ -122,7 +122,7 @@ public static class SitePads
 
     /// <summary>The pads graded into the ground on a level.</summary>
     public static IReadOnlyList<SitePad> On(BimDocument document, Guid levelId) =>
-        document.Elements.OfType<SitePad>().Where(pad => pad.LevelId == levelId && pad.Boundary.Count >= 3).ToList();
+        document.All<SitePad>().Where(pad => pad.LevelId == levelId && pad.Boundary.Count >= 3).ToList();
 
     /// <summary>Which way it runs down, in plan; none for a level pad.</summary>
     public static Vector2D? Downhill(SitePad pad) =>
@@ -166,7 +166,7 @@ public static class SitePads
                     var outside = wall.PointAt(type.Structure, along, side * (half + 100));
                     if (!Polygon2D.Contains(pad.Boundary, outside)) continue;
                     var inside = wall.PointAt(type.Structure, along, -side * (half + 300));
-                    var floors = document.Elements.OfType<Floor>().Where(floor => floor.LevelId == wall.LevelId && floor.Boundary.Count >= 3 && floor.Contains(inside))
+                    var floors = document.All<Floor>().Where(floor => floor.LevelId == wall.LevelId && floor.Boundary.Count >= 3 && floor.Contains(inside))
                         .Select(floor => floor.GetTopElevation(document)).ToList();
                     if (floors.Count > 0)
                     {
@@ -287,7 +287,7 @@ public static class PropertyLines
     /// <summary>The building's footprint in plan: its ground storey's floors and the outlines its outside walls stand on, as one.</summary>
     public static double Footprint(BimDocument document)
     {
-        var floors = document.Elements.OfType<Floor>().Where(floor => floor.Boundary.Count >= 3).ToList();
+        var floors = document.All<Floor>().Where(floor => floor.Boundary.Count >= 3).ToList();
         if (floors.Count == 0) return 0;
         var lowest = floors.Min(floor => document.FindLevel(floor.LevelId)?.Elevation ?? 0);
         var ground = floors.Where(floor => Math.Abs((document.FindLevel(floor.LevelId)?.Elevation ?? 0) - lowest) < 1).Select(floor => floor.Boundary).ToList();

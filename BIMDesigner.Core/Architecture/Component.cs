@@ -502,7 +502,7 @@ public sealed class Component : Element, IHostedElement
     public void FollowHost(BimDocument document)
     {
         if (!IsHosted) return;
-        if (document.Walls.FirstOrDefault(w => w.Id == HostId) is not { } wall) return;
+        if (document.Find<Wall>(HostId) is not { } wall) return;
         if (document.GetWallType(wall) is not { } type) return;
 
         var (along, _) = wall.Locate(type.Structure, Location);

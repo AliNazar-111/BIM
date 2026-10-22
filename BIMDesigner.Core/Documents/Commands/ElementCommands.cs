@@ -48,8 +48,7 @@ public sealed class DeleteElementCommand : IUndoableCommand
         _document = document;
         _element = element;
 
-        var hosted = document.Elements
-            .OfType<IHostedElement>()
+        var hosted = document.All<IHostedElement>()
             .Count(candidate => candidate.HostId == element.Id);
 
         Name = hosted == 0
@@ -68,7 +67,7 @@ public sealed class DeleteElementCommand : IUndoableCommand
         var ids = new HashSet<Guid> { _element.Id };
         for (var added = true; added;)
         {
-            var more = _document.Elements.OfType<IHostedElement>()
+            var more = _document.All<IHostedElement>()
                 .Where(hosted => ids.Contains(hosted.HostId))
                 .Cast<Element>()
                 .Where(element => ids.Add(element.Id))

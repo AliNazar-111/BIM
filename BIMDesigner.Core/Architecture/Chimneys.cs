@@ -214,7 +214,7 @@ public static partial class Chimneys
     {
         var outline = Outline(document, chimney);
         var foot = Foot(document, chimney);
-        return document.Elements.OfType<Roof>()
+        return document.All<Roof>()
             .Where(roof => !roof.IsExtrusion && roof.Boundary.Count >= 3)
             .Where(roof => PolygonBoolean.Combine(roof.Boundary, outline, BooleanOperation.Intersection).Sum(region => region.Area) > 100)
             .Where(roof => Contacts(document, roof, outline).Any(z => z > foot))
@@ -323,12 +323,12 @@ public static partial class Chimneys
             // Diagram 17 C: 1000 above the top of an opening window - in the roof, a dormer or a wall - within 2300 of it.
             double Off(Point2D point) => Polygon2D.Contains(outline, point) ? 0
                 : Enumerable.Range(0, outline.Count).Min(i => Line2D.DistanceFromSegment(point, outline[i], outline[(i + 1) % outline.Count]));
-            foreach (var window in document.Elements.OfType<RoofWindow>())
+            foreach (var window in document.All<RoofWindow>())
                 if (RoofWindows.Frame(document, window) is { } frame && frame.Type.Operation != RoofWindowOperation.Fixed && frame.Corners.Min(Off) <= RoofReach)
                     top = Math.Max(top, frame.Corners.Max(frame.FrameTop) + AboveContact);
-            foreach (var window in document.Elements.OfType<Window>())
+            foreach (var window in document.All<Window>())
             {
-                if (document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId) is not { } wall) continue;
+                if (document.Find<Wall>(window.HostWallId) is not { } wall) continue;
                 if (Off(wall.Start + wall.Direction * window.DistanceAlongWall) > RoofReach) continue;
                 var head = wall.GetBaseElevation(document) + window.SillHeight + window.HeightOf(document.FindType<WindowType>(window.TypeId));
                 if (head > foot) top = Math.Max(top, head + AboveContact);
@@ -400,7 +400,7 @@ public static partial class Chimneys
 
     /// <summary>The holes chimneys cut in a slab: each one's outline, opened up by its clearance to combustibles.</summary>
     public static IEnumerable<IReadOnlyList<Point2D>> Holes(BimDocument document, Slab slab) =>
-        document.Elements.OfType<Chimney>()
+        document.All<Chimney>()
             .Where(chimney => Cuts(document, chimney, slab))
             .Select(chimney => Grown(document, chimney, TypeOf(document, chimney).ClearanceToCombustibles));
 

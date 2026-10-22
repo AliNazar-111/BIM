@@ -69,7 +69,7 @@ public partial class PlanView
         var reach = 12 / PixelsPerMm;
         var found = new List<(Slab Slab, int Edge, double Distance, bool Joins)>();
         var ends = OnActiveLevel<Railing>().Where(railing => !railing.Closed && railing.Path.Count >= 2).SelectMany(railing => new[] { railing.Path[0], railing.Path[^1] }).ToList();
-        foreach (var slab in Document.Elements.OfType<Slab>())
+        foreach (var slab in Document.All<Slab>())
         {
             if (slab.Boundary.Count < 3 || !FloorSurfaces.IsStoodOn(Document, slab)) continue;
             if (slab.LevelId != ActiveLevelId && Math.Abs(slab.GetTopElevation(Document) - level.Elevation) > Stairs.FloorReach) continue;
@@ -96,7 +96,7 @@ public partial class PlanView
     private Slab? WalkedOnAt(Point2D at)
     {
         if (Document?.FindLevel(ActiveLevelId) is not { } level) return null;
-        return Document.Elements.OfType<Slab>()
+        return Document.All<Slab>()
             .Where(slab => slab.Boundary.Count >= 3 && FloorSurfaces.IsStoodOn(Document, slab) && slab.Contains(at)
                            && (slab.LevelId == ActiveLevelId || Math.Abs(slab.GetTopElevation(Document) - level.Elevation) <= Stairs.FloorReach))
             .OrderByDescending(slab => slab.GetTopElevation(Document)).ThenBy(slab => slab.Area)
@@ -133,7 +133,7 @@ public partial class PlanView
         var outline = Railings.SetIn(slab.Boundary, true, Railings.EdgeInset);
         // Those along its edges already, on it - not one along the same outline a storey up or down.
         var top = slab.GetTopElevation(Document);
-        var replaced = Document.Elements.OfType<Railing>()
+        var replaced = Document.All<Railing>()
             .Where(railing => railing.Path.Count >= 2 && railing.Path.All(point => Enumerable.Range(0, outline.Count)
                 .Any(i => Line2D.DistanceFromSegment(point, outline[i], outline[(i + 1) % outline.Count]) < 1))
                 && Math.Abs(Railings.Base(Document, railing, railing.Path[0]) - railing.BaseOffset - top) < Stairs.FloorReach)

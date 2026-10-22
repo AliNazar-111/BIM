@@ -325,7 +325,7 @@ public static class RampModel
     {
         var under = new List<double>();
         if (Terrains.GroundAt(document, at) is { } ground && ground < below) under.Add(ground);
-        under.AddRange(document.Elements.OfType<Slab>()
+        under.AddRange(document.All<Slab>()
             .Where(slab => slab.Boundary.Count >= 3 && slab.Contains(at) && FloorSurfaces.IsStoodOn(document, slab))
             .Select(slab => FloorSurfaces.TopAt(document, slab, at)).Where(top => top < below));
         return under.Count > 0 ? under.Max() : Math.Min(below, Ramps.GroundUnder(document, at));

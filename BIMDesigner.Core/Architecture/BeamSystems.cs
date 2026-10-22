@@ -132,7 +132,7 @@ public static class BeamSystems
         if (system.Boundary.Count < 3) return Array.Empty<IReadOnlyList<Point2D>>();
         var top = Top(document, system);
         var middle = Polygon2D.Centroid(system.Boundary, system.Boundary[0]);
-        return document.Elements.OfType<Slab>()
+        return document.All<Slab>()
             .Where(slab => slab.Boundary.Count >= 3 && Stairs.IsFloorLike(document, slab) && Polygon2D.Contains(slab.Boundary, middle)
                            && slab.GetTopElevation(document) >= top - 1 && slab.GetTopElevation(document) <= top + 600)
             .SelectMany(slab => Stairs.Holes(document, slab).Concat(Shafts.Holes(document, slab)).Concat(slab.Holes))

@@ -82,7 +82,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
         return Kind switch
         {
             ViewKind.FloorPlan => document.FindLevel(targetId) is not null,
-            ViewKind.Section => document.Elements.OfType<SectionMarker>().Any(s => s.Id == targetId),
+            ViewKind.Section => document.All<SectionMarker>().Any(s => s.Id == targetId),
             ViewKind.Schedule => ScheduleIn(document) is not null,
             ViewKind.Model3D => Views3D.Find(document, this) is not null,
             ViewKind.Elevation => targetId == Guid.Empty
@@ -105,7 +105,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                 ? $"{level.Name} Plan"
                 : "Plan - missing level",
 
-            ViewKind.Section => document.Elements.OfType<SectionMarker>()
+            ViewKind.Section => document.All<SectionMarker>()
                 .FirstOrDefault(s => s.Id == targetId) is { } marker
                 ? $"Section {marker.Name}"
                 : "Section - missing marker",
@@ -162,12 +162,12 @@ public static class ViewExtent
                 .Include(wall.End + offset).Include(wall.End - offset);
         }
 
-        foreach (var slab in document.Elements.OfType<Slab>().Where(slab => slab.LevelId == levelId))
+        foreach (var slab in document.All<Slab>().Where(slab => slab.LevelId == levelId))
             box = box.Include(BoundingBox2D.Around(slab.Boundary));
 
         // Grids belong to the whole building, so they appear on every plan and can reach past
         // the walls - a gridline that ran off the edge of its own viewport would be useless.
-        foreach (var grid in document.Elements.OfType<Grid>())
+        foreach (var grid in document.All<Grid>())
             box = box.Include(grid.Start).Include(grid.End);
 
         // And the notes on the storey: a cloud, a keynote or a label clipped by its own viewport
@@ -200,7 +200,7 @@ public static class ViewExtent
 
     private static BoundingBox2D OfSection(BimDocument document, Guid markerId)
     {
-        var marker = document.Elements.OfType<SectionMarker>().FirstOrDefault(s => s.Id == markerId);
+        var marker = document.Find<SectionMarker>(markerId);
         if (marker is null) return BoundingBox2D.Empty;
 
         var drawing = SectionProjection.Build(document, marker);

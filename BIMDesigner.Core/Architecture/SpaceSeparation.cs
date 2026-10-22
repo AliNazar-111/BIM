@@ -49,7 +49,7 @@ public static class SpaceSeparation
     /// <summary>How near a wall's outside face comes to the property line, mm; null with no property line.</summary>
     public static double? DistanceToBoundary(BimDocument document, Wall wall)
     {
-        if (document.Elements.OfType<PropertyLine>().FirstOrDefault(line => line.Boundary.Count >= 3) is not { } property) return null;
+        if (document.All<PropertyLine>().FirstOrDefault(line => line.Boundary.Count >= 3) is not { } property) return null;
         if (document.GetWallType(wall) is not { } type) return null;
         var half = type.Structure.TotalWidth / 2;
         var outward = Outward(document, wall);
@@ -83,13 +83,13 @@ public static class SpaceSeparation
     {
         if (document.IsCurtainWall(wall)) return wall.Length * wall.GetHeight(document) / 1e6;
         var area = 0.0;
-        foreach (var window in document.Elements.OfType<Window>().Where(window => window.HostWallId == wall.Id))
+        foreach (var window in document.All<Window>().Where(window => window.HostWallId == wall.Id))
         {
             var type = document.FindType<WindowType>(window.TypeId);
             area += window.WidthOf(type) * window.HeightOf(type);
         }
 
-        foreach (var door in document.Elements.OfType<Door>().Where(door => door.HostWallId == wall.Id))
+        foreach (var door in document.All<Door>().Where(door => door.HostWallId == wall.Id))
         {
             var type = document.FindType<DoorType>(door.TypeId);
             if (Doors.FireMinutes(type?.FireRating ?? string.Empty) >= 30) continue;
@@ -106,7 +106,7 @@ public static class SpaceSeparation
     /// <summary>The building's sides as they face the property line - none where there is no property line.</summary>
     public static IReadOnlyList<Side> Sides(BimDocument document)
     {
-        if (!document.Elements.OfType<PropertyLine>().Any(line => line.Boundary.Count >= 3)) return Array.Empty<Side>();
+        if (!document.All<PropertyLine>().Any(line => line.Boundary.Count >= 3)) return Array.Empty<Side>();
         return document.Walls
             .Where(wall => wall.Length > 1 && Outside(document, wall) && !wall.IsCurved)
             .GroupBy(wall => Facing(Outward(document, wall)))
@@ -155,7 +155,7 @@ public static class SpaceSeparation
     /// </summary>
     public static double? FireSeparationDistance(BimDocument document, Wall wall)
     {
-        if (document.Elements.OfType<PropertyLine>().FirstOrDefault(line => line.Boundary.Count >= 3) is not { } property) return null;
+        if (document.All<PropertyLine>().FirstOrDefault(line => line.Boundary.Count >= 3) is not { } property) return null;
         if (document.GetWallType(wall) is not { } type) return null;
         var half = type.Structure.TotalWidth / 2;
         var outward = Outward(document, wall);
@@ -219,7 +219,7 @@ public static class SpaceSeparation
     {
         if (document.IsCurtainWall(wall)) return (1, wall.Length * wall.GetHeight(document) / 1e6);
         var (count, area) = (0, 0.0);
-        foreach (var opening in document.Elements.OfType<Opening>().Where(opening => opening.HostWallId == wall.Id))
+        foreach (var opening in document.All<Opening>().Where(opening => opening.HostWallId == wall.Id))
         {
             OpeningType? type = opening switch
             {
@@ -239,7 +239,7 @@ public static class SpaceSeparation
     private static int OpeningsOver(BimDocument document, Wall wall, double square)
     {
         var count = 0;
-        foreach (var opening in document.Elements.OfType<Opening>().Where(opening => opening.HostWallId == wall.Id))
+        foreach (var opening in document.All<Opening>().Where(opening => opening.HostWallId == wall.Id))
         {
             var type = opening switch
             {

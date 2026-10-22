@@ -29,10 +29,10 @@ public static class CurtainSpandrels
 
         var foot = wall.GetBaseElevation(document);
         var height = SlabEdges.CurtainHeight(document, wall);
-        var ceilings = document.Elements.OfType<Ceiling>().Where(ceiling => SlabEdges.Meets(document, wall, ceiling)).ToList();
+        var ceilings = document.All<Ceiling>().Where(ceiling => SlabEdges.Meets(document, wall, ceiling)).ToList();
 
         var bands = new List<(double Bottom, double Top)>();
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
         {
             // A floor, or a flat roof carrying the storey above; not a ceiling, nor a pitched roof.
             if (slab is Ceiling) continue;

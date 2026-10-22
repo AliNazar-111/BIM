@@ -38,7 +38,7 @@ public partial class PlanView
 
         var standard = Document.ProjectInformation.ClearanceStandard;
         using var rooms = new RoomsOf.Outlines();
-        foreach (var component in Document.Elements.OfType<Component>().Where(component => component.LevelId == ActiveLevelId && _shows(component)))
+        foreach (var component in Document.All<Component>().Where(component => component.LevelId == ActiveLevelId && _shows(component)))
         foreach (var (zone, inTheWay) in Clearances.Of(Document, component, standard))
         {
             var clear = inTheWay.Count == 0;
@@ -46,14 +46,14 @@ public partial class PlanView
         }
 
         // A kitchen or bathroom piece, a socket or a switch, where the rules do not want it.
-        foreach (var problem in Document.Elements.OfType<Component>().Where(component => component.LevelId == ActiveLevelId && _shows(component))
+        foreach (var problem in Document.All<Component>().Where(component => component.LevelId == ActiveLevelId && _shows(component))
                      .SelectMany(component => Kitchens.Problems(Document, component, standard).Concat(Bathrooms.Problems(Document, component, standard))
                          .Concat(Services.Problems(Document, component, standard)).Concat(Alarms.Problems(Document, component, standard))
                          .Concat(Outside.Problems(Document, component, standard))))
             dc.DrawGeometry(BlockedFill, BlockedPen, Outline(problem.Outline));
 
         // A floor or roof short of its rules, outlined: its U-value, its sound, its fire, its pitch.
-        foreach (var problem in Document.Elements.OfType<Slab>().Where(slab => slab.LevelId == ActiveLevelId && slab is Floor or Roof && _shows(slab))
+        foreach (var problem in Document.All<Slab>().Where(slab => slab.LevelId == ActiveLevelId && slab is Floor or Roof && _shows(slab))
                      .SelectMany(slab => SlabRules.Problems(Document, slab, standard)))
             dc.DrawGeometry(null, BlockedPen, Outline(problem.Outline));
 
@@ -63,16 +63,16 @@ public partial class PlanView
             dc.DrawGeometry(BlockedFill, BlockedPen, Outline(problem.Outline));
 
         // A door or window short of its rules: its width, its nib, its fire rating, its glass.
-        foreach (var problem in Document.Elements.OfType<Door>()
-                     .Where(door => _shows(door) && Document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId)?.LevelId == ActiveLevelId)
+        foreach (var problem in Document.All<Door>()
+                     .Where(door => _shows(door) && Document.Find<Wall>(door.HostWallId)?.LevelId == ActiveLevelId)
                      .SelectMany(door => Doors.Problems(Document, door, standard))
-                     .Concat(Document.Elements.OfType<Core.Architecture.Window>()
-                         .Where(window => _shows(window) && Document.Walls.FirstOrDefault(wall => wall.Id == window.HostWallId)?.LevelId == ActiveLevelId)
+                     .Concat(Document.All<Core.Architecture.Window>()
+                         .Where(window => _shows(window) && Document.Find<Wall>(window.HostWallId)?.LevelId == ActiveLevelId)
                          .SelectMany(window => WindowRules.Problems(Document, window, standard))))
             dc.DrawGeometry(BlockedFill, BlockedPen, Outline(problem.Outline));
 
         // A door's swing only where something stands in it: the swing itself is drawn already.
-        foreach (var door in Document.Elements.OfType<Door>().Where(door => _shows(door) && Document.Walls.FirstOrDefault(wall => wall.Id == door.HostWallId)?.LevelId == ActiveLevelId))
+        foreach (var door in Document.All<Door>().Where(door => _shows(door) && Document.Find<Wall>(door.HostWallId)?.LevelId == ActiveLevelId))
         foreach (var (zone, inTheWay) in Clearances.Swings(Document, door))
             if (inTheWay.Count > 0)
                 dc.DrawGeometry(BlockedFill, BlockedPen, Outline(zone.Outline));

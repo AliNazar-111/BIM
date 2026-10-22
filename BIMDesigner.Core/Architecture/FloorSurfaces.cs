@@ -90,7 +90,7 @@ public static class FloorSurfaces
     /// </summary>
     public static Slab? Burying(BimDocument document, double foot, Point2D at, Slab? only = null)
     {
-        var slabs = only is not null ? new[] { only } : document.Elements.OfType<Slab>();
+        var slabs = only is not null ? new[] { only } : document.All<Slab>();
         return slabs
             .Where(slab => slab.Boundary.Count >= 3 && slab.Contains(at) && IsStoodOn(document, slab))
             .Select(slab => (Slab: slab, Top: TopAt(document, slab, at)))
@@ -108,7 +108,7 @@ public static class FloorSurfaces
     public static (Slab Slab, double Top)? StoodOnNear(BimDocument document, double height, Point2D at, double reach)
     {
         (Slab Slab, double Top)? highest = null;
-        foreach (var slab in document.Elements.OfType<Slab>())
+        foreach (var slab in document.All<Slab>())
         {
             if (slab.Boundary.Count < 3 || !slab.Contains(at) || !IsStoodOn(document, slab)) continue;
             var top = TopAt(document, slab, at);

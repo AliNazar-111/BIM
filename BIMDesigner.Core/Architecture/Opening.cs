@@ -93,7 +93,7 @@ public abstract class Opening : Element, IHostedElement
     public (double Along, double Sill) KeptInPanel(BimDocument document, OpeningType? type, double along, double sill)
     {
         if (type is null) return (along, sill);
-        if (document.Walls.FirstOrDefault(w => w.Id == HostWallId) is not { } host) return (along, sill);
+        if (document.Find<Wall>(HostWallId) is not { } host) return (along, sill);
         if (CurtainLayout.Of(document, host) is not { } layout) return (along, sill);
 
         var width = WidthOf(type);
@@ -138,7 +138,7 @@ public abstract class Opening : Element, IHostedElement
         var asSet = (SillHeight, HeightOf(type));
         if (type is null) return asSet;
 
-        wall ??= document.Walls.FirstOrDefault(w => w.Id == HostWallId);
+        wall ??= document.Find<Wall>(HostWallId);
         return wall is null ? asSet : PlacedIn(document, wall, type, DistanceAlongWall, outline) ?? (SillHeight, 0);
     }
 
@@ -170,7 +170,7 @@ public abstract class Opening : Element, IHostedElement
 
         yield return ParameterValue.ReadOnly(
             OpeningParameters.HostWall,
-            () => document.Walls.FirstOrDefault(w => w.Id == HostWallId) is { } host
+            () => document.Find<Wall>(HostWallId) is { } host
                 ? $"{host.Category} : {document.GetWallType(host)?.Name ?? "?"}"
                 : "<none>");
 
@@ -241,7 +241,7 @@ public abstract class Opening : Element, IHostedElement
 
         // Only a slanted wall can hold a leaning door, so elsewhere this says so rather than
         // offering a choice that would do nothing.
-        yield return document.Walls.FirstOrDefault(w => w.Id == HostWallId) is { } host && WallLean.Leans(host, document.GetWallType(host)!)
+        yield return document.Find<Wall>(HostWallId) is { } host && WallLean.Leans(host, document.GetWallType(host)!)
             ? ParameterValue.BindChoice(
                 OpeningParameters.Orientation,
                 () => EnumText.Humanise(Orientation),

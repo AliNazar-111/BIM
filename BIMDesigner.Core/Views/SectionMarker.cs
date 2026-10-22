@@ -82,8 +82,7 @@ public static class Sections
     /// </summary>
     public static string NextName(BimDocument document)
     {
-        var used = document.Elements
-            .OfType<SectionMarker>()
+        var used = document.All<SectionMarker>()
             .Select(section => section.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
