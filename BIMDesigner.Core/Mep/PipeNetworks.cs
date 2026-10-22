@@ -9,7 +9,27 @@ namespace BIMDesigner.Core.Mep;
 /// draw-off, how far it is to the last one, how far it is from the source - and, for the US, the
 /// water-supply fixture units downstream of it.
 /// </summary>
-public sealed record PipeLoad(double Load, double Highest, double Downstream, double FromSource, double FixtureUnits = 0);
+public sealed record PipeLoad(double Load, double Highest, double Downstream, double FromSource, double FixtureUnits = 0)
+{
+    /// <summary>How many fittings it serves, and of them how many are WCs.</summary>
+    public int Fittings { get; init; }
+
+    public int Wcs { get; init; }
+
+    /// <summary>Its end nearer the source - downstream, on a drain - and its other end.</summary>
+    public Point3D Near { get; init; }
+
+    public Point3D Far { get; init; }
+
+    /// <summary>The next pipe on toward the source from its near end; none where it reaches the source.</summary>
+    public Pipe? Toward { get; init; }
+
+    /// <summary>How many pipes meet at its near end, it among them: three or more at a junction - a tee into a stack or another branch.</summary>
+    public int NearJoins { get; init; }
+
+    /// <summary>On a heating zone, the heat the radiators, floors and coils beyond it give at its temperatures, W.</summary>
+    public double Heat { get; init; }
+}
 
 /// <summary>
 /// A system's pipes traced from its source: what each carries, how far each fitting on it is from
@@ -21,7 +41,14 @@ public sealed record PipeNetwork(
     IReadOnlyDictionary<Pipe, PipeLoad> Loads,
     IReadOnlyDictionary<Component, double> RunTo,
     IReadOnlyList<Pipe> Unreached,
-    IReadOnlyList<Component> NotPiped);
+    IReadOnlyList<Component> NotPiped)
+{
+    /// <summary>The pipe each fitting reached meets at its connector.</summary>
+    public IReadOnlyDictionary<Component, Pipe> FirstPipe { get; init; } = new Dictionary<Component, Pipe>();
+
+    /// <summary>On a rainwater system, the downpipes whose feet its drains take.</summary>
+    public IReadOnlyList<Downpipe> Downpipes { get; init; } = Array.Empty<Downpipe>();
+}
 
 /// <summary>
 /// The pipes of the services as networks. Pipes join where their ends meet, or where an end meets
@@ -36,6 +63,9 @@ public static class PipeNetworks
 {
     /// <summary>How near a pipe's end and a connector, or two pipes' ends, must be to be joined, mm.</summary>
     public const double Touch = 5;
+
+    /// <summary>How near in plan a drain must come to an outfall, a soakaway or a downpipe's foot to be taken by it, mm: the gully or chamber between them.</summary>
+    public const double Reach = 300;
 
     /// <summary>The longest hot water run to a fixture the IRC allows from its source, mm: 100 ft (P2905.3).</summary>
     public const double IrcHotWaterRun = 30480;
@@ -106,6 +136,7 @@ public static class PipeNetworks
     /// <summary>A system's pipes traced from what feeds it: what each carries and how far everything is along them.</summary>
     public static PipeNetwork Trace(BimDocument document, MepSystem system)
     {
+        using var cache = system.Kind == SystemKind.Heating ? ModelCache.Begin(document) : null;
         var pipes = PipesOf(document, system);
         var nodes = new Nodes();
         var links = new Dictionary<int, List<(Pipe Pipe, int To)>>();
@@ -124,25 +155,56 @@ public static class PipeNetworks
             Link(b, pipe, a);
         }
 
-        // The fittings' connectors of the system's kind, where a pipe's end meets them.
-        var draws = new Dictionary<int, (double Load, double Highest, double Units)>();
+        // The fittings' connectors of the system's kind, where a pipe's end meets them - on a heating
+        // zone, the heat each gives at both its flow and its return, as the water goes out and comes back.
+        var draws = new Dictionary<int, (double Load, double Highest, double Units, int Fittings, int Wcs, double Heat)>();
         var members = MepSystems.MembersOf(document, system);
         var at = new Dictionary<Component, int>();
         foreach (var member in members)
-            foreach (var placed in Connectors.Placed(document, member).Where(placed => placed.Connector.Kind == system.Kind && !placed.Connector.Feeds))
+        {
+            var heat = system.Kind == SystemKind.Heating ? HeatOf(document, member) : 0;
+            foreach (var placed in Connectors.Placed(document, member).Where(placed => placed.Connector.Kind == system.Kind && !placed.Connector.Feeds && placed.Connector.Domain == ConnectorDomain.Pipe))
             {
                 if (nodes.Find(placed.At) is not { } node) continue;
-                at.TryAdd(member, node);
+                if (!at.TryAdd(member, node))
+                {
+                    if (heat > 0)
+                    {
+                        var also = draws.GetValueOrDefault(node);
+                        draws[node] = also with { Heat = also.Heat + heat };
+                    }
+
+                    continue;
+                }
+
+                var form = document.FindType<ComponentType>(member.TypeId)?.Form ?? ComponentForm.Box;
                 var (load, highest) = Draw(document, member, system.Kind);
-                var units = IsWater(system.Kind) ? PipeSizes.FixtureUnits(document.FindType<ComponentType>(member.TypeId)?.Form ?? ComponentForm.Box) : 0;
+                var units = IsWater(system.Kind) ? PipeSizes.FixtureUnits(form) : Drainage.IsDrainage(system.Kind) ? Drainage.FixtureUnits(form) : 0;
                 var known = draws.GetValueOrDefault(node);
-                draws[node] = (known.Load + load, Math.Max(known.Highest, highest), known.Units + units);
+                draws[node] = (known.Load + load, Math.Max(known.Highest, highest), known.Units + units, known.Fittings + 1,
+                    known.Wcs + (form is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 1 : 0), known.Heat + heat);
             }
+        }
+
+        // A drain is taken by an outfall or soakaway over it, and takes a downpipe's foot beside it, wherever its invert is.
+        int? Under(Point2D where) => nodes.Points.Select((point, index) => (Index: index, Plan: new Point2D(point.X, point.Y).DistanceTo(where), point.Z))
+            .Where(entry => entry.Plan <= Reach).OrderBy(entry => entry.Z).ThenBy(entry => entry.Plan).Select(entry => (int?)entry.Index).FirstOrDefault();
+        var downpipes = new List<Downpipe>();
+        if (system.Kind == SystemKind.Rainwater)
+            foreach (var downpipe in document.All<Downpipe>())
+                if (Downpipes.Path(document, downpipe) is { OntoRoof: false } path && Under(path.Foot) is { } foot)
+                {
+                    downpipes.Add(downpipe);
+                    var known = draws.GetValueOrDefault(foot);
+                    draws[foot] = (known.Load, known.Highest, known.Units, known.Fittings + 1, known.Wcs, known.Heat);
+                }
 
         // Out from the source, along the pipes, each node reached once.
         var starts = MepSystems.SourceOf(document, system) is { } source
             ? Connectors.Placed(document, source).Where(placed => placed.Connector.Kind == system.Kind).Select(placed => nodes.Find(placed.At)).OfType<int>().Distinct().ToList()
             : new List<int>();
+        if (starts.Count == 0 && Drainage.IsDrainage(system.Kind) && MepSystems.SourceOf(document, system) is { } outfall && Under(outfall.Location) is { } under)
+            starts.Add(under);
         var parent = new Dictionary<int, (Pipe Pipe, int From)>();
         var distance = new Dictionary<int, double>();
         var order = new List<int>();
@@ -168,26 +230,48 @@ public static class PipeNetworks
 
         // Back from the furthest: what is behind each node - its own draw-offs and all beyond it -
         // is what the pipe up to it carries, and is added to the node it comes from.
-        var behind = new Dictionary<int, (double Load, double Highest, double Downstream, double Units)>();
+        var behind = new Dictionary<int, (double Load, double Highest, double Downstream, double Units, int Fittings, int Wcs, double Heat)>();
         var loads = new Dictionary<Pipe, PipeLoad>();
         for (var i = order.Count - 1; i >= 0; i--)
         {
             var node = order[i];
             var own = draws.GetValueOrDefault(node);
             var beyond = behind.GetValueOrDefault(node);
-            var all = (Load: beyond.Load + own.Load, Highest: Math.Max(beyond.Highest, own.Highest), beyond.Downstream, Units: beyond.Units + own.Units);
+            var all = (Load: beyond.Load + own.Load, Highest: Math.Max(beyond.Highest, own.Highest), beyond.Downstream, Units: beyond.Units + own.Units,
+                Fittings: beyond.Fittings + own.Fittings, Wcs: beyond.Wcs + own.Wcs, Heat: beyond.Heat + own.Heat);
             behind[node] = all;
             if (!parent.TryGetValue(node, out var up)) continue;
 
-            loads[up.Pipe] = new PipeLoad(all.Load, all.Highest, all.Downstream + up.Pipe.Length, distance[up.From], all.Units);
+            loads[up.Pipe] = new PipeLoad(all.Load, all.Highest, all.Downstream + up.Pipe.Length, distance[up.From], all.Units)
+            {
+                Fittings = all.Fittings, Wcs = all.Wcs, Near = nodes.Points[up.From], Far = nodes.Points[node],
+                Toward = parent.TryGetValue(up.From, out var on) ? on.Pipe : null, NearJoins = links.GetValueOrDefault(up.From)?.Count ?? 0, Heat = all.Heat
+            };
             var above = behind.GetValueOrDefault(up.From);
-            behind[up.From] = (above.Load + all.Load, Math.Max(above.Highest, all.Highest), Math.Max(above.Downstream, all.Downstream + up.Pipe.Length), above.Units + all.Units);
+            behind[up.From] = (above.Load + all.Load, Math.Max(above.Highest, all.Highest), Math.Max(above.Downstream, all.Downstream + up.Pipe.Length),
+                above.Units + all.Units, above.Fittings + all.Fittings, above.Wcs + all.Wcs, above.Heat + all.Heat);
         }
 
         var runTo = at.Where(entry => distance.ContainsKey(entry.Value)).ToDictionary(entry => entry.Key, entry => distance[entry.Value]);
         var unreached = pipes.Where(pipe => !loads.ContainsKey(pipe)).ToList();
-        var notPiped = pipes.Count == 0 ? new List<Component>() : members.Where(member => !runTo.ContainsKey(member)).ToList();
-        return new PipeNetwork(system, loads, runTo, unreached, notPiped);
+        // What is wired to the system - a room thermostat on its zone - wants no pipe.
+        var notPiped = pipes.Count == 0 ? new List<Component>() : members.Where(member => !runTo.ContainsKey(member)
+            && Connectors.Placed(document, member).Any(placed => placed.Connector.Kind == system.Kind && placed.Connector.Domain == ConnectorDomain.Pipe)).ToList();
+
+        // The pipe at each fitting's connector: the one up to its node.
+        var first = new Dictionary<Component, Pipe>();
+        foreach (var (member, node) in at)
+            if (parent.TryGetValue(node, out var up)) first[member] = up.Pipe;
+            else if (links.TryGetValue(node, out var touching) && touching.Count > 0) first[member] = touching[0].Pipe;
+        return new PipeNetwork(system, loads, runTo, unreached, notPiped) { FirstPipe = first, Downpipes = downpipes.Where(downpipe => Under(Downpipes.Path(document, downpipe)!.Foot) is { } foot && distance.ContainsKey(foot)).ToList() };
+    }
+
+    /// <summary>The heat a fitting on a heating zone gives at its temperatures, W: a radiator's or a floor's in its room, a cylinder coil's rating.</summary>
+    private static double HeatOf(BimDocument document, Component member)
+    {
+        if (document.FindType<ComponentType>(member.TypeId) is not { } type) return 0;
+        if (type.Form == ComponentForm.HotWaterCylinder) return type.HeatOutput;
+        return Heating.IsEmitter(type.Form) ? Heating.OutputOf(document, member)?.Watts ?? 0 : 0;
     }
 
     /// <summary>The size a pipe of a water system needs by BS EN 806-3 - or null for one not traced, not water, or past the table.</summary>
@@ -203,6 +287,7 @@ public static class PipeNetworks
         var network = Trace(document, system);
         if (!network.Loads.TryGetValue(pipe, out var carried))
             return MepSystems.SourceOf(document, system) is null ? $"{system.Name} has nothing feeding it" : $"Not joined to what feeds {system.Name}";
+        if (pipe.Kind == SystemKind.Heating) return HeatingPipes.Describe(document, pipe, network);
         if (!IsWater(pipe.Kind)) return $"{carried.FromSource / 1000:0.0} m from what feeds {system.Name}";
 
         if (document.ProjectInformation.ClearanceStandard.IsUs())
@@ -215,16 +300,18 @@ public static class PipeNetworks
     }
 
 
-    /// <summary>Every water pipe sized as BS EN 806-3 asks: its new outside diameter, where it changes.</summary>
+    /// <summary>Every water pipe sized as BS EN 806-3 asks, and every heating pipe for its flow and pressure drop: its new outside diameter, where it changes.</summary>
     public static IReadOnlyList<(Pipe Pipe, double Diameter)> Sized(BimDocument document, IEnumerable<MepSystem> systems)
     {
         var sized = new List<(Pipe, double)>();
-        foreach (var system in systems.Where(system => IsWater(system.Kind)))
+        foreach (var system in systems.Where(system => IsWater(system.Kind) || system.Kind == SystemKind.Heating))
         {
             var network = Trace(document, system);
             foreach (var pipe in network.Loads.Keys)
-                if (Required(document, pipe, network) is { } column && Math.Abs(column.Size.Outside - pipe.Diameter) > 0.01)
-                    sized.Add((pipe, column.Size.Outside));
+            {
+                var size = system.Kind == SystemKind.Heating ? HeatingPipes.Required(document, pipe, network) : Required(document, pipe, network)?.Size;
+                if (size is not null && Math.Abs(size.Outside - pipe.Diameter) > 0.01) sized.Add((pipe, size.Outside));
+            }
         }
 
         return sized;
@@ -249,7 +336,7 @@ public static class PipeNetworks
             if (IsWater(system.Kind) && !us)
                 foreach (var (pipe, carried) in network.Loads)
                 {
-                    if (carried.Load <= 0 || document.FindType<PipeType>(pipe.TypeId) is not { } type) continue;
+                    if (carried.Load <= 0 || document.FindType<PipeType>(pipe.TypeId) is not { } type || PipeSizes.Table(type.Material).Count == 0) continue;
                     var required = Required(document, pipe, network);
                     if (required is null)
                         yield return new MepProblem(pipe, $"carries {carried.Load:0} loading units - more than BS EN 806-3's {PipeSizes.TableOf(type.Material)} goes to");
@@ -257,6 +344,10 @@ public static class PipeNetworks
                         yield return new MepProblem(pipe,
                             $"too small at {pipe.SizeName(type)}: it carries {carried.Load:0} loading units, the most on one draw-off {carried.Highest:0}, {carried.Downstream / 1000:0.0} m to the last - BS EN 806-3 {PipeSizes.TableOf(type.Material)} asks {required.Size.Name}");
                 }
+
+            if (system.Kind == SystemKind.Heating)
+                foreach (var problem in HeatingPipes.Problems(document, network))
+                    yield return problem;
 
             if (system.Kind == SystemKind.HotWater && us)
                 foreach (var (fitting, run) in network.RunTo.Where(entry => entry.Value > IrcHotWaterRun))

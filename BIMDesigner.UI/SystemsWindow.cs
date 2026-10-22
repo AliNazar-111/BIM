@@ -133,7 +133,13 @@ internal sealed class SystemsWindow : System.Windows.Window
         _wanting.Items.Clear();
         foreach (var problem in problems)
         {
-            var who = problem.Element is MepSystem system ? system.Name : MepSystems.Describe(document, problem.Element as Component) ?? "Fitting";
+            var who = problem.Element switch
+            {
+                MepSystem system => system.Name,
+                Room room => room.ToString(),
+                Pipe pipe => $"{document.FindType<PipeType>(pipe.TypeId)?.Name ?? "Pipe"} {pipe.SizeName(document.FindType<PipeType>(pipe.TypeId))}",
+                _ => MepSystems.Describe(document, problem.Element as Component) ?? "Fitting"
+            };
             _wanting.Items.Add(new ListBoxItem { Content = new TextBlock { Text = $"{who}: {problem.Text}", TextWrapping = TextWrapping.Wrap }, Tag = problem.Element });
         }
 

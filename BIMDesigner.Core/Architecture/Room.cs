@@ -47,6 +47,12 @@ public sealed class Room : Element
 
     public string BaseFinish { get; set; } = string.Empty;
 
+    /// <summary>The temperature it is heated to, °C, where it is set rather than taken from its use.</summary>
+    public double? DesignTemperature { get; set; }
+
+    /// <summary>Whether it is not heated at all, whatever its use.</summary>
+    public bool Unheated { get; set; }
+
     /// <summary>Its code in the project's classification - a space's, in Uniclass its SL table: what COBie and IFC carry.</summary>
     public string ClassificationCode { get; set; } = string.Empty;
 
@@ -149,6 +155,29 @@ public sealed class Room : Element
 
         yield return ParameterValue.ReadOnly(RoomParameters.BoundingWalls, () => boundary.BoundingWalls.Count);
 
+        // Its heating: the temperature it is kept at, what it loses at the design conditions, and what heats it.
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        string Degrees(double celsius) => us ? $"{celsius * 9 / 5 + 32:0} °F" : $"{celsius:0.#} °C";
+        yield return ParameterValue.Bind(RoomParameters.DesignTemperature,
+            () => Unheated ? "Unheated" : DesignTemperature is { } set ? Degrees(set) : Mep.HeatLoss.ByUse(document, this) is { } byUse ? $"By its use ({Degrees(byUse)})" : "By its use (unheated)",
+            v =>
+            {
+                var text = (v ?? string.Empty).Trim();
+                if (text.Length == 0 || text.StartsWith("by", StringComparison.OrdinalIgnoreCase)) (DesignTemperature, Unheated) = (null, false);
+                else if (text.StartsWith("un", StringComparison.OrdinalIgnoreCase) || text.StartsWith("no", StringComparison.OrdinalIgnoreCase)) (DesignTemperature, Unheated) = (null, true);
+                else if (double.TryParse(text.TrimEnd('C', 'F', '°', ' ', 'c', 'f'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var degrees)
+                         && (us ? (degrees - 32) * 5 / 9 : degrees) is var celsius && celsius is > -20 and < 40)
+                    (DesignTemperature, Unheated) = (Math.Round(celsius, 2), false);
+            });
+        var heat = new Lazy<Mep.RoomHeatLoss?>(() => boundary.IsEnclosed ? Mep.HeatLoss.OfRoom(document, this) : null);
+        yield return ParameterValue.ReadOnly(RoomParameters.HeatLoss, () => heat.Value switch
+        {
+            null => "Not worked out" + (Mep.Climate.DesignOutside(document) is null ? " - no winter design temperature set" : string.Empty),
+            { Heated: false } => "Not heated",
+            var loss => $"{loss.Total:#,0} W - {loss.Fabric:#,0} through its surfaces, {loss.Ventilation:#,0} with the air"
+        });
+        yield return ParameterValue.ReadOnly(RoomParameters.HeatOutput, () => heat.Value is { Heated: true } loss ? Mep.Heating.Verdict(document, this, loss) : string.Empty);
+
         // Finishes - what a finishes schedule reports
         yield return ParameterValue.Bind(RoomParameters.FloorFinish, () => FloorFinish, v => FloorFinish = v);
         yield return ParameterValue.Bind(RoomParameters.WallFinish, () => WallFinish, v => WallFinish = v);
@@ -243,6 +272,15 @@ public static class RoomParameters
     /// <summary>The room's view out, seated in its middle, as BS EN 17037 grades it.</summary>
     public static readonly ParameterDefinition ViewOut =
         new("View Out (BS EN 17037)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition DesignTemperature =
+        new("Design Temperature", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition HeatLoss =
+        new("Heat Loss", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition HeatOutput =
+        new("Heated By", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition BoundingWalls =
         new("Bounding Walls", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);

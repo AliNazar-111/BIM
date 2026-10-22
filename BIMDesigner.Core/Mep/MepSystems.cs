@@ -203,6 +203,7 @@ public static class MepSystems
         var problems = new List<MepProblem>();
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         using var outlines = new RoomsOf.Outlines();
+        using var cache = ModelCache.Begin(document);
 
         foreach (var component in document.All<Component>())
         {
@@ -217,7 +218,7 @@ public static class MepSystems
             var members = MembersOf(document, system);
             if (members.Count == 0) problems.Add(new MepProblem(system, "it has no fittings on it"));
             if (system.Kind.Fed() is { } fed && SourceOf(document, system) is null)
-                problems.Add(new MepProblem(system, $"nothing feeds it - {fed} does"));
+                problems.Add(new MepProblem(system, Drainage.IsDrainage(system.Kind) ? $"it drains nowhere yet - {fed} takes it" : $"nothing feeds it - {fed} does"));
         }
 
         // The alarms linked as one: BS 5839-6, or the IRC's R314.4.
@@ -242,13 +243,15 @@ public static class MepSystems
 
         // The pipes: too small, not joined, not reaching; and the water the dwelling uses.
         problems.AddRange(PipeNetworks.Problems(document));
+        problems.AddRange(Drainage.Problems(document));
         problems.AddRange(WaterUse.Problems(document));
+        problems.AddRange(Heating.Problems(document));
         return problems;
     }
 
-    /// <summary>Whether a fitting heats a room: a radiator or a towel rail, not a cylinder's coil.</summary>
+    /// <summary>Whether a fitting heats a room: a radiator, a towel rail or an underfloor loop, not a cylinder's coil.</summary>
     private static bool Heats(BimDocument document, Component component) =>
-        document.FindType<ComponentType>(component.TypeId)?.Form is ComponentForm.Radiator or ComponentForm.TowelRail;
+        document.FindType<ComponentType>(component.TypeId)?.Form is ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating;
 
     /// <summary>The dwelling's floor area, as its enclosed rooms add up, m².</summary>
     public static double DwellingArea(BimDocument document) =>

@@ -250,6 +250,7 @@ public static partial class IfcExport
             SystemKind.HotWater => IfcDistributionSystemEnum.DOMESTICHOTWATER,
             SystemKind.Heating => IfcDistributionSystemEnum.HEATING,
             SystemKind.Foul => IfcDistributionSystemEnum.DRAINAGE,
+            SystemKind.Rainwater => IfcDistributionSystemEnum.RAINWATER,
             SystemKind.Gas => IfcDistributionSystemEnum.GAS,
             SystemKind.ExtractAir => IfcDistributionSystemEnum.EXHAUST,
             SystemKind.Power => IfcDistributionSystemEnum.ELECTRICAL,

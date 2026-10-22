@@ -214,7 +214,9 @@ public static class ElementCopy
             WallFinish = room.WallFinish,
             CeilingFinish = room.CeilingFinish,
             BaseFinish = room.BaseFinish,
-            ClassificationCode = room.ClassificationCode
+            ClassificationCode = room.ClassificationCode,
+            DesignTemperature = room.DesignTemperature,
+            Unheated = room.Unheated
         }, room),
 
         Grid grid => CarryCommon(new Grid
@@ -341,9 +343,14 @@ public static class ElementCopy
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
-            Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId
+            Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
+            Return = pipe.Return
         }, pipe),
-        Mep.MepSystem system => CarryCommon(Members(new Mep.MepSystem { Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use }, system.Members), system),
+        Mep.MepSystem system => CarryCommon(Members(new Mep.MepSystem
+        {
+            Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use,
+            FlowTemperature = system.FlowTemperature, ReturnTemperature = system.ReturnTemperature
+        }, system.Members), system),
         Beam beam => CarryCommon(new Beam
         {
             Start = beam.Start, End = beam.End, StartOffset = beam.StartOffset, EndOffset = beam.EndOffset,

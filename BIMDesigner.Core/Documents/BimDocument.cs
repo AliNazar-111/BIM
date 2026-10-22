@@ -63,6 +63,18 @@ public sealed class ProjectInformation
 
     /// <summary>What lies upwind of the site.</summary>
     public WindTerrain Terrain { get; set; } = WindTerrain.OpenCountry;
+
+    /// <summary>For a UK building's heat loss, the place whose design temperature it is worked to - the nearest of CIBSE Guide A's.</summary>
+    public Mep.HeatingLocation HeatingLocation { get; set; } = Mep.HeatingLocation.London;
+
+    /// <summary>For a US house's heat loss, the winter design temperature, °F - its jurisdiction's, from IRC Table R301.2; none set where null.</summary>
+    public double? WinterDesignTemperature { get; set; }
+
+    /// <summary>
+    /// How airtight the building is, m³/h of air through each m² of its envelope at 50 Pa - its
+    /// design figure, or as tested; at most 8 for a new dwelling (Approved Document L Table 4.1).
+    /// </summary>
+    public double AirPermeability { get; set; } = Mep.HeatLoss.LimitingAirPermeability;
 }
 
 /// <summary>
@@ -1947,16 +1959,18 @@ public sealed class BimDocument
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340
             },
 
-            // Radiators on the wall, 150 off the floor on their valves; sockets and switches on it
-            // at the heights Approved Document M sets out - between 450 and 1200 above the floor.
+            // Radiators on the wall, 150 off the floor on their valves - double panel double
+            // convectors (type 22) at their BS EN 442 outputs, as Stelrad's Compact are tested - and
+            // sockets and switches on it at the heights Approved Document M sets out - between 450
+            // and 1200 above the floor.
             new ComponentType("Radiator - 600 x 1000", BuiltInCategory.MechanicalEquipment, ComponentForm.Radiator, 1000, 100, 650)
             {
-                TypeMark = "M1", Colour = white, Cost = 120m,
+                TypeMark = "M1", Colour = white, Cost = 120m, HeatOutput = 1732, HeatExponent = 1.33,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 100
             },
             new ComponentType("Radiator - 600 x 1600", BuiltInCategory.MechanicalEquipment, ComponentForm.Radiator, 1600, 100, 650)
             {
-                TypeMark = "M2", Colour = white, Cost = 170m,
+                TypeMark = "M2", Colour = white, Cost = 170m, HeatOutput = 2771, HeatExponent = 1.33,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 100
             },
             new ComponentType("Socket - Double", BuiltInCategory.ElectricalFixtures, ComponentForm.Socket, 146, 12, 86)
@@ -1993,7 +2007,7 @@ public sealed class BimDocument
             // F asks (1.20), at a bathroom's 15 l/s and a kitchen's 60 l/s.
             new ComponentType("Towel Rail - 500 x 1200", BuiltInCategory.MechanicalEquipment, ComponentForm.TowelRail, 500, 100, 1200)
             {
-                TypeMark = "M4", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 140m,
+                TypeMark = "M4", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 140m, HeatOutput = 379, HeatExponent = 1.28,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 150
             },
             new ComponentType("Extract Fan - 100 (15 l/s)", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 150, 40, 150)
@@ -2010,14 +2024,14 @@ public sealed class BimDocument
             // A gas combi boiler on the wall, its controls at 1150 or so.
             new ComponentType("Boiler - Gas Combi", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
             {
-                TypeMark = "M7", Colour = white, Cost = 1800m,
+                TypeMark = "M7", Colour = white, Cost = 1800m, HeatOutput = 24000,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
             },
 
             // A system boiler, which heats a cylinder's hot water through its coil rather than as it is drawn.
             new ComponentType("Boiler - Gas System", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
             {
-                TypeMark = "M8", Colour = white, Cost = 1600m, HotWater = BoilerHotWater.Cylinder,
+                TypeMark = "M8", Colour = white, Cost = 1600m, HotWater = BoilerHotWater.Cylinder, HeatOutput = 18000,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
             },
 
@@ -2036,6 +2050,47 @@ public sealed class BimDocument
             {
                 TypeMark = "M10", Colour = white, Cost = 150m,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 500
+            },
+
+            // The drainage: access to the drains - Approved Document H's rodding eye, access fitting,
+            // inspection chamber and manhole (Tables 11 and 12) - where the drains go, and an air
+            // admittance valve to close a stack inside the building (BS EN 12380).
+            new ComponentType("Rodding Eye - 100", BuiltInCategory.Drainage, ComponentForm.DrainAccess, 150, 150, 50)
+                { TypeMark = "D1", Colour = new ColourRgb(0x5A, 0x5E, 0x63), Cost = 85m, Access = DrainAccessKind.RoddingEye },
+            new ComponentType("Access Fitting - 150 x 100", BuiltInCategory.Drainage, ComponentForm.DrainAccess, 150, 100, 50)
+                { TypeMark = "D2", Colour = new ColourRgb(0x5A, 0x5E, 0x63), Cost = 140m, Access = DrainAccessKind.AccessFitting },
+            new ComponentType("Inspection Chamber - 450 Plastic", BuiltInCategory.Drainage, ComponentForm.DrainAccess, 450, 450, 60)
+                { TypeMark = "D3", Colour = new ColourRgb(0x5A, 0x5E, 0x63), Cost = 320m, Access = DrainAccessKind.InspectionChamber },
+            new ComponentType("Manhole - 1200 x 675 Precast", BuiltInCategory.Drainage, ComponentForm.DrainAccess, 1200, 675, 80)
+                { TypeMark = "D4", Colour = new ColourRgb(0x5A, 0x5E, 0x63), Cost = 1450m, Access = DrainAccessKind.Manhole },
+            new ComponentType("Outfall - Foul Sewer", BuiltInCategory.Drainage, ComponentForm.FoulOutfall, 600, 600, 60)
+                { TypeMark = "D5", Colour = new ColourRgb(0x7A, 0x5A, 0x3E), Cost = 1200m, Description = "The connection to the public foul sewer" },
+            new ComponentType("Outfall - Surface Water Sewer", BuiltInCategory.Drainage, ComponentForm.SurfaceWaterOutfall, 600, 600, 60)
+                { TypeMark = "D6", Colour = new ColourRgb(0x3E, 0x6E, 0x7A), Cost = 1200m, Description = "The connection to the public surface water sewer" },
+            new ComponentType("Soakaway - 1 m Crate", BuiltInCategory.Drainage, ComponentForm.Soakaway, 1000, 1000, 60)
+                { TypeMark = "D7", Colour = new ColourRgb(0x5E, 0x7A, 0x52), Cost = 650m, Description = "Geocellular crates wrapped in geotextile, for up to 100 m² of roof" },
+            new ComponentType("Air Admittance Valve - 110", BuiltInCategory.PlumbingFixtures, ComponentForm.AirAdmittanceValve, 110, 110, 170)
+                { TypeMark = "P16", Colour = new ColourRgb(0x9A, 0x9E, 0xA3), Cost = 35m, Description = "BS EN 12380, on top of a stack inside the building" },
+
+            // The heating's other sources and emitters: an air source heat pump's unit outside on
+            // its feet against the wall, and underfloor heating - 16 mm PE-RT pipe in a 45 mm screed
+            // under a floor covering of 0.10 m²K/W, at 150 and 200 mm centres - giving what Grant's
+            // Uflex tables give for each kelvin of mean water temperature over the room, up to their
+            // limit at BS EN 1264's warmest floor.
+            new ComponentType("Heat Pump - Air Source 7 kW", BuiltInCategory.MechanicalEquipment, ComponentForm.HeatPump, 1100, 450, 980)
+            {
+                TypeMark = "M11", Colour = new ColourRgb(0xE4, 0xE6, 0xE8), Cost = 5500m, HeatOutput = 7000,
+                Description = "Monobloc; its output at the design temperature, from its maker's data"
+            },
+            new ComponentType("Underfloor Heating - 16 mm at 150 in Screed", BuiltInCategory.MechanicalEquipment, ComponentForm.UnderfloorHeating, 600, 600, 20)
+            {
+                TypeMark = "M12", Colour = new ColourRgb(0xE0, 0x6A, 0x4A), FloorOutput = 3.35, FloorOutputLimit = 98, PipeSpacing = 150,
+                Description = "Floor covering 0.10 m²K/W (1 tog); heats the whole floor of the room it is in"
+            },
+            new ComponentType("Underfloor Heating - 16 mm at 200 in Screed", BuiltInCategory.MechanicalEquipment, ComponentForm.UnderfloorHeating, 600, 600, 20)
+            {
+                TypeMark = "M13", Colour = new ColourRgb(0xE0, 0x6A, 0x4A), FloorOutput = 3.05, FloorOutputLimit = 97, PipeSpacing = 200,
+                Description = "Floor covering 0.10 m²K/W (1 tog); heats the whole floor of the room it is in"
             },
 
             // Alarms on the ceiling: smoke, heat - for a kitchen - and carbon monoxide.

@@ -82,7 +82,10 @@ public static partial class ProjectFile
                 WindPressure = document.ProjectInformation.WindPressure,
                 BasicWindSpeed = document.ProjectInformation.BasicWindSpeed,
                 SiteAltitude = document.ProjectInformation.SiteAltitude,
-                Terrain = document.ProjectInformation.Terrain.ToString()
+                Terrain = document.ProjectInformation.Terrain.ToString(),
+                HeatingLocation = document.ProjectInformation.HeatingLocation.ToString(),
+                WinterDesignTemperature = document.ProjectInformation.WinterDesignTemperature,
+                AirPermeability = document.ProjectInformation.AirPermeability
             }
         };
 
@@ -372,7 +375,8 @@ public static partial class ProjectFile
             {
                 Id = pipe.Id, TypeId = pipe.TypeId, LevelId = pipe.LevelId, StartX = pipe.Start.X, StartY = pipe.Start.Y, EndX = pipe.End.X, EndY = pipe.End.Y,
                 StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind.ToString(),
-                SystemId = document.Find<MepSystem>(pipe.SystemId)?.Id, Mark = pipe.Mark, Comments = pipe.Comments
+                SystemId = document.Find<MepSystem>(pipe.SystemId)?.Id, Return = pipe.Kind == SystemKind.Heating && pipe.Return ? true : null,
+                Mark = pipe.Mark, Comments = pipe.Comments
             });
 
         foreach (var type in document.TypesOf<BeamType>())
@@ -1130,6 +1134,12 @@ public static partial class ProjectFile
                 FlowRate = type.FlowRate > 0 ? type.FlowRate : null, FlushVolume = type.FlushVolume > 0 ? type.FlushVolume : null,
                 PartFlushVolume = type.PartFlushVolume > 0 ? type.PartFlushVolume : null, Capacity = type.Capacity > 0 ? type.Capacity : null,
                 WaterPerUse = type.WaterPerUse > 0 ? type.WaterPerUse : null,
+                Access = type.Form == ComponentForm.DrainAccess ? type.Access.ToString() : null,
+                HeatOutput = HeatsOrHeated(type.Form) ? type.HeatOutput : null,
+                HeatExponent = type.Form is ComponentForm.Radiator or ComponentForm.TowelRail ? type.HeatExponent : null,
+                FloorOutput = type.Form == ComponentForm.UnderfloorHeating ? type.FloorOutput : null,
+                FloorOutputLimit = type.Form == ComponentForm.UnderfloorHeating ? type.FloorOutputLimit : null,
+                PipeSpacing = type.Form == ComponentForm.UnderfloorHeating ? type.PipeSpacing : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -1185,6 +1195,8 @@ public static partial class ProjectFile
             SourceId = document.Find<Component>(system.SourceId)?.Id,
             Members = system.Members.Where(id => document.Find<Component>(id) is not null).Distinct().ToList(),
             Use = system.Kind == SystemKind.Power ? system.Use.ToString() : null,
+            FlowTemperature = system.Kind == SystemKind.Heating && system.FlowTemperature > 0 ? system.FlowTemperature : null,
+            ReturnTemperature = system.Kind == SystemKind.Heating && system.ReturnTemperature > 0 ? system.ReturnTemperature : null,
             Mark = system.Mark, Comments = system.Comments
         }).ToList();
         dto.Systems = systems.Count > 0 ? systems : null;
@@ -1208,6 +1220,8 @@ public static partial class ProjectFile
                 CeilingFinish = room.CeilingFinish,
                 BaseFinish = room.BaseFinish,
                 ClassificationCode = NullIfEmpty(room.ClassificationCode),
+                DesignTemperature = room.DesignTemperature,
+                Unheated = room.Unheated ? true : null,
                 Comments = room.Comments,
                 Workset = room.Workset,
                 PhaseCreated = room.PhaseCreated.ToString()
@@ -1433,6 +1447,10 @@ public static partial class ProjectFile
         document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;
         document.ProjectInformation.SiteAltitude = double.IsFinite(dto.Project.SiteAltitude) && dto.Project.SiteAltitude is >= -500 and <= 5000 ? dto.Project.SiteAltitude : 0;
         document.ProjectInformation.Terrain = ParseEnum(dto.Project.Terrain, WindTerrain.OpenCountry);
+        document.ProjectInformation.HeatingLocation = ParseEnum(dto.Project.HeatingLocation, HeatingLocation.London);
+        document.ProjectInformation.WinterDesignTemperature = dto.Project.WinterDesignTemperature is { } winter && double.IsFinite(winter) && winter is > -80 and < 80 ? winter : null;
+        document.ProjectInformation.AirPermeability = dto.Project.AirPermeability is { } permeability && double.IsFinite(permeability) && permeability is > 0 and <= 100
+            ? permeability : HeatLoss.LimitingAirPermeability;
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
@@ -2695,6 +2713,12 @@ public static partial class ProjectFile
                 WaterDemand = ParseEnum(type.WaterDemand, TreeWaterDemand.Unknown),
                 StemDiameter = type.StemDiameter is >= 0 and < 10000 ? type.StemDiameter.Value : 0,
                 HotWater = ParseEnum(type.HotWater, BoilerHotWater.Combi),
+                Access = ParseEnum(type.Access, DrainAccessKind.InspectionChamber),
+                HeatOutput = type.HeatOutput is >= 0 and < 1e7 ? type.HeatOutput.Value : TemplateHeat(type.Name, type.Width)?.HeatOutput ?? 0,
+                HeatExponent = type.HeatExponent is >= 1 and <= 2 ? type.HeatExponent.Value : TemplateHeat(type.Name, type.Width)?.HeatExponent ?? 1.3,
+                FloorOutput = type.FloorOutput is >= 0 and < 1000 ? type.FloorOutput.Value : 0,
+                FloorOutputLimit = type.FloorOutputLimit is >= 0 and < 10000 ? type.FloorOutputLimit.Value : 0,
+                PipeSpacing = type.PipeSpacing is >= 0 and < 10000 ? type.PipeSpacing.Value : 0,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
                 PartFlushVolume = type.PartFlushVolume is >= 0 and < 100 ? type.PartFlushVolume.Value
@@ -2763,7 +2787,9 @@ public static partial class ProjectFile
             var system = new MepSystem
             {
                 Id = saved.Id, Kind = kind, Name = string.IsNullOrWhiteSpace(saved.Name) ? MepSystems.NextName(document, kind) : saved.Name,
-                Use = ParseEnum(saved.Use, CircuitUse.Other), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Use = ParseEnum(saved.Use, CircuitUse.Other), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+                FlowTemperature = saved.FlowTemperature is > 0 and < 100 ? saved.FlowTemperature.Value : 0,
+                ReturnTemperature = saved.ReturnTemperature is > 0 and < 100 ? saved.ReturnTemperature.Value : 0
             };
             foreach (var id in (saved.Members ?? new List<Guid>()).Distinct())
                 if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);
@@ -2779,7 +2805,7 @@ public static partial class ProjectFile
             {
                 Id = saved.Id, LevelId = saved.LevelId, Start = new Point2D(saved.StartX, saved.StartY), End = new Point2D(saved.EndX, saved.EndY),
                 StartOffset = saved.StartOffset, EndOffset = saved.EndOffset, Diameter = saved.Diameter > 0 ? saved.Diameter : 15,
-                Kind = ParseEnum(saved.Kind, SystemKind.ColdWater), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+                Kind = ParseEnum(saved.Kind, SystemKind.ColdWater), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, Return = saved.Return == true,
                 TypeId = document.FindType<PipeType>(saved.TypeId)?.Id ?? document.TypesOf<PipeType>().FirstOrDefault()?.Id ?? Guid.Empty
             };
             if (pipe.Length < 1) continue;
@@ -2807,6 +2833,8 @@ public static partial class ProjectFile
                 CeilingFinish = room.CeilingFinish,
                 BaseFinish = room.BaseFinish,
                 ClassificationCode = room.ClassificationCode ?? string.Empty,
+                DesignTemperature = room.DesignTemperature is { } designed && double.IsFinite(designed) && designed is > -20 and < 40 ? designed : null,
+                Unheated = room.Unheated == true,
                 Comments = room.Comments,
                 Workset = room.Workset,
                 PhaseCreated = ParseEnum(room.PhaseCreated, DesignPhase.New)
@@ -3109,6 +3137,21 @@ public static partial class ProjectFile
         new WallEllipse(ratio, from, to) is { IsValid: true } ellipse
             ? ellipse
             : null;
+
+    private static readonly Lazy<IReadOnlyDictionary<string, ComponentType>> TemplateFamilies = new(() =>
+        BimDocument.CreateDefault().TypesOf<ComponentType>().GroupBy(type => type.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// What a radiator, towel rail or boiler saved before their outputs were kept gives: the
+    /// library's own of that name and size, or nothing known.
+    /// </summary>
+    private static ComponentType? TemplateHeat(string name, double width) =>
+        TemplateFamilies.Value.TryGetValue(name, out var family) && Math.Abs(family.Width - width) < 0.5 && HeatsOrHeated(family.Form) ? family : null;
+
+    /// <summary>Whether a form has a heat output kept: what heats a room or a building, or a cylinder's coil.</summary>
+    private static bool HeatsOrHeated(ComponentForm form) =>
+        form is ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.Boiler or ComponentForm.HeatPump or ComponentForm.HotWaterCylinder;
 
     /// <summary>A spline wall's shape, or null when there is none or it could not describe a curve.</summary>
     private static WallSpline? ReadSpline(WallDto wall)

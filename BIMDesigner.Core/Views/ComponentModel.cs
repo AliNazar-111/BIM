@@ -1071,6 +1071,22 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.HeatPump:
+            {
+                // Its casing on two feet, and the fan's grille in the front of it.
+                Add(-halfW, halfW, -halfD, halfD - 4, Math.Min(80, h * 0.1), h);
+                Add(-halfW + 40, -halfW + 120, -halfD, halfD - 4, 0, Math.Min(80, h * 0.1), PartFinish.Dark);
+                Add(halfW - 120, halfW - 40, -halfD, halfD - 4, 0, Math.Min(80, h * 0.1), PartFinish.Dark);
+                var fan = Math.Min(h * 0.7, w * 0.55);
+                Add(-halfW + 50, -halfW + 50 + fan, halfD - 4, halfD, h * 0.55 - fan / 2, h * 0.55 + fan / 2, PartFinish.Dark, PartShape.Facing);
+                break;
+            }
+
+            case ComponentForm.UnderfloorHeating:
+                // The loop in the floor: a thin band of its screed, where it is laid.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                break;
+
             case ComponentForm.HotWaterCylinder:
             {
                 // A round copper or steel cylinder on its base, its domed top, and the pipe out of the top.
@@ -1088,6 +1104,27 @@ public static class ComponentModel
                 Add(-halfW * 0.8, halfW * 0.8, -12, 12, h * 0.75, h * 0.85, PartFinish.Dark);
                 break;
             }
+
+            case ComponentForm.DrainAccess when type.Access == DrainAccessKind.RoddingEye:
+                // A capped pipe end at the ground.
+                Add(-halfW, halfW, -halfD, halfD, 0, h, PartFinish.Body, PartShape.Upright);
+                Add(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, h, h + 5, PartFinish.Dark, PartShape.Upright);
+                break;
+
+            case ComponentForm.DrainAccess:
+            case ComponentForm.FoulOutfall:
+            case ComponentForm.SurfaceWaterOutfall:
+            case ComponentForm.Soakaway:
+                // Its cover in its frame, flush with the ground.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW + Math.Min(40, w * 0.1), halfW - Math.Min(40, w * 0.1), -halfD + Math.Min(40, d * 0.1), halfD - Math.Min(40, d * 0.1), h, h + 3, PartFinish.Dark);
+                break;
+
+            case ComponentForm.AirAdmittanceValve:
+                // The valve on top of its stack: its body, and its cap with the air slots under it.
+                Add(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 0, h * 0.5, PartFinish.Body, PartShape.Upright);
+                Add(-halfW, halfW, -halfD, halfD, h * 0.5, h, PartFinish.White, PartShape.Upright);
+                break;
 
             case ComponentForm.GasMeter:
             {
@@ -1416,6 +1453,29 @@ public static class ComponentModel
                 shapes.Add(frame.Ellipse(-14, 14, -14, 14, 12));
                 break;
 
+            case ComponentForm.HeatPump:
+                // The fan's grille across its front, seen from above.
+                Inside(-halfW + 50, -halfW + 50 + Math.Min(type.Height * 0.7, w * 0.55), halfD - 4, halfD);
+                break;
+
+            case ComponentForm.UnderfloorHeating:
+            {
+                // The pipe snaking to and fro across it.
+                const int runs = 5;
+                for (var i = 0; i < runs; i++)
+                {
+                    var y = -halfD + d * (i + 0.5) / runs;
+                    shapes.Add(frame.Line(-halfW * 0.8, y, halfW * 0.8, y));
+                    if (i + 1 < runs)
+                    {
+                        var x = i % 2 == 0 ? halfW * 0.8 : -halfW * 0.8;
+                        shapes.Add(frame.Line(x, y, x, y + d / runs));
+                    }
+                }
+
+                break;
+            }
+
             case ComponentForm.StopValve:
                 shapes.Add(frame.Ellipse(-15, 15, -15, 15, 12));
                 break;
@@ -1423,6 +1483,27 @@ public static class ComponentModel
             case ComponentForm.GasMeter:
                 // The door of its box.
                 Inside(-halfW + 10, halfW - 10, halfD - 10, halfD);
+                break;
+
+            case ComponentForm.DrainAccess:
+            case ComponentForm.FoulOutfall:
+            case ComponentForm.SurfaceWaterOutfall:
+            case ComponentForm.Soakaway:
+                // Its cover inside its frame - a rodding eye's cap round, a chamber's square - with a cross on a soakaway.
+                if (type.Form == ComponentForm.DrainAccess && type.Access == DrainAccessKind.RoddingEye)
+                    shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
+                else
+                    Inside(-halfW + Math.Min(40, w * 0.1), halfW - Math.Min(40, w * 0.1), -halfD + Math.Min(40, d * 0.1), halfD - Math.Min(40, d * 0.1));
+                if (type.Form == ComponentForm.Soakaway)
+                {
+                    shapes.Add(frame.Line(-halfW, -halfD, halfW, halfD));
+                    shapes.Add(frame.Line(-halfW, halfD, halfW, -halfD));
+                }
+
+                break;
+
+            case ComponentForm.AirAdmittanceValve:
+                shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
                 break;
 
             case ComponentForm.ParkingBay:
@@ -1640,6 +1721,19 @@ public static class ComponentModel
         ComponentForm.HotWaterCylinder => "HWC",
         ComponentForm.StopValve => "SV",
         ComponentForm.GasMeter => "GM",
+        ComponentForm.DrainAccess => type.Access switch
+        {
+            DrainAccessKind.RoddingEye => "RE",
+            DrainAccessKind.AccessFitting => "AF",
+            DrainAccessKind.InspectionChamber => "IC",
+            _ => "MH"
+        },
+        ComponentForm.FoulOutfall => "FS",
+        ComponentForm.SurfaceWaterOutfall => "SW",
+        ComponentForm.Soakaway => "SA",
+        ComponentForm.AirAdmittanceValve => "AAV",
+        ComponentForm.HeatPump => "HP",
+        ComponentForm.UnderfloorHeating => "UFH",
         ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay => "P",
         ComponentForm.TelevisionUnit => "TV",
         _ => null

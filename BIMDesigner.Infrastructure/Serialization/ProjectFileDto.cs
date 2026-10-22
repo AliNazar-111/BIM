@@ -1013,6 +1013,16 @@ internal sealed class ComponentTypeDto
     public double? Capacity { get; set; }
     public double? WaterPerUse { get; set; }
 
+    /// <summary>An access point's kind: a rodding eye, an access fitting, an inspection chamber or a manhole.</summary>
+    public string? Access { get; set; }
+
+    /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
+    public double? HeatOutput { get; set; }
+    public double? HeatExponent { get; set; }
+    public double? FloorOutput { get; set; }
+    public double? FloorOutputLimit { get; set; }
+    public double? PipeSpacing { get; set; }
+
     /// <summary>A family of your own's solids, in its box.</summary>
     public List<ComponentSolidDto>? Solids { get; set; }
 
@@ -1091,6 +1101,10 @@ internal sealed class RoomDto
     public string BaseFinish { get; set; } = string.Empty;
     public string? ClassificationCode { get; set; }
 
+    /// <summary>The temperature it is heated to where set, °C, and whether it is not heated; none by its use.</summary>
+    public double? DesignTemperature { get; set; }
+    public bool? Unheated { get; set; }
+
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
     public string PhaseCreated { get; set; } = "New";
@@ -1147,6 +1161,11 @@ internal sealed class ProjectInformationDto
     public double BasicWindSpeed { get; set; }
     public double SiteAltitude { get; set; }
     public string? Terrain { get; set; }
+
+    /// <summary>What its heat loss is worked to: a UK location, a US winter design temperature (°F), its air permeability; none in older files.</summary>
+    public string? HeatingLocation { get; set; }
+    public double? WinterDesignTemperature { get; set; }
+    public double? AirPermeability { get; set; }
 }
 
 /// <summary>A footing's type: a strip or a pad, its sizes, and what it and what stands on it are made of.</summary>
@@ -2169,6 +2188,9 @@ internal sealed class PipeDto
     public double Diameter { get; set; }
     public string Kind { get; set; } = "ColdWater";
     public Guid? SystemId { get; set; }
+
+    /// <summary>A heating return; none for a flow, or any other pipe.</summary>
+    public bool? Return { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }
@@ -2183,6 +2205,10 @@ internal sealed class MepSystemDto
 
     /// <summary>A circuit's use; none for a system that is not a circuit.</summary>
     public string? Use { get; set; }
+
+    /// <summary>A heating zone's flow and return temperatures where set, °C.</summary>
+    public double? FlowTemperature { get; set; }
+    public double? ReturnTemperature { get; set; }
 
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;

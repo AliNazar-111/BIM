@@ -217,7 +217,7 @@ public class PipesTests
         var saved = reopened.All<Pipe>().Single(pipe => pipe.Id == main.Id);
         Assert.Equal((main.Start, main.End, main.StartOffset, main.EndOffset, main.Diameter, SystemKind.ColdWater, cold.Id, "P1"),
             (saved.Start, saved.End, saved.StartOffset, saved.EndOffset, saved.Diameter, saved.Kind, saved.SystemId!.Value, saved.Mark));
-        Assert.Equal(4, reopened.TypesOf<PipeType>().Count());
+        Assert.Equal(6, reopened.TypesOf<PipeType>().Count());
         Assert.True(reopened.ProjectInformation.WaterOptionalRequirement);
         Assert.Equal(180, reopened.TypesOf<ComponentType>().First(type => type.Name == "Bath - 1700 x 700").Capacity);
 

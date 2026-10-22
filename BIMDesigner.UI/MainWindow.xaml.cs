@@ -4085,7 +4085,24 @@ public partial class MainWindow : Window
 
     private static readonly ParameterDefinition TerrainParameter = new("Terrain Upwind", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
 
+    /// <summary>What the heat loss is worked to: the UK place whose design temperature it takes, the US jurisdiction's winter design temperature, how airtight the building is.</summary>
+    private static readonly ParameterDefinition HeatingLocationParameter = new("Heating Design Location (UK)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition WinterDesignParameter = new("Winter Design Temperature (US, °F)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition AirPermeabilityParameter = new("Air Permeability (m³/h·m² at 50 Pa)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition HeatLoadParameter = new("Heat Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+
     private static readonly ParameterDefinition WindVerdictParameter = new("Wind on Cladding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>A UK heating design location as the plan's Properties offer it: the place, its station and its design temperature.</summary>
+    private static string HeatingLocationLabel(Core.Mep.HeatingLocation place) =>
+        Core.Mep.Climate.Of(place) is var station ? $"{place} ({station.Name}, {station.Design:0.0} °C)" : place.ToString();
+
+    /// <summary>What hangs on the heat loss, shown again after what it is worked to changes.</summary>
+    private void HeatingChanged()
+    {
+        _systemsWindow?.Refresh();
+        _heatLossWindow?.Refresh();
+    }
 
     /// <summary>The ground as the plan's Properties offer it: what it is, Approved Document A's type, the IRC's bearing value.</summary>
     private static string GroundLabel(GroundType ground) =>
@@ -4198,6 +4215,30 @@ public partial class MainWindow : Window
                     if (Plan.ShowClearances) ShowClearances(true);
                 },
                 EnumText.Choices<WindTerrain>()),
+            ParameterValue.BindChoice(HeatingLocationParameter,
+                () => HeatingLocationLabel(_document.ProjectInformation.HeatingLocation),
+                text =>
+                {
+                    _document.ProjectInformation.HeatingLocation = Enum.GetValues<Core.Mep.HeatingLocation>().FirstOrDefault(place => HeatingLocationLabel(place) == text, _document.ProjectInformation.HeatingLocation);
+                    HeatingChanged();
+                },
+                Enum.GetValues<Core.Mep.HeatingLocation>().Select(HeatingLocationLabel).ToArray()),
+            ParameterValue.Bind(WinterDesignParameter,
+                () => _document.ProjectInformation.WinterDesignTemperature is { } winter ? $"{winter:0.#}" : "Not set",
+                text =>
+                {
+                    var said = (text ?? string.Empty).Trim().TrimEnd('F', 'f', '°', ' ');
+                    _document.ProjectInformation.WinterDesignTemperature = double.TryParse(said, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var winter) && winter is > -80 and < 80 ? winter : null;
+                    HeatingChanged();
+                }),
+            ParameterValue.Bind(AirPermeabilityParameter, () => _document.ProjectInformation.AirPermeability, permeability =>
+            {
+                if (permeability is > 0 and <= 100) _document.ProjectInformation.AirPermeability = permeability;
+                HeatingChanged();
+            }),
+            ParameterValue.ReadOnly(HeatLoadParameter, () => Core.Mep.HeatLoss.Of(_document) is { } building
+                ? $"{building.Total:#,0} W - {building.Fabric:#,0} through the surfaces, {building.Ventilation:#,0} with the air"
+                : Core.Mep.Climate.Describe(_document)),
             ParameterValue.Bind(WindPressureParameter, () => _document.ProjectInformation.WindPressure, pressure =>
             {
                 _document.ProjectInformation.WindPressure = Math.Clamp(pressure, 0.1, 10);

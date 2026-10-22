@@ -11,7 +11,10 @@ public enum PipeMaterial
     Copper,
     StainlessSteel,
     PeX,
-    GalvanisedSteel
+    GalvanisedSteel,
+
+    /// <summary>PVC-U soil, waste and drain pipe (BS EN 1329 above the ground, BS EN 1401 below it): for drainage, not water.</summary>
+    PvcU
 }
 
 /// <summary>A size a pipe is made in: its name, its outside diameter and wall, and its bore - what the water flows through.</summary>
@@ -59,11 +62,18 @@ public static class PipeSizes
         Size("DN 50", 60.3, 53), Size("DN 65", 76.1, 68.8)
     };
 
+    /// <summary>PVC-U's sizes by their nominal bore - what Approved Document H sizes traps, branches, stacks and drains by - with their outside diameters.</summary>
+    private static readonly PipeSize[] PvcSizes =
+    {
+        Size("32", 36, 32), Size("40", 43, 40), Size("50", 56, 50), Size("75", 82, 75), Size("100", 110, 100), Size("150", 160, 150), Size("225", 250, 225)
+    };
+
     public static IReadOnlyList<PipeSize> Of(PipeMaterial material) => material switch
     {
         PipeMaterial.Copper => CopperSizes,
         PipeMaterial.StainlessSteel => StainlessSizes,
         PipeMaterial.PeX => PeXSizes,
+        PipeMaterial.PvcU => PvcSizes,
         _ => SteelSizes
     };
 
@@ -86,6 +96,7 @@ public static class PipeSizes
         PipeSizingColumn Column(int size, int load, int? highest = null, double? length = null) => new(sizes[size], load, highest, length);
         return material switch
         {
+            PipeMaterial.PvcU => Array.Empty<PipeSizingColumn>(),
             PipeMaterial.GalvanisedSteel => new[]
             {
                 Column(0, 6, 4, 10), Column(1, 16, 15, 6), Column(2, 40), Column(3, 160), Column(4, 300), Column(5, 600), Column(6, 1600)
@@ -168,7 +179,9 @@ public sealed class PipeType : ElementType
         new PipeType("Copper - BS EN 1057", PipeMaterial.Copper) { TypeMark = "PI1", AssemblyCode = "D2020", Cost = 22m },
         new PipeType("PE-X", PipeMaterial.PeX) { TypeMark = "PI2", AssemblyCode = "D2020", Cost = 12m },
         new PipeType("Stainless Steel", PipeMaterial.StainlessSteel) { TypeMark = "PI3", AssemblyCode = "D2020", Cost = 38m },
-        new PipeType("Galvanised Steel", PipeMaterial.GalvanisedSteel) { TypeMark = "PI4", AssemblyCode = "D2020", Cost = 30m }
+        new PipeType("Galvanised Steel", PipeMaterial.GalvanisedSteel) { TypeMark = "PI4", AssemblyCode = "D2020", Cost = 30m },
+        new PipeType("PVC-U Soil and Waste - BS EN 1329", PipeMaterial.PvcU) { TypeMark = "PI5", AssemblyCode = "D2030", Cost = 16m },
+        new PipeType("PVC-U Drain - BS EN 1401", PipeMaterial.PvcU) { TypeMark = "PI6", AssemblyCode = "G3020", Cost = 45m }
     };
 
     public static string Title(PipeMaterial material) => material switch
@@ -176,6 +189,7 @@ public sealed class PipeType : ElementType
         PipeMaterial.StainlessSteel => "Stainless Steel",
         PipeMaterial.PeX => "PE-X",
         PipeMaterial.GalvanisedSteel => "Galvanised Steel",
+        PipeMaterial.PvcU => "PVC-U",
         _ => "Copper"
     };
 
@@ -217,6 +231,12 @@ public sealed class Pipe : Element
     /// <summary>The system it is part of, or none yet.</summary>
     public Guid? SystemId { get; set; }
 
+    /// <summary>
+    /// On a heating zone, whether it brings the water back to the heat source rather than out to
+    /// the radiators - the return, not the flow. The two never join.
+    /// </summary>
+    public bool Return { get; set; }
+
     /// <summary>Whether it runs up or down rather than along: its ends one over the other.</summary>
     public bool Upright => Start.DistanceTo(End) < 1;
 
@@ -242,6 +262,8 @@ public sealed class Pipe : Element
         var type = document.FindType<PipeType>(TypeId);
         yield return ParameterValue.ReadOnly(PipeParameters.SystemName, () => document.Find<MepSystem>(SystemId)?.Name ?? "<none>");
         yield return ParameterValue.ReadOnly(PipeParameters.SystemType, () => Kind.Title());
+        if (Kind == SystemKind.Heating)
+            yield return ParameterValue.BindChoice(PipeParameters.Circuit, () => Return ? "Return" : "Flow", v => Return = v == "Return", new[] { "Flow", "Return" });
         yield return ParameterValue.BindChoice(PipeParameters.Size, () => SizeName(type),
             v => { if (type is not null && PipeSizes.Of(type.Material).FirstOrDefault(size => size.Name == v) is { } size) Diameter = size.Outside; },
             type is null ? Array.Empty<string>() : PipeSizes.Of(type.Material).Select(size => size.Name).ToArray());
@@ -288,4 +310,5 @@ public static class PipeParameters
     public static readonly ParameterDefinition EndOffset = new("End Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Length = new("Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Carries = new("Carries", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition Circuit = new("Flow or Return", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

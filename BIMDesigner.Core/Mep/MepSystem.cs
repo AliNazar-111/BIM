@@ -29,6 +29,11 @@ public sealed class MepSystem : Element
     /// <summary>For a circuit, what it is for: a ring of sockets, the lights, the cooker.</summary>
     public CircuitUse Use { get; set; } = CircuitUse.Other;
 
+    /// <summary>For a heating zone, the water's temperature leaving its heat source and coming back, °C - none set at 0, its source's usual taken.</summary>
+    public double FlowTemperature { get; set; }
+
+    public double ReturnTemperature { get; set; }
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         yield return ParameterValue.Bind(MepSystemParameters.SystemName, () => Name, v => { if (!string.IsNullOrWhiteSpace(v)) Name = v.Trim(); });
@@ -38,6 +43,22 @@ public sealed class MepSystem : Element
             yield return ParameterValue.BindChoice(MepSystemParameters.Use, () => Use.Title(),
                 v => { foreach (var use in Enum.GetValues<CircuitUse>()) if (use.Title() == v) Use = use; },
                 Enum.GetValues<CircuitUse>().Select(use => use.Title()).ToArray());
+        if (Kind == SystemKind.Heating)
+        {
+            yield return ParameterValue.BindValidated(MepSystemParameters.FlowTemperature, () => Heating.Design(document, this).Flow, v =>
+            {
+                if (v is < 25 or > 95 || v <= Heating.Design(document, this).Return) return false;
+                FlowTemperature = v;
+                return true;
+            });
+            yield return ParameterValue.BindValidated(MepSystemParameters.ReturnTemperature, () => Heating.Design(document, this).Return, v =>
+            {
+                if (v is < 15 or > 90 || v >= Heating.Design(document, this).Flow) return false;
+                ReturnTemperature = v;
+                return true;
+            });
+            yield return ParameterValue.ReadOnly(MepSystemParameters.HeatLoad, () => Heating.Describe(document, this));
+        }
         yield return ParameterValue.ReadOnly(MepSystemParameters.Source, () => MepSystems.Describe(document, MepSystems.SourceOf(document, this)) ?? "<none>");
         yield return ParameterValue.ReadOnly(MepSystemParameters.Fittings, () => (double)MepSystems.MembersOf(document, this).Count);
         yield return ParameterValue.ReadOnly(MepSystemParameters.RoomsServed, () => string.Join(", ", MepSystems.RoomsServed(document, this)));
@@ -50,13 +71,13 @@ public sealed class MepSystem : Element
     }
 
     /// <summary>What it is, all of it - for a change to be undone by putting it back.</summary>
-    public sealed record State(string Name, SystemKind Kind, Guid? SourceId, IReadOnlyList<Guid> Members, CircuitUse Use);
+    public sealed record State(string Name, SystemKind Kind, Guid? SourceId, IReadOnlyList<Guid> Members, CircuitUse Use, double Flow = 0, double Return = 0);
 
-    public State Capture() => new(Name, Kind, SourceId, Members.ToList(), Use);
+    public State Capture() => new(Name, Kind, SourceId, Members.ToList(), Use, FlowTemperature, ReturnTemperature);
 
     public void Restore(State state)
     {
-        (Name, Kind, SourceId, Use) = (state.Name, state.Kind, state.SourceId, state.Use);
+        (Name, Kind, SourceId, Use, FlowTemperature, ReturnTemperature) = (state.Name, state.Kind, state.SourceId, state.Use, state.Flow, state.Return);
         Members.Clear();
         Members.AddRange(state.Members);
     }
@@ -72,6 +93,12 @@ public static class MepSystemParameters
     public static readonly ParameterDefinition Fittings = new("Fittings", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition RoomsServed = new("Rooms Served", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Problems = new("Wanting", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition FlowTemperature = new("Flow Temperature (°C)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition ReturnTemperature = new("Return Temperature (°C)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition HeatLoad = new("Heat Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    /// <summary>On a radiator or an underfloor loop: what it gives at its zone's temperatures.</summary>
+    public static readonly ParameterDefinition DesignOutput = new("Output at Design", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     /// <summary>On a fitting: the systems it is on, and what it is not connected to yet.</summary>
     public static readonly ParameterDefinition Systems = new("Systems", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
@@ -103,7 +130,8 @@ public sealed class EditSystemCommand : IUndoableCommand
 
     /// <summary>Whether it changes anything.</summary>
     public bool Changes => _before.Name != _after.Name || _before.Kind != _after.Kind || _before.SourceId != _after.SourceId
-                           || _before.Use != _after.Use || !_before.Members.SequenceEqual(_after.Members);
+                           || _before.Use != _after.Use || _before.Flow != _after.Flow || _before.Return != _after.Return
+                           || !_before.Members.SequenceEqual(_after.Members);
 
     public void Redo() => _system.Restore(_after);
 

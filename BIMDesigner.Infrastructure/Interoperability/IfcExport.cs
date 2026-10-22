@@ -408,6 +408,8 @@ public static partial class IfcExport
                 assignment.Units.Add(SiUnit(IfcUnitEnum.AREAUNIT, IfcSIUnitName.SQUARE_METRE));
                 assignment.Units.Add(SiUnit(IfcUnitEnum.VOLUMEUNIT, IfcSIUnitName.CUBIC_METRE));
                 assignment.Units.Add(SiUnit(IfcUnitEnum.PLANEANGLEUNIT, IfcSIUnitName.RADIAN));
+                assignment.Units.Add(SiUnit(IfcUnitEnum.THERMODYNAMICTEMPERATUREUNIT, IfcSIUnitName.DEGREE_CELSIUS));
+                assignment.Units.Add(SiUnit(IfcUnitEnum.POWERUNIT, IfcSIUnitName.WATT));
             });
 
             _context = New<IfcGeometricRepresentationContext>(context =>
@@ -1073,10 +1075,22 @@ public static partial class IfcExport
             {
                 ["Reference"] = Reference(room.Number),
                 ["IsExternal"] = new IfcBoolean(false),
-                ["GrossPlannedArea"] = new IfcAreaMeasure(boundary.Area),
+                ["GrossPlannedArea"] = new IfcAreaMeasure(boundary.Area / 1e6),
                 ["Category"] = Label(room.Department)
             });
+
+            // Its heating: the temperature it is designed to and what it loses at the design conditions.
+            _heatLoss ??= new Lazy<Core.Mep.BuildingHeatLoss?>(() => Core.Mep.HeatLoss.Of(_document));
+            if (_heatLoss.Value?.Of(room) is { Heated: true } loss)
+                WriteSet(space, "Pset_SpaceThermalDesign", new Dictionary<string, IfcValue?>
+                {
+                    ["TotalHeatLoss"] = new IfcPowerMeasure(Math.Round(loss.Total, 1)),
+                    ["HeatingDryBulb"] = new IfcThermodynamicTemperatureMeasure(loss.Temperature!.Value)
+                });
         }
+
+        /// <summary>The building's heat loss, worked out once for every room's space.</summary>
+        private Lazy<Core.Mep.BuildingHeatLoss?>? _heatLoss;
 
         // ---- materials, types and properties -------------------------------------
 
@@ -2152,7 +2166,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Proxy }
+        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2164,7 +2178,8 @@ public static partial class IfcExport
             ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
                 or ComponentForm.TumbleDryer or ComponentForm.CookerHood => ComponentClass.Appliance,
             ComponentForm.Sink or ComponentForm.Shower => ComponentClass.Sanitary,
-            ComponentForm.Radiator or ComponentForm.TowelRail => ComponentClass.Heater,
+            ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating => ComponentClass.Heater,
+            ComponentForm.HeatPump => ComponentClass.HeatPump,
             ComponentForm.Socket or ComponentForm.ShaverSocket => ComponentClass.Outlet,
             ComponentForm.Switch => ComponentClass.Switch,
             ComponentForm.ExtractFan => ComponentClass.Fan,
@@ -2175,6 +2190,8 @@ public static partial class IfcExport
             ComponentForm.HotWaterCylinder => ComponentClass.Tank,
             ComponentForm.StopValve => ComponentClass.Valve,
             ComponentForm.GasMeter => ComponentClass.Meter,
+            ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway => ComponentClass.Chamber,
+            ComponentForm.AirAdmittanceValve => ComponentClass.AirValve,
             _ => type.Kind switch
             {
                 BuiltInCategory.Furniture or BuiltInCategory.Casework => ComponentClass.Furniture,
@@ -2238,7 +2255,15 @@ public static partial class IfcExport
                 ComponentClass.Light => ComponentProduct<IfcLightFixture>(component, type, meshes, light =>
                     light.PredefinedType = IfcLightFixtureTypeEnum.POINTSOURCE),
                 ComponentClass.Heater => ComponentProduct<IfcSpaceHeater>(component, type, meshes, heater =>
-                    heater.PredefinedType = IfcSpaceHeaterTypeEnum.RADIATOR),
+                {
+                    heater.PredefinedType = type.Form == ComponentForm.UnderfloorHeating ? IfcSpaceHeaterTypeEnum.USERDEFINED : IfcSpaceHeaterTypeEnum.RADIATOR;
+                    if (type.Form == ComponentForm.UnderfloorHeating) heater.ObjectType = "Underfloor heating";
+                }),
+                ComponentClass.HeatPump => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcUnitaryEquipment>(component, type, meshes, unit =>
+                {
+                    unit.PredefinedType = Xbim.Ifc4.Interfaces.IfcUnitaryEquipmentTypeEnum.USERDEFINED;
+                    unit.ObjectType = "Air source heat pump";
+                }),
                 ComponentClass.Outlet => ComponentProduct<IfcOutlet>(component, type, meshes, outlet =>
                     outlet.PredefinedType = IfcOutletTypeEnum.POWEROUTLET),
                 ComponentClass.Switch => ComponentProduct<IfcSwitchingDevice>(component, type, meshes, device =>
@@ -2266,6 +2291,20 @@ public static partial class IfcExport
                     valve.PredefinedType = Xbim.Ifc4.Interfaces.IfcValveTypeEnum.STOPCOCK),
                 ComponentClass.Meter => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcFlowMeter>(component, type, meshes, meter =>
                     meter.PredefinedType = Xbim.Ifc4.Interfaces.IfcFlowMeterTypeEnum.GASMETER),
+                ComponentClass.Chamber => ComponentProduct<Xbim.Ifc4.SharedBldgServiceElements.IfcDistributionChamberElement>(component, type, meshes, chamber =>
+                {
+                    chamber.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.Soakaway => Xbim.Ifc4.Interfaces.IfcDistributionChamberElementTypeEnum.SUMP,
+                        ComponentForm.DrainAccess when type.Access == DrainAccessKind.Manhole => Xbim.Ifc4.Interfaces.IfcDistributionChamberElementTypeEnum.MANHOLE,
+                        ComponentForm.DrainAccess when type.Access == DrainAccessKind.InspectionChamber => Xbim.Ifc4.Interfaces.IfcDistributionChamberElementTypeEnum.INSPECTIONCHAMBER,
+                        ComponentForm.DrainAccess => Xbim.Ifc4.Interfaces.IfcDistributionChamberElementTypeEnum.INSPECTIONPIT,
+                        _ => Xbim.Ifc4.Interfaces.IfcDistributionChamberElementTypeEnum.USERDEFINED
+                    };
+                    if (chamber.PredefinedType == Xbim.Ifc4.Interfaces.IfcDistributionChamberElementTypeEnum.USERDEFINED) chamber.ObjectType = "Outfall";
+                }),
+                ComponentClass.AirValve => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcValve>(component, type, meshes, valve =>
+                    valve.PredefinedType = Xbim.Ifc4.Interfaces.IfcValveTypeEnum.AIRRELEASE),
                 _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
             };
 
@@ -2288,6 +2327,9 @@ public static partial class IfcExport
                 ComponentClass.Tank => "Pset_TankTypeCommon",
                 ComponentClass.Valve => "Pset_ValveTypeCommon",
                 ComponentClass.Meter => "Pset_FlowMeterTypeCommon",
+                ComponentClass.Chamber => "Pset_DistributionChamberElementTypeCommon",
+                ComponentClass.AirValve => "Pset_ValveTypeCommon",
+                ComponentClass.HeatPump => "Pset_UnitaryEquipmentTypeCommon",
                 _ => "Pset_BuildingElementProxyCommon"
             };
             WriteSet((IfcObject)product, common, new Dictionary<string, IfcValue?>
@@ -2296,7 +2338,8 @@ public static partial class IfcExport
                 ["NominalLength"] = new IfcPositiveLengthMeasure(type.Width),
                 ["NominalDepth"] = new IfcPositiveLengthMeasure(type.Depth),
                 ["NominalHeight"] = new IfcPositiveLengthMeasure(type.Height),
-                ["IsBuiltIn"] = exported == ComponentClass.Furniture && type.Kind == BuiltInCategory.Casework ? new IfcBoolean(true) : null
+                ["IsBuiltIn"] = exported == ComponentClass.Furniture && type.Kind == BuiltInCategory.Casework ? new IfcBoolean(true) : null,
+                ["OutputCapacity"] = exported == ComponentClass.Heater && type.HeatOutput > 0 ? new IfcPowerMeasure(type.HeatOutput) : null
             });
 
             WriteSet((IfcObject)product, "Component", new Dictionary<string, IfcValue?>

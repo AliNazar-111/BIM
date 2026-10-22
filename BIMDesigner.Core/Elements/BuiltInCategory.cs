@@ -124,7 +124,10 @@ public enum BuiltInCategory
     DuctSystems,
 
     /// <summary>Electrical circuits from a consumer unit, and the link between the smoke alarms.</summary>
-    ElectricalCircuits
+    ElectricalCircuits,
+
+    /// <summary>The drains' access points and where they run to: rodding eyes, chambers, manholes, outfalls and soakaways.</summary>
+    Drainage
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

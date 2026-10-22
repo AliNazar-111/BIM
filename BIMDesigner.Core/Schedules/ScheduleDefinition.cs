@@ -276,6 +276,13 @@ public sealed class ScheduleDefinition
                 GroupBy = "System"
             },
 
+        // The drains' access points and outfalls: each one's cover, the invert of the drain under it, and how deep.
+        new ScheduleDefinition("Manhole Schedule", BuiltInCategory.Drainage,
+                "Mark", "Type Name", "Cover Level", "Invert Level", "Depth to Invert", "Cost")
+            {
+                SortBy = "Mark"
+            },
+
         // Every beam: its section, how long it is and what it weighs, and whether it clears the doors under it.
         new ScheduleDefinition("Structural Framing Schedule", BuiltInCategory.StructuralFraming,
                 "Mark", "Type Name", "Reference Level", "Structural Usage", "Length", "Mass", "Clearances")

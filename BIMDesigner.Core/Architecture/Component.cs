@@ -131,7 +131,35 @@ public enum ComponentForm
     // and the gas meter - what the systems run from.
     HotWaterCylinder,
     StopValve,
-    GasMeter
+    GasMeter,
+
+    // The drainage: where the foul drain meets the sewer, where the rainwater goes - the surface
+    // water sewer or a soakaway - the access points along the drains, and an air admittance valve
+    // closing a stack inside the building.
+    FoulOutfall,
+    SurfaceWaterOutfall,
+    Soakaway,
+    DrainAccess,
+    AirAdmittanceValve,
+
+    // The heating again: an air source heat pump's unit outside, and an underfloor heating loop -
+    // its pipes laid under the whole floor of the room it is put in.
+    HeatPump,
+    UnderfloorHeating
+}
+
+/// <summary>
+/// The four kinds of access point to a drain, as Approved Document H (2.48) has them: a rodding
+/// eye - a capped extension of the pipe; an access fitting - a small chamber on the pipe with no
+/// open channel; an inspection chamber - working space at ground level; a manhole - working space
+/// down at the drain.
+/// </summary>
+public enum DrainAccessKind
+{
+    RoddingEye,
+    AccessFitting,
+    InspectionChamber,
+    Manhole
 }
 
 /// <summary>
@@ -199,7 +227,7 @@ public sealed class ComponentType : ElementType
             or ComponentForm.Wardrobe or ComponentForm.TelevisionUnit or ComponentForm.Shower
             or ComponentForm.Drawers or ComponentForm.CornerSofa or ComponentForm.BunkBed
             or ComponentForm.WallUnit or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.CookerHood or ComponentForm.TumbleDryer
-            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler;
+            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler or ComponentForm.HeatPump;
 
     /// <summary>
     /// Whether one put down near a wall backs onto it and faces the room: a bed, a wardrobe, a
@@ -257,6 +285,34 @@ public sealed class ComponentType : ElementType
     /// <summary>For a dishwasher, the water it uses a place setting; for a washing machine, a kilo of dry load - litres, from its energy label.</summary>
     public double WaterPerUse { get; set; }
 
+    /// <summary>For an access point on a drain, which of the four kinds it is.</summary>
+    public DrainAccessKind Access { get; set; }
+
+    /// <summary>
+    /// How much heat it gives, W: a radiator's or a towel rail's at a mean water temperature 50 K
+    /// over the room's - 75/65/20 °C, as BS EN 442 rates them; a boiler's or a heat pump's at its
+    /// design conditions; a cylinder's coil's. None where not known.
+    /// </summary>
+    public double HeatOutput { get; set; }
+
+    /// <summary>
+    /// For a radiator or a towel rail, how its output falls with the water's temperature: its
+    /// output goes as the difference over the room's to this power - its n, from its BS EN 442 test.
+    /// </summary>
+    public double HeatExponent { get; set; } = 1.3;
+
+    /// <summary>
+    /// For underfloor heating, what its floor gives a square metre for each kelvin its mean water
+    /// temperature is over the room's, W/m²K - its maker's, at its pipe spacing, screed and floor covering.
+    /// </summary>
+    public double FloorOutput { get; set; }
+
+    /// <summary>For underfloor heating, the most its floor gives in an occupied area, W/m²: its maker's, at BS EN 1264's limit to the floor's warmth.</summary>
+    public double FloorOutputLimit { get; set; }
+
+    /// <summary>For underfloor heating, how far apart its pipes are laid, mm - what says how much pipe a floor takes.</summary>
+    public double PipeSpacing { get; set; }
+
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
 
@@ -287,7 +343,8 @@ public sealed class ComponentType : ElementType
     {
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
-        HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse
+        HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
+        Access = Access, HeatOutput = HeatOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -378,6 +435,30 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(Form == ComponentForm.Dishwasher ? ComponentTypeParameters.DishwasherWater : ComponentTypeParameters.WasherWater,
                 () => WaterPerUse, v => NotNegative(v, x => WaterPerUse = x));
 
+        // What it heats with: a radiator's rated output and its exponent, a floor's output, a heat source's.
+        if (Form is ComponentForm.Radiator or ComponentForm.TowelRail)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.RatedOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatExponent, () => HeatExponent, v => { if (v is < 1 or > 2) return false; HeatExponent = v; return true; });
+        }
+        if (Form == ComponentForm.UnderfloorHeating)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.FloorOutput, () => FloorOutput, v => NotNegative(v, x => FloorOutput = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.FloorOutputLimit, () => FloorOutputLimit, v => NotNegative(v, x => FloorOutputLimit = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.PipeSpacing, () => PipeSpacing, v => NotNegative(v, x => PipeSpacing = x));
+        }
+        if (Form is ComponentForm.Boiler or ComponentForm.HeatPump)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+        if (Form == ComponentForm.HotWaterCylinder)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.CoilOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+
+        if (Form == ComponentForm.DrainAccess)
+            yield return ParameterValue.BindChoice(
+                ComponentTypeParameters.Access,
+                () => EnumText.Humanise(Access),
+                v => { if (EnumText.TryParse<DrainAccessKind>(v, out var access)) Access = access; },
+                EnumText.Choices<DrainAccessKind>());
+
         if (Form == ComponentForm.Shower)
             yield return ParameterValue.BindChoice(
                 ComponentTypeParameters.Enclosure,
@@ -419,6 +500,7 @@ public static class ComponentCategories
         BuiltInCategory.LightingDevices,
         BuiltInCategory.FireAlarmDevices,
         BuiltInCategory.ElectricalEquipment,
+        BuiltInCategory.Drainage,
         BuiltInCategory.Planting,
         BuiltInCategory.Parking,
         BuiltInCategory.Entourage,
@@ -656,6 +738,19 @@ public sealed class Component : Element, IHostedElement
             yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.NotConnected, () =>
                 Mep.MepSystems.OpenKinds(document, this).Select(kind => Mep.SystemKinds.Title(kind)).ToList() is { Count: > 0 } open ? string.Join(", ", open) : "Nothing");
 
+            // A radiator's or a floor's output at its zone's temperatures, in its room.
+            if (Mep.Heating.IsEmitter(type.Form))
+                yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.DesignOutput, () => Mep.Heating.OutputOf(document, this) switch
+                {
+                    null => "Not in a heated room",
+                    { Floor: true } floor => $"{floor.Watts:#,0} W at {floor.Flow:0}/{floor.Return:0} °C - {floor.Flux:0} W/m² over {floor.FloorArea:0.0} m², the floor at {floor.SurfaceTemperature:0.0} °C",
+                    var output => $"{output.Watts:#,0} W at {output.Flow:0}/{output.Return:0} °C"
+                });
+
+            // An outfall's levels: its cover, and the invert of the drain it takes.
+            if (type.Form is ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway)
+                foreach (var level in DrainLevels(document)) yield return level;
+
             // How far its hot water comes along the pipes from what heats it - what is drawn off cold before it runs hot.
             if (Mep.MepSystems.MemberOf(document, this, Mep.SystemKind.HotWater) is { } hot && Mep.PipeNetworks.PipesOf(document, hot).Count > 0)
                 yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.HotWaterRun, () =>
@@ -664,7 +759,19 @@ public sealed class Component : Element, IHostedElement
                         : "No pipe reaches it yet");
         }
 
+        // An access point to a drain: its cover, the drain's invert under it, how deep that is - and which of Table 13's kinds that makes it.
+        if (type?.Form == ComponentForm.DrainAccess)
+            foreach (var level in DrainLevels(document)) yield return level;
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
+    }
+
+    private IEnumerable<ParameterValue> DrainLevels(BimDocument document)
+    {
+        var levels = new Lazy<(double Cover, double Invert)?>(() => Mep.Drainage.Levels(document, this));
+        yield return ParameterValue.ReadOnly(ComponentParameters.CoverLevel, () => levels.Value is { } at ? Units.FormatLength(at.Cover) : "<no drain under it>");
+        yield return ParameterValue.ReadOnly(ComponentParameters.InvertLevel, () => levels.Value is { } at ? Units.FormatLength(at.Invert) : "<no drain under it>");
+        yield return ParameterValue.ReadOnly(ComponentParameters.DepthToInvert, () => levels.Value is { } at ? Units.FormatLength(at.Cover - at.Invert) : string.Empty);
     }
 }
 
@@ -718,6 +825,9 @@ public static class ComponentTypeParameters
     public static readonly ParameterDefinition HotWater =
         new("Hot Water", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 
+    public static readonly ParameterDefinition Access =
+        new("Access Point", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition FlowRate =
         new("Flow Rate (l/min)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 
@@ -735,6 +845,27 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition WasherWater =
         new("Water Use (l/kg dry load)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition RatedOutput =
+        new("Heat Output at ΔT50 (W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition HeatExponent =
+        new("Output Exponent n", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FloorOutput =
+        new("Floor Output (W/m²K over the room)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FloorOutputLimit =
+        new("Most Floor Output (W/m²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition PipeSpacing =
+        new("Pipe Spacing", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition HeatOutput =
+        new("Heat Output (W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition CoilOutput =
+        new("Coil Output (W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class ComponentParameters
@@ -786,4 +917,13 @@ public static class ComponentParameters
 
     public static readonly ParameterDefinition Height =
         new("Height", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition CoverLevel =
+        new("Cover Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition InvertLevel =
+        new("Invert Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition DepthToInvert =
+        new("Depth to Invert", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
 }

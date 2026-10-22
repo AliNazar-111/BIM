@@ -17,19 +17,23 @@ public sealed class SplitPipeCommand : IUndoableCommand
     private readonly Point2D _at;
     private readonly double _atOffset;
 
-    public SplitPipeCommand(BimDocument document, Pipe pipe, Point2D at)
+    /// <param name="height">For an upright pipe - a stack - the height above its level it is cut at; a pipe along the storey is cut where it passes the point.</param>
+    public SplitPipeCommand(BimDocument document, Pipe pipe, Point2D at, double? height = null)
     {
         _document = document;
         _pipe = pipe;
         (_end, _endOffset) = (pipe.End, pipe.EndOffset);
         var length = pipe.Start.DistanceTo(pipe.End);
-        var t = length < 1e-9 ? 0 : Math.Clamp(pipe.Start.DistanceTo(at) / length, 0, 1);
+        var rise = pipe.EndOffset - pipe.StartOffset;
+        var t = pipe.Upright && height is { } z && Math.Abs(rise) > 1e-9
+            ? Math.Clamp((z - pipe.StartOffset) / rise, 0, 1)
+            : length < 1e-9 ? 0 : Math.Clamp(pipe.Start.DistanceTo(at) / length, 0, 1);
         _at = pipe.Start + (pipe.End - pipe.Start) * t;
         _atOffset = pipe.StartOffset + (pipe.EndOffset - pipe.StartOffset) * t;
         Second = new Pipe
         {
             TypeId = pipe.TypeId, LevelId = pipe.LevelId, Start = _at, End = _end, StartOffset = _atOffset, EndOffset = _endOffset,
-            Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId, PhaseCreated = pipe.PhaseCreated, Workset = pipe.Workset
+            Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId, Return = pipe.Return, PhaseCreated = pipe.PhaseCreated, Workset = pipe.Workset
         };
     }
 

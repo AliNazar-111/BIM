@@ -60,6 +60,10 @@ public static class ServicesPlans
 
             // A pipe in its own colour on its discipline's plan; faint on the others.
             if (element is Pipe pipe) return pipe.Kind.Discipline() == discipline ? default : faint;
+
+            // The drains' chambers, outfalls and soakaways, and air admittance valves, are the plumbing's.
+            if (element is Component { Category: BuiltInCategory.Drainage } || element is Component valve && document.FindType<ComponentType>(valve.TypeId)?.Form == ComponentForm.AirAdmittanceValve)
+                return discipline == Discipline.Plumbing ? connected : faint;
             if (element is not Component component || !MepSystems.ConnectorsOf(document, component).Any(connector => connector.Kind.Discipline() == discipline))
                 return faint;
             return MepSystems.OpenKinds(document, component).Any(kind => kind.Discipline() == discipline) ? open : connected;

@@ -166,6 +166,23 @@ public static class Connectors
                 return connectors;
             }
 
+            case ComponentForm.HeatPump:
+                // A monobloc unit outside: its heating flow and return out of the back, low, through the wall to the house; its power.
+                return new[]
+                {
+                    Pipe("Heating Flow", SystemKind.Heating, ConnectorFlow.Out, 28, -Math.Min(150, halfW * 0.4), -halfD, Math.Min(250, h * 0.3), Back) with { Feeds = true },
+                    Pipe("Heating Return", SystemKind.Heating, ConnectorFlow.In, 28, Math.Min(150, halfW * 0.4), -halfD, Math.Min(250, h * 0.3), Back),
+                    Cable("Power", halfW - Math.Min(80, halfW * 0.3), -halfD, h * 0.6, Back)
+                };
+
+            case ComponentForm.UnderfloorHeating:
+                // The loop's two ends at the back of it, where they go off to the manifold.
+                return new[]
+                {
+                    Pipe("Flow", SystemKind.Heating, ConnectorFlow.In, 16, -Math.Min(40, halfW * 0.3), -halfD, 0, Back),
+                    Pipe("Return", SystemKind.Heating, ConnectorFlow.Out, 16, Math.Min(40, halfW * 0.3), -halfD, 0, Back)
+                };
+
             case ComponentForm.HotWaterCylinder:
                 // Cold in at the bottom, hot out of the top; the boiler's coil through it, flow in high and return out low; its immersion heater.
                 return new[]
@@ -176,6 +193,14 @@ public static class Connectors
                     Pipe("Coil Return", SystemKind.Heating, ConnectorFlow.Out, 22, w * 0.25, -halfD, h * 0.2, Back),
                     Cable("Immersion Heater", 0, halfD, h * 0.6, Front)
                 };
+
+            case ComponentForm.FoulOutfall:
+                // Where the foul drain meets the sewer: the root its drains run to.
+                return new[] { Pipe("Sewer", SystemKind.Foul, ConnectorFlow.In, 100, 0, 0, 0, Down) with { Feeds = true } };
+
+            case ComponentForm.SurfaceWaterOutfall:
+            case ComponentForm.Soakaway:
+                return new[] { Pipe(type.Form == ComponentForm.Soakaway ? "Soakaway" : "Sewer", SystemKind.Rainwater, ConnectorFlow.In, 100, 0, 0, 0, Down) with { Feeds = true } };
 
             case ComponentForm.StopValve:
                 return new[] { Pipe("Cold Main", SystemKind.ColdWater, ConnectorFlow.Out, 22, 0, 0, h, Up) with { Feeds = true } };

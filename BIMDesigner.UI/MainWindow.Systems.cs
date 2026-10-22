@@ -28,7 +28,7 @@ public partial class MainWindow
     /// <summary>The categories a fitting of the services is placed from, in the order the Fitting menu lists them.</summary>
     private static readonly BuiltInCategory[] ServiceCategories =
     {
-        BuiltInCategory.PlumbingFixtures, BuiltInCategory.MechanicalEquipment, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.ElectricalEquipment,
+        BuiltInCategory.PlumbingFixtures, BuiltInCategory.Drainage, BuiltInCategory.MechanicalEquipment, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.ElectricalEquipment,
         BuiltInCategory.ElectricalFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.LightingFixtures, BuiltInCategory.FireAlarmDevices
     };
 
@@ -38,7 +38,9 @@ public partial class MainWindow
         var menu = new ContextMenu { PlacementTarget = FittingButton, Placement = PlacementMode.Bottom };
         foreach (var category in ServiceCategories)
         {
-            var types = _document.TypesOf<ComponentType>().Where(type => type.Kind == category && Connectors.Of(type).Count > 0).OrderBy(type => type.Name).ToList();
+            var types = _document.TypesOf<ComponentType>()
+                .Where(type => type.Kind == category && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage || type.Form == ComponentForm.AirAdmittanceValve))
+                .OrderBy(type => type.Name).ToList();
             if (types.Count == 0) continue;
             var group = new MenuItem { Header = EnumText.Humanise(category) };
             foreach (var type in types)
@@ -135,6 +137,7 @@ public partial class MainWindow
         PipeOffsetBox.Text = Core.Units.FormatLength(Plan.NewPipeOffset);
         PipeKindPicker.ItemsSource = PipeKinds.Select(kind => kind.Title()).ToList();
         PipeKindPicker.SelectedItem = Plan.NewPipeKind.Title();
+        PipeFallBox.Text = Plan.NewPipeFall.ToString("0.#");
         _loadingOptions = false;
     }
 
@@ -149,6 +152,7 @@ public partial class MainWindow
             Plan.NewPipeOffset = offset;
         if (PipeKinds.FirstOrDefault(kind => kind.Title() == PipeKindPicker.SelectedItem as string) is var picked && picked.Title() == PipeKindPicker.SelectedItem as string)
             Plan.NewPipeKind = picked;
+        if (double.TryParse(PipeFallBox.Text, out var fall) && fall is > 0 and <= 200) Plan.NewPipeFall = fall;
         ShowPipeOptions();
     }
 
@@ -169,7 +173,55 @@ public partial class MainWindow
         }
 
         _history.Execute(new SetPipeSizesCommand(sized));
-        StatusHint.Text = $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized as BS EN 806-3 asks, by the loading units of the draw-offs beyond each.";
+        StatusHint.Text = $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre.";
+    }
+
+    private HeatLossWindow? _heatLossWindow;
+
+    private void OnHeatLoss(object sender, RoutedEventArgs e) => OpenHeatLoss();
+
+    /// <summary>The Heat Loss window: each room's heat loss and what heats it, the building's load and its heat sources.</summary>
+    internal HeatLossWindow OpenHeatLoss()
+    {
+        if (_heatLossWindow is { IsLoaded: true })
+        {
+            _heatLossWindow.Activate();
+            return _heatLossWindow;
+        }
+
+        _heatLossWindow = new HeatLossWindow(this);
+        if (IsLoaded) _heatLossWindow.Owner = this;
+        _heatLossWindow.Show();
+        return _heatLossWindow;
+    }
+
+    private void OnSizeRadiators(object sender, RoutedEventArgs e) => StatusHint.Text = SizeRadiators();
+
+    /// <summary>Sizes every room's radiators to its heat loss as one step to undo, and says what it did.</summary>
+    internal string SizeRadiators()
+    {
+        var (command, changed, unmet) = Heating.SizeRadiators(_document);
+        if (command is not null) _history.Record(command);
+        var said = changed > 0
+            ? $"{changed} radiator{(changed == 1 ? string.Empty : "s")} sized to {(changed == 1 ? "its room's" : "their rooms'")} heat loss at {(changed == 1 ? "its" : "their")} zone's temperatures."
+            : !_document.All<Component>().Any(component => _document.FindType<ComponentType>(component.TypeId)?.Form == ComponentForm.Radiator)
+                ? "There are no radiators to size: place them in the rooms from Systems → Fitting."
+                : unmet.Count == 0 ? "Every room's radiators give its heat loss already." : "No radiator changed.";
+        return unmet.Count == 0 ? said : $"{said} Short still - {string.Join("; ", unmet)}: another radiator, less heat lost or a warmer flow.";
+    }
+
+    /// <summary>Long Section: the run through the drain selected, from its head to its outfall, in a window of its own.</summary>
+    private void OnDrainSection(object sender, RoutedEventArgs e)
+    {
+        var picked = Plan.SelectedElements.OfType<Pipe>().FirstOrDefault(pipe => Drainage.IsDrainage(pipe.Kind));
+        if (picked is null || DrainSections.Through(_document, picked) is not { } section)
+        {
+            StatusHint.Text = "Select a foul or rainwater drain below the ground, on a system with an outfall, then Long Section.";
+            return;
+        }
+
+        new DrainSectionWindow(section) { Owner = IsLoaded ? this : null }.Show();
+        StatusHint.Text = $"{section.System.Name}: {section.Length / 1000:0.0} m of drain, {section.Accesses.Count} access point{(section.Accesses.Count == 1 ? string.Empty : "s")} along it.";
     }
 
     /// <summary>The system to act on: the one selected, or the one a fitting selected is on, or the one picked in the System Browser.</summary>
@@ -225,7 +277,7 @@ public partial class MainWindow
     /// <summary>Selects what was picked in the System Browser: a fitting on its own storey's plan, a system for its Properties.</summary>
     internal void SelectFromBrowser(Element? element)
     {
-        if (element is Component fitting && _document.FindLevel(fitting.LevelId) is { } level && level.Id != Plan.ActiveLevelId)
+        if (element is not null and not MepSystem && _document.FindLevel(element.LevelId) is { } level && level.Id != Plan.ActiveLevelId)
             LevelPicker.SelectedItem = level;
         Plan.Select(element);
         RefreshProperties();

@@ -17,6 +17,12 @@ public sealed class RoomBoundaryResult
     /// <summary>The walls that bound the room, in order around it - not the room separation lines that do.</summary>
     public required IReadOnlyList<Wall> BoundingWalls { get; init; }
 
+    /// <summary>
+    /// The wall along each side of the outline - side i running from corner i to the next - or
+    /// none where a room separation line bounds it.
+    /// </summary>
+    public IReadOnlyList<Wall?> Sides { get; init; } = Array.Empty<Wall?>();
+
     /// <summary>The columns standing in the room that its area has been taken out for.</summary>
     public IReadOnlyList<Column> BoundingColumns { get; init; } = Array.Empty<Column>();
 
@@ -149,6 +155,9 @@ public static class RoomBoundary
             IsEnclosed = true,
             Polygon = polygon,
             BoundingWalls = loop.Select(edge => edge.Segment.Wall).OfType<Wall>().Distinct().ToList(),
+
+            // Corner i is where edge i meets edge i + 1, so the side from it runs along edge i + 1.
+            Sides = loop.Select((_, i) => loop[(i + 1) % loop.Count].Segment.Wall).ToList(),
             BoundingColumns = columns.Select(entry => entry.Column).ToList(),
             Area = Math.Max(0, Polygon2D.Area(polygon) - columns.Sum(entry => Math.Abs(Polygon2D.Area(entry.Outline)))),
             Perimeter = Polygon2D.Perimeter(polygon) + columns.Sum(entry => Polygon2D.Perimeter(entry.Outline)),

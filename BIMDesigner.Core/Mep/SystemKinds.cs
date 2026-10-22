@@ -27,6 +27,9 @@ public enum SystemKind
     HotWater,
     Heating,
     Foul,
+
+    /// <summary>Rainwater from the roofs, down the downpipes and away in drains of its own.</summary>
+    Rainwater,
     Gas,
     ExtractAir,
     Power,
@@ -74,6 +77,7 @@ public static class SystemKinds
         SystemKind.HotWater => "Hot Water",
         SystemKind.Heating => "Heating",
         SystemKind.Foul => "Foul Water",
+        SystemKind.Rainwater => "Rainwater",
         SystemKind.Gas => "Gas",
         SystemKind.ExtractAir => "Extract Air",
         SystemKind.Power => "Power",
@@ -92,7 +96,7 @@ public static class SystemKinds
 
     public static Discipline Discipline(this SystemKind kind) => kind switch
     {
-        SystemKind.ColdWater or SystemKind.HotWater or SystemKind.Foul => Mep.Discipline.Plumbing,
+        SystemKind.ColdWater or SystemKind.HotWater or SystemKind.Foul or SystemKind.Rainwater => Mep.Discipline.Plumbing,
         SystemKind.Heating or SystemKind.Gas or SystemKind.ExtractAir => Mep.Discipline.Mechanical,
         _ => Mep.Discipline.Electrical
     };
@@ -124,6 +128,8 @@ public static class SystemKinds
         SystemKind.Heating => "a boiler",
         SystemKind.Gas => "the gas meter",
         SystemKind.Power => "a consumer unit",
+        SystemKind.Foul => "an outfall to the foul sewer",
+        SystemKind.Rainwater => "an outfall - a soakaway, or the surface water sewer",
         _ => null
     };
 
@@ -134,6 +140,7 @@ public static class SystemKinds
         SystemKind.HotWater => new ColourRgb(0xE0, 0x45, 0x3A),
         SystemKind.Heating => new ColourRgb(0xE8, 0x86, 0x2A),
         SystemKind.Foul => new ColourRgb(0x8B, 0x5A, 0x2B),
+        SystemKind.Rainwater => new ColourRgb(0x2B, 0xA8, 0x9E),
         SystemKind.Gas => new ColourRgb(0xD4, 0xB0, 0x00),
         SystemKind.ExtractAir => new ColourRgb(0x8E, 0x6C, 0xC9),
         SystemKind.Power => new ColourRgb(0xD0, 0x36, 0x8F),
