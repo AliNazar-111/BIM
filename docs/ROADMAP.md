@@ -5,8 +5,8 @@ Spec section references are in brackets.
 
 Status: ✅ done · 🔨 in progress · ⬜ not started
 
-*Brought up to date on 19 October 2026. What comes next is set out in rounds at the end of
-the phases.*
+*Brought up to date on 22 October 2026. What comes next is set out in rounds at the end of
+the phases; the building services in their own rounds, M1 to M8, after them.*
 
 ---
 
@@ -42,16 +42,16 @@ test before the next begins.
 | **1.3s** | **Spline, freeform and double-slanted walls** — walls along a smooth curve clicked point by point or drawn freehand, open or closed into a loop, reshaped by their points; walls bent partway up, leaning one way below a break and another above it; plan, joins, section, 3D, split, mirror, offset and saving follow | §3.1 | ✅ |
 | **1.4** | **Hosting** — doors and windows in walls, automatic openings, host delete cascades, plan symbols | §2.5 §3.5 §13.2 §13.3 | ✅ |
 | **1.5** | **Rooms** — auto-detect bounding elements, area/perimeter/volume traced from the walls, room tags, unenclosed detection, headroom under roofs | §3.7 §13.4 | ✅ |
-| 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy | §3.7 | ⬜ |
+| 1.5b | Room separation lines for open plans, colour-fill legends by department or occupancy - **room separators** done (Round 12); colour fills to come | §3.7 | 🔨 |
 | **1.6** | **Floors, ceilings and flat roofs** — layered build-ups sharing the wall layer system, outline picked from an enclosed space, quantities and persistence | §3.2 §3.3 §3.4 | ✅ |
 | 1.6b | Free-sketched slab outlines, slab openings and shafts, slab edges, span direction - **shafts** cutting floors, ceilings and roofs, holes of any shape in roofs, floors dividing the walls through them and stopping at the walls they meet, floors and ceilings sketched with holes of their own (Edit Boundary), span direction, and slab edges (thickened edges, edge beams, kerbs) run along a floor's edges done | §3.2 | ✅ |
 | **1.6c** | **Pitched roofs** — slope per edge, pitch and eave height per edge, cutoff, hip/gable/shed/dutch/cross-gable shapes, ridge/hip/valley generation, plan/section/3D, takeoff by sloping area, `IfcRoof`. Built in steps R1–R10 of [ROOFS.md](ROOFS.md): done so far are sketch mode with Pick Walls and overhangs, arcs and cones, walls attaching to the slope, eave cuts, slope arrows, roof by extrusion (gambrel, barrel vault), Join Roof, openings and dormer openings, the one-click Dormer tool, fascias, gutters, soffits and downpipes, roof windows, chimneys, shafts, and flat roofs falling to their drains; still to come are By Face openings, joining an extruded roof to another, flat-roof shape editing, and the last sketch tools listed in ROOFS.md (tangent arcs, locked lines) | §3.3 | 🔨 |
 | **1.7** | **Levels and grids** — plan shows one storey, level switching, gridlines with bubbles, snapping to grid crossings | §2.3 | ✅ |
 | **1.7b** | **Levels** — add, rename, move and delete storeys (with cascade and one-step undo), underlay of the storey below | §2.3 §6.1 | ✅ |
 | **1.8** | **Schedules and quantity takeoff** — tabular views, fields, filters, sorting, grouping with subtotals, bidirectional editing, material takeoff, CSV export | §6.4 | ✅ |
-| 1.8b | User-defined schedules, calculated fields, conditional formatting, key schedules | §6.4 | ⬜ |
+| 1.8b | User-defined schedules, calculated fields, conditional formatting, key schedules - all but key schedules done (Round 4) | §6.4 | 🔨 |
 | **1.9** | **Annotation** — associative dimensions, tags that read a parameter, text notes with leaders | §6.3 | ✅ |
-| 1.9b | Dimension styles, angular/radial dimensions, multi-segment strings, keynotes and a keynote database, revision clouds | §6.3 | ⬜ |
+| **1.9b** | **Dimension styles, angular/radial dimensions, multi-segment strings, keynotes and a keynote database, revision clouds** (Round 4) | §6.3 | ✅ |
 | **1.10a** | **Sections** — section markers on plan, live cut through walls, slabs and openings, levels as datums, what lies beyond the cut shown in elevation, selection shared with the plan | §6.1 §6.2 | ✅ |
 | **1.10b** | **3D viewport** — walls as their real layers with openings cut through, slabs at their elevations, glazing and door leaves, orbit/pan/zoom, shaded / flat / X-ray styles, per-storey visibility, click to select | §6.1 §6.2 | ✅ |
 | **1.10d** | **3D views** — named 3D views and cameras keeping their camera, style, section box and what they show; section box with handles, the cut solids closed; shaded, flat, X-ray, wireframe and hidden-line styles; perspective or orthographic; walking through the model at eye height; walkthroughs played frame by frame and exported as video; 3D views on sheets as hidden-line or painted vector drawings | §6.1 §6.2 | ✅ |
@@ -90,8 +90,10 @@ Beams of steel, timber, glulam and concrete and joist layouts are built, measure
 stair headroom and doorways and checked for their span. Structural columns - steel, timber,
 glulam, concrete - and footings - strips under walls, pads under columns - are built, their
 loads taken down from the model and checked against Approved Documents A and B and the IRC
-(Round 8). Still to come: rafts and piles, rebar, analytical model; ducts, pipes, electrical,
-systems, sizing, connectors, spaces/zones, gbXML. §4 §5
+(Round 8). The services are begun (Round M1): every fitting's connectors, systems made of
+fittings and fed by equipment, heating zones, services plans, and systems and ports in IFC4.
+Still to come: rafts and piles, rebar, analytical model; pipes, ducts and cables, sizing,
+gbXML - in rounds M2 to M8 below. §4 §5
 
 ## Phase 5 — Coordination & nD 🔨
 **Rule checking** is built for homes: every wall, floor, roof, door, window, room, stair, ramp,
@@ -99,12 +101,13 @@ railing, gutter, soffit, chimney, fitting and the dwelling as a whole is checked
 project's standard - Approved Documents B, E, F, H, J, K, L and M (M4(2) and M4(3)), the
 Nationally Described Space Standard and the British Standards they point to, or the IRC and
 the ADA - shown in each element's **Regulations**, room by room, and drawn red in plan.
-Thermal U-values are worked from each build-up's layers (BS EN ISO 6946, ISO 13370). Still to
-come: clash detection, quantity takeoff/5D, 4D scheduling, energy/daylight analysis,
-API/plugins, visual scripting. §9
+Thermal U-values are worked from each build-up's layers (BS EN ISO 6946, ISO 13370). Clash
+detection, the cost plan (5D) and the construction programme (4D) are built (Round 10). Still to
+come: energy/daylight analysis, API/plugins, visual scripting. §9
 
-## Phase 6 — Handover & FM ⬜
-COBie, asset register, O&M documents, maintenance, digital twin/IoT, dashboards. §11
+## Phase 6 — Handover & FM 🔨
+COBie 2.4 is written (Round 6). Still to come: asset register, O&M documents, maintenance,
+digital twin/IoT, dashboards. §11
 
 ---
 
@@ -131,6 +134,26 @@ looked up first, then it is built, tested and written up in the README.
 
 Left until those are done: Phase 3's collaboration, the rest of Phase 4's structure and MEP,
 Phase 6's handover beyond COBie, and Phase 2's textures, rendering and DWG linking.
+
+## The services: rounds M1 to M8
+
+Mechanical, electrical and plumbing - heating, ventilation, water, drainage, power, lighting
+and fire protection - in rounds of their own, homes first, where the rules are modelled
+already, then larger buildings. Each is designed and checked to the UK's rules and the US's.
+
+| Round | What | Checked to | Status |
+| --- | --- | --- | --- |
+| **M1** | **Connections and systems** — every fitting's connectors where pipes, ducts and cables join it, sized as a home's are (a basin's 15 mm hot and cold and 32 mm waste, a WC's 100 mm soil, a radiator's flow and return, a combi's heating, hot water, cold main, gas, condensate and spur), each pointing the way it leaves; a hot water cylinder, the stop valve on the incoming main and the gas meter to run systems from, and system boilers beside combis; systems of cold and hot water, heating zones, foul water, gas, extract air, circuits and the smoke alarms' interlink, made of the fittings selected, a fitting on one system of a kind, fed by the equipment picked or the only one there is - a consumer unit any number of circuits, a boiler any number of zones; Edit System to click fittings on and off, Pick Source; the System Browser by discipline with what is not connected and what is wanting; mechanical, electrical and plumbing plans of each storey, the building faint and the discipline's fittings in its colour, anything not connected red, on sheets like any plan; heating zones as Approved Document L counts them, the rooms each system serves; systems and ports in IFC4. Not done: room design temperatures and air changes for heat loss (M4), switches linked to the lights they work (M6) | IFC4 IfcDistributionSystem, IfcDistributionCircuit and IfcDistributionPort; Approved Documents G (G1, G3), H (H1), L (2021, zones) and B (1.1) with BS 5839-6; IRC R314.4 and R314.6 | ✅ |
+| M2 | **Pipes and water** — pipe types by material (copper, PEX, multilayer, plastic, steel) drawn in plan, section and 3D with their fittings made as they are drawn; valves, pumps and cylinders; hot and cold water sized from loading units; dead legs; water use | BS EN 806-3, BS 8558, Approved Document G; IPC water supply fixture units | ⬜ |
+| M3 | **Drainage** — soil, waste and vent pipes at their falls, with traps, stacks, branches and air admission valves; drains below ground with manholes, inspection chambers, invert levels and long sections; rainwater joined to the downpipes | BS EN 12056-2, BS EN 752, Approved Document H; IPC drainage fixture units | ⬜ |
+| M4 | **Heating** — heat loss room by room from the U-values the model has; radiators and underfloor loops sized to it; boilers, heat pumps and cylinders; heating pipes sized for flow and pressure drop | BS EN 12831-1, MCS MIS 3005-D, BS EN 1264, CIBSE Guide C; ACCA Manual J | ⬜ |
+| M5 | **Ventilation and ducts** — round, rectangular, oval and flexible ducts with fittings; grilles, diffusers, fans and heat recovery units; each room's airflow; ducts sized, a pressure-loss report; fire dampers where ducts cross fire-resisting walls and floors | Approved Documents F and B, BS EN 16798, CIBSE Guide B; ASHRAE 62.2, ACCA Manual D | ⬜ |
+| M6 | **Electrical and lighting** — boards and circuits with their loads, diversity and protective devices; cables sized for current and voltage drop; board and circuit schedules; luminaires with photometric data and lux levels room by room; switches linked to lights; conduit and cable tray checked for fill; data and fire alarm devices | BS 7671, Approved Document P, BS EN 12464-1, BS 5839-6; NEC Articles 210, 220 and 310 | ⬜ |
+| M7 | **Fire protection and gas** — sprinkler heads, their coverage and pipework; gas pipes sized from each appliance's demand back to the meter | BS 9251, BS EN 12845, BS 6891, Approved Document J; NFPA 13D/13R | ⬜ |
+| M8 | **Coordination and handover** — the services in clash tests against the structure, allowing for insulation and access; sleeves and openings cut where they pass walls and floors; hangers and supports at their spacings; the services in IFC4 in and out, COBie, the cost plan (NRM1 group 5) and the programme; gbXML for energy analysis | IFC4, COBie 2.4, NRM1, gbXML | ⬜ |
+
+After M8: plant for larger buildings (air handling units, VAV boxes, chillers), pipes and ducts
+routed by themselves, fabrication detail (spools, shop drawings) and medical gases.
 
 ---
 

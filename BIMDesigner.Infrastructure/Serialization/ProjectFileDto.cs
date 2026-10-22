@@ -115,6 +115,9 @@ internal sealed class ProjectFileDto
     public List<ComponentTypeDto> ComponentTypes { get; set; } = new();
     public List<ComponentDto> Components { get; set; } = new();
 
+    /// <summary>The services' systems: the fittings on each and what feeds it. Missing from older files.</summary>
+    public List<MepSystemDto>? Systems { get; set; }
+
     /// <summary>Architectural columns and their types. Missing from older files.</summary>
     public List<ColumnTypeDto> ColumnTypes { get; set; } = new();
     public List<ColumnDto> Columns { get; set; } = new();
@@ -995,6 +998,9 @@ internal sealed class ComponentTypeDto
     public string? WaterDemand { get; set; }
 
     public double? StemDiameter { get; set; }
+
+    /// <summary>A boiler's hot water, where it heats a cylinder's rather than its own as a combi; none for a combi.</summary>
+    public string? HotWater { get; set; }
 
     /// <summary>A family of your own's solids, in its box.</summary>
     public List<ComponentSolidDto>? Solids { get; set; }
@@ -2123,6 +2129,21 @@ internal sealed class BeamTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class MepSystemDto
+{
+    public Guid Id { get; set; }
+    public string Kind { get; set; } = "ColdWater";
+    public string Name { get; set; } = string.Empty;
+    public Guid? SourceId { get; set; }
+    public List<Guid> Members { get; set; } = new();
+
+    /// <summary>A circuit's use; none for a system that is not a circuit.</summary>
+    public string? Use { get; set; }
+
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class RoomSeparatorDto

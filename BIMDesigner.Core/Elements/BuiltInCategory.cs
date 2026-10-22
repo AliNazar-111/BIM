@@ -115,7 +115,16 @@ public enum BuiltInCategory
     CurtainWallMullions,
 
     /// <summary>Room separation lines: lines that bound rooms where no wall does.</summary>
-    RoomSeparationLines
+    RoomSeparationLines,
+
+    /// <summary>Piping systems: cold and hot water, heating, foul water and gas, each a network of fittings.</summary>
+    PipingSystems,
+
+    /// <summary>Duct systems: the air drawn out by fans and cooker hoods.</summary>
+    DuctSystems,
+
+    /// <summary>Electrical circuits from a consumer unit, and the link between the smoke alarms.</summary>
+    ElectricalCircuits
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

@@ -1071,6 +1071,32 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.HotWaterCylinder:
+            {
+                // A round copper or steel cylinder on its base, its domed top, and the pipe out of the top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h * 0.92, PartFinish.Body, PartShape.Upright);
+                Add(-halfW * 0.8, halfW * 0.8, -halfD * 0.8, halfD * 0.8, h * 0.92, h, PartFinish.Body, PartShape.Upright);
+                Add(-14, 14, -14, 14, h, h + 60, PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.StopValve:
+            {
+                // The valve's brass body on its pipe, and the handle on top.
+                Add(-halfW, halfW, -halfD, halfD, h * 0.35, h * 0.65);
+                Add(-15, 15, -15, 15, 0, h, PartFinish.Metal, PartShape.Upright);
+                Add(-halfW * 0.8, halfW * 0.8, -12, 12, h * 0.75, h * 0.85, PartFinish.Dark);
+                break;
+            }
+
+            case ComponentForm.GasMeter:
+            {
+                // The meter box on the wall, and the meter behind its door.
+                Add(-halfW, halfW, -halfD, halfD - 10, 0, h);
+                Add(-halfW + 10, halfW - 10, halfD - 10, halfD, 10, h - 10, PartFinish.White);
+                break;
+            }
+
             case ComponentForm.Thermostat:
             {
                 // Its plate and the dial on it.
@@ -1215,7 +1241,8 @@ public static class ComponentModel
             type.Form switch
             {
                 ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub or ComponentForm.CeilingLight or ComponentForm.RoundTable
-                    or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.TurningCircle =>
+                    or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.TurningCircle
+                    or ComponentForm.HotWaterCylinder =>
                     frame.Ellipse(-halfW, halfW, -halfD, halfD, 32),
                 ComponentForm.CornerSofa => CornerOf(type) is var (run, turn)
                     ? new[] { frame.Plan(-halfW, -halfD), frame.Plan(halfW, -halfD), frame.Plan(halfW, halfD), frame.Plan(halfW - turn, halfD), frame.Plan(halfW - turn, -halfD + run), frame.Plan(-halfW, -halfD + run) }
@@ -1382,6 +1409,20 @@ public static class ComponentModel
             case ComponentForm.Boiler:
                 // Its flue, seen from above.
                 shapes.Add(frame.Ellipse(-50, 50, -halfD + 40, -halfD + 140, 16));
+                break;
+
+            case ComponentForm.HotWaterCylinder:
+                // The pipe out of its top.
+                shapes.Add(frame.Ellipse(-14, 14, -14, 14, 12));
+                break;
+
+            case ComponentForm.StopValve:
+                shapes.Add(frame.Ellipse(-15, 15, -15, 15, 12));
+                break;
+
+            case ComponentForm.GasMeter:
+                // The door of its box.
+                Inside(-halfW + 10, halfW - 10, halfD - 10, halfD);
                 break;
 
             case ComponentForm.ParkingBay:
@@ -1596,6 +1637,9 @@ public static class ComponentModel
         ComponentForm.ConsumerUnit => "CU",
         ComponentForm.Thermostat => "T",
         ComponentForm.Boiler => "B",
+        ComponentForm.HotWaterCylinder => "HWC",
+        ComponentForm.StopValve => "SV",
+        ComponentForm.GasMeter => "GM",
         ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay => "P",
         ComponentForm.TelevisionUnit => "TV",
         _ => null
@@ -1608,7 +1652,8 @@ public static class ComponentModel
     public static bool DrawnOverhead(ComponentType type) =>
         type.Form is not (ComponentForm.CeilingLight or ComponentForm.WallLight or ComponentForm.Socket or ComponentForm.Switch
             or ComponentForm.ExtractFan or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm
-            or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler);
+            or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler
+            or ComponentForm.StopValve or ComponentForm.GasMeter);
 
     /// <summary>How high a WC's seat is: 420 or so, as a WC's is - the ADA's 17 to 19 in, 430 to 485, on an accessible one made taller.</summary>
     public static double SeatOf(ComponentType type) => Math.Min(type.Height * 0.55, 420);

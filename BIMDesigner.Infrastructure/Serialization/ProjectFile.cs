@@ -6,6 +6,7 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Mep;
 using BIMDesigner.Core.Schedules;
 using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
@@ -1110,6 +1111,7 @@ public static partial class ProjectFile
                 Efficacy = type.Efficacy > 0 ? type.Efficacy : null,
                 WaterDemand = type.WaterDemand == TreeWaterDemand.Unknown ? null : type.WaterDemand.ToString(),
                 StemDiameter = type.StemDiameter > 0 ? type.StemDiameter : null,
+                HotWater = type.Form == ComponentForm.Boiler && type.HotWater != BoilerHotWater.Combi ? type.HotWater.ToString() : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -1157,6 +1159,17 @@ public static partial class ProjectFile
                 PhaseCreated = component.PhaseCreated.ToString(),
                 PhaseDemolished = component.PhaseDemolished?.ToString()
             });
+
+        // The systems, with only the fittings still in the model on them.
+        var systems = document.All<MepSystem>().Select(system => new MepSystemDto
+        {
+            Id = system.Id, Kind = system.Kind.ToString(), Name = system.Name,
+            SourceId = document.Find<Component>(system.SourceId)?.Id,
+            Members = system.Members.Where(id => document.Find<Component>(id) is not null).Distinct().ToList(),
+            Use = system.Kind == SystemKind.Power ? system.Use.ToString() : null,
+            Mark = system.Mark, Comments = system.Comments
+        }).ToList();
+        dto.Systems = systems.Count > 0 ? systems : null;
 
         foreach (var room in document.All<Room>())
             dto.Rooms.Add(new RoomDto
@@ -2653,6 +2666,7 @@ public static partial class ProjectFile
                 Efficacy = type.Efficacy is >= 0 and < 1000 ? type.Efficacy.Value : 0,
                 WaterDemand = ParseEnum(type.WaterDemand, TreeWaterDemand.Unknown),
                 StemDiameter = type.StemDiameter is >= 0 and < 10000 ? type.StemDiameter.Value : 0,
+                HotWater = ParseEnum(type.HotWater, BoilerHotWater.Combi),
                 Mesh = MeshFrom(type.Mesh),
                 MaterialId = type.MaterialId,
                 Colour = ParseColour(type.Colour, new ColourRgb(0xB4, 0x9A, 0x74)),
@@ -2706,6 +2720,21 @@ public static partial class ProjectFile
                     ? null
                     : ParseEnum(component.PhaseDemolished, DesignPhase.Existing)
             });
+        }
+
+        // The services' systems, on the fittings that came with them - a fitting on one system of a kind at most.
+        foreach (var saved in dto.Systems ?? new List<MepSystemDto>())
+        {
+            if (!Enum.TryParse<SystemKind>(saved.Kind, out var kind)) continue;
+            var system = new MepSystem
+            {
+                Id = saved.Id, Kind = kind, Name = string.IsNullOrWhiteSpace(saved.Name) ? MepSystems.NextName(document, kind) : saved.Name,
+                Use = ParseEnum(saved.Use, CircuitUse.Other), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            foreach (var id in (saved.Members ?? new List<Guid>()).Distinct())
+                if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);
+            if (document.Find<Component>(saved.SourceId) is { } source && MepSystems.WhyNotSource(document, source, system) is null) system.SourceId = source.Id;
+            document.Add(system);
         }
 
         foreach (var room in dto.Rooms)

@@ -545,6 +545,7 @@ public partial class MainWindow : Window
 
         // A section or sheet of the last project is not one of this: their panels close, rather than stand empty.
         OnCloseSection(this, new RoutedEventArgs());
+        Plan.ActiveDiscipline = Core.Mep.Discipline.Architectural;
         OnCloseSheet(this, new RoutedEventArgs());
 
         Model3D.Document = document;
@@ -4372,7 +4373,9 @@ public partial class MainWindow : Window
     {
         PlanTitle.Text = Plan.ActiveCallout is { } open
             ? $"Callout: {open.Name}"
-            : _document.FindLevel(Plan.ActiveLevelId) is { } shown ? $"Floor Plan: {shown.Name}" : "Floor Plan";
+            : _document.FindLevel(Plan.ActiveLevelId) is { } shown
+                ? Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural ? $"Floor Plan: {shown.Name}" : $"{Core.Mep.ServicesPlans.Title(Plan.ActiveDiscipline)}: {shown.Name}"
+                : "Floor Plan";
         RefreshPlanScale();
 
         var project = new TreeViewItem
@@ -4393,7 +4396,7 @@ public partial class MainWindow : Window
                 .Select(group => $"{group.Count()} {(group.Count() == 1 ? CategoryTitle(group.Key).TrimEnd('s') : CategoryTitle(group.Key)).ToLowerInvariant()}")
                 .ToList();
 
-            var isActive = level.Id == Plan.ActiveLevelId;
+            var isActive = level.Id == Plan.ActiveLevelId && Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural;
 
             var item = new TreeViewItem
             {
@@ -4409,8 +4412,9 @@ public partial class MainWindow : Window
             {
                 if (item.Tag is not Core.Datums.Level picked) return;
 
-                // The whole plan, not a callout of it.
+                // The whole plan, not a callout of it - and the storey's own, not one of its services plans.
                 Plan.ActiveCallout = null;
+                Plan.ActiveDiscipline = Core.Mep.Discipline.Architectural;
                 LevelPicker.SelectedItem = picked;
                 ShowPlanView();
                 args.Handled = true;
@@ -4516,6 +4520,7 @@ public partial class MainWindow : Window
             materials.Items.Add(new TreeViewItem { Header = material.Name });
 
         project.Items.Add(plans);
+        project.Items.Add(ServicesPlansItem());
         project.Items.Add(elevations);
 
         // The {3D} view, the cameras' and those saved by name; and the walkthroughs.
@@ -4719,6 +4724,15 @@ public partial class MainWindow : Window
 
         foreach (var level in _document.Levels.OrderByDescending(level => level.Elevation))
             options.Add(new SheetViewOption($"{level.Name} Plan", ViewReference.FloorPlan(level.Id)));
+
+        // Each storey's services plans, once there are services to draw on them.
+        if (_document.All<Core.Architecture.Component>().Any(component => Core.Mep.MepSystems.IsFitting(_document, component)))
+            foreach (var discipline in new[] { Core.Mep.Discipline.Mechanical, Core.Mep.Discipline.Electrical, Core.Mep.Discipline.Plumbing })
+                foreach (var level in _document.Levels.OrderByDescending(level => level.Elevation))
+                {
+                    var plan = Core.Mep.ServicesPlans.Plan(level.Id, discipline);
+                    options.Add(new SheetViewOption(plan.TitleIn(_document), plan));
+                }
 
         foreach (var marker in _document.All<SectionMarker>().OrderBy(marker => marker.Name))
             options.Add(new SheetViewOption($"Section {marker.Name}", ViewReference.Section(marker.Id)));

@@ -102,7 +102,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
         return Kind switch
         {
             ViewKind.FloorPlan => document.FindLevel(targetId) is { } level
-                ? $"{level.Name} Plan"
+                ? $"{level.Name} {Mep.ServicesPlans.Title(Mep.ServicesPlans.Of(this))}"
                 : "Plan - missing level",
 
             ViewKind.Section => document.All<SectionMarker>()

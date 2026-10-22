@@ -125,7 +125,23 @@ public enum ComponentForm
     TurningCircle,
 
     // A gas boiler on the wall: what a carbon monoxide alarm is put up by.
-    Boiler
+    Boiler,
+
+    // The services' equipment: a hot water cylinder, the stop valve on the incoming water main,
+    // and the gas meter - what the systems run from.
+    HotWaterCylinder,
+    StopValve,
+    GasMeter
+}
+
+/// <summary>
+/// Where a boiler's hot water comes from: heated as it is drawn, by a combi - or stored, in a
+/// cylinder the boiler heats through its coil.
+/// </summary>
+public enum BoilerHotWater
+{
+    Combi,
+    Cylinder
 }
 
 /// <summary>
@@ -223,6 +239,9 @@ public sealed class ComponentType : ElementType
     /// <summary>For a tree, its stem's diameter 1.5 m up, mm - what its root protection area is measured from; none where not known.</summary>
     public double StemDiameter { get; set; }
 
+    /// <summary>For a boiler, whether it heats the hot water as it is drawn - a combi - or a cylinder's.</summary>
+    public BoilerHotWater HotWater { get; set; }
+
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
 
@@ -252,7 +271,8 @@ public sealed class ComponentType : ElementType
     public ComponentType Duplicate(string name) => WithCommonOf(new ComponentType(name, Kind, Form, Width, Depth, Height)
     {
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
-        Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter
+        Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
+        HotWater = HotWater
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -320,6 +340,13 @@ public sealed class ComponentType : ElementType
                 EnumText.Choices<TreeWaterDemand>());
             yield return ParameterValue.BindValidated(ComponentTypeParameters.StemDiameter, () => StemDiameter, v => { if (v < 0) return false; StemDiameter = v; return true; });
         }
+
+        if (Form == ComponentForm.Boiler)
+            yield return ParameterValue.BindChoice(
+                ComponentTypeParameters.HotWater,
+                () => EnumText.Humanise(HotWater),
+                v => { if (EnumText.TryParse<BoilerHotWater>(v, out var hot)) HotWater = hot; },
+                EnumText.Choices<BoilerHotWater>());
 
         if (Form == ComponentForm.Shower)
             yield return ParameterValue.BindChoice(
@@ -591,6 +618,15 @@ public sealed class Component : Element, IHostedElement
         yield return ParameterValue.ReadOnly(ComponentParameters.Depth, () => type?.Depth ?? 0);
         yield return ParameterValue.ReadOnly(ComponentParameters.Height, () => type?.Height ?? 0);
 
+        // A fitting of the services: the systems it is on, and what it is not connected to yet.
+        if (type is not null && Mep.Connectors.Of(type).Count > 0)
+        {
+            yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.Systems, () =>
+                Mep.MepSystems.SystemsOf(document, this).Select(system => system.Name).ToList() is { Count: > 0 } names ? string.Join(", ", names) : "<none>");
+            yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.NotConnected, () =>
+                Mep.MepSystems.OpenKinds(document, this).Select(kind => Mep.SystemKinds.Title(kind)).ToList() is { Count: > 0 } open ? string.Join(", ", open) : "Nothing");
+        }
+
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 }
@@ -641,6 +677,9 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition StemDiameter =
         new("Stem Diameter", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition HotWater =
+        new("Hot Water", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class ComponentParameters

@@ -73,6 +73,8 @@ public static class ElementCopy
 
         foreach (var copy in copies) Redirect(copy, replacements);
 
+        // A system copied without any of its fittings is nothing.
+        copies.RemoveAll(copy => copy is Mep.MepSystem { Members.Count: 0, SourceId: null });
         return copies;
     }
 
@@ -337,6 +339,7 @@ public static class ElementCopy
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
+        Mep.MepSystem system => CarryCommon(Members(new Mep.MepSystem { Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use }, system.Members), system),
         Beam beam => CarryCommon(new Beam
         {
             Start = beam.Start, End = beam.End, StartOffset = beam.StartOffset, EndOffset = beam.EndOffset,
@@ -583,8 +586,24 @@ public static class ElementCopy
     /// Points a copy's references at the other copies, where those were part of the same
     /// operation. Anything referring outside the set keeps pointing where it did.
     /// </summary>
+    private static Mep.MepSystem Members(Mep.MepSystem system, IEnumerable<Guid> members)
+    {
+        system.Members.AddRange(members);
+        return system;
+    }
+
     private static void Redirect(Element copy, IReadOnlyDictionary<Guid, Guid> replacements)
     {
+        // A system copied with its fittings is a system of the copies - a fitting is on one system of a kind,
+        // so those left behind stay off it - fed by the copy of its source, or by nothing until one is picked.
+        if (copy is Mep.MepSystem system)
+        {
+            var members = system.Members.Where(replacements.ContainsKey).Select(id => replacements[id]).ToList();
+            system.Members.Clear();
+            system.Members.AddRange(members);
+            system.SourceId = system.SourceId is { } source && replacements.TryGetValue(source, out var copied) ? copied : null;
+        }
+
         // Walls copied with the roof they stand on or carry go with the copy of it.
         if (copy is Wall attached)
         {

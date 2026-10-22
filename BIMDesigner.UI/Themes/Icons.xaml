@@ -563,6 +563,44 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M16,5 L16,27"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- The services: a radiator on its valves; fittings joined into a system from what feeds
+         them; a system being changed; the list of systems; a plan with its pipes over it. -->
+    <DrawingImage x:Key="Icon.Fitting"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M5,7 L27,7 L27,23 L5,23 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M9,9 L9,21 M13,9 L13,21 M17,9 L17,21 M21,9 L21,21"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Orange}" Geometry="M7,23 L7,28 M25,23 L25,28"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.MakeSystem"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M8,8 L8,24 L24,24 M8,16 L24,16 M8,8 L24,8"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Line}" Geometry="M4,4 L12,4 L12,12 L4,12 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M21,5 L27,5 L27,11 L21,11 Z M21,13 L27,13 L27,19 L21,19 Z M21,21 L27,21 L27,27 L21,27 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.EditSystem"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M6,8 L6,24 L16,24 M6,16 L16,16 M6,8 L16,8"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M18,26 L19,21 L27,13 L30,16 L22,24 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.SystemBrowser"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M5,4 L27,4 L27,28 L5,28 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M9,9 L9,23 M9,13 L13,13 M9,18 L13,18 M9,23 L13,23"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M15,13 L23,13"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M15,18 L23,18"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Orange}" Geometry="M15,23 L23,23"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.ServicesPlan"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M4,5 L28,5 L28,27 L4,27 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M8,22 L8,10 L24,10"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M12,22 L12,15 L24,15"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Room"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Room}" Pen="{StaticResource Stroke}" Geometry="M4,5 L28,5 L28,27 L4,27 Z"/>

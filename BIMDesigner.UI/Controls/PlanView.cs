@@ -35,6 +35,12 @@ public enum PlanTool
     Room,
     RoomSeparator,
 
+    /// <summary>Clicks fittings on and off the system being edited.</summary>
+    EditSystem,
+
+    /// <summary>Picks the equipment that feeds the system being edited.</summary>
+    PickSource,
+
     /// <summary>Places a component of a loadable family: furniture, casework, a fixture.</summary>
     Component,
 
@@ -715,7 +721,7 @@ public partial class PlanView : FrameworkElement
     };
 
     /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
-    public ViewReference CurrentView => ActiveCallout is { } callout ? Callouts.Reference(callout) : ViewReference.FloorPlan(ActiveLevelId);
+    public ViewReference CurrentView => ActiveCallout is { } callout ? Callouts.Reference(callout) : BIMDesigner.Core.Mep.ServicesPlans.Plan(ActiveLevelId, ActiveDiscipline);
 
     /// <summary>
     /// The spacebar: flips the wall being drawn, or failing that every selected wall.
@@ -1185,6 +1191,7 @@ public partial class PlanView : FrameworkElement
 
         ActiveTool = tool;
         CancelPendingOperation();
+        if (tool is not (PlanTool.EditSystem or PlanTool.PickSource)) EditingSystem = null;
 
         if (!IsSketching && tool is PlanTool.Roof or PlanTool.Floor or PlanTool.Ceiling)
         {
@@ -2192,6 +2199,14 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.RoomSeparator:
                 ClickRoomSeparator(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.EditSystem:
+                ClickSystemMember(raw);
+                return;
+
+            case PlanTool.PickSource:
+                ClickSystemSource(raw);
                 return;
 
             case PlanTool.Terrain:
@@ -6171,6 +6186,7 @@ public partial class PlanView : FrameworkElement
         DrawRailingPreview(dc);
         DrawBeamPreview(dc);
         DrawRoomSeparatorPreview(dc);
+        DrawSystems(dc);
         DrawGroundPreview(dc);
         DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);

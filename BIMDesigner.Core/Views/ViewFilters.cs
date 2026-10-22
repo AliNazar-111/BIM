@@ -280,11 +280,14 @@ public sealed class ViewSettings
             .Select(use => (Filter: document.ParameterFilters.FirstOrDefault(filter => filter.Id == use.FilterId), Use: use))
             .Where(entry => entry.Filter is not null).ToList();
 
+        // A services plan: the building faint under its own discipline's fittings.
+        var services = Mep.ServicesPlans.StyleFor(document, Mep.ServicesPlans.Of(view));
+
         return element =>
         {
-            var style = default(ElementStyle);
+            var style = services?.Invoke(element) ?? default;
             if (!Phasing.IsAnnotation(element.Category) && Phasing.StatusIn(element, phase) is { } status && Phasing.Display(phaseFilter, status) == PhaseDisplay.Overridden)
-                style = Phasing.Override(status);
+                style = style.Then(Phasing.Override(status));
             foreach (var (filter, use) in styling)
                 if (filter!.Picks(document, element)) style = style.Then(new ElementStyle(use.Halftone, use.Colour));
             return style;

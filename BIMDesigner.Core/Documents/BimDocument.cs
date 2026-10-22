@@ -2008,6 +2008,30 @@ public sealed class BimDocument
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
             },
 
+            // A system boiler, which heats a cylinder's hot water through its coil rather than as it is drawn.
+            new ComponentType("Boiler - Gas System", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
+            {
+                TypeMark = "M8", Colour = white, Cost = 1600m, HotWater = BoilerHotWater.Cylinder,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
+            },
+
+            // What the systems run from: an unvented cylinder of 210 litres, the stop valve where the
+            // main comes in, and the gas meter in its box on the outside wall.
+            new ComponentType("Hot Water Cylinder - Unvented 210 l", BuiltInCategory.MechanicalEquipment, ComponentForm.HotWaterCylinder, 580, 580, 1480)
+            {
+                TypeMark = "M9", Colour = white, Cost = 1150m, AgainstWall = true
+            },
+            new ComponentType("Stop Valve - Incoming Main", BuiltInCategory.PlumbingFixtures, ComponentForm.StopValve, 100, 80, 150)
+            {
+                TypeMark = "P15", Colour = new ColourRgb(0xB8, 0x8A, 0x3C), Cost = 25m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 300
+            },
+            new ComponentType("Gas Meter Box - Surface", BuiltInCategory.MechanicalEquipment, ComponentForm.GasMeter, 470, 240, 540)
+            {
+                TypeMark = "M10", Colour = white, Cost = 150m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 500
+            },
+
             // Alarms on the ceiling: smoke, heat - for a kitchen - and carbon monoxide.
             new ComponentType("Smoke Alarm", BuiltInCategory.FireAlarmDevices, ComponentForm.SmokeAlarm, 110, 110, 45)
             {

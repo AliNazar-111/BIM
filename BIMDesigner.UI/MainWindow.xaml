@@ -611,6 +611,52 @@
                     </StackPanel>
                 </TabItem>
 
+                <!-- ============================= SYSTEMS ============================= -->
+                <!-- The building services: fittings placed, joined into systems from what feeds
+                     them, and each storey's mechanical, electrical and plumbing plans. -->
+                <TabItem Header="Systems" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Fittings" Style="{StaticResource RibbonPanel}">
+                            <Button x:Name="FittingButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Fitting}"
+                                    Content="Fitting" Click="OnPlaceFitting"
+                                    ToolTip="Place a fitting of the services: a basin, WC, bath, shower or sink; a radiator, boiler, cylinder, stop valve or gas meter; a socket, switch, light, consumer unit or alarm. Each has its connectors - hot and cold, waste, flow and return, power - to join systems by"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Systems" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="MakeSystemButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.MakeSystem}"
+                                        Content="Make System" Click="OnMakeSystem"
+                                        ToolTip="Select fittings, then make a system of them: cold or hot water, a heating zone, foul water, gas, extract air, a circuit or the alarms' interlink. What feeds it - a boiler, cylinder, stop valve, gas meter or consumer unit - is picked with them, or found if the model has only one"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EditSystem}"
+                                            Content="Edit System" Click="OnEditSystem"
+                                            ToolTip="Click fittings on and off the system selected - or the one a fitting selected is on. Esc when done"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EditSystem}"
+                                            Content="Pick Source" Click="OnPickSource"
+                                            ToolTip="Click the equipment that feeds the system selected: a boiler, a cylinder, the stop valve, the gas meter, a consumer unit"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SystemBrowser}"
+                                            Content="System Browser" Click="OnSystemBrowser"
+                                            ToolTip="Every system by discipline, with its fittings and what feeds it; the fittings not connected yet; and what the rules ask that is wanting - Approved Documents G, H, L and B, BS 5839-6, the IRC"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Plans" Style="{StaticResource RibbonPanel}">
+                            <StackPanel>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ServicesPlan}"
+                                        Content="Mechanical Plan" Click="OnServicesPlan" CommandParameter="Mechanical"
+                                        ToolTip="This storey's mechanical plan: heating, gas and extract air over the building drawn faint, anything not connected in red"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ServicesPlan}"
+                                        Content="Electrical Plan" Click="OnServicesPlan" CommandParameter="Electrical"
+                                        ToolTip="This storey's electrical plan: circuits and the alarms' interlink over the building drawn faint, anything not connected in red"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ServicesPlan}"
+                                        Content="Plumbing Plan" Click="OnServicesPlan" CommandParameter="Plumbing"
+                                        ToolTip="This storey's plumbing plan: cold and hot water and foul water over the building drawn faint, anything not connected in red"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
                 <!-- ============================== SITE ============================== -->
                 <TabItem Header="Site" Style="{StaticResource RibbonTab}">
                     <StackPanel Orientation="Horizontal">

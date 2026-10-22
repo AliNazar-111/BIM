@@ -69,7 +69,7 @@ public sealed class IfcExportOptions
 /// rather than as triangles, because every element in this model genuinely is an extruded
 /// outline. A tessellated export would throw away the fact that a wall is a wall.
 /// </summary>
-public static class IfcExport
+public static partial class IfcExport
 {
     /// <summary>Our model is millimetres, and so is the file. Nothing is scaled on the way out.</summary>
     private const double Precision = 1e-5;
@@ -130,7 +130,7 @@ public static class IfcExport
     /// material stands for one of ours - and threading those through arguments obscures what
     /// each step is doing.
     /// </summary>
-    private sealed class Exporter
+    private sealed partial class Exporter
     {
         private readonly IfcStore _model;
         private readonly BimDocument _document;
@@ -189,8 +189,7 @@ public static class IfcExport
             ExportGrids();
             ExportClassifications();
             ExportProgramme();
-
-            _ = building;
+            ExportSystems(building);
         }
 
         /// <summary>
@@ -2153,7 +2152,7 @@ public static class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Proxy }
+        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2173,6 +2172,9 @@ public static class IfcExport
             ComponentForm.ConsumerUnit => ComponentClass.Board,
             ComponentForm.Thermostat => ComponentClass.Control,
             ComponentForm.Boiler => ComponentClass.Boiler,
+            ComponentForm.HotWaterCylinder => ComponentClass.Tank,
+            ComponentForm.StopValve => ComponentClass.Valve,
+            ComponentForm.GasMeter => ComponentClass.Meter,
             _ => type.Kind switch
             {
                 BuiltInCategory.Furniture or BuiltInCategory.Casework => ComponentClass.Furniture,
@@ -2258,6 +2260,12 @@ public static class IfcExport
                     control.PredefinedType = Xbim.Ifc4.Interfaces.IfcUnitaryControlElementTypeEnum.THERMOSTAT),
                 ComponentClass.Boiler => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcBoiler>(component, type, meshes, boiler =>
                     boiler.PredefinedType = Xbim.Ifc4.Interfaces.IfcBoilerTypeEnum.WATER),
+                ComponentClass.Tank => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcTank>(component, type, meshes, tank =>
+                    tank.PredefinedType = Xbim.Ifc4.Interfaces.IfcTankTypeEnum.STORAGE),
+                ComponentClass.Valve => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcValve>(component, type, meshes, valve =>
+                    valve.PredefinedType = Xbim.Ifc4.Interfaces.IfcValveTypeEnum.STOPCOCK),
+                ComponentClass.Meter => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcFlowMeter>(component, type, meshes, meter =>
+                    meter.PredefinedType = Xbim.Ifc4.Interfaces.IfcFlowMeterTypeEnum.GASMETER),
                 _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
             };
 
@@ -2277,6 +2285,9 @@ public static class IfcExport
                 ComponentClass.Board => "Pset_ElectricDistributionBoardTypeCommon",
                 ComponentClass.Control => "Pset_UnitaryControlElementTypeCommon",
                 ComponentClass.Boiler => "Pset_BoilerTypeCommon",
+                ComponentClass.Tank => "Pset_TankTypeCommon",
+                ComponentClass.Valve => "Pset_ValveTypeCommon",
+                ComponentClass.Meter => "Pset_FlowMeterTypeCommon",
                 _ => "Pset_BuildingElementProxyCommon"
             };
             WriteSet((IfcObject)product, common, new Dictionary<string, IfcValue?>
