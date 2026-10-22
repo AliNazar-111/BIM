@@ -60,6 +60,7 @@ public sealed partial class PlanRenderer
     private readonly Pen _openPanelPen;
     private readonly Pen _glassPen;
     private readonly Pen _roomPen;
+    private readonly Pen _roomSeparatorPen;
     private readonly Pen _slabPen;
     private readonly Pen _roofLinePen;
     private readonly Pen _roofSlopePen;
@@ -127,6 +128,7 @@ public sealed partial class PlanRenderer
         _glassPen = RenderPens.Solid(ink.Glass, 1.4);
 
         _roomPen = RenderPens.Dashed(ink.RoomOutline, 1.0, 3, 3);
+        _roomSeparatorPen = RenderPens.Solid(ink.RoomOutline, 1.0);
         _slabPen = RenderPens.Dashed(ink.SlabOutline, 1.0, 8, 4);
 
         // Contours in an earth brown: the minor ones fine, every fifth heavier and labelled.
@@ -318,7 +320,13 @@ public sealed partial class PlanRenderer
         }
 
         if (!underlay)
+        {
             foreach (var room in OnActiveLevel<Room>()) Styled(dc, room, d => DrawRoomFill(d, room));
+
+            // The lines rooms are bounded by where no wall is: thin, in the rooms' own ink.
+            foreach (var separator in OnActiveLevel<RoomSeparator>())
+                Styled(dc, separator, d => d.DrawLine(IsSelected(separator) ? _selectedPen : _roomSeparatorPen, ModelToScreen(separator.Start), ModelToScreen(separator.End)));
+        }
 
         // Footings are under the floor: drawn hidden, dashed, under the walls standing on them.
         if (Document is not null)

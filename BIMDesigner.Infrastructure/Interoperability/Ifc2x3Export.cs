@@ -503,7 +503,7 @@ public static class Ifc2x3Export
                 u.ForLayerSet = set;
                 u.LayerSetDirection = direction == LayerDirection.Axis2 ? IfcLayerSetDirectionEnum.AXIS2 : IfcLayerSetDirectionEnum.AXIS3;
                 u.DirectionSense = flipped ? IfcDirectionSenseEnum.NEGATIVE : IfcDirectionSenseEnum.POSITIVE;
-                u.OffsetFromReferenceLine = direction == LayerDirection.Axis2 ? -structure.TotalWidth / 2 : 0;
+                u.OffsetFromReferenceLine = direction == LayerDirection.Axis2 ? (flipped ? 1 : -1) * structure.TotalWidth / 2 : 0;
             });
             New<IfcRelAssociatesMaterial>(r => { r.RelatingMaterial = usage; r.RelatedObjects.Add(element); });
         }

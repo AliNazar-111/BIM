@@ -50,9 +50,10 @@ public static class ElementTransforms
         Stair => true,
         Ramp => true,
 
-        // A railing runs where it was drawn, on whatever floor is under it; a beam spans where it was drawn.
+        // A railing runs where it was drawn, on whatever floor is under it; a beam spans where it was drawn; a room separator divides where it was drawn.
         Railing => true,
         Beam => true,
+        RoomSeparator => true,
 
         // The ground, with its spot levels; a region of it, and a joist layout, with their outlines.
         Toposurface or GroundRegion or BeamSystem => true,
@@ -140,6 +141,10 @@ public static class ElementTransforms
 
             case Beam beam:
                 (beam.Start, beam.End) = (beam.Start + delta, beam.End + delta);
+                break;
+
+            case RoomSeparator separator:
+                (separator.Start, separator.End) = (separator.Start + delta, separator.End + delta);
                 break;
 
             case Toposurface ground:
@@ -375,6 +380,10 @@ public static class ElementTransforms
 
             case Beam beam:
                 (beam.Start, beam.End) = (Reflect(beam.Start), Reflect(beam.End));
+                break;
+
+            case RoomSeparator separator:
+                (separator.Start, separator.End) = (Reflect(separator.Start), Reflect(separator.End));
                 break;
 
             case Toposurface ground:
@@ -654,6 +663,10 @@ public static class ElementTransforms
 
             case Beam beam:
                 (beam.Start, beam.End) = (map(beam.Start), map(beam.End));
+                break;
+
+            case RoomSeparator separator:
+                (separator.Start, separator.End) = (map(separator.Start), map(separator.End));
                 break;
 
             case Toposurface ground:

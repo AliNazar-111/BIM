@@ -305,6 +305,10 @@ public sealed class Sheet : Element
             .Select(viewport => Footprint(document, viewport))
             .ToList();
 
+        // The first on an empty sheet goes in the middle of the drawing area, where a drawing is put; those after it fit round it.
+        if (others.Count == 0 && width <= area.Width + 1e-9 && height + band <= area.Height + 1e-9)
+            return new Point2D(area.Centre.X, area.Centre.Y + band / 2);
+
         for (var top = area.MaxY; top - height - band >= area.MinY - 1e-9; top -= step)
         {
             for (var left = area.MinX; left + width <= area.MaxX + 1e-9; left += step)

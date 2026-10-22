@@ -171,7 +171,7 @@ public static class ClashDetective
         BuiltInCategory.Sections or BuiltInCategory.Sheets or BuiltInCategory.Profiles or BuiltInCategory.Views or BuiltInCategory.Elevations or
         BuiltInCategory.Callouts or BuiltInCategory.ViewTemplates or BuiltInCategory.RevisionClouds or BuiltInCategory.KeynoteTags or
         BuiltInCategory.SpotElevations or BuiltInCategory.PropertyLines or BuiltInCategory.Masses or BuiltInCategory.Topography or
-        BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings or BuiltInCategory.Entourage);
+        BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings or BuiltInCategory.Entourage or BuiltInCategory.RoomSeparationLines);
 
     /// <summary>Each element's solid, from its 3D meshes - a curtain panel's with its wall.</summary>
     // What one build of the model is made into for clash tests, kept with it: the tests run on it in turn find it made.

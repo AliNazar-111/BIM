@@ -375,6 +375,13 @@ public static partial class ProjectFile
                 Mark = beam.Mark, Comments = beam.Comments
             });
 
+        foreach (var separator in document.All<RoomSeparator>())
+            dto.RoomSeparators.Add(new RoomSeparatorDto
+            {
+                Id = separator.Id, LevelId = separator.LevelId, StartX = separator.Start.X, StartY = separator.Start.Y, EndX = separator.End.X, EndY = separator.End.Y,
+                PhaseCreated = separator.PhaseCreated.ToString(), Mark = separator.Mark, Comments = separator.Comments
+            });
+
         foreach (var railing in document.All<Railing>())
             dto.Railings.Add(new RailingDto
             {
@@ -2415,6 +2422,19 @@ public static partial class ProjectFile
                 Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Start = start, End = end,
                 StartOffset = double.IsFinite(saved.StartOffset) ? saved.StartOffset : 0, EndOffset = double.IsFinite(saved.EndOffset) ? saved.EndOffset : 0,
                 Justification = ParseEnum(saved.Justification, BeamJustification.Top), Usage = ParseEnum(saved.Usage, BeamUsage.Beam),
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+        }
+
+        // A room separator between its ends; one with no length is nothing.
+        foreach (var saved in (dto.RoomSeparators ?? new List<RoomSeparatorDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null
+                     && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY }.All(double.IsFinite)))
+        {
+            var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
+            if (start.DistanceTo(end) < 1) continue;
+            document.Add(new RoomSeparator
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Start = start, End = end, PhaseCreated = ParseEnum(saved.PhaseCreated, DesignPhase.New),
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
         }

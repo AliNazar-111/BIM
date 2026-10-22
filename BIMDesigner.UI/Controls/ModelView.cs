@@ -707,11 +707,12 @@ public partial class ModelView : Border
         var dy = (bounds.Max.Y - bounds.Min.Y) / MillimetresPerUnit;
         var dz = (bounds.Max.Z - bounds.Min.Z) / MillimetresPerUnit;
 
-        // Far enough back that a sphere round the whole model fits the narrower field of view.
+        // Far enough back that a sphere round the whole model fits the narrower field of view. WPF's
+        // field of view is across the view; up and down it is narrower by the view's width over its height.
         var radius = Math.Sqrt(dx * dx + dy * dy + dz * dz) / 2;
         var aspect = ActualHeight > 0 ? ActualWidth / ActualHeight : 1;
         var halfAngle = FieldOfView / 2 * Math.PI / 180;
-        var narrowest = aspect >= 1 ? halfAngle : Math.Atan(Math.Tan(halfAngle) * aspect);
+        var narrowest = Math.Min(halfAngle, Math.Atan(Math.Tan(halfAngle) / aspect));
 
         _distance = Math.Max(radius / Math.Sin(narrowest) * 1.08, 1);
         _hasFitted = true;

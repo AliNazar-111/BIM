@@ -63,6 +63,7 @@ internal sealed class ProjectFileDto
     public List<RailingDto> Railings { get; set; } = new();
     public List<BeamTypeDto> BeamTypes { get; set; } = new();
     public List<BeamDto> Beams { get; set; } = new();
+    public List<RoomSeparatorDto> RoomSeparators { get; set; } = new();
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
     public List<SitePadDto> SitePads { get; set; } = new();
@@ -2122,6 +2123,19 @@ internal sealed class BeamTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class RoomSeparatorDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public string PhaseCreated { get; set; } = "New";
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class BeamDto

@@ -6,7 +6,7 @@
         xmlns:controls="clr-namespace:BIMDesigner.UI.Controls"
         xmlns:vm="clr-namespace:BIMDesigner.UI.ViewModels"
         mc:Ignorable="d"
-        Title="BIMDesigner 0.1" Height="740" Width="1220"
+        Title="BIMDesigner" Height="740" Width="1220"
         MinHeight="420" MinWidth="880"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Bg.Window}"
@@ -551,10 +551,11 @@
                             <StackPanel>
                                 <RadioButton x:Name="RoomTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Room}"
                                              Content="Room" Checked="OnToolChanged" ToolTip="Place a room in an enclosed space (R)"/>
-                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Level}"
-                                        Content="Level" Click="OnManageLevels" ToolTip="Add, rename, move and delete storeys"/>
+                                <RadioButton x:Name="RoomSeparatorTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.RoomSeparator}"
+                                             Content="Separator" Checked="OnToolChanged"
+                                             ToolTip="Room Separator: draw a line rooms are bounded by where there is no wall - between a kitchen and the living room it opens onto, across an alcove, along an open office"/>
                                 <RadioButton x:Name="GridTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Grid}"
-                                             Content="Grid" Checked="OnToolChanged" ToolTip="Draw a setting-out gridline (G)"/>
+                                             Content="Grid" Checked="OnToolChanged" ToolTip="Draw a setting-out gridline (G). Storeys are added and changed under Manage > Levels"/>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>
@@ -1630,18 +1631,18 @@
                               Click="OnRoofDefinesSlopeChanged"
                               ToolTip="The roof rises from this line. Off, the roof is cut off here - a gable end. All four lines of a box sloping make a hip roof; two opposite ones a gable"/>
                     <TextBlock x:Name="RoofSlopeLabel" Text="Slope" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBox x:Name="RoofSlopeBox" Width="70" VerticalAlignment="Center"
+                    <TextBox x:Name="RoofSlopeBox" MinWidth="70" VerticalAlignment="Center"
                              LostFocus="OnRoofSlopeChanged" KeyDown="OnRoofSlopeKey"
                              ToolTip="The pitch the roof rises at from a sloping line"/>
                     <TextBlock x:Name="RoofOverhangLabel" Text="Overhang" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="RoofOverhangBox" Width="70" VerticalAlignment="Center"
+                    <TextBox x:Name="RoofOverhangBox" MinWidth="70" VerticalAlignment="Center"
                              LostFocus="OnRoofOverhangChanged" KeyDown="OnRoofOverhangKey"
                              ToolTip="How far a picked roof edge stands out from its wall - the eaves. The roof still bears on the wall, so the overhang drops below the plate"/>
                     <CheckBox x:Name="RoofExtendToCoreBox" Content="Extend to wall core" VerticalAlignment="Center" Margin="12,0,0,0"
                               Click="OnRoofExtendToCoreChanged"
                               ToolTip="Measure the overhang from the wall's core instead of its finish face"/>
                     <TextBlock x:Name="RoofOffsetLabel" Text="Offset" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="RoofOffsetBox" Width="70" VerticalAlignment="Center"
+                    <TextBox x:Name="RoofOffsetBox" MinWidth="70" VerticalAlignment="Center"
                              LostFocus="OnRoofOffsetChanged" KeyDown="OnRoofOffsetKey"
                              ToolTip="How far Pick Lines sets a picked line off, and how far Offset moves a line - toward the side the cursor is on"/>
                     <CheckBox x:Name="RoofOffsetCopyBox" Content="Copy" VerticalAlignment="Center" Margin="12,0,0,0"
@@ -1651,7 +1652,7 @@
                               SelectionChanged="OnRoofAlignModeChanged"
                               ToolTip="Adjust Height brings an eave to the height by raising or lowering its plate. Adjust Overhang keeps the plate and runs the eave out or in until it lands there - for lines picked from walls"/>
                     <TextBlock x:Name="RoofSidesLabel" Text="Sides" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="RoofSidesBox" Width="44" VerticalAlignment="Center"
+                    <TextBox x:Name="RoofSidesBox" MinWidth="44" VerticalAlignment="Center"
                              LostFocus="OnRoofSidesChanged" KeyDown="OnRoofSidesKey"
                              ToolTip="How many sides a polygon outline has"/>
 
@@ -1662,11 +1663,11 @@
                                   SelectionChanged="OnRoofArrowSpecifyChanged"
                                   ToolTip="Slope: a pitch rising from the tail. Height at Tail: a height at each end, the pitch worked out between them"/>
                         <TextBlock Text="Tail" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                        <TextBox x:Name="RoofArrowTailBox" Width="70" VerticalAlignment="Center"
+                        <TextBox x:Name="RoofArrowTailBox" MinWidth="70" VerticalAlignment="Center"
                                  LostFocus="OnRoofArrowTailChanged" KeyDown="OnRoofArrowTailKey"
                                  ToolTip="Height of the surface at the arrow's tail, above the roof's base (Height Offset at Tail)"/>
                         <TextBlock x:Name="RoofArrowHeadLabel" Text="Head" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                        <TextBox x:Name="RoofArrowHeadBox" Width="70" VerticalAlignment="Center"
+                        <TextBox x:Name="RoofArrowHeadBox" MinWidth="70" VerticalAlignment="Center"
                                  LostFocus="OnRoofArrowHeadChanged" KeyDown="OnRoofArrowHeadKey"
                                  ToolTip="Height of the surface at the arrow's head, above the roof's base (Height Offset at Head)"/>
                     </StackPanel>
@@ -1679,16 +1680,16 @@
                               SelectionChanged="OnDormerOptionChanged"
                               ToolTip="Gable: two slopes to a ridge running up the roof. Shed: one shallow slope falling to the front. Hip: slopes on the front and both sides"/>
                     <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="DormerWidthBox" Width="70" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                    <TextBox x:Name="DormerWidthBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="Across the dormer, between its side walls' centres"/>
                     <TextBlock Text="Height" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="DormerHeightBox" Width="70" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                    <TextBox x:Name="DormerHeightBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="How high the front wall stands above the roof, up to its eaves. Lowered to what fits under the ridge where it would not"/>
                     <TextBlock Text="Slope" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="DormerSlopeBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                    <TextBox x:Name="DormerSlopeBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="The pitch of the dormer's own roof"/>
                     <TextBlock Text="Overhang" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="DormerOverhangBox" Width="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
+                    <TextBox x:Name="DormerOverhangBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnDormerOptionChanged" KeyDown="OnDormerOptionKey"
                              ToolTip="How far the dormer's roof stands out past its walls"/>
                 </StackPanel>
 
@@ -1710,10 +1711,10 @@
                               SelectionChanged="OnStairOptionChanged"
                               ToolTip="Which way it turns, going up"/>
                     <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="StairWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
+                    <TextBox x:Name="StairWidthBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
                              ToolTip="Its clear width between its strings"/>
                     <TextBlock x:Name="StairRadiusLabel" Text="Inside radius" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="StairRadiusBox" Width="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
+                    <TextBox x:Name="StairRadiusBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnStairOptionChanged" KeyDown="OnStairWidthKey"
                              ToolTip="How far its inside edge is from its centre: a spiral's column, a curve's well. 0 for the usual - a 120 column, or 1500"/>
                 </StackPanel>
 
@@ -1735,13 +1736,13 @@
                               SelectionChanged="OnRampOptionChanged"
                               ToolTip="A dwelling's ramp is held to Approved Document M Volume 1 - 900 wide, landings 1200; any other building's to Volume 2 - 1500 between kerbs, landings 1500, handrails both sides and a kerb. Under the ADA, the same rules for both"/>
                     <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="RampWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
+                    <TextBox x:Name="RampWidthBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
                              ToolTip="Its clear width between its kerbs or handrails"/>
                     <TextBlock Text="Gradient 1 :" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="RampGradientBox" Width="40" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
+                    <TextBox x:Name="RampGradientBox" MinWidth="40" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
                              ToolTip="How steep it is, as one in so many: 12 is the steepest a ramp may be; 15 and 20 are gentler, with longer flights between landings. 20 or more is a sloping path, not a ramp"/>
                     <TextBlock Text="Rise" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="RampRiseBox" Width="60" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
+                    <TextBox x:Name="RampRiseBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnRampOptionChanged" KeyDown="OnRampOptionKey"
                              ToolTip="How high it rises. Auto: from the ground up to this storey's floor - or, going down from a floor's edge, down to the ground; 450 where there is no ground to measure to"/>
                 </StackPanel>
 
@@ -1765,13 +1766,13 @@
                               DisplayMemberPath="Name" SelectionChanged="OnBeamOptionChanged"
                               ToolTip="Its section: a steel universal beam or wide flange, C24 timber, GL24h glulam, or concrete"/>
                     <TextBlock Text="Offset" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="BeamOffsetBox" Width="60" VerticalAlignment="Center" LostFocus="OnBeamOptionChanged"
+                    <TextBox x:Name="BeamOffsetBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnBeamOptionChanged"
                              ToolTip="How far above this level its top is: 0 for its top at the level, under the floor; minus to hang it lower"/>
                 </StackPanel>
 
                 <StackPanel x:Name="TerrainOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Elevation" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <TextBox x:Name="GroundElevationBox" Width="70" VerticalAlignment="Center" LostFocus="OnGroundOptionChanged"
+                    <TextBox x:Name="GroundElevationBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnGroundOptionChanged"
                              ToolTip="How high the next spot level is above this level, mm - minus for below it"/>
                     <Button Content="Import Points..." Margin="12,0,0,0" Padding="8,2" VerticalAlignment="Center" Click="OnImportGroundPoints"
                             ToolTip="Read spot levels from a points file: x, y and height on each line, comma, semicolon, tab or space between them. Where two fall on the same place, the higher is kept"/>
@@ -1786,7 +1787,7 @@
                     <CheckBox x:Name="RegionPathBox" Content="Path" VerticalAlignment="Center" Margin="12,0,0,0" Click="OnRegionOptionChanged"
                               ToolTip="Draw a path along its middle, so wide, rather than an outline"/>
                     <TextBlock Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="PathWidthBox" Width="60" VerticalAlignment="Center" LostFocus="OnRegionOptionChanged"
+                    <TextBox x:Name="PathWidthBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnRegionOptionChanged"
                              ToolTip="How wide the path is: 900 at least for an approach to a door (Approved Document M)"/>
                 </StackPanel>
 
@@ -1795,10 +1796,10 @@
                     <ComboBox x:Name="PadSurfacePicker" Style="{StaticResource OptionCombo}" MinWidth="100" SelectionChanged="OnPadOptionChanged"
                               ToolTip="What it is laid as"/>
                     <TextBlock Text="Height" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="PadOffsetBox" Width="60" VerticalAlignment="Center" LostFocus="OnPadOptionChanged"
+                    <TextBox x:Name="PadOffsetBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnPadOptionChanged"
                              ToolTip="How high it is above this level, mm - minus for below: 150 below the floor keeps the damp-proof course clear"/>
                     <TextBlock Text="Batter 1 :" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="PadBatterBox" Width="40" VerticalAlignment="Center" LostFocus="OnPadOptionChanged"
+                    <TextBox x:Name="PadBatterBox" MinWidth="40" VerticalAlignment="Center" LostFocus="OnPadOptionChanged"
                              ToolTip="The side slope it is battered back to the ground at, so many along to one up: 2 for earth, 3 for a slope to mow; 0 for a sheer edge, held by a wall"/>
                 </StackPanel>
 
@@ -1810,20 +1811,20 @@
                     <ComboBox x:Name="MassTopPicker" Width="90" VerticalAlignment="Center" SelectionChanged="OnMassOptionChanged"
                               ToolTip="Flat; tapered to a smaller top or a point; or sloping up to a gable, a hip or a shed"/>
                     <TextBlock Text="Height" VerticalAlignment="Center" Margin="10,0,6,0"/>
-                    <TextBox x:Name="MassHeightBox" Width="64" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
+                    <TextBox x:Name="MassHeightBox" MinWidth="64" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
                              ToolTip="How high it rises - to its top, or its eaves under a sloping top - mm"/>
                     <TextBlock x:Name="MassPitchLabel" Text="Pitch" VerticalAlignment="Center" Margin="10,0,6,0"/>
-                    <TextBox x:Name="MassPitchBox" Width="44" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
+                    <TextBox x:Name="MassPitchBox" MinWidth="44" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
                              ToolTip="The pitch of a gable, hip or shed top, degrees"/>
                     <TextBlock x:Name="MassScaleLabel" Text="Top scale" VerticalAlignment="Center" Margin="10,0,6,0"/>
-                    <TextBox x:Name="MassScaleBox" Width="44" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
+                    <TextBox x:Name="MassScaleBox" MinWidth="44" VerticalAlignment="Center" LostFocus="OnMassOptionChanged"
                              ToolTip="How big a tapered top is beside its footprint: 0 to a point, 0.5 half as big"/>
                 </StackPanel>
 
                 <StackPanel x:Name="PropertyLineOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Property line" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="Setback" VerticalAlignment="Center" Margin="6,0,6,0"/>
-                    <TextBox x:Name="SetbackBox" Width="60" VerticalAlignment="Center" LostFocus="OnPropertyLineOptionChanged"
+                    <TextBox x:Name="SetbackBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnPropertyLineOptionChanged"
                              ToolTip="How far in from it the building is to be kept, mm - as a planning condition or a covenant sets it; 0 for none"/>
                 </StackPanel>
 
@@ -1833,7 +1834,7 @@
                               DisplayMemberPath="Name" SelectionChanged="OnJoistOptionChanged"
                               ToolTip="The joists' section: C24 timber, glulam, steel"/>
                     <TextBlock Text="Spacing" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="JoistSpacingBox" Width="60" VerticalAlignment="Center" LostFocus="OnJoistOptionChanged"
+                    <TextBox x:Name="JoistSpacingBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnJoistOptionChanged"
                              ToolTip="Centre to centre: 400 is usual for a floor, 600 for a roof; 16 in (406) in the US"/>
                 </StackPanel>
 
@@ -1850,10 +1851,10 @@
                 <StackPanel x:Name="FaceOpeningOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Opening" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="Width" VerticalAlignment="Center" Margin="6,0,6,0"/>
-                    <TextBox x:Name="FaceOpeningWidthBox" Width="70" VerticalAlignment="Center" LostFocus="OnFaceOpeningOptionChanged" KeyDown="OnFaceOpeningOptionKey"
+                    <TextBox x:Name="FaceOpeningWidthBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnFaceOpeningOptionChanged" KeyDown="OnFaceOpeningOptionKey"
                              ToolTip="Across the slope"/>
                     <TextBlock Text="Length" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="FaceOpeningLengthBox" Width="70" VerticalAlignment="Center" LostFocus="OnFaceOpeningOptionChanged" KeyDown="OnFaceOpeningOptionKey"
+                    <TextBox x:Name="FaceOpeningLengthBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnFaceOpeningOptionChanged" KeyDown="OnFaceOpeningOptionKey"
                              ToolTip="Up the slope, measured on the roof's face rather than in plan"/>
                 </StackPanel>
 
@@ -1863,10 +1864,10 @@
                               SelectionChanged="OnShaftOptionChanged"
                               ToolTip="Rectangle: a chimney, stairwell or lift shaft. Round: a flue or pipe sleeve"/>
                     <TextBlock x:Name="ShaftWidthLabel" Text="Width" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="ShaftWidthBox" Width="70" VerticalAlignment="Center" LostFocus="OnShaftOptionChanged" KeyDown="OnShaftOptionKey"
+                    <TextBox x:Name="ShaftWidthBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnShaftOptionChanged" KeyDown="OnShaftOptionKey"
                              ToolTip="Across the shaft, along the project's X axis; a round one's diameter"/>
                     <TextBlock x:Name="ShaftDepthLabel" Text="Depth" VerticalAlignment="Center" Margin="12,0,6,0"/>
-                    <TextBox x:Name="ShaftDepthBox" Width="70" VerticalAlignment="Center" LostFocus="OnShaftOptionChanged" KeyDown="OnShaftOptionKey"
+                    <TextBox x:Name="ShaftDepthBox" MinWidth="70" VerticalAlignment="Center" LostFocus="OnShaftOptionChanged" KeyDown="OnShaftOptionKey"
                              ToolTip="Across the shaft, along the project's Y axis"/>
                 </StackPanel>
 
@@ -1878,7 +1879,7 @@
                           DisplayMemberPath="Name" SelectionChanged="OnActiveSweepTypeChanged"
                           Visibility="Collapsed" ToolTip="The sweep or reveal type to place"/>
 
-                <TextBlock Text="Level" Style="{StaticResource OptionLabel}"/>
+                <TextBlock Text="Level" Style="{StaticResource OptionLabel}" Margin="16,0,8,0"/>
                 <ComboBox x:Name="LevelPicker" Style="{StaticResource OptionCombo}" MinWidth="140"
                           DisplayMemberPath="Name" SelectionChanged="OnActiveLevelChanged"
                           ToolTip="The level new walls are hosted on"/>
@@ -1898,7 +1899,7 @@
                     <ComboBox x:Name="NewWallTopPicker" Style="{StaticResource OptionCombo}" MinWidth="170"
                               SelectionChanged="OnNewWallHeightChanged"
                               ToolTip="Up to a level, so the wall follows it, or unconnected at the height given"/>
-                    <TextBox x:Name="NewWallHeightBox" Width="80" VerticalAlignment="Center" Text="3000 mm"
+                    <TextBox x:Name="NewWallHeightBox" MinWidth="80" VerticalAlignment="Center" Text="3000 mm"
                              Margin="0,0,18,0" LostFocus="OnNewWallHeightChanged"
                              ToolTip="The unconnected height, or the depth below the level"/>
                     <TextBlock Text="Shape" Style="{StaticResource OptionLabel}"/>
@@ -1927,15 +1928,15 @@
                     <CheckBox x:Name="ChainRadiusBox" Content="Radius" VerticalAlignment="Center" Margin="0,0,6,0"
                               Click="OnArcRadiusChanged"
                               ToolTip="Round off every corner of a chain of straight walls at this radius. A fillet arc always uses it"/>
-                    <TextBox x:Name="ArcRadiusBox" Width="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,18,0"
+                    <TextBox x:Name="ArcRadiusBox" MinWidth="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,18,0"
                              LostFocus="OnArcRadiusChanged" KeyDown="OnArcRadiusKey"
                              ToolTip="The radius of a fillet arc, and of the rounded corners of a chain with Radius ticked"/>
                     <StackPanel x:Name="TrapezoidOptions" Orientation="Horizontal" Visibility="Collapsed">
                         <TextBlock Text="Start" Style="{StaticResource OptionLabel}"/>
-                        <TextBox x:Name="TrapezoidStartBox" Width="70" VerticalAlignment="Center" Text="300 mm"
+                        <TextBox x:Name="TrapezoidStartBox" MinWidth="70" VerticalAlignment="Center" Text="300 mm"
                                  LostFocus="OnTrapezoidOptionChanged" ToolTip="How thick it is where it starts"/>
                         <TextBlock Text="End" Style="{StaticResource OptionLabel}"/>
-                        <TextBox x:Name="TrapezoidEndBox" Width="70" VerticalAlignment="Center" Text="150 mm"
+                        <TextBox x:Name="TrapezoidEndBox" MinWidth="70" VerticalAlignment="Center" Text="150 mm"
                                  LostFocus="OnTrapezoidOptionChanged" ToolTip="How thick it is where it ends"/>
                         <TextBlock Text="Straight face" Style="{StaticResource OptionLabel}"/>
                         <ComboBox x:Name="TrapezoidSidePicker" Style="{StaticResource OptionCombo}" MinWidth="80" Margin="0,0,18,0"
@@ -1944,7 +1945,7 @@
                     </StackPanel>
                     <StackPanel x:Name="PolygonOptions" Orientation="Horizontal" Visibility="Collapsed">
                         <TextBlock Text="Sides" Style="{StaticResource OptionLabel}"/>
-                        <TextBox x:Name="PolygonSidesBox" Width="44" VerticalAlignment="Center" Text="6"
+                        <TextBox x:Name="PolygonSidesBox" MinWidth="44" VerticalAlignment="Center" Text="6"
                                  Margin="0,0,12,0" LostFocus="OnPolygonSidesChanged"
                                  ToolTip="3 for a triangle, up to 32"/>
                         <CheckBox x:Name="PolygonInscribedBox" Content="Click a corner" IsChecked="True"
@@ -1952,7 +1953,7 @@
                                   ToolTip="On: the second click is a corner. Off: it is the middle of a side."/>
                     </StackPanel>
                     <TextBlock Text="Offset" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="WallOffsetBox" Width="90" VerticalAlignment="Center"
+                    <TextBox x:Name="WallOffsetBox" MinWidth="90" VerticalAlignment="Center"
                              Text="0 mm" LostFocus="OnWallOffsetChanged" KeyDown="OnWallOffsetKeyDown"
                              ToolTip="Build the wall this far off the line you click, toward its exterior. Negative goes the other way."/>
                     <CheckBox x:Name="AutoJoinBox" Content="Auto Join" VerticalAlignment="Center" Margin="4,0,10,0"
@@ -1974,20 +1975,20 @@
                         <ComboBoxItem Content="Vertical"/>
                     </ComboBox>
                     <TextBlock x:Name="SweepHeightLabel" Text="Offset from base" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="SweepHeightBox" Width="80" VerticalAlignment="Center" Text="0 mm"
+                    <TextBox x:Name="SweepHeightBox" MinWidth="80" VerticalAlignment="Center" Text="0 mm"
                              LostFocus="OnSweepHeightChanged" ToolTip="How high above the wall's base, e.g. 0 for a skirting, 900 for a dado rail"/>
                 </StackPanel>
 
                 <!-- Wall Opening: the size of the next opening cut. -->
                 <StackPanel x:Name="WallOpeningOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Width" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="OpeningWidthBox" Width="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,14,0"
+                    <TextBox x:Name="OpeningWidthBox" MinWidth="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,14,0"
                              LostFocus="OnOpeningSizeChanged"/>
                     <TextBlock Text="Height" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="OpeningHeightBox" Width="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,14,0"
+                    <TextBox x:Name="OpeningHeightBox" MinWidth="80" VerticalAlignment="Center" Text="1000 mm" Margin="0,0,14,0"
                              LostFocus="OnOpeningSizeChanged"/>
                     <TextBlock Text="Sill" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="OpeningSillBox" Width="80" VerticalAlignment="Center" Text="900 mm"
+                    <TextBox x:Name="OpeningSillBox" MinWidth="80" VerticalAlignment="Center" Text="900 mm"
                              LostFocus="OnOpeningSizeChanged" ToolTip="How high its underside is above the wall's base; 0 for a pass-through to the floor"/>
                 </StackPanel>
 
@@ -2034,7 +2035,7 @@
                               SelectionChanged="OnColumnAttachmentChanged"
                               ToolTip="Cut Column stops the column at the face it meets; Do Not Cut carries it on through the target"/>
                     <TextBlock Text="Offset" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="ColumnAttachmentOffsetBox" Width="80" VerticalAlignment="Center"
+                    <TextBox x:Name="ColumnAttachmentOffsetBox" MinWidth="80" VerticalAlignment="Center"
                              Text="0 mm" LostFocus="OnColumnAttachmentOffsetChanged"
                              ToolTip="How far the attached end stops short of the target's face"/>
                 </StackPanel>
@@ -2078,7 +2079,7 @@
 
                 <StackPanel x:Name="OffsetOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Distance" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="OffsetDistanceBox" Width="90" VerticalAlignment="Center"
+                    <TextBox x:Name="OffsetDistanceBox" MinWidth="90" VerticalAlignment="Center"
                              Text="1000 mm" LostFocus="OnOffsetDistanceChanged"
                              ToolTip="How far away the parallel copy goes, e.g. 1500, 1.5 m"/>
                 </StackPanel>
@@ -2100,14 +2101,14 @@
 
                 <StackPanel x:Name="SplitGapOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Joint Gap" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="JointGapBox" Width="80" VerticalAlignment="Center" Text="25 mm"
+                    <TextBox x:Name="JointGapBox" MinWidth="80" VerticalAlignment="Center" Text="25 mm"
                              LostFocus="OnJointGapChanged" KeyDown="OnJointGapKey"
                              ToolTip="How wide the joint is: from 1.6 mm to 305 mm"/>
                 </StackPanel>
 
                 <StackPanel x:Name="RotateOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Angle" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="RotateAngleBox" Width="70" VerticalAlignment="Center" KeyDown="OnRotateAngleKey"
+                    <TextBox x:Name="RotateAngleBox" MinWidth="70" VerticalAlignment="Center" KeyDown="OnRotateAngleKey"
                              ToolTip="Type an angle and press Enter to turn the selection by it about the centre: anticlockwise, or negative for clockwise"/>
                     <ToggleButton x:Name="RotateCentreButton" Content="Place Centre" Margin="12,0,0,0" Padding="8,2" VerticalAlignment="Center"
                                   Click="OnPlaceRotateCentre" ToolTip="Click where it turns about, instead of the middle of the selection"/>
@@ -2117,13 +2118,13 @@
 
                 <StackPanel x:Name="ScaleOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Scale" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="ScaleFactorBox" Width="60" VerticalAlignment="Center" Text="2" LostFocus="OnScaleFactorChanged"
+                    <TextBox x:Name="ScaleFactorBox" MinWidth="60" VerticalAlignment="Center" Text="2" LostFocus="OnScaleFactorChanged"
                              KeyDown="OnScaleFactorKey" ToolTip="How much bigger: 2 doubles it, 0.5 halves it"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ArrayOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Count" Style="{StaticResource OptionLabel}"/>
-                    <TextBox x:Name="ArrayCountBox" Width="60" VerticalAlignment="Center"
+                    <TextBox x:Name="ArrayCountBox" MinWidth="60" VerticalAlignment="Center"
                              Text="3" LostFocus="OnArrayCountChanged"
                              ToolTip="How many in total, including the original"/>
                 </StackPanel>
@@ -2425,12 +2426,12 @@
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="Sheet" Style="{StaticResource OptionLabel}"/>
                                         <ComboBox x:Name="SheetPicker" Style="{StaticResource OptionCombo}"
-                                                  MinWidth="185" SelectionChanged="OnActiveSheetChanged"
+                                                  MinWidth="160" SelectionChanged="OnActiveSheetChanged"
                                                   ToolTip="Which sheet of the drawing set is open"/>
 
                                         <TextBlock Text="Place" Style="{StaticResource OptionLabel}"/>
                                         <ComboBox x:Name="SheetViewPicker" Style="{StaticResource OptionCombo}"
-                                                  MinWidth="160" Margin="0,0,8,0" DisplayMemberPath="Display"
+                                                  MinWidth="140" Margin="0,0,8,0" DisplayMemberPath="Display"
                                                   ToolTip="A view from the project to drop onto this sheet"/>
                                         <Button Content="Add" Padding="14,5" Margin="0,0,18,0"
                                                 Click="OnPlaceViewOnSheet"
@@ -2445,17 +2446,17 @@
                                 </ScrollViewer>
 
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <Button Content="Export PDF" Padding="12,5" Margin="0,0,8,0"
+                                    <Button Content="Export PDF" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnExportSheetPdf"
                                             ToolTip="Write this sheet out as a PDF"/>
-                                    <Button Content="Export DXF" Padding="12,5" Margin="0,0,8,0"
+                                    <Button Content="Export DXF" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnExportSheetDxf"
                                             ToolTip="Write this sheet out as a DXF drawing, at paper size in millimetres"/>
-                                    <Button x:Name="RemoveViewportButton" Content="Remove View" Padding="12,5"
-                                            Margin="0,0,8,0" IsEnabled="False" Click="OnRemoveViewport"/>
-                                    <Button Content="Zoom to Fit" Padding="12,5" Margin="0,0,8,0"
+                                    <Button x:Name="RemoveViewportButton" Content="Remove View" Padding="8,4"
+                                            Margin="0,0,6,0" IsEnabled="False" Click="OnRemoveViewport"/>
+                                    <Button Content="Zoom to Fit" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnZoomSheetToFit"/>
-                                    <Button Content="Close" Padding="12,5" Click="OnCloseSheet"/>
+                                    <Button Content="Close" Padding="8,4" Click="OnCloseSheet"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
@@ -2494,7 +2495,7 @@
                                         <CheckBox x:Name="ShowFloorsBox" Content="Floors" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"/>
-                                        <CheckBox x:Name="ShowGroundBox" Content="Ground" IsChecked="True"
+                                        <CheckBox x:Name="ShowGroundBox" Content="Ground Plane" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="Hide the ground to see what is below ground level"/>
@@ -2522,7 +2523,7 @@
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="Beams under the floors and roofs they carry"/>
-                                        <CheckBox x:Name="ShowTerrainBox" Content="Ground" IsChecked="True"
+                                        <CheckBox x:Name="ShowTerrainBox" Content="Terrain" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="The ground: the toposurface the building is set into"/>

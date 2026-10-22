@@ -35,7 +35,7 @@ public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
     public static bool Has(Element element) =>
-        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or Callout { Parent.Kind: ViewKind.FloorPlan };
+        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Callout { Parent.Kind: ViewKind.FloorPlan };
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -63,6 +63,14 @@ public static class ElementHandles
                         : new ElementHandle($"insert:{i}", middle, Top(middle), false, HandleShape.Insert));
                 }
 
+                break;
+            }
+
+            case RoomSeparator separator:
+            {
+                var level = document.FindLevel(separator.LevelId)?.Elevation ?? 0;
+                handles.Add(new ElementHandle("start", separator.Start, level, false, HandleShape.End));
+                handles.Add(new ElementHandle("end", separator.End, level, false, HandleShape.End));
                 break;
             }
 
@@ -207,6 +215,18 @@ public static class ElementHandles
                 }
 
                 return ($"{beam.Length / 1000:0.00} m, its underside at {Beams.Bottom(document, beam, 0):0} and {Beams.Bottom(document, beam, 1):0}.", handle.Key);
+            }
+
+            case RoomSeparator separator:
+            {
+                switch (handle.Key)
+                {
+                    case "start": separator.Start = to; break;
+                    case "end": separator.End = to; break;
+                    default: return (string.Empty, handle.Key);
+                }
+
+                return ($"{separator.Length / 1000:0.00} m.", handle.Key);
             }
 
             case Toposurface ground when index < ground.Points.Count:
@@ -439,6 +459,7 @@ public static class ElementHandles
     {
         Railing => key.StartsWith("insert", StringComparison.Ordinal) ? "Add Railing Corner" : key.StartsWith("bend", StringComparison.Ordinal) ? "Bend Railing" : "Move Railing Corner",
         Beam => key.StartsWith("raise", StringComparison.Ordinal) ? "Slope Beam" : "Move Beam End",
+        RoomSeparator => "Move Room Separator End",
         Toposurface => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Ground Point" : "Move Ground Point",
         GroundRegion => "Reshape Region",
         SitePad => "Reshape Pad",
@@ -460,6 +481,7 @@ public static class ElementHandles
     {
         Railing railing => (railing.Path.ToList(), railing.Closed, railing.Bulges.ToList()),
         Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
+        RoomSeparator separator => (separator.Start, separator.End),
         Toposurface ground => ground.Points.ToList(),
         GroundRegion region => region.Boundary.ToList(),
         SitePad pad => pad.Boundary.ToList(),
@@ -480,6 +502,9 @@ public static class ElementHandles
                 break;
             case (Beam beam, ValueTuple<Point2D, Point2D, double, double> state):
                 (beam.Start, beam.End, beam.StartOffset, beam.EndOffset) = state;
+                break;
+            case (RoomSeparator separator, ValueTuple<Point2D, Point2D> state):
+                (separator.Start, separator.End) = state;
                 break;
             case (Toposurface ground, List<Point3D> points):
                 ground.SetPoints(points);

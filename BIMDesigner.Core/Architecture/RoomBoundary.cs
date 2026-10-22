@@ -14,7 +14,7 @@ public sealed class RoomBoundaryResult
     /// </summary>
     public required IReadOnlyList<Point2D> Polygon { get; init; }
 
-    /// <summary>The walls that bound the room, in order around it.</summary>
+    /// <summary>The walls that bound the room, in order around it - not the room separation lines that do.</summary>
     public required IReadOnlyList<Wall> BoundingWalls { get; init; }
 
     /// <summary>The columns standing in the room that its area has been taken out for.</summary>
@@ -55,7 +55,8 @@ public sealed class RoomBoundaryResult
 /// The method is the standard planar face traversal: cut every wall centreline at its
 /// crossings to get a graph, shoot a ray from the point to find one edge of the enclosing
 /// face, then walk that face by always taking the sharpest available turn. Walking it with
-/// the interior kept on the left means the walk closes exactly when the room closes.
+/// the interior kept on the left means the walk closes exactly when the room closes. A room
+/// separation line is in the graph as a wall is - one with no thickness, so the room runs to it.
 /// </summary>
 public static class RoomBoundary
 {
@@ -65,7 +66,8 @@ public static class RoomBoundary
     /// <summary>Guards against a malformed graph looping forever.</summary>
     private const int MaxTraversalSteps = 4096;
 
-    private sealed record Segment(Wall Wall, Point2D Start, Point2D End)
+    /// <summary>A straight piece of what bounds rooms: of a wall, or - with no wall - of a room separation line.</summary>
+    private sealed record Segment(Wall? Wall, Point2D Start, Point2D End)
     {
         public Vector2D Direction => (End - Start).NormalisedOrDefault(Vector2D.UnitX);
         public double Length => Start.DistanceTo(End);
@@ -146,7 +148,7 @@ public static class RoomBoundary
         {
             IsEnclosed = true,
             Polygon = polygon,
-            BoundingWalls = loop.Select(edge => edge.Segment.Wall).Distinct().ToList(),
+            BoundingWalls = loop.Select(edge => edge.Segment.Wall).OfType<Wall>().Distinct().ToList(),
             BoundingColumns = columns.Select(entry => entry.Column).ToList(),
             Area = Math.Max(0, Polygon2D.Area(polygon) - columns.Sum(entry => Math.Abs(Polygon2D.Area(entry.Outline)))),
             Perimeter = Polygon2D.Perimeter(polygon) + columns.Sum(entry => Polygon2D.Perimeter(entry.Outline)),
@@ -182,6 +184,9 @@ public static class RoomBoundary
         document.Walls
             .Where(wall => wall.LevelId == levelId && wall.RoomBounding && wall.Length > NodeTolerance)
             .SelectMany(Pieces)
+            .Concat(document.All<RoomSeparator>()
+                .Where(line => line.LevelId == levelId && line.Length > NodeTolerance)
+                .Select(line => new Segment(null, line.Start, line.End)))
             .ToList();
 
     /// <summary>
@@ -422,7 +427,7 @@ public static class RoomBoundary
 
         foreach (var edge in loop)
         {
-            var type = document.GetWallType(edge.Segment.Wall);
+            var type = edge.Segment.Wall is { } wall ? document.GetWallType(wall) : null;
             var half = (type?.Width ?? 0) / 2;
 
             // The interior is on the left of the walk, so the inward face is the left one.

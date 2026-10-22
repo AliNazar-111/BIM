@@ -1129,7 +1129,9 @@ public static class IfcExport
                 u.ForLayerSet = layerSet;
                 u.LayerSetDirection = IfcLayerSetDirectionEnum.AXIS2;
                 u.DirectionSense = flipped ? IfcDirectionSenseEnum.NEGATIVE : IfcDirectionSenseEnum.POSITIVE;
-                u.OffsetFromReferenceLine = -structure.TotalWidth / 2;
+
+                // Measured the positive way to where the layers start; they run on from there the way they are sensed - centred on the axis either way.
+                u.OffsetFromReferenceLine = (flipped ? 1 : -1) * structure.TotalWidth / 2;
             });
 
             New<IfcRelAssociatesMaterial>(relation =>

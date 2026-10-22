@@ -336,6 +336,7 @@ public static class ElementCopy
         }, marker),
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
+        RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
         Beam beam => CarryCommon(new Beam
         {
             Start = beam.Start, End = beam.End, StartOffset = beam.StartOffset, EndOffset = beam.EndOffset,

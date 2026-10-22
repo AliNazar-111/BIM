@@ -33,6 +33,7 @@ public enum PlanTool
     Door,
     Window,
     Room,
+    RoomSeparator,
 
     /// <summary>Places a component of a loadable family: furniture, casework, a fixture.</summary>
     Component,
@@ -1264,6 +1265,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Ramp => "Click where the ramp starts, then which way it runs: up from the ground to this storey's floor, or - from the edge of a floor, a doorway or a terrace - down to the ground. Its flights and landings it lays out itself, as Approved Document M or the ADA asks at the gradient on the option bar.",
         PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
+        PlanTool.RoomSeparator => "Click where the room separator starts, then where it ends: rooms are bounded by it where there is no wall - the next starts where it ended. Esc to stop.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
         PlanTool.Region => "Click the corners of the region of ground - a lawn, paving, gravel, planting - and its first again to close it; or, drawing a path, click along its middle and double-click where it ends. It lies on the ground, following it.",
         PlanTool.Joists => "Click the corners of the outline the joists fill - the faces of what carries their ends - and its first again to close it. They run across the short way, at the spacing on the option bar, and stop short of a stairwell, with trimmers across its ends.",
@@ -1395,6 +1397,7 @@ public partial class PlanView : FrameworkElement
                       | CancelRamp()
                       | CancelRailing()
                       | CancelBeam()
+                      | CancelRoomSeparator()
                       | CancelGround()
                       | CancelOutline()
                       | CancelExtrusion()
@@ -1560,6 +1563,17 @@ public partial class PlanView : FrameworkElement
     /// <summary>Where a point of the model lands on the screen.</summary>
     public Point ScreenFor(Point2D model) => ModelToScreen(model);
 
+    /// <summary>
+    /// Where the pointer is taken to be, in the view, in place of the mouse: so a script - a test, a
+    /// session played back - can click and drag at points of its choosing. Null to follow the mouse.
+    /// </summary>
+    public Point? PointerAt { get; set; }
+
+    private Point Pointer(MouseEventArgs e) => PointerAt ?? e.GetPosition(this);
+
+    /// <summary>Where a point of the model is in the view, at its zoom and pan now.</summary>
+    public Point ScreenPointOf(Point2D model) => ModelToScreen(model);
+
     private Point ModelToScreen(Point2D model) => new(
         ActualWidth / 2 + (model.X - ViewCentre.X) * PixelsPerMm,
         ActualHeight / 2 - (model.Y - ViewCentre.Y) * PixelsPerMm);
@@ -1661,7 +1675,7 @@ public partial class PlanView : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var screen = e.GetPosition(this);
+        var screen = Pointer(e);
 
         if (_isPanning)
         {
@@ -1763,6 +1777,11 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             BeamHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.RoomSeparator)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            RoomSeparatorHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.Terrain)
         {
@@ -1875,7 +1894,7 @@ public partial class PlanView : FrameworkElement
         Focus();
 
         if (Document is null) return;
-        var raw = ScreenToModel(e.GetPosition(this));
+        var raw = ScreenToModel(Pointer(e));
 
         // While a roof is being sketched, every click belongs to the sketch.
         if (IsSketching)
@@ -2056,7 +2075,7 @@ public partial class PlanView : FrameworkElement
                 return;
 
             case PlanTool.WallJoins:
-                PickJunction(e.GetPosition(this));
+                PickJunction(Pointer(e));
                 return;
 
             case PlanTool.JoinGeometry:
@@ -2171,6 +2190,10 @@ public partial class PlanView : FrameworkElement
                 ClickBeam(SnapPoint(raw, null, out _));
                 return;
 
+            case PlanTool.RoomSeparator:
+                ClickRoomSeparator(SnapPoint(raw, null, out _));
+                return;
+
             case PlanTool.Terrain:
                 ClickGround(SnapToGrid(raw));
                 return;
@@ -2197,7 +2220,7 @@ public partial class PlanView : FrameworkElement
         }
 
         // A door or window's flip arrows: facing across the wall, hand along it.
-        if (OpeningFlipAt(e.GetPosition(this)) is { } flip && _selection[0] is Opening flipped)
+        if (OpeningFlipAt(Pointer(e)) is { } flip && _selection[0] is Opening flipped)
         {
             if (flip.Facing) FlipFacing(flipped);
             else Apply(new FlipOpeningCommand(flipped, facing: false));
@@ -2206,27 +2229,27 @@ public partial class PlanView : FrameworkElement
         }
 
         // An elevation marker opens its elevation; an interior marker's arrow, the view it looks at.
-        if (ElevationMarkerAt(e.GetPosition(this)) is { } elevation)
+        if (ElevationMarkerAt(Pointer(e)) is { } elevation)
         {
             ElevationPicked?.Invoke(this, elevation);
             return;
         }
 
-        if (InteriorArrowAt(e.GetPosition(this)) is { } interior)
+        if (InteriorArrowAt(Pointer(e)) is { } interior)
         {
             InteriorViewPicked?.Invoke(this, interior);
             return;
         }
 
         // The padlock at a corner: locks or unlocks the walls meeting there.
-        if (CornerLockAt(e.GetPosition(this)) is { } lockedCorner)
+        if (CornerLockAt(Pointer(e)) is { } lockedCorner)
         {
             ToggleCornerLock(lockedCorner);
             return;
         }
 
         // The padlock on a face two walls share: locks or unlocks them.
-        if (LockGripAt(e.GetPosition(this)) is { } padlock)
+        if (LockGripAt(Pointer(e)) is { } padlock)
         {
             ToggleLock(padlock.Partner);
             return;
@@ -2273,7 +2296,7 @@ public partial class PlanView : FrameworkElement
         // A grip on a single selected wall wins over picking something new.
         if (SelectedWall is { } selected)
         {
-            if (IsOnFlipControl(selected, e.GetPosition(this)))
+            if (IsOnFlipControl(selected, Pointer(e)))
             {
                 Flip();
                 return;
@@ -2572,7 +2595,19 @@ public partial class PlanView : FrameworkElement
         wall.IsSpline && wall.Spline!.From == 0 && wall.Spline.To == wall.Spline.Segments;
 
     /// <summary>Where the bend grip sits: halfway along the wall, on its drawn line.</summary>
-    private static Point2D BendGrip(Wall wall) => wall.LocationCurve.PointAt(wall.Length / 2);
+    /// <summary>
+    /// Where the bend grip is: off the middle of the wall, just beyond its inside face - not on its
+    /// line, where a person takes hold of a wall to move it, and not outside it, where its flip arrows are.
+    /// </summary>
+    private Point2D BendGrip(Wall wall) =>
+        Document?.GetWallType(wall) is { } type
+            ? wall.PointAt(type.Structure, wall.Length / 2, -(type.Width / 2 + BendGripGap / PixelsPerMm))
+            : wall.LocationCurve.PointAt(wall.Length / 2);
+
+    private const double BendGripGap = 16;
+
+    /// <summary>How far from the middle of the wall the bend grip was taken hold of: the wall bends through the cursor less that.</summary>
+    private Vector2D _bendGrab;
 
     /// <summary>
     /// How close to the chord the cursor must come for a bent wall to snap straight again, in
@@ -2594,6 +2629,7 @@ public partial class PlanView : FrameworkElement
         _dragOriginalEnd = wall.End;
         _dragOriginalBulge = wall.Bulge;
         _dragOriginalSpline = wall.Spline;
+        _bendGrab = raw - wall.LocationCurve.PointAt(wall.Length / 2);
         if (grip == GripKind.SplinePoint) _dragSplineIndex = SplineGripAt(wall, raw) ?? 0;
 
         // At a locked corner the other walls' ends go where this end goes.
@@ -2829,12 +2865,13 @@ public partial class PlanView : FrameworkElement
 
             case GripKind.Bend:
             {
-                // The arc passes through the cursor, unless the cursor is back on the straight
-                // line between the ends, where the wall snaps straight.
-                var offChord = Line2D.Through(wall.Start, wall.End).ClosestPointTo(raw).DistanceTo(raw);
+                // The arc passes through the cursor - less where the grip was taken hold of, off the
+                // wall - unless that is back on the straight line between the ends, where the wall snaps straight.
+                var through = raw - _bendGrab;
+                var offChord = Line2D.Through(wall.Start, wall.End).ClosestPointTo(through).DistanceTo(through);
                 wall.Bulge = offChord * PixelsPerMm <= StraightenPixels
                     ? 0
-                    : Math.Clamp(WallCurve.BulgeThrough(wall.Start, wall.End, raw), -MaxBulge, MaxBulge);
+                    : Math.Clamp(WallCurve.BulgeThrough(wall.Start, wall.End, through), -MaxBulge, MaxBulge);
 
                 _cursorModel = raw;
                 _cursorIsSnapped = false;
@@ -3022,6 +3059,7 @@ public partial class PlanView : FrameworkElement
             _pendingWallStart = model;
             _chainWall = null;
             _chainFirstWall = null;
+            _chainWalls.Clear();
             _chainFirstClick = model;
             _pendingArcEnd = null;
             _splinePoints.Clear();
@@ -3075,6 +3113,7 @@ public partial class PlanView : FrameworkElement
 
             // With a radius set, the corner with the wall before is rounded off.
             commands.AddRange(RoundChainCorner(wall));
+            var closes = LockChainCorners(wall);
             commands.Add(new AddElementCommand(Document, Configured(wall), "Draw Wall"));
             Apply(commands.Count == 1 ? commands[0] : new CompositeCommand("Draw Wall", commands));
 
@@ -3082,7 +3121,9 @@ public partial class PlanView : FrameworkElement
             _pendingWallStart = model;
             _chainWall = wall;
             _chainFirstWall ??= wall;
+            _chainWalls.Add(wall);
             Select(wall);
+            if (closes) TurnLoopOutward();
         }
 
         InvalidateVisual();
@@ -3117,6 +3158,7 @@ public partial class PlanView : FrameworkElement
 
         // An offset moves the curve in or out toward the exterior side.
         var wall = ThreePointWall(curve);
+        var closes = LockChainCorners(wall);
 
         Apply(new AddElementCommand(Document, Configured(wall), "Draw Wall"));
 
@@ -3124,9 +3166,60 @@ public partial class PlanView : FrameworkElement
         _pendingArcEnd = null;
         _chainWall = wall;
         _chainFirstWall ??= wall;
+        _chainWalls.Add(wall);
         Select(wall);
+        if (closes) TurnLoopOutward();
 
         HintChanged?.Invoke(this, $"{(curve.IsElliptical ? "Half ellipse" : "Arc")} placed. Click where the next one ends, or Esc to stop.");
+    }
+
+    /// <summary>
+    /// Walls drawn one after another as a chain stay together: the corner with the wall before is
+    /// locked, and so is the one that closes the loop back onto the first - so moving any wall of a
+    /// room drawn round, the others stretch to keep meeting it, as joined walls do. A corner can be
+    /// unlocked again with its padlock.
+    /// </summary>
+    /// <returns>Whether this wall closes the chain back onto its first.</returns>
+    private bool LockChainCorners(Wall wall)
+    {
+        if (Document is null) return false;
+
+        if (_chainWall is { } previous && Document.Elements.Contains(previous) && previous.End.DistanceTo(wall.Start) <= WallJoins.JoinTolerance)
+            wall.StartLocked = true;
+
+        if (_chainFirstWall is { } first && !ReferenceEquals(first, _chainWall) && Document.Elements.Contains(first) &&
+            first.Start.DistanceTo(wall.End) <= WallJoins.JoinTolerance)
+        {
+            wall.EndLocked = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>The walls of the chain being drawn, in order.</summary>
+    private readonly List<Wall> _chainWalls = new();
+
+    /// <summary>
+    /// A chain closed round into a room: any wall of it with its outside facing into the room - as
+    /// every wall does of a room drawn round anticlockwise, a wall's outside being on its left as
+    /// it is drawn - turned to face out, as one step to undo. A wall flipped on purpose while it
+    /// was drawn, already facing out, is left as it is.
+    /// </summary>
+    private void TurnLoopOutward()
+    {
+        if (Document is null || _chainWalls.Count < 3) return;
+
+        var loop = _chainWalls.Where(Document.Elements.Contains).Select(each => each.Start).ToList();
+        if (loop.Count < 3) return;
+
+        var inward = _chainWalls.Where(each => Document.Elements.Contains(each) && Document.GetWallType(each) is { } type &&
+                                               Polygon2D.Contains(loop, each.PointAt(type.Structure, each.Length / 2, type.Width / 2 + 1)))
+            .ToList();
+        if (inward.Count == 0) return;
+
+        Apply(new FlipWallsCommand(inward));
+        HintChanged?.Invoke(this, $"The room closes. Its walls were drawn round with their outsides facing in, so {(inward.Count == 1 ? "one has" : $"{inward.Count} have")} been turned to face out - Undo turns them back.");
     }
 
     // ---- the Wall Joins tool --------------------------------------------------------------
@@ -5424,7 +5517,7 @@ public partial class PlanView : FrameworkElement
     protected override void OnMouseRightButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseRightButtonDown(e);
-        _rightPressedAt = e.GetPosition(this);
+        _rightPressedAt = Pointer(e);
 
         // In a sketch, a right click stops the line being drawn, as Esc does.
         if (IsSketching) SketchEscape();
@@ -5439,7 +5532,7 @@ public partial class PlanView : FrameworkElement
         base.OnMouseRightButtonUp(e);
 
         // A right drag pans the view; a right click on something asks what to do with it.
-        var at = e.GetPosition(this);
+        var at = Pointer(e);
         var wasClick = _rightPressedAt is { } down && (at - down).Length <= 4;
         _rightPressedAt = null;
         if (!wasClick || Document is null) return;
@@ -5576,7 +5669,7 @@ public partial class PlanView : FrameworkElement
         if (_dragging != GripKind.None) return;
 
         _isPanning = true;
-        _panScreenAnchor = e.GetPosition(this);
+        _panScreenAnchor = Pointer(e);
         _panModelAnchor = ViewCentre;
         Cursor = Cursors.SizeAll;
         CaptureMouse();
@@ -5595,7 +5688,7 @@ public partial class PlanView : FrameworkElement
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         base.OnMouseWheel(e);
-        var screen = e.GetPosition(this);
+        var screen = Pointer(e);
         var modelUnderCursor = ScreenToModel(screen);
 
         var factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
@@ -5942,6 +6035,7 @@ public partial class PlanView : FrameworkElement
         foreach (var ramp in RampsAt(model)) yield return ramp;
         foreach (var railing in RailingsAt(model)) yield return railing;
         foreach (var beam in BeamsAt(model)) yield return beam;
+        foreach (var separator in RoomSeparatorsAt(model)) yield return separator;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
@@ -6076,6 +6170,7 @@ public partial class PlanView : FrameworkElement
         DrawRampPreview(dc);
         DrawRailingPreview(dc);
         DrawBeamPreview(dc);
+        DrawRoomSeparatorPreview(dc);
         DrawGroundPreview(dc);
         DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);

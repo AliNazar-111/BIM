@@ -391,7 +391,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            MessageBox.Show(this, refused.Problem, "Dormer", MessageBoxButton.OK, MessageBoxImage.Information);
+            // Nothing to offer: what is wrong is on the status bar, and the tool waits for another click - no box to close first.
         };
 
         // A roof by extrusion placed in plan: its section is drawn next, square-on, over the
@@ -543,6 +543,10 @@ public partial class MainWindow : Window
         SheetSurface.Sheet = null;
         SheetSurface.Document = document;
 
+        // A section or sheet of the last project is not one of this: their panels close, rather than stand empty.
+        OnCloseSection(this, new RoutedEventArgs());
+        OnCloseSheet(this, new RoutedEventArgs());
+
         Model3D.Document = document;
 
         PopulateOptionBar();
@@ -637,7 +641,9 @@ public partial class MainWindow : Window
         Plan.ActiveStructuralColumnTypeId = _document.TypesOf<ColumnType>().Where(t => t.Structural).OrderBy(t => t.Name).FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveFloorTypeId = _document.TypesOf<FloorType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveCeilingTypeId = _document.TypesOf<CeilingType>().FirstOrDefault()?.Id ?? Guid.Empty;
-        Plan.ActiveRoofTypeId = _document.TypesOf<RoofType>().FirstOrDefault()?.Id ?? Guid.Empty;
+        // The Roof tool starts out sloping its sides, so with a pitched build-up rather than a flat one.
+        var roofTypes = _document.TypesOf<RoofType>().ToList();
+        Plan.ActiveRoofTypeId = (roofTypes.FirstOrDefault(type => !type.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase)) ?? roofTypes.FirstOrDefault())?.Id ?? Guid.Empty;
         Plan.ActiveLevelId = _document.Levels.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveLocationLine = WallLocationLine.WallCentreline;
 
@@ -666,7 +672,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -2266,7 +2272,7 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, TerrainTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
@@ -2334,6 +2340,7 @@ public partial class MainWindow : Window
             : DoorTool.IsChecked == true ? PlanTool.Door
             : WindowTool.IsChecked == true ? PlanTool.Window
             : RoomTool.IsChecked == true ? PlanTool.Room
+            : RoomSeparatorTool.IsChecked == true ? PlanTool.RoomSeparator
             : ComponentTool.IsChecked == true ? PlanTool.Component
             : ColumnTool.IsChecked == true ? PlanTool.Column
             : FloorTool.IsChecked == true ? PlanTool.Floor
@@ -2943,6 +2950,7 @@ public partial class MainWindow : Window
         // A stair hung by its head from a terrace or a balcony stays hung there, laid out back from it in its new type.
         _history.Execute(new StairRelaidCommand(_document, targets.OfType<Stair>(), new SetElementsTypeCommand(targets, type)));
         AfterHistoryChange();
+        StatusHint.Text = targets.Count == 1 ? $"Now {type.Name}." : $"{targets.Count} now {type.Name}.";
     }
 
     // ---- attaching walls ---------------------------------------------------------------
@@ -4952,7 +4960,7 @@ public partial class MainWindow : Window
 
         // An elevation is flat and whole; a walkthrough is its path.
         var turning = elevation || walk ? Visibility.Collapsed : Visibility.Visible;
-        PerspectiveBox.Visibility = SectionBoxToggle.Visibility = BoxSelectionButton.Visibility = WalkToggle.Visibility = SaveViewButton.Visibility = turning;
+        PerspectiveBox.Visibility = SectionBoxToggle.Visibility = BoxSelectionButton.Visibility = WalkToggle.Visibility = WalkAsPicker.Visibility = SaveViewButton.Visibility = turning;
         WalkthroughBar.Visibility = walk ? Visibility.Visible : Visibility.Collapsed;
         RefreshStoreyToggles();
     }
@@ -7050,7 +7058,7 @@ public partial class MainWindow : Window
         var name = _path is null ? "Untitled" : Path.GetFileNameWithoutExtension(_path);
         var marker = _history.IsModified ? "*" : string.Empty;
 
-        Title = $"{name}{marker} — BIMDesigner 0.1";
+        Title = $"{name}{marker} — BIMDesigner {AppVersion}";
         StatusSaved.Text = _path is null
             ? _history.IsModified ? "Unsaved project — modified" : "Unsaved project"
             : _history.IsModified ? $"{Path.GetFileName(_path)} — modified" : Path.GetFileName(_path);

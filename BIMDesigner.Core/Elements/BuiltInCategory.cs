@@ -112,7 +112,10 @@ public enum BuiltInCategory
     Eaves,
 
     /// <summary>Curtain wall mullions: the types of the bars on a curtain wall's grid lines.</summary>
-    CurtainWallMullions
+    CurtainWallMullions,
+
+    /// <summary>Room separation lines: lines that bound rooms where no wall does.</summary>
+    RoomSeparationLines
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

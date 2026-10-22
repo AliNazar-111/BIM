@@ -51,11 +51,12 @@ internal readonly record struct Frame(Point3D Origin, Point3D X, Point3D Y, Poin
 
 /// <summary>
 /// IFC geometry made into what this model can use: placements resolved to frames, profiles to
-/// outlines, and the bodies of things into triangles - extrusions, faceted and triangulated
-/// solids, surface models, mapped items and swept tubes; the first operand of a boolean (what is
-/// cut is cut away by its own opening). Everything in millimetres, at <c>scale</c> to the file's unit.
+/// outlines, and the bodies of things into triangles - extrusions, faceted, advanced and
+/// triangulated solids, surface models, mapped items and swept tubes; a boolean as what it starts
+/// from with its clippings taken off (an opening cut by a solid is cut away by its own opening
+/// element), a union as both. Everything in millimetres, at <c>scale</c> to the file's unit.
 /// </summary>
-internal sealed class IfcGeometry
+internal sealed partial class IfcGeometry
 {
     private readonly double _scale;
     private readonly double _angle;
@@ -263,7 +264,7 @@ internal sealed class IfcGeometry
                 return;
             }
 
-            case IIfcFacetedBrep brep:
+            case IIfcManifoldSolidBrep brep:
                 Faces(brep.Outer.CfsFaces, frame, mesh);
                 return;
 
@@ -304,8 +305,15 @@ internal sealed class IfcGeometry
             }
 
             case IIfcBooleanResult boolean when boolean.FirstOperand is IIfcRepresentationItem first:
-                Triangles(first, frame, mesh);
+            {
+                var start = new Mesh3D(Guid.Empty, Guid.Empty, MeshKind.Wall, default, string.Empty);
+                Triangles(first, frame, start);
+                if (boolean.Operator == IfcBooleanOperator.UNION && boolean.SecondOperand is IIfcRepresentationItem second) Triangles(second, frame, start);
+                else if (boolean.Operator == IfcBooleanOperator.DIFFERENCE && boolean.SecondOperand is IIfcHalfSpaceSolid half && Cut(half, frame) is { } cut)
+                    start = Clip(start, cut);
+                Copy(start, mesh, p => p);
                 return;
+            }
 
             case IIfcSweptDiskSolid disk:
             {
@@ -335,8 +343,8 @@ internal sealed class IfcGeometry
         foreach (var face in faces)
         {
             var outer = face.Bounds.FirstOrDefault(bound => bound is IIfcFaceOuterBound) ?? face.Bounds.FirstOrDefault();
-            if (outer?.Bound is not IIfcPolyLoop loop) continue;
-            var points = loop.Polygon.Select(Point).Select(frame.Apply).ToList();
+            if (outer?.Bound is not { } loop) continue;
+            var points = LoopPoints(loop).Select(frame.Apply).ToList();
             if (!outer.Orientation) points.Reverse();
             Polygon(points, mesh);
         }

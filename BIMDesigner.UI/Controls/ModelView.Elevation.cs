@@ -61,7 +61,8 @@ public partial class ModelView
             }
             else
             {
-                ZoomToFit();
+                // Back from an elevation to a view never looked round: from the usual corner, not square-on as the elevation was.
+                ResetView();
             }
 
             // An elevation is the whole building: no section box.
