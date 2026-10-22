@@ -355,6 +355,9 @@ public sealed partial class PlanRenderer
                 Styled(dc, system, d => DrawBeamSystem(d, system, own: system.LevelId == ActiveLevelId));
         }
 
+        // The services' pipes, each in its system's colour.
+        DrawPipes(dc);
+
         // Stairs on their own storey, and seen down the stairwell from the one they come up to -
         // storey by storey for one repeated up a stairwell. Where one storey's flight goes on up
         // from the floor another comes up to, that one's guarding round the stairwell is drawn with it.

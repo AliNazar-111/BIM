@@ -242,6 +242,21 @@ public sealed class ComponentType : ElementType
     /// <summary>For a boiler, whether it heats the hot water as it is drawn - a combi - or a cylinder's.</summary>
     public BoilerHotWater HotWater { get; set; }
 
+    /// <summary>For a basin's or a sink's taps or a shower, its full flow, litres a minute - what Approved Document G's water efficiency calculator counts.</summary>
+    public double FlowRate { get; set; }
+
+    /// <summary>For a WC, its flush, litres - its full flush where it has two.</summary>
+    public double FlushVolume { get; set; }
+
+    /// <summary>For a dual-flush WC, its part flush, litres; none for a single flush.</summary>
+    public double PartFlushVolume { get; set; }
+
+    /// <summary>For a bath, how much it holds to its overflow, litres.</summary>
+    public double Capacity { get; set; }
+
+    /// <summary>For a dishwasher, the water it uses a place setting; for a washing machine, a kilo of dry load - litres, from its energy label.</summary>
+    public double WaterPerUse { get; set; }
+
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
 
@@ -272,7 +287,7 @@ public sealed class ComponentType : ElementType
     {
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
-        HotWater = HotWater
+        HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -347,6 +362,21 @@ public sealed class ComponentType : ElementType
                 () => EnumText.Humanise(HotWater),
                 v => { if (EnumText.TryParse<BoilerHotWater>(v, out var hot)) HotWater = hot; },
                 EnumText.Choices<BoilerHotWater>());
+
+        // What Approved Document G's water efficiency calculator counts of it.
+        bool NotNegative(double v, Action<double> set) { if (v < 0) return false; set(v); return true; }
+        if (Form is ComponentForm.Basin or ComponentForm.Sink or ComponentForm.Shower)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.FlowRate, () => FlowRate, v => NotNegative(v, x => FlowRate = x));
+        if (Form is ComponentForm.Toilet or ComponentForm.WallHungToilet)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.FlushVolume, () => FlushVolume, v => NotNegative(v, x => FlushVolume = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.PartFlushVolume, () => PartFlushVolume, v => NotNegative(v, x => PartFlushVolume = x));
+        }
+        if (Form == ComponentForm.Bath)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Capacity, () => Capacity, v => NotNegative(v, x => Capacity = x));
+        if (Form is ComponentForm.Dishwasher or ComponentForm.WashingMachine)
+            yield return ParameterValue.BindValidated(Form == ComponentForm.Dishwasher ? ComponentTypeParameters.DishwasherWater : ComponentTypeParameters.WasherWater,
+                () => WaterPerUse, v => NotNegative(v, x => WaterPerUse = x));
 
         if (Form == ComponentForm.Shower)
             yield return ParameterValue.BindChoice(
@@ -625,6 +655,13 @@ public sealed class Component : Element, IHostedElement
                 Mep.MepSystems.SystemsOf(document, this).Select(system => system.Name).ToList() is { Count: > 0 } names ? string.Join(", ", names) : "<none>");
             yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.NotConnected, () =>
                 Mep.MepSystems.OpenKinds(document, this).Select(kind => Mep.SystemKinds.Title(kind)).ToList() is { Count: > 0 } open ? string.Join(", ", open) : "Nothing");
+
+            // How far its hot water comes along the pipes from what heats it - what is drawn off cold before it runs hot.
+            if (Mep.MepSystems.MemberOf(document, this, Mep.SystemKind.HotWater) is { } hot && Mep.PipeNetworks.PipesOf(document, hot).Count > 0)
+                yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.HotWaterRun, () =>
+                    Mep.PipeNetworks.Trace(document, hot).RunTo.TryGetValue(this, out var run)
+                        ? $"{run / 1000:0.0} m of pipe from {document.FindType<ComponentType>(Mep.MepSystems.SourceOf(document, hot)?.TypeId ?? Guid.Empty)?.Name ?? "its source"}"
+                        : "No pipe reaches it yet");
         }
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
@@ -680,6 +717,24 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition HotWater =
         new("Hot Water", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FlowRate =
+        new("Flow Rate (l/min)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition FlushVolume =
+        new("Flush Volume (l)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition PartFlushVolume =
+        new("Part Flush Volume (l, 0 = single flush)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Capacity =
+        new("Capacity to Overflow (l)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition DishwasherWater =
+        new("Water Use (l/place setting)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition WasherWater =
+        new("Water Use (l/kg dry load)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class ComponentParameters

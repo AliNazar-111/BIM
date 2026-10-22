@@ -76,6 +76,7 @@ public static class MepSystemParameters
     /// <summary>On a fitting: the systems it is on, and what it is not connected to yet.</summary>
     public static readonly ParameterDefinition Systems = new("Systems", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition NotConnected = new("Not Connected", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition HotWaterRun = new("Hot Water Run", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 }
 
 /// <summary>

@@ -46,14 +46,20 @@ public static class ServicesPlans
     /// </summary>
     public static Func<Element, ElementStyle>? StyleFor(BimDocument document, Discipline discipline)
     {
-        if (discipline == Discipline.Architectural) return null;
-
         var faint = new ElementStyle(Halftone: true);
+
+        // The building's own plan shows the services' pipes faint, under the building.
+        if (discipline == Discipline.Architectural)
+            return document.All<Pipe>().Any() ? element => element is Pipe ? faint : default : null;
+
         var open = new ElementStyle(Colour: Unconnected);
         var connected = new ElementStyle(Colour: Colour(discipline));
         return element =>
         {
             if (Phasing.IsAnnotation(element.Category)) return default;
+
+            // A pipe in its own colour on its discipline's plan; faint on the others.
+            if (element is Pipe pipe) return pipe.Kind.Discipline() == discipline ? default : faint;
             if (element is not Component component || !MepSystems.ConnectorsOf(document, component).Any(connector => connector.Kind.Discipline() == discipline))
                 return faint;
             return MepSystems.OpenKinds(document, component).Any(kind => kind.Discipline() == discipline) ? open : connected;

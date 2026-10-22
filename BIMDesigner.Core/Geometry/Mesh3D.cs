@@ -40,7 +40,10 @@ public enum MeshKind
     Terrain,
 
     /// <summary>A ramp: its flights and landings, kerbs, handrails and guarding.</summary>
-    Ramp
+    Ramp,
+
+    /// <summary>A pipe of the services, in its system's colour.</summary>
+    Pipe
 }
 
 /// <summary>

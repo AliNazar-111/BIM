@@ -126,6 +126,12 @@ public static class ModelMeshBuilder
         // Joist layouts: their joists and trimmers.
         Each(document.All<BeamSystem>(), system => meshes.AddRange(BeamSystems.Meshes(document, system)));
 
+        // The services' pipes, each in its system's colour.
+        Each(document.All<Mep.Pipe>(), pipe =>
+        {
+            if (Mep.PipeModel.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
+        });
+
         // Masses, see-through: the shape of the building before it is one.
         Each(document.All<Mass>().Where(m => m.Boundary.Count >= 3), mass => meshes.Add(Masses.Mesh(document, mass)));
 

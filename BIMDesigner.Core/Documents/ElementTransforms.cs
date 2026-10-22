@@ -54,6 +54,7 @@ public static class ElementTransforms
         Railing => true,
         Beam => true,
         RoomSeparator => true,
+        Mep.Pipe => true,
 
         // The ground, with its spot levels; a region of it, and a joist layout, with their outlines.
         Toposurface or GroundRegion or BeamSystem => true,
@@ -145,6 +146,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (separator.Start + delta, separator.End + delta);
+                break;
+
+            case Mep.Pipe pipe:
+                (pipe.Start, pipe.End) = (pipe.Start + delta, pipe.End + delta);
                 break;
 
             case Toposurface ground:
@@ -384,6 +389,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (Reflect(separator.Start), Reflect(separator.End));
+                break;
+
+            case Mep.Pipe pipe:
+                (pipe.Start, pipe.End) = (Reflect(pipe.Start), Reflect(pipe.End));
                 break;
 
             case Toposurface ground:
@@ -667,6 +676,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (map(separator.Start), map(separator.End));
+                break;
+
+            case Mep.Pipe pipe:
+                (pipe.Start, pipe.End) = (map(pipe.Start), map(pipe.End));
                 break;
 
             case Toposurface ground:

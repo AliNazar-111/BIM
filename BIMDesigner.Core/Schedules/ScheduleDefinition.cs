@@ -268,6 +268,14 @@ public sealed class ScheduleDefinition
             }
             .WithoutTotals("Depth below Ground"),
 
+        // The services' pipes, system by system: what each carries, its type and size, how long it is and what it costs by the metre.
+        new ScheduleDefinition("Pipe Schedule", BuiltInCategory.Pipes,
+                "System", "System Type", "Type Name", "Size", "Length", "Cost")
+            {
+                SortBy = "Size",
+                GroupBy = "System"
+            },
+
         // Every beam: its section, how long it is and what it weighs, and whether it clears the doors under it.
         new ScheduleDefinition("Structural Framing Schedule", BuiltInCategory.StructuralFraming,
                 "Mark", "Type Name", "Reference Level", "Structural Usage", "Length", "Mass", "Clearances")

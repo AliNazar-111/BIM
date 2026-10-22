@@ -622,6 +622,19 @@
                                     ToolTip="Place a fitting of the services: a basin, WC, bath, shower or sink; a radiator, boiler, cylinder, stop valve or gas meter; a socket, switch, light, consumer unit or alarm. Each has its connectors - hot and cold, waste, flow and return, power - to join systems by"/>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Piping" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="PipeTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Pipe}"
+                                             Content="Pipe" Checked="OnToolChanged"
+                                             ToolTip="Pipe: click a fitting's connector, the end of a pipe or a point along one, then where the pipe goes. It runs level at the height on the option bar, rises or drops to the fitting or pipe it ends at, and puts the fitting on its system. Copper, PE-X, stainless or galvanised steel, in their sizes"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SizePipes}"
+                                            Content="Size Pipes" Click="OnSizePipes"
+                                            ToolTip="Size the cold and hot water pipes as BS EN 806-3 asks: each section by the loading units of the draw-offs beyond it - a basin or WC 1, a sink, shower or machine 2, a bath 4 - read off Table 3 for its material"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Systems" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="MakeSystemButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.MakeSystem}"
@@ -1804,6 +1817,22 @@
                     <ComboBox x:Name="RailingBuildingPicker" Style="{StaticResource OptionCombo}" MinWidth="100"
                               SelectionChanged="OnRailingOptionChanged"
                               ToolTip="The building it guards in: a dwelling - 900 at a floor's edge inside, 1100 round a balcony or a roof - or another, where it is 1100 everywhere and guards any drop over 380"/>
+                </StackPanel>
+
+                <StackPanel x:Name="PipeOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Pipe" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="PipeTypePicker" Style="{StaticResource OptionCombo}" MinWidth="170"
+                              DisplayMemberPath="Name" SelectionChanged="OnPipeOptionChanged"
+                              ToolTip="What it is made of: copper to BS EN 1057, PE-X, stainless or galvanised steel - each with its own sizes"/>
+                    <TextBlock Text="Size" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="PipeSizePicker" Style="{StaticResource OptionCombo}" MinWidth="110" SelectionChanged="OnPipeOptionChanged"
+                              ToolTip="Its size, outside diameter by wall: or the size of the fitting a run starts from. Size Pipes sets each as BS EN 806-3 asks"/>
+                    <TextBlock Text="Offset" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="PipeOffsetBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnPipeOptionChanged"
+                             ToolTip="How high above this level the run goes along, to its centre: low along the walls, or up in the ceiling's void"/>
+                    <TextBlock Text="Carries" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="PipeKindPicker" Style="{StaticResource OptionCombo}" MinWidth="110" SelectionChanged="OnPipeOptionChanged"
+                              ToolTip="What a run started away from any fitting or pipe carries; one started at a fitting or a pipe carries what it does"/>
                 </StackPanel>
 
                 <StackPanel x:Name="BeamOptions" Orientation="Horizontal" Visibility="Collapsed">

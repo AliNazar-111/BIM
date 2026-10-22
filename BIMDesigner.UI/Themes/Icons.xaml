@@ -572,6 +572,19 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Orange}" Geometry="M7,23 L7,28 M25,23 L25,28"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Pipe"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M4,24 L16,24 L16,8 L28,8"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M13,21 L19,21 L19,27 L13,27 Z M13,5 L19,5 L19,11 L13,11 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.SizePipes"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M4,10 L28,10"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M4,20 L20,20"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M24,15 L24,25 M22,17 L24,15 L26,17 M22,23 L24,25 L26,23"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.MakeSystem"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M8,8 L8,24 L24,24 M8,16 L24,16 M8,8 L24,8"/>

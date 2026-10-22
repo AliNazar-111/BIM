@@ -240,6 +240,9 @@ public static class MepSystems
                     $"the rooms come to {area:0} m² - Approved Document L (2021) asks a new dwelling of {TwoZoneArea:0} m² or more for two heating zones at least, each with its own time and temperature control"));
         }
 
+        // The pipes: too small, not joined, not reaching; and the water the dwelling uses.
+        problems.AddRange(PipeNetworks.Problems(document));
+        problems.AddRange(WaterUse.Problems(document));
         return problems;
     }
 

@@ -645,6 +645,7 @@ public partial class MainWindow : Window
         // The Roof tool starts out sloping its sides, so with a pitched build-up rather than a flat one.
         var roofTypes = _document.TypesOf<RoofType>().ToList();
         Plan.ActiveRoofTypeId = (roofTypes.FirstOrDefault(type => !type.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase)) ?? roofTypes.FirstOrDefault())?.Id ?? Guid.Empty;
+        Plan.ActivePipeTypeId = _document.TypesOf<Core.Mep.PipeType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveLevelId = _document.Levels.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveLocationLine = WallLocationLine.WallCentreline;
 
@@ -673,7 +674,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.Pipe or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -695,6 +696,8 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Railing) ShowRailingOptions();
         BeamOptions.Visibility = tool == PlanTool.Beam ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Beam) ShowBeamOptions();
+        PipeOptions.Visibility = tool == PlanTool.Pipe ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Pipe) ShowPipeOptions();
         TerrainOptions.Visibility = tool == PlanTool.Terrain ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Terrain) ShowGroundOptions();
         RegionOptions.Visibility = tool == PlanTool.Region ? Visibility.Visible : Visibility.Collapsed;
@@ -2274,7 +2277,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, TerrainTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, TerrainTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
@@ -2376,6 +2379,7 @@ public partial class MainWindow : Window
             : RampTool.IsChecked == true ? PlanTool.Ramp
             : RailingTool.IsChecked == true ? PlanTool.Railing
             : BeamTool.IsChecked == true ? PlanTool.Beam
+            : PipeTool.IsChecked == true ? PlanTool.Pipe
             : TerrainTool.IsChecked == true ? PlanTool.Terrain
             : RegionTool.IsChecked == true ? PlanTool.Region
             : JoistsTool.IsChecked == true ? PlanTool.Joists
@@ -4063,6 +4067,9 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition ClearancesParameter = new("Show Clearances", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearanceStandardParameter = new("Clearance Standard", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>Whether planning makes Approved Document G's optional requirement a condition: 110 litres a person a day, not 125.</summary>
+    private static readonly ParameterDefinition WaterOptionalParameter = new("Water Use 110 l (Optional Requirement)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition GroundParameter = new("Ground", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClayShrinkageParameter = new("Clay Shrinkage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition FrostDepthParameter = new("Frost Line (US, 0 = none)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4137,6 +4144,11 @@ public partial class MainWindow : Window
                 _document.ProjectInformation.Sprinklered = sprinklered;
                 Plan.RefreshModel();
                 if (Plan.ShowClearances) ShowClearances(true);
+            }),
+            ParameterValue.Bind(WaterOptionalParameter, () => _document.ProjectInformation.WaterOptionalRequirement, optional =>
+            {
+                _document.ProjectInformation.WaterOptionalRequirement = optional;
+                _systemsWindow?.Refresh();
             }),
             ParameterValue.BindChoice(GroundParameter,
                 () => GroundLabel(_document.ProjectInformation.Ground),

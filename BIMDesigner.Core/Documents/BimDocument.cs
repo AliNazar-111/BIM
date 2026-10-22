@@ -27,6 +27,12 @@ public sealed class ProjectInformation
     /// </summary>
     public bool Sprinklered { get; set; }
 
+    /// <summary>
+    /// Whether planning permission makes Approved Document G's optional requirement a condition: the
+    /// dwelling's water use 110 litres a person a day at most rather than 125 (regulation 36(2)(b)).
+    /// </summary>
+    public bool WaterOptionalRequirement { get; set; }
+
     /// <summary>What the ground under the building is - Approved Document A's type of ground and the IRC's class of soil in one - what its footings are sized for.</summary>
     public GroundType Ground { get; set; } = GroundType.FirmClay;
 
@@ -1849,11 +1855,11 @@ public sealed class BimDocument
             new ComponentType("Range Cooker - 1000", BuiltInCategory.SpecialtyEquipment, ComponentForm.Cooker, 1000, 600, 900)
                 { TypeMark = "A5", Colour = enamel, Cost = 1200m },
             new ComponentType("Dishwasher - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Dishwasher, 600, 600, 900)
-                { TypeMark = "A6", Colour = timber, Cost = 380m },
+                { TypeMark = "A6", Colour = timber, Cost = 380m, WaterPerUse = 0.77 },
             new ComponentType("Dishwasher - Slimline 450", BuiltInCategory.SpecialtyEquipment, ComponentForm.Dishwasher, 450, 600, 900)
-                { TypeMark = "A7", Colour = timber, Cost = 330m },
+                { TypeMark = "A7", Colour = timber, Cost = 330m, WaterPerUse = 0.87 },
             new ComponentType("Washing Machine - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.WashingMachine, 600, 600, 900)
-                { TypeMark = "A8", Colour = timber, Cost = 400m },
+                { TypeMark = "A8", Colour = timber, Cost = 400m, WaterPerUse = 6.25 },
             new ComponentType("Tumble Dryer - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.TumbleDryer, 600, 600, 900)
                 { TypeMark = "A9", Colour = timber, Cost = 420m },
 
@@ -1871,49 +1877,49 @@ public sealed class BimDocument
             },
 
             new ComponentType("Basin - Pedestal", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 450, 850)
-                { TypeMark = "P1", Colour = white, Cost = 190m },
+                { TypeMark = "P1", Colour = white, Cost = 190m, FlowRate = 6 },
             // Basins on the wall with their rims at 850, as a pedestal basin's is; a hand-rinse
             // basin for a cloakroom; WCs with their seats at 420, close coupled and wall hung.
             new ComponentType("Basin - Wall Hung", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 550, 420, 300)
             {
-                TypeMark = "P2", Colour = white, Cost = 210m,
+                TypeMark = "P2", Colour = white, Cost = 210m, FlowRate = 6,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 550
             },
             new ComponentType("Basin - Hand Rinse 400", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 400, 250, 250)
             {
-                TypeMark = "P11", Colour = white, Cost = 120m,
+                TypeMark = "P11", Colour = white, Cost = 120m, FlowRate = 4,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 600
             },
             new ComponentType("WC - Close Coupled", BuiltInCategory.PlumbingFixtures, ComponentForm.Toilet, 380, 680, 780)
-                { TypeMark = "P3", Colour = white, Cost = 260m },
+                { TypeMark = "P3", Colour = white, Cost = 260m, FlushVolume = 6, PartFlushVolume = 4 },
             new ComponentType("WC - Wall Hung", BuiltInCategory.PlumbingFixtures, ComponentForm.WallHungToilet, 360, 540, 1000)
-                { TypeMark = "P12", Colour = white, Cost = 420m, Description = "Concealed cistern in a frame in the wall" },
+                { TypeMark = "P12", Colour = white, Cost = 420m, FlushVolume = 6, PartFlushVolume = 3, Description = "Concealed cistern in a frame in the wall" },
             new ComponentType("Bath - 1700 x 700", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1700, 700, 550)
-                { TypeMark = "P4", Colour = white, Cost = 340m },
+                { TypeMark = "P4", Colour = white, Cost = 340m, Capacity = 180 },
             new ComponentType("Bath - 1800 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1800, 800, 560)
-                { TypeMark = "P13", Colour = white, Cost = 480m },
+                { TypeMark = "P13", Colour = white, Cost = 480m, Capacity = 230 },
 
             // Sinks set into the worktop of their unit: a bowl and drainer in a 1000 unit, a bowl in a 600.
             new ComponentType("Sink Unit - 1000", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 1000, 600, 900)
-                { TypeMark = "P5", Colour = timber, Cost = 320m },
+                { TypeMark = "P5", Colour = timber, Cost = 320m, FlowRate = 8 },
             new ComponentType("Sink Unit - 600", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 600, 600, 900)
-                { TypeMark = "P6", Colour = timber, Cost = 240m },
+                { TypeMark = "P6", Colour = timber, Cost = 240m, FlowRate = 8 },
 
             // Showers on a low 45 tray, an enclosure's 8 mm glass 1900 high on it: a tray on its
             // own, a corner one, a sliding door across an alcove, and a walk-in's fixed panel.
             new ComponentType("Shower Tray - 900 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 45)
-                { TypeMark = "P7", Colour = white, Cost = 180m },
+                { TypeMark = "P7", Colour = white, Cost = 180m, FlowRate = 9 },
             new ComponentType("Shower Enclosure - Corner 900 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 1945)
-                { TypeMark = "P8", Colour = white, Cost = 520m, Enclosure = ShowerEnclosure.Corner },
+                { TypeMark = "P8", Colour = white, Cost = 520m, FlowRate = 9, Enclosure = ShowerEnclosure.Corner },
             new ComponentType("Shower Enclosure - Alcove 1200 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1200, 800, 1945)
-                { TypeMark = "P9", Colour = white, Cost = 480m, Enclosure = ShowerEnclosure.Alcove },
+                { TypeMark = "P9", Colour = white, Cost = 480m, FlowRate = 9, Enclosure = ShowerEnclosure.Alcove },
             new ComponentType("Walk-in Shower - 1400 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1400, 900, 1945)
-                { TypeMark = "P10", Colour = white, Cost = 560m, Enclosure = ShowerEnclosure.WalkIn },
+                { TypeMark = "P10", Colour = white, Cost = 560m, FlowRate = 9, Enclosure = ShowerEnclosure.WalkIn },
 
             // A level-access shower, its former flush with the floor: 1200 x 1200, as Approved
             // Document M asks of a wheelchair user's bathroom.
             new ComponentType("Shower - Level Access 1200 x 1200", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1200, 1200, 10)
-                { TypeMark = "P14", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 650m, Description = "Wet-room former, laid to fall to its drain" },
+                { TypeMark = "P14", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 650m, FlowRate = 9, Description = "Wet-room former, laid to fall to its drain" },
 
             // A wall light with its middle at 1700, as lights are put up - 1.6 to 1.8 m - and LED
             // lamps in all of them, past the 75 lumens a watt Approved Document L asks for.
@@ -2127,6 +2133,7 @@ public sealed class BimDocument
         foreach (var ramp in RampType.Library()) document.AddType(ramp);
         foreach (var railing in RailingType.Library()) document.AddType(railing);
         foreach (var beam in BeamType.Library()) document.AddType(beam);
+        foreach (var pipe in Mep.PipeType.Library()) document.AddType(pipe);
 
         // Log walls, as Archicad builds them: round logs, D-logs flat inside, squared logs.
         // A stud partition with mineral wool in it, for round a bedroom or a bathroom - Rw 43, past

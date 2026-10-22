@@ -3,6 +3,7 @@ using BIMDesigner.Core.Mep;
 using Xbim.Ifc4.GeometricConstraintResource;
 using Xbim.Ifc4.GeometryResource;
 using Xbim.Ifc4.Interfaces;
+using Xbim.Ifc4.MeasureResource;
 using Xbim.Ifc4.Kernel;
 using Xbim.Ifc4.ProductExtension;
 using Xbim.Ifc4.SharedBldgServiceElements;
@@ -25,6 +26,7 @@ public static partial class IfcExport
         private void ExportSystems(IfcBuilding building)
         {
             var ports = new Dictionary<(Guid Component, SystemKind Kind, bool Feeds), IfcDistributionPort>();
+            var placedPorts = new List<(BIMDesigner.Core.Geometry.Point3D At, IfcDistributionPort Port, Guid Owner)>();
             foreach (var component in _document.All<Component>())
             {
                 if (!_products.TryGetValue(component.Id, out var product) || product is not IfcDistributionElement element) continue;
@@ -36,6 +38,7 @@ public static partial class IfcExport
                 {
                     var port = Port(component, element, placed[i], i);
                     nested.Add(port);
+                    placedPorts.Add((placed[i].At, port, component.Id));
                     ports.TryAdd((component.Id, placed[i].Connector.Kind, placed[i].Connector.Feeds), port);
                 }
 
@@ -47,6 +50,56 @@ public static partial class IfcExport
                 });
             }
 
+            // The pipes: each a segment with a port at each end, joined port to port where they meet a fitting or each other.
+            var segments = new Dictionary<Guid, IfcProduct>();
+            foreach (var pipe in _document.All<Pipe>())
+            {
+                if (ExportPipe(pipe) is not { } segment) continue;
+                segments[pipe.Id] = segment;
+                var (start, end) = pipe.Ends(_document);
+                var ends = new[] { (start, "Start", 0), (end, "End", 1) }.Select(entry =>
+                {
+                    var port = New<IfcDistributionPort>(each =>
+                    {
+                        each.GlobalId = PartId(pipe.Id, (byte)(0x70 + entry.Item3), 0xD1).ToIfc();
+                        each.Name = entry.Item2;
+                        each.FlowDirection = IfcFlowDirectionEnum.SOURCEANDSINK;
+                        each.PredefinedType = IfcDistributionPortTypeEnum.PIPE;
+                        each.SystemType = SystemType(pipe.Kind);
+                        each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                        {
+                            placement.PlacementRelTo = segment.ObjectPlacement;
+                            placement.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
+                                axis.Location = Point3D(entry.Item1.X, entry.Item1.Y, entry.Item1.Z - (_document.FindLevel(pipe.LevelId)?.Elevation ?? 0)));
+                        });
+                    });
+                    placedPorts.Add((entry.Item1, port, pipe.Id));
+                    return port;
+                }).ToList();
+                New<IfcRelNests>(relation =>
+                {
+                    relation.GlobalId = PartId(pipe.Id, 0x9E, 0x52).ToIfc();
+                    relation.RelatingObject = segment;
+                    relation.RelatedObjects.AddRange(ends);
+                });
+            }
+
+            var joined = new HashSet<(IfcDistributionPort, IfcDistributionPort)>();
+            foreach (var (at, port, owner) in placedPorts.Where(entry => segments.ContainsKey(entry.Owner)))
+                foreach (var (otherAt, other, otherOwner) in placedPorts)
+                {
+                    if (otherOwner == owner || ReferenceEquals(port, other) || joined.Contains((other, port))) continue;
+                    if (Math.Sqrt(Math.Pow(at.X - otherAt.X, 2) + Math.Pow(at.Y - otherAt.Y, 2) + Math.Pow(at.Z - otherAt.Z, 2)) > PipeNetworks.Touch) continue;
+                    if (other.SystemType != port.SystemType) continue;
+                    joined.Add((port, other));
+                    var (relating, related) = other.FlowDirection == IfcFlowDirectionEnum.SOURCE ? (other, port) : (port, other);
+                    New<IfcRelConnectsPorts>(relation =>
+                    {
+                        relation.RelatingPort = relating;
+                        relation.RelatedPort = related;
+                    });
+                }
+
             var systems = _document.All<MepSystem>().ToList();
             if (systems.Count == 0) return;
 
@@ -54,7 +107,9 @@ public static partial class IfcExport
             foreach (var system in systems)
             {
                 var members = MepSystems.MembersOf(_document, system)
-                    .Select(member => _products.TryGetValue(member.Id, out var product) ? product : null).OfType<IfcProduct>().ToList();
+                    .Select(member => _products.TryGetValue(member.Id, out var product) ? product : null).OfType<IfcProduct>()
+                    .Concat(PipeNetworks.PipesOf(_document, system).Select(pipe => segments.GetValueOrDefault(pipe.Id)).OfType<IfcProduct>())
+                    .ToList();
                 IfcDistributionSystem group = system.Kind == SystemKind.Power ? New<IfcDistributionCircuit>() : New<IfcDistributionSystem>();
                 group.GlobalId = system.Id.ToIfc();
                 group.Name = system.Name;
@@ -104,6 +159,39 @@ public static partial class IfcExport
                     relation.RelatingSystem = group;
                     relation.RelatedBuildings.Add(building);
                 });
+        }
+
+        /// <summary>A pipe as an IfcPipeSegment on its storey: its round body, its size and material, and its length.</summary>
+        private IfcProduct? ExportPipe(Pipe pipe)
+        {
+            if (PipeModel.Mesh(_document, pipe) is not { } mesh) return null;
+            var storey = StoreyOf(pipe);
+            var elevation = _document.FindLevel(pipe.LevelId)?.Elevation ?? 0;
+            var type = _document.FindType<PipeType>(pipe.TypeId);
+            var segment = New<Xbim.Ifc4.HvacDomain.IfcPipeSegment>(each =>
+            {
+                each.GlobalId = pipe.Id.ToIfc();
+                each.Name = $"{(type is null ? "Pipe" : type.Name)} {pipe.SizeName(type)}";
+                each.ObjectType = pipe.Kind.Title();
+                each.Tag = pipe.Mark;
+                each.PredefinedType = type?.Material == PipeMaterial.PeX ? IfcPipeSegmentTypeEnum.FLEXIBLESEGMENT : IfcPipeSegmentTypeEnum.RIGIDSEGMENT;
+                each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(0, 0, 0));
+                });
+                each.Representation = TessellatedBody(new[] { mesh }, point => new BIMDesigner.Core.Geometry.Point3D(point.X, point.Y, point.Z - elevation));
+            });
+            Contain(pipe, segment);
+            WriteSet(segment, "Pset_PipeSegmentTypeCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = type is null || string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["NominalDiameter"] = new IfcPositiveLengthMeasure(pipe.Diameter),
+                ["InnerDiameter"] = type is null ? null : new IfcPositiveLengthMeasure(PipeSizes.Nearest(type.Material, pipe.Diameter).Inside),
+                ["OuterDiameter"] = new IfcPositiveLengthMeasure(pipe.Diameter)
+            });
+            WriteSet(segment, "Qto_PipeSegmentBaseQuantities", new Dictionary<string, IfcValue?> { ["Length"] = new IfcLengthMeasure(pipe.Length) });
+            return segment;
         }
 
         /// <summary>One connector of a fitting as a port, placed in the fitting's own frame.</summary>

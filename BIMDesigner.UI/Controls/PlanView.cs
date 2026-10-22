@@ -41,6 +41,9 @@ public enum PlanTool
     /// <summary>Picks the equipment that feeds the system being edited.</summary>
     PickSource,
 
+    /// <summary>Draws pipes: from a fitting's connector or a pipe, level at its run height, to a fitting or a pipe.</summary>
+    Pipe,
+
     /// <summary>Places a component of a loadable family: furniture, casework, a fixture.</summary>
     Component,
 
@@ -1273,6 +1276,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
         PlanTool.RoomSeparator => "Click where the room separator starts, then where it ends: rooms are bounded by it where there is no wall - the next starts where it ended. Esc to stop.",
+        PlanTool.Pipe => "Click a fitting's connector, the end of a pipe or a point along one - or anywhere - where the pipe starts; then where it goes. It runs level at the height on the option bar and rises or drops to the fitting or pipe it ends at.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
         PlanTool.Region => "Click the corners of the region of ground - a lawn, paving, gravel, planting - and its first again to close it; or, drawing a path, click along its middle and double-click where it ends. It lies on the ground, following it.",
         PlanTool.Joists => "Click the corners of the outline the joists fill - the faces of what carries their ends - and its first again to close it. They run across the short way, at the spacing on the option bar, and stop short of a stairwell, with trimmers across its ends.",
@@ -1405,6 +1409,7 @@ public partial class PlanView : FrameworkElement
                       | CancelRailing()
                       | CancelBeam()
                       | CancelRoomSeparator()
+                      | CancelPipe()
                       | CancelGround()
                       | CancelOutline()
                       | CancelExtrusion()
@@ -1784,6 +1789,11 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             BeamHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.Pipe)
+        {
+            _cursorModel = raw;
+            PipeHover(raw);
         }
         else if (ActiveTool == PlanTool.RoomSeparator)
         {
@@ -2199,6 +2209,11 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.RoomSeparator:
                 ClickRoomSeparator(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Pipe:
+                if (e.ClickCount == 2 && CancelPipe()) return;
+                ClickPipe(raw);
                 return;
 
             case PlanTool.EditSystem:
@@ -6051,6 +6066,7 @@ public partial class PlanView : FrameworkElement
         foreach (var railing in RailingsAt(model)) yield return railing;
         foreach (var beam in BeamsAt(model)) yield return beam;
         foreach (var separator in RoomSeparatorsAt(model)) yield return separator;
+        foreach (var pipe in PipesAt(model)) yield return pipe;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
@@ -6187,6 +6203,7 @@ public partial class PlanView : FrameworkElement
         DrawBeamPreview(dc);
         DrawRoomSeparatorPreview(dc);
         DrawSystems(dc);
+        DrawPipePreview(dc);
         DrawGroundPreview(dc);
         DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);

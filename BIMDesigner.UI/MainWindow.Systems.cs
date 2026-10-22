@@ -116,6 +116,62 @@ public partial class MainWindow
         StatusHint.Text = $"{system.Name} made of {members} fitting{(members == 1 ? string.Empty : "s")}{fed}. Edit System clicks more on.";
     }
 
+    private const string PipeSizeFromFitting = "As the fitting";
+
+    private static readonly SystemKind[] PipeKinds = Enum.GetValues<SystemKind>().Where(kind => kind.Domain() == ConnectorDomain.Pipe).ToArray();
+
+    private void ShowPipeOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<PipeType>().ToList();
+        PipeTypePicker.ItemsSource = types;
+        var type = types.FirstOrDefault(each => each.Id == Plan.ActivePipeTypeId) ?? types.FirstOrDefault();
+        PipeTypePicker.SelectedItem = type;
+        Plan.ActivePipeTypeId = type?.Id ?? Guid.Empty;
+
+        var sizes = new[] { PipeSizeFromFitting }.Concat(type is null ? Array.Empty<string>() : PipeSizes.Of(type.Material).Select(size => size.Name)).ToList();
+        PipeSizePicker.ItemsSource = sizes;
+        PipeSizePicker.SelectedItem = Plan.NewPipeDiameter > 0 && type is not null ? PipeSizes.Nearest(type.Material, Plan.NewPipeDiameter).Name : PipeSizeFromFitting;
+        PipeOffsetBox.Text = Core.Units.FormatLength(Plan.NewPipeOffset);
+        PipeKindPicker.ItemsSource = PipeKinds.Select(kind => kind.Title()).ToList();
+        PipeKindPicker.SelectedItem = Plan.NewPipeKind.Title();
+        _loadingOptions = false;
+    }
+
+    private void OnPipeOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+
+        if (PipeTypePicker.SelectedItem is PipeType type) Plan.ActivePipeTypeId = type.Id;
+        var material = _document.FindType<PipeType>(Plan.ActivePipeTypeId)?.Material ?? PipeMaterial.Copper;
+        Plan.NewPipeDiameter = PipeSizes.Of(material).FirstOrDefault(size => size.Name == PipeSizePicker.SelectedItem as string)?.Outside ?? 0;
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, PipeOffsetBox.Text, out var value) && value is double offset && Math.Abs(offset) <= 20000)
+            Plan.NewPipeOffset = offset;
+        if (PipeKinds.FirstOrDefault(kind => kind.Title() == PipeKindPicker.SelectedItem as string) is var picked && picked.Title() == PipeKindPicker.SelectedItem as string)
+            Plan.NewPipeKind = picked;
+        ShowPipeOptions();
+    }
+
+    /// <summary>Size Pipes: every cold and hot water pipe - of the systems selected, or all of them - sized as BS EN 806-3 asks, as one step.</summary>
+    private void OnSizePipes(object sender, RoutedEventArgs e)
+    {
+        var picked = Plan.SelectedElements.OfType<MepSystem>()
+            .Concat(Plan.SelectedElements.OfType<Pipe>().Select(pipe => _document.Find<MepSystem>(pipe.SystemId)).OfType<MepSystem>())
+            .Distinct().ToList();
+        var systems = picked.Count > 0 ? picked : _document.All<MepSystem>().ToList();
+        var sized = PipeNetworks.Sized(_document, systems);
+        if (sized.Count == 0)
+        {
+            StatusHint.Text = _document.All<Pipe>().Any()
+                ? "Every water pipe traced from its source is the size BS EN 806-3 asks already."
+                : "There are no pipes yet: draw them with Pipe, from the fittings to what feeds them.";
+            return;
+        }
+
+        _history.Execute(new SetPipeSizesCommand(sized));
+        StatusHint.Text = $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized as BS EN 806-3 asks, by the loading units of the draw-offs beyond each.";
+    }
+
     /// <summary>The system to act on: the one selected, or the one a fitting selected is on, or the one picked in the System Browser.</summary>
     private MepSystem? SystemInHand()
     {

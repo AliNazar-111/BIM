@@ -74,6 +74,7 @@ public static partial class ProjectFile
                 BuildingType = document.ProjectInformation.BuildingType,
                 ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString(),
                 Sprinklered = document.ProjectInformation.Sprinklered,
+                WaterOptionalRequirement = document.ProjectInformation.WaterOptionalRequirement,
                 Ground = document.ProjectInformation.Ground.ToString(),
                 ClayShrinkage = document.ProjectInformation.ClayShrinkage.ToString(),
                 FrostDepth = document.ProjectInformation.FrostDepth,
@@ -358,6 +359,20 @@ public static partial class ProjectFile
             {
                 Id = system.Id, TypeId = system.TypeId, LevelId = system.LevelId, Boundary = system.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset, Mark = system.Mark, Comments = system.Comments
+            });
+
+        foreach (var type in document.TypesOf<PipeType>())
+            (dto.PipeTypes ??= new List<PipeTypeDto>()).Add(new PipeTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Material = type.Material.ToString(), Cost = type.Cost, Description = type.Description
+            });
+
+        foreach (var pipe in document.All<Pipe>())
+            (dto.Pipes ??= new List<PipeDto>()).Add(new PipeDto
+            {
+                Id = pipe.Id, TypeId = pipe.TypeId, LevelId = pipe.LevelId, StartX = pipe.Start.X, StartY = pipe.Start.Y, EndX = pipe.End.X, EndY = pipe.End.Y,
+                StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind.ToString(),
+                SystemId = document.Find<MepSystem>(pipe.SystemId)?.Id, Mark = pipe.Mark, Comments = pipe.Comments
             });
 
         foreach (var type in document.TypesOf<BeamType>())
@@ -1112,6 +1127,9 @@ public static partial class ProjectFile
                 WaterDemand = type.WaterDemand == TreeWaterDemand.Unknown ? null : type.WaterDemand.ToString(),
                 StemDiameter = type.StemDiameter > 0 ? type.StemDiameter : null,
                 HotWater = type.Form == ComponentForm.Boiler && type.HotWater != BoilerHotWater.Combi ? type.HotWater.ToString() : null,
+                FlowRate = type.FlowRate > 0 ? type.FlowRate : null, FlushVolume = type.FlushVolume > 0 ? type.FlushVolume : null,
+                PartFlushVolume = type.PartFlushVolume > 0 ? type.PartFlushVolume : null, Capacity = type.Capacity > 0 ? type.Capacity : null,
+                WaterPerUse = type.WaterPerUse > 0 ? type.WaterPerUse : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -1406,6 +1424,7 @@ public static partial class ProjectFile
         document.ProjectInformation.BuildingType = dto.Project.BuildingType;
         document.ProjectInformation.ClearanceStandard = ParseEnum(dto.Project.ClearanceStandard, ClearanceStandard.ApprovedDocumentM);
         document.ProjectInformation.Sprinklered = dto.Project.Sprinklered;
+        document.ProjectInformation.WaterOptionalRequirement = dto.Project.WaterOptionalRequirement;
         document.ProjectInformation.Ground = ParseEnum(dto.Project.Ground, GroundType.FirmClay);
         document.ProjectInformation.ClayShrinkage = ParseEnum(dto.Project.ClayShrinkage, ClayShrinkage.None);
         document.ProjectInformation.FrostDepth = double.IsFinite(dto.Project.FrostDepth) && dto.Project.FrostDepth > 0 ? dto.Project.FrostDepth : 0;
@@ -1610,6 +1629,15 @@ public static partial class ProjectFile
                 PostSpacing = Within(type.PostSpacing, 300, 3000, 1500), LongestFlight = Within(type.LongestFlight, 500, 50000, 0),
                 Colour = ParseColour(type.Colour, new ColourRgb(0xB5, 0xB3, 0xAE)),
                 MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description ?? string.Empty
+            });
+
+        // A project saved before it had pipes is given the usual pipe types.
+        if (dto.PipeTypes is null or { Count: 0 })
+            foreach (var type in PipeType.Library()) document.AddType(type);
+        foreach (var type in dto.PipeTypes ?? new List<PipeTypeDto>())
+            document.AddType(new PipeType(type.Name, ParseEnum(type.Material, PipeMaterial.Copper))
+            {
+                Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
 
         // A project saved before it had beams is given the usual ones.
@@ -2667,6 +2695,12 @@ public static partial class ProjectFile
                 WaterDemand = ParseEnum(type.WaterDemand, TreeWaterDemand.Unknown),
                 StemDiameter = type.StemDiameter is >= 0 and < 10000 ? type.StemDiameter.Value : 0,
                 HotWater = ParseEnum(type.HotWater, BoilerHotWater.Combi),
+                FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
+                FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
+                PartFlushVolume = type.PartFlushVolume is >= 0 and < 100 ? type.PartFlushVolume.Value
+                    : type.FlushVolume is null && ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 4 : 0,
+                Capacity = Water(type.Capacity, ParseEnum(type.Form, ComponentForm.Box) == ComponentForm.Bath ? 185 : 0),
+                WaterPerUse = Water(type.WaterPerUse, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Dishwasher => 1.25, ComponentForm.WashingMachine => 8.17, _ => 0 }),
                 Mesh = MeshFrom(type.Mesh),
                 MaterialId = type.MaterialId,
                 Colour = ParseColour(type.Colour, new ColourRgb(0xB4, 0x9A, 0x74)),
@@ -2735,6 +2769,22 @@ public static partial class ProjectFile
                 if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);
             if (document.Find<Component>(saved.SourceId) is { } source && MepSystems.WhyNotSource(document, source, system) is null) system.SourceId = source.Id;
             document.Add(system);
+        }
+
+        // The pipes, on their systems; one with no length is nothing.
+        foreach (var saved in (dto.Pipes ?? new List<PipeDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null
+                     && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY, saved.StartOffset, saved.EndOffset, saved.Diameter }.All(double.IsFinite)))
+        {
+            var pipe = new Pipe
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Start = new Point2D(saved.StartX, saved.StartY), End = new Point2D(saved.EndX, saved.EndY),
+                StartOffset = saved.StartOffset, EndOffset = saved.EndOffset, Diameter = saved.Diameter > 0 ? saved.Diameter : 15,
+                Kind = ParseEnum(saved.Kind, SystemKind.ColdWater), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+                TypeId = document.FindType<PipeType>(saved.TypeId)?.Id ?? document.TypesOf<PipeType>().FirstOrDefault()?.Id ?? Guid.Empty
+            };
+            if (pipe.Length < 1) continue;
+            pipe.SystemId = document.Find<MepSystem>(saved.SystemId) is { } on && on.Kind == pipe.Kind ? on.Id : null;
+            document.Add(pipe);
         }
 
         foreach (var room in dto.Rooms)
@@ -3219,6 +3269,9 @@ public static partial class ProjectFile
                 if (Enum.TryParse<MeshKind>(name, out var kind)) view.HiddenKinds.Add(kind);
         (view.ShowGround, view.ShowEdges, view.Comments) = (saved.ShowGround, saved.ShowEdges, saved.Comments ?? string.Empty);
     }
+
+    /// <summary>A water figure from the file, or what is assumed of a fitting of its kind where the file has none.</summary>
+    private static double Water(double? value, double assumed) => value is >= 0 and < 10000 ? value.Value : assumed;
 
     private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum =>
         Enum.TryParse<T>(text, ignoreCase: true, out var value) ? value : fallback;

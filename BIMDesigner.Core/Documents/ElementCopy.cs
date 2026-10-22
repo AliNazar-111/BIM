@@ -73,8 +73,8 @@ public static class ElementCopy
 
         foreach (var copy in copies) Redirect(copy, replacements);
 
-        // A system copied without any of its fittings is nothing.
-        copies.RemoveAll(copy => copy is Mep.MepSystem { Members.Count: 0, SourceId: null });
+        // A system copied without any of its fittings or pipes is nothing.
+        copies.RemoveAll(copy => copy is Mep.MepSystem { Members.Count: 0, SourceId: null } system && !copies.OfType<Mep.Pipe>().Any(pipe => pipe.SystemId == system.Id));
         return copies;
     }
 
@@ -339,6 +339,10 @@ public static class ElementCopy
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
+        Mep.Pipe pipe => CarryCommon(new Mep.Pipe
+        {
+            Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId
+        }, pipe),
         Mep.MepSystem system => CarryCommon(Members(new Mep.MepSystem { Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use }, system.Members), system),
         Beam beam => CarryCommon(new Beam
         {
@@ -603,6 +607,9 @@ public static class ElementCopy
             system.Members.AddRange(members);
             system.SourceId = system.SourceId is { } source && replacements.TryGetValue(source, out var copied) ? copied : null;
         }
+
+        // A pipe copied with its system is on the copy of it; copied without it, on none until it is joined to one.
+        if (copy is Mep.Pipe run) run.SystemId = run.SystemId is { } on && replacements.TryGetValue(on, out var copiedSystem) ? copiedSystem : null;
 
         // Walls copied with the roof they stand on or carry go with the copy of it.
         if (copy is Wall attached)

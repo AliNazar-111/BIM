@@ -63,6 +63,10 @@ internal sealed class ProjectFileDto
     public List<RailingDto> Railings { get; set; } = new();
     public List<BeamTypeDto> BeamTypes { get; set; } = new();
     public List<BeamDto> Beams { get; set; } = new();
+
+    /// <summary>The services' pipe types and pipes. Missing from older files.</summary>
+    public List<PipeTypeDto>? PipeTypes { get; set; }
+    public List<PipeDto>? Pipes { get; set; }
     public List<RoomSeparatorDto> RoomSeparators { get; set; } = new();
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
@@ -1002,6 +1006,13 @@ internal sealed class ComponentTypeDto
     /// <summary>A boiler's hot water, where it heats a cylinder's rather than its own as a combi; none for a combi.</summary>
     public string? HotWater { get; set; }
 
+    /// <summary>What Approved Document G's water efficiency calculator counts of it; none in a file from before.</summary>
+    public double? FlowRate { get; set; }
+    public double? FlushVolume { get; set; }
+    public double? PartFlushVolume { get; set; }
+    public double? Capacity { get; set; }
+    public double? WaterPerUse { get; set; }
+
     /// <summary>A family of your own's solids, in its box.</summary>
     public List<ComponentSolidDto>? Solids { get; set; }
 
@@ -1119,6 +1130,9 @@ internal sealed class ProjectInformationDto
     public string? ClearanceStandard { get; set; }
 
     public bool Sprinklered { get; set; }
+
+    /// <summary>Whether Approved Document G's optional requirement of 110 litres a person a day applies.</summary>
+    public bool WaterOptionalRequirement { get; set; }
 
     /// <summary>The ground the footings are sized for, and how far the frost and snow go. Absent in older files: firm clay, no shrinkage set, no frost line, 20 psf.</summary>
     public string? Ground { get; set; }
@@ -2129,6 +2143,34 @@ internal sealed class BeamTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class PipeTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string TypeMark { get; set; } = string.Empty;
+    public string Material { get; set; } = "Copper";
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class PipeDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public double StartOffset { get; set; }
+    public double EndOffset { get; set; }
+    public double Diameter { get; set; }
+    public string Kind { get; set; } = "ColdWater";
+    public Guid? SystemId { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class MepSystemDto
