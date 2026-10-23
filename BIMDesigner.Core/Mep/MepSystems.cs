@@ -62,7 +62,7 @@ public static class MepSystems
     {
         if (component is null) return null;
         var type = document.FindType<ComponentType>(component.TypeId)?.Name ?? "Fitting";
-        return RoomsOf.Containing(document, component.LevelId, component.Location) is { } room
+        return RoomsOf.Of(document, component) is { } room
             ? $"{type} in {RoomsOf.Label(room)}"
             : $"{type} on {document.FindLevel(component.LevelId)?.Name ?? "no storey"}";
     }
@@ -246,6 +246,8 @@ public static class MepSystems
         problems.AddRange(Drainage.Problems(document));
         problems.AddRange(WaterUse.Problems(document));
         problems.AddRange(Heating.Problems(document));
+        problems.AddRange(Ventilation.Problems(document));
+        problems.AddRange(DuctNetworks.Problems(document));
         return problems;
     }
 
@@ -278,7 +280,7 @@ public static class MepSystems
                 : "not linked to the others - BS 5839-6, which Approved Document B (1.1) follows, links the alarms so that one sounding sounds them all",
             SystemKind.Heating when type.Form == ComponentForm.Thermostat => "it controls no heating zone",
             SystemKind.Power => "not on a circuit",
-            _ => $"not on a {what} system"
+            _ => $"not on {("aeiou".Contains(what[0]) ? "an" : "a")} {what} system"
         };
     }
 }

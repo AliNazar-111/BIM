@@ -33,7 +33,13 @@ public enum SystemKind
     Gas,
     ExtractAir,
     Power,
-    FireAlarm
+    FireAlarm,
+
+    /// <summary>Fresh air a heat recovery unit supplies to the habitable rooms.</summary>
+    SupplyAir,
+
+    /// <summary>The air a heat recovery unit draws in from outside and lets out again, through its terminals on the outside wall or roof.</summary>
+    OutsideAir
 }
 
 /// <summary>What a connection is made with: a pipe, a duct, or a cable.</summary>
@@ -81,6 +87,8 @@ public static class SystemKinds
         SystemKind.Gas => "Gas",
         SystemKind.ExtractAir => "Extract Air",
         SystemKind.Power => "Power",
+        SystemKind.SupplyAir => "Supply Air",
+        SystemKind.OutsideAir => "Outside Air",
         _ => "Fire Alarm"
     };
 
@@ -89,6 +97,7 @@ public static class SystemKinds
     {
         SystemKind.Heating => "Heating Zone",
         SystemKind.ExtractAir => "Extract",
+        SystemKind.SupplyAir => "Supply",
         SystemKind.Power => "Circuit",
         SystemKind.FireAlarm => "Alarm Interlink",
         _ => kind.Title()
@@ -97,13 +106,13 @@ public static class SystemKinds
     public static Discipline Discipline(this SystemKind kind) => kind switch
     {
         SystemKind.ColdWater or SystemKind.HotWater or SystemKind.Foul or SystemKind.Rainwater => Mep.Discipline.Plumbing,
-        SystemKind.Heating or SystemKind.Gas or SystemKind.ExtractAir => Mep.Discipline.Mechanical,
+        SystemKind.Heating or SystemKind.Gas or SystemKind.ExtractAir or SystemKind.SupplyAir or SystemKind.OutsideAir => Mep.Discipline.Mechanical,
         _ => Mep.Discipline.Electrical
     };
 
     public static ConnectorDomain Domain(this SystemKind kind) => kind switch
     {
-        SystemKind.ExtractAir => ConnectorDomain.Duct,
+        SystemKind.ExtractAir or SystemKind.SupplyAir or SystemKind.OutsideAir => ConnectorDomain.Duct,
         SystemKind.Power or SystemKind.FireAlarm => ConnectorDomain.Electrical,
         _ => ConnectorDomain.Pipe
     };
@@ -130,6 +139,7 @@ public static class SystemKinds
         SystemKind.Power => "a consumer unit",
         SystemKind.Foul => "an outfall to the foul sewer",
         SystemKind.Rainwater => "an outfall - a soakaway, or the surface water sewer",
+        SystemKind.SupplyAir or SystemKind.OutsideAir => "a heat recovery unit",
         _ => null
     };
 
@@ -143,6 +153,8 @@ public static class SystemKinds
         SystemKind.Rainwater => new ColourRgb(0x2B, 0xA8, 0x9E),
         SystemKind.Gas => new ColourRgb(0xD4, 0xB0, 0x00),
         SystemKind.ExtractAir => new ColourRgb(0x8E, 0x6C, 0xC9),
+        SystemKind.SupplyAir => new ColourRgb(0x3C, 0xA8, 0xD8),
+        SystemKind.OutsideAir => new ColourRgb(0x6F, 0x9E, 0x55),
         SystemKind.Power => new ColourRgb(0xD0, 0x36, 0x8F),
         _ => new ColourRgb(0xE0, 0x1F, 0x1F)
     };

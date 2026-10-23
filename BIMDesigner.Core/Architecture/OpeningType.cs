@@ -232,9 +232,12 @@ public sealed class WindowType : OpeningType
     public WindowType Duplicate(string name) => WithCommonOf(WithOpeningOf(new WindowType(name, Width, Height)
     {
         Operation = Operation, GlazingType = GlazingType, GlazingRows = GlazingRows, GlazingColumns = GlazingColumns,
-        SolarHeatGainCoefficient = SolarHeatGainCoefficient,
+        SolarHeatGainCoefficient = SolarHeatGainCoefficient, TrickleVent = TrickleVent,
         Lights = Lights, LightPattern = LightPattern, TransomHeight = TransomHeight, Fanlight = Fanlight, MullionWidth = MullionWidth
     }));
+
+    /// <summary>Its trickle ventilator's equivalent area, mm² - a background ventilator in its frame (Approved Document F, Table 1.7); none at 0.</summary>
+    public double TrickleVent { get; set; }
 
     public override BuiltInCategory Category => BuiltInCategory.Windows;
 
@@ -319,6 +322,7 @@ public sealed class WindowType : OpeningType
         yield return ParameterValue.Bind(WindowTypeParameters.GlazingType, () => GlazingType, v => GlazingType = v);
         yield return ParameterValue.Bind(WindowTypeParameters.SolarHeatGain,
             () => SolarHeatGainCoefficient, v => SolarHeatGainCoefficient = v);
+        yield return ParameterValue.BindValidated(OpeningTypeParameters.TrickleVent, () => TrickleVent, v => { if (v < 0) return false; TrickleVent = v; return true; });
     }
 }
 
@@ -347,6 +351,9 @@ public static class OpeningTypeParameters
 
     public static readonly ParameterDefinition HeatTransferCoefficient =
         new("Heat Transfer Coefficient (U)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition TrickleVent =
+        new("Trickle Vent (mm² equivalent area)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition SafetyGlazing =
         new("Safety Glazing (BS EN 12600)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);

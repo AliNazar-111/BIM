@@ -196,6 +196,8 @@ public static class SectionProjection
                 AddCut(marker, BeamSystems.Meshes(document, system), pieces);
             foreach (var run in document.All<Mep.Pipe>().Where(run => shows(run) && Near(marker, run.Start, run.Length + 500)))
                 if (Mep.PipeModel.Mesh(document, run) is { } runMesh) AddCut(marker, new[] { runMesh }, pieces);
+            foreach (var duct in document.All<Mep.Duct>().Where(duct => shows(duct) && Near(marker, duct.Start, duct.Length + 500)))
+                if (Mep.DuctModel.Mesh(document, duct) is { } ductMesh) AddCut(marker, new[] { ductMesh }, pieces);
             foreach (var component in document.All<Component>().Where(component => shows(component)))
                 if (document.FindType<ComponentType>(component.TypeId) is { } componentType && Near(marker, component.Location, Math.Max(componentType.Width, componentType.Depth)))
                     Guarded(component, () => AddCut(marker, ModelMeshBuilder.BuildComponent(document, component), pieces));

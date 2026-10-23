@@ -84,12 +84,57 @@ public static partial class IfcExport
                 });
             }
 
+            // The ducts likewise, each a segment with a port at each end - and a damper where one keeps a fire wall it passes through.
+            var ducts = new HashSet<Guid>();
+            foreach (var duct in _document.All<Duct>())
+            {
+                if (ExportDuct(duct) is not { } segment) continue;
+                segments[duct.Id] = segment;
+                ducts.Add(duct.Id);
+                var (start, end) = duct.Ends(_document);
+                var ends = new[] { (start, "Start", 0), (end, "End", 1) }.Select(entry =>
+                {
+                    var port = New<IfcDistributionPort>(each =>
+                    {
+                        each.GlobalId = PartId(duct.Id, (byte)(0x70 + entry.Item3), 0xD2).ToIfc();
+                        each.Name = entry.Item2;
+                        each.FlowDirection = IfcFlowDirectionEnum.SOURCEANDSINK;
+                        each.PredefinedType = IfcDistributionPortTypeEnum.DUCT;
+                        each.SystemType = SystemType(duct.Kind);
+                        each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                        {
+                            placement.PlacementRelTo = segment.ObjectPlacement;
+                            placement.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
+                                axis.Location = Point3D(entry.Item1.X, entry.Item1.Y, entry.Item1.Z - (_document.FindLevel(duct.LevelId)?.Elevation ?? 0)));
+                        });
+                    });
+                    placedPorts.Add((entry.Item1, port, duct.Id));
+                    return port;
+                }).ToList();
+                New<IfcRelNests>(relation =>
+                {
+                    relation.GlobalId = PartId(duct.Id, 0x9E, 0x53).ToIfc();
+                    relation.RelatingObject = segment;
+                    relation.RelatedObjects.AddRange(ends);
+                });
+
+                if (duct.FireProtection is FireProtection.FireDamper or FireProtection.FireAndSmokeDamper)
+                {
+                    var index = 0;
+                    foreach (var (wall, at) in DuctNetworks.Crossings(_document, duct).Where(crossing => _document.GetWallType(crossing.Wall)?.Separating == true))
+                        ExportDamper(duct, at, Math.Max(_document.GetWallType(wall)?.Width ?? 100, 50), null, index++);
+                    foreach (var (floor, at) in DuctNetworks.FloorCrossings(_document, duct))
+                        ExportDamper(duct, at, 100, (floor.GetTopElevation(_document) + floor.GetBottomElevation(_document)) / 2 - (_document.FindLevel(duct.LevelId)?.Elevation ?? 0), index++);
+                }
+            }
+
             var joined = new HashSet<(IfcDistributionPort, IfcDistributionPort)>();
             foreach (var (at, port, owner) in placedPorts.Where(entry => segments.ContainsKey(entry.Owner)))
                 foreach (var (otherAt, other, otherOwner) in placedPorts)
                 {
                     if (otherOwner == owner || ReferenceEquals(port, other) || joined.Contains((other, port))) continue;
-                    if (Math.Sqrt(Math.Pow(at.X - otherAt.X, 2) + Math.Pow(at.Y - otherAt.Y, 2) + Math.Pow(at.Z - otherAt.Z, 2)) > PipeNetworks.Touch) continue;
+                    var touch = ducts.Contains(owner) ? DuctNetworks.Touch : PipeNetworks.Touch;
+                    if (Math.Sqrt(Math.Pow(at.X - otherAt.X, 2) + Math.Pow(at.Y - otherAt.Y, 2) + Math.Pow(at.Z - otherAt.Z, 2)) > touch) continue;
                     if (other.SystemType != port.SystemType) continue;
                     joined.Add((port, other));
                     var (relating, related) = other.FlowDirection == IfcFlowDirectionEnum.SOURCE ? (other, port) : (port, other);
@@ -194,6 +239,75 @@ public static partial class IfcExport
             return segment;
         }
 
+        /// <summary>A duct as an IfcDuctSegment on its storey: its body, its size and its length.</summary>
+        private IfcProduct? ExportDuct(Duct duct)
+        {
+            if (DuctModel.Mesh(_document, duct) is not { } mesh) return null;
+            var storey = StoreyOf(duct);
+            var elevation = _document.FindLevel(duct.LevelId)?.Elevation ?? 0;
+            var type = _document.FindType<DuctType>(duct.TypeId);
+            var size = duct.Size(_document);
+            var segment = New<Xbim.Ifc4.HvacDomain.IfcDuctSegment>(each =>
+            {
+                each.GlobalId = duct.Id.ToIfc();
+                each.Name = $"{(type is null ? "Duct" : type.Name)} {size.Name}";
+                each.ObjectType = duct.Kind.Title();
+                each.Tag = duct.Mark;
+                each.PredefinedType = type?.Material == DuctMaterial.Flexible ? IfcDuctSegmentTypeEnum.FLEXIBLESEGMENT : IfcDuctSegmentTypeEnum.RIGIDSEGMENT;
+                each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(0, 0, 0));
+                });
+                each.Representation = TessellatedBody(new[] { mesh }, point => new BIMDesigner.Core.Geometry.Point3D(point.X, point.Y, point.Z - elevation));
+            });
+            Contain(duct, segment);
+            WriteSet(segment, "Pset_DuctSegmentTypeCommon", new Dictionary<string, IfcValue?>
+            {
+                ["Reference"] = type is null || string.IsNullOrEmpty(type.TypeMark) ? null : new IfcIdentifier(type.TypeMark),
+                ["Shape"] = new IfcLabel(size.Shape == DuctShape.Round ? "ROUND" : "RECTANGULAR"),
+                ["NominalDiameterOrWidth"] = new IfcPositiveLengthMeasure(size.Width),
+                ["NominalHeight"] = size.Shape == DuctShape.Round ? null : new IfcPositiveLengthMeasure(size.Height)
+            });
+            WriteSet(segment, "Qto_DuctSegmentBaseQuantities", new Dictionary<string, IfcValue?> { ["Length"] = new IfcLengthMeasure(duct.Length) });
+            return segment;
+        }
+
+        /// <summary>A fire damper where a duct passes through a fire-separating wall or floor: an IfcDamper there, as big as the duct and the wall or floor is thick.</summary>
+        private void ExportDamper(Duct duct, BIMDesigner.Core.Geometry.Point2D at, double thickness, double? height, int index)
+        {
+            var piece = new Duct
+            {
+                Id = PartId(duct.Id, (byte)(0x40 + index), 0xDA), TypeId = duct.TypeId, LevelId = duct.LevelId,
+                Width = duct.Width + 20, Height = duct.Height + 20, Kind = duct.Kind
+            };
+            if (height is { } z)
+                (piece.Start, piece.End, piece.StartOffset, piece.EndOffset) = (at, at, z - thickness / 2, z + thickness / 2);
+            else
+            {
+                var direction = (duct.End - duct.Start).NormalisedOrDefault(BIMDesigner.Core.Geometry.Vector2D.UnitX);
+                var t = duct.Start.DistanceTo(at) / Math.Max(1, duct.Start.DistanceTo(duct.End));
+                var offset = duct.StartOffset + (duct.EndOffset - duct.StartOffset) * t;
+                (piece.Start, piece.End, piece.StartOffset, piece.EndOffset) = (at - direction * (thickness / 2), at + direction * (thickness / 2), offset, offset);
+            }
+            if (DuctModel.Mesh(_document, piece) is not { } mesh) return;
+            var storey = StoreyOf(duct);
+            var elevation = _document.FindLevel(duct.LevelId)?.Elevation ?? 0;
+            var damper = New<Xbim.Ifc4.HvacDomain.IfcDamper>(each =>
+            {
+                each.GlobalId = piece.Id.ToIfc();
+                each.Name = Duct.Describe(duct.FireProtection);
+                each.PredefinedType = duct.FireProtection == FireProtection.FireAndSmokeDamper ? IfcDamperTypeEnum.FIRESMOKEDAMPER : IfcDamperTypeEnum.FIREDAMPER;
+                each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(0, 0, 0));
+                });
+                each.Representation = TessellatedBody(new[] { mesh }, point => new BIMDesigner.Core.Geometry.Point3D(point.X, point.Y, point.Z - elevation));
+            });
+            Contain(duct, damper);
+        }
+
         /// <summary>One connector of a fitting as a port, placed in the fitting's own frame.</summary>
         private IfcDistributionPort Port(Component component, IfcDistributionElement element, PlacedConnector placed, int index)
         {
@@ -253,6 +367,7 @@ public static partial class IfcExport
             SystemKind.Rainwater => IfcDistributionSystemEnum.RAINWATER,
             SystemKind.Gas => IfcDistributionSystemEnum.GAS,
             SystemKind.ExtractAir => IfcDistributionSystemEnum.EXHAUST,
+            SystemKind.SupplyAir or SystemKind.OutsideAir => IfcDistributionSystemEnum.VENTILATION,
             SystemKind.Power => IfcDistributionSystemEnum.ELECTRICAL,
             _ => IfcDistributionSystemEnum.SIGNAL
         };

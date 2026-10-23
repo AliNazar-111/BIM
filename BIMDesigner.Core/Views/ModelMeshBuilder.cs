@@ -131,6 +131,10 @@ public static class ModelMeshBuilder
         {
             if (Mep.PipeModel.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
         });
+        Each(document.All<Mep.Duct>(), duct =>
+        {
+            if (Mep.DuctModel.Mesh(document, duct) is { } ductMesh) meshes.Add(ductMesh);
+        });
 
         // Masses, see-through: the shape of the building before it is one.
         Each(document.All<Mass>().Where(m => m.Boundary.Count >= 3), mass => meshes.Add(Masses.Mesh(document, mass)));

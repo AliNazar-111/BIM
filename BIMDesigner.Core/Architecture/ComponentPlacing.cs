@@ -344,6 +344,33 @@ public static class RoomsOf
             .Where(room => room.LevelId == levelId)
             .FirstOrDefault(room => Outline(document, room) is { Count: >= 3 } outline && Polygon2D.Contains(outline, at));
 
+    /// <summary>
+    /// Whether a fitting is in a room: inside its outline - or, a fan or a background ventilator through an
+    /// outside wall, fixed on the wall's outer face, the room on its inner side and none on its outer.
+    /// </summary>
+    public static bool Holds(BimDocument document, Room room, IReadOnlyList<Point2D> outline, Component piece)
+    {
+        if (piece.LevelId != room.LevelId) return false;
+        if (Polygon2D.Contains(outline, piece.Location)) return true;
+        if (document.FindType<ComponentType>(piece.TypeId)?.Form is not (ComponentForm.ExtractFan or ComponentForm.BackgroundVentilator)) return false;
+        if (document.Find<Wall>(piece.HostId) is not { IsCurved: false } wall || document.GetWallType(wall) is not { } type) return false;
+
+        var length = wall.Start.DistanceTo(wall.End);
+        if (length < 1) return false;
+        var along = (piece.Location - wall.Start).Dot(wall.End - wall.Start) / length;
+        if (along < 0 || along > length) return false;
+        var reach = type.Structure.TotalWidth / 2 + 150;
+        var sides = new[] { reach, -reach }.Select(side => wall.PointAt(type.Structure, along, side)).OrderBy(point => point.DistanceTo(piece.Location)).ToList();
+        return Polygon2D.Contains(outline, sides[1]) && Containing(document, room.LevelId, sides[0]) is null;
+    }
+
+    /// <summary>The room a fitting is in: round it, or - a fan or a ventilator through an outside wall - on the wall's inner side.</summary>
+    public static Room? Of(BimDocument document, Component piece) =>
+        Containing(document, piece.LevelId, piece.Location)
+        ?? (document.FindType<ComponentType>(piece.TypeId)?.Form is ComponentForm.ExtractFan or ComponentForm.BackgroundVentilator
+            ? document.All<Room>().FirstOrDefault(room => room.LevelId == piece.LevelId && Outline(document, room) is { Count: >= 3 } outline && Holds(document, room, outline, piece))
+            : null);
+
     /// <summary>How a room is named in a list: its number and name - "1 Kitchen".</summary>
     public static string Label(Room room) => string.IsNullOrWhiteSpace(room.Number) ? room.Name : $"{room.Number} {room.Name}";
 }

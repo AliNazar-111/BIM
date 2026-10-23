@@ -638,6 +638,19 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Ductwork" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="DuctTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Duct}"
+                                             Content="Duct" Checked="OnToolChanged"
+                                             ToolTip="Duct: click a spigot - a heat recovery unit's, a valve's, an outside terminal's - the end of a duct or a point along one, then where the duct goes. It runs level at the height on the option bar, rises or drops to what it ends at, and puts it on its system. Galvanised spiral, PVC round, PVC flat channel or flexible"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SizeDucts}"
+                                            Content="Size Ducts" Click="OnSizeDucts"
+                                            ToolTip="Size the ducts of each ventilation system by equal friction, so the system's designed static pressure keeps within Approved Document F's Table 1.8 for the air it moves"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Heating" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.HeatLoss}"
@@ -1852,6 +1865,22 @@
                     <TextBlock Text="Fall (mm/m)" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <TextBox x:Name="PipeFallBox" MinWidth="44" VerticalAlignment="Center" LostFocus="OnPipeOptionChanged"
                              ToolTip="How much a foul or rainwater pipe falls toward where it drains, mm a metre: 18 to 90 for a branch (a basin's long branch 18 to 22), 1 in 80 - 12.5 - at the flattest for a drain with a WC"/>
+                </StackPanel>
+
+                <StackPanel x:Name="DuctOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="Duct" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="DuctTypePicker" Style="{StaticResource OptionCombo}" MinWidth="180"
+                              DisplayMemberPath="Name" SelectionChanged="OnDuctOptionChanged"
+                              ToolTip="What it is: galvanised spiral, rigid PVC round, PVC flat channel - or flexible, for the last connection to a valve only"/>
+                    <TextBlock Text="Size" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="DuctSizePicker" Style="{StaticResource OptionCombo}" MinWidth="110" SelectionChanged="OnDuctOptionChanged"
+                              ToolTip="Its size: or as much as the spigot a run starts from. Size Ducts sets each for its system's pressure"/>
+                    <TextBlock Text="Offset" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="DuctOffsetBox" MinWidth="60" VerticalAlignment="Center" LostFocus="OnDuctOptionChanged"
+                             ToolTip="How high above this level the run goes along, to its centre: in the loft, or a ceiling's void"/>
+                    <TextBlock Text="Carries" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="DuctKindPicker" Style="{StaticResource OptionCombo}" MinWidth="110" SelectionChanged="OnDuctOptionChanged"
+                              ToolTip="What a run started away from any spigot or duct carries; one started at a spigot or a duct carries what it does"/>
                 </StackPanel>
 
                 <StackPanel x:Name="BeamOptions" Orientation="Horizontal" Visibility="Collapsed">

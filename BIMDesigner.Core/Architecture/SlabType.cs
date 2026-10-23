@@ -41,6 +41,9 @@ public abstract class SlabType : ElementType
 
     public string FireRating { get; set; } = string.Empty;
 
+    /// <summary>Whether it separates one dwelling from another - a compartment floor between flats: a duct through it keeps it fire-separating (Approved Document B 9.12).</summary>
+    public bool Separating { get; set; }
+
     /// <summary>Weighted sound reduction index Rw, in decibels.</summary>
     public double AcousticRating { get; set; }
 
@@ -64,6 +67,7 @@ public abstract class SlabType : ElementType
             EnumText.Choices<SlabFunction>());
 
         yield return ParameterValue.Bind(SlabTypeParameters.FireRating, () => FireRating, v => FireRating = v);
+        if (this is FloorType) yield return ParameterValue.Bind(SlabTypeParameters.Separating, () => Separating, v => Separating = v);
         yield return ParameterValue.Bind(SlabTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
         yield return ParameterValue.Bind(SlabTypeParameters.HeatTransferCoefficient,
             () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
@@ -101,6 +105,9 @@ public static class SlabTypeParameters
 
     public static readonly ParameterDefinition Function =
         new("Function", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Separating =
+        new("Separates Dwellings (Compartment Floor)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition FireRating =
         new("Fire Rating", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);

@@ -145,7 +145,22 @@ public enum ComponentForm
     // The heating again: an air source heat pump's unit outside, and an underfloor heating loop -
     // its pipes laid under the whole floor of the room it is put in.
     HeatPump,
-    UnderfloorHeating
+    UnderfloorHeating,
+
+    // The ventilation: a heat recovery unit - mechanical ventilation with heat recovery - the valves
+    // in the ceilings it supplies air through and extracts it by, and a terminal on the outside wall
+    // its air comes in and goes out at.
+    HeatRecoveryUnit,
+    SupplyTerminal,
+    ExtractTerminal,
+    OutsideTerminal,
+
+    // The ventilation again: a central extract unit - continuous mechanical extract - a background
+    // ventilator through the wall, and a smoke detector in a duct, sampling its air for the fire and
+    // smoke dampers it closes.
+    ExtractUnit,
+    BackgroundVentilator,
+    DuctSmokeDetector
 }
 
 /// <summary>
@@ -313,6 +328,26 @@ public sealed class ComponentType : ElementType
     /// <summary>For underfloor heating, how far apart its pipes are laid, mm - what says how much pipe a floor takes.</summary>
     public double PipeSpacing { get; set; }
 
+    /// <summary>For a heat recovery unit, the most air it moves, l/s, against its available pressure.</summary>
+    public double Airflow { get; set; }
+
+    /// <summary>For a heat recovery unit, the pressure it has for its ducts and terminals at that airflow, Pa.</summary>
+    public double AvailablePressure { get; set; }
+
+    /// <summary>For a heat recovery unit, the share of the heat in the air it extracts that it gives to the air it supplies: its efficiency, as tested.</summary>
+    public double HeatRecovery { get; set; }
+
+    /// <summary>For a valve or a terminal, the pressure it loses, Pa, at its rated airflow (l/s) - from its maker's data; it goes as the square of the air through it.</summary>
+    public double PressureLoss { get; set; }
+
+    public double RatedAirflow { get; set; }
+
+    /// <summary>For an extract fan running continuously - decentralised mechanical extract - its continuous rate, l/s; its extract rate is then its high rate. None for an intermittent fan.</summary>
+    public double ContinuousRate { get; set; }
+
+    /// <summary>For a background ventilator, its equivalent area, mm² (BS EN 13141-1) - what Approved Document F sizes them by.</summary>
+    public double VentArea { get; set; }
+
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
 
@@ -344,7 +379,9 @@ public sealed class ComponentType : ElementType
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
         HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
-        Access = Access, HeatOutput = HeatOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing
+        Access = Access, HeatOutput = HeatOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
+        Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
+        ContinuousRate = ContinuousRate, VentArea = VentArea
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -451,6 +488,22 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
         if (Form == ComponentForm.HotWaterCylinder)
             yield return ParameterValue.BindValidated(ComponentTypeParameters.CoilOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+        if (Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Airflow, () => Airflow, v => NotNegative(v, x => Airflow = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.AvailablePressure, () => AvailablePressure, v => NotNegative(v, x => AvailablePressure = x));
+        }
+        if (Form == ComponentForm.HeatRecoveryUnit)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatRecovery, () => HeatRecovery * 100, v => { if (v is < 0 or > 100) return false; HeatRecovery = v / 100; return true; });
+        if (Form is ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.PressureLoss, () => PressureLoss, v => NotNegative(v, x => PressureLoss = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.RatedAirflow, () => RatedAirflow, v => NotNegative(v, x => RatedAirflow = x));
+        }
+        if (Form == ComponentForm.ExtractFan)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.ContinuousRate, () => ContinuousRate, v => NotNegative(v, x => ContinuousRate = x));
+        if (Form == ComponentForm.BackgroundVentilator)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.VentArea, () => VentArea, v => NotNegative(v, x => VentArea = x));
 
         if (Form == ComponentForm.DrainAccess)
             yield return ParameterValue.BindChoice(
@@ -501,6 +554,7 @@ public static class ComponentCategories
         BuiltInCategory.FireAlarmDevices,
         BuiltInCategory.ElectricalEquipment,
         BuiltInCategory.Drainage,
+        BuiltInCategory.AirTerminals,
         BuiltInCategory.Planting,
         BuiltInCategory.Parking,
         BuiltInCategory.Entourage,
@@ -866,6 +920,27 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition CoilOutput =
         new("Coil Output (W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Airflow =
+        new("Most Airflow (l/s)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition AvailablePressure =
+        new("Available Pressure (Pa)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition HeatRecovery =
+        new("Heat Recovery Efficiency (%)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition PressureLoss =
+        new("Pressure Loss (Pa)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition RatedAirflow =
+        new("At Airflow (l/s)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ContinuousRate =
+        new("Continuous Rate (l/s, 0 = intermittent)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition VentArea =
+        new("Equivalent Area (mm²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class ComponentParameters

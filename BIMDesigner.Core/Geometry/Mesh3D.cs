@@ -43,7 +43,10 @@ public enum MeshKind
     Ramp,
 
     /// <summary>A pipe of the services, in its system's colour.</summary>
-    Pipe
+    Pipe,
+
+    /// <summary>A duct of the services, in its system's colour.</summary>
+    Duct
 }
 
 /// <summary>

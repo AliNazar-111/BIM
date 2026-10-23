@@ -28,7 +28,7 @@ public partial class MainWindow
     /// <summary>The categories a fitting of the services is placed from, in the order the Fitting menu lists them.</summary>
     private static readonly BuiltInCategory[] ServiceCategories =
     {
-        BuiltInCategory.PlumbingFixtures, BuiltInCategory.Drainage, BuiltInCategory.MechanicalEquipment, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.ElectricalEquipment,
+        BuiltInCategory.PlumbingFixtures, BuiltInCategory.Drainage, BuiltInCategory.MechanicalEquipment, BuiltInCategory.AirTerminals, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.ElectricalEquipment,
         BuiltInCategory.ElectricalFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.LightingFixtures, BuiltInCategory.FireAlarmDevices
     };
 
@@ -39,7 +39,8 @@ public partial class MainWindow
         foreach (var category in ServiceCategories)
         {
             var types = _document.TypesOf<ComponentType>()
-                .Where(type => type.Kind == category && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage || type.Form == ComponentForm.AirAdmittanceValve))
+                .Where(type => type.Kind == category && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage
+                                                         || type.Form is ComponentForm.AirAdmittanceValve or ComponentForm.BackgroundVentilator or ComponentForm.DuctSmokeDetector))
                 .OrderBy(type => type.Name).ToList();
             if (types.Count == 0) continue;
             var group = new MenuItem { Header = EnumText.Humanise(category) };
@@ -174,6 +175,60 @@ public partial class MainWindow
 
         _history.Execute(new SetPipeSizesCommand(sized));
         StatusHint.Text = $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre.";
+    }
+
+    private const string DuctSizeFromFitting = "As the spigot";
+
+    private static readonly SystemKind[] DuctKinds = Enum.GetValues<SystemKind>().Where(kind => kind.Domain() == ConnectorDomain.Duct).ToArray();
+
+    private void ShowDuctOptions()
+    {
+        _loadingOptions = true;
+        var types = _document.TypesOf<DuctType>().ToList();
+        DuctTypePicker.ItemsSource = types;
+        var type = types.FirstOrDefault(each => each.Id == Plan.ActiveDuctTypeId) ?? types.FirstOrDefault();
+        DuctTypePicker.SelectedItem = type;
+        Plan.ActiveDuctTypeId = type?.Id ?? Guid.Empty;
+
+        DuctSizePicker.ItemsSource = new[] { DuctSizeFromFitting }.Concat(type is null ? Array.Empty<string>() : DuctSizes.Of(type).Select(size => size.Name)).ToList();
+        DuctSizePicker.SelectedItem = Plan.NewDuctWidth > 0 && type is not null ? DuctSizes.Nearest(type, Plan.NewDuctWidth, Plan.NewDuctHeight).Name : DuctSizeFromFitting;
+        DuctOffsetBox.Text = Core.Units.FormatLength(Plan.NewDuctOffset);
+        DuctKindPicker.ItemsSource = DuctKinds.Select(kind => kind.Title()).ToList();
+        DuctKindPicker.SelectedItem = Plan.NewDuctKind.Title();
+        _loadingOptions = false;
+    }
+
+    private void OnDuctOptionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (DuctTypePicker.SelectedItem is DuctType type) Plan.ActiveDuctTypeId = type.Id;
+        var current = _document.FindType<DuctType>(Plan.ActiveDuctTypeId);
+        var size = current is null ? null : DuctSizes.Of(current).FirstOrDefault(each => each.Name == DuctSizePicker.SelectedItem as string);
+        (Plan.NewDuctWidth, Plan.NewDuctHeight) = size is null ? (0, 0) : (size.Width, size.Height);
+        if (ParameterFormatter.TryParse(ParameterDataType.Length, DuctOffsetBox.Text, out var value) && value is double offset && Math.Abs(offset) <= 20000)
+            Plan.NewDuctOffset = offset;
+        if (DuctKinds.FirstOrDefault(kind => kind.Title() == DuctKindPicker.SelectedItem as string) is var picked && picked.Title() == DuctKindPicker.SelectedItem as string)
+            Plan.NewDuctKind = picked;
+        ShowDuctOptions();
+    }
+
+    /// <summary>Size Ducts: every duct - of the systems selected, or all of them - sized to the system's static pressure limit, as one step.</summary>
+    private void OnSizeDucts(object sender, RoutedEventArgs e)
+    {
+        var picked = Plan.SelectedElements.OfType<MepSystem>()
+            .Concat(Plan.SelectedElements.OfType<Duct>().Select(duct => _document.Find<MepSystem>(duct.SystemId)).OfType<MepSystem>())
+            .Distinct().ToList();
+        var sized = DuctNetworks.Sized(_document, picked.Count > 0 ? picked : _document.All<MepSystem>().ToList());
+        if (sized.Count == 0)
+        {
+            StatusHint.Text = _document.All<Duct>().Any()
+                ? "Every duct traced from a heat recovery unit is the size its system's pressure and a quiet 2.5 m/s ask already."
+                : "There are no ducts yet: draw them with Duct, from the heat recovery unit's spigots to the valves.";
+            return;
+        }
+
+        _history.Execute(new SetDuctSizesCommand(sized));
+        StatusHint.Text = $"{sized.Count} duct{(sized.Count == 1 ? string.Empty : "s")} sized by equal friction, to keep each system within Approved Document F's static pressure (Table 1.8), and its air to 2.5 m/s for quiet.";
     }
 
     private HeatLossWindow? _heatLossWindow;

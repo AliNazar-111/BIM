@@ -35,11 +35,24 @@ public sealed record RoomHeatLoss(
 
     /// <summary>What it loses out of the heated building - outside, to the ground and to unheated spaces, not to the rooms round it - W.</summary>
     public double Lost => Lines.Where(line => line.Path != HeatPath.Room).Sum(line => line.Watts);
+
+    /// <summary>Air supplied to it by a heat recovery unit, m³/h, and how warm it comes in, °C.</summary>
+    public double Supply { get; init; }
+
+    public double SupplyTemperature { get; init; }
 }
 
 /// <summary>The whole building's heat loss: each room's, and what the building loses all together.</summary>
 public sealed record BuildingHeatLoss(double Outside, double Ground, double AirPermeability, IReadOnlyList<RoomHeatLoss> Rooms, double Ventilation)
 {
+    /// <summary>Ventilated with heat recovery: the unit's efficiency, and how warm its supply comes in at the design conditions, °C.</summary>
+    public double? Recovery { get; init; }
+
+    public double? SupplyTemperature { get; init; }
+
+    /// <summary>The air extracted mechanically that no supply makes up, drawn in through the envelope instead, m³/h.</summary>
+    public double Extracted { get; init; }
+
     /// <summary>What leaves the heated building through its surfaces, W.</summary>
     public double Fabric => Rooms.Where(room => room.Heated).Sum(room => room.Lost);
 
@@ -69,7 +82,10 @@ public sealed record BuildingHeatLoss(double Outside, double Ground, double AirP
 /// the wind (f_dir, B.2.14) but never more than the whole home's; at least half an air change an
 /// hour where the room has an outside wall (the Guide's Table 2-18). The home's own total takes
 /// each room's leakage undoubled, and half its least air change (f_i-z). Each m³/h of air at
-/// 0.34 W a kelvin.
+/// 0.34 W a kelvin. Ventilated with heat recovery, each room's supply and extract run continuously
+/// as Approved Document F shares them out, the least air change made up by them first, and the air
+/// supplied comes in at the outside temperature raised by the unit's efficiency of the way to the
+/// extract's (6.3.3.7) - the extract and the supply taken as balanced.
 /// </summary>
 public static class HeatLoss
 {
@@ -81,6 +97,9 @@ public static class HeatLoss
 
     /// <summary>The ordinary flow through the envelope as a share of the flow at 50 Pa (f_qv,z); and how much more a room facing the wind takes (f_dir).</summary>
     public const double FlowFactor = 0.05, Orientation = 2;
+
+    /// <summary>How much an unbalanced ventilation's pressure cuts the ordinary leakage (f_fac), for a home with more than one exposed facade.</summary>
+    public const double UnbalancedFactor = 8;
 
     /// <summary>The least air change an hour of a room with an outside wall, and the share of it the whole home counts (f_i-z).</summary>
     public const double LeastAirChange = 0.5, ZoneShare = 0.5;
@@ -137,24 +156,52 @@ public static class HeatLoss
         // The air: each room's share of the leakage through the envelope, the whole home's at the most.
         double Envelope(List<HeatLossLine> lines) => lines.Where(line => line.Path is HeatPath.Outside or HeatPath.Ground).Sum(line => line.Area);
         var heated = surveyed.Where(entry => temperatures[entry.Room] is not null).ToList();
-        var zone = FlowFactor * permeability * heated.Sum(entry => Envelope(entry.Lines));
+        var envelopeZone = heated.Sum(entry => Envelope(entry.Lines));
         var share = heated.Count > 1 ? ZoneShare : 1;
+
+        // Ventilated with heat recovery: each room's air supplied and extracted continuously, the supply coming
+        // in at the outside temperature raised by the unit's share of the way to the extract's (6.3.3.7).
+        var recovery = Ventilation.ForHeatLoss(document);
+        var extracted = recovery?.Rooms.Where(entry => entry.Value.Extract > 0 && temperatures.GetValueOrDefault(entry.Key) is not null).ToList();
+        var exhaust = extracted is { Count: > 0 } ? extracted.Sum(entry => entry.Value.Extract * temperatures[entry.Key]!.Value) / extracted.Sum(entry => entry.Value.Extract) : (double?)null;
+        var supplied = recovery is { } unit && exhaust is { } warm ? outside + unit.Efficiency * (warm - outside) : outside;
+
+        // The air through the envelope (6.3.3.3): the extract the supply does not make up drawn in through it, and the
+        // ordinary leakage - less the more unbalanced the ventilation (f_e, with f_fac 8 for more than one exposed facade).
+        var extractZone = recovery?.Rooms.Where(entry => temperatures.GetValueOrDefault(entry.Key) is not null).Sum(entry => entry.Value.Extract) ?? 0;
+        var supplyZone = recovery?.Rooms.Where(entry => temperatures.GetValueOrDefault(entry.Key) is not null).Sum(entry => entry.Value.Supply) ?? 0;
+        var leakage50 = permeability * envelopeZone;
+        var unbalanced = leakage50 > 0 ? (extractZone - supplyZone) / leakage50 : 0;
+        var additional = leakage50 * FlowFactor / (1 + UnbalancedFactor / FlowFactor * unbalanced * unbalanced);
+        var zone = Math.Max(extractZone - supplyZone, 0) + additional;
+
         double building = 0;
         var results = new List<RoomHeatLoss>();
         foreach (var (room, boundary, lines, notes, volume) in surveyed)
         {
             var envelope = Envelope(lines);
             var temperature = temperatures[room];
-            var leakage = FlowFactor * permeability * envelope;
+            var leakage = envelopeZone > 0 ? zone * envelope / envelopeZone : 0;
             var minimum = envelope > 0 ? LeastAirChange * volume : 0;
-            var flow = Math.Max(Math.Min(zone, Orientation * leakage), minimum);
+            var (supply, extract) = recovery?.Rooms.GetValueOrDefault(room) ?? (0, 0);
+            var technical = Math.Max(supply, extract);
+            var drawn = zone > 0 ? additional / zone * Math.Min(zone, Orientation * leakage) + (zone - additional) / zone * leakage : 0;
+            var flow = Math.Max(drawn, minimum - technical);
             var difference = temperature is { } t ? t - outside : 0;
-            if (temperature is not null) building += Air * Math.Max(leakage, share * minimum) * difference;
+            var warmed = temperature is { } inside ? supply * (inside - supplied) : 0;
+            if (temperature is not null) building += Air * (Math.Max(leakage, share * minimum - technical) * difference + warmed);
             results.Add(new RoomHeatLoss(room, room.ToString(), temperature, lines, boundary.Area / 1e6, volume, envelope,
-                leakage, minimum, temperature is null ? 0 : flow, temperature is null ? 0 : Air * flow * difference, notes));
+                leakage, minimum, temperature is null ? 0 : flow, temperature is null ? 0 : Air * (flow * difference + warmed), notes)
+            {
+                Supply = temperature is null ? 0 : supply, SupplyTemperature = supplied
+            });
         }
 
-        return new BuildingHeatLoss(outside, ground, permeability, results, building);
+        var balanced = recovery is not null && supplyZone > 0;
+        return new BuildingHeatLoss(outside, ground, permeability, results, building)
+        {
+            Recovery = balanced ? recovery!.Value.Efficiency : null, SupplyTemperature = balanced ? supplied : null, Extracted = Math.Max(extractZone - supplyZone, 0)
+        };
     }
 
     /// <summary>A room's heat loss on its own - the building's worked out for it.</summary>

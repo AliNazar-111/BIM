@@ -120,14 +120,17 @@ public enum BuiltInCategory
     /// <summary>Piping systems: cold and hot water, heating, foul water and gas, each a network of fittings.</summary>
     PipingSystems,
 
-    /// <summary>Duct systems: the air drawn out by fans and cooker hoods.</summary>
+    /// <summary>Duct systems: the air drawn out by fans and cooker hoods, and a heat recovery unit's supply, extract and outside air.</summary>
     DuctSystems,
 
     /// <summary>Electrical circuits from a consumer unit, and the link between the smoke alarms.</summary>
     ElectricalCircuits,
 
     /// <summary>The drains' access points and where they run to: rodding eyes, chambers, manholes, outfalls and soakaways.</summary>
-    Drainage
+    Drainage,
+
+    /// <summary>Air terminals: the valves and grilles air is supplied and extracted through, and the terminals outside.</summary>
+    AirTerminals
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

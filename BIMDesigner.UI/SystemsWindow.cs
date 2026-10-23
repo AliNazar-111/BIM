@@ -138,6 +138,7 @@ internal sealed class SystemsWindow : System.Windows.Window
                 MepSystem system => system.Name,
                 Room room => room.ToString(),
                 Pipe pipe => $"{document.FindType<PipeType>(pipe.TypeId)?.Name ?? "Pipe"} {pipe.SizeName(document.FindType<PipeType>(pipe.TypeId))}",
+                Duct duct => $"{document.FindType<DuctType>(duct.TypeId)?.Name ?? "Duct"} {duct.Size(document).Name}",
                 _ => MepSystems.Describe(document, problem.Element as Component) ?? "Fitting"
             };
             _wanting.Items.Add(new ListBoxItem { Content = new TextBlock { Text = $"{who}: {problem.Text}", TextWrapping = TextWrapping.Wrap }, Tag = problem.Element });
@@ -148,7 +149,15 @@ internal sealed class SystemsWindow : System.Windows.Window
             ? "No fittings with services yet. Place them from Systems → Fitting, select some and Make System."
             : $"{systems.Count} system{(systems.Count == 1 ? string.Empty : "s")}; {open.Count} fitting{(open.Count == 1 ? string.Empty : "s")} not connected; {problems.Count} thing{(problems.Count == 1 ? string.Empty : "s")} wanting." +
               (pipes.Count > 0 ? $" {pipes.Sum(pipe => pipe.Length) / 1000:0.0} m of pipe." : string.Empty) +
-              (document.ProjectInformation.ClearanceStandard.IsUs() ? string.Empty : $"\nWater use: {WaterUse.Assess(document).Said}.");
+              (document.ProjectInformation.ClearanceStandard.IsUs() ? string.Empty : $"\nWater use: {WaterUse.Assess(document).Said}.") +
+              (Ventilation.Designed(document) && Ventilation.WholeDwelling(document) is var (whole, _, _)
+                  ? Ventilation.TypeOf(document) switch
+                  {
+                      VentilationType.HeatRecovery => $"\nVentilation: heat recovery, {Ventilation.Rooms(document).Sum(room => room.Supply):0.0} l/s supplied continuously against a whole dwelling rate of {whole:0.0} l/s.",
+                      VentilationType.ContinuousExtract => $"\nVentilation: continuous extract, {Ventilation.Rooms(document).Sum(room => room.Extract):0.0} l/s extracted continuously against a whole dwelling rate of {whole:0.0} l/s.",
+                      _ => "\nVentilation: natural, with background ventilators and intermittent extract fans."
+                  } + (document.ProjectInformation.ClearanceStandard.IsUs() ? $" ASHRAE 62.2 would ask {Ventilation.Ashrae622(document) / Ventilation.LitresPerCfm:0} cfm." : string.Empty)
+                  : string.Empty);
     }
 
     /// <summary>A line of the tree with a dot in its system's colour before it.</summary>

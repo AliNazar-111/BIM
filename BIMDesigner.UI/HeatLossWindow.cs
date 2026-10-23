@@ -82,6 +82,11 @@ internal sealed class HeatLossWindow : System.Windows.Window
             $"Air permeability {building.AirPermeability:0.#} m³/h·m² at 50 Pa. The building loses {building.Total:#,0} W: {building.Fabric:#,0} through its surfaces and {building.Ventilation:#,0} with the air - " +
             "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once (BS EN 12831-1)."
         };
+        if (building is { Recovery: { } recovery, SupplyTemperature: { } supplied })
+            lines.Add($"Ventilated with heat recovery at {recovery:P0}: its supply comes in at {Degrees(supplied)} at the design conditions.");
+        else if (building.Extracted > 0)
+            lines.Add($"Ventilated by continuous extract: the {(us ? $"{building.Extracted / 3.6 / Ventilation.LitresPerCfm:0} cfm" : $"{building.Extracted / 3.6:0.#} l/s")} extracted comes in through the envelope from outside, " +
+                      "the ordinary leakage less for it (BS EN 12831-1, 6.3.3.3).");
 
         // Each heat source against what it heats.
         foreach (var source in document.All<MepSystem>().Where(system => system.Kind == SystemKind.Heating)

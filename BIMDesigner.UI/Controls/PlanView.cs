@@ -43,6 +43,7 @@ public enum PlanTool
 
     /// <summary>Draws pipes: from a fitting's connector or a pipe, level at its run height, to a fitting or a pipe.</summary>
     Pipe,
+    Duct,
 
     /// <summary>Places a component of a loadable family: furniture, casework, a fixture.</summary>
     Component,
@@ -1277,6 +1278,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
         PlanTool.RoomSeparator => "Click where the room separator starts, then where it ends: rooms are bounded by it where there is no wall - the next starts where it ended. Esc to stop.",
         PlanTool.Pipe => "Click a fitting's connector, the end of a pipe or a point along one - or anywhere - where the pipe starts; then where it goes. It runs level at the height on the option bar and rises or drops to the fitting or pipe it ends at.",
+        PlanTool.Duct => "Click a spigot - a heat recovery unit's, a valve's, an outside terminal's - the end of a duct or a point along one, or anywhere, where the duct starts; then where it goes. It runs level at the height on the option bar and rises or drops to the spigot or duct it ends at.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
         PlanTool.Region => "Click the corners of the region of ground - a lawn, paving, gravel, planting - and its first again to close it; or, drawing a path, click along its middle and double-click where it ends. It lies on the ground, following it.",
         PlanTool.Joists => "Click the corners of the outline the joists fill - the faces of what carries their ends - and its first again to close it. They run across the short way, at the spacing on the option bar, and stop short of a stairwell, with trimmers across its ends.",
@@ -1410,6 +1412,7 @@ public partial class PlanView : FrameworkElement
                       | CancelBeam()
                       | CancelRoomSeparator()
                       | CancelPipe()
+                      | CancelDuct()
                       | CancelGround()
                       | CancelOutline()
                       | CancelExtrusion()
@@ -1794,6 +1797,11 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = raw;
             PipeHover(raw);
+        }
+        else if (ActiveTool == PlanTool.Duct)
+        {
+            _cursorModel = raw;
+            DuctHover(raw);
         }
         else if (ActiveTool == PlanTool.RoomSeparator)
         {
@@ -2210,6 +2218,11 @@ public partial class PlanView : FrameworkElement
             case PlanTool.RoomSeparator:
                 ClickRoomSeparator(SnapPoint(raw, null, out _));
                 return;
+
+            case PlanTool.Duct:
+                if (e.ClickCount == 2 && CancelDuct()) return;
+                ClickDuct(raw);
+                break;
 
             case PlanTool.Pipe:
                 if (e.ClickCount == 2 && CancelPipe()) return;
@@ -6067,6 +6080,7 @@ public partial class PlanView : FrameworkElement
         foreach (var beam in BeamsAt(model)) yield return beam;
         foreach (var separator in RoomSeparatorsAt(model)) yield return separator;
         foreach (var pipe in PipesAt(model)) yield return pipe;
+        foreach (var duct in DuctsAt(model)) yield return duct;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>
@@ -6204,6 +6218,7 @@ public partial class PlanView : FrameworkElement
         DrawRoomSeparatorPreview(dc);
         DrawSystems(dc);
         DrawPipePreview(dc);
+        DrawDuctPreview(dc);
         DrawGroundPreview(dc);
         DrawOutlinePreview(dc);
         DrawElevationMarkers(dc);

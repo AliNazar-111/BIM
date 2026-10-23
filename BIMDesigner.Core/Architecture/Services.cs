@@ -174,7 +174,7 @@ public static class Services
     /// <summary>What a room has in it, by type, and where.</summary>
     private static List<(Component Piece, ComponentType Type)> In(BimDocument document, Room room, IReadOnlyList<Point2D> outline) =>
         document.All<Component>()
-            .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(outline, piece.Location))
+            .Where(piece => RoomsOf.Holds(document, room, outline, piece))
             .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
             .Where(entry => entry.Type is not null)
             .Select(entry => (entry.Piece, entry.Type!))
@@ -228,7 +228,23 @@ public static class Services
             return $"extract {has:0} l/s - {rule}";
         }
 
-        if (us)
+        // A home ventilated mechanically - with heat recovery, or by continuous extract: each wet room extracted
+        // continuously through its valves or fans, at Table 1.2's high rate.
+        if (Mep.Ventilation.TypeOf(document) is var ventilation && ventilation != Mep.VentilationType.Natural)
+        {
+            var recovery = ventilation == Mep.VentilationType.HeatRecovery;
+            var air = Mep.Ventilation.Rooms(document).FirstOrDefault(each => ReferenceEquals(each.Room, room));
+            if (air is { ExtractAsked: > 0 })
+                said.Add(air.Extracts.Count + air.Fans.Count > 0
+                    ? air.ExtractHigh >= air.ExtractAsked - 0.05
+                        ? $"extract {air.Extract:0.#} l/s continuously, {air.ExtractHigh:0.#} at the high rate{(recovery ? " by heat recovery" : string.Empty)}"
+                        : $"extract {air.ExtractHigh:0.#} l/s at the high rate - Approved Document F (Table 1.2) asks {air.ExtractAsked:0} l/s"
+                    : us ? $"no continuous extract - IRC Table M1505.4.4 asks for {air.ExtractAsked / Mep.Ventilation.LitresPerCfm:0} cfm continuously"
+                         : $"no continuous extract - Approved Document F ({(recovery ? "1.70" : "1.63")}, Table 1.2) asks for {air.ExtractAsked:0} l/s at the high rate");
+            if (recovery && air is { Use: Mep.RoomUse.Habitable } && !us)
+                said.Add(air.Supplies.Count > 0 ? $"supply {air.SupplyHigh:0.#} l/s" : "no supply valve - Approved Document F (1.67) supplies each habitable room");
+        }
+        else if (us)
         {
             // The IRC: a bathroom's 50 cfm, or a window of 3 sq ft half of which opens; a kitchen's 100 cfm.
             if (kitchen) said.Add(Extract(47.2, "kitchen", "the IRC (M1505.4.4) asks for 100 cfm (47 l/s) from a kitchen")!);

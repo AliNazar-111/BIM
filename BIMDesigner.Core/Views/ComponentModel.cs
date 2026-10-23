@@ -1087,6 +1087,54 @@ public static class ComponentModel
                 Add(-halfW, halfW, -halfD, halfD, 0, h);
                 break;
 
+            case ComponentForm.HeatRecoveryUnit:
+            {
+                // Its casing, the line of its front panel, and its four spigots on top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW + 30, halfW - 30, halfD - 1, halfD, h * 0.1, h * 0.12, PartFinish.Dark);
+                var row = Math.Min(halfW * 0.6, 160);
+                foreach (var across in new[] { -row, -row / 3, row / 3, row })
+                    Add(across - 62, across + 62, -halfD * 0.4 - 62, -halfD * 0.4 + 62, h, h + 60, PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.SupplyTerminal:
+            case ComponentForm.ExtractTerminal:
+                // A disc valve: its round face under the ceiling, the cone in the middle of it, its spigot above.
+                Add(-halfW, halfW, -halfD, halfD, h * 0.12, h * 0.35, PartFinish.Body, PartShape.Upright);
+                Add(-halfW * 0.45, halfW * 0.45, -halfD * 0.45, halfD * 0.45, 0, h * 0.12, PartFinish.Dark, PartShape.Upright);
+                Add(-62, 62, -62, 62, h * 0.35, h, PartFinish.Metal, PartShape.Upright);
+                break;
+
+            case ComponentForm.ExtractUnit:
+            {
+                // Its casing and its two spigots on top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                var apart = Math.Min(halfW * 0.5, 90);
+                foreach (var across in new[] { -apart, apart })
+                    Add(across - 62, across + 62, -62, 62, h, h + 50, PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.BackgroundVentilator:
+                // A slotted vent on the wall, its slot dark along its front.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW + 15, halfW - 15, halfD - 1, halfD, h * 0.35, h * 0.65, PartFinish.Dark);
+                break;
+
+            case ComponentForm.DuctSmokeDetector:
+                // Its housing, and the sampling tube down into the duct.
+                Add(-halfW, halfW, -halfD, halfD, h * 0.4, h);
+                Add(-12, 12, -12, 12, 0, h * 0.4, PartFinish.Metal, PartShape.Upright);
+                break;
+
+            case ComponentForm.OutsideTerminal:
+                // A louvred grille on the wall.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                for (var i = 1; i <= 4; i++)
+                    Add(-halfW + 15, halfW - 15, halfD - 1, halfD, h * i / 5 - 4, h * i / 5 + 4, PartFinish.Dark);
+                break;
+
             case ComponentForm.HotWaterCylinder:
             {
                 // A round copper or steel cylinder on its base, its domed top, and the pipe out of the top.
@@ -1279,7 +1327,7 @@ public static class ComponentModel
             {
                 ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub or ComponentForm.CeilingLight or ComponentForm.RoundTable
                     or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.TurningCircle
-                    or ComponentForm.HotWaterCylinder =>
+                    or ComponentForm.HotWaterCylinder or ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal =>
                     frame.Ellipse(-halfW, halfW, -halfD, halfD, 32),
                 ComponentForm.CornerSofa => CornerOf(type) is var (run, turn)
                     ? new[] { frame.Plan(-halfW, -halfD), frame.Plan(halfW, -halfD), frame.Plan(halfW, halfD), frame.Plan(halfW - turn, halfD), frame.Plan(halfW - turn, -halfD + run), frame.Plan(-halfW, -halfD + run) }
@@ -1456,6 +1504,43 @@ public static class ComponentModel
             case ComponentForm.HeatPump:
                 // The fan's grille across its front, seen from above.
                 Inside(-halfW + 50, -halfW + 50 + Math.Min(type.Height * 0.7, w * 0.55), halfD - 4, halfD);
+                break;
+
+            case ComponentForm.HeatRecoveryUnit:
+            {
+                // Its spigots, seen from above.
+                var row = Math.Min(halfW * 0.6, 160);
+                foreach (var across in new[] { -row, -row / 3, row / 3, row })
+                    shapes.Add(frame.Ellipse(across - 62, across + 62, -halfD * 0.4 - 62, -halfD * 0.4 + 62, 16));
+                break;
+            }
+
+            case ComponentForm.SupplyTerminal:
+            case ComponentForm.ExtractTerminal:
+                // The cone in the middle of the valve's face.
+                shapes.Add(frame.Ellipse(-halfW * 0.45, halfW * 0.45, -halfD * 0.45, halfD * 0.45, 16));
+                break;
+
+            case ComponentForm.OutsideTerminal:
+                // Its louvres' edge along its face.
+                Inside(-halfW + 15, halfW - 15, halfD - 6, halfD);
+                break;
+
+            case ComponentForm.ExtractUnit:
+            {
+                var apart = Math.Min(halfW * 0.5, 90);
+                foreach (var across in new[] { -apart, apart })
+                    shapes.Add(frame.Ellipse(across - 62, across + 62, -62, 62, 16));
+                break;
+            }
+
+            case ComponentForm.BackgroundVentilator:
+                // Its slot along its face.
+                Inside(-halfW + 15, halfW - 15, halfD - 8, halfD);
+                break;
+
+            case ComponentForm.DuctSmokeDetector:
+                shapes.Add(frame.Ellipse(-12, 12, -12, 12, 12));
                 break;
 
             case ComponentForm.UnderfloorHeating:
@@ -1733,6 +1818,13 @@ public static class ComponentModel
         ComponentForm.Soakaway => "SA",
         ComponentForm.AirAdmittanceValve => "AAV",
         ComponentForm.HeatPump => "HP",
+        ComponentForm.HeatRecoveryUnit => "MVHR",
+        ComponentForm.SupplyTerminal => "SA",
+        ComponentForm.ExtractTerminal => "EA",
+        ComponentForm.OutsideTerminal => "OA",
+        ComponentForm.ExtractUnit => "MEV",
+        ComponentForm.BackgroundVentilator => "BV",
+        ComponentForm.DuctSmokeDetector => "SD",
         ComponentForm.UnderfloorHeating => "UFH",
         ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay => "P",
         ComponentForm.TelevisionUnit => "TV",

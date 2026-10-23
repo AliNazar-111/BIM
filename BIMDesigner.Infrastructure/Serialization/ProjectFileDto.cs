@@ -67,6 +67,10 @@ internal sealed class ProjectFileDto
     /// <summary>The services' pipe types and pipes. Missing from older files.</summary>
     public List<PipeTypeDto>? PipeTypes { get; set; }
     public List<PipeDto>? Pipes { get; set; }
+
+    /// <summary>The ventilation's duct types and ducts. Missing from older files.</summary>
+    public List<DuctTypeDto>? DuctTypes { get; set; }
+    public List<DuctDto>? Ducts { get; set; }
     public List<RoomSeparatorDto> RoomSeparators { get; set; } = new();
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
@@ -745,6 +749,9 @@ internal sealed class SlabTypeDto
 
     public string Function { get; set; } = "Architectural";
     public string FireRating { get; set; } = string.Empty;
+
+    /// <summary>A floor separating dwellings - a compartment floor; none in a file from before.</summary>
+    public bool? Separating { get; set; }
     public double AcousticRating { get; set; }
     public double HeatTransferCoefficient { get; set; }
     public string CoarseScaleFillColour { get; set; } = "#7A828E";
@@ -1015,6 +1022,17 @@ internal sealed class ComponentTypeDto
 
     /// <summary>An access point's kind: a rodding eye, an access fitting, an inspection chamber or a manhole.</summary>
     public string? Access { get; set; }
+
+    /// <summary>A heat recovery unit's airflow, available pressure and efficiency; none in a file from before.</summary>
+    public double? Airflow { get; set; }
+    public double? AvailablePressure { get; set; }
+    public double? HeatRecovery { get; set; }
+
+    /// <summary>A valve's pressure loss at its rated airflow, a fan's continuous rate, a background ventilator's equivalent area; none in a file from before.</summary>
+    public double? PressureLoss { get; set; }
+    public double? RatedAirflow { get; set; }
+    public double? ContinuousRate { get; set; }
+    public double? VentArea { get; set; }
 
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
@@ -1509,6 +1527,9 @@ internal sealed class WindowTypeDto : OpeningTypeDto
     public int GlazingRows { get; set; }
     public int GlazingColumns { get; set; }
     public double SolarHeatGainCoefficient { get; set; }
+
+    /// <summary>Its trickle vent's equivalent area, mm²; none in a file from before, or without one.</summary>
+    public double? TrickleVent { get; set; }
 
     /// <summary>Its lights side by side, which open, its transom and fanlights, and its mullions' width; absent in files from before divided windows.</summary>
     public int? Lights { get; set; }
@@ -2162,6 +2183,43 @@ internal sealed class BeamTypeDto
     public Guid MaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class DuctTypeDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string TypeMark { get; set; } = string.Empty;
+    public string Material { get; set; } = "GalvanisedSteel";
+    public string Shape { get; set; } = "Round";
+    public decimal Cost { get; set; }
+    public string Description { get; set; } = string.Empty;
+}
+
+internal sealed class DuctDto
+{
+    public Guid Id { get; set; }
+    public Guid TypeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public double StartOffset { get; set; }
+    public double EndOffset { get; set; }
+    public double Width { get; set; }
+    public double Height { get; set; }
+    public string Kind { get; set; } = "SupplyAir";
+    public Guid? SystemId { get; set; }
+
+    /// <summary>What keeps a fire-separating wall it passes; none where unprotected.</summary>
+    public string? FireProtection { get; set; }
+
+    /// <summary>Its damper's rating, minutes, and its insulation, mm; none in a file from before.</summary>
+    public int? DamperRating { get; set; }
+    public double? Insulation { get; set; }
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class PipeTypeDto

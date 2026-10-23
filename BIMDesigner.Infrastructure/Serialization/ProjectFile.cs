@@ -370,6 +370,22 @@ public static partial class ProjectFile
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Material = type.Material.ToString(), Cost = type.Cost, Description = type.Description
             });
 
+        foreach (var type in document.TypesOf<DuctType>())
+            (dto.DuctTypes ??= new List<DuctTypeDto>()).Add(new DuctTypeDto
+            {
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Material = type.Material.ToString(), Shape = type.Shape.ToString(), Cost = type.Cost, Description = type.Description
+            });
+
+        foreach (var duct in document.All<Duct>())
+            (dto.Ducts ??= new List<DuctDto>()).Add(new DuctDto
+            {
+                Id = duct.Id, TypeId = duct.TypeId, LevelId = duct.LevelId, StartX = duct.Start.X, StartY = duct.Start.Y, EndX = duct.End.X, EndY = duct.End.Y,
+                StartOffset = duct.StartOffset, EndOffset = duct.EndOffset, Width = duct.Width, Height = duct.Height, Kind = duct.Kind.ToString(),
+                SystemId = document.Find<MepSystem>(duct.SystemId)?.Id, FireProtection = duct.FireProtection == FireProtection.None ? null : duct.FireProtection.ToString(),
+                DamperRating = duct.DamperRating == 60 ? null : duct.DamperRating, Insulation = duct.Insulation > 0 ? duct.Insulation : null,
+                Mark = duct.Mark, Comments = duct.Comments
+            });
+
         foreach (var pipe in document.All<Pipe>())
             (dto.Pipes ??= new List<PipeDto>()).Add(new PipeDto
             {
@@ -659,6 +675,7 @@ public static partial class ProjectFile
                 GlazingRows = type.GlazingRows,
                 GlazingColumns = type.GlazingColumns,
                 SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                TrickleVent = type.TrickleVent > 0 ? type.TrickleVent : null,
                 Lights = type.Lights,
                 LightPattern = type.LightPattern,
                 TransomHeight = type.TransomHeight,
@@ -933,6 +950,7 @@ public static partial class ProjectFile
                 Cost = type.Cost,
                 Function = type.Function.ToString(),
                 FireRating = type.FireRating,
+                Separating = type.Separating ? true : null,
                 AcousticRating = type.AcousticRating,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
@@ -1140,6 +1158,13 @@ public static partial class ProjectFile
                 FloorOutput = type.Form == ComponentForm.UnderfloorHeating ? type.FloorOutput : null,
                 FloorOutputLimit = type.Form == ComponentForm.UnderfloorHeating ? type.FloorOutputLimit : null,
                 PipeSpacing = type.Form == ComponentForm.UnderfloorHeating ? type.PipeSpacing : null,
+                Airflow = type.Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit ? type.Airflow : null,
+                AvailablePressure = type.Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit ? type.AvailablePressure : null,
+                HeatRecovery = type.Form == ComponentForm.HeatRecoveryUnit ? type.HeatRecovery : null,
+                PressureLoss = type.PressureLoss > 0 ? type.PressureLoss : null,
+                RatedAirflow = type.RatedAirflow > 0 ? type.RatedAirflow : null,
+                ContinuousRate = type.ContinuousRate > 0 ? type.ContinuousRate : null,
+                VentArea = type.VentArea > 0 ? type.VentArea : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -1649,6 +1674,15 @@ public static partial class ProjectFile
                 MaterialId = type.MaterialId, RailMaterialId = type.RailMaterialId, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
 
+        // A project saved before it had ducts is given the usual duct types.
+        if (dto.DuctTypes is null or { Count: 0 })
+            foreach (var type in DuctType.Library()) document.AddType(type);
+        foreach (var type in dto.DuctTypes ?? new List<DuctTypeDto>())
+            document.AddType(new DuctType(type.Name, ParseEnum(type.Material, DuctMaterial.GalvanisedSteel), ParseEnum(type.Shape, DuctShape.Round))
+            {
+                Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
+            });
+
         // A project saved before it had pipes is given the usual pipe types.
         if (dto.PipeTypes is null or { Count: 0 })
             foreach (var type in PipeType.Library()) document.AddType(type);
@@ -1889,6 +1923,7 @@ public static partial class ProjectFile
                 GlazingRows = type.GlazingRows is > 0 and <= 12 ? type.GlazingRows : 1,
                 GlazingColumns = type.GlazingColumns is > 0 and <= 12 ? type.GlazingColumns : 1,
                 SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                TrickleVent = type.TrickleVent is > 0 and < 1e6 ? type.TrickleVent.Value : 0,
 
                 // Saved before divided windows: one light, no transom.
                 Lights = type.Lights is > 0 and <= 8 ? type.Lights.Value : 1,
@@ -2069,6 +2104,7 @@ public static partial class ProjectFile
             slabType.Cost = type.Cost;
             slabType.Function = ParseEnum(type.Function, SlabFunction.Architectural);
             slabType.FireRating = type.FireRating;
+            slabType.Separating = type.Separating == true;
             slabType.AcousticRating = type.AcousticRating;
             slabType.HeatTransferCoefficient = type.HeatTransferCoefficient;
             slabType.CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x7A, 0x82, 0x8E));
@@ -2719,6 +2755,13 @@ public static partial class ProjectFile
                 FloorOutput = type.FloorOutput is >= 0 and < 1000 ? type.FloorOutput.Value : 0,
                 FloorOutputLimit = type.FloorOutputLimit is >= 0 and < 10000 ? type.FloorOutputLimit.Value : 0,
                 PipeSpacing = type.PipeSpacing is >= 0 and < 10000 ? type.PipeSpacing.Value : 0,
+                Airflow = type.Airflow is >= 0 and < 100000 ? type.Airflow.Value : 0,
+                AvailablePressure = type.AvailablePressure is >= 0 and < 100000 ? type.AvailablePressure.Value : 0,
+                HeatRecovery = type.HeatRecovery is >= 0 and <= 1 ? type.HeatRecovery.Value : 0,
+                PressureLoss = type.PressureLoss is >= 0 and < 100000 ? type.PressureLoss.Value : 0,
+                RatedAirflow = type.RatedAirflow is >= 0 and < 100000 ? type.RatedAirflow.Value : 0,
+                ContinuousRate = type.ContinuousRate is >= 0 and < 100000 ? type.ContinuousRate.Value : 0,
+                VentArea = type.VentArea is >= 0 and < 1e7 ? type.VentArea.Value : 0,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
                 PartFlushVolume = type.PartFlushVolume is >= 0 and < 100 ? type.PartFlushVolume.Value
@@ -2811,6 +2854,25 @@ public static partial class ProjectFile
             if (pipe.Length < 1) continue;
             pipe.SystemId = document.Find<MepSystem>(saved.SystemId) is { } on && on.Kind == pipe.Kind ? on.Id : null;
             document.Add(pipe);
+        }
+
+        // The ducts, on their systems; one with no length is nothing.
+        foreach (var saved in (dto.Ducts ?? new List<DuctDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null
+                     && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY, saved.StartOffset, saved.EndOffset, saved.Width, saved.Height }.All(double.IsFinite)))
+        {
+            var duct = new Duct
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Start = new Point2D(saved.StartX, saved.StartY), End = new Point2D(saved.EndX, saved.EndY),
+                StartOffset = saved.StartOffset, EndOffset = saved.EndOffset, Width = saved.Width > 0 ? saved.Width : 125, Height = saved.Height > 0 ? saved.Height : 125,
+                Kind = ParseEnum(saved.Kind, SystemKind.SupplyAir), FireProtection = ParseEnum(saved.FireProtection, FireProtection.None),
+                DamperRating = saved.DamperRating is >= 0 and <= 240 ? saved.DamperRating.Value : 60,
+                Insulation = saved.Insulation is >= 0 and <= 300 ? saved.Insulation.Value : 0,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+                TypeId = document.FindType<DuctType>(saved.TypeId)?.Id ?? document.TypesOf<DuctType>().FirstOrDefault()?.Id ?? Guid.Empty
+            };
+            if (duct.Length < 1) continue;
+            duct.SystemId = document.Find<MepSystem>(saved.SystemId) is { } on && on.Kind == duct.Kind ? on.Id : null;
+            document.Add(duct);
         }
 
         foreach (var room in dto.Rooms)

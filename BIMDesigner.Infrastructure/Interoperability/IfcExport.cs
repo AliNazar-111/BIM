@@ -2166,7 +2166,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, Proxy }
+        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2180,6 +2180,10 @@ public static partial class IfcExport
             ComponentForm.Sink or ComponentForm.Shower => ComponentClass.Sanitary,
             ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating => ComponentClass.Heater,
             ComponentForm.HeatPump => ComponentClass.HeatPump,
+            ComponentForm.HeatRecoveryUnit => ComponentClass.HeatRecovery,
+            ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal or ComponentForm.BackgroundVentilator => ComponentClass.AirTerminal,
+            ComponentForm.ExtractUnit => ComponentClass.ExtractUnit,
+            ComponentForm.DuctSmokeDetector => ComponentClass.Sensor,
             ComponentForm.Socket or ComponentForm.ShaverSocket => ComponentClass.Outlet,
             ComponentForm.Switch => ComponentClass.Switch,
             ComponentForm.ExtractFan => ComponentClass.Fan,
@@ -2264,6 +2268,23 @@ public static partial class IfcExport
                     unit.PredefinedType = Xbim.Ifc4.Interfaces.IfcUnitaryEquipmentTypeEnum.USERDEFINED;
                     unit.ObjectType = "Air source heat pump";
                 }),
+                ComponentClass.HeatRecovery => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcAirToAirHeatRecovery>(component, type, meshes, unit =>
+                    unit.PredefinedType = Xbim.Ifc4.Interfaces.IfcAirToAirHeatRecoveryTypeEnum.FIXEDPLATECOUNTERFLOWEXCHANGER),
+                ComponentClass.AirTerminal => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcAirTerminal>(component, type, meshes, terminal =>
+                {
+                    terminal.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.OutsideTerminal => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.LOUVRE,
+                        ComponentForm.BackgroundVentilator => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.USERDEFINED,
+                        _ => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.DIFFUSER
+                    };
+                    if (type.Form == ComponentForm.BackgroundVentilator) terminal.ObjectType = "Background ventilator";
+                }),
+                ComponentClass.ExtractUnit => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcUnitaryEquipment>(component, type, meshes, unit =>
+                {
+                    unit.PredefinedType = Xbim.Ifc4.Interfaces.IfcUnitaryEquipmentTypeEnum.USERDEFINED;
+                    unit.ObjectType = "Mechanical extract unit";
+                }),
                 ComponentClass.Outlet => ComponentProduct<IfcOutlet>(component, type, meshes, outlet =>
                     outlet.PredefinedType = IfcOutletTypeEnum.POWEROUTLET),
                 ComponentClass.Switch => ComponentProduct<IfcSwitchingDevice>(component, type, meshes, device =>
@@ -2329,7 +2350,9 @@ public static partial class IfcExport
                 ComponentClass.Meter => "Pset_FlowMeterTypeCommon",
                 ComponentClass.Chamber => "Pset_DistributionChamberElementTypeCommon",
                 ComponentClass.AirValve => "Pset_ValveTypeCommon",
-                ComponentClass.HeatPump => "Pset_UnitaryEquipmentTypeCommon",
+                ComponentClass.HeatPump or ComponentClass.ExtractUnit => "Pset_UnitaryEquipmentTypeCommon",
+                ComponentClass.HeatRecovery => "Pset_AirToAirHeatRecoveryTypeCommon",
+                ComponentClass.AirTerminal => "Pset_AirTerminalTypeCommon",
                 _ => "Pset_BuildingElementProxyCommon"
             };
             WriteSet((IfcObject)product, common, new Dictionary<string, IfcValue?>

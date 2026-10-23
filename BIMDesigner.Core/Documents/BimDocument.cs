@@ -2093,6 +2093,54 @@ public sealed class BimDocument
                 Description = "Floor covering 0.10 m²K/W (1 tog); heats the whole floor of the room it is in"
             },
 
+            // The ventilation: a heat recovery unit - its airflow, the pressure it has for its ducts and its
+            // efficiency to set from its maker's data - the disc valves in the ceilings it supplies and
+            // extracts through, and the grille on the outside wall its air comes in and goes out at.
+            new ComponentType("Heat Recovery Unit - 75 l/s", BuiltInCategory.MechanicalEquipment, ComponentForm.HeatRecoveryUnit, 560, 300, 650)
+            {
+                TypeMark = "M14", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 2400m, Airflow = 75, AvailablePressure = 150, HeatRecovery = 0.9,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1500,
+                Description = "Mechanical ventilation with heat recovery; its airflow, available pressure and efficiency from its maker's data"
+            },
+            new ComponentType("Supply Valve - 125", BuiltInCategory.AirTerminals, ComponentForm.SupplyTerminal, 165, 165, 60)
+            {
+                TypeMark = "V1", Colour = white, Cost = 18m, Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340,
+                PressureLoss = 27, RatedAirflow = 20, Description = "Its pressure loss as Trox's Z-LVS 125 at its middle setting"
+            },
+            new ComponentType("Extract Valve - 125", BuiltInCategory.AirTerminals, ComponentForm.ExtractTerminal, 165, 165, 60)
+            {
+                TypeMark = "V2", Colour = white, Cost = 18m, Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340,
+                PressureLoss = 23, RatedAirflow = 20, Description = "Its pressure loss as Trox's LVS 125 at its middle setting"
+            },
+            new ComponentType("Outside Terminal - 125", BuiltInCategory.AirTerminals, ComponentForm.OutsideTerminal, 180, 40, 180)
+            {
+                TypeMark = "V3", Colour = new ColourRgb(0x5A, 0x5E, 0x63), Cost = 30m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 2200
+            },
+
+            // Continuous mechanical extract: a central unit drawing from extract valves, or fans in the wet rooms
+            // running all the time and boosting - and the background ventilators the air comes in by.
+            new ComponentType("Extract Unit - Central MEV 60 l/s", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractUnit, 400, 250, 300)
+            {
+                TypeMark = "M15", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 900m, Airflow = 60, AvailablePressure = 100,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1800,
+                Description = "Continuous mechanical extract; its airflow and available pressure from its maker's data"
+            },
+            new ComponentType("Extract Fan - Continuous dMEV", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 160, 50, 160)
+            {
+                TypeMark = "M16", Colour = white, Cost = 140m, ExtractRate = 15, ContinuousRate = 8,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2150,
+                Description = "Decentralised mechanical extract: running at its continuous rate, boosting to its extract rate"
+            },
+            new ComponentType("Background Ventilator - 5000 mm²", BuiltInCategory.AirTerminals, ComponentForm.BackgroundVentilator, 400, 40, 60)
+            {
+                TypeMark = "V4", Colour = white, Cost = 25m, VentArea = 5000, Placement = ComponentPlacement.FaceBased, DefaultElevation = 2000
+            },
+            new ComponentType("Duct Smoke Detector", BuiltInCategory.FireAlarmDevices, ComponentForm.DuctSmokeDetector, 120, 120, 90)
+            {
+                TypeMark = "FA4", Colour = new ColourRgb(0xE8, 0x3A, 0x30), Cost = 160m, Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2550,
+                Description = "BS EN 54-7, sampling the air in its duct, to close fire and smoke dampers"
+            },
+
             // Alarms on the ceiling: smoke, heat - for a kitchen - and carbon monoxide.
             new ComponentType("Smoke Alarm", BuiltInCategory.FireAlarmDevices, ComponentForm.SmokeAlarm, 110, 110, 45)
             {
@@ -2189,6 +2237,7 @@ public sealed class BimDocument
         foreach (var railing in RailingType.Library()) document.AddType(railing);
         foreach (var beam in BeamType.Library()) document.AddType(beam);
         foreach (var pipe in Mep.PipeType.Library()) document.AddType(pipe);
+        foreach (var duct in Mep.DuctType.Library()) document.AddType(duct);
 
         // Log walls, as Archicad builds them: round logs, D-logs flat inside, squared logs.
         // A stud partition with mineral wool in it, for round a bedroom or a bathroom - Rw 43, past

@@ -50,7 +50,7 @@ public static class ServicesPlans
 
         // The building's own plan shows the services' pipes faint, under the building.
         if (discipline == Discipline.Architectural)
-            return document.All<Pipe>().Any() ? element => element is Pipe ? faint : default : null;
+            return document.All<Pipe>().Any() || document.All<Duct>().Any() ? element => element is Pipe or Duct ? faint : default : null;
 
         var open = new ElementStyle(Colour: Unconnected);
         var connected = new ElementStyle(Colour: Colour(discipline));
@@ -60,6 +60,7 @@ public static class ServicesPlans
 
             // A pipe in its own colour on its discipline's plan; faint on the others.
             if (element is Pipe pipe) return pipe.Kind.Discipline() == discipline ? default : faint;
+            if (element is Duct duct) return duct.Kind.Discipline() == discipline ? default : faint;
 
             // The drains' chambers, outfalls and soakaways, and air admittance valves, are the plumbing's.
             if (element is Component { Category: BuiltInCategory.Drainage } || element is Component valve && document.FindType<ComponentType>(valve.TypeId)?.Form == ComponentForm.AirAdmittanceValve)

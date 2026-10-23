@@ -74,7 +74,8 @@ public static class ElementCopy
         foreach (var copy in copies) Redirect(copy, replacements);
 
         // A system copied without any of its fittings or pipes is nothing.
-        copies.RemoveAll(copy => copy is Mep.MepSystem { Members.Count: 0, SourceId: null } system && !copies.OfType<Mep.Pipe>().Any(pipe => pipe.SystemId == system.Id));
+        copies.RemoveAll(copy => copy is Mep.MepSystem { Members.Count: 0, SourceId: null } system && !copies.OfType<Mep.Pipe>().Any(pipe => pipe.SystemId == system.Id)
+                                 && !copies.OfType<Mep.Duct>().Any(duct => duct.SystemId == system.Id));
         return copies;
     }
 
@@ -346,6 +347,11 @@ public static class ElementCopy
             Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
             Return = pipe.Return
         }, pipe),
+        Mep.Duct duct => CarryCommon(new Mep.Duct
+        {
+            Start = duct.Start, End = duct.End, StartOffset = duct.StartOffset, EndOffset = duct.EndOffset, Width = duct.Width, Height = duct.Height,
+            Kind = duct.Kind, SystemId = duct.SystemId, FireProtection = duct.FireProtection, DamperRating = duct.DamperRating, Insulation = duct.Insulation
+        }, duct),
         Mep.MepSystem system => CarryCommon(Members(new Mep.MepSystem
         {
             Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use,
@@ -617,6 +623,7 @@ public static class ElementCopy
 
         // A pipe copied with its system is on the copy of it; copied without it, on none until it is joined to one.
         if (copy is Mep.Pipe run) run.SystemId = run.SystemId is { } on && replacements.TryGetValue(on, out var copiedSystem) ? copiedSystem : null;
+        if (copy is Mep.Duct airway) airway.SystemId = airway.SystemId is { } through && replacements.TryGetValue(through, out var copiedAirSystem) ? copiedAirSystem : null;
 
         // Walls copied with the roof they stand on or carry go with the copy of it.
         if (copy is Wall attached)

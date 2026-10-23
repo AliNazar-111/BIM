@@ -276,6 +276,14 @@ public sealed class ScheduleDefinition
                 GroupBy = "System"
             },
 
+        // The ducts, system by system: what each carries, its type and size, how long it is, what keeps a fire wall it passes and what it costs.
+        new ScheduleDefinition("Duct Schedule", BuiltInCategory.Ducts,
+                "System", "System Type", "Type Name", "Size", "Length", "Fire Protection", "Cost")
+            {
+                SortBy = "Size",
+                GroupBy = "System"
+            },
+
         // The drains' access points and outfalls: each one's cover, the invert of the drain under it, and how deep.
         new ScheduleDefinition("Manhole Schedule", BuiltInCategory.Drainage,
                 "Mark", "Type Name", "Cover Level", "Invert Level", "Depth to Invert", "Cost")

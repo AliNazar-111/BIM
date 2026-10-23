@@ -646,6 +646,7 @@ public partial class MainWindow : Window
         var roofTypes = _document.TypesOf<RoofType>().ToList();
         Plan.ActiveRoofTypeId = (roofTypes.FirstOrDefault(type => !type.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase)) ?? roofTypes.FirstOrDefault())?.Id ?? Guid.Empty;
         Plan.ActivePipeTypeId = _document.TypesOf<Core.Mep.PipeType>().FirstOrDefault()?.Id ?? Guid.Empty;
+        Plan.ActiveDuctTypeId = _document.TypesOf<Core.Mep.DuctType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveLevelId = _document.Levels.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveLocationLine = WallLocationLine.WallCentreline;
 
@@ -674,7 +675,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.Pipe or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -698,6 +699,8 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Beam) ShowBeamOptions();
         PipeOptions.Visibility = tool == PlanTool.Pipe ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Pipe) ShowPipeOptions();
+        DuctOptions.Visibility = tool == PlanTool.Duct ? Visibility.Visible : Visibility.Collapsed;
+        if (tool == PlanTool.Duct) ShowDuctOptions();
         TerrainOptions.Visibility = tool == PlanTool.Terrain ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Terrain) ShowGroundOptions();
         RegionOptions.Visibility = tool == PlanTool.Region ? Visibility.Visible : Visibility.Collapsed;
@@ -2277,7 +2280,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, TerrainTool,
+        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
@@ -2380,6 +2383,7 @@ public partial class MainWindow : Window
             : RailingTool.IsChecked == true ? PlanTool.Railing
             : BeamTool.IsChecked == true ? PlanTool.Beam
             : PipeTool.IsChecked == true ? PlanTool.Pipe
+            : DuctTool.IsChecked == true ? PlanTool.Duct
             : TerrainTool.IsChecked == true ? PlanTool.Terrain
             : RegionTool.IsChecked == true ? PlanTool.Region
             : JoistsTool.IsChecked == true ? PlanTool.Joists

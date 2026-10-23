@@ -175,6 +175,43 @@ public static class Connectors
                     Cable("Power", halfW - Math.Min(80, halfW * 0.3), -halfD, h * 0.6, Back)
                 };
 
+            case ComponentForm.HeatRecoveryUnit:
+            {
+                // Its four spigots on top - supply out to the rooms, extract in from the wet rooms, intake in
+                // from outside and exhaust out to it - its condensate under it, and its power.
+                var spigot = 125;
+                var row = Math.Min(halfW * 0.6, 160);
+                return new[]
+                {
+                    Pipe("Supply", SystemKind.SupplyAir, ConnectorFlow.Out, spigot, -row, -halfD * 0.4, h, Up) with { Feeds = true },
+                    Pipe("Extract", SystemKind.ExtractAir, ConnectorFlow.In, spigot, -row / 3, -halfD * 0.4, h, Up) with { Feeds = true },
+                    Pipe("Intake", SystemKind.OutsideAir, ConnectorFlow.In, spigot, row / 3, -halfD * 0.4, h, Up) with { Feeds = true },
+                    Pipe("Exhaust", SystemKind.OutsideAir, ConnectorFlow.Out, spigot, row, -halfD * 0.4, h, Up) with { Feeds = true },
+                    Pipe("Condensate", SystemKind.Foul, ConnectorFlow.Out, 22, 0, 0, 0, Down) with { Optional = true },
+                    Cable("Power", halfW - Math.Min(60, halfW * 0.3), -halfD, h * 0.8, Back)
+                };
+            }
+
+            case ComponentForm.ExtractUnit:
+                // A central extract unit: the extract in and the exhaust out on top, its power.
+                return new[]
+                {
+                    Pipe("Extract", SystemKind.ExtractAir, ConnectorFlow.In, 125, -Math.Min(halfW * 0.5, 90), 0, h, Up) with { Feeds = true },
+                    Pipe("Exhaust", SystemKind.OutsideAir, ConnectorFlow.Out, 125, Math.Min(halfW * 0.5, 90), 0, h, Up) with { Feeds = true },
+                    Cable("Power", halfW - Math.Min(40, halfW * 0.3), -halfD, h * 0.5, Back)
+                };
+
+            case ComponentForm.SupplyTerminal:
+                // A valve in the ceiling: its duct comes down onto it from above.
+                return new[] { Pipe("Supply", SystemKind.SupplyAir, ConnectorFlow.In, 125, 0, 0, h, Up) };
+
+            case ComponentForm.ExtractTerminal:
+                return new[] { Pipe("Extract", SystemKind.ExtractAir, ConnectorFlow.Out, 125, 0, 0, h, Up) };
+
+            case ComponentForm.OutsideTerminal:
+                // A grille on the outside wall, its duct going back through the wall into the house.
+                return new[] { Pipe("Outside Air", SystemKind.OutsideAir, ConnectorFlow.Both, 125, 0, -halfD, h / 2, Back) };
+
             case ComponentForm.UnderfloorHeating:
                 // The loop's two ends at the back of it, where they go off to the manifold.
                 return new[]
@@ -223,11 +260,12 @@ public static class Connectors
 
             case ComponentForm.ExtractFan:
             {
-                // Its duct out through the wall behind it - 100 mm for a small fan, 150 mm for a kitchen's.
+                // Its duct out through the wall behind it - 100 mm for a small fan, 150 mm for a kitchen's - straight
+                // outside, so on an extract air system only where it is ducted with others.
                 var duct = type.ExtractRate > 30 ? 150 : type.ExtractRate > 15 ? 125 : 100;
                 return new[]
                 {
-                    Pipe("Extract", SystemKind.ExtractAir, ConnectorFlow.Out, duct, 0, -halfD, h / 2, Back),
+                    Pipe("Extract", SystemKind.ExtractAir, ConnectorFlow.Out, duct, 0, -halfD, h / 2, Back) with { Optional = true },
                     Cable("Power", halfW * 0.6, -halfD, h / 2, Back)
                 };
             }
