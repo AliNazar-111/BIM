@@ -267,34 +267,7 @@ public static class MepSystems
                 problems.Add(new MepProblem(component, Unconnected(type, kind, feeds: Connectors.Of(type).Any(connector => connector.Kind == kind && connector.Feeds && !connector.Optional), us)));
         }
 
-        var systems = document.All<MepSystem>().ToList();
-        foreach (var system in systems)
-        {
-            var members = MembersOf(document, system);
-            if (members.Count == 0) problems.Add(new MepProblem(system, "it has no fittings on it"));
-            if (system.Kind.Fed() is { } fed && SourceOf(document, system) is null)
-                problems.Add(new MepProblem(system, Drainage.IsDrainage(system.Kind) ? $"it drains nowhere yet - {fed} takes it" : $"nothing feeds it - {fed} does"));
-        }
-
-        // The alarms linked as one: BS 5839-6, or the IRC's R314.4.
-        var interlinks = systems.Where(system => system.Kind == SystemKind.FireAlarm && MembersOf(document, system).Count > 0).ToList();
-        if (interlinks.Count > 1)
-            foreach (var system in interlinks)
-                problems.Add(new MepProblem(system, $"the alarms are split between {interlinks.Count} interlinks - " + (us
-                    ? "IRC R314.4 interconnects the smoke alarms of a dwelling so that one sounding sounds them all"
-                    : "BS 5839-6, which Approved Document B (1.1) follows, links the alarms so that one sounding sounds them all")));
-
-        // Heating zones, each with its own time and temperature control: Approved Document L (2021).
-        if (!us)
-        {
-            var zones = systems.Where(system => system.Kind == SystemKind.Heating && MembersOf(document, system).Any(member => Heats(document, member))).ToList();
-            foreach (var zone in zones.Where(zone => !MembersOf(document, zone).Any(member => document.FindType<ComponentType>(member.TypeId)?.Form == ComponentForm.Thermostat)))
-                problems.Add(new MepProblem(zone, "it has no room thermostat - Approved Document L (2021) gives each heating zone its own time and temperature control"));
-
-            if (zones.Count == 1 && DwellingArea(document) is var area and >= TwoZoneArea)
-                problems.Add(new MepProblem(zones[0],
-                    $"the rooms come to {area:0} m² - Approved Document L (2021) asks a new dwelling of {TwoZoneArea:0} m² or more for two heating zones at least, each with its own time and temperature control"));
-        }
+        problems.AddRange(SystemChecks(document, null));
 
         // The pipes: too small, not joined, not reaching; and the water the dwelling uses.
         problems.AddRange(PipeNetworks.Problems(document));
@@ -310,6 +283,73 @@ public static class MepSystems
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));
         return problems;
+    }
+
+    /// <summary>
+    /// What is wanting in one system itself - what its Properties say - with only the checks of its
+    /// kind run, and only on it: the same as the whole model's problems said of it, without the rest.
+    /// </summary>
+    public static IReadOnlyList<MepProblem> ProblemsOf(BimDocument document, MepSystem system)
+    {
+        using var outlines = new RoomsOf.Outlines();
+        using var cache = ModelCache.Begin(document);
+        var found = new List<MepProblem>(SystemChecks(document, system));
+        switch (system.Kind)
+        {
+            case SystemKind.Heating:
+                found.AddRange(Heating.ZoneProblems(document, system));
+                break;
+            case SystemKind.ColdWater:
+                found.AddRange(WaterUse.Problems(document));
+                break;
+            case SystemKind.Power:
+                found.AddRange(Circuits.Problems(document, system));
+                break;
+            case SystemKind.Switching:
+                found.AddRange(Lighting.SwitchingProblems(document, system));
+                break;
+        }
+
+        if (system.Kind.Domain() == ConnectorDomain.Duct) found.AddRange(DuctNetworks.Problems(document, system));
+        return found.Where(problem => ReferenceEquals(problem.Element, system)).ToList();
+    }
+
+    /// <summary>What is wanting in the systems themselves - all of them, or one: empty, unfed, the alarms not linked as one, heating zones without their controls.</summary>
+    private static IEnumerable<MepProblem> SystemChecks(BimDocument document, MepSystem? only)
+    {
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        var systems = document.All<MepSystem>().ToList();
+        foreach (var system in systems.Where(system => only is null || ReferenceEquals(system, only)))
+        {
+            var members = MembersOf(document, system);
+            if (members.Count == 0) yield return new MepProblem(system, "it has no fittings on it");
+            if (system.Kind.Fed() is { } fed && SourceOf(document, system) is null)
+                yield return new MepProblem(system, Drainage.IsDrainage(system.Kind) ? $"it drains nowhere yet - {fed} takes it" : $"nothing feeds it - {fed} does");
+        }
+
+        // The alarms linked as one: BS 5839-6, or the IRC's R314.4.
+        if (only is null or { Kind: SystemKind.FireAlarm })
+        {
+            var interlinks = systems.Where(system => system.Kind == SystemKind.FireAlarm && MembersOf(document, system).Count > 0).ToList();
+            if (interlinks.Count > 1)
+                foreach (var system in interlinks.Where(system => only is null || ReferenceEquals(system, only)))
+                    yield return new MepProblem(system, $"the alarms are split between {interlinks.Count} interlinks - " + (us
+                        ? "IRC R314.4 interconnects the smoke alarms of a dwelling so that one sounding sounds them all"
+                        : "BS 5839-6, which Approved Document B (1.1) follows, links the alarms so that one sounding sounds them all"));
+        }
+
+        // Heating zones, each with its own time and temperature control: Approved Document L (2021).
+        if (!us && only is null or { Kind: SystemKind.Heating })
+        {
+            var zones = systems.Where(system => system.Kind == SystemKind.Heating && MembersOf(document, system).Any(member => Heats(document, member))).ToList();
+            foreach (var zone in zones.Where(zone => (only is null || ReferenceEquals(zone, only))
+                                                     && !MembersOf(document, zone).Any(member => document.FindType<ComponentType>(member.TypeId)?.Form == ComponentForm.Thermostat)))
+                yield return new MepProblem(zone, "it has no room thermostat - Approved Document L (2021) gives each heating zone its own time and temperature control");
+
+            if (zones.Count == 1 && (only is null || ReferenceEquals(zones[0], only)) && DwellingArea(document) is var area and >= TwoZoneArea)
+                yield return new MepProblem(zones[0],
+                    $"the rooms come to {area:0} m² - Approved Document L (2021) asks a new dwelling of {TwoZoneArea:0} m² or more for two heating zones at least, each with its own time and temperature control");
+        }
     }
 
     /// <summary>Whether a fitting heats a room: a radiator, a towel rail or an underfloor loop, not a cylinder's coil.</summary>

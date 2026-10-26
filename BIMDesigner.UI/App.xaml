@@ -18,6 +18,7 @@
                 <ResourceDictionary Source="Themes/DataGrid.xaml"/>
                 <ResourceDictionary Source="Themes/Icons.xaml"/>
                 <ResourceDictionary Source="Themes/Ribbon.xaml"/>
+                <ResourceDictionary Source="Themes/Start.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

@@ -24,4 +24,9 @@
     <ApplicationIcon>Assets\BIMDesigner.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- The logo, for the splash and the home screen as well as the program file. -->
+    <Resource Include="Assets\BIMDesigner.ico" />
+  </ItemGroup>
+
 </Project>

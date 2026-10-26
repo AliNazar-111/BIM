@@ -191,6 +191,28 @@ public static class Heating
         return (HotWaterPerPerson * people, people);
     }
 
+    private const string NoDesignTemperature = "no winter design temperature is set for the project - IRC R303.10 has the heating hold 68 °F at the design temperature of Table R301.2";
+
+    /// <summary>What is wanting in one heating zone itself, as the whole heating's problems say it - in the US no design temperature to hold to, said of the first zone; or designed to flow too hot - without working out the heat loss.</summary>
+    public static IEnumerable<MepProblem> ZoneProblems(BimDocument document, MepSystem zone)
+    {
+        var heatingZones = document.All<MepSystem>().Where(system => system.Kind == SystemKind.Heating).ToList();
+        if (!heatingZones.Contains(zone)) yield break;
+        if (Climate.DesignOutside(document) is null)
+        {
+            if (document.ProjectInformation.ClearanceStandard.IsUs() && ReferenceEquals(heatingZones[0], zone)) yield return new MepProblem(zone, NoDesignTemperature);
+            yield break;
+        }
+
+        if (!document.ProjectInformation.ClearanceStandard.IsUs() && TooHot(document, zone) is { } said) yield return new MepProblem(zone, said);
+    }
+
+    /// <summary>A zone heating rooms designed to flow over 55 °C, as Approved Document L says it; null where it is not.</summary>
+    private static string? TooHot(BimDocument document, MepSystem zone) =>
+        MepSystems.MembersOf(document, zone).Any(member => document.FindType<ComponentType>(member.TypeId) is { } type && IsEmitter(type.Form)) && Design(document, zone).Flow > FlowLimit + 0.01
+            ? $"it is designed to flow at {Design(document, zone).Flow:0} °C - Approved Document L (5.10) sizes a new wet heating system's pipes and emitters to run at 55 °C or lower"
+            : null;
+
     /// <summary>What is wanting in the heating: rooms short of heat or with none, zones run too hot, heat sources too small, floors asked too much of.</summary>
     public static IEnumerable<MepProblem> Problems(BimDocument document)
     {
@@ -202,8 +224,7 @@ public static class Heating
         var building = HeatLoss.Of(document);
         if (building is null)
         {
-            if (us) yield return new MepProblem(heatingZones.FirstOrDefault() as Element ?? document.All<Component>().First(),
-                "no winter design temperature is set for the project - IRC R303.10 has the heating hold 68 °F at the design temperature of Table R301.2");
+            if (us) yield return new MepProblem(heatingZones.FirstOrDefault() as Element ?? document.All<Component>().First(), NoDesignTemperature);
             yield break;
         }
 
@@ -239,10 +260,9 @@ public static class Heating
 
         // The zones' temperatures: 55 °C at most for a new system.
         if (!us)
-            foreach (var zone in heatingZones.Where(zone => MepSystems.MembersOf(document, zone).Any(member => document.FindType<ComponentType>(member.TypeId) is { } type && IsEmitter(type.Form))))
-                if (Design(document, zone).Flow > FlowLimit + 0.01)
-                    yield return new MepProblem(zone,
-                        $"it is designed to flow at {Design(document, zone).Flow:0} °C - Approved Document L (5.10) sizes a new wet heating system's pipes and emitters to run at 55 °C or lower");
+            foreach (var zone in heatingZones)
+                if (TooHot(document, zone) is { } said)
+                    yield return new MepProblem(zone, said);
 
         // Each heat source against what it heats.
         foreach (var source in heatingZones.Select(zone => MepSystems.SourceOf(document, zone)).OfType<Component>().Distinct())

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -23,6 +24,11 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // WPF starts an application as soon as its dispatcher runs, even one made only to host
+        // windows - by the tests, or a walkthrough driving the window. Only BIMDesigner itself,
+        // started as a program, shows the splash and the home screen.
+        if (System.Reflection.Assembly.GetEntryAssembly() != typeof(App).Assembly) return;
 
         if (e.Args.Length > 0 && File.Exists(e.Args[0]))
             StartupProjectPath = e.Args[0];
@@ -55,12 +61,70 @@ public partial class App : Application
         // Light or dark, as last chosen: the palette has to be in place before any window is built.
         AppTheme.Apply(this);
 
-        var window = new MainWindow();
-        window.Show();
+        // Windows come and go - the splash, the home screen, a project, the home screen again - so
+        // BIMDesigner stops when it is told to: the home screen closed, or a project closed other
+        // than to go back home.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var splash = new StartUp.SplashWindow();
+        splash.Show();
+        var shown = Stopwatch.StartNew();
+        splash.Step("Loading the model engine...", 0.15);
+        _ = Core.Documents.BimDocument.CreateDefault();
+        splash.Step("Preparing the templates...", 0.5);
+        _ = Core.Documents.ProjectTemplates.Create(new Core.Documents.NewProjectSpec());
+        splash.Step("Reading the recent projects...", 0.8);
+        _ = Infrastructure.Projects.RecentProjects.All();
+        splash.Step("Ready", 1);
 
-        // Unsaved work kept every few minutes - and work a session that stopped left behind, offered back once the window is up.
+        // Long enough to be read, not so long as to be waited for.
+        while (shown.Elapsed < TimeSpan.FromSeconds(1.2))
+        {
+            Thread.Sleep(40);
+            splash.Step("Ready", 1);
+        }
+
+        // A project opened from Explorer goes straight to its window; otherwise the home screen.
+        if (StartupProjectPath is not null)
+        {
+            var window = Open(new MainWindow());
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => window.OfferRecovery());
+        }
+        else ShowHome();
+
+        splash.Close();
+    }
+
+    /// <summary>The home screen: what is picked there opens in a project window, and closing it stops BIMDesigner.</summary>
+    internal StartUp.StartWindow ShowHome()
+    {
+        var home = new StartUp.StartWindow();
+        MainWindow = home;
+        home.Chosen += (_, choice) =>
+        {
+            Open(new MainWindow { Start = choice });
+            home.Close();
+        };
+        home.Closed += (_, _) =>
+        {
+            if (home.Choice is null) Shutdown();
+        };
+        home.Show();
+        home.Activate();
+        return home;
+    }
+
+    /// <summary>A project window shown, its unsaved work kept every few minutes; closed, BIMDesigner stops - or goes back to the home screen.</summary>
+    private MainWindow Open(MainWindow window)
+    {
+        MainWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (window.ClosingToHome) ShowHome();
+            else Shutdown();
+        };
+        window.Show();
         window.StartKeepingWork();
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () => window.OfferRecovery());
+        return window;
     }
 
     /// <summary>

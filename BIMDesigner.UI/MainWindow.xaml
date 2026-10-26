@@ -369,11 +369,17 @@
                         </MenuItem>
                         <MenuItem Header="Open IF_C..." Click="OnImportIfc"
                                   ToolTip="Read an IFC2x3 or IFC4 model into a new project: its storeys, walls with their layers, doors and windows, floors, roofs, ceilings, rooms and grids - and everything else as its shape"/>
+                        <MenuItem Header="Open _Recent" SubmenuOpened="OnRecentOpened"
+                                  ToolTip="The projects opened or saved before, newest first - the home screen lists them with a picture of each">
+                            <MenuItem Header="No recent projects" IsEnabled="False"/>
+                        </MenuItem>
                         <Separator/>
                         <MenuItem Header="_Save" Command="Save" InputGestureText="Ctrl+S">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Save}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="Save _As..." Command="SaveAs" InputGestureText="Ctrl+Shift+S"/>
+                        <MenuItem Header="_Close Project" Click="OnCloseProject"
+                                  ToolTip="Close this project - asking about anything not saved - and go back to the home screen"/>
                         <Separator/>
                         <MenuItem x:Name="UndoItem" Header="_Undo" Command="Undo" InputGestureText="Ctrl+Z">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Undo}" Width="16"/></MenuItem.Icon>

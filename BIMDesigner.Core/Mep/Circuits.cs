@@ -693,14 +693,21 @@ public static class Circuits
     public static IReadOnlyList<MepProblem> Problems(BimDocument document)
     {
         using var cache = ModelCache.Begin(document);
-        return Found(document).ToList();
+        return Found(document, null).ToList();
     }
 
-    private static IEnumerable<MepProblem> Found(BimDocument document)
+    /// <summary>What is wanting in one circuit itself, without checking the rest.</summary>
+    public static IReadOnlyList<MepProblem> Problems(BimDocument document, MepSystem circuit)
+    {
+        using var cache = ModelCache.Begin(document);
+        return Found(document, circuit).Where(problem => ReferenceEquals(problem.Element, circuit)).ToList();
+    }
+
+    private static IEnumerable<MepProblem> Found(BimDocument document, MepSystem? only)
     {
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var circuits = Of(document);
-        foreach (var circuit in circuits)
+        foreach (var circuit in circuits.Where(circuit => only is null || ReferenceEquals(circuit, only)))
         {
             if (Design(document, circuit) is not { } design) continue;
             foreach (var fault in Faults(document, design)) yield return new MepProblem(circuit, fault);
@@ -771,6 +778,8 @@ public static class Circuits
                 && members.Any(member => IsSocket(document, member) || TypeOf(document, member)?.Kind == BuiltInCategory.LightingFixtures))
                 yield return new MepProblem(circuit, $"its fixed equipment draws {fixedLoad / design.Voltage:0.#} A - NEC 210.23(B)(2) keeps it to half a {design.Breaker:0} A circuit that also has lights or receptacles");
         }
+
+        if (only is not null) yield break;
 
         if (us)
         {

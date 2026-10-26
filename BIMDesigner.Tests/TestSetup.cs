@@ -25,5 +25,6 @@ internal static class TestSetup
         var scratch = Path.Combine(Path.GetTempPath(), "BIMDesigner.Tests", Guid.NewGuid().ToString("N"));
         AppLog.Folder = Path.Combine(scratch, "Logs");
         RecoverySession.Folder = Path.Combine(scratch, "Recovery");
+        BIMDesigner.Infrastructure.Projects.RecentProjects.Folder = Path.Combine(scratch, "Recent");
     }
 }

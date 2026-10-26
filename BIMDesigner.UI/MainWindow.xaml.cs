@@ -423,7 +423,8 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             FitToWorkArea();
-            OpenStartupProject();
+            if (Start is { } start) Begin(start);
+            else OpenStartupProject();
             RefreshSchedule();
             Plan.Focus();
         };
@@ -563,6 +564,7 @@ public partial class MainWindow : Window
         RefreshProjectBrowser();
         RefreshProperties();
         RefreshTitle();
+        Remember();
 
         // Fitting needs the canvas's real size. Right after a load the window may not have
         // laid out yet - especially on the first show, where it is still being resized to
@@ -2073,10 +2075,12 @@ public partial class MainWindow : Window
 
     // ---- file ------------------------------------------------------------------
 
+    /// <summary>File > New Project: the New Project steps, and the project they make opened in place of this one.</summary>
     private void OnNewProject(object sender, ExecutedRoutedEventArgs e)
     {
         if (!ConfirmDiscardingChanges()) return;
-        LoadDocument(BimDocument.CreateDefault(), path: null, seedExample: false);
+        var steps = new StartUp.NewProjectWindow { Owner = this };
+        if (steps.ShowDialog() == true && steps.Choice is { } choice) Begin(choice);
     }
 
     private void OnOpenProject(object sender, ExecutedRoutedEventArgs e)
@@ -2144,6 +2148,7 @@ public partial class MainWindow : Window
 
         _path = path;
         _history.MarkClean();
+        Remember();
 
         // Saved: the recovery copy is not wanted any more.
         _recovery.Discard();
@@ -4109,7 +4114,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The ground as the plan's Properties offer it: what it is, Approved Document A's type, the IRC's bearing value.</summary>
-    private static string GroundLabel(GroundType ground) =>
+    internal static string GroundLabel(GroundType ground) =>
         $"{char.ToUpperInvariant(StructureRules.Describe(ground)[0])}{StructureRules.Describe(ground)[1..]} (type {StructureRules.AdaType(ground)}" +
         (StructureRules.Bearing(ground) is { } psf ? $", {psf:#,0} psf)" : ", soils investigation)");
     private static readonly ParameterDefinition DwellingSizeParameter = new("Dwelling Size (NDSS)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);

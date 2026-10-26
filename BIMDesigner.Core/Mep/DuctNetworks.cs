@@ -531,14 +531,14 @@ public static class DuctNetworks
     // ---- what is wanting -----------------------------------------------------
 
     /// <summary>What is wanting in the ducts: not joined, valves not reached, too much pressure, flexible duct misused, insulation, fire separation broken.</summary>
-    public static IEnumerable<MepProblem> Problems(BimDocument document)
+    public static IEnumerable<MepProblem> Problems(BimDocument document, MepSystem? only = null)
     {
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var flows = Ventilation.TerminalFlows(document);
         var protectedStair = Doors.HasHighStorey(document);
         var stairRooms = protectedStair ? Doors.StairRooms(document) : new HashSet<Room>();
         var detectors = document.All<Component>().Where(component => document.FindType<ComponentType>(component.TypeId)?.Form == ComponentForm.DuctSmokeDetector).ToList();
-        foreach (var system in document.All<MepSystem>().Where(system => system.Kind.Domain() == ConnectorDomain.Duct))
+        foreach (var system in document.All<MepSystem>().Where(system => system.Kind.Domain() == ConnectorDomain.Duct && (only is null || ReferenceEquals(system, only))))
         {
             var ducts = DuctsOf(document, system);
             if (ducts.Count == 0) continue;

@@ -143,6 +143,37 @@ public class CoordinationServicesTests
         Assert.True(Penetrations.Of(house, straight).Single().Fits);
     }
 
+    [Fact]
+    public void APipeThroughACurvedWallIsFoundWhereverItCrossesAndGetsItsOpenings()
+    {
+        var document = BimDocument.CreateDefault();
+        var type = document.TypesOf<WallType>().First(each => each.Name == "Generic - 200mm");
+        var wall = new Wall { Start = new Point2D(0, 0), End = new Point2D(4000, 0), Bulge = 0.5, TypeId = type.Id, LevelId = document.Levels[0].Id, UnconnectedHeight = 3000 };
+        document.Add(wall);
+        var crown = wall.LocationCurve.PointAt(wall.Length / 2);
+        var side = Math.Sign(crown.Y);
+
+        // Square across its crown: through it once, the hole the pipe and its gap.
+        var across = Run(document, PipeMaterial.Copper, 22, new Point2D(crown.X, crown.Y - side * 1500), new Point2D(crown.X, crown.Y + side * 1500), 300);
+        var hole = Assert.Single(Penetrations.Of(document, across));
+        Assert.Same(wall, hole.Through);
+        Assert.Equal(22 + 2 * Penetrations.Gap, hole.Width, 3);
+        Assert.Equal(crown.X, hole.At.X, 1);
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == across && problem.Text.Contains("no opening cut for it"));
+
+        // Along inside its bow: in through one side and out through the other.
+        var along = Run(document, PipeMaterial.Copper, 15, new Point2D(-1000, crown.Y / 2), new Point2D(5000, crown.Y / 2), 300);
+        Assert.Equal(2, Penetrations.Of(document, along).Count());
+
+        // Cut Openings: a wall opening in the curved wall at each, and each then has one that takes it.
+        var openings = Penetrations.Openings(document);
+        Assert.Equal(3, openings.Count);
+        Assert.All(openings, opening => Assert.Equal(wall.Id, Assert.IsType<WallOpening>(opening).HostWallId));
+        new Core.Documents.Commands.AddElementsCommand(document, openings, "Cut Openings").Redo();
+        Assert.All(Penetrations.All(document), each => Assert.True(each.Opening is not null && each.Fits));
+        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Text.Contains("opening"));
+    }
+
     private static (BimDocument Document, BeamSystem Joists) Floor(double depth)
     {
         var (document, _, _) = Row("Generic - 200mm", "Living Room");

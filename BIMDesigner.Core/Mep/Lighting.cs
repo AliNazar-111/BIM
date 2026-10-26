@@ -439,6 +439,20 @@ public static class Lighting
         return said;
     }
 
+    /// <summary>Switching - all of it, or one: a switch and a light on each.</summary>
+    public static IEnumerable<MepProblem> SwitchingProblems(BimDocument document, MepSystem? only)
+    {
+        foreach (var system in document.All<MepSystem>().Where(system => system.Kind == SystemKind.Switching && (only is null || ReferenceEquals(system, only))))
+        {
+            var members = MepSystems.MembersOf(document, system);
+            if (members.Count == 0) continue;
+            if (!members.Any(member => document.FindType<ComponentType>(member.TypeId)?.Form == ComponentForm.Switch))
+                yield return new MepProblem(system, "no switch on it - select its lights with the switch that turns them on");
+            else if (!members.Any(member => document.FindType<ComponentType>(member.TypeId)?.Kind == BuiltInCategory.LightingFixtures))
+                yield return new MepProblem(system, "no lights on it");
+        }
+    }
+
     /// <summary>What is wanting in the lighting: rooms short of their light, lights not switched, a stair switched from one floor.</summary>
     public static IEnumerable<MepProblem> Problems(BimDocument document)
     {
@@ -452,16 +466,7 @@ public static class Lighting
                 : $"its lights give {light.Average:0} lux on the {target.Where} - BRE took {target.Lux:0} lux for a {kind} in SAP 10 (S10TP-06)");
         }
 
-        // Switching: a switch and a light on each.
-        foreach (var system in document.All<MepSystem>().Where(system => system.Kind == SystemKind.Switching))
-        {
-            var members = MepSystems.MembersOf(document, system);
-            if (members.Count == 0) continue;
-            if (!members.Any(member => document.FindType<ComponentType>(member.TypeId)?.Form == ComponentForm.Switch))
-                yield return new MepProblem(system, "no switch on it - select its lights with the switch that turns them on");
-            else if (!members.Any(member => document.FindType<ComponentType>(member.TypeId)?.Kind == BuiltInCategory.LightingFixtures))
-                yield return new MepProblem(system, "no lights on it");
-        }
+        foreach (var problem in SwitchingProblems(document, null)) yield return problem;
 
         if (!us) yield break;
 

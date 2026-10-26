@@ -802,10 +802,7 @@ public sealed class Component : Element, IHostedElement
                 return $"{area:0} m² in sight{(rooms.Count > 0 ? $"; {string.Join(", ", rooms)}" : string.Empty)}{(named.Count > 0 ? $"; {named.Count} door{(named.Count == 1 ? "" : "s")} and windows: {string.Join(", ", named.Take(12))}" : string.Empty)}";
             });
             yield return ParameterValue.ReadOnly(ComponentParameters.ViewOut, () =>
-            {
-                var meshes = Views.ModelMeshBuilder.Build(document, element => element.Id != Id);
-                return Views.ViewOut.From(document, LevelId, Location, Views.Walker.Of(type!, us).EyeHeight, meshes, new HashSet<Guid> { Id }).Said;
-            });
+                Views.ViewOut.From(document, LevelId, Location, Views.Walker.Of(type!, us).EyeHeight, null, new HashSet<Guid> { Id }).Said);
         }
 
         // What its elevation is measured from: the top of the floor it stands on, or its level.

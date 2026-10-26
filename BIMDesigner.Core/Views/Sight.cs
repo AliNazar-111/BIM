@@ -151,15 +151,17 @@ public static class Sight
     /// Whether one point can see another: the line between them clear of every solid but glass -
     /// and but the elements asked to be left out, the one looked at and the one looking among them.
     /// </summary>
-    public static SightLine Line(IReadOnlyList<Mesh3D> meshes, Point3D from, Point3D to, ICollection<Guid>? ignore = null)
+    /// <param name="bounds">Each mesh's bounds, worked out once where many lines are looked along.</param>
+    public static SightLine Line(IReadOnlyList<Mesh3D> meshes, Point3D from, Point3D to, ICollection<Guid>? ignore = null, IReadOnlyList<(Point3D Min, Point3D Max)?>? bounds = null)
     {
         var (minX, maxX) = (Math.Min(from.X, to.X), Math.Max(from.X, to.X));
         var (minY, maxY) = (Math.Min(from.Y, to.Y), Math.Max(from.Y, to.Y));
         var (minZ, maxZ) = (Math.Min(from.Z, to.Z), Math.Max(from.Z, to.Z));
-        foreach (var mesh in meshes)
+        for (var m = 0; m < meshes.Count; m++)
         {
+            var mesh = meshes[m];
             if (SeenThrough.Contains(mesh.Kind) || ignore?.Contains(mesh.OwnerId) == true || ignore?.Contains(mesh.ElementId) == true) continue;
-            if (mesh.Bounds() is not { } box || box.Max.X < minX || box.Min.X > maxX || box.Max.Y < minY || box.Min.Y > maxY || box.Max.Z < minZ || box.Min.Z > maxZ) continue;
+            if ((bounds is null ? mesh.Bounds() : bounds[m]) is not { } box || box.Max.X < minX || box.Min.X > maxX || box.Max.Y < minY || box.Min.Y > maxY || box.Max.Z < minZ || box.Min.Z > maxZ) continue;
             var (positions, indices) = (mesh.Positions, mesh.Indices);
             for (var i = 0; i + 2 < indices.Count; i += 3)
                 if (Hits(from, to, positions[indices[i]], positions[indices[i + 1]], positions[indices[i + 2]]) is { } t && t > 1e-4 && t < 1 - 1e-4)
@@ -300,7 +302,19 @@ public static class ViewOut
     /// <summary>The view out from a point on a storey, at an eye height over its floor.</summary>
     public static ViewOutResult From(BimDocument document, Guid levelId, Point2D at, double eyeHeight, IReadOnlyList<Mesh3D>? meshes = null, ICollection<Guid>? ignore = null)
     {
-        meshes ??= ModelMeshBuilder.Build(document);
+        var alone = ModelCache.Of(document) is null;
+        using var cache = ModelCache.Begin(document);
+
+        // A room's view out is through its own windows: those in the walls round it - where the point is in no room, any.
+        var walls = RoomsOf.Containing(document, levelId, at)?.GetBoundary(document) is { IsEnclosed: true } room ? room.BoundingWalls.Select(wall => wall.Id).ToHashSet() : null;
+        var panes = Panes(document, levelId).Where(pane => walls is null || walls.Contains(pane.Host)).ToList();
+        if (panes.Count == 0) return new ViewOutResult(0, 0, false, false, false, 0, ViewLevel.None);
+
+        // Asked alone, only what could be in the way is built; in a schedule of rooms, the whole model once for all of them.
+        meshes ??= alone
+            ? ModelMeshBuilder.Build(document, element => InSight(document, element, at, panes))
+            : ModelCache.Of(document)!.Keep("model meshes", document, null, null, () => ModelMeshBuilder.Build(document));
+        var bounds = meshes.Select(mesh => mesh.Bounds()).ToList();
         var floor = Architecture.FloorSurfaces.FloorUnder(document, levelId, at) is { } slab ? slab.GetTopElevation(document) : document.FindLevel(levelId)?.Elevation ?? 0;
         var eyeZ = floor + eyeHeight;
         var eye = new Point3D(at.X, at.Y, eyeZ);
@@ -312,7 +326,7 @@ public static class ViewOut
         var floors = document.All<Floor>().Where(floor => floor.LevelId == levelId && floor.Boundary.Count >= 3).Select(floor => floor.Boundary).ToList();
         bool Inside(Point2D point) => floors.Any(outline => Polygon2D.Contains(outline, point));
 
-        foreach (var found in Panes(document, levelId))
+        foreach (var found in panes)
         {
             var middle = found.A.MidpointTo(found.B);
 
@@ -321,7 +335,7 @@ public static class ViewOut
             if (floors.Count > 0 && Inside(middle + pane.Out * 800)) continue;
             var centre = new Point3D(middle.X, middle.Y, (pane.Sill + pane.Head) / 2);
             var blockers = new HashSet<Guid>(ignore ?? Array.Empty<Guid>()) { pane.Id, pane.Host };
-            if (!Sight.Line(meshes, eye, centre, blockers).Clear) continue;
+            if (!Sight.Line(meshes, eye, centre, blockers, bounds).Clear) continue;
             seen++;
 
             var (a1, a2) = (Math.Atan2(pane.A.Y - at.Y, pane.A.X - at.X) * 180 / Math.PI, Math.Atan2(pane.B.Y - at.Y, pane.B.X - at.X) * 180 / Math.PI);
@@ -329,7 +343,7 @@ public static class ViewOut
             angles.Add(span >= 0 ? (a1, a1 + span) : (a1 + span, a1));
 
             // Out from the glass, square to it, at its middle height: how far before something is in the way, and how high that is.
-            var (reach, top) = Obstruction(meshes, centre, pane.Out, blockers);
+            var (reach, top) = Obstruction(meshes, bounds, centre, pane.Out, blockers);
             distance = Math.Max(distance, reach);
 
             // The lines from the eye over the head and the sill, carried on outside.
@@ -348,6 +362,59 @@ public static class ViewOut
         return new ViewOutResult(sight, distance, sky, landscape, groundSeen, seen, seen == 0 ? ViewLevel.None : level);
     }
 
+    /// <summary>
+    /// Whether something could be in the way of the view out from a point: near in plan to the line
+    /// from it to a pane, or to the line out from a pane either way - or of a kind not placed so
+    /// simply, which is always taken. The ground is never in the way.
+    /// </summary>
+    private static bool InSight(BimDocument document, Element element, Point2D at, IReadOnlyList<Pane> panes)
+    {
+        if (element is Toposurface or GroundRegion or SitePad) return false;
+        if (PlanBox(document, element) is not { } box) return true;
+        box = box.Expand(500);
+        foreach (var pane in panes)
+        {
+            var middle = pane.A.MidpointTo(pane.B);
+            if (Passes(at, middle - at, box) || Passes(middle, pane.Out * Far, box) || Passes(middle, pane.Out * -Far, box)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Where in plan a thing stands, for telling whether a line could pass it; null for what is not placed so simply.</summary>
+    private static BoundingBox2D? PlanBox(BimDocument document, Element element) => element switch
+    {
+        Wall { IsCurved: false } wall => BoundingBox2D.Around(new[] { wall.Start, wall.End }).Expand((document.GetWallType(wall)?.Width ?? 0) / 2),
+        Slab slab when slab.Boundary.Count > 0 => BoundingBox2D.Around(slab.Boundary),
+        Component component when document.FindType<ComponentType>(component.TypeId) is { } type =>
+            BoundingBox2D.Around(new[] { component.Location }).Expand(Math.Max(type.Width, type.Depth)),
+        Column column => BoundingBox2D.Around(new[] { column.Location }).Expand(1000),
+        Mep.Pipe pipe => BoundingBox2D.Around(new[] { pipe.Start, pipe.End }).Expand(pipe.Diameter),
+        Mep.Duct duct => BoundingBox2D.Around(new[] { duct.Start, duct.End }).Expand(Math.Max(duct.Width, duct.Height)),
+        _ => null
+    };
+
+    /// <summary>Whether a line from a point, so far along a step, passes over a box in plan.</summary>
+    private static bool Passes(Point2D from, Vector2D step, BoundingBox2D box)
+    {
+        var (near, far) = (0.0, 1.0);
+        foreach (var (origin, along, low, high) in new[] { (from.X, step.X, box.MinX, box.MaxX), (from.Y, step.Y, box.MinY, box.MaxY) })
+        {
+            if (Math.Abs(along) < 1e-12)
+            {
+                if (origin < low || origin > high) return false;
+                continue;
+            }
+
+            var (t1, t2) = ((low - origin) / along, (high - origin) / along);
+            if (t1 > t2) (t1, t2) = (t2, t1);
+            (near, far) = (Math.Max(near, t1), Math.Min(far, t2));
+            if (near > far) return false;
+        }
+
+        return true;
+    }
+
     /// <summary>The level a view reaches: the lowest its angle, distance and layers reach.</summary>
     public static ViewLevel Grade(double angle, double distance, bool sky, bool landscape, bool ground)
     {
@@ -360,14 +427,37 @@ public static class ViewOut
     }
 
     /// <summary>How far a line out from a point goes before it meets something solid, and the top of what it meets.</summary>
-    private static (double Distance, double Top) Obstruction(IReadOnlyList<Mesh3D> meshes, Point3D from, Vector2D way, ICollection<Guid> ignore)
+    private static (double Distance, double Top) Obstruction(IReadOnlyList<Mesh3D> meshes, IReadOnlyList<(Point3D Min, Point3D Max)?> bounds, Point3D from, Vector2D way, ICollection<Guid> ignore)
     {
         var to = new Point3D(from.X + way.X * Far, from.Y + way.Y * Far, from.Z);
         var (best, top) = (Far, double.NegativeInfinity);
-        foreach (var mesh in meshes)
+
+        // Whether the line out, as far as anything found so far, passes over a box in plan at all.
+        bool Crosses((Point3D Min, Point3D Max) box)
         {
+            var (near, far) = (0.0, best);
+            foreach (var (origin, step, low, high) in new[] { (from.X, way.X, box.Min.X, box.Max.X), (from.Y, way.Y, box.Min.Y, box.Max.Y) })
+            {
+                if (Math.Abs(step) < 1e-12)
+                {
+                    if (origin < low || origin > high) return false;
+                    continue;
+                }
+
+                var (t1, t2) = ((low - origin) / step, (high - origin) / step);
+                if (t1 > t2) (t1, t2) = (t2, t1);
+                (near, far) = (Math.Max(near, t1), Math.Min(far, t2));
+                if (near > far) return false;
+            }
+
+            return true;
+        }
+
+        for (var m = 0; m < meshes.Count; m++)
+        {
+            var mesh = meshes[m];
             if (mesh.Kind is MeshKind.Glazing or MeshKind.Terrain || ignore.Contains(mesh.OwnerId) || ignore.Contains(mesh.ElementId)) continue;
-            if (mesh.Bounds() is not { } box || box.Min.Z > from.Z || box.Max.Z < from.Z) continue;
+            if (bounds[m] is not { } box || box.Min.Z > from.Z || box.Max.Z < from.Z || !Crosses(box)) continue;
             var (positions, indices) = (mesh.Positions, mesh.Indices);
             for (var i = 0; i + 2 < indices.Count; i += 3)
                 if (Sight.Hits(from, to, positions[indices[i]], positions[indices[i + 1]], positions[indices[i + 2]]) is { } t && t * Far > 50 && t * Far < best)

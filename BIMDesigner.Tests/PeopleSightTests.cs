@@ -110,6 +110,9 @@ public class PeopleSightTests
         Assert.False(blocked.Sky);
         Assert.Equal(ViewLevel.Minimum, blocked.Level);
 
+        // Worked out alone, only what could be in the way is built - and it comes to what the whole model gives.
+        Assert.Equal(ViewOut.From(document, level, new Point2D(3000, 2000), ViewOut.Seated, ModelMeshBuilder.Build(document)), blocked);
+
         Assert.Equal(ViewLevel.High, ViewOut.Grade(60, 60000, true, true, true));
         Assert.Equal(ViewLevel.None, ViewOut.Grade(60, 60000, true, false, true));
     }

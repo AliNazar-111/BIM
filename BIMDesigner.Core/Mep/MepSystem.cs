@@ -138,7 +138,7 @@ public sealed class MepSystem : Element
         yield return ParameterValue.ReadOnly(MepSystemParameters.Fittings, () => (double)MepSystems.MembersOf(document, this).Count);
         yield return ParameterValue.ReadOnly(MepSystemParameters.RoomsServed, () => string.Join(", ", MepSystems.RoomsServed(document, this)));
         yield return ParameterValue.ReadOnly(MepSystemParameters.Problems, () =>
-            MepSystems.Problems(document).Where(problem => problem.Element == this).Select(problem => problem.Text).ToList() is { Count: > 0 } said
+            MepSystems.ProblemsOf(document, this).Select(problem => problem.Text).ToList() is { Count: > 0 } said
                 ? string.Join("; ", said)
                 : "None");
 

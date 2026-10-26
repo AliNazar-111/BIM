@@ -43,18 +43,18 @@ public static class Penetrations
         if (Run(document, service) is not var (start, end, width, height, round, levelId)) yield break;
         var (planStart, planEnd) = (new Point2D(start.X, start.Y), new Point2D(end.X, end.Y));
 
-        // Through walls, running along.
+        // Through walls, running along - straight or curved, a curved one perhaps twice.
         if (planStart.DistanceTo(planEnd) >= 1)
-            foreach (var wall in document.Walls.Where(wall => wall.LevelId == levelId && !wall.IsCurved))
+            foreach (var wall in document.Walls.Where(wall => wall.LevelId == levelId))
+            foreach (var at in Crossings(wall, planStart, planEnd))
             {
-                if (!Cross(planStart, planEnd, wall.Start, wall.End, out var at)) continue;
                 var t = planStart.DistanceTo(at) / planStart.DistanceTo(planEnd);
                 var z = start.Z + (end.Z - start.Z) * t;
                 if (z < wall.GetBaseElevation(document) || z > wall.GetTopElevation(document)) continue;
                 var type = document.GetWallType(wall);
 
                 // Square across the wall the hole is the service's width; at a slant, longer along the wall by its angle and the wall's thickness.
-                var (run, face) = ((planEnd - planStart).NormalisedOrDefault(Vector2D.UnitX), (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX));
+                var (run, face) = ((planEnd - planStart).NormalisedOrDefault(Vector2D.UnitX), wall.TangentAt(wall.LocationCurve.Locate(at).Along));
                 var slant = Math.Max(0.2, Math.Abs(run.X * face.Y - run.Y * face.X));
                 var along = (width + 2 * Gap) / slant + (type?.Width ?? 0) * Math.Sqrt(1 - slant * slant) / slant;
                 var hole = new Penetration(service, wall, new Point3D(at.X, at.Y, z), along, height + 2 * Gap, round && slant > 0.99,
@@ -101,6 +101,12 @@ public static class Penetrations
         }
     }
 
+    /// <summary>Where a run crosses a wall's location line in plan: once for a straight wall, up to twice for a curved one.</summary>
+    private static IEnumerable<Point2D> Crossings(Wall wall, Point2D from, Point2D to) =>
+        wall.IsCurved
+            ? wall.LocationCurve.Crossings(WallCurve.Of(from, to, 0))
+            : Cross(from, to, wall.Start, wall.End, out var at) ? new[] { at } : Array.Empty<Point2D>();
+
     /// <summary>Where two segments cross in plan.</summary>
     private static bool Cross(Point2D a, Point2D b, Point2D c, Point2D d, out Point2D at)
     {
@@ -134,12 +140,9 @@ public static class Penetrations
                                                                      && Polygon2D.Contains(shaft.Outline, plan));
     }
 
-    /// <summary>How far along a straight wall from its start a point is, and how high over its base, mm.</summary>
-    private static (double Along, double Height) Along(BimDocument document, Wall wall, Point3D at)
-    {
-        var direction = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
-        return ((new Point2D(at.X, at.Y) - wall.Start).Dot(direction), at.Z - wall.GetBaseElevation(document));
-    }
+    /// <summary>How far along a wall's location line from its start a point is - round the curve of a curved one - and how high over its base, mm.</summary>
+    private static (double Along, double Height) Along(BimDocument document, Wall wall, Point3D at) =>
+        (wall.LocationCurve.Locate(new Point2D(at.X, at.Y)).Along, at.Z - wall.GetBaseElevation(document));
 
     /// <summary>The openings Cut Openings makes: one for each penetration with none, sized to the service and the gap round it.</summary>
     public static IReadOnlyList<Element> Openings(BimDocument document)
