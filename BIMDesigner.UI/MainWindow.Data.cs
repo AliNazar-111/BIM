@@ -211,6 +211,39 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>Export gbXML: the building for energy analysis, each enclosed room a space.</summary>
+    private void OnExportGbXml(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export gbXML",
+            Filter = "gbXML (*.xml;*.gbxml)|*.xml;*.gbxml",
+            DefaultExt = ".xml",
+            FileName = $"{Sanitised(_document.ProjectInformation.Name, "Project")}.xml"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            var file = GbXmlExport.Build(_document);
+            file.Save(dialog.FileName);
+            var spaces = file.Descendants(GbXmlExport.Ns + "Space").Count();
+            var surfaces = file.Descendants(GbXmlExport.Ns + "Surface").Count();
+            StatusHint.Text = spaces == 0
+                ? $"Exported {Path.GetFileName(dialog.FileName)} - but no room is enclosed, so it has no spaces: place rooms first."
+                : $"Exported gbXML to {Path.GetFileName(dialog.FileName)}: {spaces} space{(spaces == 1 ? string.Empty : "s")} and {surfaces} surfaces, at their centre lines, in metres.";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, $"Could not write the gbXML file.\n\n{exception.Message}", "Export gbXML", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+    }
+
     /// <summary>Who it is from - its Contact row - and the currency, asked for; null if cancelled.</summary>
     private CobieOptions? AskCobie()
     {

@@ -71,6 +71,10 @@ public partial class PlanView
             .FirstOrDefault();
         if (nearest.Duct is { } run)
         {
+            // Within its width of an end it is the end, not a stub cut off it.
+            var (runStart, runEnd) = run.Ends(Document!);
+            if (nearest.Along.DistanceTo(run.Start) <= Math.Max(reach, run.Width)) return new DuctTarget(runStart, null, null, run, null);
+            if (nearest.Along.DistanceTo(run.End) <= Math.Max(reach, run.Width)) return new DuctTarget(runEnd, null, null, run, null);
             var t = run.Start.DistanceTo(nearest.Along) / run.Start.DistanceTo(run.End);
             var level = Document!.FindLevel(run.LevelId)?.Elevation ?? 0;
             return new DuctTarget(Point3D.On(nearest.Along, level + run.StartOffset + (run.EndOffset - run.StartOffset) * t), null, null, null, run);
@@ -87,7 +91,7 @@ public partial class PlanView
 
     private MepSystem? SystemAt(DuctTarget target, SystemKind kind) =>
         target.Fitting is { } fitting
-            ? MepSystems.MemberOf(Document!, fitting, kind) ?? MepSystems.FedBy(Document!, fitting, kind).FirstOrDefault()
+            ? MepSystems.MemberOf(Document!, fitting, kind) ?? (MepSystems.FedBy(Document!, fitting, kind) is { Count: 1 } fed ? fed[0] : null)
             : Document!.Find<MepSystem>((target.End ?? target.Along)?.SystemId);
 
     /// <summary>A click with the Duct tool: where a run starts, then each point it goes through, until it ends at a fitting or another duct.</summary>

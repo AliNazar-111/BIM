@@ -32,6 +32,9 @@ public sealed class WallOpening : Element, IHostedElement
     /// <summary>Height of its underside above the wall's base.</summary>
     public double SillHeight { get; set; } = 900;
 
+    /// <summary>Whether it is cut for pipes or ducts to pass through - builder's work for the services.</summary>
+    public bool ForServices { get; set; }
+
     /// <summary>Where it runs along its wall, and between which heights above the wall's base.</summary>
     public WallHole Hole(Wall wall) =>
         new(Math.Max(0, DistanceAlongWall - Width / 2), Math.Min(wall.Length, DistanceAlongWall + Width / 2), SillHeight, SillHeight + Height);

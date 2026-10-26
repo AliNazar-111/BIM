@@ -207,7 +207,7 @@ public class ServicesTests
         document.Add(new Component { TypeId = Type(document, "Ceiling Light - Flush").Id, TypeKind = BuiltInCategory.LightingFixtures, LevelId = walls[0].LevelId, Location = new Point2D(2000, 1500), Elevation = 2300 });
 
         Assert.Equal(0, Services.ShortWallSpaces(document, room, room.GetBoundary(document).Polygon));
-        Assert.Null(Services.Verdict(document, room));
+        Assert.DoesNotContain("NEC", Services.Verdict(document, room) ?? string.Empty);
     }
 
     /// <summary>An alarm on the ceiling of the room's storey, at a point.</summary>

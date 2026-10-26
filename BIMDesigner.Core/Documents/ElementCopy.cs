@@ -76,6 +76,17 @@ public static class ElementCopy
         // A system copied without any of its fittings or pipes is nothing.
         copies.RemoveAll(copy => copy is Mep.MepSystem { Members.Count: 0, SourceId: null } system && !copies.OfType<Mep.Pipe>().Any(pipe => pipe.SystemId == system.Id)
                                  && !copies.OfType<Mep.Duct>().Any(duct => duct.SystemId == system.Id));
+
+        // A copied system is a system of its own: named as the next of its kind, after any copied with it.
+        foreach (var system in copies.OfType<Mep.MepSystem>())
+        {
+            var prefix = Mep.SystemKinds.NamePrefix(system.Kind);
+            var used = document.All<Mep.MepSystem>().Concat(copies.OfType<Mep.MepSystem>().TakeWhile(other => !ReferenceEquals(other, system)))
+                .Select(other => other.Name.StartsWith(prefix + " ", StringComparison.OrdinalIgnoreCase) && int.TryParse(other.Name[(prefix.Length + 1)..], out var number) ? number : 0)
+                .DefaultIfEmpty(0).Max();
+            system.Name = $"{prefix} {used + 1}";
+        }
+
         return copies;
     }
 
@@ -345,7 +356,7 @@ public static class ElementCopy
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
             Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
-            Return = pipe.Return
+            Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal
         }, pipe),
         Mep.Duct duct => CarryCommon(new Mep.Duct
         {
@@ -355,7 +366,8 @@ public static class ElementCopy
         Mep.MepSystem system => CarryCommon(Members(new Mep.MepSystem
         {
             Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use,
-            FlowTemperature = system.FlowTemperature, ReturnTemperature = system.ReturnTemperature
+            FlowTemperature = system.FlowTemperature, ReturnTemperature = system.ReturnTemperature, Breaker = system.Breaker, Curve = system.Curve,
+            Rcd = system.Rcd, ArcFault = system.ArcFault, Cable = system.Cable, Method = system.Method, Grouped = system.Grouped, CableLength = system.CableLength
         }, system.Members), system),
         Beam beam => CarryCommon(new Beam
         {
@@ -371,7 +383,7 @@ public static class ElementCopy
         {
             Location = shaft.Location, Width = shaft.Width, Depth = shaft.Depth, Shape = shaft.Shape, Angle = shaft.Angle,
             BaseOffset = shaft.BaseOffset, TopLevelId = shaft.TopLevelId, TopOffset = shaft.TopOffset,
-            UnconnectedHeight = shaft.UnconnectedHeight
+            UnconnectedHeight = shaft.UnconnectedHeight, ForServices = shaft.ForServices
         }, shaft),
 
         WallOpening opening => CarryCommon(new WallOpening
@@ -380,7 +392,8 @@ public static class ElementCopy
             DistanceAlongWall = opening.DistanceAlongWall,
             Width = opening.Width,
             Height = opening.Height,
-            SillHeight = opening.SillHeight
+            SillHeight = opening.SillHeight,
+            ForServices = opening.ForServices
         }, opening),
 
         _ => null

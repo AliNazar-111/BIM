@@ -6265,6 +6265,7 @@ public partial class PlanView : FrameworkElement
         var editing = SketchedElement;
         _renderer.Filter = editing is null ? _shows : element => !ReferenceEquals(element, editing) && _shows(element);
         _renderer.Style = Document is null ? _ => default : Document.ViewSettings.StyleFor(Document, CurrentView);
+        _renderer.Discipline = ActiveCallout is null ? ActiveDiscipline : Core.Mep.Discipline.Architectural;
         _renderer.Document = Document;
         _renderer.DetailLevel = EffectiveDetailLevel;
         _renderer.View = CurrentView;

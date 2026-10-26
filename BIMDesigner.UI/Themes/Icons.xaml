@@ -596,6 +596,25 @@
         <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M24,15 L24,25 M22,17 L24,15 L26,17 M22,23 L24,25 L26,23"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Electrical"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M7,4 L25,4 L25,28 L7,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke.Orange}" Geometry="M18,7 L11,17 L16,17 L14,25 L21,14 L16,14 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.SizeCircuits"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M3,9 C9,3 13,15 19,9 M3,19 C9,13 13,25 19,19"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M25,13 L25,25 M23,15 L25,13 L27,15 M23,23 L25,25 L27,23"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.LightData"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M16,3 C10,3 7,8 9,13 C10,15 12,16 12,19 L20,19 C20,16 22,15 23,13 C25,8 22,3 16,3 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M12,22 L20,22 M13,25 L19,25"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Orange}" Geometry="M4,28 L9,23 M28,28 L23,23 M16,29 L16,27"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.HeatLoss"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M9,15 L16,8 L23,15 L23,27 L9,27 Z"/>

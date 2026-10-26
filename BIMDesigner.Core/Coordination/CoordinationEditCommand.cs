@@ -72,7 +72,7 @@ public sealed class CoordinationEditCommand : IUndoableCommand
 
     public static ClashTest Copy(ClashTest test)
     {
-        var copy = new ClashTest { Id = test.Id, Name = test.Name, Kind = test.Kind, Tolerance = test.Tolerance, IgnoreHosted = test.IgnoreHosted, LastRun = test.LastRun };
+        var copy = new ClashTest { Id = test.Id, Name = test.Name, Kind = test.Kind, Tolerance = test.Tolerance, IgnoreHosted = test.IgnoreHosted, AllowInsulation = test.AllowInsulation, LastRun = test.LastRun };
         copy.SelectionA.AddRange(test.SelectionA);
         copy.SelectionB.AddRange(test.SelectionB);
         copy.Results.AddRange(test.Results.Select(Copy));

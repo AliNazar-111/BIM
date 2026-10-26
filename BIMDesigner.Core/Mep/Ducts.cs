@@ -59,11 +59,18 @@ public static class DuctSizes
     private static readonly DuctSize[] FlatChannel = { Flat(110, 54), Flat(204, 60), Flat(220, 90) };
     private static readonly DuctSize[] Flexible = { Round(100), Round(125), Round(150), Round(160), Round(200) };
 
+    /// <summary>Rectangular sheet steel ductwork, as it is made to any size: the usual steps, no deeper than wide.</summary>
+    private static readonly DuctSize[] SheetSteel =
+        (from width in new[] { 150, 200, 250, 300, 400, 500, 600, 800, 1000 }
+         from height in new[] { 100, 150, 200, 250, 300, 400, 500 }
+         where height <= width
+         select Flat(width, height)).ToArray();
+
     public static IReadOnlyList<DuctSize> Of(DuctType type) => type.Material switch
     {
         DuctMaterial.Pvc => type.Shape == DuctShape.Rectangular ? FlatChannel : PvcRound,
         DuctMaterial.Flexible => Flexible,
-        _ => Spiral
+        _ => type.Shape == DuctShape.Rectangular ? SheetSteel : Spiral
     };
 
     /// <summary>The size of a type nearest a width and height.</summary>
@@ -100,7 +107,8 @@ public sealed class DuctType : ElementType
         new DuctType("Round - Galvanised Spiral", DuctMaterial.GalvanisedSteel, DuctShape.Round) { TypeMark = "DU1", AssemblyCode = "D3040", Cost = 24m },
         new DuctType("Round - PVC Rigid", DuctMaterial.Pvc, DuctShape.Round) { TypeMark = "DU2", AssemblyCode = "D3040", Cost = 9m },
         new DuctType("Flat Channel - PVC", DuctMaterial.Pvc, DuctShape.Rectangular) { TypeMark = "DU3", AssemblyCode = "D3040", Cost = 11m },
-        new DuctType("Flexible - Insulated", DuctMaterial.Flexible, DuctShape.Round) { TypeMark = "DU4", AssemblyCode = "D3040", Cost = 7m }
+        new DuctType("Flexible - Insulated", DuctMaterial.Flexible, DuctShape.Round) { TypeMark = "DU4", AssemblyCode = "D3040", Cost = 7m },
+        new DuctType("Rectangular - Galvanised Steel", DuctMaterial.GalvanisedSteel, DuctShape.Rectangular) { TypeMark = "DU5", AssemblyCode = "D3040", Cost = 45m }
     };
 
     public static string Title(DuctMaterial material) => material switch
@@ -196,6 +204,7 @@ public sealed class Duct : Element
         yield return ParameterValue.BindValidated(PipeParameters.StartOffset, () => StartOffset, v => { StartOffset = v; return true; });
         yield return ParameterValue.BindValidated(PipeParameters.EndOffset, () => EndOffset, v => { EndOffset = v; return true; });
         yield return ParameterValue.ReadOnly(PipeParameters.Length, () => Length);
+        yield return ParameterValue.ReadOnly(PipeParameters.Supports, () => Supports.Describe(document, this));
         yield return ParameterValue.BindChoice(DuctParameters.FireProtection, () => Describe(FireProtection),
             v => { foreach (var protection in Enum.GetValues<FireProtection>()) if (Describe(protection) == v) FireProtection = protection; },
             Enum.GetValues<FireProtection>().Select(Describe).ToArray());

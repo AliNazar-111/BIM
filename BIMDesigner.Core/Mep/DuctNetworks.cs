@@ -252,7 +252,8 @@ public static class DuctNetworks
             behind[up.From] = (above.Flow + all.Flow, above.Count + all.Count);
         }
 
-        var reached = at.Where(entry => distance.ContainsKey(entry.Value)).Select(entry => entry.Key).ToHashSet();
+        // With nothing feeding it yet, a fitting a duct meets is ducted.
+        var reached = at.Where(entry => starts.Count == 0 || distance.ContainsKey(entry.Value)).Select(entry => entry.Key).ToHashSet();
         var first = new Dictionary<Component, Duct>();
         foreach (var (member, node) in at)
             if (parent.TryGetValue(node, out var up)) first[member] = up.Duct;
@@ -306,7 +307,8 @@ public static class DuctNetworks
         double coefficient;
         if (network.System.Kind == SystemKind.ExtractAir)
         {
-            var share = common.Flow > 0 ? load.Flow / common.Flow : 0;
+            // ASHRAE 5-3 reads both by the branch's share of the air: the straight run's by what joins it from the branch.
+            var share = common.Flow > 0 ? (straight ? common.Flow - load.Flow : load.Flow) / common.Flow : 0;
             var areas = SizeOf(document, toward, sizes).Area > 0 ? SizeOf(document, duct, sizes).Area / SizeOf(document, toward, sizes).Area : 1;
             coefficient = ConvergingTee(!straight, share, areas);
         }
@@ -370,9 +372,11 @@ public static class DuctNetworks
     /// <summary>What a system's static pressure is kept to, Pa: Approved Document F's Table 1.8 in the UK; in the US its unit's available pressure.</summary>
     public static double LimitOf(BimDocument document, DuctNetwork network, double flow)
     {
-        if (document.ProjectInformation.ClearanceStandard.IsUs())
-            return MepSystems.SourceOf(document, network.System) is { } unit && document.FindType<ComponentType>(unit.TypeId) is { AvailablePressure: > 0 } type ? type.AvailablePressure : PressureLimit(flow);
-        return PressureLimit(flow);
+        var available = MepSystems.SourceOf(document, network.System) is { } unit && document.FindType<ComponentType>(unit.TypeId) is { AvailablePressure: > 0 } type ? type.AvailablePressure : 0;
+        if (document.ProjectInformation.ClearanceStandard.IsUs()) return available > 0 ? available : PressureLimit(flow);
+
+        // In the UK Table 1.8's, or less where the unit has less to give.
+        return available > 0 ? Math.Min(available, PressureLimit(flow)) : PressureLimit(flow);
     }
 
     /// <summary>The fastest a duct's air is sized for, m/s, and the most it may go: in the US, ACCA Manual D's recommended and maximum velocities - supply or return, trunk or branch, rigid or flex; in the UK, installers' quiet 2.5 m/s.</summary>
@@ -557,15 +561,29 @@ public static class DuctNetworks
             foreach (var fitting in network.NotDucted)
                 yield return new MepProblem(fitting, $"on {system.Name}, but no duct reaches it yet");
 
+            // Each valve's final connection: the flexible duct from it back to where it meets rigid duct or another valve's.
+            var finals = new Dictionary<Duct, (Duct First, double Length)>();
+            foreach (var first in network.FirstDuct.Values.Distinct())
+            {
+                var chain = new List<Duct>();
+                for (Duct? piece = first; piece is not null && MaterialOf(document, piece) == DuctMaterial.Flexible && !chain.Contains(piece)
+                                        && network.Loads.TryGetValue(piece, out var carried) && carried.Terminals <= 1; piece = carried.Toward)
+                    chain.Add(piece);
+                foreach (var piece in chain) finals[piece] = (first, chain.Sum(each => each.Length));
+            }
+
             foreach (var duct in ducts)
             {
-                // Flexible duct: only the last connection to a valve, and short.
-                if (MaterialOf(document, duct) == DuctMaterial.Flexible)
+                // Flexible duct: only the last connection to a valve, and short - its pieces together. Without a unit nothing says where the valves' connections are.
+                if (MaterialOf(document, duct) == DuctMaterial.Flexible && MepSystems.SourceOf(document, system) is not null)
                 {
-                    if (!network.FirstDuct.Values.Contains(duct))
-                        yield return new MepProblem(duct, "flexible duct away from a valve - Approved Document F (1.77) keeps flexible duct to the final connection");
-                    else if (duct.Length > LongestFlexible + 0.5)
-                        yield return new MepProblem(duct, $"flexible duct {duct.Length / 1000:0.00} m long - Approved Document F (1.77) keeps it to 1.5 m");
+                    if (!finals.TryGetValue(duct, out var final))
+                    {
+                        if (network.Loads.ContainsKey(duct))
+                            yield return new MepProblem(duct, "flexible duct away from a valve - Approved Document F (1.77) keeps flexible duct to the final connection");
+                    }
+                    else if (final.First == duct && final.Length > LongestFlexible + 0.5)
+                        yield return new MepProblem(duct, $"flexible duct {final.Length / 1000:0.00} m long to its valve - Approved Document F (1.77) keeps it to 1.5 m");
                 }
 
                 // Too fast for ACCA Manual D.

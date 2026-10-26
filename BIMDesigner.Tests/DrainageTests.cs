@@ -145,13 +145,18 @@ public class DrainageTests
     {
         var (document, _, stack, _) = Stack();
         var level = document.Levels[0].Id;
-        var wallType = document.TypesOf<WallType>().First();
+        var wallType = document.TypesOf<WallType>().First(type => type.Function == WallFunction.Exterior);
         var wall = new Wall { Start = new Point2D(-3000, 1000), End = new Point2D(3000, 1000), TypeId = wallType.Id, LevelId = level, UnconnectedHeight = 6000 };
         document.Add(wall);
         var windowType = document.TypesOf<WindowType>().First();
         document.Add(new BIMDesigner.Core.Architecture.Window { HostWallId = wall.Id, LevelId = level, TypeId = windowType.Id, DistanceAlongWall = 3000, SillHeight = 4000 });
 
         Assert.Contains(MepSystems.Problems(document), problem => problem.Element is Pipe { Upright: true } && problem.Text.Contains("900 mm above any opening within 3 m"));
+
+        // In a wall between rooms it is no opening into the building.
+        wall.TypeId = document.TypesOf<WallType>().First(type => type.Function == WallFunction.Interior).Id;
+        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Text.Contains("900 mm above"));
+        wall.TypeId = wallType.Id;
         stack.EndOffset = 4000 + windowType.Height + 1000;
         Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Text.Contains("900 mm above"));
     }
@@ -222,6 +227,21 @@ public class DrainageTests
         Assert.True(section.Pipes[0].UpperInvert > section.Pipes[^1].LowerInvert);
         Assert.Equal(3, section.Accesses.Count);
         Assert.Equal(60000, section.Accesses[1].At, 1);
+    }
+
+    [Fact]
+    public void TheLastLengthToTheChamberWhereTheDrainLeavesIsKeptToTable13Too()
+    {
+        var document = BimDocument.CreateDefault();
+        var outfall = Put(document, "Outfall - Foul Sewer", 70000, 0, 0);
+        var foul = Make(document, SystemKind.Foul, outfall);
+        var head = At(0, 0, -3000 + 70000 * 0.025);
+        var drain = Run(document, head, At(70000, 0, -3000), foul);
+        Put(document, "Rodding Eye - 100", 0, 0, 0);
+        Put(document, "Inspection Chamber - 450 Plastic", 70000, 0, 0);
+
+        // 70 m from the rodding eye at its head to the chamber by the sewer: no bend or junction between, past Table 13's 45.
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == drain && problem.Text.Contains("70.0 m of drain from a rodding eye") && problem.Text.Contains("Table 13"));
     }
 
     [Fact]

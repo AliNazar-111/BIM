@@ -191,10 +191,14 @@ public static class CostPlanning
             BuiltInCategory.Pipes when element is Mep.Pipe { Kind: Mep.SystemKind.Gas } => ("5.9", "Fuel installations"),
             BuiltInCategory.Pipes => ("5.4", "Water installations"),
             BuiltInCategory.MechanicalEquipment when element is Component unit && document.FindType<ComponentType>(unit.TypeId)?.Form == ComponentForm.HeatRecoveryUnit => ("5.7", "Ventilation"),
+            BuiltInCategory.MechanicalEquipment when element is Component source && document.FindType<ComponentType>(source.TypeId)?.Form is ComponentForm.Boiler or ComponentForm.HeatPump => ("5.5", "Heat source"),
+            BuiltInCategory.MechanicalEquipment when element is Component cylinder && document.FindType<ComponentType>(cylinder.TypeId)?.Form == ComponentForm.HotWaterCylinder => ("5.4", "Water installations"),
+            BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings => ("5.14", "Builder's work in connection with services"),
             BuiltInCategory.MechanicalEquipment => ("5.6", "Space heating and air conditioning"),
             BuiltInCategory.Ducts => ("5.7", "Ventilation"),
             BuiltInCategory.AirTerminals => ("5.7", "Ventilation"),
-            BuiltInCategory.ElectricalEquipment or BuiltInCategory.ElectricalFixtures or BuiltInCategory.LightingFixtures or BuiltInCategory.LightingDevices => ("5.8", "Electrical installations"),
+            BuiltInCategory.ElectricalEquipment or BuiltInCategory.ElectricalFixtures or BuiltInCategory.LightingFixtures or BuiltInCategory.LightingDevices
+                or BuiltInCategory.ElectricalCircuits => ("5.8", "Electrical installations"),
             BuiltInCategory.FireAlarmDevices => ("5.12", "Communication, security and control systems"),
             BuiltInCategory.Drainage => ("8.6", "External drainage"),
             BuiltInCategory.Parking => ("8.2", "Roads, paths, pavings and surfacings"),
@@ -235,9 +239,11 @@ public static class CostPlanning
             BuiltInCategory.Pipes => "D2020",
             BuiltInCategory.Ducts => "D3040",
             BuiltInCategory.AirTerminals => "D3040",
+            BuiltInCategory.MechanicalEquipment when element is Component source && document.FindType<ComponentType>(source.TypeId)?.Form is ComponentForm.Boiler or ComponentForm.HeatPump => "D3020",
             BuiltInCategory.MechanicalEquipment => "D3050",
+            BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings => "D3090",
             BuiltInCategory.ElectricalEquipment => "D5010",
-            BuiltInCategory.ElectricalFixtures or BuiltInCategory.LightingFixtures or BuiltInCategory.LightingDevices => "D5020",
+            BuiltInCategory.ElectricalFixtures or BuiltInCategory.LightingFixtures or BuiltInCategory.LightingDevices or BuiltInCategory.ElectricalCircuits => "D5020",
             BuiltInCategory.FireAlarmDevices => "D5030",
             BuiltInCategory.Drainage => "G3020",
             BuiltInCategory.Casework => "E2010",
@@ -264,7 +270,9 @@ public static class CostPlanning
         ["B2030"] = "Exterior Doors", ["B3010"] = "Roof Coverings", ["B3020"] = "Roof Openings",
         ["C1010"] = "Partitions", ["C1020"] = "Interior Doors", ["C1030"] = "Fittings", ["C2010"] = "Stair Construction", ["C2020"] = "Stair Finishes",
         ["C3010"] = "Wall Finishes", ["C3020"] = "Floor Finishes", ["C3030"] = "Ceiling Finishes",
-        ["D2010"] = "Plumbing Fixtures", ["D2020"] = "Domestic Water Distribution", ["D3040"] = "Distribution Systems", ["D3050"] = "Terminal and Package Units",
+        ["D2010"] = "Plumbing Fixtures", ["D2020"] = "Domestic Water Distribution", ["D2030"] = "Sanitary Waste", ["D2090"] = "Other Plumbing Systems",
+        ["D3020"] = "Heat Generating Systems", ["D3040"] = "Distribution Systems", ["D3050"] = "Terminal and Package Units", ["D3090"] = "Other HVAC Systems and Equipment",
+        ["G3020"] = "Sanitary Sewer", ["G3030"] = "Storm Sewer",
         ["D5010"] = "Electrical Service and Distribution", ["D5020"] = "Lighting and Branch Wiring", ["D5030"] = "Communications and Security",
         ["E1090"] = "Other Equipment", ["E2010"] = "Fixed Furnishings", ["E2020"] = "Movable Furnishings",
         ["F2010"] = "Building Elements Demolition", ["G1030"] = "Site Earthwork", ["G2020"] = "Parking Lots", ["G2050"] = "Landscaping",
@@ -287,6 +295,7 @@ public static class CostPlanning
     /// <summary>Every element built or taken down, costed and set out by its cost element.</summary>
     public static IReadOnlyList<CostLine> Lines(BimDocument document)
     {
+        using var cache = ModelCache.Begin(document);
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var lines = new List<CostLine>();
         foreach (var element in document.Elements.Where(element => ClashDetective.Solidly(element.Category) && Costed(element)))
@@ -297,6 +306,34 @@ public static class CostPlanning
             var rate = type?.Cost ?? 0;
             var (code, title) = us ? UniFormat(document, element) : Nrm1(document, element);
             lines.Add(new CostLine(element, type, code, title, quantity, unit, rate, (decimal)quantity * rate));
+        }
+
+        // Each pipe's clips and each duct's hangers, with the pipe or duct.
+        foreach (var service in document.All<Mep.Pipe>().Cast<Element>().Concat(document.All<Mep.Duct>()).Where(Costed))
+        {
+            var count = Mep.Supports.Of(document, service).Count;
+            if (count == 0) continue;
+            var (code, title) = us ? UniFormat(document, service) : Nrm1(document, service);
+            var rate = Mep.Supports.Rate(service, us);
+            lines.Add(new CostLine(service, null, code, title, count, CostUnit.Item, rate, count * rate));
+        }
+
+        // Each opening cut for the services, and its fire-stopping: builder's work in connection with them.
+        foreach (var opening in document.Elements.Where(element => element is WallOpening { ForServices: true } or ShaftOpening { ForServices: true }).Where(Costed))
+        {
+            var (code, title) = us ? UniFormat(document, opening) : Nrm1(document, opening);
+            var rate = opening is ShaftOpening ? (us ? 85m : 75m) : (us ? 65m : 55m);
+            lines.Add(new CostLine(opening, null, code, title, 1, CostUnit.Item, rate, rate));
+        }
+
+        // Each circuit: its cable by the metre, and its breaker.
+        foreach (var circuit in Mep.Circuits.Of(document).Where(Costed))
+        {
+            if (Mep.Circuits.Design(document, circuit) is not { } design) continue;
+            var (code, title) = us ? UniFormat(document, circuit) : Nrm1(document, circuit);
+            var (cable, breaker) = Mep.Circuits.Rates(us, design);
+            lines.Add(new CostLine(circuit, null, code, title, design.Length, CostUnit.Length, cable, (decimal)design.Length * cable));
+            lines.Add(new CostLine(circuit, null, code, title, 1, CostUnit.Item, breaker, breaker));
         }
 
         return lines;
@@ -317,6 +354,7 @@ public static class CostPlanning
     /// </summary>
     public static CostSummary Summary(BimDocument document)
     {
+        using var cache = ModelCache.Begin(document);
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var settings = document.CostSettings;
         var lines = Lines(document);

@@ -207,6 +207,7 @@ public sealed class SheetRenderer
                 _plan.ActiveLevelId = viewport.View.TargetId;
                 _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
                 _plan.Style = Document.ViewSettings.StyleFor(Document, viewport.View);
+                _plan.Discipline = Core.Mep.ServicesPlans.Of(viewport.View);
                 _plan.DetailLevel = Document.ViewSettings.DetailLevelOf(viewport.View) ?? DetailLevel.Fine;
                 _plan.ShowWallLabels = false;
                 _plan.View = viewport.View;
@@ -246,6 +247,7 @@ public sealed class SheetRenderer
                     _plan.ActiveLevelId = callout.Parent.TargetId;
                     _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
                     _plan.Style = Document.ViewSettings.StyleFor(Document, viewport.View);
+                    _plan.Discipline = Core.Mep.Discipline.Architectural;
                     _plan.DetailLevel = Document.ViewSettings.DetailLevelOf(viewport.View) ?? DetailLevel.Fine;
                     _plan.ShowWallLabels = false;
                     _plan.View = viewport.View;

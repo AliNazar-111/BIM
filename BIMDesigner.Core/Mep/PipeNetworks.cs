@@ -106,6 +106,48 @@ public static class PipeNetworks
 
     private static double Distance(Point3D a, Point3D b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2) + Math.Pow(a.Z - b.Z, 2));
 
+    /// <summary>
+    /// Where pipes go when the connectors they are joined to move - a radiator changed for a wider
+    /// one: each end at a connector carried to where it now is; a drop to it carried across whole,
+    /// and the end of the run it hangs from with it.
+    /// </summary>
+    public static IReadOnlyList<(Pipe Pipe, Point2D Start, Point2D End, double StartOffset, double EndOffset)> Follow(BimDocument document, IReadOnlyList<(Point3D From, Point3D To)> moves)
+    {
+        var moved = new Dictionary<Pipe, (Point2D Start, Point2D End, double StartOffset, double EndOffset)>();
+        var pending = new Queue<(Point3D From, Point3D To, bool Carried)>(moves.Select(move => (move.From, move.To, false)));
+        var pipes = document.All<Pipe>().ToList();
+        while (pending.Count > 0)
+        {
+            var (from, to, carried) = pending.Dequeue();
+            foreach (var pipe in pipes)
+            {
+                var now = moved.TryGetValue(pipe, out var known) ? known : (pipe.Start, pipe.End, pipe.StartOffset, pipe.EndOffset);
+                var elevation = document.FindLevel(pipe.LevelId)?.Elevation ?? 0;
+                var start = Point3D.On(now.Start, elevation + now.StartOffset);
+                var end = Point3D.On(now.End, elevation + now.EndOffset);
+                var atStart = Distance(start, from) <= Touch;
+                if (!atStart && Distance(end, from) > Touch) continue;
+
+                var shift = new Vector2D(to.X - from.X, to.Y - from.Y);
+                if (!carried && now.Start.DistanceTo(now.End) < 1)
+                {
+                    // A drop: across whole, its foot to the connector, its head where it was over it.
+                    var head = atStart ? end : start;
+                    moved[pipe] = atStart
+                        ? (now.Start + shift, now.End + shift, to.Z - elevation, now.EndOffset)
+                        : (now.Start + shift, now.End + shift, now.StartOffset, to.Z - elevation);
+                    pending.Enqueue((head, new Point3D(head.X + shift.X, head.Y + shift.Y, head.Z), true));
+                }
+                else
+                    moved[pipe] = atStart
+                        ? (new Point2D(to.X, to.Y), now.End, to.Z - elevation, now.EndOffset)
+                        : (now.Start, new Point2D(to.X, to.Y), now.StartOffset, to.Z - elevation);
+            }
+        }
+
+        return moved.Select(entry => (entry.Key, entry.Value.Start, entry.Value.End, entry.Value.StartOffset, entry.Value.EndOffset)).ToList();
+    }
+
     /// <summary>The pipes of a system.</summary>
     public static IReadOnlyList<Pipe> PipesOf(BimDocument document, MepSystem system) =>
         document.All<Pipe>().Where(pipe => pipe.SystemId == system.Id).ToList();
@@ -254,8 +296,9 @@ public static class PipeNetworks
 
         var runTo = at.Where(entry => distance.ContainsKey(entry.Value)).ToDictionary(entry => entry.Key, entry => distance[entry.Value]);
         var unreached = pipes.Where(pipe => !loads.ContainsKey(pipe)).ToList();
-        // What is wired to the system - a room thermostat on its zone - wants no pipe.
-        var notPiped = pipes.Count == 0 ? new List<Component>() : members.Where(member => !runTo.ContainsKey(member)
+        // What is wired to the system - a room thermostat on its zone - wants no pipe; with nothing feeding it yet, a fitting a pipe meets is piped.
+        var fed = MepSystems.SourceOf(document, system) is not null;
+        var notPiped = pipes.Count == 0 ? new List<Component>() : members.Where(member => !(fed ? runTo.ContainsKey(member) : at.ContainsKey(member))
             && Connectors.Placed(document, member).Any(placed => placed.Connector.Kind == system.Kind && placed.Connector.Domain == ConnectorDomain.Pipe)).ToList();
 
         // The pipe at each fitting's connector: the one up to its node.
@@ -321,6 +364,12 @@ public static class PipeNetworks
     public static IEnumerable<MepProblem> Problems(BimDocument document)
     {
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
+
+        // A size its pipe does not come in - its type changed under it.
+        foreach (var pipe in document.All<Pipe>())
+            if (document.FindType<PipeType>(pipe.TypeId) is { } pipeType && PipeSizes.Of(pipeType.Material) is { Count: > 0 } sizes && sizes.All(size => Math.Abs(size.Outside - pipe.Diameter) > 0.5))
+                yield return new MepProblem(pipe, $"{pipe.Diameter:0.#} mm is not a size {pipeType.Name} comes in - the nearest is {PipeSizes.Nearest(pipeType.Material, pipe.Diameter).Name}; Size Pipes, or a size from its list");
+
         foreach (var system in document.All<MepSystem>())
         {
             var pipes = PipesOf(document, system);

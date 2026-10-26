@@ -27,6 +27,9 @@ public static partial class ProjectFile
     {
         foreach (var element in document.Elements.Where(element => element.PhaseCreated != DesignPhase.New || element.PhaseDemolished is not null))
             dto.ElementPhases.Add(new ElementPhaseDto { ElementId = element.Id, Created = element.PhaseCreated.ToString(), Demolished = element.PhaseDemolished?.ToString() });
+        var worksets = document.Elements.Where(element => element.Workset != new BIMDesigner.Core.Architecture.Wall().Workset)
+            .Select(element => new ElementWorksetDto { ElementId = element.Id, Workset = element.Workset }).ToList();
+        if (worksets.Count > 0) dto.ElementWorksets = worksets;
 
         dto.ParameterFilters = document.ParameterFilters.Select(filter => new ParameterFilterDto
         {
@@ -108,6 +111,10 @@ public static partial class ProjectFile
                 element.PhaseCreated = ParseEnum(saved.Created, DesignPhase.New);
                 element.PhaseDemolished = saved.Demolished is { } gone && Enum.TryParse<DesignPhase>(gone, out var phase) ? phase : null;
             }
+
+        foreach (var saved in dto.ElementWorksets ?? new List<ElementWorksetDto>())
+            if (document.FindElement(saved.ElementId) is { } element && !string.IsNullOrWhiteSpace(saved.Workset))
+                element.Workset = saved.Workset;
 
         static IEnumerable<BuiltInCategory> Categories(IEnumerable<string>? names) =>
             (names ?? Enumerable.Empty<string>()).Select(name => Enum.TryParse<BuiltInCategory>(name, out var category) ? category : (BuiltInCategory?)null)

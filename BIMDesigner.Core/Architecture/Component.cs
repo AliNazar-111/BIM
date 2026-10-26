@@ -188,6 +188,16 @@ public enum BoilerHotWater
 }
 
 /// <summary>
+/// How a light spreads its light, for the share of it that reaches the working plane: a downlight's
+/// down in a cone, a diffuse fitting's - a pendant, a flush ceiling light, a batten - all round.
+/// </summary>
+public enum LightDistribution
+{
+    Diffuse,
+    Downlight
+}
+
+/// <summary>
 /// How much water a tree draws from the ground, as NHBC Standards' Table 3 sorts the species - which
 /// says how far round it a shrinkable clay is dried out. One not known is taken as high.
 /// </summary>
@@ -348,6 +358,31 @@ public sealed class ComponentType : ElementType
     /// <summary>For a background ventilator, its equivalent area, mm² (BS EN 13141-1) - what Approved Document F sizes them by.</summary>
     public double VentArea { get; set; }
 
+    /// <summary>
+    /// What it draws from its circuit, W - its maker's rating: a light's circuit-watts, a cooker's, an
+    /// electric shower's (a shower with none is fed hot water instead). None where not known: a
+    /// typical figure for its kind is taken.
+    /// </summary>
+    public double Load { get; set; }
+
+    /// <summary>For a light, the light it gives, lumens - the fitting's own, from its maker's data or its photometric file.</summary>
+    public double Lumens { get; set; }
+
+    /// <summary>For a light, how it spreads its light.</summary>
+    public LightDistribution Distribution { get; set; }
+
+    /// <summary>For a light, its maker's photometric data - its light in each direction - read from an IES or EULUMDAT file; none where not loaded.</summary>
+    public Mep.Photometry? Photometry { get; set; }
+
+    /// <summary>For a consumer unit, the ways it has for circuits' breakers.</summary>
+    public int Ways { get; set; }
+
+    /// <summary>For a consumer unit, the supply it is on, A: the main fuse in the UK, the service's rating in the US.</summary>
+    public double SupplyRating { get; set; }
+
+    /// <summary>For a consumer unit, the earth fault loop impedance external to the installation, Ω - Ze: 0.35 for TN-C-S, 0.8 for TN-S at most, as the electricity networks declare.</summary>
+    public double ExternalImpedance { get; set; }
+
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
 
@@ -381,7 +416,8 @@ public sealed class ComponentType : ElementType
         HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
         Access = Access, HeatOutput = HeatOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
-        ContinuousRate = ContinuousRate, VentArea = VentArea
+        ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
+        Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -438,7 +474,27 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.ExtractRate, () => ExtractRate, v => { if (v < 0) return false; ExtractRate = v; return true; });
 
         if (Kind == BuiltInCategory.LightingFixtures)
+        {
             yield return ParameterValue.BindValidated(ComponentTypeParameters.Efficacy, () => Efficacy, v => { if (v < 0) return false; Efficacy = v; return true; });
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Lumens, () => Lumens, v => { if (v < 0) return false; Lumens = v; return true; });
+            yield return ParameterValue.BindChoice(
+                ComponentTypeParameters.Distribution,
+                () => EnumText.Humanise(Distribution),
+                v => { if (EnumText.TryParse<LightDistribution>(v, out var spread)) Distribution = spread; },
+                EnumText.Choices<LightDistribution>());
+            yield return ParameterValue.ReadOnly(ComponentTypeParameters.PhotometricData, () => Photometry?.Describe() ?? "None loaded");
+        }
+
+        // What it draws from its circuit; a consumer unit's ways, supply and earth loop.
+        if (Mep.Circuits.TakesLoad(this))
+            yield return ParameterValue.BindValidated(Form == ComponentForm.Shower ? ComponentTypeParameters.ShowerLoad : ComponentTypeParameters.Load,
+                () => Load, v => { if (v < 0) return false; Load = v; return true; });
+        if (Form == ComponentForm.ConsumerUnit)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Ways, () => (double)Ways, v => { if (v is < 1 or > 100) return false; Ways = (int)Math.Round(v); return true; });
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.SupplyRating, () => SupplyRating, v => { if (v < 0) return false; SupplyRating = v; return true; });
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.ExternalImpedance, () => ExternalImpedance, v => { if (v < 0) return false; ExternalImpedance = v; return true; });
+        }
 
         if (Form is ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub)
         {
@@ -941,6 +997,30 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition VentArea =
         new("Equivalent Area (mm²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Load =
+        new("Rated Load (W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ShowerLoad =
+        new("Electric Shower Rating (W, 0 = fed hot water)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Lumens =
+        new("Light Output (lm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Distribution =
+        new("Light Distribution", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition PhotometricData =
+        new("Photometric Data", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Ways =
+        new("Ways", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SupplyRating =
+        new("Supply (A)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ExternalImpedance =
+        new("External Earth Loop Impedance Ze (Ω)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class ComponentParameters

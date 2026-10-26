@@ -392,6 +392,7 @@ public static partial class ProjectFile
                 Id = pipe.Id, TypeId = pipe.TypeId, LevelId = pipe.LevelId, StartX = pipe.Start.X, StartY = pipe.Start.Y, EndX = pipe.End.X, EndY = pipe.End.Y,
                 StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind.ToString(),
                 SystemId = document.Find<MepSystem>(pipe.SystemId)?.Id, Return = pipe.Kind == SystemKind.Heating && pipe.Return ? true : null,
+                Insulation = pipe.Insulation > 0 ? pipe.Insulation : null, Seal = pipe.Seal != PipeSeal.None ? pipe.Seal.ToString() : null,
                 Mark = pipe.Mark, Comments = pipe.Comments
             });
 
@@ -487,7 +488,7 @@ public static partial class ProjectFile
                 Id = shaft.Id, LevelId = shaft.LevelId, X = shaft.Location.X, Y = shaft.Location.Y,
                 Shape = shaft.Shape.ToString(), Width = shaft.Width, Depth = shaft.Depth, Angle = shaft.Angle,
                 BaseOffset = shaft.BaseOffset, TopLevelId = shaft.TopLevelId, TopOffset = shaft.TopOffset,
-                UnconnectedHeight = shaft.UnconnectedHeight, Mark = shaft.Mark, Comments = shaft.Comments
+                UnconnectedHeight = shaft.UnconnectedHeight, Mark = shaft.Mark, Comments = shaft.Comments, ForServices = shaft.ForServices ? true : null
             });
 
         foreach (var sweep in document.All<RoofEdgeSweep>())
@@ -518,7 +519,8 @@ public static partial class ProjectFile
                 Height = opening.Height,
                 SillHeight = opening.SillHeight,
                 Mark = opening.Mark,
-                Comments = opening.Comments
+                Comments = opening.Comments,
+                ForServices = opening.ForServices ? true : null
             });
 
         foreach (var placed in document.All<PlacedSweep>())
@@ -675,6 +677,7 @@ public static partial class ProjectFile
                 GlazingRows = type.GlazingRows,
                 GlazingColumns = type.GlazingColumns,
                 SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                LightTransmittance = type.LightTransmittance,
                 TrickleVent = type.TrickleVent > 0 ? type.TrickleVent : null,
                 Lights = type.Lights,
                 LightPattern = type.LightPattern,
@@ -1165,6 +1168,19 @@ public static partial class ProjectFile
                 RatedAirflow = type.RatedAirflow > 0 ? type.RatedAirflow : null,
                 ContinuousRate = type.ContinuousRate > 0 ? type.ContinuousRate : null,
                 VentArea = type.VentArea > 0 ? type.VentArea : null,
+                Load = type.Load > 0 ? type.Load : null,
+                Lumens = type.Lumens > 0 ? type.Lumens : null,
+                Distribution = type.Kind == BuiltInCategory.LightingFixtures ? type.Distribution.ToString() : null,
+                Photometry = type.Photometry is { } photometry
+                    ? new PhotometryDto
+                    {
+                        Source = photometry.Source, Lumens = photometry.Lumens, Watts = photometry.Watts, Planes = photometry.Planes.ToList(),
+                        Angles = photometry.Angles.ToList(), Candela = photometry.Candela.Select(plane => plane.ToList()).ToList()
+                    }
+                    : null,
+                Ways = type.Form == ComponentForm.ConsumerUnit && type.Ways > 0 ? type.Ways : null,
+                SupplyRating = type.Form == ComponentForm.ConsumerUnit && type.SupplyRating > 0 ? type.SupplyRating : null,
+                ExternalImpedance = type.Form == ComponentForm.ConsumerUnit && type.ExternalImpedance > 0 ? type.ExternalImpedance : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -1222,6 +1238,14 @@ public static partial class ProjectFile
             Use = system.Kind == SystemKind.Power ? system.Use.ToString() : null,
             FlowTemperature = system.Kind == SystemKind.Heating && system.FlowTemperature > 0 ? system.FlowTemperature : null,
             ReturnTemperature = system.Kind == SystemKind.Heating && system.ReturnTemperature > 0 ? system.ReturnTemperature : null,
+            Breaker = system.Kind == SystemKind.Power && system.Breaker > 0 ? system.Breaker : null,
+            Curve = system.Kind == SystemKind.Power ? system.Curve.ToString() : null,
+            Rcd = system.Kind == SystemKind.Power ? system.Rcd : null,
+            ArcFault = system.Kind == SystemKind.Power ? system.ArcFault : null,
+            Cable = system.Kind == SystemKind.Power && system.Cable.Length > 0 ? system.Cable : null,
+            Method = system.Kind == SystemKind.Power ? system.Method.ToString() : null,
+            Grouped = system.Kind == SystemKind.Power && system.Grouped > 1 ? system.Grouped : null,
+            CableLength = system.Kind == SystemKind.Power && system.CableLength > 0 ? system.CableLength : null,
             Mark = system.Mark, Comments = system.Comments
         }).ToList();
         dto.Systems = systems.Count > 0 ? systems : null;
@@ -1923,6 +1947,7 @@ public static partial class ProjectFile
                 GlazingRows = type.GlazingRows is > 0 and <= 12 ? type.GlazingRows : 1,
                 GlazingColumns = type.GlazingColumns is > 0 and <= 12 ? type.GlazingColumns : 1,
                 SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                LightTransmittance = type.LightTransmittance is >= 0 and <= 1 ? type.LightTransmittance.Value : 0.7,
                 TrickleVent = type.TrickleVent is > 0 and < 1e6 ? type.TrickleVent.Value : 0,
 
                 // Saved before divided windows: one light, no transom.
@@ -2231,7 +2256,8 @@ public static partial class ProjectFile
                 Height = saved.Height,
                 SillHeight = double.IsFinite(saved.SillHeight) ? saved.SillHeight : 0,
                 Mark = saved.Mark ?? string.Empty,
-                Comments = saved.Comments ?? string.Empty
+                Comments = saved.Comments ?? string.Empty,
+                ForServices = saved.ForServices == true
             });
 
         foreach (var dtoPlaced in dto.PlacedSweeps)
@@ -2617,7 +2643,7 @@ public static partial class ProjectFile
                 TopLevelId = saved.TopLevelId is { } top && document.FindLevel(top) is not null ? top : null,
                 TopOffset = double.IsFinite(saved.TopOffset) ? saved.TopOffset : 0,
                 UnconnectedHeight = double.IsFinite(saved.UnconnectedHeight) && saved.UnconnectedHeight > 0 ? saved.UnconnectedHeight : Shafts.DefaultHeight,
-                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, ForServices = saved.ForServices == true
             });
 
         foreach (var type in dto.ColumnTypes)
@@ -2762,6 +2788,13 @@ public static partial class ProjectFile
                 RatedAirflow = type.RatedAirflow is >= 0 and < 100000 ? type.RatedAirflow.Value : 0,
                 ContinuousRate = type.ContinuousRate is >= 0 and < 100000 ? type.ContinuousRate.Value : 0,
                 VentArea = type.VentArea is >= 0 and < 1e7 ? type.VentArea.Value : 0,
+                Load = type.Load is >= 0 and < 1e7 ? type.Load.Value : TemplateElectric(type.Name, type.Form)?.Load ?? 0,
+                Lumens = type.Lumens is >= 0 and < 1e7 ? type.Lumens.Value : TemplateElectric(type.Name, type.Form)?.Lumens ?? 0,
+                Distribution = type.Distribution is not null ? ParseEnum(type.Distribution, LightDistribution.Diffuse) : TemplateElectric(type.Name, type.Form)?.Distribution ?? LightDistribution.Diffuse,
+                Photometry = PhotometryOf(type.Photometry),
+                Ways = type.Ways is > 0 and < 1000 ? type.Ways.Value : TemplateElectric(type.Name, type.Form)?.Ways ?? 0,
+                SupplyRating = type.SupplyRating is >= 0 and < 1e5 ? type.SupplyRating.Value : TemplateElectric(type.Name, type.Form)?.SupplyRating ?? 0,
+                ExternalImpedance = type.ExternalImpedance is >= 0 and < 1000 ? type.ExternalImpedance.Value : TemplateElectric(type.Name, type.Form)?.ExternalImpedance ?? 0,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
                 PartFlushVolume = type.PartFlushVolume is >= 0 and < 100 ? type.PartFlushVolume.Value
@@ -2832,7 +2865,15 @@ public static partial class ProjectFile
                 Id = saved.Id, Kind = kind, Name = string.IsNullOrWhiteSpace(saved.Name) ? MepSystems.NextName(document, kind) : saved.Name,
                 Use = ParseEnum(saved.Use, CircuitUse.Other), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
                 FlowTemperature = saved.FlowTemperature is > 0 and < 100 ? saved.FlowTemperature.Value : 0,
-                ReturnTemperature = saved.ReturnTemperature is > 0 and < 100 ? saved.ReturnTemperature.Value : 0
+                ReturnTemperature = saved.ReturnTemperature is > 0 and < 100 ? saved.ReturnTemperature.Value : 0,
+                Breaker = saved.Breaker is > 0 and < 10000 ? saved.Breaker.Value : 0,
+                Curve = ParseEnum(saved.Curve, BreakerCurve.B),
+                Rcd = saved.Rcd ?? true,
+                ArcFault = saved.ArcFault ?? false,
+                Cable = saved.Cable ?? string.Empty,
+                Method = ParseEnum(saved.Method, CableMethod.ClippedDirect),
+                Grouped = saved.Grouped is >= 1 and <= 100 ? saved.Grouped.Value : 1,
+                CableLength = saved.CableLength is > 0 and < 100000 ? saved.CableLength.Value : 0
             };
             foreach (var id in (saved.Members ?? new List<Guid>()).Distinct())
                 if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);
@@ -2849,6 +2890,7 @@ public static partial class ProjectFile
                 Id = saved.Id, LevelId = saved.LevelId, Start = new Point2D(saved.StartX, saved.StartY), End = new Point2D(saved.EndX, saved.EndY),
                 StartOffset = saved.StartOffset, EndOffset = saved.EndOffset, Diameter = saved.Diameter > 0 ? saved.Diameter : 15,
                 Kind = ParseEnum(saved.Kind, SystemKind.ColdWater), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, Return = saved.Return == true,
+                Insulation = saved.Insulation is > 0 and <= 200 ? saved.Insulation.Value : 0, Seal = ParseEnum(saved.Seal, PipeSeal.None),
                 TypeId = document.FindType<PipeType>(saved.TypeId)?.Id ?? document.TypesOf<PipeType>().FirstOrDefault()?.Id ?? Guid.Empty
             };
             if (pipe.Length < 1) continue;
@@ -3208,6 +3250,22 @@ public static partial class ProjectFile
     /// What a radiator, towel rail or boiler saved before their outputs were kept gives: the
     /// library's own of that name and size, or nothing known.
     /// </summary>
+    /// <summary>A standard family of the same name and form, for the electrical figures a file from before has none of.</summary>
+    private static ComponentType? TemplateElectric(string name, string? form) =>
+        TemplateFamilies.Value.TryGetValue(name, out var family) && family.Form == ParseEnum(form, ComponentForm.Box) ? family : null;
+
+    /// <summary>A light's photometric data as saved - or none, where it is missing or does not hold together.</summary>
+    private static Photometry? PhotometryOf(PhotometryDto? saved)
+    {
+        if (saved is null || saved.Planes.Count == 0 || saved.Angles.Count == 0 || saved.Candela.Count != saved.Planes.Count
+            || saved.Candela.Any(plane => plane.Count != saved.Angles.Count)) return null;
+        return new Photometry
+        {
+            Source = saved.Source, Lumens = saved.Lumens, Watts = saved.Watts, Planes = saved.Planes, Angles = saved.Angles,
+            Candela = saved.Candela.Select(plane => (IReadOnlyList<double>)plane).ToList()
+        };
+    }
+
     private static ComponentType? TemplateHeat(string name, double width) =>
         TemplateFamilies.Value.TryGetValue(name, out var family) && Math.Abs(family.Width - width) < 0.5 && HeatsOrHeated(family.Form) ? family : null;
 

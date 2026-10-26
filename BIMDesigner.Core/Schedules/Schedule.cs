@@ -109,6 +109,7 @@ public static class Schedule
     {
         // Each room traced once for the whole schedule, however many rows ask which room they are in.
         using var rooms = new Architecture.RoomsOf.Outlines();
+        using var cache = ModelCache.Begin(document);
 
         // Filters on what the elements hold first; on what is worked out from it once it is.
         var read = definition.Filters.Where(filter => definition.CalculatedNamed(filter.Field) is null).ToList();

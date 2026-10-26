@@ -5,6 +5,7 @@ using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Mep;
 using BIMDesigner.Core.Parameters;
 
 using CoreWindow = BIMDesigner.Core.Architecture.Window;
@@ -66,6 +67,7 @@ public static class CobieExport
 
     public static IReadOnlyList<XlsxSheet> Build(BimDocument document, CobieOptions options)
     {
+        using var cache = ModelCache.Begin(document);
         var by = string.IsNullOrWhiteSpace(options.ContactEmail) ? "info@example.com" : options.ContactEmail.Trim();
         var on = options.CreatedOn.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
         string Text(string? value) => string.IsNullOrWhiteSpace(value) ? None : value.Trim();
@@ -183,21 +185,56 @@ public static class CobieExport
 
         sheets.Add(component);
 
-        // ---- System: the services, by what they serve ----
+        // ---- System: the services' systems, a row for each component on each as COBie 2.4 has it (4.2.3.2.2.98) ----
         var systemSheet = Sheet("System", ">ComponentNames", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "Description");
-        foreach (var group in assets.OfType<Component>()
+        var onSystems = new HashSet<Guid>();
+        foreach (var system in document.All<Core.Mep.MepSystem>().OrderBy(system => system.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var (code, title) = Uniclass(system.Kind);
+            var members = (Core.Mep.MepSystems.SourceOf(document, system) is { } source ? new[] { source } : Array.Empty<Component>())
+                .Concat(Core.Mep.MepSystems.MembersOf(document, system)).Where(member => names.ContainsKey(member.Id)).Distinct().ToList();
+            foreach (var member in members)
+            {
+                systemSheet.Add(system.Name, by, on, document.Classification.Find(code) is not null ? Category(code) : $"{code} : {title}", names[member.Id],
+                    System, system.Kind == Core.Mep.SystemKind.Power ? "IfcDistributionCircuit" : "IfcDistributionSystem", Id(system.Id), system.Kind.Title());
+                onSystems.Add(member.Id);
+            }
+        }
+
+        // Fittings on no system yet, by what they serve - every component in a system, as BS 1192-4 asks (6.3.1).
+        foreach (var group in assets.OfType<Component>().Where(item => !onSystems.Contains(item.Id))
                      .Select(item => (Component: item, System: SystemOf(document.FindType<ComponentType>(item.TypeId)?.Kind)))
                      .Where(entry => entry.System is not null)
                      .GroupBy(entry => entry.System!.Value)
                      .OrderBy(group => group.Key.Name, StringComparer.Ordinal))
-            systemSheet.Add(group.Key.Name, by, on, Category(group.Key.Code), string.Join(",", group.Select(entry => names[entry.Component.Id])),
-                System, "IfcSystem", None, group.Key.Name);
+            foreach (var entry in group)
+                systemSheet.Add(group.Key.Name, by, on, Category(group.Key.Code), names[entry.Component.Id], System, "IfcSystem", None, group.Key.Name);
         sheets.Add(systemSheet);
 
         // ---- the sheets a designer leaves for the contractor and the owner ----
-        sheets.Add(Sheet("Assembly", "*SheetName", "*ParentName", "*ChildNames", "*AssemblyType", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "Description"));
-        sheets.Add(Sheet("Connection", "*ConnectionType", "*SheetName", "*RowName1", "*RowName2", "*RealizingElement", "*PortName1", "*PortName2",
-            "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "Description"));
+        sheets.Add(new XlsxSheet("Assembly", Columns("*Name", ">CreatedBy", "*CreatedOn", "*SheetName", "*ParentName", "*ChildNames", "*AssemblyType",
+            "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "Description")));
+
+        // Connections: each system's source to each fitting on it - upstream first - or its fittings in turn where nothing feeds it, as a control link.
+        var connection = new XlsxSheet("Connection", Columns("*Name", ">CreatedBy", "*CreatedOn", "*ConnectionType", "*SheetName", "*RowName1", "*RowName2",
+            "*RealizingElement", "*PortName1", "*PortName2", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "Description"));
+        string PortOf(Component component, Core.Mep.SystemKind kind) =>
+            Core.Mep.MepSystems.ConnectorsOf(document, component).FirstOrDefault(connector => connector.Kind == kind)?.Name ?? None;
+        foreach (var system in document.All<Core.Mep.MepSystem>().OrderBy(system => system.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var members = Core.Mep.MepSystems.MembersOf(document, system).Where(member => names.ContainsKey(member.Id)).ToList();
+            var source = Core.Mep.MepSystems.SourceOf(document, system) is { } feeding && names.ContainsKey(feeding.Id) ? feeding : null;
+            var drained = Core.Mep.Drainage.IsDrainage(system.Kind) || system.Kind == Core.Mep.SystemKind.ExtractAir;
+            var links = source is not null
+                ? members.Select(member => drained ? (Up: member, Down: source) : (Up: source, Down: member)).ToList()
+                : members.Zip(members.Skip(1), (up, down) => (Up: up, Down: down)).ToList();
+            var type = source is null ? "Control" : drained ? "Flow" : system.Kind == Core.Mep.SystemKind.Heating ? "Flow" : "Supply";
+            foreach (var (up, down) in links)
+                connection.Add($"{system.Name}: {names[up.Id]} to {names[down.Id]}", by, on, type, "Component", names[up.Id], names[down.Id],
+                    None, PortOf(up, system.Kind), PortOf(down, system.Kind), System, "IfcRelConnectsPorts", None, $"{system.Kind.Title()} from {names[up.Id]} to {names[down.Id]} on {system.Name}");
+        }
+
+        sheets.Add(connection);
         sheets.Add(Sheet("Spare", ">TypeName", "*Suppliers", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "*Description", "SetNumber", "PartNumber"));
         sheets.Add(Sheet("Resource", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "*Description"));
         sheets.Add(Sheet("Job", "*Status", ">TypeName", "*Description", "*Duration", "*DurationUnit", "*Start", "*TaskStartUnit", "*Frequency", "*FrequencyUnit",
@@ -260,8 +297,20 @@ public static class CobieExport
         type is ComponentType { Kind: BuiltInCategory.Furniture or BuiltInCategory.Entourage or BuiltInCategory.Planting } component
         && component.Placement == ComponentPlacement.Freestanding;
 
+    /// <summary>A system's Uniclass 2015 Elements/functions group, by what it carries.</summary>
+    private static (string Code, string Title) Uniclass(Core.Mep.SystemKind kind) => kind switch
+    {
+        Core.Mep.SystemKind.Foul or Core.Mep.SystemKind.Rainwater => ("EF_50", "Waste disposal functions"),
+        Core.Mep.SystemKind.ColdWater or Core.Mep.SystemKind.HotWater or Core.Mep.SystemKind.Gas => ("EF_55", "Piped supply functions"),
+        Core.Mep.SystemKind.Heating => ("EF_60", "Heating, cooling and refrigeration functions"),
+        Core.Mep.SystemKind.ExtractAir or Core.Mep.SystemKind.SupplyAir or Core.Mep.SystemKind.OutsideAir => ("EF_65", "Ventilation and air conditioning functions"),
+        Core.Mep.SystemKind.FireAlarm => ("EF_75", "Communications, security, safety, control and protection functions"),
+        _ => ("EF_70", "Electrical power and lighting functions")
+    };
+
     private static string IfcClass(ElementType? type) => type switch
     {
+        ComponentType fitting when fitting.Form != ComponentForm.Custom && fitting.Form != ComponentForm.Box => IfcExport.ClassName(fitting),
         DoorType => "IfcDoor",
         WindowType or RoofWindowType => "IfcWindow",
         ComponentType { Kind: BuiltInCategory.Furniture or BuiltInCategory.Casework } => "IfcFurniture",

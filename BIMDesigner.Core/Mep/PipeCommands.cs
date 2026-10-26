@@ -33,7 +33,8 @@ public sealed class SplitPipeCommand : IUndoableCommand
         Second = new Pipe
         {
             TypeId = pipe.TypeId, LevelId = pipe.LevelId, Start = _at, End = _end, StartOffset = _atOffset, EndOffset = _endOffset,
-            Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId, Return = pipe.Return, PhaseCreated = pipe.PhaseCreated, Workset = pipe.Workset
+            Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId, Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal,
+            PhaseCreated = pipe.PhaseCreated, PhaseDemolished = pipe.PhaseDemolished, Workset = pipe.Workset, DesignOptionId = pipe.DesignOptionId, Comments = pipe.Comments
         };
     }
 
@@ -80,6 +81,27 @@ public sealed class SetPipeSizesCommand : IUndoableCommand
     public void Undo()
     {
         foreach (var (pipe, old, _) in _changes) pipe.Diameter = old;
+    }
+}
+
+/// <summary>Pipes moved - carried with the connectors they are joined to - as one step to undo.</summary>
+public sealed class MovePipesCommand : IUndoableCommand
+{
+    private readonly IReadOnlyList<(Pipe Pipe, (Point2D Start, Point2D End, double StartOffset, double EndOffset) Before, (Point2D Start, Point2D End, double StartOffset, double EndOffset) After)> _moves;
+
+    public MovePipesCommand(IEnumerable<(Pipe Pipe, Point2D Start, Point2D End, double StartOffset, double EndOffset)> moves) =>
+        _moves = moves.Select(move => (move.Pipe, (move.Pipe.Start, move.Pipe.End, move.Pipe.StartOffset, move.Pipe.EndOffset), (move.Start, move.End, move.StartOffset, move.EndOffset))).ToList();
+
+    public string Name => "Move Pipes";
+
+    public void Redo()
+    {
+        foreach (var (pipe, _, after) in _moves) (pipe.Start, pipe.End, pipe.StartOffset, pipe.EndOffset) = after;
+    }
+
+    public void Undo()
+    {
+        foreach (var (pipe, before, _) in _moves) (pipe.Start, pipe.End, pipe.StartOffset, pipe.EndOffset) = before;
     }
 }
 

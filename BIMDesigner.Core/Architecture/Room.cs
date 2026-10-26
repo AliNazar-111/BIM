@@ -64,7 +64,9 @@ public sealed class Room : Element
     /// from the result, so none of them can be stale.
     /// </summary>
     public RoomBoundaryResult GetBoundary(BimDocument document) =>
-        RoomBoundary.Trace(document, LevelId, Location);
+        ModelCache.Of(document) is { } kept
+            ? kept.Keep("room boundary", this, null, null, () => RoomBoundary.Trace(document, LevelId, Location))
+            : RoomBoundary.Trace(document, LevelId, Location);
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {

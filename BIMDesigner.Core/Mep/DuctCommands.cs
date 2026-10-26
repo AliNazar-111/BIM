@@ -31,7 +31,7 @@ public sealed class SplitDuctCommand : IUndoableCommand
             TypeId = duct.TypeId, LevelId = duct.LevelId, Start = _at, End = _end, StartOffset = _atOffset, EndOffset = _endOffset,
             Width = duct.Width, Height = duct.Height, Kind = duct.Kind, SystemId = duct.SystemId, FireProtection = duct.FireProtection,
             DamperRating = duct.DamperRating, Insulation = duct.Insulation,
-            PhaseCreated = duct.PhaseCreated, Workset = duct.Workset
+            PhaseCreated = duct.PhaseCreated, PhaseDemolished = duct.PhaseDemolished, Workset = duct.Workset, DesignOptionId = duct.DesignOptionId, Comments = duct.Comments
         };
     }
 

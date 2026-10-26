@@ -209,6 +209,30 @@ public sealed class PipeType : ElementType
 /// what its system carries, and is drawn in its colour. Pipes meeting end to end, or at a fitting's
 /// connector, are joined: an elbow where two meet, a tee where three do.
 /// </summary>
+/// <summary>
+/// How a pipe keeps a fire-separating wall or floor fire-separating where it passes through it, as
+/// Approved Document B has it: a proprietary seal; the gap round it fire-stopped, for a pipe no larger
+/// than its material allows; or sleeved in non-combustible pipe either side.
+/// </summary>
+public enum PipeSeal
+{
+    None,
+    FireStopped,
+    ProprietarySeal,
+    Sleeved
+}
+
+public static class PipeSeals
+{
+    public static string Title(this PipeSeal seal) => seal switch
+    {
+        PipeSeal.FireStopped => "Fire-stopped",
+        PipeSeal.ProprietarySeal => "Proprietary seal",
+        PipeSeal.Sleeved => "Sleeved",
+        _ => "None"
+    };
+}
+
 public sealed class Pipe : Element
 {
     public override BuiltInCategory Category => BuiltInCategory.Pipes;
@@ -236,6 +260,12 @@ public sealed class Pipe : Element
     /// the radiators - the return, not the flow. The two never join.
     /// </summary>
     public bool Return { get; set; }
+
+    /// <summary>The insulation round it, mm thick - what it takes up beside it, and what clash tests allow for.</summary>
+    public double Insulation { get; set; }
+
+    /// <summary>How it keeps a fire-separating wall or floor it passes through fire-separating.</summary>
+    public PipeSeal Seal { get; set; }
 
     /// <summary>Whether it runs up or down rather than along: its ends one over the other.</summary>
     public bool Upright => Start.DistanceTo(End) < 1;
@@ -273,7 +303,12 @@ public sealed class Pipe : Element
         yield return ParameterValue.BindValidated(PipeParameters.StartOffset, () => StartOffset, v => { StartOffset = v; return true; });
         yield return ParameterValue.BindValidated(PipeParameters.EndOffset, () => EndOffset, v => { EndOffset = v; return true; });
         yield return ParameterValue.ReadOnly(PipeParameters.Length, () => Length);
+        yield return ParameterValue.BindValidated(PipeParameters.Insulation, () => Insulation, v => { if (v is < 0 or > 200) return false; Insulation = v; return true; });
+        yield return ParameterValue.BindChoice(PipeParameters.Seal, () => Seal.Title(),
+            v => { foreach (var seal in Enum.GetValues<PipeSeal>()) if (seal.Title() == v) Seal = seal; },
+            Enum.GetValues<PipeSeal>().Select(seal => seal.Title()).ToArray());
         yield return ParameterValue.ReadOnly(PipeParameters.Carries, () => PipeNetworks.Describe(document, this));
+        yield return ParameterValue.ReadOnly(PipeParameters.Supports, () => Mep.Supports.Describe(document, this));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -311,4 +346,7 @@ public static class PipeParameters
     public static readonly ParameterDefinition Length = new("Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Carries = new("Carries", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition Circuit = new("Flow or Return", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition Insulation = new("Insulation (mm)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Seal = new("Fire Stopping", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Supports = new("Supports", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 }

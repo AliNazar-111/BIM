@@ -114,8 +114,9 @@ public static class HeatLoss
     /// <summary>The temperature a room is kept at by its use, °C - null for one not heated.</summary>
     public static double? ByUse(BimDocument document, Room room)
     {
+        // Whole words: a shed, not a furnished room.
         var name = room.Name.Trim().ToLowerInvariant();
-        if (UnheatedWords.Any(name.Contains) || UnheatedNames.Contains(name)) return null;
+        if (UnheatedWords.Any(word => System.Text.RegularExpressions.Regex.IsMatch(name, $@"\b{System.Text.RegularExpressions.Regex.Escape(word)}\b")) || UnheatedNames.Contains(name)) return null;
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return 20;
         return WetWords.Any(name.Contains) ? 22 : 21;
     }
@@ -125,7 +126,10 @@ public static class HeatLoss
         room.Unheated ? null : room.DesignTemperature ?? ByUse(document, room);
 
     /// <summary>The building's heat loss, room by room; null where there is no design temperature outside to work to.</summary>
-    public static BuildingHeatLoss? Of(BimDocument document)
+    public static BuildingHeatLoss? Of(BimDocument document) =>
+        ModelCache.Of(document) is { } kept ? kept.Keep("heat loss", document, null, null, () => Work(document)) : Work(document);
+
+    private static BuildingHeatLoss? Work(BimDocument document)
     {
         if (Climate.DesignOutside(document) is not { } outside) return null;
         var ground = Climate.Ground(document) ?? outside;
@@ -264,11 +268,17 @@ public static class HeatLoss
             if (curtain is null && type is not null)
                 foreach (var opening in WallOpenings.Of(document, wall))
                 {
-                    if (document.FindType<OpeningType>(opening.TypeId) is not { HeatTransferCoefficient: > 0 } openingType) continue;
+                    if (document.FindType<OpeningType>(opening.TypeId) is not { } openingType) continue;
                     var (spanFrom, spanTo) = opening.GetSpan(openingType);
                     var at = wall.PointAt(type.Structure, (spanFrom + spanTo) / 2, 0);
                     var offset = (at - from).Dot(along);
                     if (offset < -50 || offset > length + 50 || Math.Abs((at - from).Dot(outward)) > width / 2 + 100) continue;
+                    if (openingType.HeatTransferCoefficient <= 0)
+                    {
+                        var unknown = $"{openingType.Name}'s U-value is not given - taken as the wall it is in";
+                        if (!notes.Contains(unknown)) notes.Add(unknown);
+                        continue;
+                    }
 
                     var square = opening.WidthOf(openingType) * opening.HeightOf(openingType) / 1e6;
                     openings += square;
@@ -279,6 +289,10 @@ public static class HeatLoss
             if (wallU is { } u) Add($"{what} ({curtain?.Name ?? type!.Name})", Math.Max(0, gross - openings), u, path, beyond, wall, neighbour);
             else notes.Add($"{curtain?.Name ?? type?.Name ?? "a wall"}'s U-value is not known - its layers' materials want their conductivity");
         }
+
+        // Whether the storey below has nothing under this room's middle - no floor, no room: it overhangs, the air under it outside.
+        bool Exposed(Guid levelBelow) =>
+            roomAt(levelBelow, centre, room) is null && !document.All<Floor>().Any(slab => slab.LevelId == levelBelow && slab.Contains(centre));
 
         // Its floor: the ground under the lowest storey, or what is under it.
         var floor = document.All<Floor>().FirstOrDefault(slab => slab.LevelId == room.LevelId && slab.Contains(centre));
@@ -293,7 +307,7 @@ public static class HeatLoss
             }
             else notes.Add($"{floorType?.Name ?? "its floor"}'s U-value is not known");
         }
-        else if (Across(roomAt(below.Id, centre, room), HeatPath.Unheated) is { } under)
+        else if (Across(roomAt(below.Id, centre, room), Exposed(below.Id) ? HeatPath.Outside : HeatPath.Unheated) is { } under)
         {
             var (path, beyond, neighbour) = under;
             if (floorType is not null && Thermal.UValue(document, floorType.Structure, Thermal.Flow.Downward) is { } u)
@@ -304,8 +318,12 @@ public static class HeatLoss
         // What is over it: the roof - with any ceiling and its insulation - or the storey above.
         var covers = RoomHeadroom.Covers(document, room, polygon);
         var over = RoomHeadroom.Over(document, floorLevel, centre, covers);
+        // A ceiling is under the roof only where no floor comes between them.
         var roof = over?.By as Roof ?? (over?.By is Ceiling
-            ? covers.OfType<Roof>().Where(each => each.Contains(centre)).OrderBy(each => each.GetBottomElevation(document)).FirstOrDefault()
+            ? covers.OfType<Roof>().Where(each => each.Contains(centre)).OrderBy(each => each.GetBottomElevation(document)).FirstOrDefault() is { } lowest
+              && !covers.OfType<Floor>().Any(each => each.Contains(centre) && each.GetBottomElevation(document) < lowest.GetBottomElevation(document) - 1)
+                ? lowest
+                : null
             : null);
         if (roof is not null)
         {
@@ -317,7 +335,9 @@ public static class HeatLoss
         }
         else if (covers.OfType<Floor>().Where(each => each.Contains(centre)).OrderBy(each => each.GetBottomElevation(document)).FirstOrDefault() is { } upper)
         {
-            if (Across(roomAt(upper.LevelId, centre, room), HeatPath.Unheated) is { } overhead)
+            // A floor over it with no roof over that is open to the sky - a terrace, a balcony.
+            var open = !document.All<Roof>().Any(each => each.Contains(centre) && each.Surface(document).HeightAt(centre) > upper.GetTopElevation(document) + 1);
+            if (Across(roomAt(upper.LevelId, centre, room), open ? HeatPath.Outside : HeatPath.Unheated) is { } overhead)
             {
                 var (path, beyond, neighbour) = overhead;
                 if (document.FindType<SlabType>(upper.TypeId) is { } upperType && Thermal.UValue(document, upperType.Structure, Thermal.Flow.Upward) is { } u)

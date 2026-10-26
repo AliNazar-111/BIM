@@ -89,11 +89,11 @@ public static class Heating
         type.HeatOutput <= 0 ? 0 : type.HeatOutput * Math.Pow(Math.Max(0, (flow + back) / 2 - room) / 50, type.HeatExponent);
 
     /// <summary>What an underfloor loop's floor gives a square metre, W/m², at these water temperatures in a room this warm.</summary>
-    public static double FloorFlux(ComponentType type, double flow, double back, double room)
-    {
-        var flux = type.FloorOutput * Math.Max(0, (flow + back) / 2 - room);
-        return type.FloorOutputLimit > 0 ? Math.Min(flux, type.FloorOutputLimit) : flux;
-    }
+    public static double FloorFlux(ComponentType type, double flow, double back, double room) =>
+        Math.Min(type.FloorOutput * Math.Max(0, (flow + back) / 2 - room), FloorLimit(type));
+
+    /// <summary>The most a floor gives, W/m²: its maker's limit, or BS EN 1264's where none is given.</summary>
+    public static double FloorLimit(ComponentType type) => type.FloorOutputLimit > 0 ? type.FloorOutputLimit : MostFlux;
 
     /// <summary>How warm a floor's surface is giving this much, °C: BS EN 1264's basic characteristic, q = 8.92 (θF - θi)^1.1.</summary>
     public static double SurfaceTemperature(double flux, double room) => room + Math.Pow(Math.Max(0, flux) / 8.92, 1 / 1.1);
@@ -226,7 +226,7 @@ public static class Heating
 
             foreach (var floor in emitters.Where(emitter => emitter.Floor))
             {
-                if (floor.Type.FloorOutputLimit > 0 && floor.Flux >= floor.Type.FloorOutputLimit - 0.01 && given < loss.Total - 0.5)
+                if (floor.Flux >= FloorLimit(floor.Type) - 0.01 && given < loss.Total - 0.5)
                     yield return new MepProblem(floor.Component,
                         $"its floor gives {floor.Flux:0} W/m² at most - BS EN 1264 keeps a floor's surface within 9 K of the room where people are - so the rest of the room's heat wants another emitter");
                 if (floor.Type.PipeSpacing > 0 && floor.FloorArea * 1e6 / floor.Type.PipeSpacing > LongestLoop)
@@ -337,6 +337,7 @@ public static class Heating
 
         // The range's types the project has already - by what they are, whatever they are called - else added.
         var steps = new List<IUndoableCommand>();
+        var moves = new List<(Point3D From, Point3D To)>();
         foreach (var group in chosen.GroupBy(entry => entry.Value.Name))
         {
             var wanted = group.First().Value;
@@ -349,9 +350,28 @@ public static class Heating
                 steps.Add(add);
             }
 
-            var set = new SetElementsTypeCommand(group.Select(entry => (Element)entry.Key), type);
+            var radiators = group.Select(entry => entry.Key).ToList();
+            var before = radiators.ToDictionary(radiator => radiator, radiator => Connectors.Placed(document, radiator).Select(placed => placed.At).ToList());
+            var set = new SetElementsTypeCommand(radiators.Cast<Element>(), type);
             set.Redo();
             steps.Add(set);
+
+            // A wider radiator's tappings are further apart: where they now are.
+            foreach (var radiator in radiators)
+            {
+                var now = Connectors.Placed(document, radiator).Select(placed => placed.At).ToList();
+                for (var i = 0; i < Math.Min(now.Count, before[radiator].Count); i++)
+                    if (Math.Abs(now[i].X - before[radiator][i].X) + Math.Abs(now[i].Y - before[radiator][i].Y) + Math.Abs(now[i].Z - before[radiator][i].Z) > 0.5)
+                        moves.Add((before[radiator][i], now[i]));
+            }
+        }
+
+        // The pipes to them carried with their tappings.
+        if (PipeNetworks.Follow(document, moves) is { Count: > 0 } followed)
+        {
+            var carry = new MovePipesCommand(followed);
+            carry.Redo();
+            steps.Add(carry);
         }
 
         return (new CompositeCommand("Size Radiators", steps), chosen.Count, unmet);

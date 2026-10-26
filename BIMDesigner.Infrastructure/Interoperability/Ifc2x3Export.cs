@@ -99,6 +99,7 @@ public static class Ifc2x3Export
         public void Run()
         {
             using var rooms = new RoomsOf.Outlines();
+            using var cache = ModelCache.Begin(_document);
             CreateProject();
             foreach (var material in _document.Materials) _materials[material.Id] = New<IfcMaterial>(m => m.Name = material.Name);
 

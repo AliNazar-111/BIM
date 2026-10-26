@@ -263,6 +263,9 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         var hosted = new CheckBox { Content = "Leave out what is meant to meet", IsChecked = test.IgnoreHosted, Margin = new Thickness(0, 8, 0, 0),
             ToolTip = "A door and its wall, a gutter and its roof, a footing and what stands on it, walls joined at a corner" };
         hosted.Click += (_, _) => Change("Clash Test Hosts", () => Test!.IgnoreHosted = hosted.IsChecked == true);
+        var insulated = new CheckBox { Content = "Allow for pipes' and ducts' insulation", IsChecked = test.AllowInsulation, Margin = new Thickness(0, 4, 0, 0),
+            ToolTip = "A pipe or duct is taken with its insulation round it: insulation running into a beam, a column or another pipe clashes" };
+        insulated.Click += (_, _) => Change("Clash Test Insulation", () => Test!.AllowInsulation = insulated.IsChecked == true);
 
         _editor.Children.Add(Label("NAME"));
         _editor.Children.Add(name);
@@ -271,6 +274,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         _editor.Children.Add(Label(test.Kind == ClashKind.Clearance ? "KEPT CLEAR BY (MM)" : test.Kind == ClashKind.Duplicate ? "WITHIN (MM)" : "TOLERANCE (MM)"));
         _editor.Children.Add(tolerance);
         _editor.Children.Add(hosted);
+        _editor.Children.Add(insulated);
         _editor.Children.Add(Label("SELECTION A  -  AGAINST  -  SELECTION B"));
         var sets = new Grid();
         sets.ColumnDefinitions.Add(new ColumnDefinition());

@@ -130,6 +130,32 @@ public static partial class IfcExport
     /// material stands for one of ours - and threading those through arguments obscures what
     /// each step is doing.
     /// </summary>
+    /// <summary>The IFC class a component of this type goes out as - what COBie's ExtObject names it.</summary>
+    internal static string ClassName(ComponentType type) => Exporter.ClassOf(type) switch
+    {
+        Exporter.ComponentClass.Furniture => "IfcFurniture",
+        Exporter.ComponentClass.Sanitary => "IfcSanitaryTerminal",
+        Exporter.ComponentClass.Appliance => "IfcElectricAppliance",
+        Exporter.ComponentClass.Light => "IfcLightFixture",
+        Exporter.ComponentClass.Heater => "IfcSpaceHeater",
+        Exporter.ComponentClass.Outlet => "IfcOutlet",
+        Exporter.ComponentClass.Switch => "IfcSwitchingDevice",
+        Exporter.ComponentClass.Planting => "IfcGeographicElement",
+        Exporter.ComponentClass.Fan => "IfcFan",
+        Exporter.ComponentClass.Sensor => "IfcSensor",
+        Exporter.ComponentClass.Board => "IfcElectricDistributionBoard",
+        Exporter.ComponentClass.Control => "IfcUnitaryControlElement",
+        Exporter.ComponentClass.Boiler => "IfcBoiler",
+        Exporter.ComponentClass.Tank => "IfcTank",
+        Exporter.ComponentClass.Valve or Exporter.ComponentClass.AirValve => "IfcValve",
+        Exporter.ComponentClass.Meter => "IfcFlowMeter",
+        Exporter.ComponentClass.Chamber => "IfcDistributionChamberElement",
+        Exporter.ComponentClass.HeatPump or Exporter.ComponentClass.ExtractUnit => "IfcUnitaryEquipment",
+        Exporter.ComponentClass.HeatRecovery => "IfcAirToAirHeatRecovery",
+        Exporter.ComponentClass.AirTerminal => "IfcAirTerminal",
+        _ => "IfcBuildingElementProxy"
+    };
+
     private sealed partial class Exporter
     {
         private readonly IfcStore _model;
@@ -157,6 +183,7 @@ public static partial class IfcExport
         {
             // Rooms traced and chimneys measured once for the whole export, nothing changing under it.
             using var rooms = new RoomsOf.Outlines();
+            using var cache = ModelCache.Begin(_document);
             using var heights = new Chimneys.Heights();
 
             var project = CreateProject();
@@ -2166,14 +2193,14 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        private enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
         /// appliance and a sink a sanitary fitting, whatever category they were put in; otherwise
         /// as its category says.
         /// </summary>
-        private static ComponentClass ClassOf(ComponentType type) => type.Form switch
+        internal static ComponentClass ClassOf(ComponentType type) => type.Form switch
         {
             ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
                 or ComponentForm.TumbleDryer or ComponentForm.CookerHood => ComponentClass.Appliance,

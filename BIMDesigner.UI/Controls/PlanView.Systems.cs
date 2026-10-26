@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 using BIMDesigner.Core.Architecture;
+using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Mep;
 using BIMDesigner.Core.Views;
@@ -75,11 +76,16 @@ public partial class PlanView
         }
 
         var name = Document.FindType<ComponentType>(fitting.TypeId)?.Name ?? "Fitting";
-        Apply(new EditSystemCommand(system, on ? $"Remove from {system.Name}" : $"Add to {system.Name}", edited =>
+        var (pipes, ducts) = on ? (Array.Empty<Pipe>(), Array.Empty<Duct>()) : MepSystems.Strays(Document, system, fitting);
+        Apply(Joined(system, pipes, ducts, new EditSystemCommand(system, on ? $"Remove from {system.Name}" : $"Add to {system.Name}", edited =>
         {
             if (on) edited.Members.Remove(fitting.Id);
             else edited.Members.Add(fitting.Id);
-        }));
+
+            // A circuit made empty, or of fittings that said nothing of what it is for, is told by what is on it now.
+            if (edited.Kind == SystemKind.Power && edited.Use == CircuitUse.Other)
+                edited.Use = MepSystems.UseOf(Document, edited.Kind, MepSystems.MembersOf(Document, edited));
+        })));
         HintChanged?.Invoke(this, $"{name} {(on ? "taken off" : "put on")} {system.Name} - {MepSystems.MembersOf(Document, system).Count} on it. Click another, or Esc when done.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -97,12 +103,19 @@ public partial class PlanView
             return false;
         }
 
-        Apply(new EditSystemCommand(system, $"Source of {system.Name}", edited => edited.SourceId = equipment.Id));
+        var (pipes, ducts) = MepSystems.Strays(Document, system, equipment);
+        Apply(Joined(system, pipes, ducts, new EditSystemCommand(system, $"Source of {system.Name}", edited => edited.SourceId = equipment.Id)));
         HintChanged?.Invoke(this, $"{Document.FindType<ComponentType>(equipment.TypeId)?.Name ?? "It"} feeds {system.Name}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         SetTool(PlanTool.Select);
         return true;
     }
+
+    /// <summary>A change to a system with the pipes and ducts drawn to its fittings put on it too, as one step.</summary>
+    private static IUndoableCommand Joined(MepSystem system, IReadOnlyList<Pipe> pipes, IReadOnlyList<Duct> ducts, EditSystemCommand edit) =>
+        pipes.Count + ducts.Count == 0
+            ? edit
+            : new CompositeCommand(edit.Name, new IUndoableCommand[] { edit, new SetPipeSystemCommand(pipes, system.Id), new SetDuctSystemCommand(ducts, system.Id) });
 
     private static readonly Pen ConnectorRing = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0x1C, 0x21, 0x28))), 1));
     private static readonly Pen OpenRing = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x1E))), 2));

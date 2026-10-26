@@ -128,15 +128,83 @@ public static partial class IfcExport
                 }
             }
 
-            var joined = new HashSet<(IfcDistributionPort, IfcDistributionPort)>();
-            foreach (var (at, port, owner) in placedPorts.Where(entry => segments.ContainsKey(entry.Owner)))
+            // Each port is joined to one other at most, as IFC has it: where three or more pipe or duct
+            // ends meet - a tee, a cross - a junction fitting there with a port for each.
+            static double Apart(BIMDesigner.Core.Geometry.Point3D a, BIMDesigner.Core.Geometry.Point3D b) =>
+                Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2) + Math.Pow(a.Z - b.Z, 2));
+            var joined = new HashSet<IfcDistributionPort>(ReferenceEqualityComparer.Instance);
+            var junctions = new Dictionary<Guid, List<IfcProduct>>();
+            var runEnds = placedPorts.Where(entry => segments.ContainsKey(entry.Owner)).ToList();
+            foreach (var (at, port, owner) in runEnds)
+            {
+                if (joined.Contains(port)) continue;
+                var touch = ducts.Contains(owner) ? DuctNetworks.Touch : PipeNetworks.Touch;
+                var meeting = runEnds.Where(other => !joined.Contains(other.Port) && other.Port.SystemType == port.SystemType && Apart(other.At, at) <= touch).ToList();
+                if (meeting.Select(other => other.Owner).Distinct().Count() < 3) continue;
+
+                BIMDesigner.Core.Elements.Element run = (BIMDesigner.Core.Elements.Element?)_document.Find<Pipe>(owner) ?? _document.Find<Duct>(owner)!;
+                var storey = StoreyOf(run);
+                var elevation = _document.FindLevel(run.LevelId)?.Elevation ?? 0;
+                var salt = (byte)(port.Name == "Start" ? 0x60 : 0x61);
+                IfcFlowFitting junction = ducts.Contains(owner)
+                    ? New<Xbim.Ifc4.HvacDomain.IfcDuctFitting>(each => each.PredefinedType = IfcDuctFittingTypeEnum.JUNCTION)
+                    : New<Xbim.Ifc4.HvacDomain.IfcPipeFitting>(each => each.PredefinedType = IfcPipeFittingTypeEnum.JUNCTION);
+                junction.GlobalId = PartId(owner, salt, 0xF7).ToIfc();
+                junction.Name = meeting.Count == 3 ? "Tee" : "Cross";
+                junction.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(at.X, at.Y, at.Z - elevation));
+                });
+                Contain(run, junction);
+
+                var nested = new List<IfcDistributionPort>();
+                for (var i = 0; i < meeting.Count; i++)
+                {
+                    var end = meeting[i].Port;
+                    var own = New<IfcDistributionPort>(each =>
+                    {
+                        each.GlobalId = PartId(owner, (byte)(salt + 0x10 + i), 0xF8).ToIfc();
+                        each.Name = $"Port {i + 1}";
+                        each.FlowDirection = IfcFlowDirectionEnum.SOURCEANDSINK;
+                        each.PredefinedType = end.PredefinedType;
+                        each.SystemType = end.SystemType;
+                        each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                        {
+                            placement.PlacementRelTo = junction.ObjectPlacement;
+                            placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(0, 0, 0));
+                        });
+                    });
+                    nested.Add(own);
+                    joined.Add(end);
+                    joined.Add(own);
+                    New<IfcRelConnectsPorts>(relation =>
+                    {
+                        relation.RelatingPort = own;
+                        relation.RelatedPort = end;
+                    });
+                }
+
+                New<IfcRelNests>(relation =>
+                {
+                    relation.GlobalId = PartId(owner, salt, 0xF9).ToIfc();
+                    relation.RelatingObject = junction;
+                    relation.RelatedObjects.AddRange(nested);
+                });
+                var system = (run as Pipe)?.SystemId ?? (run as Duct)?.SystemId;
+                if (system is { } id) (junctions.TryGetValue(id, out var list) ? list : junctions[id] = new List<IfcProduct>()).Add(junction);
+            }
+
+            foreach (var (at, port, owner) in runEnds)
                 foreach (var (otherAt, other, otherOwner) in placedPorts)
                 {
-                    if (otherOwner == owner || ReferenceEquals(port, other) || joined.Contains((other, port))) continue;
+                    if (joined.Contains(port)) break;
+                    if (otherOwner == owner || ReferenceEquals(port, other) || joined.Contains(other)) continue;
                     var touch = ducts.Contains(owner) ? DuctNetworks.Touch : PipeNetworks.Touch;
-                    if (Math.Sqrt(Math.Pow(at.X - otherAt.X, 2) + Math.Pow(at.Y - otherAt.Y, 2) + Math.Pow(at.Z - otherAt.Z, 2)) > touch) continue;
+                    if (Apart(at, otherAt) > touch) continue;
                     if (other.SystemType != port.SystemType) continue;
-                    joined.Add((port, other));
+                    joined.Add(port);
+                    joined.Add(other);
                     var (relating, related) = other.FlowDirection == IfcFlowDirectionEnum.SOURCE ? (other, port) : (port, other);
                     New<IfcRelConnectsPorts>(relation =>
                     {
@@ -154,6 +222,8 @@ public static partial class IfcExport
                 var members = MepSystems.MembersOf(_document, system)
                     .Select(member => _products.TryGetValue(member.Id, out var product) ? product : null).OfType<IfcProduct>()
                     .Concat(PipeNetworks.PipesOf(_document, system).Select(pipe => segments.GetValueOrDefault(pipe.Id)).OfType<IfcProduct>())
+                    .Concat(DuctNetworks.DuctsOf(_document, system).Select(duct => segments.GetValueOrDefault(duct.Id)).OfType<IfcProduct>())
+                    .Concat(junctions.GetValueOrDefault(system.Id) ?? new List<IfcProduct>())
                     .ToList();
                 IfcDistributionSystem group = system.Kind == SystemKind.Power ? New<IfcDistributionCircuit>() : New<IfcDistributionSystem>();
                 group.GlobalId = system.Id.ToIfc();
@@ -161,6 +231,40 @@ public static partial class IfcExport
                 group.LongName = system.Kind == SystemKind.Power ? $"{system.Use.Title()} circuit" : system.Kind.Title();
                 group.PredefinedType = PredefinedType(system);
                 groups.Add(group);
+
+                // A circuit: its breaker, a protective device at its board, and what it comes to.
+                if (system.Kind == SystemKind.Power && Circuits.Design(_document, system) is { } design)
+                {
+                    WriteSet(group, "Pset_DistributionSystemTypeElectrical", new Dictionary<string, IfcValue?>
+                    {
+                        ["NumberOfLiveConductors"] = new IfcCountMeasure(design.Voltage > Circuits.Uk ? 3 : 2),
+                        ["MaximumAllowedVoltageDrop"] = new IfcElectricVoltageMeasure(design.DropLimit),
+                        ["NetImpedance"] = design.Impedance > 0 ? new IfcElectricResistanceMeasure(design.Impedance) : null
+                    });
+                    if (MepSystems.SourceOf(_document, system) is { } board && _products.TryGetValue(board.Id, out var boardProduct))
+                    {
+                        var us = _document.ProjectInformation.ClearanceStandard.IsUs();
+                        var device = New<Xbim.Ifc4.ElectricalDomain.IfcProtectiveDevice>(each =>
+                        {
+                            each.GlobalId = PartId(system.Id, 0xB2, 0xEA).ToIfc();
+                            each.Name = $"{system.Name} breaker";
+                            each.ObjectType = us ? $"{design.Breaker:0} A" : $"{design.Curve}{design.Breaker:0} {(system.Rcd ? "RCBO" : "MCB")}";
+                            each.PredefinedType = system.Rcd ? IfcProtectiveDeviceTypeEnum.RESIDUALCURRENTCIRCUITBREAKER : IfcProtectiveDeviceTypeEnum.CIRCUITBREAKER;
+                            each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                            {
+                                placement.PlacementRelTo = boardProduct.ObjectPlacement;
+                                placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(0, 0, 0));
+                            });
+                        });
+                        Contain(board, device);
+                        WriteSet(device, "Pset_ElectricalDeviceCommon", new Dictionary<string, IfcValue?>
+                        {
+                            ["RatedCurrent"] = new IfcElectricCurrentMeasure(design.Breaker),
+                            ["RatedVoltage"] = new IfcElectricVoltageMeasure(design.Voltage)
+                        });
+                        members.Add(device);
+                    }
+                }
 
                 if (members.Count > 0)
                     New<IfcRelAssignsToGroup>(relation =>
@@ -179,7 +283,7 @@ public static partial class IfcExport
             }
 
             // Each consumer unit's circuits make up its power system.
-            foreach (var board in systems.Where(system => system.Kind == SystemKind.Power && system.SourceId is not null).GroupBy(system => system.SourceId!.Value))
+            foreach (var board in systems.Where(system => system.Kind == SystemKind.Power && MepSystems.SourceOf(_document, system) is not null).GroupBy(system => system.SourceId!.Value))
             {
                 var circuits = board.Select(circuit => groups[systems.IndexOf(circuit)]).ToList();
                 var name = _document.Find<Component>(board.Key) is { } unit ? _document.FindType<ComponentType>(unit.TypeId)?.Name ?? "Consumer unit" : "Consumer unit";
@@ -369,6 +473,7 @@ public static partial class IfcExport
             SystemKind.ExtractAir => IfcDistributionSystemEnum.EXHAUST,
             SystemKind.SupplyAir or SystemKind.OutsideAir => IfcDistributionSystemEnum.VENTILATION,
             SystemKind.Power => IfcDistributionSystemEnum.ELECTRICAL,
+            SystemKind.Switching => IfcDistributionSystemEnum.CONTROL,
             _ => IfcDistributionSystemEnum.SIGNAL
         };
     }

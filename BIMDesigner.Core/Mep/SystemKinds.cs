@@ -39,7 +39,10 @@ public enum SystemKind
     SupplyAir,
 
     /// <summary>The air a heat recovery unit draws in from outside and lets out again, through its terminals on the outside wall or roof.</summary>
-    OutsideAir
+    OutsideAir,
+
+    /// <summary>Lights and the switches that turn them on and off - two or more switches for two-way switching, at the top and foot of a stair.</summary>
+    Switching
 }
 
 /// <summary>What a connection is made with: a pipe, a duct, or a cable.</summary>
@@ -89,6 +92,7 @@ public static class SystemKinds
         SystemKind.Power => "Power",
         SystemKind.SupplyAir => "Supply Air",
         SystemKind.OutsideAir => "Outside Air",
+        SystemKind.Switching => "Switching",
         _ => "Fire Alarm"
     };
 
@@ -113,7 +117,7 @@ public static class SystemKinds
     public static ConnectorDomain Domain(this SystemKind kind) => kind switch
     {
         SystemKind.ExtractAir or SystemKind.SupplyAir or SystemKind.OutsideAir => ConnectorDomain.Duct,
-        SystemKind.Power or SystemKind.FireAlarm => ConnectorDomain.Electrical,
+        SystemKind.Power or SystemKind.FireAlarm or SystemKind.Switching => ConnectorDomain.Electrical,
         _ => ConnectorDomain.Pipe
     };
 
@@ -156,6 +160,7 @@ public static class SystemKinds
         SystemKind.SupplyAir => new ColourRgb(0x3C, 0xA8, 0xD8),
         SystemKind.OutsideAir => new ColourRgb(0x6F, 0x9E, 0x55),
         SystemKind.Power => new ColourRgb(0xD0, 0x36, 0x8F),
+        SystemKind.Switching => new ColourRgb(0xE8, 0x9A, 0x1C),
         _ => new ColourRgb(0xE0, 0x1F, 0x1F)
     };
 
@@ -169,5 +174,14 @@ public static class SystemKinds
         CircuitUse.RingFinal => "Ring Final",
         CircuitUse.ImmersionHeater => "Immersion Heater",
         _ => use.ToString()
+    };
+
+    /// <summary>A circuit's use as the US has it: a range rather than a cooker, receptacles rather than a radial, a water heater.</summary>
+    public static string Title(this CircuitUse use, bool us) => !us ? use.Title() : use switch
+    {
+        CircuitUse.Radial or CircuitUse.RingFinal => "Receptacles",
+        CircuitUse.Cooker => "Range",
+        CircuitUse.ImmersionHeater => "Water Heater",
+        _ => use.Title()
     };
 }

@@ -86,6 +86,15 @@ public static class Connectors
                     Pipe("Waste", SystemKind.Foul, ConnectorFlow.Out, 40, -halfW + 200, 0, 40, Down)
                 };
 
+            case ComponentForm.Shower when type.Load > 0:
+                // An electric shower heats its own water: the cold main and its own circuit to it, at about 1.5 m.
+                return new[]
+                {
+                    Pipe("Cold Supply", SystemKind.ColdWater, ConnectorFlow.In, 15, 0, -halfD, 1500, Back),
+                    Cable("Power", 60, -halfD, 1600, Back),
+                    Pipe("Waste", SystemKind.Foul, ConnectorFlow.Out, 40, 0, 0, 0, Down)
+                };
+
             case ComponentForm.Shower:
                 // The mixer on the wall behind, at about a metre; the waste in the middle of the tray.
                 return new[]
@@ -251,12 +260,24 @@ public static class Connectors
 
             case ComponentForm.Socket:
             case ComponentForm.ShaverSocket:
-            case ComponentForm.Switch:
-            case ComponentForm.WallLight:
                 return new[] { Cable("Power", 0, -halfD, h / 2, Back) };
 
+            // A switch on its lighting circuit, and the switch wire to the lights it turns on; a light on
+            // its circuit and on what switches it.
+            case ComponentForm.Switch:
+            case ComponentForm.WallLight:
+                return new[]
+                {
+                    Cable("Power", 0, -halfD, h / 2, Back),
+                    new Connector("Switch Wire", SystemKind.Switching, ConnectorFlow.Both, 0, 0, -halfD, h / 2) { Points = Back }
+                };
+
             case ComponentForm.CeilingLight:
-                return new[] { Cable("Power", 0, 0, h, Up) };
+                return new[]
+                {
+                    Cable("Power", 0, 0, h, Up),
+                    new Connector("Switch Wire", SystemKind.Switching, ConnectorFlow.Both, 0, 0, 0, h) { Points = Up }
+                };
 
             case ComponentForm.ExtractFan:
             {

@@ -109,14 +109,20 @@ public partial class MainWindow
             return;
         }
 
-        _history.Execute(new AddElementCommand(_document, system, $"Make {system.Name}"));
+        // Pipes and ducts already drawn to its fittings go on it with them.
+        var (pipes, ducts) = MepSystems.Strays(_document, system);
+        var make = new AddElementCommand(_document, system, $"Make {system.Name}");
+        _history.Execute(pipes.Count + ducts.Count == 0
+            ? make
+            : new CompositeCommand($"Make {system.Name}", new IUndoableCommand[] { make, new SetPipeSystemCommand(pipes, system.Id), new SetDuctSystemCommand(ducts, system.Id) }));
         Plan.Select(system);
         RefreshProperties();
         var members = MepSystems.MembersOf(_document, system).Count;
         var fed = MepSystems.SourceOf(_document, system) is { } source
             ? $", fed by {MepSystems.Describe(_document, source)}"
             : kind.Fed() is { } feeds ? $" - nothing feeds it yet: Pick Source and click {feeds}" : string.Empty;
-        StatusHint.Text = $"{system.Name} made of {members} fitting{(members == 1 ? string.Empty : "s")}{fed}. Edit System clicks more on.";
+        var runs = pipes.Count > 0 ? $", with the {pipes.Count} pipe{(pipes.Count == 1 ? string.Empty : "s")} drawn to them" : ducts.Count > 0 ? $", with the {ducts.Count} duct{(ducts.Count == 1 ? string.Empty : "s")} drawn to them" : string.Empty;
+        StatusHint.Text = $"{system.Name} made of {members} fitting{(members == 1 ? string.Empty : "s")}{runs}{fed}. Edit System clicks more on.";
     }
 
     private const string PipeSizeFromFitting = "As the fitting";
@@ -248,6 +254,89 @@ public partial class MainWindow
         if (IsLoaded) _heatLossWindow.Owner = this;
         _heatLossWindow.Show();
         return _heatLossWindow;
+    }
+
+    private void OnCutOpenings(object sender, RoutedEventArgs e) => StatusHint.Text = CutOpenings();
+
+    /// <summary>Cuts an opening wherever a pipe or duct passes through a wall or floor with none, as one step to undo, and says what it did.</summary>
+    internal string CutOpenings()
+    {
+        var openings = Penetrations.Openings(_document);
+        if (openings.Count == 0)
+            return Penetrations.All(_document).Count == 0
+                ? "No pipe or duct passes through a wall or a floor."
+                : "Every pipe and duct passing through a wall or a floor has its opening already.";
+        _history.Execute(new AddElementsCommand(_document, openings, "Cut Openings"));
+        var walls = openings.OfType<WallOpening>().Count();
+        var floors = openings.Count - walls;
+        return $"{openings.Count} opening{(openings.Count == 1 ? string.Empty : "s")} cut for the services - {walls} through walls, {floors} through floors - " +
+               $"each its pipe or duct and {Penetrations.Gap:0} mm round it for fire-stopping.";
+    }
+
+    private ElectricalWindow? _electricalWindow;
+
+    private void OnElectrical(object sender, RoutedEventArgs e) => OpenElectrical();
+
+    /// <summary>The Electrical window: each board's supply and demand, its circuits' breakers and cables, and each room's light.</summary>
+    internal ElectricalWindow OpenElectrical()
+    {
+        if (_electricalWindow is { IsLoaded: true })
+        {
+            _electricalWindow.Activate();
+            return _electricalWindow;
+        }
+
+        _electricalWindow = new ElectricalWindow(this);
+        if (IsLoaded) _electricalWindow.Owner = this;
+        _electricalWindow.Show();
+        return _electricalWindow;
+    }
+
+    private void OnSizeCircuits(object sender, RoutedEventArgs e) => StatusHint.Text = SizeCircuits();
+
+    /// <summary>Gives the circuits selected - or every circuit - the breaker and cable their use and run ask, as one step to undo, and says what it did.</summary>
+    internal string SizeCircuits()
+    {
+        var picked = Plan.SelectedElements.OfType<MepSystem>().Where(system => system.Kind == SystemKind.Power).ToList();
+        var sized = Circuits.Sized(_document, picked.Count > 0 ? picked : Circuits.Of(_document));
+        if (sized.Count == 0)
+            return Circuits.Of(_document).Count == 0
+                ? "There are no circuits yet: select fittings with the consumer unit and Make System."
+                : "Every circuit has the breaker and cable Size Circuits chooses already.";
+        _history.Execute(new SetCircuitsCommand(sized));
+        var left = Circuits.Of(_document).Select(circuit => Circuits.Design(_document, circuit)).OfType<CircuitDesign>().Count(design => Circuits.Faults(_document, design).Count > 0);
+        return $"{sized.Count} circuit{(sized.Count == 1 ? string.Empty : "s")} given the breaker and cable {(sized.Count == 1 ? "its" : "their")} use and run ask" +
+               (left > 0 ? $"; {left} still wanting - a shorter run, another way of installing it, or splitting it." : ".");
+    }
+
+    /// <summary>Light Data: a maker's IES or EULUMDAT file loaded into the type of the light selected.</summary>
+    private void OnPhotometricFile(object sender, RoutedEventArgs e)
+    {
+        var light = Plan.SelectedElements.OfType<Component>().FirstOrDefault(component => _document.FindType<ComponentType>(component.TypeId)?.Kind == BuiltInCategory.LightingFixtures);
+        if (light is null || _document.FindType<ComponentType>(light.TypeId) is not { } type)
+        {
+            StatusHint.Text = "Select a light first: its maker's photometric file is loaded into its type, for every light of the type.";
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = $"Light Data for {type.Name}", Filter = "Photometric files (*.ies;*.ldt)|*.ies;*.ldt|All files (*.*)|*.*" };
+        if (dialog.ShowDialog(this) != true) return;
+        StatusHint.Text = LoadLightData(type, dialog.FileName);
+    }
+
+    /// <summary>Loads a photometric file into a light's type as one step to undo, and says what it read.</summary>
+    internal string LoadLightData(ComponentType type, string path)
+    {
+        try
+        {
+            var photometry = Photometry.Read(System.IO.File.ReadAllText(path), System.IO.Path.GetFileName(path));
+            _history.Execute(new SetPhotometryCommand(type, photometry));
+            return $"{type.Name}: {photometry.Describe()}. Each room's light now takes its lumens, and its direct light point by point.";
+        }
+        catch (Exception exception) when (exception is FormatException or InvalidOperationException or IndexOutOfRangeException or ArgumentException or System.IO.IOException)
+        {
+            return $"{System.IO.Path.GetFileName(path)} could not be read as an IES or EULUMDAT file: {exception.Message}";
+        }
     }
 
     private void OnSizeRadiators(object sender, RoutedEventArgs e) => StatusHint.Text = SizeRadiators();

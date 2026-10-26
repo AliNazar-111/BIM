@@ -451,10 +451,15 @@ public static class RoomBoundary
             var current = lines[i];
             var next = lines[(i + 1) % lines.Count];
 
-            // Parallel neighbours have no corner; the shared endpoint stands in for one.
-            polygon.Add(Line2D.TryIntersect(current, next, out var corner)
-                ? corner
-                : loop[(i + 1) % loop.Count].From);
+            // Parallel neighbours - a side cut where a wall tees into it from beyond - have no
+            // corner: the shared node, carried onto the face the side goes on along.
+            if (Line2D.TryIntersect(current, next, out var corner)) polygon.Add(corner);
+            else
+            {
+                var node = loop[(i + 1) % loop.Count].From;
+                var direction = next.Direction.NormalisedOrDefault(Vector2D.UnitX);
+                polygon.Add(next.Origin + direction * (node - next.Origin).Dot(direction));
+            }
         }
 
         return polygon;

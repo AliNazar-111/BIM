@@ -183,6 +183,23 @@ public class RoomBoundaryTests
     }
 
     [Fact]
+    public void AWallTeedIntoFromTheOtherSideLeavesTheRoomsFaceStraight()
+    {
+        var (document, type, levelId) = Project();
+        AddRectangle(document, type, levelId, 6000, 6000);
+        AddWall(document, type, levelId, new Point2D(0, 3000), new Point2D(6000, 3000));
+
+        // A partition north of the cross wall, landing on it: the south room's side along it is cut there, but runs straight on.
+        AddWall(document, type, levelId, new Point2D(3000, 3000), new Point2D(3000, 6000));
+
+        var south = RoomBoundary.Trace(document, levelId, new Point2D(3000, 1500));
+
+        Assert.True(south.IsEnclosed);
+        Assert.Equal(5800d * 2800, south.Area, precision: 3);
+        Assert.All(south.Polygon, corner => Assert.True(corner.Y <= 2900 + 1e-6));
+    }
+
+    [Fact]
     public void AnLShapedRoomIsTracedRoundItsCorner()
     {
         var (document, type, levelId) = Project();

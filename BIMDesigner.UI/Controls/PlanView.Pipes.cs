@@ -97,10 +97,10 @@ public partial class PlanView
         return new PipeTarget(Point3D.On(raw, height), null, null, null, null);
     }
 
-    /// <summary>The system of a kind a fitting is on or feeds - or a pipe's.</summary>
+    /// <summary>The system of a kind a fitting is on or feeds - or a pipe's. Equipment feeding several - a boiler's zones - says none: the run's other end tells which.</summary>
     private MepSystem? SystemAt(PipeTarget target, SystemKind kind) =>
         target.Fitting is { } fitting
-            ? MepSystems.MemberOf(Document!, fitting, kind) ?? MepSystems.FedBy(Document!, fitting, kind).FirstOrDefault()
+            ? MepSystems.MemberOf(Document!, fitting, kind) ?? (MepSystems.FedBy(Document!, fitting, kind) is { Count: 1 } fed ? fed[0] : null)
             : Document!.Find<MepSystem>((target.End ?? target.Along)?.SystemId);
 
     private static SystemKind? KindOf(PipeTarget target) => target.Connector?.Kind ?? (target.End ?? target.Along)?.Kind;
@@ -150,7 +150,7 @@ public partial class PlanView
             var run = TypeFor(type, _pipeKind, root ? level.Elevation + NewPipeOffset : target.At.Z);
             _pipeTypeId = run.Id;
             var from = target.Connector?.Size ?? (target.End ?? target.Along)?.Diameter ?? 15;
-            _pipeSize = NewPipeDiameter > 0 && run.Id == type.Id ? NewPipeDiameter : PipeSizes.Nearest(run.Material, (target.End ?? target.Along) is { } pipe ? Drainage.Bore(Document, pipe) : from).Outside;
+            _pipeSize = NewPipeDiameter > 0 && run.Id == type.Id ? NewPipeDiameter : PipeSizes.Nearest(run.Material, (target.End ?? target.Along) is { } pipe ? pipe.Diameter : from).Outside;
             _pipeFromFitting = target.Fitting is not null && !root;
             _pipeStartFitting = target.Fitting;
             _pipeHeight = root ? level.Elevation + NewPipeOffset

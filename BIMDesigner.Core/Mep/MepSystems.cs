@@ -143,10 +143,14 @@ public static class MepSystems
             source = only[0];
         system.SourceId = source?.Id;
         system.Use = UseOf(document, kind, members);
+
+        // In the US a circuit is given a GFCI and an AFCI where the NEC asks them, not everywhere.
+        if (kind == SystemKind.Power && document.ProjectInformation.ClearanceStandard.IsUs())
+            (system.Rcd, system.ArcFault) = Circuits.UsProtection(document, system);
         return (system, null);
     }
 
-    /// <summary>What a new circuit is for, by what is on it: lights and switches the lighting, sockets a ring, the cooker its own.</summary>
+    /// <summary>What a new circuit is for, by what is on it: lights and switches the lighting - the alarms with them - sockets a ring, the cooker and the shower their own.</summary>
     public static CircuitUse UseOf(BimDocument document, SystemKind kind, IReadOnlyList<Component> members)
     {
         if (kind != SystemKind.Power || members.Count == 0) return CircuitUse.Other;
@@ -154,12 +158,60 @@ public static class MepSystems
         bool Only(params ComponentForm[] allowed) => forms.All(form => form is { } f && allowed.Contains(f));
 
         if (Only(ComponentForm.CeilingLight, ComponentForm.WallLight, ComponentForm.Switch, ComponentForm.ExtractFan)) return CircuitUse.Lighting;
+        if (forms.Any(form => form is ComponentForm.CeilingLight or ComponentForm.WallLight)
+            && Only(ComponentForm.CeilingLight, ComponentForm.WallLight, ComponentForm.Switch, ComponentForm.ExtractFan, ComponentForm.SmokeAlarm, ComponentForm.HeatAlarm, ComponentForm.CarbonMonoxideAlarm))
+            return CircuitUse.Lighting;
         if (Only(ComponentForm.Socket, ComponentForm.ShaverSocket)) return CircuitUse.RingFinal;
         if (Only(ComponentForm.Cooker, ComponentForm.OvenHousing, ComponentForm.CookerHood)) return CircuitUse.Cooker;
+        if (Only(ComponentForm.Shower)) return CircuitUse.Shower;
         if (Only(ComponentForm.SmokeAlarm, ComponentForm.HeatAlarm, ComponentForm.CarbonMonoxideAlarm)) return CircuitUse.Alarms;
         if (Only(ComponentForm.Boiler, ComponentForm.Thermostat)) return CircuitUse.Heating;
         if (Only(ComponentForm.HotWaterCylinder)) return CircuitUse.ImmersionHeater;
         return CircuitUse.Other;
+    }
+
+    /// <summary>
+    /// The pipes or ducts of a system's kind on no system that join it: drawn to or from its fittings
+    /// before it was made, end to end from their connectors or from its own runs - those to be put on
+    /// it when it is made or a fitting is put on it. Fittings to be put on it may be named as well.
+    /// </summary>
+    public static (IReadOnlyList<Pipe> Pipes, IReadOnlyList<Duct> Ducts) Strays(BimDocument document, MepSystem system, params Component[] also)
+    {
+        var domain = system.Kind.Domain();
+        if (domain is not (ConnectorDomain.Pipe or ConnectorDomain.Duct)) return (Array.Empty<Pipe>(), Array.Empty<Duct>());
+        var touch = domain == ConnectorDomain.Pipe ? PipeNetworks.Touch : DuctNetworks.Touch;
+
+        var runs = domain == ConnectorDomain.Pipe
+            ? document.All<Pipe>().Where(pipe => pipe.Kind == system.Kind).Select(pipe => (Run: (Element)pipe, pipe.SystemId, Ends: pipe.Ends(document))).ToList()
+            : document.All<Duct>().Where(duct => duct.Kind == system.Kind).Select(duct => (Run: (Element)duct, duct.SystemId, Ends: duct.Ends(document))).ToList();
+        var fittings = MembersOf(document, system).Concat(also);
+        if (SourceOf(document, system) is { } source) fittings = fittings.Append(source);
+        var reached = fittings.SelectMany(fitting => Connectors.Placed(document, fitting))
+            .Where(placed => placed.Connector.Kind == system.Kind && placed.Connector.Domain == domain).Select(placed => placed.At)
+            .Concat(runs.Where(run => run.SystemId == system.Id).SelectMany(run => new[] { run.Ends.Start, run.Ends.End }))
+            .ToList();
+
+        // Out from what is on it, run by run, each loose one touching what is reached at an end.
+        static double Apart(Geometry.Point3D a, Geometry.Point3D b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2) + Math.Pow(a.Z - b.Z, 2));
+        var loose = runs.Where(run => run.SystemId is null).ToList();
+        var taken = new List<Element>();
+        var frontier = reached;
+        while (frontier.Count > 0 && loose.Count > 0)
+        {
+            var next = new List<Geometry.Point3D>();
+            foreach (var run in loose.ToList())
+            {
+                if (!frontier.Any(point => Apart(point, run.Ends.Start) <= touch || Apart(point, run.Ends.End) <= touch)) continue;
+                loose.Remove(run);
+                taken.Add(run.Run);
+                next.Add(run.Ends.Start);
+                next.Add(run.Ends.End);
+            }
+
+            frontier = next;
+        }
+
+        return (taken.OfType<Pipe>().ToList(), taken.OfType<Duct>().ToList());
     }
 
     /// <summary>The rooms a system's fittings are in, in the order they come.</summary>
@@ -198,7 +250,10 @@ public static class MepSystems
         document.All<Component>().Where(component => document.FindType<ComponentType>(component.TypeId)?.Form is ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm).ToList();
 
     /// <summary>What is wanting in the services, fitting by fitting and system by system, with the rules asking for it.</summary>
-    public static IReadOnlyList<MepProblem> Problems(BimDocument document)
+    public static IReadOnlyList<MepProblem> Problems(BimDocument document) =>
+        ModelCache.Of(document) is { } kept ? kept.Keep("services problems", document, null, null, () => Work(document)) : Work(document);
+
+    private static IReadOnlyList<MepProblem> Work(BimDocument document)
     {
         var problems = new List<MepProblem>();
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
@@ -248,6 +303,12 @@ public static class MepSystems
         problems.AddRange(Heating.Problems(document));
         problems.AddRange(Ventilation.Problems(document));
         problems.AddRange(DuctNetworks.Problems(document));
+        problems.AddRange(Circuits.Problems(document));
+        problems.AddRange(Lighting.Problems(document));
+        problems.AddRange(AlarmSiting.Problems(document));
+        problems.AddRange(Penetrations.Problems(document));
+        problems.AddRange(Notching.Problems(document));
+        problems.AddRange(ServiceClearances.Problems(document));
         return problems;
     }
 
@@ -279,6 +340,10 @@ public static class MepSystems
                 ? "not interconnected - IRC R314.4 interconnects the smoke alarms of a dwelling so that one sounding sounds them all"
                 : "not linked to the others - BS 5839-6, which Approved Document B (1.1) follows, links the alarms so that one sounding sounds them all",
             SystemKind.Heating when type.Form == ComponentForm.Thermostat => "it controls no heating zone",
+            SystemKind.Switching when type.Form == ComponentForm.Switch => "it switches no lights - select it with the lights it turns on and make a switching system",
+            SystemKind.Switching => us
+                ? "no wall switch controls it - NEC 210.70 asks for lighting outlets controlled by a listed wall-mounted control"
+                : "no switch controls it - select it with its switch and make a switching system",
             SystemKind.Power => "not on a circuit",
             _ => $"not on {("aeiou".Contains(what[0]) ? "an" : "a")} {what} system"
         };

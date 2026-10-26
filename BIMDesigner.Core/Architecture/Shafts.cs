@@ -55,6 +55,9 @@ public sealed class ShaftOpening : Element
     /// <summary>How tall it is when its top is not held to a level, mm.</summary>
     public double UnconnectedHeight { get; set; } = 3000;
 
+    /// <summary>Whether it is cut for pipes or ducts to pass through a floor - builder's work for the services.</summary>
+    public bool ForServices { get; set; }
+
     public double BaseElevation(BimDocument document) => (document.FindLevel(LevelId)?.Elevation ?? 0) + BaseOffset;
 
     public double TopElevation(BimDocument document) =>

@@ -168,7 +168,10 @@ public static class Ventilation
     /// by their volumes; continuously the valves run at the whole dwelling rate, at the high rate at the wet
     /// rooms' rates, balanced. A continuous fan runs at its continuous rate and boosts to its extract rate.
     /// </summary>
-    public static IReadOnlyList<RoomAir> Rooms(BimDocument document)
+    public static IReadOnlyList<RoomAir> Rooms(BimDocument document) =>
+        ModelCache.Of(document) is { } kept ? kept.Keep("room air", document, null, null, () => Work(document)) : Work(document);
+
+    private static IReadOnlyList<RoomAir> Work(BimDocument document)
     {
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var pieces = document.All<Component>()
@@ -265,7 +268,9 @@ public static class Ventilation
             foreach (var unit in Units(document))
             {
                 if (document.FindType<ComponentType>(unit.TypeId) is not { } unitType) continue;
-                var high = Math.Max(rooms.Sum(room => room.ExtractHigh), rooms.Sum(room => room.SupplyHigh));
+                // What the unit draws through its valves - not what fans in the same rooms take.
+                double Fans(RoomAir room) => room.Fans.Sum(fan => document.FindType<ComponentType>(fan.TypeId) is { } fanType ? Math.Max(fanType.ExtractRate, fanType.ContinuousRate) : 0);
+                var high = Math.Max(rooms.Where(room => room.Extracts.Count > 0).Sum(room => Math.Max(0, room.ExtractHigh - Fans(room))), rooms.Sum(room => room.SupplyHigh));
                 if (unitType.Airflow > 0 && unitType.Airflow < high - 0.05)
                     yield return new MepProblem(unit, $"it moves {unitType.Airflow:0} l/s at most - its rooms want {high:0} l/s at the high rate");
                 if (rooms.Sum(room => room.Supplies.Count) == 0) continue;

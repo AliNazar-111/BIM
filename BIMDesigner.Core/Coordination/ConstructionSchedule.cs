@@ -149,6 +149,7 @@ public static class ConstructionPlanning
         ["Ceilings (m²)"] = 30,
         ["Railings (m)"] = 15,
         ["Fittings and services (nr)"] = 8,
+        ["Pipes and ducts (m)"] = 25,
         ["External works (nr)"] = 4,
         ["Demolition (m²)"] = 30
     };
@@ -361,11 +362,19 @@ public static class ConstructionPlanning
 
     private sealed record Trade(string Name, string Output, BuiltInCategory[] Categories, WallSide Walls = WallSide.Any);
 
+    /// <summary>The services' first fix: the pipes and ducts run before the ceilings close them in.</summary>
+    private static readonly BuiltInCategory[] FirstFix = { BuiltInCategory.Pipes, BuiltInCategory.Ducts };
+
+    /// <summary>The services' second fix: the fittings, equipment and terminals put on after the ceilings.</summary>
+    private static readonly BuiltInCategory[] SecondFix =
+    {
+        BuiltInCategory.PlumbingFixtures, BuiltInCategory.MechanicalEquipment, BuiltInCategory.ElectricalEquipment, BuiltInCategory.ElectricalFixtures,
+        BuiltInCategory.LightingFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.FireAlarmDevices, BuiltInCategory.AirTerminals
+    };
+
     private static readonly BuiltInCategory[] Fittings =
     {
-        BuiltInCategory.Furniture, BuiltInCategory.Casework, BuiltInCategory.PlumbingFixtures, BuiltInCategory.SpecialtyEquipment,
-        BuiltInCategory.MechanicalEquipment, BuiltInCategory.ElectricalEquipment, BuiltInCategory.ElectricalFixtures, BuiltInCategory.LightingFixtures,
-        BuiltInCategory.LightingDevices, BuiltInCategory.FireAlarmDevices, BuiltInCategory.GenericModels, BuiltInCategory.Ducts, BuiltInCategory.Pipes
+        BuiltInCategory.Furniture, BuiltInCategory.Casework, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.GenericModels
     };
 
     /// <summary>How much of an element a trade measures it by: its area, its length, or one.</summary>
@@ -472,9 +481,14 @@ public static class ConstructionPlanning
             var inside = Add($"{name} - Internal walls and partitions", "Internal walls (m²)", new[] { BuiltInCategory.Walls }, level, WallSide.Interior, new[] { weathertight });
             var stairs = Add($"{name} - Stairs and ramps", "Stairs and ramps (nr)", new[] { BuiltInCategory.Stairs, BuiltInCategory.Ramps }, level, WallSide.Any, new[] { weathertight });
             var doors = Add($"{name} - Internal doors", "Windows and doors (nr)", new[] { BuiltInCategory.Doors }, level, WallSide.Interior, new[] { inside ?? weathertight });
-            var ceilings = Add($"{name} - Ceilings", "Ceilings (m²)", new[] { BuiltInCategory.Ceilings }, level, WallSide.Any, new[] { inside ?? weathertight });
+            var firstFix = Add($"{name} - Services first fix", "Pipes and ducts (m)", FirstFix, level, WallSide.Any, new[] { inside ?? weathertight });
+            var ceilings = Add($"{name} - Ceilings", "Ceilings (m²)", new[] { BuiltInCategory.Ceilings }, level, WallSide.Any, new[] { firstFix ?? inside ?? weathertight });
             var railings = Add($"{name} - Railings", "Railings (m)", new[] { BuiltInCategory.Railings }, level, WallSide.Any, new[] { stairs ?? weathertight });
-            fitOut.Add(Add($"{name} - Fittings, furniture and services", "Fittings and services (nr)", Fittings, level, WallSide.Any, new[] { ceilings ?? inside ?? weathertight, doors }));
+            var secondFix = Add($"{name} - Services second fix", "Fittings and services (nr)", SecondFix, level, WallSide.Any,
+                new[] { ceilings ?? firstFix ?? inside ?? weathertight, doors });
+            fitOut.Add(secondFix);
+            fitOut.Add(Add($"{name} - Fittings and furniture", "Fittings and services (nr)", Fittings, level, WallSide.Any,
+                new[] { secondFix ?? ceilings ?? inside ?? weathertight, doors }));
             _ = railings;
         }
 

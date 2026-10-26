@@ -3,6 +3,7 @@ using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Coordination;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
+using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Mep;
 using BIMDesigner.Core.Schedules;
@@ -232,6 +233,15 @@ public class PipesTests
         Assert.Null(((Pipe)ElementCopy.Duplicate(document, new[] { main }).Single()).SystemId);
         var both = ElementCopy.Duplicate(document, new Core.Elements.Element[] { main, cold });
         Assert.Equal(both.OfType<MepSystem>().Single().Id, both.OfType<Pipe>().Single().SystemId);
+
+        // The copied system a system of its own, named the next of its kind.
+        Assert.Equal("Cold Water 2", both.OfType<MepSystem>().Single().Name);
+
+        // A pipe's and a system's phase and workset kept through a save.
+        (main.PhaseCreated, main.Workset, cold.Workset) = (DesignPhase.Existing, "Services", "Services");
+        reopened = ProjectFile.FromJson(ProjectFile.ToJson(document));
+        Assert.Equal((DesignPhase.Existing, "Services"), (reopened.Find<Pipe>(main.Id)!.PhaseCreated, reopened.Find<Pipe>(main.Id)!.Workset));
+        Assert.Equal("Services", reopened.Find<MepSystem>(cold.Id)!.Workset);
     }
 
     [Fact]
@@ -242,7 +252,15 @@ public class PipesTests
         var segments = model.Instances.OfType<IIfcPipeSegment>().ToList();
         Assert.Equal(3, segments.Count);
         var grouped = model.Instances.OfType<IIfcRelAssignsToGroup>().Single(relation => relation.RelatingGroup.Name == cold.Name).RelatedObjects;
-        Assert.Equal(5, grouped.Count());
+        Assert.Equal(6, grouped.Count());
+
+        // The tee a junction fitting with a port for each pipe there; no port joined to more than one other.
+        var tee = model.Instances.OfType<IIfcPipeFitting>().Single();
+        Assert.Equal(IfcPipeFittingTypeEnum.JUNCTION, tee.PredefinedType);
+        Assert.Contains(tee, grouped);
+        Assert.Equal(3, model.Instances.OfType<IIfcRelNests>().Single(relation => relation.RelatingObject == tee).RelatedObjects.Count());
+        var connections = model.Instances.OfType<IIfcRelConnectsPorts>().ToList();
+        Assert.All(connections.SelectMany(relation => new[] { relation.RelatingPort, relation.RelatedPort }).GroupBy(port => port.EntityLabel), group => Assert.Single(group));
 
         // The basin's cold supply port joined to its branch's end.
         var basinProduct = model.Instances.OfType<IIfcSanitaryTerminal>().Single(terminal => terminal.GlobalId.ToString() == Xbim.Ifc4.UtilityResource.IfcGloballyUniqueId.ConvertToBase64(basin.Id).ToString());
@@ -251,6 +269,62 @@ public class PipesTests
         Assert.Contains(model.Instances.OfType<IIfcRelConnectsPorts>(), relation => relation.RelatingPort == coldPort || relation.RelatedPort == coldPort);
         Assert.True(model.Instances.OfType<IIfcRelConnectsPorts>().Count() >= 6);
         _ = (main, toBasin, basin);
+    }
+
+    [Fact]
+    public void PipesDrawnBeforeTheirSystemGoOnItAndASplitPipeKeepsWhatItIs()
+    {
+        var document = BimDocument.CreateDefault();
+        var valve = Put(document, "Stop Valve - Incoming Main", 0, 0);
+        var basin = Put(document, "Basin - Pedestal", 3000, 2000);
+        var start = ConnectorOf(document, valve, SystemKind.ColdWater);
+        var tap = ConnectorOf(document, basin, SystemKind.ColdWater);
+        var corner = new Point3D(tap.X, start.Y, tap.Z);
+        Pipe Loose(Point3D from, Point3D to, SystemKind kind = SystemKind.ColdWater)
+        {
+            var pipe = new Pipe
+            {
+                TypeId = document.TypesOf<PipeType>().First(type => type.Material == PipeMaterial.Copper).Id, LevelId = document.Levels[0].Id,
+                Start = new Point2D(from.X, from.Y), End = new Point2D(to.X, to.Y), StartOffset = from.Z, EndOffset = to.Z, Diameter = 15, Kind = kind
+            };
+            document.Add(pipe);
+            return pipe;
+        }
+
+        var rise = Loose(start, new Point3D(start.X, start.Y, tap.Z));
+        var along = Loose(new Point3D(start.X, start.Y, tap.Z), corner);
+        var into = Loose(corner, tap);
+        var away = Loose(new Point3D(9000, 9000, 300), new Point3D(9500, 9000, 300));
+        var hotTap = ConnectorOf(document, basin, SystemKind.HotWater);
+        var hot = Loose(hotTap, hotTap with { X = hotTap.X + 500 }, SystemKind.HotWater);
+
+        // Made of the valve and the basin: the cold pipes drawn between them are its, the loose one and the hot one not.
+        var cold = Make(document, SystemKind.ColdWater, valve, basin);
+        var (pipes, ducts) = MepSystems.Strays(document, cold);
+        Assert.Equal(new[] { rise.Id, along.Id, into.Id }.Order(), pipes.Select(pipe => pipe.Id).Order());
+        Assert.Empty(ducts);
+        new SetPipeSystemCommand(pipes, cold.Id).Redo();
+        Assert.Null(away.SystemId);
+        Assert.Null(hot.SystemId);
+        Assert.Empty(PipeNetworks.Trace(document, cold).NotPiped);
+
+        // With nothing feeding it, a fitting its pipes meet is not said to want a pipe.
+        cold.SourceId = null;
+        Assert.Empty(PipeNetworks.Trace(document, cold).NotPiped);
+        document.Remove(into);
+        Assert.Equal(new[] { basin }, PipeNetworks.Trace(document, cold).NotPiped);
+        document.Add(into);
+        cold.SourceId = valve.Id;
+
+        // A pipe cut for a tee keeps its insulation and how it is sealed.
+        (along.Insulation, along.Seal, along.Comments) = (13, PipeSeal.Sleeved, "boxed in");
+        var split = new SplitPipeCommand(document, along, new Point2D(corner.X / 2, corner.Y));
+        split.Redo();
+        Assert.Equal((13.0, PipeSeal.Sleeved, "boxed in"), (split.Second.Insulation, split.Second.Seal, split.Second.Comments));
+
+        // A size its type does not come in - its type changed from copper to PE-X - is said.
+        into.TypeId = document.TypesOf<PipeType>().First(type => type.Material == PipeMaterial.PeX).Id;
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == into && problem.Text.StartsWith("15 mm is not a size"));
     }
 
     [Fact]

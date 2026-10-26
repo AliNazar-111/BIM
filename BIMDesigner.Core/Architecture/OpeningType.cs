@@ -232,7 +232,7 @@ public sealed class WindowType : OpeningType
     public WindowType Duplicate(string name) => WithCommonOf(WithOpeningOf(new WindowType(name, Width, Height)
     {
         Operation = Operation, GlazingType = GlazingType, GlazingRows = GlazingRows, GlazingColumns = GlazingColumns,
-        SolarHeatGainCoefficient = SolarHeatGainCoefficient, TrickleVent = TrickleVent,
+        SolarHeatGainCoefficient = SolarHeatGainCoefficient, LightTransmittance = LightTransmittance, TrickleVent = TrickleVent,
         Lights = Lights, LightPattern = LightPattern, TransomHeight = TransomHeight, Fanlight = Fanlight, MullionWidth = MullionWidth
     }));
 
@@ -252,6 +252,9 @@ public sealed class WindowType : OpeningType
 
     /// <summary>Solar heat gain coefficient, 0 to 1.</summary>
     public double SolarHeatGainCoefficient { get; set; } = 0.6;
+
+    /// <summary>The share of daylight its glazing lets through, 0 to 1 - its maker's figure; 0.7 is usual for double glazing with a low-emissivity coating.</summary>
+    public double LightTransmittance { get; set; } = 0.7;
 
     /// <summary>How many lights it has side by side, mullions between them; one is a window undivided.</summary>
     public int Lights { get; set; } = 1;
@@ -322,6 +325,12 @@ public sealed class WindowType : OpeningType
         yield return ParameterValue.Bind(WindowTypeParameters.GlazingType, () => GlazingType, v => GlazingType = v);
         yield return ParameterValue.Bind(WindowTypeParameters.SolarHeatGain,
             () => SolarHeatGainCoefficient, v => SolarHeatGainCoefficient = v);
+        yield return ParameterValue.BindValidated(WindowTypeParameters.LightTransmittance, () => LightTransmittance, v =>
+        {
+            if (v is < 0 or > 1) return false;
+            LightTransmittance = v;
+            return true;
+        });
         yield return ParameterValue.BindValidated(OpeningTypeParameters.TrickleVent, () => TrickleVent, v => { if (v < 0) return false; TrickleVent = v; return true; });
     }
 }
@@ -426,6 +435,9 @@ public static class WindowTypeParameters
 
     public static readonly ParameterDefinition SolarHeatGain =
         new("Solar Heat Gain (SHGC)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition LightTransmittance =
+        new("Light Transmittance", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition Lights =
         new("Lights Across", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Construction);

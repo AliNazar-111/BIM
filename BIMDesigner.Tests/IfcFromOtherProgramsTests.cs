@@ -207,4 +207,36 @@ public class IfcFromOtherProgramsTests
         Assert.Equal(0, back.Start.Y, 1);
         Assert.True(back.Flipped);
     }
+
+    [Fact]
+    public void AShortDuctPieceComesInTheWayItIsExtrudedAndASteepPipeKeepsItsSize()
+    {
+        using var ifc = new ForeignIfc();
+
+        // A piece of 300 x 100 duct 80 mm long, extruded along x: wider than it is long.
+        var piece = ifc.Extrusion(80, ifc.Axis(1000, 0, 2500, up: (1, 0, 0), forward: (0, 1, 0)), (-150, -50), (150, -50), (150, 50), (-150, 50));
+        ifc.Contained(ifc.New<Xbim.Ifc4.HvacDomain.IfcDuctSegment>(duct =>
+        {
+            duct.ObjectPlacement = ifc.Placed();
+            duct.Representation = ifc.Shape(piece);
+            duct.PredefinedType = IfcDuctSegmentTypeEnum.RIGIDSEGMENT;
+        }));
+
+        // A 22 mm pipe rising steeply, a fifth across for each metre up.
+        var round = Enumerable.Range(0, 16).Select(i => (11 * Math.Cos(i * Math.PI / 8), 11 * Math.Sin(i * Math.PI / 8))).ToArray();
+        var riser = ifc.Extrusion(2000, ifc.Axis(3000, 0, 0, up: (0.2, 0, 0.98), forward: (0, 1, 0)), round);
+        ifc.Contained(ifc.New<Xbim.Ifc4.HvacDomain.IfcPipeSegment>(pipe =>
+        {
+            pipe.ObjectPlacement = ifc.Placed();
+            pipe.Representation = ifc.Shape(riser);
+            pipe.PredefinedType = IfcPipeSegmentTypeEnum.RIGIDSEGMENT;
+        }));
+
+        var document = ifc.Read().Document;
+        var duct = Assert.Single(document.All<Core.Mep.Duct>());
+        Assert.Equal(80, duct.Length, 1);
+        Assert.Equal((300.0, 100.0), (Math.Round(duct.Width), Math.Round(duct.Height)));
+        var pipe = Assert.Single(document.All<Core.Mep.Pipe>());
+        Assert.Equal(22, pipe.Diameter, 0.5);
+    }
 }

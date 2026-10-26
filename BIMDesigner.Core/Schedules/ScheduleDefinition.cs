@@ -284,6 +284,17 @@ public sealed class ScheduleDefinition
                 GroupBy = "System"
             },
 
+        // The circuits, board by board: each one's use, breaker, cable and how it is installed, how long, what it is
+        // designed for and its cable carries, its voltage drop, and what is wanting.
+        new ScheduleDefinition("Board Schedule", BuiltInCategory.ElectricalCircuits,
+                "System Name", "Circuit Use", "Source", "Breaker (A)", "Cable", "Installation Method", "Cable Length (m)",
+                "Design Current (A)", "Cable Carries (A)", "Voltage Drop (%)", "Wanting")
+            {
+                SortBy = "System Name",
+                GroupBy = "Source",
+                Filters = { new ScheduleFilter("System Type", ScheduleOperator.Equals, "Power") }
+            },
+
         // The drains' access points and outfalls: each one's cover, the invert of the drain under it, and how deep.
         new ScheduleDefinition("Manhole Schedule", BuiltInCategory.Drainage,
                 "Mark", "Type Name", "Cover Level", "Invert Level", "Depth to Invert", "Cost")

@@ -346,12 +346,15 @@ public static class Drainage
             }
 
             if (us) continue;
+
+            // Openings into the building: windows and doors in its outside walls - not a door between rooms.
             foreach (var opening in document.Openings)
             {
                 if (document.Find<Wall>(opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type) continue;
+                if (document.GetWallType(wall)?.Function != WallFunction.Exterior && document.FindType<CurtainWallType>(wall.TypeId) is null) continue;
                 var centre = opening.GetCentre(wall);
                 var reach = Math.Max(0, centre.DistanceTo(stack.At) - opening.WidthOf(type) / 2);
-                var head = (document.FindLevel(opening.LevelId)?.Elevation ?? 0) + wall.BaseOffset + opening.SillHeight + type.Height;
+                var head = (document.FindLevel(opening.LevelId)?.Elevation ?? 0) + wall.BaseOffset + opening.SillHeight + opening.HeightOf(type);
                 if (reach < 3000 && stack.Top < head + 900)
                 {
                     yield return new MepProblem(stack.Pipes[0],
@@ -397,8 +400,10 @@ public static class Drainage
 
             var run = 0.0;
             Pipe? previous = null;
+            PipeLoad? final = null;
             for (Pipe? pipe = head; pipe is not null && drains.TryGetValue(pipe, out var here); previous = pipe, pipe = here.Toward)
             {
+                final = here;
                 // At the pipe's upstream end: a bend, a change of gradient or of size wants access there.
                 if (previous is not null)
                 {
@@ -422,6 +427,11 @@ public static class Drainage
 
                 run += pipe.Length;
             }
+
+            // The last length, to the chamber where the drain leaves - at the boundary, by the sewer.
+            if (previous is not null && final is not null && At(final.Near) is { } leaving && last is { } fromLast
+                && Spacing(fromLast, leaving) is { } furthest && run > furthest * 1000 + 1 && reported.Add(previous))
+                yield return new MepProblem(previous, $"{run / 1000:0.0} m of drain from {Name(fromLast)} to {Name(leaving)} - Approved Document H (Table 13) allows {furthest:0} m");
         }
     }
 

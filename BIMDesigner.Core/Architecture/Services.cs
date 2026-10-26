@@ -143,6 +143,12 @@ public static class Services
             problems.Add(new PlacementProblem(piece, $"its lamps give {type.Efficacy:0} lumens a watt.",
                 "Approved Document L (6.58) asks for lamps of at least 75 light source lumens per circuit-watt.", footprint));
 
+        // The IECC: high-efficacy light sources - lamps of 65 lumens a watt, or fittings of 45 (R404.1).
+        if (standard.IsUs() && type.Kind == BuiltInCategory.LightingFixtures && type.Efficacy > 0 && type.Efficacy < 65 - 0.05
+            && !(type.Lumens > 0 && Mep.Circuits.LoadOf(type) > 0 && type.Lumens / Mep.Circuits.LoadOf(type) >= 45 - 0.05))
+            problems.Add(new PlacementProblem(piece, $"its lamps give {type.Efficacy:0} lumens a watt.",
+                "The IECC (R404.1) asks for high-efficacy light sources in permanently installed fittings: lamps of 65 lumens a watt, or fittings of 45.", footprint));
+
         return problems;
     }
 
@@ -268,6 +274,9 @@ public static class Services
             if (!bathroom && !wc && ShortWallSpaces(document, room, boundary.Polygon, pieces) is > 0 and var spaces)
                 said.Add($"{spaces} wall {(spaces == 1 ? "space" : "spaces")} with a point more than 6 ft (1829) from a receptacle - NEC 210.52(A) asks for none");
         }
+
+        // The light its lights give, against what the room is lit to.
+        if (Mep.Lighting.Of(document, room) is { } light && Mep.Lighting.Describe(document, light) is { } lit) said.Add(lit);
 
         return said.Count == 0 ? null : $"Services: {string.Join("; ", said)}";
     }

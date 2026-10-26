@@ -1933,11 +1933,16 @@ public sealed class BimDocument
             new ComponentType("Shower - Level Access 1200 x 1200", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1200, 1200, 10)
                 { TypeMark = "P14", Colour = new ColourRgb(0xC8, 0xCC, 0xD0), Cost = 650m, FlowRate = 9, Description = "Wet-room former, laid to fall to its drain" },
 
+            // An electric shower over a tray: fed from the cold main, heating its own water on a circuit of
+            // its own - 9.5 kW gives about 4 litres a minute at a 35 K rise in winter.
+            new ComponentType("Shower - Electric 9.5 kW", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 1945)
+                { TypeMark = "P15", Colour = white, Cost = 690m, FlowRate = 4, Load = 9500, Enclosure = ShowerEnclosure.Corner, Description = "Electric shower over a corner enclosure" },
+
             // A wall light with its middle at 1700, as lights are put up - 1.6 to 1.8 m - and LED
             // lamps in all of them, past the 75 lumens a watt Approved Document L asks for.
             new ComponentType("Wall Light", BuiltInCategory.LightingFixtures, ComponentForm.WallLight, 300, 140, 320)
             {
-                TypeMark = "L1", Colour = white, Cost = 75m, Efficacy = 90,
+                TypeMark = "L1", Colour = white, Cost = 75m, Efficacy = 90, Load = 7, Lumens = 630,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1550
             },
 
@@ -1945,17 +1950,25 @@ public sealed class BimDocument
             // top at 2400 - the height given is their underside's.
             new ComponentType("Ceiling Light - Flush", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 350, 350, 100)
             {
-                TypeMark = "L2", Colour = white, Cost = 45m, Efficacy = 90,
+                TypeMark = "L2", Colour = white, Cost = 45m, Efficacy = 90, Load = 15, Lumens = 1350,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2300
             },
             new ComponentType("Ceiling Light - Pendant", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 400, 400, 700)
             {
-                TypeMark = "L3", Colour = linen, Cost = 60m, Efficacy = 80,
+                TypeMark = "L3", Colour = linen, Cost = 60m, Efficacy = 80, Load = 8, Lumens = 640,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 1700
             },
+
+            // A downlight as JCC's V50 (2023 data sheet): 7.5 W, 650 lumens at 4000 K, a 60° beam; and an
+            // LED batten as Philips' CoreLine BN126C: 18 W, 2500 lumens.
             new ComponentType("Downlight - Recessed", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 90, 90, 60)
             {
-                TypeMark = "L4", Colour = white, Cost = 25m, Efficacy = 95,
+                TypeMark = "L4", Colour = white, Cost = 25m, Efficacy = 87, Load = 7.5, Lumens = 650, Distribution = LightDistribution.Downlight,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340
+            },
+            new ComponentType("Batten - LED 1200", BuiltInCategory.LightingFixtures, ComponentForm.CeilingLight, 1200, 60, 60)
+            {
+                TypeMark = "L5", Colour = white, Cost = 40m, Efficacy = 139, Load = 18, Lumens = 2500,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340
             },
 
@@ -1994,8 +2007,16 @@ public sealed class BimDocument
             },
             new ComponentType("Consumer Unit - 12 Way", BuiltInCategory.ElectricalEquipment, ComponentForm.ConsumerUnit, 380, 120, 300)
             {
-                TypeMark = "E4", Colour = white, Cost = 180m,
-                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1250
+                TypeMark = "E4", Colour = white, Cost = 180m, Ways = 12, SupplyRating = 100, ExternalImpedance = 0.35,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1250,
+                Description = "On a 100 A main fuse, TN-C-S (Ze 0.35 Ω at most, as the networks declare)"
+            },
+
+            // A US load center: a 200 A service, 40 spaces.
+            new ComponentType("Load Center - 200 A 40 Space", BuiltInCategory.ElectricalEquipment, ComponentForm.ConsumerUnit, 360, 100, 1000)
+            {
+                TypeMark = "E5", Colour = new ColourRgb(0x9A, 0x9E, 0xA3), Cost = 320m, Ways = 40, SupplyRating = 200,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 900
             },
             new ComponentType("Room Thermostat", BuiltInCategory.MechanicalEquipment, ComponentForm.Thermostat, 86, 25, 86)
             {

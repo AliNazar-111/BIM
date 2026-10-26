@@ -221,9 +221,35 @@ public class HeatingTests
         Assert.Contains(MepSystems.Problems(document), problem => problem.Element == rooms[0] && problem.Text.Contains("BS EN 12831-1"));
         Assert.Contains("short of its", Heating.Verdict(document, rooms[0], loss));
 
+        // Its flow dropping to it from a run at 2.4 m.
+        Point3D Tap(string name) => Connectors.Placed(document, radiator).First(placed => placed.Connector.Name == name).At;
+        var copper = document.TypesOf<PipeType>().First(type => type.Material == PipeMaterial.Copper);
+        Pipe Run(Point3D from, Point3D to)
+        {
+            var pipe = new Pipe
+            {
+                TypeId = copper.Id, LevelId = document.Levels[0].Id, Start = new Point2D(from.X, from.Y), End = new Point2D(to.X, to.Y),
+                StartOffset = from.Z, EndOffset = to.Z, Diameter = 15, Kind = SystemKind.Heating, SystemId = zone.Id
+            };
+            document.Add(pipe);
+            return pipe;
+        }
+
+        var tap = Tap("Flow");
+        var run = Run(new Point3D(tap.X, 1500, 2400), tap with { Z = 2400 });
+        var drop = Run(tap with { Z = 2400 }, tap);
+
         var (command, changed, unmet) = Heating.SizeRadiators(document);
         Assert.Equal(1, changed);
         Assert.Empty(unmet);
+
+        // The wider radiator's tapping further along: the drop carried across to it, still upright, the run to its head.
+        var moved = Tap("Flow");
+        Assert.True(Math.Abs(moved.X - tap.X) > 100);
+        Assert.Equal((moved.X, moved.Y, moved.Z), (drop.End.X, drop.End.Y, drop.EndOffset));
+        Assert.True(drop.Upright);
+        Assert.Equal((moved.X, moved.Y), (run.End.X, run.End.Y));
+        Assert.Equal((tap.X, 1500.0), (run.Start.X, run.Start.Y));
         // The range's shortest that gives it is a double panel 1600 long - which the project has already, by another name.
         var sized = document.FindType<ComponentType>(radiator.TypeId)!;
         Assert.True(Heating.RadiatorOutput(sized, 45, 35, 21) >= loss.Total - 0.5);
@@ -233,12 +259,43 @@ public class HeatingTests
 
         command!.Undo();
         Assert.Equal("Radiator - 600 x 1000", document.FindType<ComponentType>(radiator.TypeId)!.Name);
+        Assert.Equal((tap.X, tap.Y), (drop.End.X, drop.End.Y));
+        Assert.Equal(tap.X, run.End.X);
 
         // At 35/30 not even the range's longest double panel 600 high gives it - which is said.
         zone.FlowTemperature = 35;
         zone.ReturnTemperature = 30;
         var (_, _, still) = Heating.SizeRadiators(document);
         Assert.Contains(still, said => said.Contains("more than one radiator 600 high gives at 35/30"));
+    }
+
+    [Fact]
+    public void AFloorOpenUnderneathLosesToTheOutsideAndACeilingUnderAFloorIsNotTheRoof()
+    {
+        // A room over the storey below where there is nothing - no floor, no room: it overhangs, open to the air under it.
+        var (document, rooms, _, _, _) = Storey();
+        var upper = document.Levels.OrderBy(level => level.Elevation).First(level => level.Elevation > 0);
+        var outside = document.TypesOf<WallType>().First(type => type.Function == WallFunction.Exterior);
+        var corners = new[] { new Point2D(0, 5000), new Point2D(4000, 5000), new Point2D(4000, 8000), new Point2D(0, 8000) };
+        for (var i = 0; i < 4; i++)
+            document.Add(new Wall { Start = corners[i], End = corners[(i + 1) % 4], TypeId = outside.Id, LevelId = upper.Id, UnconnectedHeight = 3000 });
+        var slab = new Floor { LevelId = upper.Id, TypeId = document.TypesOf<FloorType>().First().Id };
+        slab.SetBoundary(corners);
+        document.Add(slab);
+        var lid = new Roof { LevelId = upper.Id, TypeId = document.TypesOf<RoofType>().First(type => type.Name.Contains("Flat")).Id, HeightOffset = 3000 };
+        lid.SetBoundary(corners);
+        document.Add(lid);
+        var over = new Room { LevelId = upper.Id, Location = new Point2D(2000, 6500), Name = "Bedroom 1", Number = "2" };
+        document.Add(over);
+        var loss = HeatLoss.OfRoom(document, over)!;
+        var floor = loss.Lines.Single(line => line.What.StartsWith("Floor over"));
+        Assert.Equal(HeatPath.Outside, floor.Path);
+        Assert.Equal(HeatLoss.Of(document)!.Outside, floor.Beyond, 6);
+
+        // A shed is not heated; a furnished room is.
+        Assert.Null(HeatLoss.ByUse(document, new Room { Name = "Garden Shed" }));
+        Assert.Equal(21, HeatLoss.ByUse(document, new Room { Name = "Furnished Room" }));
+        _ = rooms;
     }
 
     [Fact]

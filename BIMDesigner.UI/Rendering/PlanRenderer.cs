@@ -358,6 +358,8 @@ public sealed partial class PlanRenderer
         // The services' pipes, each in its system's colour.
         DrawPipes(dc);
         DrawDucts(dc);
+        DrawWiring(dc);
+        DrawSupports(dc);
 
         // Stairs on their own storey, and seen down the stairwell from the one they come up to -
         // storey by storey for one repeated up a stairwell. Where one storey's flight goes on up

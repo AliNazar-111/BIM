@@ -86,6 +86,9 @@ internal sealed class ProjectFileDto
     /// <summary>Every element's phases where they are not the default - built new, never demolished - whatever kind it is.</summary>
     public List<ElementPhaseDto> ElementPhases { get; set; } = new();
 
+    /// <summary>Each element's workset where it is not the first - for every kind, its own record carrying one or not; none in a file from before.</summary>
+    public List<ElementWorksetDto>? ElementWorksets { get; set; }
+
     /// <summary>The view filters, the design option sets and which elements are in an option.</summary>
     public List<ParameterFilterDto> ParameterFilters { get; set; } = new();
     public List<DesignOptionSetDto> DesignOptionSets { get; set; } = new();
@@ -329,6 +332,12 @@ internal sealed class OptionChoiceDto
 {
     public Guid Set { get; set; }
     public Guid Option { get; set; }
+}
+
+internal sealed class ElementWorksetDto
+{
+    public Guid ElementId { get; set; }
+    public string Workset { get; set; } = string.Empty;
 }
 
 internal sealed class ElementPhaseDto
@@ -1034,6 +1043,15 @@ internal sealed class ComponentTypeDto
     public double? ContinuousRate { get; set; }
     public double? VentArea { get; set; }
 
+    /// <summary>What it draws from its circuit, W; a light's lumens, how it spreads them and its photometric data; a consumer unit's ways, supply and Ze - none in a file from before.</summary>
+    public double? Load { get; set; }
+    public double? Lumens { get; set; }
+    public string? Distribution { get; set; }
+    public PhotometryDto? Photometry { get; set; }
+    public int? Ways { get; set; }
+    public double? SupplyRating { get; set; }
+    public double? ExternalImpedance { get; set; }
+
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
     public double? HeatExponent { get; set; }
@@ -1528,6 +1546,9 @@ internal sealed class WindowTypeDto : OpeningTypeDto
     public int GlazingColumns { get; set; }
     public double SolarHeatGainCoefficient { get; set; }
 
+    /// <summary>Its glazing's light transmittance; none in a file from before.</summary>
+    public double? LightTransmittance { get; set; }
+
     /// <summary>Its trickle vent's equivalent area, mm²; none in a file from before, or without one.</summary>
     public double? TrickleVent { get; set; }
 
@@ -1727,6 +1748,9 @@ internal sealed class WallOpeningDto
     public double SillHeight { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>Cut for the services; none in a file from before, or for any other opening.</summary>
+    public bool? ForServices { get; set; }
 }
 
 internal sealed class FasciaTypeDto
@@ -2249,8 +2273,23 @@ internal sealed class PipeDto
 
     /// <summary>A heating return; none for a flow, or any other pipe.</summary>
     public bool? Return { get; set; }
+
+    /// <summary>Its insulation, mm, and how it is fire-stopped; none in a file from before.</summary>
+    public double? Insulation { get; set; }
+    public string? Seal { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A light's photometric data: where it was read from, its lumens and watts, its planes and angles, and its candelas on each plane.</summary>
+internal sealed class PhotometryDto
+{
+    public string Source { get; set; } = string.Empty;
+    public double Lumens { get; set; }
+    public double Watts { get; set; }
+    public List<double> Planes { get; set; } = new();
+    public List<double> Angles { get; set; } = new();
+    public List<List<double>> Candela { get; set; } = new();
 }
 
 internal sealed class MepSystemDto
@@ -2267,6 +2306,16 @@ internal sealed class MepSystemDto
     /// <summary>A heating zone's flow and return temperatures where set, °C.</summary>
     public double? FlowTemperature { get; set; }
     public double? ReturnTemperature { get; set; }
+
+    /// <summary>A circuit's breaker, curve, protection, cable, how it is installed, its grouping and length; none for a system that is not a circuit.</summary>
+    public double? Breaker { get; set; }
+    public string? Curve { get; set; }
+    public bool? Rcd { get; set; }
+    public bool? ArcFault { get; set; }
+    public string? Cable { get; set; }
+    public string? Method { get; set; }
+    public int? Grouped { get; set; }
+    public double? CableLength { get; set; }
 
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
@@ -2449,6 +2498,9 @@ internal sealed class ShaftOpeningDto
     public double UnconnectedHeight { get; set; } = 3000;
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>Cut for the services; none in a file from before, or for any other opening.</summary>
+    public bool? ForServices { get; set; }
 }
 
 internal sealed class PlacedSweepDto

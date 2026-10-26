@@ -4,6 +4,7 @@ using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
+using BIMDesigner.Core.Mep;
 using BIMDesigner.Core.Parameters;
 using Xbim.Common;
 using Xbim.Ifc;
@@ -146,6 +147,10 @@ public static class IfcImport
             foreach (var covering in _model.Instances.OfType<IIfcCovering>()) Try(covering, ImportCovering);
             foreach (var space in _model.Instances.OfType<IIfcSpace>()) Try(space, ImportSpace);
             foreach (var grid in _model.Instances.OfType<IIfcGrid>()) Try(grid, ImportGrid);
+
+            // Pipes and ducts as pipes and ducts, on the systems they are assigned to.
+            foreach (var segment in _model.Instances.OfType<IIfcFlowSegment>()) Try(segment, ImportSegment);
+            ReadSystems();
 
             // Walls drawn up to the face of the walls they meet, as some programs draw them, carried on to their middle.
             JoinEnds();
@@ -1191,6 +1196,186 @@ public static class IfcImport
             }
 
             return true;
+        }
+
+        // ---- pipes, ducts and their systems -------------------------------------------------------
+
+        private readonly Dictionary<int, Element> _segments = new();
+
+        /// <summary>
+        /// A pipe or duct segment from another program as a pipe or duct: its centre line the long way
+        /// through its shape, its size across it - round where its section has many sides - on its storey,
+        /// its kind from the system it is assigned to or its name.
+        /// </summary>
+        private bool ImportSegment(IIfcFlowSegment segment)
+        {
+            var typed = segment.IsTypedBy.FirstOrDefault()?.RelatingType;
+            var isPipe = segment is IIfcPipeSegment || typed is IIfcPipeSegmentType;
+            var isDuct = segment is IIfcDuctSegment || typed is IIfcDuctSegmentType;
+            if (!isPipe && !isDuct) return false;
+            var body = Body(segment);
+            if (body.Count == 0) return false;
+            var mesh = new Mesh3D(Guid.Empty, Guid.Empty, MeshKind.Pipe, default, string.Empty);
+            var frame = _geometry.Placement(segment.ObjectPlacement);
+            foreach (var item in body) _geometry.Triangles(item, frame, mesh);
+            // The long way through it: an extrusion's own direction, which a piece shorter than it is wide still has; else the way its points spread most.
+            var along = body.Count == 1 && IfcGeometry.Unclipped(body[0]) is { Start: IIfcExtrudedAreaSolid extrusion }
+                ? Frame.Normalised(frame.Then(_geometry.Axis(extrusion.Position)).Turn(IfcGeometry.Direction(extrusion.ExtrudedDirection)))
+                : (Point3D?)null;
+            if (mesh.IsEmpty || Axis(mesh.Positions, along) is not var (start, end, width, height, round)) return false;
+
+            var level = LevelOf(segment, Math.Min(start.Z, end.Z));
+            var named = $"{segment.Name} {typed?.Name} {SystemNameOf(segment)}".ToLowerInvariant();
+            var kind = KindOf(segment) ?? KindFromName(named) ?? (isPipe ? SystemKind.ColdWater : SystemKind.SupplyAir);
+            if (isPipe != (kind.Domain() == ConnectorDomain.Pipe)) kind = isPipe ? SystemKind.ColdWater : SystemKind.SupplyAir;
+            Element made;
+            if (isPipe)
+            {
+                var material = named.Contains("pvc") || named.Contains("soil") || Drainage.IsDrainage(kind) ? PipeMaterial.PvcU
+                    : named.Contains("pex") || named.Contains("pe-x") || named.Contains("plastic") ? PipeMaterial.PeX
+                    : named.Contains("stainless") ? PipeMaterial.StainlessSteel
+                    : named.Contains("galv") || named.Contains("steel") ? PipeMaterial.GalvanisedSteel
+                    : PipeMaterial.Copper;
+                var type = _document.TypesOf<PipeType>().FirstOrDefault(each => each.Material == material) ?? _document.TypesOf<PipeType>().FirstOrDefault();
+                made = new Pipe
+                {
+                    LevelId = level.Id, TypeId = type?.Id ?? Guid.Empty, Start = Plan(start), End = Plan(end), StartOffset = start.Z - level.Elevation, EndOffset = end.Z - level.Elevation,
+                    Diameter = (width + height) / 2, Kind = kind
+                };
+            }
+            else
+            {
+                var type = _document.TypesOf<DuctType>().FirstOrDefault(each => each.Material == DuctMaterial.GalvanisedSteel && each.Shape == (round ? DuctShape.Round : DuctShape.Rectangular))
+                           ?? _document.TypesOf<DuctType>().FirstOrDefault();
+                made = new Duct
+                {
+                    LevelId = level.Id, TypeId = type?.Id ?? Guid.Empty, Start = Plan(start), End = Plan(end), StartOffset = start.Z - level.Elevation, EndOffset = end.Z - level.Elevation,
+                    Width = round ? (width + height) / 2 : width, Height = round ? (width + height) / 2 : height, Kind = kind
+                };
+            }
+
+            made.Mark = segment.Name?.ToString() ?? string.Empty;
+            _document.Add(made);
+            _made[segment.EntityLabel] = made;
+            _segments[segment.EntityLabel] = made;
+            _result.Count(isPipe ? "Pipes" : "Ducts");
+            return true;
+        }
+
+        /// <summary>
+        /// A segment's centre line and size from its shape: the long way through its points, their middle
+        /// on it, and how far they spread across it - square to it level and upright - and whether its
+        /// section has many sides, as a round one has, or four.
+        /// </summary>
+        private static (Point3D Start, Point3D End, double Width, double Height, bool Round)? Axis(IReadOnlyList<Point3D> points, Point3D? along = null)
+        {
+            if (points.Count < 4) return null;
+            var (cx, cy, cz) = (points.Average(p => p.X), points.Average(p => p.Y), points.Average(p => p.Z));
+            double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+            foreach (var p in points)
+            {
+                var (x, y, z) = (p.X - cx, p.Y - cy, p.Z - cz);
+                (xx, xy, xz, yy, yz, zz) = (xx + x * x, xy + x * y, xz + x * z, yy + y * y, yz + y * z, zz + z * z);
+            }
+
+            // The direction they spread most: the covariance's leading eigenvector, by repeated multiplication - or the way it is extruded.
+            var (ax, ay, az) = along is { } given ? (given.X, given.Y, given.Z) : (1.0, 0.7, 0.3);
+            for (var i = 0; i < (along is null ? 100 : 0); i++)
+            {
+                var (nx, ny, nz) = (xx * ax + xy * ay + xz * az, xy * ax + yy * ay + yz * az, xz * ax + yz * ay + zz * az);
+                var length = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+                if (length < 1e-12) return null;
+                (ax, ay, az) = (nx / length, ny / length, nz / length);
+            }
+
+            // Across it: level where it is not upright, then up across it - square to it, however steeply it rises.
+            var (ux, uy, uz) = Math.Abs(az) > 0.95 ? (1.0, 0.0, 0.0) : (-ay, ax, 0.0);
+            var onto = ux * ax + uy * ay + uz * az;
+            (ux, uy, uz) = (ux - onto * ax, uy - onto * ay, uz - onto * az);
+            var norm = Math.Sqrt(ux * ux + uy * uy + uz * uz);
+            (ux, uy, uz) = (ux / norm, uy / norm, uz / norm);
+            var (vx, vy, vz) = (ay * uz - az * uy, az * ux - ax * uz, ax * uy - ay * ux);
+            double tMin = double.MaxValue, tMax = double.MinValue, uMin = double.MaxValue, uMax = double.MinValue, vMin = double.MaxValue, vMax = double.MinValue;
+            var angles = new HashSet<int>();
+            foreach (var p in points)
+            {
+                var (x, y, z) = (p.X - cx, p.Y - cy, p.Z - cz);
+                var (t, u, v) = (x * ax + y * ay + z * az, x * ux + y * uy + z * uz, x * vx + y * vy + z * vz);
+                (tMin, tMax, uMin, uMax, vMin, vMax) = (Math.Min(tMin, t), Math.Max(tMax, t), Math.Min(uMin, u), Math.Max(uMax, u), Math.Min(vMin, v), Math.Max(vMax, v));
+                if (u * u + v * v > 1) angles.Add((int)Math.Round(Math.Atan2(v, u) * 180 / Math.PI / 5));
+            }
+
+            if (tMax - tMin < 1 || uMax - uMin < 1 || vMax - vMin < 1) return null;
+            var (mu, mv) = ((uMin + uMax) / 2, (vMin + vMax) / 2);
+            Point3D At(double t) => new(cx + ax * t + ux * mu + vx * mv, cy + ay * t + uy * mu + vy * mv, cz + az * t + uz * mu + vz * mv);
+            if (angles.Count < 8) return (At(tMin), At(tMax), uMax - uMin, vMax - vMin, false);
+
+            // Round: its diameter from its corners, which lie on the circle - its flats fall short of it.
+            var radius = points.Max(p =>
+            {
+                var (x, y, z) = (p.X - cx, p.Y - cy, p.Z - cz);
+                var (u, v) = (x * ux + y * uy + z * uz - mu, x * vx + y * vy + z * vz - mv);
+                return Math.Sqrt(u * u + v * v);
+            });
+            return (At(tMin), At(tMax), 2 * radius, 2 * radius, true);
+        }
+
+        /// <summary>The kind of the system a segment is assigned to, by the system's predefined type; none where it is on none.</summary>
+        private static SystemKind? KindOf(IIfcProduct product) =>
+            product.HasAssignments.OfType<IIfcRelAssignsToGroup>().Select(relation => relation.RelatingGroup).OfType<IIfcSystem>()
+                .Select(system => system is IIfcDistributionSystem distribution ? KindOf(distribution) : KindFromName($"{system.Name} {system.Description}".ToLowerInvariant()))
+                .FirstOrDefault(kind => kind is not null);
+
+        private static SystemKind? KindOf(IIfcDistributionSystem system) => system.PredefinedType switch
+        {
+            IfcDistributionSystemEnum.DOMESTICCOLDWATER or IfcDistributionSystemEnum.WATERSUPPLY => SystemKind.ColdWater,
+            IfcDistributionSystemEnum.DOMESTICHOTWATER => SystemKind.HotWater,
+            IfcDistributionSystemEnum.HEATING => SystemKind.Heating,
+            IfcDistributionSystemEnum.DRAINAGE or IfcDistributionSystemEnum.SEWAGE or IfcDistributionSystemEnum.WASTEWATER or IfcDistributionSystemEnum.DISPOSAL => SystemKind.Foul,
+            IfcDistributionSystemEnum.RAINWATER or IfcDistributionSystemEnum.STORMWATER => SystemKind.Rainwater,
+            IfcDistributionSystemEnum.GAS or IfcDistributionSystemEnum.FUEL => SystemKind.Gas,
+            IfcDistributionSystemEnum.EXHAUST => SystemKind.ExtractAir,
+            IfcDistributionSystemEnum.VENTILATION or IfcDistributionSystemEnum.AIRCONDITIONING => SystemKind.SupplyAir,
+            _ => KindFromName($"{system.Name} {system.LongName}".ToLowerInvariant())
+        };
+
+        /// <summary>The kind a name says: "Domestic Cold Water", "LTHW Flow", "Supply Air".</summary>
+        private static SystemKind? KindFromName(string name) =>
+            name.Contains("cold") ? SystemKind.ColdWater
+            : name.Contains("hot water") || name.Contains("dhw") ? SystemKind.HotWater
+            : name.Contains("heating") || name.Contains("lthw") || name.Contains("radiator") ? SystemKind.Heating
+            : name.Contains("rain") || name.Contains("storm") ? SystemKind.Rainwater
+            : name.Contains("soil") || name.Contains("waste") || name.Contains("foul") || name.Contains("sanitary") || name.Contains("drain") ? SystemKind.Foul
+            : name.Contains("gas") ? SystemKind.Gas
+            : name.Contains("extract") || name.Contains("exhaust") ? SystemKind.ExtractAir
+            : name.Contains("supply air") || name.Contains("ventilation") ? SystemKind.SupplyAir
+            : name.Contains("outside air") || name.Contains("intake") || name.Contains("fresh air") ? SystemKind.OutsideAir
+            : null;
+
+        private static string SystemNameOf(IIfcProduct product) =>
+            product.HasAssignments.OfType<IIfcRelAssignsToGroup>().Select(relation => relation.RelatingGroup).OfType<IIfcSystem>().Select(system => system.Name?.ToString()).FirstOrDefault() ?? string.Empty;
+
+        /// <summary>The distribution systems the pipes and ducts are on - IFC4's, or IFC2x3's systems - as systems of their kind with them on them.</summary>
+        private void ReadSystems()
+        {
+            foreach (var system in _model.Instances.OfType<IIfcSystem>().Where(system => system is not (IIfcZone or IIfcStructuralAnalysisModel)))
+            {
+                var members = system.IsGroupedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcProduct>()
+                    .Select(product => _segments.GetValueOrDefault(product.EntityLabel)).OfType<Element>().ToList();
+                if (members.Count == 0) continue;
+                var kind = members[0] switch { Pipe pipe => pipe.Kind, Duct duct => duct.Kind, _ => SystemKind.ColdWater };
+                var made = new MepSystem { Kind = kind, Name = string.IsNullOrWhiteSpace(system.Name) ? MepSystems.NextName(_document, kind) : system.Name!.ToString()! };
+                _document.Add(made);
+                foreach (var member in members)
+                    switch (member)
+                    {
+                        case Pipe pipe when pipe.Kind == kind: pipe.SystemId = made.Id; break;
+                        case Duct duct when duct.Kind == kind: duct.SystemId = made.Id; break;
+                    }
+
+                _made[system.EntityLabel] = made;
+                _result.Count("Systems");
+            }
         }
 
         // ---- everything else, as its shape -------------------------------------------------------

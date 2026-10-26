@@ -225,6 +225,94 @@ public class VentilationTests
         Assert.Contains(MepSystems.Problems(document), problem => problem.Element == main && problem.Text.Contains("final connection"));
     }
 
+    /// <summary>A heat recovery unit's extract and ducts drawn from its spigot - rigid or flexible - by the points given.</summary>
+    private static (BimDocument Document, List<Room> Rooms, MepSystem Extract, Component Unit, List<Component> Valves, Func<Point3D[], DuctMaterial[], List<Duct>> Draw) Extracted()
+    {
+        var (document, rooms, _) = Row("Generic - 200mm", Home);
+        var (unit, _, extract, valves) = Ventilate(document, rooms);
+        List<Duct> Draw(Point3D[] points, DuctMaterial[] materials)
+        {
+            var made = new List<Duct>();
+            for (var i = 0; i + 1 < points.Length; i++)
+            {
+                var duct = new Duct
+                {
+                    TypeId = document.TypesOf<DuctType>().First(type => type.Material == materials[i]).Id, LevelId = document.Levels[0].Id,
+                    Start = new Point2D(points[i].X, points[i].Y), End = new Point2D(points[i + 1].X, points[i + 1].Y), StartOffset = points[i].Z, EndOffset = points[i + 1].Z,
+                    Width = 125, Height = 125, Kind = SystemKind.ExtractAir, SystemId = extract.Id
+                };
+                document.Add(duct);
+                made.Add(duct);
+            }
+
+            return made;
+        }
+
+        return (document, rooms, extract, unit, valves, Draw);
+    }
+
+    private static Point3D Spigot(BimDocument document, Component fitting, SystemKind kind) => Connectors.Placed(document, fitting).First(placed => placed.Connector.Kind == kind).At;
+
+    [Fact]
+    public void AConvergingTeesStraightRunLosesByTheAirJoiningItFromTheBranch()
+    {
+        var (document, rooms, extract, unit, valves, draw) = Extracted();
+        var kitchen = valves.Single(valve => Polygon2D.Contains(rooms[1].GetBoundary(document).Polygon, valve.Location));
+        var bathroom = valves.Single(valve => Polygon2D.Contains(rooms[2].GetBoundary(document).Polygon, valve.Location));
+        var spigot = Spigot(document, unit, SystemKind.ExtractAir);
+        var (up, junction) = (spigot with { Z = 2700 }, new Point3D(spigot.X, 800, 2700));
+        var rigid = DuctMaterial.GalvanisedSteel;
+        var main = draw(new[] { spigot, up, junction }, new[] { rigid, rigid });
+        var straight = draw(new[] { junction, new Point3D(spigot.X, 400, 2700), Spigot(document, kitchen, SystemKind.ExtractAir) }, new[] { rigid, rigid });
+        var branch = draw(new[] { junction, new Point3D(spigot.X + 600, 800, 2700), Spigot(document, bathroom, SystemKind.ExtractAir) }, new[] { rigid, rigid });
+
+        // The kitchen's run carries on straight through the tee; the bathroom's air joins it from the side.
+        var network = DuctNetworks.Trace(document, extract);
+        var (common, along, side) = (network.Loads[main[^1]], network.Loads[straight[0]], network.Loads[branch[0]]);
+        Assert.Equal(along.Flow + side.Flow, common.Flow, 6);
+        var velocity = DuctNetworks.Carried(document, main[^1], network)!.Value.Velocity;
+        Assert.Equal(DuctNetworks.ConvergingTee(false, side.Flow / common.Flow, 1) * DuctNetworks.VelocityPressure(velocity),
+            DuctNetworks.JunctionLoss(document, network, straight[0]), 6);
+        Assert.True(DuctNetworks.ConvergingTee(false, 0, 1) < 1e-9);
+
+        // The unit's own pressure keeps the system to less than Table 1.8 where it has less to give.
+        Type(document, "Heat Recovery Unit - 75 l/s").AvailablePressure = 40;
+        Assert.Equal(40, DuctNetworks.LimitOf(document, network, 21));
+        Type(document, "Heat Recovery Unit - 75 l/s").AvailablePressure = 150;
+        Assert.Equal(60, DuctNetworks.LimitOf(document, network, 21));
+    }
+
+    [Fact]
+    public void AValvesFlexibleConnectionIsTakenWholeAndAFanInItsRoomIsNotTheUnits()
+    {
+        var (document, rooms, extract, unit, valves, draw) = Extracted();
+        var kitchen = valves.Single(valve => Polygon2D.Contains(rooms[1].GetBoundary(document).Polygon, valve.Location));
+        var spigot = Spigot(document, unit, SystemKind.ExtractAir);
+        var valve = Spigot(document, kitchen, SystemKind.ExtractAir);
+        var (up, across, bend, last) = (spigot with { Z = 2700 }, new Point3D(spigot.X, valve.Y, 2700), new Point3D(valve.X - 1900, valve.Y, 2700), new Point3D(valve.X - 900, valve.Y, 2700));
+        var rigid = DuctMaterial.GalvanisedSteel;
+        var flexible = DuctMaterial.Flexible;
+        var ducts = draw(new[] { spigot, up, across, bend, last, valve }, new[] { rigid, rigid, rigid, flexible, flexible });
+
+        // Two pieces of flexible duct to the valve: its final connection, 1.9 m and more together - too long, though neither piece is.
+        var problems = MepSystems.Problems(document);
+        Assert.DoesNotContain(problems, problem => problem.Element == ducts[3] && problem.Text.Contains("away from a valve"));
+        Assert.Contains(problems, problem => problem.Element == ducts[4] && problem.Text.Contains("m long to its valve") && problem.Text.Contains("1.5 m"));
+        Assert.True(ducts[3].Length < 1500 && ducts[4].Length < 1500);
+
+        // The rigid piece before it flexible too is no longer its final connection's.
+        ducts[3].TypeId = ducts[2].TypeId;
+        ducts[2].TypeId = ducts[4].TypeId;
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == ducts[2] && problem.Text.Contains("away from a valve"));
+
+        // A fan in the bathroom extracts by itself: the unit is not asked to move its air too.
+        var air = Ventilation.Rooms(document);
+        Put(document, "Extract Fan - 100 (15 l/s)", rooms[2].Location.X + 500, rooms[2].Location.Y);
+        var high = Math.Max(Ventilation.Rooms(document).Where(room => room.Extracts.Count > 0).Sum(room => room.ExtractHigh) - 15, air.Sum(room => room.SupplyHigh));
+        Type(document, "Heat Recovery Unit - 75 l/s").Airflow = Math.Ceiling(high) + 0.5;
+        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Element == unit && problem.Text.StartsWith("it moves"));
+    }
+
     [Fact]
     public void ADuctThroughACompartmentWallKeepsItFireSeparating()
     {
@@ -273,7 +361,7 @@ public class VentilationTests
         Assert.Equal(supply.Id, again.SystemId);
         Assert.Equal(spiral.Id, again.TypeId);
         Assert.Equal(0.85, Type(loaded, "Heat Recovery Unit - 75 l/s").HeatRecovery);
-        Assert.Equal(4, loaded.TypesOf<DuctType>().Count());
+        Assert.Equal(DuctType.Library().Count, loaded.TypesOf<DuctType>().Count());
 
         using var model = IfcExport.Build(document);
         Assert.Single(model.Instances.OfType<IIfcDuctSegment>());

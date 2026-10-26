@@ -108,6 +108,9 @@ public sealed class ClashTest
     /// <summary>Whether to leave out what is meant to meet: a door in its wall, a gutter on its roof, walls joined at a corner.</summary>
     public bool IgnoreHosted { get; set; } = true;
 
+    /// <summary>Whether pipes and ducts are taken with their insulation round them: a pipe whose insulation runs into a beam clashes with it.</summary>
+    public bool AllowInsulation { get; set; }
+
     public DateTime? LastRun { get; set; }
 
     public List<Clash> Results { get; } = new();
@@ -153,9 +156,19 @@ public static class ClashDetective
         };
         var fabric = new[] { BuiltInCategory.Walls, BuiltInCategory.Columns, BuiltInCategory.StructuralColumns, BuiltInCategory.Stairs, BuiltInCategory.Ramps, BuiltInCategory.Railings };
         var built = Enum.GetValues<BuiltInCategory>().Where(Solidly).ToList();
+        var services = new[] { BuiltInCategory.Pipes, BuiltInCategory.Ducts };
+        ClashTest Insulated(ClashTest test)
+        {
+            test.AllowInsulation = true;
+            return test;
+        }
 
         return new[]
         {
+            Insulated(Test("Pipes and ducts into structure", ClashKind.Hard, services,
+                new[] { BuiltInCategory.StructuralFraming, BuiltInCategory.StructuralColumns, BuiltInCategory.Columns, BuiltInCategory.StructuralFoundations }, 0)),
+            Insulated(Test("Pipes and ducts into each other", ClashKind.Hard, services, services, 0)),
+            Test("Pipes and ducts across doors and windows", ClashKind.Hard, services, openings),
             Test("Structure through doors and windows", ClashKind.Hard, structure, openings),
             Test("Fittings and furniture through walls, columns and stairs", ClashKind.Hard, fittings, fabric),
             Test("Fittings and furniture into each other", ClashKind.Hard, fittings, fittings, 20),
@@ -163,6 +176,79 @@ public static class ClashDetective
             Test("Structure into stairs", ClashKind.Hard, structure, new[] { BuiltInCategory.Stairs, BuiltInCategory.Ramps }),
             Test("Duplicates", ClashKind.Duplicate, built, built, 1)
         };
+    }
+
+    /// <summary>The thickest insulation on any pipe or duct in the model, mm: how far beyond its solid a test with insulation looks.</summary>
+    private static double Thickest(BimDocument document) =>
+        document.All<Mep.Pipe>().Select(pipe => pipe.Insulation).Concat(document.All<Mep.Duct>().Select(duct => duct.Insulation)).DefaultIfEmpty(0).Max();
+
+    /// <summary>The insulation round a pipe or duct, mm.</summary>
+    private static double Lagging(Element element) => element switch
+    {
+        Mep.Pipe pipe => pipe.Insulation,
+        Mep.Duct duct => duct.Insulation,
+        _ => 0
+    };
+
+    /// <summary>
+    /// Whether two are joined as they are meant to be: pipes or ducts where an end of one meets the
+    /// other - end to end, or teed into it - whatever system they are on, or not; a pipe or duct and
+    /// a fitting on its system, or ending at one of its connectors. Pipes of one system crossing
+    /// elsewhere still clash.
+    /// </summary>
+    private static bool Joined(BimDocument document, Element a, Element b)
+    {
+        // Only runs carrying the same can be joined - a hot drop ending in a cold run, or a heating flow in its return, is a clash.
+        if (RunOf(document, a) is { } one && RunOf(document, b) is { } two)
+            return Carries(a) == Carries(b) && (Meets(one.Start, two) || Meets(one.End, two) || Meets(two.Start, one) || Meets(two.End, one));
+
+        static Guid? SystemOf(Element element) => element switch
+        {
+            Mep.Pipe pipe => pipe.SystemId,
+            Mep.Duct duct => duct.SystemId,
+            _ => null
+        };
+
+        bool On(Guid? systemId, Element fitting) =>
+            fitting is Component && document.Find<Mep.MepSystem>(systemId) is { } system && (system.Members.Contains(fitting.Id) || system.SourceId == fitting.Id);
+
+        bool AtPort(Element run, Element fitting) =>
+            RunOf(document, run) is { } line && fitting is Component component
+            && Mep.Connectors.Placed(document, component).Any(placed => Apart(placed.At, line.Start) <= line.Radius + Mep.PipeNetworks.Touch || Apart(placed.At, line.End) <= line.Radius + Mep.PipeNetworks.Touch);
+
+        return On(SystemOf(a), b) || On(SystemOf(b), a) || AtPort(a, b) || AtPort(b, a);
+    }
+
+    private static (Type, Mep.SystemKind, bool)? Carries(Element element) => element switch
+    {
+        Mep.Pipe pipe => (typeof(Mep.Pipe), pipe.Kind, pipe.Return),
+        Mep.Duct duct => (typeof(Mep.Duct), duct.Kind, false),
+        _ => null
+    };
+
+    private static (Point3D Start, Point3D End, double Radius)? RunOf(BimDocument document, Element element) => element switch
+    {
+        Mep.Pipe pipe => pipe.Ends(document) is var (start, end) ? (start, end, pipe.Diameter / 2) : null,
+        Mep.Duct duct => duct.Ends(document) is var (start, end) ? (start, end, Math.Max(duct.Width, duct.Height) / 2) : null,
+        _ => null
+    };
+
+    private static double Apart(Point3D a, Point3D b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2) + Math.Pow(a.Z - b.Z, 2));
+
+    /// <summary>Whether a run's end is in another run: within its radius of its centre line.</summary>
+    private static bool Meets(Point3D end, (Point3D Start, Point3D End, double Radius) run)
+    {
+        var (dx, dy, dz) = (run.End.X - run.Start.X, run.End.Y - run.Start.Y, run.End.Z - run.Start.Z);
+        var squared = dx * dx + dy * dy + dz * dz;
+        var t = squared < 1e-9 ? 0 : Math.Clamp(((end.X - run.Start.X) * dx + (end.Y - run.Start.Y) * dy + (end.Z - run.Start.Z) * dz) / squared, 0, 1);
+        return Apart(end, new Point3D(run.Start.X + dx * t, run.Start.Y + dy * t, run.Start.Z + dz * t)) <= run.Radius + Mep.PipeNetworks.Touch;
+    }
+
+    /// <summary>A pipe or duct through timber floor joists: drilled or notched through them, which the services' notching and drilling rules check rather than a clash test. Steel or concrete joists clash.</summary>
+    private static bool Drilled(BimDocument document, Element a, Element b)
+    {
+        bool Timber(Element element) => element is BeamSystem joists && BeamSystems.TypeOf(document, joists).Material == BeamMaterial.Timber;
+        return a is Mep.Pipe or Mep.Duct && Timber(b) || b is Mep.Pipe or Mep.Duct && Timber(a);
     }
 
     /// <summary>Whether a category is something built, with a solid to clash: not a view, a note or a datum.</summary>
@@ -348,7 +434,7 @@ public static class ClashDetective
         var left = elements.Where(element => setA.Contains(element.Category)).ToList();
         var right = elements.Where(element => setB.Contains(element.Category)).ToList();
         var seen = new HashSet<(Guid, Guid)>();
-        var reach = test.Kind == ClashKind.Clearance ? test.Tolerance : Touch;
+        var reach = (test.Kind == ClashKind.Clearance ? test.Tolerance : Touch) + (test.AllowInsulation ? 2 * Thickest(document) : 0);
 
         // Each tried only against those near it in plan, in the order they would all have been tried in.
         var near = new ClashGrid(right.Select(element => solids[element.Id]).ToList(), reach);
@@ -356,11 +442,29 @@ public static class ClashDetective
         foreach (var a in left)
         foreach (var b in near.Near(solids[a.Id]).Select(index => right[index]))
         {
-            if (a.Id == b.Id || related(a.Id, b.Id)) continue;
+            if (a.Id == b.Id || related(a.Id, b.Id) || Joined(document, a, b) || Drilled(document, a, b)) continue;
             var key = a.Id.CompareTo(b.Id) < 0 ? (a.Id, b.Id) : (b.Id, a.Id);
             if (!seen.Add(key)) continue;
             var (one, other) = (solids[a.Id], solids[b.Id]);
             if (one.Gap(other) > reach) continue;
+
+            // A pipe or duct with its insulation round it: what its insulation runs into.
+            var lagging = test.AllowInsulation && test.Kind == ClashKind.Hard ? Lagging(a) + Lagging(b) : 0;
+            if (lagging > 0)
+            {
+                if (Penetration(one, other) is var (into, inside) && into > 0)
+                {
+                    if (into + lagging <= test.Tolerance) continue;
+                    yield return (a.Id, b.Id, inside.ToPoint(), -(into + lagging), $"{NameOf(document, a.Id)} runs {into:0} mm into {NameOf(document, b.Id)}, {into + lagging:0} with its insulation.");
+                    continue;
+                }
+
+                var apart = one.Distance(other, lagging);
+                if (lagging - apart <= test.Tolerance) continue;
+                yield return (a.Id, b.Id, Middle(one, other).ToPoint(), -(lagging - apart),
+                    $"{NameOf(document, a.Id)} is {apart:0} mm from {NameOf(document, b.Id)} - its insulation, {lagging:0} mm, runs {lagging - apart:0} mm into it.");
+                continue;
+            }
 
             switch (test.Kind)
             {

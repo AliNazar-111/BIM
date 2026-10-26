@@ -101,12 +101,12 @@ public class ConstructionTests
         Assert.Contains($"{ground} - External walls", names);
         Assert.Contains($"{first} - Floor", names);
         Assert.Contains("Roof", names);
-        Assert.Contains($"{ground} - Fittings, furniture and services", names);
+        Assert.Contains($"{ground} - Fittings and furniture", names);
 
         var times = ConstructionPlanning.Time(schedule).ToDictionary(timed => timed.Task.Name);
         Assert.True(times[$"{ground} - Ground slab"].EarlyFinish <= times[$"{ground} - External walls"].EarlyStart);
         Assert.True(times[$"{ground} - External walls"].EarlyFinish <= times[$"{first} - Floor"].EarlyStart);
-        Assert.True(times["Roof"].EarlyFinish <= times[$"{ground} - Fittings, furniture and services"].EarlyStart);
+        Assert.True(times["Roof"].EarlyFinish <= times[$"{ground} - Fittings and furniture"].EarlyStart);
 
         // The ground floor's walls: 36 m of wall 3 m high, less the window, at 20 m² a day - 6 days.
         var walls = schedule.Tasks.Single(task => task.Name == $"{ground} - External walls");

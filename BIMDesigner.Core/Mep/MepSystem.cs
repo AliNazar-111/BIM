@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
@@ -34,15 +35,89 @@ public sealed class MepSystem : Element
 
     public double ReturnTemperature { get; set; }
 
+    /// <summary>For a circuit, its breaker's rating, A - none set at 0, the usual for its use taken, as Size Circuits chooses.</summary>
+    public double Breaker { get; set; }
+
+    /// <summary>For a circuit, its breaker's tripping curve: type B for a home's circuits, C or D for motors and the like.</summary>
+    public BreakerCurve Curve { get; set; } = BreakerCurve.B;
+
+    /// <summary>For a circuit, whether a 30 mA RCD protects it - an RCBO, or an RCD over it in the board; in the US, a GFCI.</summary>
+    public bool Rcd { get; set; } = true;
+
+    /// <summary>For a circuit, whether an arc fault detection device protects it; in the US, an AFCI.</summary>
+    public bool ArcFault { get; set; }
+
+    /// <summary>For a circuit, its cable's size - "2.5 mm²", "12 AWG" - or empty, the smallest that does chosen.</summary>
+    public string Cable { get; set; } = string.Empty;
+
+    /// <summary>For a circuit, how its cable is installed, as BS 7671 rates it.</summary>
+    public CableMethod Method { get; set; } = CableMethod.ClippedDirect;
+
+    /// <summary>For a circuit, how many circuits' cables are bunched where it runs, its own counted.</summary>
+    public int Grouped { get; set; } = 1;
+
+    /// <summary>For a circuit, its cable's length, m - none set at 0, measured along its run from the board.</summary>
+    public double CableLength { get; set; }
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         yield return ParameterValue.Bind(MepSystemParameters.SystemName, () => Name, v => { if (!string.IsNullOrWhiteSpace(v)) Name = v.Trim(); });
         yield return ParameterValue.ReadOnly(MepSystemParameters.SystemType, () => Kind.Title());
         yield return ParameterValue.ReadOnly(MepSystemParameters.Discipline, () => Kind.Discipline().Title());
         if (Kind == SystemKind.Power)
-            yield return ParameterValue.BindChoice(MepSystemParameters.Use, () => Use.Title(),
-                v => { foreach (var use in Enum.GetValues<CircuitUse>()) if (use.Title() == v) Use = use; },
-                Enum.GetValues<CircuitUse>().Select(use => use.Title()).ToArray());
+        {
+            var us = document.ProjectInformation.ClearanceStandard.IsUs();
+            var uses = Enum.GetValues<CircuitUse>().Where(use => !us || use != CircuitUse.RingFinal).ToList();
+            yield return ParameterValue.BindChoice(MepSystemParameters.Use, () => Use.Title(us),
+                v => { foreach (var use in uses) if (use.Title(us) == v) Use = use; },
+                uses.Select(use => use.Title(us)).ToArray());
+
+            // Its breaker, protection and cable: as set, or as Size Circuits would choose them - worked out again once any of them is changed.
+            CircuitDesign? design = null;
+            (CircuitUse, double, BreakerCurve, bool, bool, string, CableMethod, int, double)? designedFor = null;
+            CircuitDesign? Designed()
+            {
+                var now = (Use, Breaker, Curve, Rcd, ArcFault, Cable, Method, Grouped, CableLength);
+                if (designedFor != now) (design, designedFor) = (Circuits.Design(document, this), now);
+                return design;
+            }
+
+            yield return ParameterValue.BindValidated(MepSystemParameters.Breaker, () => Designed()?.Breaker ?? Breaker, v =>
+            {
+                if (v != 0 && !Circuits.Ratings(us).Contains(v)) return false;
+                Breaker = v;
+                return true;
+            });
+            if (!us)
+                yield return ParameterValue.BindChoice(MepSystemParameters.Curve, () => $"Type {Curve}",
+                    v => { if (Enum.TryParse<BreakerCurve>(v.Replace("Type ", string.Empty), out var curve)) Curve = curve; },
+                    Enum.GetValues<BreakerCurve>().Select(curve => $"Type {curve}").ToArray());
+            yield return ParameterValue.Bind(us ? MepSystemParameters.Gfci : MepSystemParameters.Rcd, () => Rcd, v => Rcd = v);
+            yield return ParameterValue.Bind(us ? MepSystemParameters.Afci : MepSystemParameters.Afdd, () => ArcFault, v => ArcFault = v);
+            yield return ParameterValue.BindChoice(MepSystemParameters.Cable, () => Designed()?.Cable.Name ?? Cable,
+                v => { if (Circuits.Sizes(us).Any(size => size.Name == v)) Cable = v; },
+                Circuits.Sizes(us).Select(size => size.Name).ToArray());
+            if (!us)
+                yield return ParameterValue.BindChoice(MepSystemParameters.Method, () => Method.Title(),
+                    v => { foreach (var method in Enum.GetValues<CableMethod>()) if (method.Title() == v) Method = method; },
+                    Enum.GetValues<CableMethod>().Select(method => method.Title()).ToArray());
+            yield return ParameterValue.BindValidated(MepSystemParameters.Grouped, () => (double)Grouped, v =>
+            {
+                if (v is < 1 or > 20) return false;
+                Grouped = (int)Math.Round(v);
+                return true;
+            });
+            yield return ParameterValue.BindValidated(MepSystemParameters.CableLength, () => Math.Round(Designed()?.Length ?? CableLength, 1), v =>
+            {
+                if (v < 0) return false;
+                CableLength = Designed() is { Measured: true } measured && Math.Abs(v - measured.Length) < 0.05 ? 0 : v;
+                return true;
+            });
+            yield return ParameterValue.ReadOnly(MepSystemParameters.DesignCurrent, () => Math.Round(Designed()?.Current ?? 0, 1));
+            yield return ParameterValue.ReadOnly(MepSystemParameters.Capacity, () => Math.Round(Designed()?.Capacity ?? 0, 1));
+            yield return ParameterValue.ReadOnly(MepSystemParameters.VoltageDrop, () => Designed() is { } now ? Math.Round(now.Drop / now.Voltage * 100, 2) : 0);
+            yield return ParameterValue.ReadOnly(MepSystemParameters.Design, () => Circuits.Describe(document, this));
+        }
         if (Kind == SystemKind.Heating)
         {
             yield return ParameterValue.BindValidated(MepSystemParameters.FlowTemperature, () => Heating.Design(document, this).Flow, v =>
@@ -71,13 +146,25 @@ public sealed class MepSystem : Element
     }
 
     /// <summary>What it is, all of it - for a change to be undone by putting it back.</summary>
-    public sealed record State(string Name, SystemKind Kind, Guid? SourceId, IReadOnlyList<Guid> Members, CircuitUse Use, double Flow = 0, double Return = 0);
+    public sealed record State(string Name, SystemKind Kind, Guid? SourceId, IReadOnlyList<Guid> Members, CircuitUse Use, double Flow = 0, double Return = 0)
+    {
+        public CircuitSettings Circuit { get; init; } = new();
+    }
 
-    public State Capture() => new(Name, Kind, SourceId, Members.ToList(), Use, FlowTemperature, ReturnTemperature);
+    /// <summary>A circuit's breaker, protection and cable, all of them.</summary>
+    public sealed record CircuitSettings(double Breaker = 0, BreakerCurve Curve = BreakerCurve.B, bool Rcd = true, bool ArcFault = false, string Cable = "",
+        CableMethod Method = CableMethod.ClippedDirect, int Grouped = 1, double CableLength = 0);
+
+    public State Capture() => new(Name, Kind, SourceId, Members.ToList(), Use, FlowTemperature, ReturnTemperature)
+    {
+        Circuit = new CircuitSettings(Breaker, Curve, Rcd, ArcFault, Cable, Method, Grouped, CableLength)
+    };
 
     public void Restore(State state)
     {
         (Name, Kind, SourceId, Use, FlowTemperature, ReturnTemperature) = (state.Name, state.Kind, state.SourceId, state.Use, state.Flow, state.Return);
+        (Breaker, Curve, Rcd, ArcFault, Cable, Method, Grouped, CableLength) =
+            (state.Circuit.Breaker, state.Circuit.Curve, state.Circuit.Rcd, state.Circuit.ArcFault, state.Circuit.Cable, state.Circuit.Method, state.Circuit.Grouped, state.Circuit.CableLength);
         Members.Clear();
         Members.AddRange(state.Members);
     }
@@ -96,6 +183,22 @@ public static class MepSystemParameters
     public static readonly ParameterDefinition FlowTemperature = new("Flow Temperature (°C)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition ReturnTemperature = new("Return Temperature (°C)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition HeatLoad = new("Heat Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    // A circuit's breaker, protection and cable, and what they come to.
+    public static readonly ParameterDefinition Breaker = new("Breaker (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Curve = new("Breaker Curve", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Rcd = new("RCD (30 mA)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Gfci = new("GFCI", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Afdd = new("AFDD", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Afci = new("AFCI", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Cable = new("Cable", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Method = new("Installation Method", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Grouped = new("Grouped With (circuits)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition CableLength = new("Cable Length (m)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Design = new("Circuit Design", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition DesignCurrent = new("Design Current (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition Capacity = new("Cable Carries (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition VoltageDrop = new("Voltage Drop (%)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     /// <summary>On a radiator or an underfloor loop: what it gives at its zone's temperatures.</summary>
     public static readonly ParameterDefinition DesignOutput = new("Output at Design", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
@@ -131,7 +234,7 @@ public sealed class EditSystemCommand : IUndoableCommand
     /// <summary>Whether it changes anything.</summary>
     public bool Changes => _before.Name != _after.Name || _before.Kind != _after.Kind || _before.SourceId != _after.SourceId
                            || _before.Use != _after.Use || _before.Flow != _after.Flow || _before.Return != _after.Return
-                           || !_before.Members.SequenceEqual(_after.Members);
+                           || _before.Circuit != _after.Circuit || !_before.Members.SequenceEqual(_after.Members);
 
     public void Redo() => _system.Restore(_after);
 

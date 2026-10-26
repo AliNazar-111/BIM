@@ -389,6 +389,8 @@
                                   ToolTip="The model as IFC2x3 Coordination View 2.0, for software that does not yet read IFC4"/>
                         <MenuItem Header="Export _COBie..." Click="OnExportCobie"
                                   ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
+                        <MenuItem Header="Export _gbXML..." Click="OnExportGbXml"
+                                  ToolTip="The building for energy analysis - OpenStudio and EnergyPlus, IES VE, DesignBuilder: each room a space, its walls, floors and roofs at their centre lines with their constructions and U-values, its windows and doors"/>
                         <MenuItem Header="Export Plan to D_XF..." Click="OnExportPlanDxf"
                                   ToolTip="The plan shown, as a DXF drawing at full size in millimetres"/>
                         <MenuItem Header="Export This Sheet to DX_F..." Click="OnExportSheetDxf"
@@ -660,6 +662,28 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Radiator}"
                                             Content="Size Radiators" Click="OnSizeRadiators"
                                             ToolTip="Size each room's radiators to its heat loss at its zone's temperatures: the shortest single or double panel radiator, as high as it is, that gives its share"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Builder's Work" Style="{StaticResource RibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallOpening}"
+                                    Content="Cut Openings" Click="OnCutOpenings"
+                                    ToolTip="Cut an opening wherever a pipe or duct passes through a wall or a floor with none: a wall opening or a shaft opening, the service's size and a gap all round it for its fire-stopping"/>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Electrical" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Electrical}"
+                                        Content="Electrical" Click="OnElectrical"
+                                        ToolTip="Each consumer unit's supply and maximum demand after diversity - in the US the dwelling's load by NEC Article 220 - its circuits' breakers and cables, what they carry, their voltage drop and earth loop as BS 7671 and the On-Site Guide check them, and each room's light against what it is lit to"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SizeCircuits}"
+                                            Content="Size Circuits" Click="OnSizeCircuits"
+                                            ToolTip="Give the circuits selected, or every circuit, the breaker their use usually has and the smallest cable that carries it as installed, keeping the voltage drop and earth loop within the rules"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.LightData}"
+                                            Content="Light Data" Click="OnPhotometricFile"
+                                            ToolTip="Select a light, then load its maker's photometric file - IES LM-63 or EULUMDAT - into its type: its lumens and watts, and its light in each direction for the room's light point by point"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
