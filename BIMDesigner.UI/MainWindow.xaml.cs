@@ -584,11 +584,17 @@ public partial class MainWindow : Window
         // An ordinary layered wall to start with, not whichever type sorts first.
         WallTypePicker.SelectedItem = wallTypes.OfType<WallType>().FirstOrDefault(t => t.Function == WallFunction.Exterior) ?? wallTypes.FirstOrDefault();
 
+        // What a first door and window usually are, not whichever sorts first: a plain single door and a
+        // casement in England; in the US, the inch-sized door and a double-hung window.
+        var us = _document.ProjectInformation.ClearanceStandard.IsUs();
+        T? Preferred<T>(IReadOnlyList<T> types, params string[] names) where T : ElementType =>
+            names.Select(name => types.FirstOrDefault(type => type.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(type => type is not null) ?? types.FirstOrDefault();
+
         DoorTypePicker.ItemsSource = doorTypes;
-        DoorTypePicker.SelectedItem = doorTypes.FirstOrDefault();
+        DoorTypePicker.SelectedItem = us ? Preferred(doorTypes, "Exterior Door - 36 x 80", "Single - 900") : Preferred(doorTypes, "Single - 900 x 2100", "Single");
 
         WindowTypePicker.ItemsSource = windowTypes;
-        WindowTypePicker.SelectedItem = windowTypes.FirstOrDefault();
+        WindowTypePicker.SelectedItem = us ? Preferred(windowTypes, "Double Hung - ", "Double Hung") : Preferred(windowTypes, "Casement - 1200 x 1200", "Casement");
 
         var roofWindowTypes = _document.TypesOf<RoofWindowType>().OrderBy(t => t.Name).ToList();
         RoofWindowTypePicker.ItemsSource = roofWindowTypes;
@@ -602,7 +608,7 @@ public partial class MainWindow : Window
             .ToList();
 
         ComponentTypePicker.ItemsSource = families;
-        ComponentTypePicker.SelectedItem = families.FirstOrDefault();
+        ComponentTypePicker.SelectedItem = families.FirstOrDefault(family => family.Type.Kind == BuiltInCategory.Furniture) ?? families.FirstOrDefault();
 
         var columnTypes = _document.TypesOf<ColumnType>().Where(t => !t.Structural).OrderBy(t => t.Name).ToList();
         ColumnTypePicker.ItemsSource = columnTypes;
@@ -2285,7 +2291,8 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
+        FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
+        StructuralColumnTool, WallFootingTool, PadFootingTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
@@ -5544,7 +5551,11 @@ public partial class MainWindow : Window
         // Pasting works on the plan; a sheet being open would hide where things landed.
         if (SheetPanel.Visibility == Visibility.Visible) OnCloseSheet(this, new RoutedEventArgs());
 
-        Plan.Paste(inPlace);
+        // What is pasted follows the cursor until it is clicked down: pasted at once, it would
+        // land where the cursor last was - on what was copied, just clicked, or wherever the
+        // cursor left the plan for the ribbon.
+        if (inPlace) Plan.Paste(inPlace: true);
+        else Plan.BeginPaste();
         Plan.Focus();
     }
 

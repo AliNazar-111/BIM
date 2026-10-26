@@ -173,6 +173,30 @@ public class WallEditTests
     }
 
     [Fact]
+    public void TrimKeepsThePartClickedWhereTheTargetCrossesTheWall()
+    {
+        var (document, _, type, levelId) = Project();
+        var wall = AddWall(document, type, levelId, new Point2D(0, 0), new Point2D(8000, 0));
+        var target = AddWall(document, type, levelId, new Point2D(3000, -2000), new Point2D(3000, 2000));
+
+        // The shorter part kept, clicked on, though its end is the nearer the crossing.
+        Assert.True(WallTrim.TryResolve(wall, target, out var start, out var end, keep: new Point2D(1000, 50)));
+        Assert.Equal(new Point2D(0, 0), start);
+        Assert.Equal(3000, end.X, precision: 6);
+
+        // The longer part kept, clicked on.
+        Assert.True(WallTrim.TryResolve(wall, target, out start, out end, keep: new Point2D(6000, -50)));
+        Assert.Equal(3000, start.X, precision: 6);
+        Assert.Equal(new Point2D(8000, 0), end);
+
+        // Falling short, it is extended at its nearer end wherever it was clicked.
+        var far = AddWall(document, type, levelId, new Point2D(10000, -2000), new Point2D(10000, 2000));
+        Assert.True(WallTrim.TryResolve(wall, far, out start, out end, keep: new Point2D(500, 0)));
+        Assert.Equal(new Point2D(0, 0), start);
+        Assert.Equal(10000, end.X, precision: 6);
+    }
+
+    [Fact]
     public void ParallelWallsCannotBeTrimmedToEachOther()
     {
         var (document, _, type, levelId) = Project();

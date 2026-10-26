@@ -247,6 +247,16 @@ public class RailingTests
                 var railing = Assert.Single(document.Elements.OfType<Railing>());
                 Assert.Equal((3, false, true), (railing.Path.Count, railing.Closed, railing.Outside));
 
+                // Esc with two corners down puts it up as far as it goes; with only its first, nothing.
+                plan.ClickRailing(new Point2D(6200, 2000));
+                plan.ClickRailing(new Point2D(8300, 2000));
+                Assert.True(plan.CancelPendingOperation());
+                Assert.Equal(2, document.Elements.OfType<Railing>().Count());
+                document.Remove(document.Elements.OfType<Railing>().Last());
+                plan.ClickRailing(new Point2D(6200, 2500));
+                Assert.True(plan.CancelPendingOperation());
+                Assert.Single(document.Elements.OfType<Railing>());
+
                 // Clicking its first point again takes it all the way round.
                 foreach (var point in new[] { (6100.0, 1100.0), (8400.0, 1100.0), (8400.0, 3900.0), (6100.0, 1100.0) })
                     plan.ClickRailing(new Point2D(point.Item1, point.Item2));

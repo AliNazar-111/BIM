@@ -206,8 +206,10 @@ public sealed class ProfileEditor : FrameworkElement
         var hint = SelectedIndex >= 0 && SelectedIndex < _corners.Count
             ? $"Corner {SelectedIndex + 1}: {Units.FormatLength(_corners[SelectedIndex].X)} along, {Units.FormatLength(_corners[SelectedIndex].Y)} high   ·   {EdgeText()}"
             : "Drag a corner: it locks to the snap angle from its neighbours and lines up with other corners; Shift holds an angle. Double-click an edge to add a corner; Delete removes one.";
-        dc.DrawText(new FormattedText(hint, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-            new Typeface("Segoe UI"), 11, SelectedIndex >= 0 ? TextBrush : MutedBrush, dpi), new Point(8, 6));
+        // Wrapped to the drawing's width, so the whole of it can be read however narrow the window.
+        var said = new FormattedText(hint, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"), 11, SelectedIndex >= 0 ? TextBrush : MutedBrush, dpi) { MaxTextWidth = Math.Max(50, ActualWidth - 16) };
+        dc.DrawText(said, new Point(8, 6));
     }
 
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)

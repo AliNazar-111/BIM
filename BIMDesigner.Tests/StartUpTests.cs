@@ -187,6 +187,30 @@ public class StartUpTests
     }));
 
     [Fact]
+    public void ANewProjectsToolsStartOnTheUsualTypes() => OnUiThread(() =>
+    {
+        string Picked(MainWindow window, string picker) =>
+            ((System.Windows.Controls.ComboBox)typeof(MainWindow).GetField(picker, Hidden)!.GetValue(window)!).SelectedItem switch
+            {
+                Core.Elements.ElementType type => type.Name,
+                { } item => item.GetType().GetProperty("Type")?.GetValue(item) is Core.Elements.ElementType inner ? inner.Name : item.ToString() ?? string.Empty,
+                _ => string.Empty
+            };
+
+        // England: a plain single door, a casement window, and furniture to put in rooms.
+        var window = new MainWindow();
+        typeof(MainWindow).GetMethod("Begin", Hidden)!.Invoke(window, new object[] { new StartChoice(ProjectTemplates.Create(new NewProjectSpec()), null, "new") });
+        Assert.Equal("Single - 900 x 2100", Picked(window, "DoorTypePicker"));
+        Assert.Equal("Casement - 1200 x 1200", Picked(window, "WindowTypePicker"));
+        Assert.Equal(Core.Elements.BuiltInCategory.Furniture, Core.Documents.BimDocument.CreateDefault().TypesOf<ComponentType>().First(type => type.Name == Picked(window, "ComponentTypePicker")).Kind);
+
+        // The US: the inch-sized door and a double-hung window.
+        typeof(MainWindow).GetMethod("Begin", Hidden)!.Invoke(window, new object[] { new StartChoice(ProjectTemplates.Create(new NewProjectSpec { Template = ProjectTemplate.UsHouse }), null, "new") });
+        Assert.Equal("Exterior Door - 36 x 80 in", Picked(window, "DoorTypePicker"));
+        Assert.StartsWith("Double Hung", Picked(window, "WindowTypePicker"));
+    });
+
+    [Fact]
     public void TheHomeScreenListsRecentProjectsFindsThemAndOpensWhatIsPicked() => WithOwnRecentList(() => OnUiThread(() =>
     {
         var folder = Path.Combine(RecentProjects.Folder, "projects");

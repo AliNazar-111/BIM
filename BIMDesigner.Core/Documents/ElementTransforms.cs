@@ -72,6 +72,25 @@ public static class ElementTransforms
         _ => false
     };
 
+    /// <summary>
+    /// The points an element is set out by in plan - its ends, its corners, its path, where it
+    /// stands - in order, so that following them traces its lines. Found by putting a copy of it
+    /// through the transform every move, turn and scale uses, so whatever those move is found.
+    /// Empty for what is carried by something else.
+    /// </summary>
+    public static IReadOnlyList<Point2D> PlanPoints(Element element)
+    {
+        if (ElementCopy.Clone(element) is not { } copy) return Array.Empty<Point2D>();
+
+        var points = new List<Point2D>();
+        Transform(copy, point =>
+        {
+            points.Add(point);
+            return point;
+        }, direction => direction, 0, 1);
+        return points;
+    }
+
     public static void Move(Element element, Vector2D delta)
     {
         switch (element)

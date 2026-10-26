@@ -620,10 +620,12 @@ public static class WallTrim
 {
     /// <summary>
     /// Works out where <paramref name="wall"/> should end to meet <paramref name="target"/>,
-    /// and which of its ends should move - whichever already lies nearer the crossing.
+    /// and which of its ends should move - whichever already lies nearer the crossing, or,
+    /// where the target crosses the wall part way along it, the end on the other side from
+    /// <paramref name="keep"/>, the point clicked on the part to keep.
     /// Returns false when the two are parallel and never meet.
     /// </summary>
-    public static bool TryResolve(Wall wall, Wall target, out Point2D newStart, out Point2D newEnd)
+    public static bool TryResolve(Wall wall, Wall target, out Point2D newStart, out Point2D newEnd, Point2D? keep = null)
     {
         newStart = wall.Start;
         newEnd = wall.End;
@@ -668,8 +670,16 @@ public static class WallTrim
         }
 
         // Moving the nearer end keeps the wall roughly where the user drew it; moving the
-        // far end would flip it through the target.
-        if (wall.Start.DistanceTo(crossing) < wall.End.DistanceTo(crossing)) newStart = crossing;
+        // far end would flip it through the target. Where the target crosses it part way
+        // along, the part clicked is the part kept, whichever is the longer.
+        var length = wall.Start.DistanceTo(wall.End);
+        var at = (crossing - wall.Start).Dot(wall.End - wall.Start) / length;
+        if (keep is { } kept && at > WallJoins.JoinTolerance && at < length - WallJoins.JoinTolerance)
+        {
+            if ((kept - wall.Start).Dot(wall.End - wall.Start) / length < at) newEnd = crossing;
+            else newStart = crossing;
+        }
+        else if (wall.Start.DistanceTo(crossing) < wall.End.DistanceTo(crossing)) newStart = crossing;
         else newEnd = crossing;
 
         // A zero-length wall is not a wall.

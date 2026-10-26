@@ -280,7 +280,7 @@ public partial class PlanView
         _railingPoints.Add(at);
         HintChanged?.Invoke(this, _railingPoints.Count == 1
             ? "Now click along where it runs: each corner, then double-click where it ends - or click its first point to take it all the way round."
-            : "Click its next corner, double-click where it ends, or click its first point to close it. Esc to stop.");
+            : "Click its next corner, double-click where it ends, or click its first point to close it. Esc ends it at the last corner.");
         InvalidateVisual();
         return true;
     }
@@ -346,10 +346,11 @@ public partial class PlanView
         return railing;
     }
 
-    /// <summary>Esc with a railing begun: the corners clicked so far, forgotten.</summary>
+    /// <summary>Esc with a railing begun: two corners or more put up as far as it goes, as walls drawn so far are kept; a first point alone forgotten.</summary>
     private bool CancelRailing()
     {
         if (_railingPoints.Count == 0) return false;
+        if (_railingPoints.Count >= 2 && _railingArcEnd is null && FinishRailing()) return true;
         _railingPoints.Clear();
         _railingBulges.Clear();
         _railingArcEnd = null;

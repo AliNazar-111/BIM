@@ -304,6 +304,9 @@ public partial class PlanView : FrameworkElement
     /// <summary>First wall picked by the trim tool, waiting for its target.</summary>
     private Wall? _trimSubject;
 
+    /// <summary>Where that wall was clicked: the part of it to keep, where its target crosses it.</summary>
+    private Point2D? _trimKeep;
+
     /// <summary>First end picked by the dimension tool, waiting for its second.</summary>
     private DimensionReference? _pendingDimension;
 
@@ -1244,8 +1247,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.SplitGap => "Click a wall where the joint goes: it is split in two with the Joint Gap between them.",
         PlanTool.Paint => "Pick a material above, then click a wall's face: in plan on the side to paint, or anywhere on it in an elevation or the 3D view.",
         PlanTool.SplitFace => "Open an elevation or the 3D view and click two opposite corners on a wall's face to split that part off it.",
-        PlanTool.Trim => "Click the wall to trim or extend.",
-        PlanTool.Offset => "Click a wall on the side the copy should go. Set the distance above.",
+        PlanTool.Trim => "Click the wall to trim or extend - on the part to keep, where it runs past - then the wall to trim or extend it to.",
+        PlanTool.Offset => "Click on or beside a wall, on the side the copy should go - it shows dashed. Set the distance above.",
         PlanTool.Mirror => "Select what to mirror first, then click two points on the mirror line.",
         PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
         PlanTool.Rotate => "Select what to rotate first. Click where the angle starts, then where it ends - or type an Angle and press Enter.",
@@ -1429,6 +1432,7 @@ public partial class PlanView : FrameworkElement
                       | CancelShapedWall()
                       || _pendingWallStart is not null
                       || _rehosting is not null
+                      || PastePending
                       || _rehostingComponent is not null
                       || _attachingColumns is not null
                       || AddingWallPoints
@@ -1446,6 +1450,7 @@ public partial class PlanView : FrameworkElement
         EndSweepEdit();
         AddingWallPoints = false;
         _rehosting = null;
+        PastePending = false;
         if (_rehostingComponent is not null)
         {
             _rehostingComponent = null;
@@ -1864,6 +1869,13 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
         }
+        else if (ActiveTool == PlanTool.Offset)
+        {
+            // Which side of the wall the cursor is decides where the copy goes, shown as it moves.
+            _cursorModel = raw;
+            _cursorIsSnapped = false;
+            InvalidateVisual();
+        }
         else
         {
             _cursorModel = SnapToGrid(raw);
@@ -1871,6 +1883,9 @@ public partial class PlanView : FrameworkElement
         }
 
         CursorMoved?.Invoke(this, _cursorModel);
+
+        // What is being pasted follows the cursor until it is clicked down.
+        if (PastePending) InvalidateVisual();
 
         UpdateHoverCursor(raw);
 
@@ -1949,6 +1964,12 @@ public partial class PlanView : FrameworkElement
         }
 
         if (ActiveTool == PlanTool.Select && SweepEdit != SweepEditMode.None && SweepEditClick(raw)) return;
+        if (PastePending)
+        {
+            Paste(inPlace: false);
+            return;
+        }
+
         if (ActiveTool == PlanTool.Select && _rehosting is not null && RehostAt(raw)) return;
         if (ActiveTool == PlanTool.Select && _rehostingComponent is not null && RehostComponentAt(raw)) return;
         if (ActiveTool == PlanTool.Select && _attachingColumns is not null && AttachColumnsAt(raw)) return;
@@ -2560,10 +2581,24 @@ public partial class PlanView : FrameworkElement
             case TextNote note:
                 return Contains(box, note.Position);
 
+            case Component component when Document.FindType<ComponentType>(component.TypeId) is { } componentType:
+                return Overlaps(ComponentModel.Footprint(componentType, ComponentModel.FrameOf(component, 0)), box);
+
             default:
-                return false;
+            {
+                // Anything else by the points it is set out by: a column where it stands, a beam,
+                // a pipe or a railing along its run, a stair along its path.
+                var points = ElementTransforms.PlanPoints(element);
+                return points.Any(point => Contains(box, point)) || points.Zip(points.Skip(1)).Any(piece => SegmentTouches(piece.First, piece.Second, box));
+            }
         }
     }
+
+    /// <summary>Whether an outline and a band overlap: a corner of either inside the other, or an edge crossing.</summary>
+    private static bool Overlaps(IReadOnlyList<Point2D> outline, BoundingBox2D box) =>
+        outline.Count > 0 && (outline.Any(point => Contains(box, point))
+                              || Polygon2D.Contains(outline, new Point2D(box.MinX, box.MinY))
+                              || outline.Select((point, i) => (point, next: outline[(i + 1) % outline.Count])).Any(edge => SegmentTouches(edge.point, edge.next, box)));
 
     private static bool Contains(BoundingBox2D box, Point2D point) =>
         point.X >= box.MinX && point.X <= box.MaxX && point.Y >= box.MinY && point.Y <= box.MaxY;
@@ -3072,6 +3107,27 @@ public partial class PlanView : FrameworkElement
 
     /// <summary>A click with the Wall tool, at a point already snapped. Public so tests can drive it.</summary>
     public void PlaceWallPointAt(Point2D model) => PlaceWallPoint(model);
+
+    /// <summary>A click with the Array tool, at a point already snapped. Public so tests can drive it.</summary>
+    public void PlaceArrayPointAt(Point2D model) => PlaceArrayPoint(model);
+
+    /// <summary>A click with the Mirror tool, at a point already snapped. Public so tests can drive it.</summary>
+    public void PlaceMirrorPointAt(Point2D model) => PlaceMirrorPoint(model);
+
+    /// <summary>Ctrl+V with the cursor here. Public so tests can drive it.</summary>
+    public void PasteAt(Point2D model)
+    {
+        _cursorModel = model;
+        Paste(inPlace: false);
+    }
+
+    /// <summary>A band dragged from one corner to the other with the Select tool. Public so tests can drive it.</summary>
+    public void SelectInBand(Point2D from, Point2D to)
+    {
+        _bandStart = from;
+        _bandEnd = to;
+        EndBand();
+    }
 
     private void PlaceWallPoint(Point2D model)
     {
@@ -4039,9 +4095,9 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null) return;
 
-        if (HitTestWall(raw) is not { } wall)
+        if (OffsetTarget(raw) is not var (wall, side))
         {
-            HintChanged?.Invoke(this, "Offset works on walls. Click one, on the side the copy should go.");
+            HintChanged?.Invoke(this, "Offset works on walls. Click on or beside one, on the side the copy should go.");
             return;
         }
 
@@ -4053,11 +4109,8 @@ public partial class PlanView : FrameworkElement
 
         if (ElementCopy.Clone(wall) is not Wall copy) return;
 
-        // Which side of the wall the click landed on decides which way the copy goes. A curved
-        // wall's copy is concentric: its ends move along the radius, and it keeps its sweep.
+        // A curved wall's copy is concentric: its ends move along the radius, and it keeps its sweep.
         var curve = wall.LocationCurve;
-        var side = curve.Locate(raw).Left >= 0 ? 1.0 : -1.0;
-
         copy.Start = curve.At(0, OffsetDistance * side);
         copy.End = curve.At(curve.Length, OffsetDistance * side);
 
@@ -4066,6 +4119,27 @@ public partial class PlanView : FrameworkElement
 
         HintChanged?.Invoke(this,
             $"Offset {Units.FormatLength(OffsetDistance)}. Click another wall, or Esc to stop.");
+    }
+
+    /// <summary>
+    /// The wall Offset would copy from a click here, and which side of it the copy goes: the
+    /// wall clicked, or the one whose face is nearest within reach - a click just off it in the
+    /// room - on the side the click is.
+    /// </summary>
+    private (Wall Wall, double Side)? OffsetTarget(Point2D raw)
+    {
+        if ((HitTestWall(raw) ?? WallFaceNear(raw, Math.Max(NearWallReach, 12 / PixelsPerMm))) is not { } wall) return null;
+        return (wall, wall.LocationCurve.Locate(raw).Left >= 0 ? 1.0 : -1.0);
+    }
+
+    /// <summary>Where the copy would go, dashed, as the cursor moves beside a wall with Offset.</summary>
+    private void DrawOffsetPreview(DrawingContext dc)
+    {
+        if (ActiveTool != PlanTool.Offset || OffsetDistance <= 0 || OffsetTarget(_cursorModel) is not var (wall, side)) return;
+
+        var curve = wall.LocationCurve;
+        var steps = wall.IsCurved ? 24 : 1;
+        DrawModelPolyline(dc, _previewPen, Enumerable.Range(0, steps + 1).Select(i => curve.At(curve.Length * i / steps, OffsetDistance * side)).ToList());
     }
 
     /// <summary>
@@ -4078,7 +4152,7 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null) return;
 
-        if (!_selection.Any(ElementTransforms.CanMove))
+        if (!HostedCopies.AnyToMove(_selection))
         {
             HintChanged?.Invoke(this, "Nothing to mirror. Select something with the Select tool first.");
             return;
@@ -4101,28 +4175,46 @@ public partial class PlanView : FrameworkElement
         var axis = Line2D.Through(_pendingWallStart.Value, point);
         _pendingWallStart = null;
 
+        Point2D Reflect(Point2D at) => ElementTransforms.ReflectPoint(at, axis);
         if (MirrorKeepsOriginal)
         {
             var copies = ElementCopy.Duplicate(Document, _selection);
-            foreach (var copy in copies) ElementTransforms.Mirror(copy, axis);
+            var copied = copies.Select(copy => copy.Id).ToHashSet();
+            foreach (var copy in copies.Where(copy => !HostedCopies.Alone(copy, copied))) ElementTransforms.Mirror(copy, axis);
+
+            // A door mirrored on its own goes into the wall its image lands in, hung the other way.
+            var homeless = HostedCopies.Settle(Document, copies, Reflect);
+            copies = copies.Except(homeless).ToList();
+            if (copies.Count == 0)
+            {
+                HintChanged?.Invoke(this, HomelessHint(homeless, "mirrored"));
+                InvalidateVisual();
+                return;
+            }
+
             FitLoneChimneys(copies);
 
             Apply(Dormers.AddCopies(Document, copies, "Mirror Copy"));
-            SelectMany(copies.Where(ElementTransforms.CanMove));
+            var movable = copies.Where(ElementTransforms.CanMove).ToList();
+            SelectMany(movable.Count > 0 ? movable : copies);
 
-            HintChanged?.Invoke(this, $"Mirrored {Plural(copies.Count, "element")} as copies.");
+            HintChanged?.Invoke(this, $"Mirrored {Plural(copies.Count, "element")} as copies." + (homeless.Count > 0 ? " " + HomelessHint(homeless, "mirrored") : ""));
         }
         else
         {
             if (RefusePinned(_selection, "mirrored - Keep originals mirrors copies of it instead")) return;
 
-            // A chimney mirrored to face a wall turns round to face the room, as one step with the mirror.
+            // A chimney mirrored to face a wall turns round to face the room, as one step with the mirror;
+            // a door mirrored on its own goes into the wall its image lands in.
             var command = new MirrorElementsCommand(_selection.ToList(), axis, Document);
+            var rehosted = HostedCopies.Move(Document, _selection.ToList(), Reflect, "Mirror", out var stayed);
             command.Redo();
+            rehosted?.Redo();
             var fitted = _selection.OfType<Wall>().Any() ? null : FitChimneysCommand.For(Document, _selection.OfType<Chimney>());
-            History?.Record(fitted is null ? command : new CompositeCommand("Mirror", new IUndoableCommand[] { command, fitted }));
+            var steps = new IUndoableCommand?[] { command, rehosted, fitted }.OfType<IUndoableCommand>().ToList();
+            History?.Record(steps.Count == 1 ? steps[0] : new CompositeCommand("Mirror", steps));
 
-            HintChanged?.Invoke(this, $"Mirrored {Plural(_selection.Count, "element")}.");
+            HintChanged?.Invoke(this, $"Mirrored {Plural(_selection.Count - stayed.Count, "element")}." + (stayed.Count > 0 ? " " + HomelessHint(stayed, "mirrored") : ""));
         }
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
@@ -4139,7 +4231,7 @@ public partial class PlanView : FrameworkElement
     {
         if (Document is null) return;
 
-        if (!_selection.Any(ElementTransforms.CanMove))
+        if (!HostedCopies.AnyToMove(_selection))
         {
             HintChanged?.Invoke(this, "Nothing to repeat. Select something with the Select tool first.");
             return;
@@ -4170,15 +4262,28 @@ public partial class PlanView : FrameworkElement
         }
 
         var placed = new List<Element>();
+        var homeless = new List<Element>();
+        var taken = new List<(Guid Wall, double From, double To)>();
 
         for (var i = 1; i < ArrayCount; i++)
         {
             var copies = ElementCopy.Duplicate(Document, _selection);
+            var shift = step * i;
             foreach (var copy in copies)
                 if (ElementTransforms.CanMove(copy))
-                    ElementTransforms.Move(copy, step * i);
+                    ElementTransforms.Move(copy, shift);
 
-            placed.AddRange(copies);
+            // Windows along a front go into it, each where its step takes it.
+            var left = HostedCopies.Settle(Document, copies, point => point + shift, taken);
+            homeless.AddRange(left);
+            placed.AddRange(copies.Except(left));
+        }
+
+        if (placed.Count == 0)
+        {
+            HintChanged?.Invoke(this, HomelessHint(homeless, "repeated"));
+            InvalidateVisual();
+            return;
         }
 
         FitLoneChimneys(placed);
@@ -4186,13 +4291,20 @@ public partial class PlanView : FrameworkElement
 
         HintChanged?.Invoke(this,
             $"Placed {ArrayCount - 1} {(ArrayCount - 1 == 1 ? "copy" : "copies")}, " +
-            $"{Units.FormatLength(Math.Sqrt(step.X * step.X + step.Y * step.Y))} apart.");
+            $"{Units.FormatLength(Math.Sqrt(step.X * step.X + step.Y * step.Y))} apart." + (homeless.Count > 0 ? " " + HomelessHint(homeless, "placed") : ""));
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }
 
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    /// <summary>What a paste, an array or a mirror left out, for want of a wall or a face to go in.</summary>
+    private static string HomelessHint(IReadOnlyCollection<Element> homeless, string done) =>
+        homeless.Count == 0
+            ? ""
+            : $"{Plural(homeless.Count, homeless.All(element => element is Opening or WallOpening) ? "opening" : "hosted element")} not {done}: "
+              + "no wall there to go in, or one already there. Doors and windows go into the wall under where they land.";
 
     // ---- clipboard -------------------------------------------------------------
 
@@ -4207,17 +4319,56 @@ public partial class PlanView : FrameworkElement
     /// <summary>The centre of what was copied, which is what lands on the cursor when pasting.</summary>
     private Point2D _clipboardCentre;
 
+    /// <summary>What was copied takes up in plan, drawn on the cursor while a paste waits for a click.</summary>
+    private BoundingBox2D _clipboardBox = BoundingBox2D.Empty;
+
+    /// <summary>The lines what was copied is drawn by on the cursor, worked out once when it is copied.</summary>
+    private List<IReadOnlyList<Point2D>> _clipboardGhost = new();
+
     public bool CanPaste => _clipboard.Count > 0;
+
+    /// <summary>Whether a paste is waiting for a click to say where it goes: Paste picked from the ribbon, away from the plan.</summary>
+    public bool PastePending { get; private set; }
+
+    /// <summary>
+    /// Paste picked where the cursor is not on the plan - the ribbon's button: what was copied
+    /// follows the cursor onto the plan and goes where it is clicked, rather than where the
+    /// cursor last left the plan.
+    /// </summary>
+    public void BeginPaste()
+    {
+        if (_clipboard.Count == 0) return;
+
+        PastePending = true;
+        HintChanged?.Invoke(this, $"Click where to paste {Plural(_clipboard.Count, "element")} - the middle of it goes where you click. Esc cancels.");
+        InvalidateVisual();
+    }
+
+    /// <summary>What is being pasted, drawn on the cursor by its lines, with the box round it all.</summary>
+    private void DrawPastePreview(DrawingContext dc)
+    {
+        if (!PastePending) return;
+
+        var shift = _cursorModel - _clipboardCentre;
+        foreach (var line in _clipboardGhost)
+            DrawModelPolyline(dc, _previewPen, line.Select(point => point + shift).ToList());
+
+        if (_clipboard.Count < 2 || _clipboardBox.IsEmpty) return;
+        var (min, max) = (new Point2D(_clipboardBox.MinX, _clipboardBox.MinY) + shift, new Point2D(_clipboardBox.MaxX, _clipboardBox.MaxY) + shift);
+        dc.DrawGeometry(null, _previewPen, _renderer.BuildOutline(new[] { min, new Point2D(max.X, min.Y), max, new Point2D(min.X, max.Y) }));
+    }
 
     public void CopySelection()
     {
         if (Document is null || _selection.Count == 0) return;
 
         _clipboard = ElementCopy.Duplicate(Document, _selection);
+        _clipboardBox = BoxOf(_clipboard);
+        _clipboardGhost = _clipboard.SelectMany(Ghost).ToList();
         _clipboardCentre = CentreOf(_clipboard);
 
         HintChanged?.Invoke(this,
-            $"Copied {Plural(_clipboard.Count, "element")}. Ctrl+V pastes at the cursor; " +
+            $"Copied {Plural(_clipboard.Count, "element")}. Ctrl+V, then click where it goes; " +
             "Ctrl+Shift+V pastes in the same place, on whichever level is open.");
     }
 
@@ -4243,22 +4394,33 @@ public partial class PlanView : FrameworkElement
         var copied = pasted.Select(element => element.Id).ToHashSet();
         foreach (var element in pasted.Where(element => elsewhere.Contains(element.Id))) LetGoOfWhatStayed(element, copied);
 
+        PastePending = false;
+        var shift = inPlace ? new Vector2D(0, 0) : _cursorModel - _clipboardCentre;
         if (!inPlace)
         {
-            var shift = _cursorModel - _clipboardCentre;
-
             foreach (var element in pasted)
                 if (ElementTransforms.CanMove(element))
                     ElementTransforms.Move(element, shift);
         }
 
+        // A door, a window or what is fixed to a wall, copied without it: into the wall it lands in.
+        var homeless = HostedCopies.Settle(Document, pasted, point => point + shift);
+        pasted = pasted.Except(homeless).ToList();
+        var level = Document.FindLevel(ActiveLevelId)?.Name ?? "this level";
+        if (pasted.Count == 0)
+        {
+            HintChanged?.Invoke(this, HomelessHint(homeless, "pasted"));
+            InvalidateVisual();
+            return;
+        }
+
         FitLoneChimneys(pasted);
 
         Apply(Dormers.AddCopies(Document, pasted, inPlace ? "Paste in Place" : "Paste"));
-        SelectMany(pasted.Where(element => element is not IHostedElement));
+        var selectable = pasted.Where(element => element is not IHostedElement).ToList();
+        SelectMany(selectable.Count > 0 ? selectable : pasted);
 
-        var level = Document.FindLevel(ActiveLevelId)?.Name ?? "this level";
-        HintChanged?.Invoke(this, $"Pasted {Plural(pasted.Count, "element")} on {level}.");
+        HintChanged?.Invoke(this, $"Pasted {Plural(pasted.Count, "element")} on {level}." + (homeless.Count > 0 ? " " + HomelessHint(homeless, "pasted") : ""));
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -4351,7 +4513,13 @@ public partial class PlanView : FrameworkElement
         }
     }
 
-    private Point2D CentreOf(IEnumerable<Element> elements)
+    private Point2D CentreOf(IEnumerable<Element> elements) => BoxOf(elements) is { IsEmpty: false } box ? box.Centre : _cursorModel;
+
+    /// <summary>
+    /// What elements take up in plan: every point they are set out by, and the place in its
+    /// wall of a door, a window or an opening.
+    /// </summary>
+    private BoundingBox2D BoxOf(IEnumerable<Element> elements)
     {
         var box = BoundingBox2D.Empty;
 
@@ -4359,17 +4527,19 @@ public partial class PlanView : FrameworkElement
         {
             switch (element)
             {
-                case Wall wall: box = box.Include(wall.Start).Include(wall.End); break;
-                case Grid grid: box = box.Include(grid.Start).Include(grid.End); break;
-                case SectionMarker section: box = box.Include(section.Start).Include(section.End); break;
-                case Slab slab: box = box.Include(BoundingBox2D.Around(slab.Boundary)); break;
-                case Room room: box = box.Include(room.Location); break;
-                case Tag tag: box = box.Include(tag.Position); break;
-                case TextNote note: box = box.Include(note.Position); break;
+                case Opening opening when Document?.Find<Wall>(opening.HostWallId) is { } host:
+                    box = box.Include(opening.GetCentre(host));
+                    break;
+                case WallOpening cut when Document?.Find<Wall>(cut.HostWallId) is { } host:
+                    box = box.Include(host.LocationCurve.PointAt(cut.DistanceAlongWall));
+                    break;
+                default:
+                    foreach (var point in ElementTransforms.PlanPoints(element)) box = box.Include(point);
+                    break;
             }
         }
 
-        return box.IsEmpty ? _cursorModel : box.Centre;
+        return box;
     }
 
     /// <summary>
@@ -5145,7 +5315,8 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        var host = type.IsHosted ? HitTestWall(raw) : null;
+        // On the wall clicked - or, for a fitting fixed to a wall, the face of the one just in front of where it was put, as a WC backs onto one.
+        var host = type.IsHosted ? HitTestWall(raw) ?? (type.Placement == ComponentPlacement.FaceBased ? WallFaceNear(raw, Math.Max(NearWallReach, 12 / PixelsPerMm)) : null) : null;
         if (host is not null && component.HostOn(Document, host, raw))
         {
             // Its height above the floor - measured from the floor's top, where the floor is built up above the level.
@@ -5527,6 +5698,7 @@ public partial class PlanView : FrameworkElement
         if (_trimSubject is null)
         {
             _trimSubject = picked;
+            _trimKeep = raw;
             Select(picked);
             HintChanged?.Invoke(this, "Now click the wall to trim or extend it to. Esc cancels.");
             InvalidateVisual();
@@ -5539,7 +5711,7 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        if (!WallTrim.TryResolve(_trimSubject, picked, out var newStart, out var newEnd))
+        if (!WallTrim.TryResolve(_trimSubject, picked, out var newStart, out var newEnd, _trimKeep))
         {
             HintChanged?.Invoke(this, "Those walls are parallel, so they never meet.");
             _trimSubject = null;
@@ -6130,6 +6302,28 @@ public partial class PlanView : FrameworkElement
     /// <summary>Picks the wall whose body the point falls in, nearest first.</summary>
     private Wall? HitTestWall(Point2D model) => WallsAt(model).FirstOrDefault();
 
+    /// <summary>How far in front of a wall a fitting fixed to one may be put down and still go on it, mm.</summary>
+    public const double NearWallReach = 400;
+
+    /// <summary>The wall on this storey whose face is nearest a point, no further from it than this, mm - straight or curved.</summary>
+    private Wall? WallFaceNear(Point2D point, double reach)
+    {
+        if (Document is null) return null;
+        Wall? best = null;
+        foreach (var wall in OnActiveLevel<Wall>())
+        {
+            if (Document.GetWallType(wall) is not { } type) continue;
+            var (along, left) = wall.LocationCurve.Locate(point);
+            if (along < 0 || along > wall.Length) continue;
+            var distance = Math.Abs(left - wall.LeftOf(type.Structure, 0)) - type.Width / 2;
+            if (distance > reach) continue;
+            reach = distance;
+            best = wall;
+        }
+
+        return best;
+    }
+
     /// <summary>Every wall whose body the point falls in, nearest first.</summary>
     private IEnumerable<Wall> WallsAt(Point2D model)
     {
@@ -6228,6 +6422,7 @@ public partial class PlanView : FrameworkElement
         DrawShapedWallPreview(dc);
         DrawRotatePreview(dc);
         DrawScalePreview(dc);
+        DrawOffsetPreview(dc);
         DrawPins(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
@@ -6235,6 +6430,7 @@ public partial class PlanView : FrameworkElement
         DrawSelectedOpenings(dc);
         DrawOpeningPreview(dc);
         DrawPickNewHostPreview(dc);
+        DrawPastePreview(dc);
         DrawOpeningFlipControls(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);

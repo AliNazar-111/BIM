@@ -155,7 +155,7 @@ public partial class WallShapeWindow : System.Windows.Window
         {
             case WallShapeKind.Polygon:
                 command = _polygon!.Make(first, MeasuredBy, out problem);
-                Made = $"A {_polygon.Name.ToLowerInvariant()}, every side {Units.FormatLength(first)}.";
+                Made = $"{("aeiou".Contains(char.ToLowerInvariant(_polygon.Name[0])) ? "An" : "A")} {_polygon.Name.ToLowerInvariant()}, every side {Units.FormatLength(first)}.";
                 break;
 
             case WallShapeKind.Square:

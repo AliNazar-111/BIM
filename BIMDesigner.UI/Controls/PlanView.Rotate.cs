@@ -255,14 +255,14 @@ public partial class PlanView
             return true;
         }
 
-        var what = pinned.Count == 1 ? $"A pinned {Describe(pinned[0])} cannot be {doing}" : $"{pinned.Count} pinned elements cannot be {doing}";
-        var why = $"{what}. Unpin it first: Modify → Unpin, or P.";
+        var what = pinned.Count == 1 ? $"This {Describe(pinned[0])} is pinned, so it cannot be {doing}" : $"{pinned.Count} of these are pinned, so they cannot be {doing}";
+        var why = $"{what}. Unpin {(pinned.Count == 1 ? "it" : "them")} first: Modify → Unpin, or Shift+P.";
         HintChanged?.Invoke(this, why);
         PinnedRefused?.Invoke(this, why);
         return true;
     }
 
-    private static string Describe(Element element) => element switch
+    private string Describe(Element element) => element switch
     {
         Wall => "wall",
         Grid => "grid line",
@@ -270,7 +270,8 @@ public partial class PlanView
         Floor => "floor",
         Column => "column",
         Chimney => "chimney",
-        _ => element.Category.ToString().ToLowerInvariant().TrimEnd('s')
+        Component component when Document?.FindType<ComponentType>(component.TypeId) is { } type => type.Name,
+        _ => System.Text.RegularExpressions.Regex.Replace(element.Category.ToString(), "(?<=[a-z])(?=[A-Z])", " ").ToLowerInvariant().TrimEnd('s')
     };
 
     /// <summary>The lines an element is drawn by in a preview: a wall's line, a floor's outline, a cross where something stands.</summary>
@@ -307,6 +308,17 @@ public partial class PlanView
                 break;
             }
 
+            case Component component when Document?.FindType<ComponentType>(component.TypeId) is { } type:
+            {
+                var footprint = ComponentModel.Footprint(type, ComponentModel.FrameOf(component, 0));
+                yield return footprint.Append(footprint[0]).ToList();
+                break;
+            }
+
+            case Opening opening when Document?.Find<Wall>(opening.HostWallId) is { } host:
+                yield return Cross(opening.GetCentre(host));
+                break;
+
             case Room room: yield return Cross(room.Location); break;
             case Column column: yield return Cross(column.Location); break;
             case Component component: yield return Cross(component.Location); break;
@@ -317,6 +329,15 @@ public partial class PlanView
             case Tag tag: yield return Cross(tag.Position); break;
             case TextNote note: yield return Cross(note.Position); break;
             case Dimension dimension: yield return new[] { dimension.Start.FallbackPoint, dimension.End.FallbackPoint }; break;
+
+            // Anything else along the points it is set out by: a beam, a pipe, a railing, a stair's path.
+            default:
+            {
+                var points = ElementTransforms.PlanPoints(element);
+                if (points.Count >= 2) yield return points;
+                else if (points.Count == 1) yield return Cross(points[0]);
+                break;
+            }
         }
     }
 

@@ -168,6 +168,35 @@ public class FirstHourTests
     }
 
     [Fact]
+    public void PickingAnyToolLeavesOnlyThatOneOn()
+    {
+        OnUiThread(() =>
+        {
+            var window = new MainWindow();
+            typeof(MainWindow).GetMethod("LoadDocument", Hidden)!.Invoke(window, new object?[] { BimDocument.CreateDefault(), null, false });
+            var tools = typeof(MainWindow).GetFields(Hidden | BindingFlags.Public)
+                .Where(field => field.FieldType == typeof(System.Windows.Controls.RadioButton) && field.Name.EndsWith("Tool", StringComparison.Ordinal))
+                .Select(field => (Name: field.Name, Button: (System.Windows.Controls.RadioButton)field.GetValue(window)!)).ToList();
+            Assert.True(tools.Count > 60);
+
+            // Each picked in turn: it alone is on - an Eave tool left on would have shadowed the Downpipe, Stair and Beam tools after it.
+            var plan = Field<PlanView>(window, "Plan");
+            foreach (var (name, button) in tools)
+            {
+                button.IsChecked = true;
+                Assert.True(tools.Count(tool => tool.Button.IsChecked == true) == 1, $"{name} picked, and on as well: {string.Join(", ", tools.Where(tool => tool.Button.IsChecked == true && tool.Name != name).Select(tool => tool.Name))}");
+
+                // A sketch the tool began put away, so the next tool is not asked about it.
+                plan.CancelSketch();
+            }
+
+            Field<System.Windows.Controls.RadioButton>(window, "EaveTool").IsChecked = true;
+            Field<System.Windows.Controls.RadioButton>(window, "DownpipeTool").IsChecked = true;
+            Assert.Equal(PlanTool.Downpipe, Field<PlanView>(window, "Plan").ActiveTool);
+        });
+    }
+
+    [Fact]
     public void TheRoofToolSlopesItsSidesWithAPitchedRoofType()
     {
         OnUiThread(() =>

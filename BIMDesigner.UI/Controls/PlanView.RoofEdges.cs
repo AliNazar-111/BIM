@@ -142,7 +142,7 @@ public partial class PlanView
         Apply(Placing(sweep, name));
         _edgeSweep = sweep;
 
-        HintChanged?.Invoke(this, $"A {what} along that edge. Click the next edges of the roof to carry it round them, or Esc to finish.");
+        HintChanged?.Invoke(this, $"{("aeiou".Contains(what[0]) ? "An" : "A")} {what} along that edge. Click the next edges of the roof to carry it round them, or Esc to finish.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

@@ -117,6 +117,20 @@ public class ServicesAndClearanceTests
                 var free = document.Elements.OfType<Component>().Last();
                 Assert.False(free.IsHosted);
                 Assert.Equal(2400, ComponentHosting.BaseElevation(document, free, light) + light.Height, 6);
+
+                // A basin fixed to a wall, put down in the room just in front of the back wall: on its face, facing the room.
+                plan.ActiveComponentTypeId = Type(document, "Basin - Hand Rinse 400").Id;
+                var count = document.Elements.Count;
+                place.Invoke(plan, new object[] { new Point2D(2000, 350) });
+                var basin = document.Elements.OfType<Component>().Last();
+                Assert.Equal(count + 1, document.Elements.Count);
+                Assert.Equal(back.Id, basin.HostId);
+                Assert.True(basin.Location.Y > 0);
+
+                // Too far into the room, it is not.
+                count = document.Elements.Count;
+                place.Invoke(plan, new object[] { new Point2D(2000, 1500) });
+                Assert.Equal(count, document.Elements.Count);
             }
             catch (Exception e) { failure = e; }
         });

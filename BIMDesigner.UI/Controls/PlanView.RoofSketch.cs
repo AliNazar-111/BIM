@@ -385,6 +385,41 @@ public partial class PlanView
         InvalidateVisual();
     }
 
+    /// <summary>A floor or ceiling of each separate outline sketched, made together as one step to undo.</summary>
+    private bool FinishSlabSketches(IReadOnlyList<RoofSketchCheck> outlines)
+    {
+        if (Document is null) return false;
+        var typeId = _sketchTarget == SketchTarget.Ceiling ? ActiveCeilingTypeId : ActiveFloorTypeId;
+        var type = Document.FindType<SlabType>(typeId)
+                   ?? (_sketchTarget == SketchTarget.Ceiling ? Document.TypesOf<CeilingType>().FirstOrDefault() : Document.TypesOf<FloorType>().FirstOrDefault());
+        if (type is null)
+        {
+            HintChanged?.Invoke(this, $"This project has no {SketchNoun} types to build the {SketchNoun} from.");
+            return false;
+        }
+
+        var span = _sketchTarget == SketchTarget.Floor ? _sketchSpan : null;
+        var slabs = new List<Slab>();
+        foreach (var outline in outlines)
+        {
+            Slab slab = _sketchTarget == SketchTarget.Ceiling ? new Ceiling { HeightOffset = 2400 } : new Floor { SpanDirection = span };
+            slab.TypeId = type.Id;
+            slab.LevelId = ActiveLevelId;
+            slab.SetBoundary(outline.Boundary);
+            slab.SetHoles(outline.Openings.Select(opening => opening.Points).ToList());
+            slabs.Add(slab);
+        }
+
+        var plural = _sketchTarget == SketchTarget.Ceiling ? "Ceilings" : "Floors";
+        Apply(new CompositeCommand($"Create {plural}", slabs.Select(slab => (IUndoableCommand)new AddElementCommand(Document, slab, $"Create {plural}")).ToList()));
+        EndSketch();
+        SetTool(PlanTool.Select);
+        Select(slabs[0]);
+        HintChanged?.Invoke(this, $"{slabs.Count} {plural.ToLowerInvariant()}, one for each outline: {string.Join(", ", slabs.Select(slab => Units.FormatArea(slab.Area)))}. Double-click one, or Edit Boundary, to change its outline.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     /// <summary>Makes the floor or ceiling the sketch closes into, or changes the one being edited.</summary>
     private bool FinishSlabSketch(RoofSketchCheck check)
     {
@@ -443,6 +478,11 @@ public partial class PlanView
         if (Document is null || _sketch is null) return false;
 
         var check = RoofSketch.Check(_sketch, _sketchArrows);
+
+        // Separate outlines sketched for a new floor or ceiling - a click in each room: a floor or ceiling of each.
+        if (!check.IsValid && _sketchTarget != SketchTarget.Roof && _sketchSlab is null && RoofSketch.Separate(_sketch) is { } parts)
+            return FinishSlabSketches(parts.Select(part => RoofSketch.Check(part)).ToList());
+
         if (!check.IsValid)
         {
             _sketchCulprits = check.Culprits;

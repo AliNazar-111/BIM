@@ -295,6 +295,40 @@ public static class RoofSketch
     /// crossing another. A loop inside the outline is an opening through the roof, as in Revit;
     /// one outside it, or inside an opening, is refused with a message saying which.
     /// </summary>
+    /// <summary>
+    /// A sketch of separate outlines - a click in each room - as the sketches each would be alone:
+    /// each outline with the loops drawn inside it, its openings. Null where it is not made of two or
+    /// more outlines, or where any of them does not close.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<RoofSketchLine>>? Separate(IReadOnlyList<RoofSketchLine> sketch)
+    {
+        // The lines joined end to end, each set of them.
+        var group = Enumerable.Range(0, sketch.Count).ToArray();
+        int Root(int i) => group[i] == i ? i : group[i] = Root(group[i]);
+        static bool Meet(RoofSketchLine a, RoofSketchLine b) =>
+            new[] { a.Start, a.End }.Any(p => b.Start.DistanceTo(p) <= JoinTolerance || b.End.DistanceTo(p) <= JoinTolerance);
+        for (var i = 0; i < sketch.Count; i++)
+        for (var j = i + 1; j < sketch.Count; j++)
+            if (Meet(sketch[i], sketch[j]))
+                group[Root(i)] = Root(j);
+
+        var loops = Enumerable.Range(0, sketch.Count).GroupBy(Root).Select(set => set.Select(i => sketch[i]).ToList()).ToList();
+        if (loops.Count < 2) return null;
+        var checks = loops.Select(lines => (Lines: lines, Check: Check(lines))).ToList();
+        if (checks.Any(entry => !entry.Check.IsValid)) return null;
+
+        // The outlines: loops inside no other. Each other loop is an opening in the smallest outline round it.
+        bool Inside((List<RoofSketchLine> Lines, RoofSketchCheck Check) inner, (List<RoofSketchLine> Lines, RoofSketchCheck Check) outer) =>
+            !ReferenceEquals(inner.Lines, outer.Lines) && Polygon2D.Area(outer.Check.Boundary) > Polygon2D.Area(inner.Check.Boundary)
+                                                       && inner.Check.Boundary.All(point => Polygon2D.Contains(outer.Check.Boundary, point));
+        var outlines = checks.Where(entry => !checks.Any(other => Inside(entry, other))).ToList();
+        if (outlines.Count < 2) return null;
+        var parts = outlines.ToDictionary(entry => entry.Lines, entry => new List<RoofSketchLine>(entry.Lines));
+        foreach (var inner in checks.Where(entry => !outlines.Contains(entry)))
+            parts[outlines.Where(outline => Inside(inner, outline)).OrderBy(outline => Polygon2D.Area(outline.Check.Boundary)).First().Lines].AddRange(inner.Lines);
+        return parts.Values.Select(lines => (IReadOnlyList<RoofSketchLine>)lines).ToList();
+    }
+
     public static RoofSketchCheck Check(IReadOnlyList<RoofSketchLine> sketch, IReadOnlyList<RoofSlopeArrow>? arrows = null)
     {
         arrows ??= Array.Empty<RoofSlopeArrow>();
