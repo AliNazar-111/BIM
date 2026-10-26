@@ -3,6 +3,7 @@ using BIMDesigner.Core.Annotation;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Views;
 using BIMDesigner.UI.Rendering;
 
 namespace BIMDesigner.UI.Controls;
@@ -45,11 +46,11 @@ public partial class PlanView
     public bool ClickCloud(Point2D raw)
     {
         if (Document is null) return false;
-        if (CloudRevision() is null)
+
+        // With no revisions yet, the first cloud makes the first; with every one issued, a new one has to be added.
+        if (CloudRevision() is null && Document.Revisions.Count > 0)
         {
-            HintChanged?.Invoke(this, Document.Revisions.Count == 0
-                ? "There is no revision to cloud: add one in Revisions on the View tab first."
-                : "Every revision has been issued, and an issued revision cannot be added to: add a new one in Revisions.");
+            HintChanged?.Invoke(this, "Every revision has been issued, and an issued revision cannot be added to: add a new one in Annotate → Revisions.");
             return false;
         }
 
@@ -72,7 +73,10 @@ public partial class PlanView
     /// </summary>
     public bool FinishCloud()
     {
-        if (Document is null || CloudRevision() is not { } revision) return false;
+        if (Document is null) return false;
+        var revision = CloudRevision();
+        var first = revision is null && Document.Revisions.Count == 0;
+        if (revision is null && !first) return false;
         var outline = _cloudPoints.Count == 2 ? PlanRenderer.Rectangle(_cloudPoints[0], _cloudPoints[1]).ToList() : _cloudPoints.ToList();
         _cloudPoints.Clear();
 
@@ -84,16 +88,29 @@ public partial class PlanView
             return false;
         }
 
-        var scale = Document.ViewSettings.ScaleOf(CurrentView);
+        // The project's first cloud: the first revision made for it, dated today, as the same step.
+        var document = Document;
+        revision ??= new Revision { Date = DateTime.Today };
+        var scale = document.ViewSettings.ScaleOf(CurrentView);
         var cloud = new RevisionCloud
         {
             RevisionId = revision.Id, LevelId = ActiveLevelId,
             TagAt = CloudTagged ? new Point2D(box.MaxX + 8 * scale, box.MaxY + 8 * scale) : null
         };
         cloud.Outline.AddRange(outline);
-        Apply(new AddElementCommand(Document, cloud, "Revision Cloud"));
+        var made = revision;
+        IUndoableCommand add = new AddElementCommand(document, cloud, "Revision Cloud");
+        if (first)
+            add = new CompositeCommand("Revision Cloud", new[]
+            {
+                new DelegateCommand("Add Revision", () => document.Revisions.Add(made), () => document.Revisions.Remove(made)), add
+            });
+        Apply(add);
+        ActiveRevisionId = revision.Id;
         Select(cloud);
-        HintChanged?.Invoke(this, $"Clouded for {Revisions.Describe(Document, revision)}: every sheet showing this plan now lists it.");
+        HintChanged?.Invoke(this, first
+            ? $"Clouded for {Revisions.Describe(document, revision)}, the project's first revision, made for it and dated today - describe it in Annotate → Revisions. Every sheet showing this plan now lists it."
+            : $"Clouded for {Revisions.Describe(document, revision)}: every sheet showing this plan now lists it.");
         InvalidateVisual();
         return true;
     }

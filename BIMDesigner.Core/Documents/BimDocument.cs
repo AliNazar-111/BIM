@@ -2355,6 +2355,7 @@ public sealed class BimDocument
 
         // Keynotes to start from, until an office's own file is loaded; and Uniclass's codes for what is drawn here.
         document.Keynotes.CopyFrom(Annotation.KeynoteTable.Starter());
+        Annotation.StarterKeynotes.Apply(document);
         document.Classification.CopyFrom(Parameters.ClassificationTable.Starter());
 
         return document;

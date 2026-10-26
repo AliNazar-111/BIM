@@ -365,9 +365,18 @@ public class RevisionWindowTests
             var history = Field<UndoStack>(window, "_history");
             var plan = Field<PlanView>(window, "Plan");
 
-            // No revision yet: the cloud tool says so.
+            // No revision yet: the first cloud makes the first, P01 dated today, as the same step - undone, both go.
             plan.SetTool(PlanTool.RevisionCloud);
-            Assert.False(plan.ClickCloud(new Point2D(0, 0)));
+            Assert.True(plan.ClickCloud(new Point2D(1000, 1000)));
+            Assert.True(plan.ClickCloud(new Point2D(4000, 3000)));
+            Assert.True(plan.FinishCloud());
+            var first = Assert.Single(document.Revisions);
+            Assert.Equal("P01", Revisions.NumberOf(document, first));
+            Assert.Equal(DateTime.Today, first.Date);
+            Assert.Equal(first.Id, Assert.Single(document.Elements.OfType<RevisionCloud>()).RevisionId);
+            history.Undo();
+            Assert.Empty(document.Revisions);
+            Assert.Empty(document.Elements.OfType<RevisionCloud>());
 
             // Two made in the window, one step to undo.
             Assert.True((bool)Call(window, "EditRevisions", (Func<RevisionsWindow, bool>)(editor =>
@@ -443,6 +452,10 @@ public class RevisionWindowTests
             var type = document.GetWallType(wall)!;
             var brick = type.Structure.Layers[0].MaterialId;
 
+            // The template's brick starts with the starter table's key for a facing brick leaf.
+            var starterKey = document.FindMaterial(brick)!.Keynote;
+            Assert.Equal("2.5.01", starterKey);
+
             var file = Path.Combine(Path.GetTempPath(), $"keynotes-{Guid.NewGuid():N}.txt");
             File.WriteAllText(file, "W\tWalls\nW1\tBrick outer leaf\tW\nW2\tBlock inner leaf\tW\n");
             try
@@ -478,7 +491,7 @@ public class RevisionWindowTests
             Assert.Empty(document.Elements.OfType<KeynoteTag>());
             history.Undo();
             Assert.Equal(KeynoteTable.Starter().Entries, document.Keynotes.Entries);
-            Assert.Equal(string.Empty, document.FindMaterial(brick)!.Keynote);
+            Assert.Equal(starterKey, document.FindMaterial(brick)!.Keynote);
         });
     }
 }

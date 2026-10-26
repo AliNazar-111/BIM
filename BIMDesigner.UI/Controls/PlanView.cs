@@ -310,6 +310,9 @@ public partial class PlanView : FrameworkElement
     /// <summary>First end picked by the dimension tool, waiting for its second.</summary>
     private DimensionReference? _pendingDimension;
 
+    /// <summary>Second end picked by the dimension tool, waiting for a click on where its line goes.</summary>
+    private DimensionReference? _pendingDimensionEnd;
+
     private enum GripKind
     {
         None,
@@ -1226,13 +1229,13 @@ public partial class PlanView : FrameworkElement
         PlanTool.Window => "Click a wall where the window should go.",
         PlanTool.Grid => "Click to start a gridline, click again to finish it.",
         PlanTool.Section => "Click to start the cut line, click again to finish it.",
-        PlanTool.Dimension => "Click what to measure from, then what to measure to - or, with String ticked, each thing in turn and a double-click where its line goes. Esc cancels.",
+        PlanTool.Dimension => "Click what to measure from, what to measure to, then where the dimension line goes - or, with String ticked, each thing in turn and a double-click where its line goes. Esc cancels.",
         PlanTool.AngularDimension => "Click a wall or gridline, then another, then where the arc goes - in the angle to measure.",
         PlanTool.RadialDimension => "Click a curved wall, then where the dimension goes.",
         PlanTool.RevisionCloud => "Click round what changed, corner by corner; double-click the last. Two corners make a rectangle.",
         PlanTool.Keynote => "Click what the keynote is of, then where its box goes.",
         PlanTool.Tag => "Click an element to tag it.",
-        PlanTool.Text => "Click where the note should go.",
+        PlanTool.Text => "Click where the note goes, then type it. Double-click a note to change it.",
         PlanTool.Room => "Click inside a space enclosed by walls.",
         PlanTool.Component => "Click where the component should go; on a wall for one fixed to a face. Space turns it.",
         PlanTool.Column => "Click where the column should stand. Space turns it a quarter turn.",
@@ -1466,6 +1469,7 @@ public partial class PlanView : FrameworkElement
         _pendingWallStart = null;
         _trimSubject = null;
         _pendingDimension = null;
+        _pendingDimensionEnd = null;
         _bandStart = null;
         _pendingArcEnd = null;
         _splinePoints.Clear();
@@ -1953,6 +1957,14 @@ public partial class PlanView : FrameworkElement
             Select(doubleClicked);
             if (doubleClicked.IsExtrusion) EditProfileRequested?.Invoke(this, doubleClicked);
             else EditFootprint();
+            return;
+        }
+
+        // Double-clicking a note types into it where it is.
+        if (ActiveTool is PlanTool.Select or PlanTool.Text && e.ClickCount == 2 && HitTest(raw) is TextNote noteClicked)
+        {
+            Select(noteClicked);
+            BeginNoteEdit(noteClicked.Position, noteClicked);
             return;
         }
 
@@ -3959,6 +3971,13 @@ public partial class PlanView : FrameworkElement
         return DimensionReference.ToPoint(point);
     }
 
+    /// <summary>A click with the Aligned dimension tool. Public so tests can drive it.</summary>
+    public void PlaceDimensionPointAt(Point2D raw) => PlaceDimensionPoint(raw);
+
+    /// <summary>
+    /// A click with the Aligned dimension tool: what it measures from, what it measures to, then
+    /// where its line goes - the third click, the dimension following the cursor until then.
+    /// </summary>
     private void PlaceDimensionPoint(Point2D raw)
     {
         if (Document is null) return;
@@ -3974,24 +3993,35 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
+        if (_pendingDimensionEnd is null)
+        {
+            var end = ReferenceAt(point);
+            if (new Dimension { Start = _pendingDimension, End = end }.Measure(Document) < 1)
+            {
+                HintChanged?.Invoke(this, "Those two are the same place. Pick somewhere else.");
+                return;
+            }
+
+            _pendingDimensionEnd = end;
+            HintChanged?.Invoke(this, "Now click where the dimension line goes. Esc cancels.");
+            InvalidateVisual();
+            return;
+        }
+
         var dimension = new Dimension
         {
             Start = _pendingDimension,
-            End = ReferenceAt(point),
+            End = _pendingDimensionEnd,
             LevelId = ActiveLevelId,
             TypeId = ActiveDimensionType()
         };
-
-        if (dimension.Measure(Document) < 1)
-        {
-            HintChanged?.Invoke(this, "Those two are the same place. Pick somewhere else.");
-            return;
-        }
+        dimension.Offset = OffsetThrough(dimension, raw);
 
         Apply(new AddElementCommand(Document, dimension, "Add Dimension"));
         Select(dimension);
 
         _pendingDimension = null;
+        _pendingDimensionEnd = null;
         HintChanged?.Invoke(this, dimension.IsAssociative(Document)
             ? $"{dimension.DisplayText(Document)} — follows the model."
             : $"{dimension.DisplayText(Document)} — measured between points, not attached.");
@@ -4034,15 +4064,12 @@ public partial class PlanView : FrameworkElement
         HintChanged?.Invoke(this, $"Tagged: {tag.Read(Document)}. Change the field on the right.");
     }
 
+    /// <summary>A click with the Text tool: a box opened there to type the note in.</summary>
     private void PlaceTextNote(Point2D raw)
     {
         if (Document is null) return;
-
-        var note = new TextNote { Position = SnapToGrid(raw), Text = "Note", LevelId = ActiveLevelId };
-
-        Apply(new AddElementCommand(Document, note, "Add Text"));
-        Select(note);
-        HintChanged?.Invoke(this, "Note added. Type its text in the Text box on the right.");
+        if (HitTest(raw) is TextNote existing) BeginNoteEdit(existing.Position, existing);
+        else BeginNoteEdit(SnapToGrid(raw));
     }
 
     /// <summary>
@@ -6610,14 +6637,26 @@ public partial class PlanView : FrameworkElement
         if (_pendingDimension is null) return;
         if (_pendingDimension.WallLineSpan(Document) is { } first)
             dc.DrawLine(_selectedPen, ModelToScreen(first.From), ModelToScreen(first.To));
+        if (_pendingDimensionEnd?.WallLineSpan(Document) is { } second)
+            dc.DrawLine(_selectedPen, ModelToScreen(second.From), ModelToScreen(second.To));
 
-        // Measured as it will be: square to a face or gridline, in the style it will have.
-        var (from, to) = new Dimension { Start = _pendingDimension, End = under }.Ends(Document);
-        _renderer.DrawPendingDimension(dc, new[] { from, to }, 600, Document.FindType<DimensionType>(ActiveDimensionType()) ?? DimensionTypes.Defaults().First());
+        // Measured as it will be: square to a face or gridline, in the style it will have - and,
+        // both ends picked, its line where the cursor is.
+        var pending = new Dimension { Start = _pendingDimension, End = _pendingDimensionEnd ?? under };
+        var (from, to) = pending.Ends(Document);
+        var offset = _pendingDimensionEnd is null ? 600 : OffsetThrough(pending, _cursorModel);
+        _renderer.DrawPendingDimension(dc, new[] { from, to }, offset, Document.FindType<DimensionType>(ActiveDimensionType()) ?? DimensionTypes.Defaults().First());
 
         // The end already fixed, so it is obvious which one is being dragged.
         if (from.DistanceTo(to) >= 1)
             dc.DrawEllipse(Brushes.Transparent, _selectedPen, ModelToScreen(from), 4, 4);
+    }
+
+    /// <summary>How far to the side of what it measures a dimension's line is drawn to pass through a point.</summary>
+    private double OffsetThrough(Dimension dimension, Point2D through)
+    {
+        var (from, to) = dimension.Ends(Document!);
+        return (through - from).Dot((to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft());
     }
 
     private void DrawPendingWall(DrawingContext dc)

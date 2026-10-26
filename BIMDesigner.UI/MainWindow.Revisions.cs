@@ -35,7 +35,7 @@ public partial class MainWindow
         _loadingOptions = false;
         if (open.Count == 0)
             StatusHint.Text = _document.Revisions.Count == 0
-                ? "There are no revisions to cloud yet: add one in Revisions."
+                ? "No revisions yet: the first cloud makes the first, P01, dated today - or add them in Revisions."
                 : "Every revision has been issued: add a new one in Revisions to cloud what it changes.";
     }
 
