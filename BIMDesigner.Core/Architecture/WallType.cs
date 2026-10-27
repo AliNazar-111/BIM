@@ -142,7 +142,8 @@ public sealed class WallType : ElementType
         yield return ParameterValue.Bind(WallTypeParameters.ExteriorTaperAngle, () => ExteriorTaperAngle, v => ExteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.InteriorTaperAngle, () => InteriorTaperAngle, v => InteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.ThermalResistance, () => ThermalResistance, v => ThermalResistance = v);
-        yield return ParameterValue.Bind(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
+        yield return ParameterValue.BindScaled(WallTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
+            () => HeatTransferCoefficient, v => { HeatTransferCoefficient = v; return true; });
         if (document is not null && Log is null && Thermal.UValue(document, Structure) is { } worked)
             yield return ParameterValue.ReadOnly(WallTypeParameters.WorkedUValue, () => Math.Round(worked, 3));
         yield return ParameterValue.BindChoice(

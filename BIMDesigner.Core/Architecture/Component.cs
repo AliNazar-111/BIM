@@ -320,6 +320,9 @@ public sealed class ComponentType : ElementType
     /// </summary>
     public double HeatOutput { get; set; }
 
+    /// <summary>How much a heat pump cools, W - its total capacity at the summer design conditions, from its maker's data. None where it only heats.</summary>
+    public double CoolingOutput { get; set; }
+
     /// <summary>
     /// For a radiator or a towel rail, how its output falls with the water's temperature: its
     /// output goes as the difference over the room's to this power - its n, from its BS EN 442 test.
@@ -414,7 +417,7 @@ public sealed class ComponentType : ElementType
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
         HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
-        Access = Access, HeatOutput = HeatOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
+        Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
         ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
         Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance
@@ -471,7 +474,8 @@ public sealed class ComponentType : ElementType
                 }.Where(said => said is not null)) is { Length: > 0 } said ? said : "Nothing yet");
 
         if (Form is ComponentForm.ExtractFan or ComponentForm.CookerHood)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.ExtractRate, () => ExtractRate, v => { if (v < 0) return false; ExtractRate = v; return true; });
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.ExtractRate, ComponentTypeParameters.ExtractRateCfm, ComponentTypeParameters.CfmPerLitreSecond, 0,
+                () => ExtractRate, v => { if (v < 0) return false; ExtractRate = v; return true; });
 
         if (Kind == BuiltInCategory.LightingFixtures)
         {
@@ -516,14 +520,18 @@ public sealed class ComponentType : ElementType
         // What Approved Document G's water efficiency calculator counts of it.
         bool NotNegative(double v, Action<double> set) { if (v < 0) return false; set(v); return true; }
         if (Form is ComponentForm.Basin or ComponentForm.Sink or ComponentForm.Shower)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.FlowRate, () => FlowRate, v => NotNegative(v, x => FlowRate = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.FlowRate, ComponentTypeParameters.FlowRateGpm, ComponentTypeParameters.GallonsPerLitre, 2,
+                () => FlowRate, v => NotNegative(v, x => FlowRate = x));
         if (Form is ComponentForm.Toilet or ComponentForm.WallHungToilet)
         {
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.FlushVolume, () => FlushVolume, v => NotNegative(v, x => FlushVolume = x));
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.PartFlushVolume, () => PartFlushVolume, v => NotNegative(v, x => PartFlushVolume = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.FlushVolume, ComponentTypeParameters.FlushVolumeGallons, ComponentTypeParameters.GallonsPerLitre, 2,
+                () => FlushVolume, v => NotNegative(v, x => FlushVolume = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.PartFlushVolume, ComponentTypeParameters.PartFlushVolumeGallons, ComponentTypeParameters.GallonsPerLitre, 2,
+                () => PartFlushVolume, v => NotNegative(v, x => PartFlushVolume = x));
         }
         if (Form == ComponentForm.Bath)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.Capacity, () => Capacity, v => NotNegative(v, x => Capacity = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.Capacity, ComponentTypeParameters.CapacityGallons, ComponentTypeParameters.GallonsPerLitre, 1,
+                () => Capacity, v => NotNegative(v, x => Capacity = x));
         if (Form is ComponentForm.Dishwasher or ComponentForm.WashingMachine)
             yield return ParameterValue.BindValidated(Form == ComponentForm.Dishwasher ? ComponentTypeParameters.DishwasherWater : ComponentTypeParameters.WasherWater,
                 () => WaterPerUse, v => NotNegative(v, x => WaterPerUse = x));
@@ -531,35 +539,49 @@ public sealed class ComponentType : ElementType
         // What it heats with: a radiator's rated output and its exponent, a floor's output, a heat source's.
         if (Form is ComponentForm.Radiator or ComponentForm.TowelRail)
         {
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.RatedOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.RatedOutput, ComponentTypeParameters.RatedOutputBtu, Units.BtuPerHourPerWatt, 0,
+                () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
             yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatExponent, () => HeatExponent, v => { if (v is < 1 or > 2) return false; HeatExponent = v; return true; });
         }
         if (Form == ComponentForm.UnderfloorHeating)
         {
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.FloorOutput, () => FloorOutput, v => NotNegative(v, x => FloorOutput = x));
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.FloorOutputLimit, () => FloorOutputLimit, v => NotNegative(v, x => FloorOutputLimit = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.FloorOutput, ComponentTypeParameters.FloorOutputIp, Units.UFactorPerUValue, 3,
+                () => FloorOutput, v => NotNegative(v, x => FloorOutput = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.FloorOutputLimit, ComponentTypeParameters.FloorOutputLimitIp, Units.BtuPerHourPerWatt / 10.76391, 1,
+                () => FloorOutputLimit, v => NotNegative(v, x => FloorOutputLimit = x));
             yield return ParameterValue.BindValidated(ComponentTypeParameters.PipeSpacing, () => PipeSpacing, v => NotNegative(v, x => PipeSpacing = x));
         }
         if (Form is ComponentForm.Boiler or ComponentForm.HeatPump)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.HeatOutput, ComponentTypeParameters.HeatOutputBtu, Units.BtuPerHourPerWatt, 0,
+                () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+        if (Form == ComponentForm.HeatPump)
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.CoolingOutput, ComponentTypeParameters.CoolingOutputBtu, Units.BtuPerHourPerWatt, 0,
+                () => CoolingOutput, v => NotNegative(v, x => CoolingOutput = x));
         if (Form == ComponentForm.HotWaterCylinder)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.CoilOutput, () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.CoilOutput, ComponentTypeParameters.CoilOutputBtu, Units.BtuPerHourPerWatt, 0,
+                () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
         if (Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit)
         {
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.Airflow, () => Airflow, v => NotNegative(v, x => Airflow = x));
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.AvailablePressure, () => AvailablePressure, v => NotNegative(v, x => AvailablePressure = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.Airflow, ComponentTypeParameters.AirflowCfm, ComponentTypeParameters.CfmPerLitreSecond, 0,
+                () => Airflow, v => NotNegative(v, x => Airflow = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.AvailablePressure, ComponentTypeParameters.AvailablePressureWc, 1 / Units.PascalsPerInchOfWater, 2,
+                () => AvailablePressure, v => NotNegative(v, x => AvailablePressure = x));
         }
         if (Form == ComponentForm.HeatRecoveryUnit)
             yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatRecovery, () => HeatRecovery * 100, v => { if (v is < 0 or > 100) return false; HeatRecovery = v / 100; return true; });
         if (Form is ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal)
         {
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.PressureLoss, () => PressureLoss, v => NotNegative(v, x => PressureLoss = x));
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.RatedAirflow, () => RatedAirflow, v => NotNegative(v, x => RatedAirflow = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.PressureLoss, ComponentTypeParameters.PressureLossWc, 1 / Units.PascalsPerInchOfWater, 3,
+                () => PressureLoss, v => NotNegative(v, x => PressureLoss = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.RatedAirflow, ComponentTypeParameters.RatedAirflowCfm, ComponentTypeParameters.CfmPerLitreSecond, 0,
+                () => RatedAirflow, v => NotNegative(v, x => RatedAirflow = x));
         }
         if (Form == ComponentForm.ExtractFan)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.ContinuousRate, () => ContinuousRate, v => NotNegative(v, x => ContinuousRate = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.ContinuousRate, ComponentTypeParameters.ContinuousRateCfm, ComponentTypeParameters.CfmPerLitreSecond, 0,
+                () => ContinuousRate, v => NotNegative(v, x => ContinuousRate = x));
         if (Form == ComponentForm.BackgroundVentilator)
-            yield return ParameterValue.BindValidated(ComponentTypeParameters.VentArea, () => VentArea, v => NotNegative(v, x => VentArea = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.VentArea, ComponentTypeParameters.VentAreaSquareInches, 1 / (Units.MillimetresPerInch * Units.MillimetresPerInch), 1,
+                () => VentArea, v => NotNegative(v, x => VentArea = x));
 
         if (Form == ComponentForm.DrainAccess)
             yield return ParameterValue.BindChoice(
@@ -850,8 +872,8 @@ public sealed class Component : Element, IHostedElement
                 yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.DesignOutput, () => Mep.Heating.OutputOf(document, this) switch
                 {
                     null => "Not in a heated room",
-                    { Floor: true } floor => $"{floor.Watts:#,0} W at {floor.Flow:0}/{floor.Return:0} °C - {floor.Flux:0} W/m² over {Units.OfSquareMetres(floor.FloorArea, "0.0")}, the floor at {floor.SurfaceTemperature:0.0} °C",
-                    var output => $"{output.Watts:#,0} W at {output.Flow:0}/{output.Return:0} °C"
+                    { Floor: true } floor => $"{Units.Watts(floor.Watts, "#,0")} at {Units.FlowAndReturn(floor.Flow, floor.Return)} - {Units.WattsPerSquareMetre(floor.Flux, "0")} over {Units.OfSquareMetres(floor.FloorArea, "0.0")}, the floor at {Units.Celsius(floor.SurfaceTemperature, "0.0")}",
+                    var output => $"{Units.Watts(output.Watts, "#,0")} at {Units.FlowAndReturn(output.Flow, output.Return)}"
                 });
 
             // An outfall's levels: its cover, and the invert of the drain it takes.
@@ -919,6 +941,27 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition ExtractRate =
         new("Extract Rate (l/s)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    // The same in a project in feet and inches: given in US units, kept in metric.
+    public const double CfmPerLitreSecond = 1 / Units.LitresPerSecondPerCfm, GallonsPerLitre = 1 / Units.LitresPerGallon;
+    public static readonly ParameterDefinition ExtractRateCfm = new("Extract Rate (cfm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition FlowRateGpm = new("Flow Rate (gpm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition FlushVolumeGallons = new("Flush Volume (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition PartFlushVolumeGallons = new("Part Flush Volume (gal, 0 = single flush)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition CapacityGallons = new("Capacity to Overflow (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition RatedOutputBtu = new("Heat Output at ΔT50 (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition FloorOutputIp = new("Floor Output (Btu/h·sq ft·°F over the room)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition FloorOutputLimitIp = new("Most Floor Output (Btu/h·sq ft)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition HeatOutputBtu = new("Heat Output (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition CoolingOutput = new("Cooling Output (W, 0 = heats only)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition CoolingOutputBtu = new("Cooling Output (Btu/h, 0 = heats only)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition CoilOutputBtu = new("Coil Output (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition AirflowCfm = new("Most Airflow (cfm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition AvailablePressureWc = new("Available Pressure (in. w.c.)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition PressureLossWc = new("Pressure Loss (in. w.c.)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition RatedAirflowCfm = new("At Airflow (cfm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition ContinuousRateCfm = new("Continuous Rate (cfm, 0 = intermittent)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition VentAreaSquareInches = new("Equivalent Area (sq in)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition Efficacy =
         new("Efficacy (lm/W)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);

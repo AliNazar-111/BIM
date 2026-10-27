@@ -11,6 +11,9 @@ namespace BIMDesigner.UI;
 /// The heat loss: what it is worked to, the building's load and its heat sources against it, the
 /// home's hot water, each zone's pump duty - and every room, with what it loses through each
 /// surface and with the air, and what heats it. A room or a surface picked is selected in the model.
+/// In a US project its heating and cooling loads, by ASHRAE's residential load factor method: each
+/// room's gains in summer beside its losses in winter, and the house's cooling, sensible and latent,
+/// against what cools it.
 /// </summary>
 internal sealed class HeatLossWindow : System.Windows.Window
 {
@@ -31,7 +34,7 @@ internal sealed class HeatLossWindow : System.Windows.Window
     public HeatLossWindow(MainWindow main)
     {
         _main = main;
-        DialogLook.Apply(this, "Heat Loss", 760, 760);
+        DialogLook.Apply(this, main.Document.ProjectInformation.ClearanceStandard.IsUs() ? "Heating and Cooling Loads" : "Heat Loss", 760, 760);
         MinWidth = 480;
         MinHeight = 480;
 
@@ -88,15 +91,26 @@ internal sealed class HeatLossWindow : System.Windows.Window
         string Degrees(double celsius) => us ? $"{celsius * 9 / 5 + 32:0} °F" : $"{celsius:0.#} °C";
         string Heat(double watts) => us ? $"{watts * BtuPerHourPerWatt:#,0} Btu/h" : $"{watts:#,0} W";
         string Area(double squareMetres) => us ? $"{squareMetres * SquareFeetPerSquareMetre:#,0.#} sq ft" : $"{squareMetres:0.00} m²";
-        var lines = new List<string>
+        var cooling = us ? CoolingLoads.Of(document) : null;
+        var lines = new List<string> { $"{Climate.Describe(document)}." };
+        if (us && building.Air is { } air)
         {
-            $"{Climate.Describe(document)}.",
-            us
-                ? $"Air leakage {building.AirPermeability / CubicMetresPerHourPerCfm / SquareFeetPerSquareMetre:0.00} cfm a sq ft of envelope at 50 Pa. The building loses {Heat(building.Total)}: {Heat(building.Fabric)} through its surfaces and {Heat(building.Ventilation)} with the air - " +
-                  "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once. Worked by BS EN 12831-1 - ACCA Manual J's room-by-room load is not done yet."
-                : $"Air permeability {building.AirPermeability:0.#} m³/h·m² at 50 Pa. The building loses {building.Total:#,0} W: {building.Fabric:#,0} through its surfaces and {building.Ventilation:#,0} with the air - " +
-                  "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once (BS EN 12831-1)."
-        };
+            lines.Add($"Heating load {Heat(building.Total)}: {Heat(building.Fabric)} through its surfaces, {Heat(building.Ventilation)} with the air" +
+                      (building.Distribution > 0 ? $", {Heat(building.Distribution)} lost from its ducts ({building.DuctFactor:0.00} of the rest, Table 6)" : string.Empty) +
+                      $". Its envelope leaking {building.AirPermeability / CubicMetresPerHourPerCfm / SquareFeetPerSquareMetre:0.00} cfm a sq ft at 50 Pa - {air.LeakageArea:0} sq in of leakage area - lets in {air.Infiltration / CubicMetresPerHourPerCfm:0} cfm " +
+                      $"over its {air.Stack:0} ft stack" +
+                      (Math.Abs(air.SensibleFlow - air.Infiltration) > 1 ? $", its heat carried by {air.SensibleFlow / CubicMetresPerHourPerCfm:0} cfm with its ventilation." : "."));
+            lines.Add(cooling is null
+                ? "Cooling: no summer design temperature set - the 1% dry bulb and its coincident wet bulb from the nearest station's climate data are wanted, in the plan's Properties."
+                : $"Cooling load {Heat(cooling.Total)} ({cooling.Tons:0.0} tons) at {Degrees(cooling.Outside)}{(cooling.WetBulb is { } wet ? $", {Degrees(wet)} wet bulb" : ", no wet bulb set")}, a {cooling.DailyRange * 1.8:0} °F daily range and {document.ProjectInformation.Latitude:0}°N: " +
+                  $"{Heat(cooling.Sensible)} sensible - {Heat(cooling.Envelope)} through its surfaces, {Heat(cooling.AirSensible)} with the air, {Heat(cooling.Internal)} from its people and appliances" +
+                  (cooling.Distribution > 0 ? $", {Heat(cooling.Distribution)} gained by its ducts" : string.Empty) +
+                  $" - and {Heat(cooling.Latent)} latent, {cooling.MoistureDifference * 7000:0} grains a pound more moisture outside than in.");
+            lines.Add("Worked by ASHRAE's residential load factor method (Fundamentals 2021, chapter 17), which IRC M1401.3 takes as another approved method beside ACCA Manual J; each room's share of the air by its volume.");
+        }
+        else
+            lines.Add($"Air permeability {building.AirPermeability:0.#} m³/h·m² at 50 Pa. The building loses {building.Total:#,0} W: {building.Fabric:#,0} through its surfaces and {building.Ventilation:#,0} with the air - " +
+                      "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once (BS EN 12831-1).");
         if (building is { Recovery: { } recovery, SupplyTemperature: { } supplied })
             lines.Add($"Ventilated with heat recovery at {recovery:P0}: its supply comes in at {Degrees(supplied)} at the design conditions.");
         else if (building.Extracted > 0)
@@ -110,7 +124,8 @@ internal sealed class HeatLossWindow : System.Windows.Window
             if (document.FindType<ComponentType>(source.TypeId) is not { } type) continue;
             var (load, rooms) = Heating.LoadOn(document, source, building);
             var said = type.HeatOutput > 0 ? $"gives {Heat(type.HeatOutput)}" : "its output not set";
-            lines.Add($"{type.Name}: {said} against a heat load of {Heat(load)} in the {rooms.Count} room{(rooms.Count == 1 ? string.Empty : "s")} it heats.");
+            lines.Add($"{type.Name}: {said} against a heat load of {Heat(load)} in the {rooms.Count} room{(rooms.Count == 1 ? string.Empty : "s")} it heats" +
+                      (cooling is not null && type.CoolingOutput > 0 ? $"; cools {Heat(type.CoolingOutput)} against a cooling load of {Heat(cooling.Total)}." : "."));
         }
 
         // Each zone's temperatures and the pump's duty along its pipes.
@@ -145,10 +160,12 @@ internal sealed class HeatLossWindow : System.Windows.Window
             {
                 // Two lines: what it loses, and what heats it - wrapped to the window rather than run off it.
                 var header = new StackPanel();
+                var summer = cooling?.Of(room.Room);
                 header.Children.Add(new TextBlock
                 {
                     Text = room.Temperature is { } temperature
-                        ? $"{room.Name}  {Degrees(temperature)}  -  {Heat(room.Total)}: {Heat(room.Fabric)} through its surfaces, {Heat(room.Ventilation)} with the air"
+                        ? $"{room.Name}  {Degrees(temperature)}  -  {Heat(room.Total)}: {Heat(room.Fabric)} through its surfaces, {Heat(room.Ventilation)} with the air" +
+                          (summer is null ? string.Empty : $"; cooling {Heat(summer.Sensible)} sensible")
                         : $"{room.Name}  -  not heated",
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -160,7 +177,9 @@ internal sealed class HeatLossWindow : System.Windows.Window
                 foreach (var line in room.Lines)
                     item.Items.Add(new TreeViewItem
                     {
-                        Header = Wrapped($"{line.What}: {Area(line.Area)} at U {(us ? $"{line.U * UsUPerMetricU:0.000}" : $"{line.U:0.00}")} to {Degrees(line.Beyond)} - {Heat(line.Watts)}"),
+                        Header = Wrapped(line.Kind == HeatSurface.SlabEdge
+                            ? $"{line.What}: {line.Area / 0.3048:0.0} ft of exposed edge at F_p {line.U / CoolingLoads.WattsPerMetreKelvinPerBtuFootF:0.00} to {Degrees(line.Beyond)} - {Heat(line.Watts)}"
+                            : $"{line.What}: {Area(line.Area)} at U {(us ? $"{line.U * UsUPerMetricU:0.000}" : $"{line.U:0.00}")} to {Degrees(line.Beyond)} - {Heat(line.Watts)}"),
                         Tag = line.Through
                     });
                 if (room.Heated)
@@ -170,6 +189,19 @@ internal sealed class HeatLossWindow : System.Windows.Window
                             ? $"Air: {room.AirFlow / CubicMetresPerHourPerCfm:0.0} cfm into {room.Volume * CubicFeetPerCubicMetre:#,0} cu ft ({(room.Volume > 0 ? room.AirFlow / room.Volume : 0):0.00} an hour), its envelope {Area(room.Envelope)} - {Heat(room.Ventilation)}"
                             : $"Air: {room.AirFlow:0.0} m³/h into {room.Volume:0.0} m³ ({(room.Volume > 0 ? room.AirFlow / room.Volume : 0):0.00} an hour), its envelope {room.Envelope:0.0} m² - {room.Ventilation:#,0} W")
                     });
+                // In summer: what each surface lets in, the room's share of the air, and of the house's people and appliances.
+                if (summer is not null)
+                {
+                    var gains = new TreeViewItem { Header = Wrapped($"In summer: {Heat(summer.Sensible)} sensible - {Heat(summer.Envelope)} through its surfaces, {Heat(summer.Air)} with the air, {Heat(summer.Internal)} from people and appliances") };
+                    foreach (var gain in summer.Lines)
+                        gains.Items.Add(new TreeViewItem
+                        {
+                            Header = Wrapped($"{gain.What}: {Area(gain.Area)} at {gain.Factor * CoolingLoads.BtuPerSquareFootPerWattPerSquareMetre:0.00} Btu/h a sq ft - {Heat(gain.Watts)}"),
+                            Tag = gain.Through
+                        });
+                    item.Items.Add(gains);
+                }
+
                 foreach (var note in room.Notes)
                     item.Items.Add(new TreeViewItem { Header = Wrapped($"Note: {note}"), Opacity = 0.75 });
                 storey.Items.Add(item);

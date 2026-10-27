@@ -39,9 +39,15 @@ public enum AccessClass
 /// or a sewer; drains 75 at least (3.14), 75 and 100 no flatter than 1:100, 150 than 1:150 (3.15);
 /// a soakaway 5 m at least from a building (3.25).
 ///
-/// In the US: each fixture's drainage fixture units (IRC Table P3004.1), a trap's arm no longer
-/// than Table P3105.1 allows - 5 ft for a 1¼ in trap, 6 for 1½, 8 for 2, 12 for 3, 16 for 4 - and
-/// pipes 2½ in and less falling ¼ in a foot, 3 to 6 in ⅛ in (P3005.3).
+/// In the US: each fixture's drainage fixture units (IRC Table P3004.1) and its trap (Table
+/// P3201.7: a lavatory 1¼ in, a bathtub, kitchen sink or dishwasher 1½, a clothes washer's
+/// standpipe 2, a shower by its flow), the trap's arm no longer than Table P3105.1 allows - 5 ft
+/// for a 1¼ in trap, 6 for 1½, 8 for 2, 12 for 3, 16 for 4 - pipes 2½ in and less falling ¼ in a
+/// foot, 3 to 6 in ⅛ in (P3005.3); each carrying no more fixture units than Table P3005.4.1 lets a
+/// horizontal branch or a stack of its size, a building drain than Table P3005.4.2 at its fall, a
+/// water closet's 3 in at the least, below the ground 1½ in, never smaller in the way it flows
+/// (P3005.4); and cleanouts on the building drain no more than 100 ft apart, at each change of
+/// direction over 45° - each covering the next 40 ft - and where it leaves for the sewer (P3005.2).
 /// </summary>
 public static class Drainage
 {
@@ -105,6 +111,68 @@ public static class Drainage
 
     /// <summary>The least fall of a drainage pipe in the US, mm a metre: ¼ in a foot for 2½ in and less, ⅛ in for 3 to 6 in (IRC P3005.3).</summary>
     public static double UsFall(double bore) => bore <= 65 ? 1000.0 / 48 : 1000.0 / 96;
+
+    /// <summary>
+    /// The least trap a fixture has in the US, inches (IRC Table P3201.7): a lavatory 1¼, a bathtub,
+    /// kitchen sink or dishwasher 1½, a clothes washer's standpipe 2, a shower 1½ to 5.7 gpm, 2 to
+    /// 12.3, 3 over; a water closet's is its own, its drain 3 in at the least (Table P3005.4.1, note b).
+    /// </summary>
+    public static double UsTrap(ComponentType type) => type.Form switch
+    {
+        ComponentForm.Basin => 1.25,
+        ComponentForm.Bath or ComponentForm.Sink or ComponentForm.Dishwasher => 1.5,
+        ComponentForm.WashingMachine => 2,
+        ComponentForm.Shower => type.FlowRate > 12.3 * Units.LitresPerGallon + 1e-9 ? 3 : type.FlowRate > 5.7 * Units.LitresPerGallon + 1e-9 ? 2 : 1.5,
+        ComponentForm.Toilet or ComponentForm.WallHungToilet => 3,
+        _ => 0
+    };
+
+    /// <summary>How far a trap's arm may run to its vent in the US, mm: IRC Table P3105.1 by the trap's inches.</summary>
+    public static double UsTrapArm(double inches) => (inches switch { <= 1.25 => 5, <= 1.5 => 6, <= 2 => 8, <= 3 => 12, _ => 16 }) * Units.MillimetresPerFoot;
+
+    // Schedule 40's nominal sizes and their bores, mm: what the IRC's tables size drains by.
+    private static readonly (double Inches, double Bore)[] UsBores =
+        { (1.25, 35.1), (1.5, 40.9), (2, 52.5), (2.5, 62.7), (3, 77.9), (4, 102.3), (5, 128.2), (6, 154.1) };
+
+    /// <summary>A drain's nominal size in inches, from its bore: the largest whose bore it has, near enough - a metric pipe taken at the size it does the work of.</summary>
+    public static double UsNominal(double bore) => UsBores.Where(size => bore >= size.Bore - 3.5).Select(size => size.Inches).DefaultIfEmpty(1).Max();
+
+    /// <summary>The Schedule 40 PVC DWV size a US fixture's waste starts in: its trap's - or, for another fitting, the least that takes its outlet's bore.</summary>
+    public static PipeSize UsDrainSize(ComponentType? type, double bore)
+    {
+        var sizes = PipeSizes.Of(PipeMaterial.PvcDwv);
+        return type is not null && UsTrap(type) is > 0 and var trap && sizes.FirstOrDefault(size => size.Name == IrcWaterSizing.Name(trap)) is { } trapped
+            ? trapped
+            : sizes.FirstOrDefault(size => size.Inside >= bore - 1) ?? sizes[^1];
+    }
+
+    // IRC Table P3005.4.1: the most drainage fixture units a horizontal fixture branch, and a stack or vertical drain, of each size carries.
+    private static readonly (double Inches, double Branch, double Stack)[] UsBranches =
+        { (1.5, 3, 4), (2, 6, 10), (2.5, 12, 20), (3, 20, 48), (4, 160, 240) };
+
+    // IRC Table P3005.4.2: the most a building drain of each size carries falling ⅛, ¼ and ½ in a foot - 0 where it may not be laid so flat.
+    private static readonly (double Inches, double Eighth, double Quarter, double Half)[] UsDrains =
+        { (2, 0, 21, 27), (2.5, 0, 24, 31), (3, 36, 42, 50), (4, 180, 216, 250) };
+
+    /// <summary>
+    /// The most drainage fixture units a US drain of this nominal size carries: as a horizontal
+    /// branch or a stack (Table P3005.4.1), or below the ground as a building drain at its fall,
+    /// mm a metre (Table P3005.4.2). Null over 4 in, where the tables go no further for a house.
+    /// </summary>
+    public static double? UsCarries(double inches, bool upright, bool belowGround, double fall)
+    {
+        if (inches > 4 + 0.01) return null;
+        if (belowGround)
+        {
+            var row = UsDrains.FirstOrDefault(each => Math.Abs(each.Inches - inches) < 0.01);
+            if (row.Inches == 0) return inches < 2 - 0.01 ? null : 0;
+            var inchesAFoot = fall * 0.012;
+            return inchesAFoot >= 0.5 - 1e-6 ? row.Half : inchesAFoot >= 0.25 - 1e-6 ? row.Quarter : row.Eighth;
+        }
+
+        var line = UsBranches.FirstOrDefault(each => Math.Abs(each.Inches - inches) < 0.01);
+        return line.Inches == 0 ? 0 : upright ? line.Stack : line.Branch;
+    }
 
     /// <summary>The access point an element of the drainage is, and how deep it is to the drain's invert.</summary>
     public static AccessClass? ClassOf(BimDocument document, Component access, double depth)
@@ -193,28 +261,33 @@ public static class Drainage
             foreach (var downpipe in network.Downpipes) drained.Add(downpipe.Id);
 
             // Every pipe: the right way, and - below the ground - big enough and steep enough.
+            var shrunk = new HashSet<Pipe>();
             foreach (var (pipe, load) in network.Loads)
             {
                 var fall = Fall(load);
                 var bore = Bore(document, pipe);
                 if (fall < -0.5)
                 {
-                    yield return new MepProblem(pipe, $"it runs uphill, {Units.Millimetres(-fall, "0")} a metre, to where it drains");
+                    yield return new MepProblem(pipe, $"it runs uphill, {Units.Fall(-fall, "0")}, to where it drains");
                     continue;
                 }
+
+                // In the US: big enough for what it carries, and never smaller than what runs into it.
+                if (us && system.Kind == SystemKind.Foul)
+                    foreach (var problem in UsSize(document, network, pipe, load, fall, bore, shrunk)) yield return problem;
 
                 if (!BelowGround(document, pipe))
                 {
                     if (us && !pipe.Upright && fall < UsFall(bore) - 0.05)
-                        yield return new MepProblem(pipe, $"it falls {Units.Millimetres(fall, "0.#")} a metre - IRC P3005.3 lays a {(bore <= 65 ? "2½ in pipe or less at ¼" : "3 to 6 in pipe at ⅛")} in a foot");
+                        yield return new MepProblem(pipe, $"it falls {Units.Fall(fall, "0.#")} - IRC P3005.3 lays a {(bore <= 65 ? "2½ in pipe or less at ¼" : "3 to 6 in pipe at ⅛")} in a foot");
                     continue;
                 }
 
-                if (system.Kind == SystemKind.Foul && bore < 75 - 1)
+                if (!us && system.Kind == SystemKind.Foul && bore < 75 - 1)
                     yield return new MepProblem(pipe, $"a foul drain of {bore:0} - Approved Document H (2.33) asks 75 at least");
-                else if (system.Kind == SystemKind.Foul && load.Wcs > 0 && bore < 100 - 1)
+                else if (!us && system.Kind == SystemKind.Foul && load.Wcs > 0 && bore < 100 - 1)
                     yield return new MepProblem(pipe, $"it carries {(load.Wcs == 1 ? "a WC" : $"{load.Wcs} WCs")} at {bore:0} - Approved Document H (2.33) asks 100 at least");
-                else if (system.Kind == SystemKind.Rainwater && bore < 75 - 1)
+                else if (!us && system.Kind == SystemKind.Rainwater && bore < 75 - 1)
                     yield return new MepProblem(pipe, $"a rainwater drain of {bore:0} - Approved Document H (3.14) asks 75 at least");
 
                 var (flattest, said) = us ? (UsFall(bore), $"{(bore <= 65 ? "¼" : "⅛")} in a foot (IRC P3005.3)") : Flattest(system.Kind, bore, load.Wcs);
@@ -248,8 +321,13 @@ public static class Drainage
 
                 if (us)
                 {
-                    if (!wc && length > TrapArm(trap) + 1)
-                        yield return new MepProblem(fitting, $"its trap's arm runs {length / 304.8:0.#} ft to the vent - IRC Table P3105.1 keeps a {UsInches(trap)} trap within {TrapArm(trap) / 304.8:0} ft");
+                    // Its trap as Table P3201.7 sizes it, its waste no smaller, and its arm to the vent as Table P3105.1 has it.
+                    var usTrap = UsTrap(type);
+                    var waste = UsNominal(Bore(document, first));
+                    if (!wc && waste < usTrap - 0.01)
+                        yield return new MepProblem(fitting, $"its waste pipe is {UsInches(waste)} - IRC Table P3201.7 gives it a {UsInches(usTrap)} trap, and the pipe from it no smaller");
+                    if (!wc && length > UsTrapArm(usTrap) + 1)
+                        yield return new MepProblem(fitting, $"its trap's arm runs {length / 304.8:0.#} ft to the vent - IRC Table P3105.1 keeps a {UsInches(usTrap)} trap within {UsTrapArm(usTrap) / 304.8:0} ft");
                     continue;
                 }
 
@@ -281,7 +359,7 @@ public static class Drainage
             if (system.Kind == SystemKind.Foul)
             {
                 foreach (var problem in Stacks(document, network, valves, us)) yield return problem;
-                if (!us) foreach (var problem in Access(document, network, accesses)) yield return problem;
+                foreach (var problem in us ? UsCleanouts(document, network, accesses) : Access(document, network, accesses)) yield return problem;
             }
             else if (!us)
                 foreach (var problem in Access(document, network, accesses)) yield return problem;
@@ -303,7 +381,127 @@ public static class Drainage
         }
     }
 
-    private static string UsInches(double trap) => trap switch { <= 32 => "1¼ in", <= 40 => "1½ in", <= 50 => "2 in", <= 75 => "3 in", _ => "4 in" };
+    /// <summary>A nominal size as the IRC writes it: "1¼ in", "2½ in", "3 in".</summary>
+    private static string UsInches(double inches)
+    {
+        var whole = Math.Floor(inches + 1e-9);
+        var part = inches - whole;
+        var fraction = Math.Abs(part - 0.25) < 1e-6 ? "¼" : Math.Abs(part - 0.5) < 1e-6 ? "½" : Math.Abs(part - 0.75) < 1e-6 ? "¾" : string.Empty;
+        return $"{(whole > 0 ? $"{whole:0}" : string.Empty)}{fraction} in";
+    }
+
+    /// <summary>
+    /// A US drain against the IRC's sizes: a water closet's 3 in at the least, below the ground
+    /// 1½ in - and 1½ in there for two fixtures at most - and no more fixture units than its size
+    /// carries as a horizontal branch, a stack or a building drain at its fall (P3005.4); and the
+    /// pipe it runs into no smaller, but for a water closet's 4 by 3 in closet bend.
+    /// </summary>
+    private static IEnumerable<MepProblem> UsSize(BimDocument document, PipeNetwork network, Pipe pipe, PipeLoad load, double fall, double bore, HashSet<Pipe> shrunk)
+    {
+        var inches = UsNominal(bore);
+        var below = BelowGround(document, pipe);
+        if (load.Wcs > 0 && inches < 3 - 0.01)
+            yield return new MepProblem(pipe, $"it carries {(load.Wcs == 1 ? "a WC" : $"{load.Wcs} WCs")} at {UsInches(inches)} - the IRC takes a water closet's drain 3 in at the least (Tables P3005.4.1 and P3005.4.2, note b)");
+        else if (below && inches < 1.5 - 0.01)
+            yield return new MepProblem(pipe, $"a drain below the ground at {UsInches(inches)} - the IRC lays one 1½ in at the least (P3005.4.1)");
+        else if (below && inches < 2 - 0.01 && load.Fittings > 2)
+            yield return new MepProblem(pipe, $"it takes {load.Fittings} fixtures at 1½ in below the ground - the IRC's 1½ in building drain takes two at most (Table P3005.4.2, note a)");
+        // A 1¼ in pipe drains one fixture only, which it may (Table P3005.4.1, note a).
+        else if (load.FixtureUnits > 0 && !(inches < 1.5 - 0.01 && load.Fittings <= 1) && UsCarries(inches, pipe.Upright, below, fall) is { } most && load.FixtureUnits > most + 1e-6)
+        {
+            var as_ = below ? $"a building drain of that size falling {Units.Fall(fall, "0")}" : pipe.Upright ? "a stack of that size" : "a horizontal branch of that size";
+            var bigger = UsBores.Select(size => size.Inches).Where(size => size > inches + 0.01)
+                .FirstOrDefault(size => UsCarries(size, pipe.Upright, below, fall) is not { } more || more >= load.FixtureUnits - 1e-6);
+            yield return new MepProblem(pipe, $"it carries {load.FixtureUnits:0.#} drainage fixture unit{(Math.Abs(load.FixtureUnits - 1) < 1e-9 ? string.Empty : "s")} at {UsInches(inches)} - IRC Table {(below ? "P3005.4.2" : "P3005.4.1")} takes {most:0} on {as_}{(bigger > 0 ? $"; {UsInches(bigger)} carries them" : string.Empty)}");
+        }
+
+        if (load.Toward is { } next && network.Loads.ContainsKey(next) && document.FindType<PipeType>(next.TypeId) is not null)
+        {
+            var onward = UsNominal(Bore(document, next));
+            var closetBend = load.Wcs == 1 && load.Fittings == 1 && network.FirstPipe.Values.Contains(pipe) && Math.Abs(inches - 4) < 0.01 && Math.Abs(onward - 3) < 0.01;
+            if (onward < inches - 0.01 && !closetBend && shrunk.Add(next))
+                yield return new MepProblem(next, $"it is {UsInches(onward)}, smaller than the {UsInches(inches)} drain running into it - the IRC never makes a drain smaller in the way it flows (P3005.4)");
+        }
+    }
+
+    /// <summary>
+    /// Cleanouts on a US building drain, as IRC P3005.2 asks: along each run from its head to the
+    /// sewer, no more than 100 ft apart (P3005.2.1); one at each change of direction over 45°, each
+    /// covering the changes in the next 40 ft of it (P3005.2.4); and one where it leaves the building
+    /// for the sewer, or within 10 ft upstream of there (P3005.2.3). A rodding eye, an access fitting
+    /// or a chamber is one; so is a fixture's trap where a stack or a branch comes down to the head
+    /// of a drain (P3005.2.10.1).
+    /// </summary>
+    private static IEnumerable<MepProblem> UsCleanouts(BimDocument document, PipeNetwork network, IReadOnlyList<Component> accesses)
+    {
+        var drains = network.Loads.Where(entry => BelowGround(document, entry.Key)).ToDictionary(entry => entry.Key, entry => entry.Value);
+        if (drains.Count == 0) yield break;
+        const double Apart = 100 * Units.MillimetresPerFoot, Covers = 40 * Units.MillimetresPerFoot, Junction = 10 * Units.MillimetresPerFoot;
+
+        bool Cleanout(Point3D where) => accesses.Any(access => access.Location.DistanceTo(new Point2D(where.X, where.Y)) <= PipeNetworks.Reach);
+        static bool Same(Point3D a, Point3D b) => Math.Abs(a.X - b.X) <= PipeNetworks.Touch && Math.Abs(a.Y - b.Y) <= PipeNetworks.Touch && Math.Abs(a.Z - b.Z) <= PipeNetworks.Touch;
+        int Into(Point3D node) => drains.Values.Count(load => Same(load.Near, node));
+        static (Point2D Up, Point2D Down) Plan(PipeLoad load) => (new Point2D(load.Far.X, load.Far.Y), new Point2D(load.Near.X, load.Near.Y));
+
+        // Where a drain leaves the building: where it crosses an outside wall of the lowest storey, so far along it from its upstream end.
+        var lowest = document.Levels.OrderBy(level => level.Elevation).Select(level => (Guid?)level.Id).FirstOrDefault();
+        var outside = document.Walls.Where(wall => wall.LevelId == lowest && document.GetWallType(wall)?.Function == WallFunction.Exterior).ToList();
+        double? Leaves(PipeLoad load)
+        {
+            var (up, down) = Plan(load);
+            if (up.DistanceTo(down) < 1) return null;
+            foreach (var wall in outside)
+                if (Line2D.TryIntersect(Line2D.Through(up, down), Line2D.Through(wall.Start, wall.End), out var at)
+                    && Line2D.DistanceFromSegment(at, up, down) < 1 && Line2D.DistanceFromSegment(at, wall.Start, wall.End) < 1)
+                    return up.DistanceTo(at);
+            return null;
+        }
+
+        var reported = new HashSet<Pipe>();
+        foreach (var (head, start) in drains.Where(entry => Into(entry.Value.Far) == 0))
+        {
+            // Along the run from its head, in plan: where its cleanouts are, where it turns, where it leaves the building.
+            var fromAbove = network.Loads.Any(entry => !BelowGround(document, entry.Key) && Same(entry.Value.Near, start.Far));
+            var cleanouts = new List<double>();
+            if (fromAbove || Cleanout(start.Far)) cleanouts.Add(0);
+            var pieces = new List<(Pipe Pipe, double From, double To)>();
+            var turns = new List<(Pipe Pipe, double At, double Turn)>();
+            double? leaving = null;
+            var along = 0.0;
+            Pipe? previous = null;
+            for (Pipe? pipe = head; pipe is not null && drains.TryGetValue(pipe, out var here) && pieces.Count < 10_000; previous = pipe, pipe = here.Toward)
+            {
+                if (previous is not null)
+                {
+                    if (Cleanout(here.Far)) cleanouts.Add(along);
+                    if (Turn(drains[previous], here) is var turn and > 45) turns.Add((pipe, along, turn));
+                }
+
+                var (up, down) = Plan(here);
+                if (leaving is null && Leaves(here) is { } crossing) leaving = along + crossing;
+                pieces.Add((pipe, along, along + up.DistanceTo(down)));
+                along += up.DistanceTo(down);
+            }
+
+            if (previous is not null && Cleanout(drains[previous].Near)) cleanouts.Add(along);
+            Pipe? PieceAt(double at) => pieces.FirstOrDefault(piece => at >= piece.From - 1 && at <= piece.To + 1).Pipe;
+
+            // No more than 100 ft between cleanouts, counting from the head.
+            var marks = new[] { 0.0 }.Concat(cleanouts).Append(along).Distinct().OrderBy(mark => mark).ToList();
+            for (var i = 0; i + 1 < marks.Count; i++)
+                if (marks[i + 1] - marks[i] > Apart + 1 && PieceAt(marks[i] + Apart) is { } far && reported.Add(far))
+                    yield return new MepProblem(far, $"{Units.Run(marks[i + 1] - marks[i], "0.0")} of building drain with no cleanout along it - IRC P3005.2.1 spaces them 100 ft{Units.MetricAside("30.5 m")} apart at most");
+
+            // A cleanout at each turn over 45°, or one in the 40 ft before it.
+            foreach (var (pipe, at, turn) in turns)
+                if (!cleanouts.Any(mark => mark <= at + 1 && at - mark <= Covers + 1) && reported.Add(pipe))
+                    yield return new MepProblem(pipe, $"it turns {turn:0}° with no cleanout there or in the 40 ft{Units.MetricAside("12.2 m")} before it - IRC P3005.2.4 asks one at a change of direction over 45°");
+
+            // One where it leaves the building for the sewer, or within 10 ft upstream - or at the junction just outside.
+            if (leaving is { } exit && !cleanouts.Any(mark => mark <= exit + 1000 && exit - mark <= Junction + 1) && PieceAt(exit) is { } wall && reported.Add(wall))
+                yield return new MepProblem(wall, $"no cleanout where it leaves the building - IRC P3005.2.3 asks one at the junction of the building drain and the sewer, or within 10 ft{Units.MetricAside("3 m")} upstream of it");
+        }
+    }
 
     /// <summary>A stack: the upright pipes standing over one another above the ground, the fittings they carry, and where they stand.</summary>
     private sealed record Stack(Point2D At, IReadOnlyList<Pipe> Pipes, double Foot, double Top, double Bore, int Wcs);

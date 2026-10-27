@@ -20,7 +20,10 @@ public sealed record RoomSpace(
 /// Rooms under roofs: their volume, headroom, and the area that counts. Measured as surveyors
 /// measure: floor with less than 1.5 m of headroom is not counted (RICS Code of Measuring
 /// Practice, and the Nationally Described Space Standard), and a room is full height where it
-/// has 2.3 m - which the space standard wants over at least three quarters of it.
+/// has 2.3 m - which the space standard wants over at least three quarters of it. In the US the
+/// IRC's ceiling heights (R305.1): 7 ft in a habitable room or a hallway, 6 ft 8 in in a bathroom,
+/// toilet room or laundry; under a sloping ceiling, the room's required floor area - 70 sq ft
+/// (R304.1), or all of it if less - at 5 ft or more and half of it at the full height.
 /// </summary>
 public static class RoomHeadroom
 {
@@ -32,6 +35,12 @@ public static class RoomHeadroom
 
     /// <summary>How much of a room the space standard wants at full height.</summary>
     public const double FullHeightShare = 0.75;
+
+    /// <summary>The IRC's: the least headroom counted under a sloping ceiling, 5 ft; a room's ceiling, 7 ft; a bathroom's, toilet room's or laundry's, 6 ft 8 in, mm.</summary>
+    public const double UsCounted = 1524, UsCeiling = 2134, UsWetCeiling = 2032;
+
+    /// <summary>The floor area a habitable room has at least (IRC R304.1), mm²: 70 sq ft.</summary>
+    public const double UsRequiredArea = 70 * Units.SquareMillimetresPerSquareFoot;
 
     /// <summary>The finest a room is measured over, mm; a big room is measured more coarsely, never in more than this many pieces.</summary>
     private const double Cell = 100, MostCells = 40000;
@@ -77,11 +86,29 @@ public static class RoomHeadroom
         return lowest;
     }
 
+    /// <summary>The ceiling height the IRC asks of a room: 6 ft 8 in for a bathroom, toilet room or laundry, else 7 ft (R305.1).</summary>
+    public static double UsCeilingOf(BimDocument document, Room room, IReadOnlyList<Point2D> outline) =>
+        Mep.Ventilation.UseOf(document, room, outline) is Mep.RoomUse.Bathroom or Mep.RoomUse.Wc or Mep.RoomUse.Utility ? UsWetCeiling : UsCeiling;
+
+    /// <summary>A US room's ceiling height against the IRC, measured at its own ceiling height and 5 ft (R305.1).</summary>
+    public static string UsVerdict(RoomSpace space, double ceiling)
+    {
+        var required = Math.Min(space.Area, UsRequiredArea);
+        var tall = ceiling >= UsCeiling ? "7 ft" : "6 ft 8 in";
+        var met = space.AreaCounted >= required - 1 && space.AreaFullHeight >= required / 2 - 1;
+        return met
+            ? $"Meets it: {Units.SquareMetres(space.AreaFullHeight, "0.0")} at {tall} or more"
+            : $"Short: {Units.SquareMetres(space.AreaFullHeight, "0.0")} at {tall} or more, {Units.SquareMetres(space.AreaCounted, "0.0")} at 5 ft - the IRC (R305.1) asks {tall} over the room, or under a sloping ceiling {Units.SquareMetres(required, "0.0")} at 5 ft and half of it at {tall}";
+    }
+
     /// <summary>
     /// A room measured under what is over it: its volume, its lowest and highest headroom, and
     /// the area at 1.5 m headroom and over, and at full height. Null for a room not enclosed.
     /// </summary>
-    public static RoomSpace? Measure(BimDocument document, Room room)
+    public static RoomSpace? Measure(BimDocument document, Room room) => Measure(document, room, CountedHeadroom, FullHeadroom);
+
+    /// <summary>A room measured as <see cref="Measure(BimDocument, Room)"/>, the area counted at and over these headrooms, mm.</summary>
+    public static RoomSpace? Measure(BimDocument document, Room room, double countedAt, double fullAt)
     {
         var boundary = room.GetBoundary(document);
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
@@ -94,7 +121,7 @@ public static class RoomHeadroom
         // Nothing over it: as tall as its upper limit all over.
         if (covers.Count == 0)
             return new RoomSpace(boundary.Area, boundary.Area * limit, limit, limit,
-                limit >= CountedHeadroom ? boundary.Area : 0, limit >= FullHeadroom ? boundary.Area : 0, false, false);
+                limit >= countedAt ? boundary.Area : 0, limit >= fullAt ? boundary.Area : 0, false, false);
 
         // Measured a cell at a time, at the middle of each - exact under anything level or
         // sloping in one plane, close where a ridge or a ceiling's edge crosses a cell.
@@ -119,8 +146,8 @@ public static class RoomHeadroom
             var piece = cell * cell;
             area += piece;
             volume += piece * headroom;
-            if (headroom >= CountedHeadroom - 1e-6) counted += piece;
-            if (headroom >= FullHeadroom - 1e-6) full += piece;
+            if (headroom >= countedAt - 1e-6) counted += piece;
+            if (headroom >= fullAt - 1e-6) full += piece;
             lowest = Math.Min(lowest, headroom);
             highest = Math.Max(highest, headroom);
         }

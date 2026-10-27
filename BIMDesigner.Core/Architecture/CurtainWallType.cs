@@ -432,11 +432,13 @@ public sealed class CurtainWallType : ElementType
         }
 
         if (MullionAnchors)
-            yield return ParameterValue.BindValidated(CurtainWallTypeParameters.AnchorCapacity, () => AnchorCapacity, v => { if (v < 0 || v > 500) return false; AnchorCapacity = v; return true; });
+            yield return ParameterValue.BindScaled(CurtainWallTypeParameters.AnchorCapacity, CurtainWallTypeParameters.AnchorCapacityPounds, Units.PoundsPerKilonewton, 0,
+                () => AnchorCapacity, v => { if (v < 0 || v > 500) return false; AnchorCapacity = v; return true; });
 
         yield return ParameterValue.ReadOnly(CurtainWallTypeParameters.AutomaticallyEmbed, () => AutomaticallyEmbed);
-        yield return ParameterValue.BindValidated(WallTypeParameters.HeatTransferCoefficient, () => HeatTransferCoefficient, v => { if (v < 0) return false; HeatTransferCoefficient = v; return true; });
-        yield return ParameterValue.Bind(OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
+        yield return ParameterValue.BindScaled(WallTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
+            () => HeatTransferCoefficient, v => { if (v < 0) return false; HeatTransferCoefficient = v; return true; });
+        yield return ParameterValue.Bind(Units.Imperial ? OpeningTypeParameters.SafetyGlazingUs : OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
     }
 
     private static string GridText(CurtainGridLayout layout, double spacing, int count) => layout switch
@@ -474,4 +476,5 @@ public static class CurtainWallTypeParameters
     public static readonly ParameterDefinition SpliceAbove = new("Splice Above Floor", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition StackJoint = new("Stack Joint", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition AnchorCapacity = new("Anchor Capacity (kN, 0 = not checked)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition AnchorCapacityPounds = new("Anchor Capacity (lb, 0 = not checked)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 }

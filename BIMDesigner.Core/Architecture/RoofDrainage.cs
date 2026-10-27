@@ -101,6 +101,18 @@ public static class RoofDrainage
     /// <summary>The least fall a finished flat roof may have, one in this many.</summary>
     public const double FinishedFall = 80;
 
+    /// <summary>The least slope the IRC lets a low-slope roof covering be laid to, one in this many: ¼ in a foot (R905.9.1, R905.11.1, R905.12.1, R905.13.1).</summary>
+    public const double UsLeastFall = 48;
+
+    /// <summary>A flat roof's falls against its rules, as its Properties say them: BS 6229's 1 in 80 finished, valleys included; in the US ¼ in a foot.</summary>
+    public static string FallCheck(BimDocument document, Roof roof) => document.ProjectInformation.ClearanceStandard.IsUs()
+        ? roof.DrainageFall <= UsLeastFall + 1e-6
+            ? $"Falls at 1 in {roof.DrainageFall:0}, ¼ in a foot or steeper, as the IRC asks of a low-slope roof covering (R905)"
+            : $"Falls at only 1 in {roof.DrainageFall:0}: the IRC lays a low-slope roof covering to ¼ in a foot - 1 in 48 - at the least (R905)"
+        : ValleyFall(roof) <= FinishedFall
+            ? $"Falls at 1 in {FinishedFall:0} or steeper everywhere, valleys included"
+            : $"Valleys fall at only 1 in {ValleyFall(roof):0}: steeper than 1 in {FinishedFall:0} is needed";
+
     /// <summary>How near a roof's edge, or another drain, a drain may go, mm.</summary>
     public const double EdgeClearance = 150, DrainSpacing = 500;
 

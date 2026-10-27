@@ -107,10 +107,12 @@ public sealed class MepSystem : Element
                 Grouped = (int)Math.Round(v);
                 return true;
             });
-            yield return ParameterValue.BindValidated(MepSystemParameters.CableLength, () => Math.Round(Designed()?.Length ?? CableLength, 1), v =>
+            // Kept in metres; given in feet in feet and inches.
+            yield return ParameterValue.BindScaled(MepSystemParameters.CableLength, MepSystemParameters.CableLengthFeet, 1000 / Units.MillimetresPerFoot, 0,
+                () => Math.Round(Designed()?.Length ?? CableLength, 1), v =>
             {
                 if (v < 0) return false;
-                CableLength = Designed() is { Measured: true } measured && Math.Abs(v - measured.Length) < 0.05 ? 0 : v;
+                CableLength = Designed() is { Measured: true } measured && Math.Abs(v - measured.Length) < (Units.Imperial ? 0.16 : 0.05) ? 0 : v;
                 return true;
             });
             yield return ParameterValue.ReadOnly(MepSystemParameters.DesignCurrent, () => Math.Round(Designed()?.Current ?? 0, 1));
@@ -120,15 +122,21 @@ public sealed class MepSystem : Element
         }
         if (Kind == SystemKind.Heating)
         {
-            yield return ParameterValue.BindValidated(MepSystemParameters.FlowTemperature, () => Heating.Design(document, this).Flow, v =>
+            // Kept in °C; given in °F in feet and inches.
+            var fahrenheit = Units.Imperial;
+            double Shown(double celsius) => fahrenheit ? Math.Round(celsius * 1.8 + 32) : celsius;
+            double Kept(double shown) => fahrenheit ? (shown - 32) / 1.8 : shown;
+            yield return ParameterValue.BindValidated(fahrenheit ? MepSystemParameters.FlowTemperatureF : MepSystemParameters.FlowTemperature, () => Shown(Heating.Design(document, this).Flow), (double shown) =>
             {
-                if (v is < 25 or > 95 || v <= Heating.Design(document, this).Return) return false;
+                var v = Kept(shown);
+                if (v is < 25 - 0.3 or > 95 + 0.3 || v <= Heating.Design(document, this).Return) return false;
                 FlowTemperature = v;
                 return true;
             });
-            yield return ParameterValue.BindValidated(MepSystemParameters.ReturnTemperature, () => Heating.Design(document, this).Return, v =>
+            yield return ParameterValue.BindValidated(fahrenheit ? MepSystemParameters.ReturnTemperatureF : MepSystemParameters.ReturnTemperature, () => Shown(Heating.Design(document, this).Return), (double shown) =>
             {
-                if (v is < 15 or > 90 || v >= Heating.Design(document, this).Flow) return false;
+                var v = Kept(shown);
+                if (v is < 15 - 0.3 or > 90 + 0.3 || v >= Heating.Design(document, this).Flow) return false;
                 ReturnTemperature = v;
                 return true;
             });
@@ -182,6 +190,8 @@ public static class MepSystemParameters
     public static readonly ParameterDefinition Problems = new("Wanting", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition FlowTemperature = new("Flow Temperature (°C)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition ReturnTemperature = new("Return Temperature (°C)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition FlowTemperatureF = new("Flow Temperature (°F)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition ReturnTemperatureF = new("Return Temperature (°F)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition HeatLoad = new("Heat Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     // A circuit's breaker, protection and cable, and what they come to.
@@ -195,6 +205,7 @@ public static class MepSystemParameters
     public static readonly ParameterDefinition Method = new("Installation Method", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Grouped = new("Grouped With (circuits)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition CableLength = new("Cable Length (m)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition CableLengthFeet = new("Cable Length (ft)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Design = new("Circuit Design", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition DesignCurrent = new("Design Current (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition Capacity = new("Cable Carries (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);

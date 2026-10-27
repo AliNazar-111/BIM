@@ -88,7 +88,15 @@ public static partial class ProjectFile
                 Terrain = document.ProjectInformation.Terrain.ToString(),
                 HeatingLocation = document.ProjectInformation.HeatingLocation.ToString(),
                 WinterDesignTemperature = document.ProjectInformation.WinterDesignTemperature,
-                AirPermeability = document.ProjectInformation.AirPermeability
+                AirPermeability = document.ProjectInformation.AirPermeability,
+                SummerDesignTemperature = document.ProjectInformation.SummerDesignTemperature,
+                SummerWetBulb = document.ProjectInformation.SummerWetBulb,
+                DailyRange = document.ProjectInformation.DailyRange,
+                Latitude = document.ProjectInformation.Latitude,
+                TrueNorth = document.ProjectInformation.TrueNorth,
+                DuctRun = document.ProjectInformation.DuctRun.ToString(),
+                DuctInsulation = document.ProjectInformation.DuctInsulation,
+                DuctsSealed = document.ProjectInformation.DuctsSealed
             }
         };
 
@@ -383,7 +391,7 @@ public static partial class ProjectFile
         foreach (var type in document.TypesOf<DuctType>())
             (dto.DuctTypes ??= new List<DuctTypeDto>()).Add(new DuctTypeDto
             {
-                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Material = type.Material.ToString(), Shape = type.Shape.ToString(), Cost = type.Cost, Description = type.Description
+                Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Material = type.Material.ToString(), Shape = type.Shape.ToString(), Inches = type.Inches, Cost = type.Cost, Description = type.Description
             });
 
         foreach (var duct in document.All<Duct>())
@@ -1167,6 +1175,7 @@ public static partial class ProjectFile
                 WaterPerUse = type.WaterPerUse > 0 ? type.WaterPerUse : null,
                 Access = type.Form == ComponentForm.DrainAccess ? type.Access.ToString() : null,
                 HeatOutput = HeatsOrHeated(type.Form) ? type.HeatOutput : null,
+                CoolingOutput = type.CoolingOutput > 0 ? type.CoolingOutput : null,
                 HeatExponent = type.Form is ComponentForm.Radiator or ComponentForm.TowelRail ? type.HeatExponent : null,
                 FloorOutput = type.Form == ComponentForm.UnderfloorHeating ? type.FloorOutput : null,
                 FloorOutputLimit = type.Form == ComponentForm.UnderfloorHeating ? type.FloorOutputLimit : null,
@@ -1514,6 +1523,14 @@ public static partial class ProjectFile
         document.ProjectInformation.WinterDesignTemperature = dto.Project.WinterDesignTemperature is { } winter && double.IsFinite(winter) && winter is > -80 and < 80 ? winter : null;
         document.ProjectInformation.AirPermeability = dto.Project.AirPermeability is { } permeability && double.IsFinite(permeability) && permeability is > 0 and <= 100
             ? permeability : HeatLoss.LimitingAirPermeability;
+        document.ProjectInformation.SummerDesignTemperature = dto.Project.SummerDesignTemperature is { } summer && double.IsFinite(summer) && summer is > 40 and < 140 ? summer : null;
+        document.ProjectInformation.SummerWetBulb = dto.Project.SummerWetBulb is { } wet && double.IsFinite(wet) && wet is > 20 and < 100 ? wet : null;
+        document.ProjectInformation.DailyRange = dto.Project.DailyRange is { } range && double.IsFinite(range) && range is >= 0 and <= 60 ? range : 20;
+        document.ProjectInformation.Latitude = dto.Project.Latitude is { } latitude && double.IsFinite(latitude) && latitude is >= 0 and <= 70 ? latitude : 40;
+        document.ProjectInformation.TrueNorth = double.IsFinite(dto.Project.TrueNorth) ? (dto.Project.TrueNorth % 360 + 360) % 360 : 0;
+        document.ProjectInformation.DuctRun = ParseEnum(dto.Project.DuctRun, DuctRun.ConditionedSpace);
+        document.ProjectInformation.DuctInsulation = dto.Project.DuctInsulation is { } r && double.IsFinite(r) && r is >= 0 and <= 30 ? r : 8;
+        document.ProjectInformation.DuctsSealed = dto.Project.DuctsSealed ?? true;
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
@@ -1718,7 +1735,7 @@ public static partial class ProjectFile
         foreach (var type in dto.DuctTypes ?? new List<DuctTypeDto>())
             document.AddType(new DuctType(type.Name, ParseEnum(type.Material, DuctMaterial.GalvanisedSteel), ParseEnum(type.Shape, DuctShape.Round))
             {
-                Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
+                Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Inches = type.Inches, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
 
         // A project saved before it had pipes is given the usual pipe types.
@@ -2791,6 +2808,7 @@ public static partial class ProjectFile
                 HotWater = ParseEnum(type.HotWater, BoilerHotWater.Combi),
                 Access = ParseEnum(type.Access, DrainAccessKind.InspectionChamber),
                 HeatOutput = type.HeatOutput is >= 0 and < 1e7 ? type.HeatOutput.Value : TemplateHeat(type.Name, type.Width)?.HeatOutput ?? 0,
+                CoolingOutput = type.CoolingOutput is >= 0 and < 1e7 ? type.CoolingOutput.Value : 0,
                 HeatExponent = type.HeatExponent is >= 1 and <= 2 ? type.HeatExponent.Value : TemplateHeat(type.Name, type.Width)?.HeatExponent ?? 1.3,
                 FloorOutput = type.FloorOutput is >= 0 and < 1000 ? type.FloorOutput.Value : 0,
                 FloorOutputLimit = type.FloorOutputLimit is >= 0 and < 10000 ? type.FloorOutputLimit.Value : 0,

@@ -229,9 +229,9 @@ public static class Services
         string? Extract(double wanted, string what, string rule, bool window = false)
         {
             var has = what == "kitchen" ? fans + hood : fans;
-            if (has >= wanted - 0.05) return $"extract {has:0} l/s";
+            if (has >= wanted - 0.05) return $"extract {Units.Airflow(has, "0")}";
             if (window) return "a window to open";
-            return $"extract {has:0} l/s - {rule}";
+            return $"extract {Units.Airflow(has, "0")} - {rule}";
         }
 
         // A home ventilated mechanically - with heat recovery, or by continuous extract: each wet room extracted
@@ -240,10 +240,17 @@ public static class Services
         {
             var recovery = ventilation == Mep.VentilationType.HeatRecovery;
             var air = Mep.Ventilation.Rooms(document).FirstOrDefault(each => ReferenceEquals(each.Room, room));
+            // In the US a wet room's continuous rate, or its intermittent one when it runs (Table M1505.4.4).
+            var met = us
+                ? air is not null && (air.Extract >= air.ExtractAsked - 0.05 || air.ExtractHigh >= Mep.Ventilation.UsIntermittent(air.Use) - 0.05)
+                : air is not null && air.ExtractHigh >= air.ExtractAsked - 0.05;
             if (air is { ExtractAsked: > 0 })
                 said.Add(air.Extracts.Count + air.Fans.Count > 0
-                    ? air.ExtractHigh >= air.ExtractAsked - 0.05
-                        ? $"extract {air.Extract:0.#} l/s continuously, {air.ExtractHigh:0.#} at the high rate{(recovery ? " by heat recovery" : string.Empty)}"
+                    ? met
+                        ? Units.Imperial
+                            ? $"extract {Units.Airflow(air.Extract, "0.#")} continuously, {Units.Airflow(air.ExtractHigh, "0.#")} at the high rate{(recovery ? " by heat recovery" : string.Empty)}"
+                            : $"extract {air.Extract:0.#} l/s continuously, {air.ExtractHigh:0.#} at the high rate{(recovery ? " by heat recovery" : string.Empty)}"
+                        : us ? $"extract {air.Extract / Mep.Ventilation.LitresPerCfm:0} cfm continuously, {air.ExtractHigh / Mep.Ventilation.LitresPerCfm:0} at most - IRC Table M1505.4.4 asks {air.ExtractAsked / Mep.Ventilation.LitresPerCfm:0} cfm continuously, or {Mep.Ventilation.UsIntermittent(air.Use) / Mep.Ventilation.LitresPerCfm:0} cfm when it runs"
                         : $"extract {air.ExtractHigh:0.#} l/s at the high rate - Approved Document F (Table 1.2) asks {air.ExtractAsked:0} l/s"
                     : us ? $"no continuous extract - IRC Table M1505.4.4 asks for {air.ExtractAsked / Mep.Ventilation.LitresPerCfm:0} cfm continuously"
                          : $"no continuous extract - Approved Document F ({(recovery ? "1.70" : "1.63")}, Table 1.2) asks for {air.ExtractAsked:0} l/s at the high rate");
@@ -253,8 +260,8 @@ public static class Services
         else if (us)
         {
             // The IRC: a bathroom's 50 cfm, or a window of 3 sq ft half of which opens; a kitchen's 100 cfm.
-            if (kitchen) said.Add(Extract(47.2, "kitchen", "the IRC (M1505.4.4) asks for 100 cfm (47 l/s) from a kitchen")!);
-            else if (bathroom || wc) said.Add(Extract(23.6, "bathroom", "the IRC (M1505.4.4) asks for 50 cfm (24 l/s) from a bathroom, or a window of 3 sq ft (R303.3)", windows.Any(area => area >= 0.28))!);
+            if (kitchen) said.Add(Extract(47.2, "kitchen", $"the IRC (M1505.4.4) asks for 100 cfm{Units.MetricAside("47 l/s")} from a kitchen")!);
+            else if (bathroom || wc) said.Add(Extract(23.6, "bathroom", $"the IRC (M1505.4.4) asks for 50 cfm{Units.MetricAside("24 l/s")} from a bathroom, or a window of 3 sq ft (R303.3)", windows.Any(area => area >= 0.28))!);
         }
         else if (kitchen)
         {

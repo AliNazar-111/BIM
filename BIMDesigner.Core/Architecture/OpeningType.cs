@@ -128,9 +128,9 @@ public abstract class OpeningType : ElementType
         yield return ParameterValue.Bind(OpeningTypeParameters.FrameMaterial, () => FrameMaterial, v => FrameMaterial = v);
         yield return ParameterValue.Bind(OpeningTypeParameters.FireRating, () => FireRating, v => FireRating = v);
         yield return ParameterValue.Bind(OpeningTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
-        yield return ParameterValue.Bind(OpeningTypeParameters.HeatTransferCoefficient,
-            () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
-        yield return ParameterValue.Bind(OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
+        yield return ParameterValue.BindScaled(OpeningTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
+            () => HeatTransferCoefficient, v => { HeatTransferCoefficient = v; return true; });
+        yield return ParameterValue.Bind(Units.Imperial ? OpeningTypeParameters.SafetyGlazingUs : OpeningTypeParameters.SafetyGlazing, () => SafetyGlazing, v => SafetyGlazing = v);
     }
 }
 
@@ -331,7 +331,8 @@ public sealed class WindowType : OpeningType
             LightTransmittance = v;
             return true;
         });
-        yield return ParameterValue.BindValidated(OpeningTypeParameters.TrickleVent, () => TrickleVent, v => { if (v < 0) return false; TrickleVent = v; return true; });
+        yield return ParameterValue.BindScaled(OpeningTypeParameters.TrickleVent, OpeningTypeParameters.TrickleVentSquareInches, 1 / (Units.MillimetresPerInch * Units.MillimetresPerInch), 1,
+            () => TrickleVent, v => { if (v < 0) return false; TrickleVent = v; return true; });
     }
 }
 
@@ -366,6 +367,16 @@ public static class OpeningTypeParameters
 
     public static readonly ParameterDefinition SafetyGlazing =
         new("Safety Glazing (BS EN 12600)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    // The same in a US project: a U-factor in Btu/h·sq ft·°F, a vent in square inches, safety glazing as the IRC (R308.1) has it.
+    public static readonly ParameterDefinition UFactor =
+        new("U-Factor (Btu/h·sq ft·°F)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition TrickleVentSquareInches =
+        new("Trickle Vent (sq in equivalent area)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SafetyGlazingUs =
+        new("Safety Glazing (CPSC 16 CFR 1201)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 public static class DoorTypeParameters

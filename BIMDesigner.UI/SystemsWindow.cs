@@ -153,8 +153,8 @@ internal sealed class SystemsWindow : System.Windows.Window
               (Ventilation.Designed(document) && Ventilation.WholeDwelling(document) is var (whole, _, _)
                   ? Ventilation.TypeOf(document) switch
                   {
-                      VentilationType.HeatRecovery => $"\nVentilation: heat recovery, {Ventilation.Rooms(document).Sum(room => room.Supply):0.0} l/s supplied continuously against a whole dwelling rate of {whole:0.0} l/s.",
-                      VentilationType.ContinuousExtract => $"\nVentilation: continuous extract, {Ventilation.Rooms(document).Sum(room => room.Extract):0.0} l/s extracted continuously against a whole dwelling rate of {whole:0.0} l/s.",
+                      VentilationType.HeatRecovery => $"\nVentilation: heat recovery, {Core.Units.Airflow(Ventilation.Rooms(document).Sum(room => room.Supply), "0.0")} supplied continuously against a whole dwelling rate of {Core.Units.Airflow(whole, "0.0")}.",
+                      VentilationType.ContinuousExtract => $"\nVentilation: continuous extract, {Core.Units.Airflow(Ventilation.Rooms(document).Sum(room => room.Extract), "0.0")} extracted continuously against a whole dwelling rate of {Core.Units.Airflow(whole, "0.0")}.",
                       _ => "\nVentilation: natural, with background ventilators and intermittent extract fans."
                   } + (document.ProjectInformation.ClearanceStandard.IsUs() ? $" ASHRAE 62.2 would ask {Ventilation.Ashrae622(document) / Ventilation.LitresPerCfm:0} cfm." : string.Empty)
                   : string.Empty);

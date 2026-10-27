@@ -134,11 +134,11 @@ public partial class MainWindow
     private void ShowPipeOptions()
     {
         _loadingOptions = true;
-        var types = _document.TypesOf<PipeType>().ToList();
+        var types = _document.TypesOf<PipeType>().Where(each => ProjectTemplates.Fits(_document, each)).ToList();
         PipeTypePicker.ItemsSource = types;
         // A US project starts on its own copper tube sizes, an English one on BS EN 1057.
         var us = _document.ProjectInformation.ClearanceStandard.IsUs();
-        var type = types.FirstOrDefault(each => each.Id == Plan.ActivePipeTypeId) ?? types.FirstOrDefault(each => each.Material.IsCts() == us && each.Material != PipeMaterial.PvcU) ?? types.FirstOrDefault();
+        var type = types.FirstOrDefault(each => each.Id == Plan.ActivePipeTypeId) ?? types.FirstOrDefault(each => each.Material.IsCts() == us && each.Material.Like() != PipeMaterial.PvcU) ?? types.FirstOrDefault();
         PipeTypePicker.SelectedItem = type;
         Plan.ActivePipeTypeId = type?.Id ?? Guid.Empty;
 
@@ -204,7 +204,7 @@ public partial class MainWindow
     private void ShowDuctOptions()
     {
         _loadingOptions = true;
-        var types = _document.TypesOf<DuctType>().ToList();
+        var types = _document.TypesOf<DuctType>().Where(each => ProjectTemplates.Fits(_document, each)).ToList();
         DuctTypePicker.ItemsSource = types;
         var type = types.FirstOrDefault(each => each.Id == Plan.ActiveDuctTypeId) ?? types.FirstOrDefault();
         DuctTypePicker.SelectedItem = type;

@@ -46,7 +46,8 @@ public sealed record DuctSize(string Name, double Width, double Height, DuctShap
 /// <summary>
 /// The sizes ducts come in: round galvanised spiral duct in BS EN 1506's diameters; a home's rigid
 /// PVC round duct and its flat channel - 110 x 54 for a 100 round, 204 x 60 for a 125, 220 x 90 for
-/// a 150 - and flexible duct for the last connection to a valve.
+/// a 150 - and flexible duct for the last connection to a valve. In the US, whole inches: round
+/// galvanized duct and flexible duct 4 to 16 in, rectangular sheet metal in 2 in steps.
 /// </summary>
 public static class DuctSizes
 {
@@ -66,7 +67,22 @@ public static class DuctSizes
          where height <= width
          select Flat(width, height)).ToArray();
 
-    public static IReadOnlyList<DuctSize> Of(DuctType type) => type.Material switch
+    // The US's sizes, named in inches and kept in mm.
+    private static DuctSize RoundInches(int inches) => new($"{inches}\"", inches * Units.MillimetresPerInch, inches * Units.MillimetresPerInch, DuctShape.Round);
+
+    private static DuctSize FlatInches(int width, int height) => new($"{width} x {height}\"", width * Units.MillimetresPerInch, height * Units.MillimetresPerInch, DuctShape.Rectangular);
+
+    private static readonly DuctSize[] UsRound = new[] { 4, 5, 6, 7, 8, 9, 10, 12, 14, 16 }.Select(RoundInches).ToArray();
+    private static readonly DuctSize[] UsFlexible = new[] { 4, 5, 6, 7, 8, 10, 12, 14 }.Select(RoundInches).ToArray();
+    private static readonly DuctSize[] UsSheetMetal =
+        (from width in new[] { 6, 8, 10, 12, 14, 16, 20, 24, 30 }
+         from height in new[] { 4, 6, 8, 10, 12, 14 }
+         where height <= width
+         select FlatInches(width, height)).ToArray();
+
+    public static IReadOnlyList<DuctSize> Of(DuctType type) => type.Inches
+        ? type.Material == DuctMaterial.Flexible ? UsFlexible : type.Shape == DuctShape.Rectangular ? UsSheetMetal : UsRound
+        : type.Material switch
     {
         DuctMaterial.Pvc => type.Shape == DuctShape.Rectangular ? FlatChannel : PvcRound,
         DuctMaterial.Flexible => Flexible,
@@ -101,6 +117,9 @@ public sealed class DuctType : ElementType
 
     public DuctShape Shape { get; set; }
 
+    /// <summary>Whether it comes in the US's whole-inch sizes rather than metric ones.</summary>
+    public bool Inches { get; set; }
+
     /// <summary>The duct types a project starts with, priced by the metre.</summary>
     public static IReadOnlyList<DuctType> Library() => new[]
     {
@@ -108,7 +127,10 @@ public sealed class DuctType : ElementType
         new DuctType("Round - PVC Rigid", DuctMaterial.Pvc, DuctShape.Round) { TypeMark = "DU2", AssemblyCode = "D3040", Cost = 9m },
         new DuctType("Flat Channel - PVC", DuctMaterial.Pvc, DuctShape.Rectangular) { TypeMark = "DU3", AssemblyCode = "D3040", Cost = 11m },
         new DuctType("Flexible - Insulated", DuctMaterial.Flexible, DuctShape.Round) { TypeMark = "DU4", AssemblyCode = "D3040", Cost = 7m },
-        new DuctType("Rectangular - Galvanised Steel", DuctMaterial.GalvanisedSteel, DuctShape.Rectangular) { TypeMark = "DU5", AssemblyCode = "D3040", Cost = 45m }
+        new DuctType("Rectangular - Galvanised Steel", DuctMaterial.GalvanisedSteel, DuctShape.Rectangular) { TypeMark = "DU5", AssemblyCode = "D3040", Cost = 45m },
+        new DuctType("Round - Galvanized Steel (in)", DuctMaterial.GalvanisedSteel, DuctShape.Round) { TypeMark = "DU6", AssemblyCode = "D3040", Cost = 20m, Inches = true },
+        new DuctType("Flexible - Insulated (in)", DuctMaterial.Flexible, DuctShape.Round) { TypeMark = "DU7", AssemblyCode = "D3040", Cost = 7m, Inches = true },
+        new DuctType("Rectangular - Galvanized Steel (in)", DuctMaterial.GalvanisedSteel, DuctShape.Rectangular) { TypeMark = "DU8", AssemblyCode = "D3040", Cost = 40m, Inches = true }
     };
 
     public static string Title(DuctMaterial material) => material switch
@@ -210,7 +232,7 @@ public sealed class Duct : Element
             Enum.GetValues<FireProtection>().Select(Describe).ToArray());
         if (FireProtection is FireProtection.FireDamper or FireProtection.FireAndSmokeDamper)
             yield return ParameterValue.BindValidated(DuctParameters.DamperRating, () => (double)DamperRating, v => { if (v is < 0 or > 240) return false; DamperRating = (int)Math.Round(v); return true; });
-        yield return ParameterValue.BindValidated(DuctParameters.Insulation, () => Insulation, v => { if (v is < 0 or > 300) return false; Insulation = v; return true; });
+        yield return ParameterValue.BindValidated(Units.Imperial ? DuctParameters.InsulationInches : DuctParameters.Insulation, () => Insulation, v => { if (v is < 0 or > 300) return false; Insulation = v; return true; });
         yield return ParameterValue.ReadOnly(PipeParameters.Carries, () => DuctNetworks.Describe(document, this));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
@@ -276,4 +298,5 @@ public static class DuctParameters
     public static readonly ParameterDefinition FireProtection = new("Fire Protection", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition DamperRating = new("Damper Rating (minutes)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Insulation = new("Insulation (mm at 0.04 W/mK)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition InsulationInches = new("Insulation (thickness, about R-3.6 an inch)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
 }

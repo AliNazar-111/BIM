@@ -80,6 +80,30 @@ public sealed class ProjectInformation
     public double? WinterDesignTemperature { get; set; }
 
     /// <summary>
+    /// For a US house's cooling load: the summer design dry bulb and its mean coincident wet bulb,
+    /// °F - the 1% values of the nearest climate station's design data - none set where null.
+    /// </summary>
+    public double? SummerDesignTemperature { get; set; }
+
+    public double? SummerWetBulb { get; set; }
+
+    /// <summary>The summer's mean daily range, °F: how far the day's temperature swings from its peak.</summary>
+    public double DailyRange { get; set; } = 20;
+
+    /// <summary>The site's latitude, degrees north - how high the summer sun stands on its windows.</summary>
+    public double Latitude { get; set; } = 40;
+
+    /// <summary>How far true north is turned from up the plan, degrees clockwise: 0 where up the plan is north.</summary>
+    public double TrueNorth { get; set; }
+
+    /// <summary>Where a US house's heating and cooling ducts run, their insulation (R, h·ft²·°F/Btu) and whether sealed to 5% of the fan's flow - none outside what is conditioned to start.</summary>
+    public Mep.DuctRun DuctRun { get; set; } = Mep.DuctRun.ConditionedSpace;
+
+    public double DuctInsulation { get; set; } = 8;
+
+    public bool DuctsSealed { get; set; } = true;
+
+    /// <summary>
     /// How airtight the building is, m³/h of air through each m² of its envelope at 50 Pa - its
     /// design figure, or as tested; at most 8 for a new dwelling (Approved Document L Table 4.1).
     /// </summary>
@@ -394,7 +418,9 @@ public sealed class BimDocument
                      FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
                      // The US's copper tube sizes came later: a project from before gains their pipe types by name.
-                     Mep.PipeType { Material: Mep.PipeMaterial.CopperTypeL or Mep.PipeMaterial.PexCts } => !_types.Values.OfType<Mep.PipeType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     Mep.PipeType { Material: Mep.PipeMaterial.CopperTypeL or Mep.PipeMaterial.PexCts or Mep.PipeMaterial.PvcDwv } => !_types.Values.OfType<Mep.PipeType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     // And the US's ducts in inches.
+                     Mep.DuctType { Inches: true } => !_types.Values.OfType<Mep.DuctType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      // Feet and inches came later: a project from before gains the style by name.
                      Annotation.DimensionType { Units: Annotation.DimensionUnits.FeetAndInches } => !_types.Values.OfType<Annotation.DimensionType>().Any(own => own.Units == Annotation.DimensionUnits.FeetAndInches),
                      _ => !present.Contains(type.Category)
@@ -873,8 +899,28 @@ public sealed class BimDocument
             Cost = 900m, Description = "32 in clear by 78 in: the IRC's egress door"
         };
 
+        // The US's inside doors, in its stock sizes: a 30 in for a bathroom or closet, a 32 in for a bedroom.
+        var usInterior30 = new DoorType("Interior Door - 30 x 80 in", 762, 2032)
+        {
+            TypeMark = "D14", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafCount = 1, LeafDesign = DoorLeafDesign.Panelled,
+            PanelMaterial = "Timber, Painted", FrameMaterial = "Timber", Cost = 240m
+        };
+        var usInterior32 = new DoorType("Interior Door - 32 x 80 in", 813, 2032)
+        {
+            TypeMark = "D15", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafCount = 1, LeafDesign = DoorLeafDesign.Panelled,
+            PanelMaterial = "Timber, Painted", FrameMaterial = "Timber", Cost = 260m
+        };
+
+        // Between a US house and its garage: solid, 20 minutes, self-closing and self-latching (IRC R302.5.1).
+        var usGarageEntry = new DoorType("Garage Entry Door - 36 x 80 in, 20 min", 914, 2032)
+        {
+            TypeMark = "D16", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafCount = 1, LeafDesign = DoorLeafDesign.Flush,
+            PanelMaterial = "Steel, Solid Core", FrameMaterial = "Steel", FireRating = "20 min", SelfClosing = true,
+            HardwareSet = "Spring hinges and a latching lockset", Cost = 520m
+        };
+
         // Glass in a door is safety glass, as it is sold: Approved Document K and the IRC ask it.
-        foreach (var door in new[] { singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, curtainSingle, curtainDouble, curtainSlider, frontDoor, usExterior })
+        foreach (var door in new[] { singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, curtainSingle, curtainDouble, curtainSlider, frontDoor, usExterior, usInterior30, usInterior32, usGarageEntry })
             door.SafetyGlazing = Doors.Glazed(door);
 
         var casement = new WindowType("Casement - 1200 x 1200", 1200, 1200)
@@ -1063,6 +1109,18 @@ public sealed class BimDocument
             HeatTransferCoefficient = 1.4,
             Cost = 420m
         };
+        // The US's stock windows in inches: a vinyl double hung, and a casement for a kitchen or a bathroom.
+        var usDoubleHung = new WindowType("Double Hung - 36 x 60 in", 914, 1524)
+        {
+            TypeMark = "W17", AssemblyCode = "B2020", Operation = WindowOperation.DoubleHung, GlazingRows = 2, GlazingColumns = 1,
+            GlazingType = "Double glazed, low-E", FrameMaterial = "Vinyl", HeatTransferCoefficient = 1.6, Cost = 520m
+        };
+        var usCasement = new WindowType("Casement - 24 x 48 in", 610, 1219)
+        {
+            TypeMark = "W18", AssemblyCode = "B2020", Operation = WindowOperation.Casement,
+            GlazingType = "Double glazed, low-E", FrameMaterial = "Vinyl", HeatTransferCoefficient = 1.6, Cost = 430m
+        };
+
         var twinDoubleHung = new WindowType("Double Hung Twin - 60 x 60 in", 1524, 1524)
         {
             TypeMark = "W16",
@@ -1924,6 +1982,10 @@ public sealed class BimDocument
             new ComponentType("Bath - 1800 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1800, 800, 560)
                 { TypeMark = "P13", Colour = white, Cost = 480m, Capacity = 230 },
 
+            // The US's: a 60 x 30 in alcove tub, and a 36 in square shower at the federal 2.5 gpm.
+            new ComponentType("Bathtub - 60 x 30 in", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1524, 762, 508)
+                { TypeMark = "P17", Colour = white, Cost = 360m, Capacity = 160 },
+
             // Sinks set into the worktop of their unit: a bowl and drainer in a 1000 unit, a bowl in a 600.
             new ComponentType("Sink Unit - 1000", BuiltInCategory.PlumbingFixtures, ComponentForm.Sink, 1000, 600, 900)
                 { TypeMark = "P5", Colour = timber, Cost = 320m, FlowRate = 8 },
@@ -1934,6 +1996,8 @@ public sealed class BimDocument
             // own, a corner one, a sliding door across an alcove, and a walk-in's fixed panel.
             new ComponentType("Shower Tray - 900 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 45)
                 { TypeMark = "P7", Colour = white, Cost = 180m, FlowRate = 9 },
+            new ComponentType("Shower - 36 x 36 in", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 914, 914, 45)
+                { TypeMark = "P18", Colour = white, Cost = 200m, FlowRate = 9.5 },
             new ComponentType("Shower Enclosure - Corner 900 x 900", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 900, 900, 1945)
                 { TypeMark = "P8", Colour = white, Cost = 520m, FlowRate = 9, Enclosure = ShowerEnclosure.Corner },
             new ComponentType("Shower Enclosure - Alcove 1200 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Shower, 1200, 800, 1945)
@@ -2085,6 +2149,18 @@ public sealed class BimDocument
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 2110
             },
 
+            // The US's bath fans, rated at 0.25 in. w.c.: the IRC's 50 cfm, and 80 for a larger bathroom.
+            new ComponentType("Exhaust Fan - Bath 50 cfm", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 200, 50, 200)
+            {
+                TypeMark = "M18", Colour = white, Cost = 60m, ExtractRate = 50 * Mep.Ventilation.LitresPerCfm,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2150
+            },
+            new ComponentType("Exhaust Fan - Bath 80 cfm", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 230, 50, 230)
+            {
+                TypeMark = "M19", Colour = white, Cost = 90m, ExtractRate = 80 * Mep.Ventilation.LitresPerCfm,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2130
+            },
+
             // A gas combi boiler on the wall, its controls at 1150 or so.
             new ComponentType("Boiler - Gas Combi", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
             {
@@ -2146,6 +2222,14 @@ public sealed class BimDocument
                 TypeMark = "M11", Colour = new ColourRgb(0xE4, 0xE6, 0xE8), Cost = 5500m, HeatOutput = 7000,
                 Description = "Monobloc; its output at the design temperature, from its maker's data"
             },
+
+            // The US's: a ducted air-source heat pump of 3 tons, cooling as well as heating.
+            new ComponentType("Heat Pump - Air Source 3 ton", BuiltInCategory.MechanicalEquipment, ComponentForm.HeatPump, 900, 900, 950)
+            {
+                TypeMark = "M21", Colour = new ColourRgb(0xE4, 0xE6, 0xE8), Cost = 6500m,
+                HeatOutput = 28_000 / Units.BtuPerHourPerWatt, CoolingOutput = 36_000 / Units.BtuPerHourPerWatt,
+                Description = "Its heating at the winter design temperature and its total cooling at the summer one, from its maker's data"
+            },
             new ComponentType("Underfloor Heating - 16 mm at 150 in Screed", BuiltInCategory.MechanicalEquipment, ComponentForm.UnderfloorHeating, 600, 600, 20)
             {
                 TypeMark = "M12", Colour = new ColourRgb(0xE0, 0x6A, 0x4A), FloorOutput = 3.35, FloorOutputLimit = 98, PipeSpacing = 150,
@@ -2165,6 +2249,12 @@ public sealed class BimDocument
                 TypeMark = "M14", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 2400m, Airflow = 75, AvailablePressure = 150, HeatRecovery = 0.9,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1500,
                 Description = "Mechanical ventilation with heat recovery; its airflow, available pressure and efficiency from its maker's data"
+            },
+            new ComponentType("HRV - 150 cfm", BuiltInCategory.MechanicalEquipment, ComponentForm.HeatRecoveryUnit, 560, 400, 760)
+            {
+                TypeMark = "M20", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 2200m, Airflow = 150 * Mep.Ventilation.LitresPerCfm, AvailablePressure = 0.5 * Units.PascalsPerInchOfWater, HeatRecovery = 0.75,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1500,
+                Description = "A heat recovery ventilator; its airflow, external static pressure and recovery efficiency from its maker's data"
             },
             new ComponentType("Supply Valve - 125", BuiltInCategory.AirTerminals, ComponentForm.SupplyTerminal, 165, 165, 60)
             {
@@ -2374,9 +2464,9 @@ public sealed class BimDocument
                      mullions[0], mullions[1], mullions[2], mullions[3], mullions[4], mullions[5], mullions[6], mullions[7], mullions[8],
                      mullions[9], mullions[10], stickSystem,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
-                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, garageDoor, usExterior,
+                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
-                     tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung,
+                     tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof,
                      thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling

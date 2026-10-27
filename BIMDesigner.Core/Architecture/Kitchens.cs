@@ -271,7 +271,7 @@ public static class Kitchens
 
         if (hob is not null && !pieces.Any(entry => entry.Type.Form == ComponentForm.CookerHood))
             said.Add(standard.IsUs()
-                ? "no hood over the hob - the IRC (M1505.4.4) asks for 100 cfm (47 l/s) of kitchen exhaust"
+                ? $"no hood over the hob - the IRC (M1505.4.4) asks for 100 cfm{Units.MetricAside("47 l/s")} of kitchen exhaust"
                 : "no hood over the hob - Approved Document F (Table 1.1) asks for 60 l/s of extract, 30 with a hood ducted outside");
 
         return said.Count == 0 ? "Kitchen" : $"Kitchen: {string.Join("; ", said)}";

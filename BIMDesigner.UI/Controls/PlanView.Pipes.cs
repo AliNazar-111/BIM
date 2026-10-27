@@ -150,7 +150,10 @@ public partial class PlanView
             var run = TypeFor(type, _pipeKind, root ? level.Elevation + NewPipeOffset : target.At.Z);
             _pipeTypeId = run.Id;
             var from = target.Connector?.Size ?? (target.End ?? target.Along)?.Diameter ?? 15;
-            _pipeSize = NewPipeDiameter > 0 && run.Id == type.Id ? NewPipeDiameter : PipeSizes.Nearest(run.Material, (target.End ?? target.Along) is { } pipe ? pipe.Diameter : from).Outside;
+            _pipeSize = NewPipeDiameter > 0 && run.Id == type.Id ? NewPipeDiameter
+                // A US drain from a fixture starts at its trap's size, Table P3201.7's.
+                : run.Material == PipeMaterial.PvcDwv && (target.End ?? target.Along) is null ? Drainage.UsDrainSize(target.Fitting is { } fixture ? Document.FindType<ComponentType>(fixture.TypeId) : null, from).Outside
+                : PipeSizes.Nearest(run.Material, (target.End ?? target.Along) is { } pipe ? pipe.Diameter : from).Outside;
             _pipeFromFitting = target.Fitting is not null && !root;
             _pipeStartFitting = target.Fitting;
             _pipeHeight = root ? level.Elevation + NewPipeOffset
@@ -278,20 +281,22 @@ public partial class PlanView
 
     /// <summary>
     /// The pipe type a run is drawn in: the one picked - but drainage in PVC-U, its drain type below
-    /// the ground and its soil and waste type above; and water in a water pipe, not PVC-U.
+    /// the ground and its soil and waste type above, in the US Schedule 40 PVC DWV; and water in a
+    /// water pipe, not PVC.
     /// </summary>
     private PipeType TypeFor(PipeType picked, SystemKind kind, double height)
     {
         var types = Document!.TypesOf<PipeType>().ToList();
         if (Drainage.IsDrainage(kind))
         {
-            if (picked.Material == PipeMaterial.PvcU) return picked;
+            if (picked.Material.Like() == PipeMaterial.PvcU) return picked;
+            if (Document.ProjectInformation.ClearanceStandard.IsUs() && types.FirstOrDefault(each => each.Material == PipeMaterial.PvcDwv) is { } dwv) return dwv;
             var below = height < (Document.Levels.Count == 0 ? 0 : Document.Levels.Min(each => each.Elevation)) - 150;
             return types.FirstOrDefault(each => each.Material == PipeMaterial.PvcU && each.Name.Contains(below ? "Drain" : "Soil", StringComparison.OrdinalIgnoreCase))
                    ?? types.FirstOrDefault(each => each.Material == PipeMaterial.PvcU) ?? picked;
         }
 
-        return picked.Material == PipeMaterial.PvcU ? types.FirstOrDefault(each => each.Material != PipeMaterial.PvcU) ?? picked : picked;
+        return picked.Material.Like() == PipeMaterial.PvcU ? types.FirstOrDefault(each => each.Material.Like() != PipeMaterial.PvcU) ?? picked : picked;
     }
 
     /// <summary>Esc or a double-click with a run begun: the run stopped where it is.</summary>

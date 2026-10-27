@@ -34,7 +34,9 @@ public partial class PlanView
         {
             LevelId = levelId, Location = at, TypeId = Document?.FindType<ChimneyType>(type.Id)?.Id ?? Guid.Empty,
             Width = type.Width, Depth = type.IsRound ? type.Width : type.Depth, Flues = type.Flues,
-            Fireplace = ActiveChimneyFireplace ?? type.Fireplace
+            Fireplace = ActiveChimneyFireplace ?? type.Fireplace,
+            // A US chimney stands as the IRC has it: 3 ft above the roof, 2 ft above anything within 10 ft.
+            Rule = Document?.ProjectInformation.ClearanceStandard.IsUs() == true ? ChimneyRule.ThreeTwoTen : ChimneyRule.ApprovedDocumentJ
         };
         if (Document is not null) Chimneys.FitToWalls(Document, chimney);
         return chimney;

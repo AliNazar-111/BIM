@@ -84,6 +84,14 @@ public static class Ventilation
         _ => 0
     };
 
+    /// <summary>The rate a wet room is extracted at in the US when its fan runs, l/s: Table M1505.4.4's intermittent 100 cfm from a kitchen, 50 from a bathroom or toilet room.</summary>
+    public static double UsIntermittent(RoomUse use) => use switch
+    {
+        RoomUse.Kitchen => 100 * LitresPerCfm,
+        RoomUse.Bathroom or RoomUse.Wc => 50 * LitresPerCfm,
+        _ => 0
+    };
+
     /// <summary>
     /// The whole dwelling ventilation rate, l/s, and what it is reckoned from: the floor area (m²) and
     /// the bedrooms - Approved Document F's 0.3 l/s a m² or Table 1.3's, whichever is more; the IRC's
@@ -196,7 +204,10 @@ public static class Ventilation
         var asked = rooms.ToDictionary(room => room.Room, room => room.Extracts.Count == 0 ? 0 : Math.Max(ExtractAsked(room.Use, us), room.Use is RoomUse.Habitable or RoomUse.Other ? WcHigh : 0));
         var whole = WholeDwelling(document).Rate;
         var totalAsked = asked.Values.Sum();
-        double Continuous(Room room) => totalAsked > 0 ? asked[room] * whole / totalAsked : 0;
+
+        // In the US the wet rooms' continuous rates are each met while the system runs, so it runs at the more of them and the whole dwelling rate.
+        var running = us ? Math.Max(whole, totalAsked) : whole;
+        double Continuous(Room room) => totalAsked > 0 ? asked[room] * running / totalAsked : 0;
         var totalHigh = rooms.Sum(room => Math.Max(asked[room.Room], Continuous(room.Room)));
         var supplyVolume = rooms.Where(room => room.Supplies.Count > 0).Sum(room => room.Volume);
         return rooms.Select(room =>
@@ -205,7 +216,7 @@ public static class Ventilation
             var continuous = Continuous(room.Room);
             var fansContinuous = room.Fans.Sum(fan => fan.Type!.ContinuousRate);
             var fansHigh = room.Fans.Sum(fan => Math.Max(fan.Type!.ExtractRate, fan.Type.ContinuousRate));
-            return new RoomAir(room.Room, room.Use, room.Volume, share * whole, continuous + fansContinuous, share * Math.Max(totalHigh, whole),
+            return new RoomAir(room.Room, room.Use, room.Volume, share * running, continuous + fansContinuous, share * Math.Max(totalHigh, running),
                 Math.Max(asked[room.Room], continuous) + fansHigh, ExtractAsked(room.Use, us), room.Supplies, room.Extracts)
             {
                 Fans = room.Fans.Select(fan => fan.Component).ToList()
@@ -272,7 +283,7 @@ public static class Ventilation
                 double Fans(RoomAir room) => room.Fans.Sum(fan => document.FindType<ComponentType>(fan.TypeId) is { } fanType ? Math.Max(fanType.ExtractRate, fanType.ContinuousRate) : 0);
                 var high = Math.Max(rooms.Where(room => room.Extracts.Count > 0).Sum(room => Math.Max(0, room.ExtractHigh - Fans(room))), rooms.Sum(room => room.SupplyHigh));
                 if (unitType.Airflow > 0 && unitType.Airflow < high - 0.05)
-                    yield return new MepProblem(unit, $"it moves {unitType.Airflow:0} l/s at most - its rooms want {high:0} l/s at the high rate");
+                    yield return new MepProblem(unit, $"it moves {Core.Units.Airflow(unitType.Airflow, "0")} at most - its rooms want {Core.Units.Airflow(high, "0")} at the high rate");
                 if (rooms.Sum(room => room.Supplies.Count) == 0) continue;
                 var supplied = rooms.Sum(room => room.Supply);
                 if (supplied < whole - 0.05)
@@ -289,7 +300,10 @@ public static class Ventilation
                     yield return new MepProblem(room.Room, us
                         ? $"no continuous extract - IRC Table M1505.4.4 asks for {room.ExtractAsked / LitresPerCfm:0} cfm from it continuously"
                         : $"no continuous extract - Approved Document F (1.63) extracts at least {room.ExtractAsked:0} l/s from a {Describe(room.Use)} at the high rate (Table 1.2)");
-                else if (room.ExtractHigh < room.ExtractAsked - 0.05)
+                else if (us && room.Extract < room.ExtractAsked - 0.05 && room.ExtractHigh < UsIntermittent(room.Use) - 0.05)
+                    yield return new MepProblem(room.Room,
+                        $"its extract runs at {room.Extract / LitresPerCfm:0} cfm continuously and {room.ExtractHigh / LitresPerCfm:0} cfm at most - IRC Table M1505.4.4 asks {room.ExtractAsked / LitresPerCfm:0} cfm continuously, or {UsIntermittent(room.Use) / LitresPerCfm:0} cfm when it runs, from a {Describe(room.Use)}");
+                else if (!us && room.ExtractHigh < room.ExtractAsked - 0.05)
                     yield return new MepProblem(room.Room, $"its extract reaches {room.ExtractHigh:0.#} l/s at the high rate - Approved Document F (1.63, Table 1.2) asks {room.ExtractAsked:0} l/s of a {Describe(room.Use)}");
             }
 
@@ -303,7 +317,7 @@ public static class Ventilation
             var valves = TerminalFlows(document).Where(entry => document.FindType<ComponentType>(entry.Key.TypeId)?.Form == ComponentForm.ExtractTerminal).Sum(entry => entry.Value);
             foreach (var unit in ExtractUnits(document))
                 if (document.FindType<ComponentType>(unit.TypeId) is { Airflow: > 0 } unitType && unitType.Airflow < valves - 0.05)
-                    yield return new MepProblem(unit, $"it moves {unitType.Airflow:0} l/s at most - its valves want {valves:0} l/s at the high rate");
+                    yield return new MepProblem(unit, $"it moves {Core.Units.Airflow(unitType.Airflow, "0")} at most - its valves want {Core.Units.Airflow(valves, "0")} at the high rate");
         }
 
         // Background ventilators: none with heat recovery; with continuous extract none in the wet rooms, 4000 mm² in each habitable

@@ -589,8 +589,9 @@ public partial class MainWindow : Window
         _loadingOptions = true;
 
         var wallTypes = WallTypeChoices();
-        var doorTypes = _document.TypesOf<DoorType>().OrderBy(t => t.Name).ToList();
-        var windowTypes = _document.TypesOf<WindowType>().OrderBy(t => t.Name).ToList();
+        // Each country's own catalogue: a US project's doors in inches, an English one's in millimetres.
+        var doorTypes = _document.TypesOf<DoorType>().Where(t => ProjectTemplates.Fits(_document, t)).OrderBy(t => t.Name).ToList();
+        var windowTypes = _document.TypesOf<WindowType>().Where(t => ProjectTemplates.Fits(_document, t)).OrderBy(t => t.Name).ToList();
 
         WallTypePicker.ItemsSource = wallTypes;
         // An ordinary layered wall to start with, not whichever type sorts first.
@@ -614,6 +615,7 @@ public partial class MainWindow : Window
         Plan.ActiveRoofWindowTypeId = roofWindowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
 
         var families = _document.TypesOf<ComponentType>()
+            .Where(t => ProjectTemplates.Fits(_document, t))
             .OrderBy(t => t.Kind.ToString())
             .ThenBy(t => t.Name)
             .Select(t => new ComponentFamilyChoice(t))
@@ -868,8 +870,8 @@ public partial class MainWindow : Window
             PlanTool.SlabEdge => _document.TypesOf<SlabEdgeType>().Cast<ElementType>(),
             PlanTool.Soffit => _document.TypesOf<SoffitType>().Cast<ElementType>(),
             PlanTool.Eave => _document.TypesOf<EaveType>().Cast<ElementType>(),
-            PlanTool.WallFooting => _document.TypesOf<FootingType>().Where(t => t.Kind == FootingKind.Strip).Cast<ElementType>(),
-            PlanTool.PadFooting => _document.TypesOf<FootingType>().Where(t => t.Kind == FootingKind.Pad).Cast<ElementType>(),
+            PlanTool.WallFooting => _document.TypesOf<FootingType>().Where(t => t.Kind == FootingKind.Strip && ProjectTemplates.Fits(_document, t)).Cast<ElementType>(),
+            PlanTool.PadFooting => _document.TypesOf<FootingType>().Where(t => t.Kind == FootingKind.Pad && ProjectTemplates.Fits(_document, t)).Cast<ElementType>(),
             _ => _document.TypesOf<FasciaType>().Cast<ElementType>()
         }).OrderBy(t => t.Name).Select(t => new RoofEdgeTypeChoice(t.Name, t.Id, tool)).ToList();
 
@@ -3913,10 +3915,10 @@ public partial class MainWindow : Window
             picker.SelectedItem = items.FirstOrDefault(item => id(item) == picked) ?? items.FirstOrDefault();
         }
 
-        Keep(DoorTypePicker, _document.TypesOf<DoorType>().OrderBy(t => t.Name).ToList(), t => t.Id);
-        Keep(WindowTypePicker, _document.TypesOf<WindowType>().OrderBy(t => t.Name).ToList(), t => t.Id);
+        Keep(DoorTypePicker, _document.TypesOf<DoorType>().Where(t => ProjectTemplates.Fits(_document, t)).OrderBy(t => t.Name).ToList(), t => t.Id);
+        Keep(WindowTypePicker, _document.TypesOf<WindowType>().Where(t => ProjectTemplates.Fits(_document, t)).OrderBy(t => t.Name).ToList(), t => t.Id);
         Keep(RoofWindowTypePicker, _document.TypesOf<RoofWindowType>().OrderBy(t => t.Name).ToList(), t => t.Id);
-        Keep(ComponentTypePicker, _document.TypesOf<ComponentType>().OrderBy(t => t.Kind.ToString()).ThenBy(t => t.Name)
+        Keep(ComponentTypePicker, _document.TypesOf<ComponentType>().Where(t => ProjectTemplates.Fits(_document, t)).OrderBy(t => t.Kind.ToString()).ThenBy(t => t.Name)
             .Select(t => new ComponentFamilyChoice(t)).ToList(), choice => choice.Type.Id);
 
         _loadingOptions = false;
@@ -4135,18 +4137,39 @@ public partial class MainWindow : Window
 
     /// <summary>The wind's pressure on the cladding, that curtain wall mullions are checked against: from the wind map and the building's height and exposure.</summary>
     private static readonly ParameterDefinition WindPressureParameter = new("Wind Pressure on Cladding (kPa, with no wind speed)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition WindPressurePsfParameter = new("Wind Pressure on Cladding (psf, with no wind speed)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>The site's basic wind speed, which the wind on its cladding is worked out from: the UK map's in m/s (BS EN 1991-1-4 NA Figure NA.1), the US's in mph (ASCE 7 Figure 26.5-1).</summary>
     private static readonly ParameterDefinition WindSpeedParameter = new("Basic Wind Speed (UK m/s, US mph; 0 = not set)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
+    private static readonly ParameterDefinition WindSpeedMphParameter = new("Basic Wind Speed (mph; 0 = not set)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
     private static readonly ParameterDefinition SiteAltitudeParameter = new("Site Altitude (m above sea level)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SiteAltitudeFeetParameter = new("Site Altitude (ft above sea level)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     private static readonly ParameterDefinition TerrainParameter = new("Terrain Upwind", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>What the heat loss is worked to: the UK place whose design temperature it takes, the US jurisdiction's winter design temperature, how airtight the building is.</summary>
     private static readonly ParameterDefinition HeatingLocationParameter = new("Heating Design Location (UK)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition WinterDesignParameter = new("Winter Design Temperature (US, °F)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>What a US house's cooling load is worked to: the summer's 1% dry bulb and coincident wet bulb, its daily range, the site's latitude and true north on the plan.</summary>
+    private static readonly ParameterDefinition SummerDesignParameter = new("Summer Design Temperature (US, °F, 1% dry bulb)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SummerWetBulbParameter = new("Summer Wet Bulb (US, °F, coincident)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition DailyRangeParameter = new("Summer Daily Range (US, °F)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition LatitudeParameter = new("Latitude (US, °N)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition TrueNorthParameter = new("True North (° clockwise from up the plan)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>Where a US house's heating and cooling ducts run, how well insulated and sealed - what its loads add for them (ASHRAE Table 6) - and its cooling load.</summary>
+    private static readonly ParameterDefinition DuctRunParameter = new("Ducts Run In (US)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition DuctInsulationParameter = new("Duct Insulation (US, R)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition DuctsSealedParameter = new("Ducts Sealed to 5% (US)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition CoolingLoadParameter = new("Cooling Load (US)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition AirPermeabilityParameter = new("Air Permeability (m³/h·m² at 50 Pa)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition AirPermeabilityCfmParameter = new("Air Leakage (cfm a sq ft of envelope at 50 Pa)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>A cfm through a square foot of envelope for one m³/h through a square metre.</summary>
+    private const double CfmPerSquareFootPerPermeability = 1 / 3.6 / Core.Units.LitresPerSecondPerCfm / 10.76391;
     private static readonly ParameterDefinition HeatLoadParameter = new("Heat Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     private static readonly ParameterDefinition WindVerdictParameter = new("Wind on Cladding", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4172,6 +4195,27 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition LevelParameter = new("Associated Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     private static readonly ParameterDefinition ViewNameParameter = new("View Name", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 
+    // The settings only one country's rules read: an English project is not asked its frost line
+    // or its water pressure, nor a US one its clay's shrinkage or the space standard its homes meet.
+    private static readonly HashSet<ParameterDefinition> UsOnlyParameters = new()
+    {
+        FrostDepthParameter, GroundSnowParameter, WaterPressureParameter, WinterDesignParameter,
+        SummerDesignParameter, SummerWetBulbParameter, DailyRangeParameter, LatitudeParameter, TrueNorthParameter,
+        DuctRunParameter, DuctInsulationParameter, DuctsSealedParameter, CoolingLoadParameter
+    };
+
+    /// <summary>A temperature in °F as typed - "95", "95 °F" - or null for nothing, or what is not one.</summary>
+    private static double? Fahrenheit(string? text, double least, double most)
+    {
+        var said = (text ?? string.Empty).Trim().TrimEnd('F', 'f', '°', ' ');
+        return double.TryParse(said, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var value) && value > least && value < most ? value : null;
+    }
+
+    private static readonly HashSet<ParameterDefinition> EnglishOnlyParameters = new()
+    {
+        WaterOptionalParameter, ClayShrinkageParameter, HeatingLocationParameter, DwellingSizeParameter
+    };
+
     private IReadOnlyList<ParameterValue> PlanViewParameters(string levelName)
     {
         var view = Plan.CurrentView;
@@ -4193,7 +4237,9 @@ public partial class MainWindow : Window
             text => { _document.ViewSettings.SetJoinDisplay(view, text == "Clean all wall joins" ? WallJoinDisplay.CleanAllWallJoins : WallJoinDisplay.CleanSameTypeWallJoins); Plan.RefreshModel(); },
             new[] { "Clean all wall joins", "Clean same type wall joins" });
 
-        return new[]
+        var us = _document.ProjectInformation.ClearanceStandard.IsUs();
+        var feet = Core.Units.Imperial;
+        var shown = new[]
         {
             ViewTemplateChoice(view),
             locks(ViewTemplateSetting.Scale) ? ParameterValue.ReadOnly(ViewScaleParameter, () => scale.DisplayValue) : scale,
@@ -4212,6 +4258,9 @@ public partial class MainWindow : Window
                     _document.ProjectInformation.ClearanceStandard = Enum.GetValues<ClearanceStandard>().FirstOrDefault(standard => Clearances.Label(standard) == text);
                     Plan.RefreshModel();
                     if (Plan.ShowClearances) ShowClearances(true);
+
+                    // The other country's settings in place of these.
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshProperties);
                 },
                 Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
             ParameterValue.Bind(SprinkleredParameter, () => _document.ProjectInformation.Sprinklered, sprinklered =>
@@ -4259,14 +4308,17 @@ public partial class MainWindow : Window
                 _document.ProjectInformation.WaterPressure = Math.Clamp(pressure, 1, 200);
                 if (Plan.ShowClearances) ShowClearances(true);
             }),
-            ParameterValue.Bind(WindSpeedParameter, () => _document.ProjectInformation.BasicWindSpeed, speed =>
+            ParameterValue.Bind(us ? WindSpeedMphParameter : WindSpeedParameter, () => _document.ProjectInformation.BasicWindSpeed, speed =>
             {
                 _document.ProjectInformation.BasicWindSpeed = Math.Clamp(speed, 0, 300);
                 if (Plan.ShowClearances) ShowClearances(true);
             }),
-            ParameterValue.Bind(SiteAltitudeParameter, () => _document.ProjectInformation.SiteAltitude, altitude =>
+
+            // Kept in metres; given in feet in feet and inches.
+            ParameterValue.Bind(feet ? SiteAltitudeFeetParameter : SiteAltitudeParameter,
+                () => feet ? Math.Round(_document.ProjectInformation.SiteAltitude * 1000 / Core.Units.MillimetresPerFoot) : _document.ProjectInformation.SiteAltitude, altitude =>
             {
-                _document.ProjectInformation.SiteAltitude = Math.Clamp(altitude, -500, 5000);
+                _document.ProjectInformation.SiteAltitude = Math.Clamp(feet ? altitude * Core.Units.MillimetresPerFoot / 1000 : altitude, -500, 5000);
                 if (Plan.ShowClearances) ShowClearances(true);
             }),
             ParameterValue.BindChoice(TerrainParameter,
@@ -4294,17 +4346,74 @@ public partial class MainWindow : Window
                     _document.ProjectInformation.WinterDesignTemperature = double.TryParse(said, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var winter) && winter is > -80 and < 80 ? winter : null;
                     HeatingChanged();
                 }),
-            ParameterValue.Bind(AirPermeabilityParameter, () => _document.ProjectInformation.AirPermeability, permeability =>
+            ParameterValue.Bind(SummerDesignParameter,
+                () => _document.ProjectInformation.SummerDesignTemperature is { } summer ? $"{summer:0.#}" : "Not set",
+                text =>
+                {
+                    _document.ProjectInformation.SummerDesignTemperature = Fahrenheit(text, 40, 140);
+                    HeatingChanged();
+                }),
+            ParameterValue.Bind(SummerWetBulbParameter,
+                () => _document.ProjectInformation.SummerWetBulb is { } wet ? $"{wet:0.#}" : "Not set",
+                text =>
+                {
+                    _document.ProjectInformation.SummerWetBulb = Fahrenheit(text, 20, 100);
+                    HeatingChanged();
+                }),
+            ParameterValue.Bind(DailyRangeParameter, () => _document.ProjectInformation.DailyRange, range =>
             {
-                if (permeability is > 0 and <= 100) _document.ProjectInformation.AirPermeability = permeability;
+                _document.ProjectInformation.DailyRange = Math.Clamp(range, 0, 60);
+                HeatingChanged();
+            }),
+            ParameterValue.Bind(LatitudeParameter, () => _document.ProjectInformation.Latitude, latitude =>
+            {
+                _document.ProjectInformation.Latitude = Math.Clamp(latitude, 0, 70);
+                HeatingChanged();
+            }),
+            ParameterValue.Bind(TrueNorthParameter, () => _document.ProjectInformation.TrueNorth, north =>
+            {
+                _document.ProjectInformation.TrueNorth = (north % 360 + 360) % 360;
+                HeatingChanged();
+            }),
+            ParameterValue.BindChoice(DuctRunParameter,
+                () => EnumText.Humanise(_document.ProjectInformation.DuctRun),
+                text =>
+                {
+                    if (!EnumText.TryParse<Core.Mep.DuctRun>(text, out var run)) return;
+                    _document.ProjectInformation.DuctRun = run;
+                    HeatingChanged();
+                },
+                EnumText.Choices<Core.Mep.DuctRun>()),
+            ParameterValue.Bind(DuctInsulationParameter, () => _document.ProjectInformation.DuctInsulation, r =>
+            {
+                _document.ProjectInformation.DuctInsulation = Math.Clamp(r, 0, 30);
+                HeatingChanged();
+            }),
+            ParameterValue.Bind(DuctsSealedParameter, () => _document.ProjectInformation.DuctsSealed, sealed_ =>
+            {
+                _document.ProjectInformation.DuctsSealed = sealed_;
+                HeatingChanged();
+            }),
+            ParameterValue.ReadOnly(CoolingLoadParameter, () => Core.Mep.CoolingLoads.Of(_document) is { } cooling
+                ? $"{Core.Units.Watts(cooling.Total, "#,0")} ({cooling.Tons:0.0} tons): {cooling.Sensible * Core.Units.BtuPerHourPerWatt:#,0} sensible, {cooling.Latent * Core.Units.BtuPerHourPerWatt:#,0} latent"
+                : "No summer design temperature set"),
+            ParameterValue.Bind(feet ? AirPermeabilityCfmParameter : AirPermeabilityParameter,
+                () => feet ? Math.Round(_document.ProjectInformation.AirPermeability * CfmPerSquareFootPerPermeability, 3) : _document.ProjectInformation.AirPermeability, permeability =>
+            {
+                var kept = feet ? permeability / CfmPerSquareFootPerPermeability : permeability;
+                if (kept is > 0 and <= 100) _document.ProjectInformation.AirPermeability = kept;
                 HeatingChanged();
             }),
             ParameterValue.ReadOnly(HeatLoadParameter, () => Core.Mep.HeatLoss.Of(_document) is { } building
-                ? $"{building.Total:#,0} W - {building.Fabric:#,0} through the surfaces, {building.Ventilation:#,0} with the air"
+                ? feet
+                    ? $"{Core.Units.Watts(building.Total, "#,0")} - {building.Fabric * Core.Units.BtuPerHourPerWatt:#,0} through the surfaces, {building.Ventilation * Core.Units.BtuPerHourPerWatt:#,0} with the air"
+                    : $"{building.Total:#,0} W - {building.Fabric:#,0} through the surfaces, {building.Ventilation:#,0} with the air"
                 : Core.Mep.Climate.Describe(_document)),
-            ParameterValue.Bind(WindPressureParameter, () => _document.ProjectInformation.WindPressure, pressure =>
+            // Kept in kPa; given in psf in feet and inches.
+            ParameterValue.Bind(feet ? WindPressurePsfParameter : WindPressureParameter,
+                () => feet ? Math.Round(_document.ProjectInformation.WindPressure * Core.Units.PoundsPerSquareFootPerKilopascal, 1) : _document.ProjectInformation.WindPressure, pressure =>
             {
-                _document.ProjectInformation.WindPressure = Math.Clamp(pressure, 0.1, 10);
+                _document.ProjectInformation.WindPressure = Math.Clamp(feet ? pressure / Core.Units.PoundsPerSquareFootPerKilopascal : pressure, 0.1, 10);
                 if (Plan.ShowClearances) ShowClearances(true);
             }),
             ParameterValue.ReadOnly(WindVerdictParameter, () => Wind.Verdict(_document)),
@@ -4312,6 +4421,9 @@ public partial class MainWindow : Window
             ParameterValue.ReadOnly(LevelParameter, () => levelName),
             ParameterValue.ReadOnly(ViewNameParameter, () => $"Floor Plan: {levelName}")
         };
+
+        var others = us ? EnglishOnlyParameters : UsOnlyParameters;
+        return shown.Where(parameter => !others.Contains(parameter.Definition)).ToArray();
     }
 
     /// <summary>The 3D view's own properties: its name, style, perspective, section box and camera, and whether edges are drawn.</summary>

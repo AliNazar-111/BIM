@@ -1434,7 +1434,9 @@ public static class Ramps
         var problems = Problems(document, ramp);
         if (problems.Count > 0) return string.Join(" ", problems);
         if (!IsRamp(ramp)) return "Gently sloping - 1:20 or gentler - so not a ramp";
-        return Us(document) ? "Meets the ADA" : ramp.Building == RailingBuilding.Other ? "Meets Approved Document M, Volume 2" : "Meets Approved Document M, Volume 1";
+        return Us(document)
+            ? document.ProjectInformation.ClearanceStandard == ClearanceStandard.Irc ? "Meets the ADA's ramp rules - stricter than the IRC's (R311.8)" : "Meets the ADA"
+            : ramp.Building == RailingBuilding.Other ? "Meets Approved Document M, Volume 2" : "Meets Approved Document M, Volume 1";
     }
 
     /// <summary>What it works out to, in a line: "1:15, rising 450 in 2 flights over 6.75 m - 9.15 m long, 1200 wide".</summary>

@@ -1055,6 +1055,9 @@ internal sealed class ComponentTypeDto
 
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
+
+    /// <summary>A heat pump's cooling capacity, W; none in a file from before, or where it only heats.</summary>
+    public double? CoolingOutput { get; set; }
     public double? HeatExponent { get; set; }
     public double? FloorOutput { get; set; }
     public double? FloorOutputLimit { get; set; }
@@ -1207,6 +1210,18 @@ internal sealed class ProjectInformationDto
     public string? HeatingLocation { get; set; }
     public double? WinterDesignTemperature { get; set; }
     public double? AirPermeability { get; set; }
+
+    /// <summary>What a US house's cooling load is worked to: its summer dry and wet bulbs and daily range (°F), its latitude, and true north on the plan; none in older files.</summary>
+    public double? SummerDesignTemperature { get; set; }
+    public double? SummerWetBulb { get; set; }
+    public double? DailyRange { get; set; }
+    public double? Latitude { get; set; }
+    public double TrueNorth { get; set; }
+
+    /// <summary>Where its ducts run, their insulation and sealing; none in older files.</summary>
+    public string? DuctRun { get; set; }
+    public double? DuctInsulation { get; set; }
+    public bool? DuctsSealed { get; set; }
 }
 
 /// <summary>A footing's type: a strip or a pad, its sizes, and what it and what stands on it are made of.</summary>
@@ -2234,6 +2249,7 @@ internal sealed class DuctTypeDto
     public string TypeMark { get; set; } = string.Empty;
     public string Material { get; set; } = "GalvanisedSteel";
     public string Shape { get; set; } = "Round";
+    public bool Inches { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
 }

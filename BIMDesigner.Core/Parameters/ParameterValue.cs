@@ -65,6 +65,16 @@ public sealed class ParameterValue
     public static ParameterValue BindValidated<T>(ParameterDefinition definition, Func<T> get, Func<T, bool> trySet) =>
         new(definition, () => get(), raw => TryConvert<T>(raw, out var typed) && trySet(typed));
 
+    /// <summary>
+    /// Binds a number kept in metric units that a project in feet and inches shows and takes in
+    /// its own, under its own label: a heat output kept in W given in Btu/h, an airflow kept in l/s
+    /// given in cfm - the shown value the kept one times the factor, to so many decimal places.
+    /// </summary>
+    public static ParameterValue BindScaled(ParameterDefinition metric, ParameterDefinition imperial, double factor, int digits, Func<double> get, Func<double, bool> trySet) =>
+        Units.Imperial
+            ? BindValidated<double>(imperial, () => Math.Round(get() * factor, digits), shown => trySet(shown / factor))
+            : BindValidated(metric, get, trySet);
+
     /// <summary>Binds a computed or otherwise read-only parameter.</summary>
     public static ParameterValue ReadOnly<T>(ParameterDefinition definition, Func<T> get) =>
         new(definition, () => get(), null);

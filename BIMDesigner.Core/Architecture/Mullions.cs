@@ -187,7 +187,9 @@ public sealed class MullionType : ElementType
         if (Material != MullionMaterial.Timber) yield return Size(MullionParameters.WallThickness, () => WallThickness, v => WallThickness = v, 0, 50);
         if (RoofEdgeSweepParameters.MaterialOf(document, () => MaterialId, id => MaterialId = id, MullionParameters.Finish) is { } finish) yield return finish;
         var section = Section().Properties();
-        yield return ParameterValue.ReadOnly(MullionParameters.Stiffness, () => Math.Round(section.Ixx / 1e4, 1));
+        yield return Units.Imperial
+            ? ParameterValue.ReadOnly(MullionParameters.StiffnessInches, () => Math.Round(section.Ixx / Math.Pow(Units.MillimetresPerInch, 4), 2))
+            : ParameterValue.ReadOnly(MullionParameters.Stiffness, () => Math.Round(section.Ixx / 1e4, 1));
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
     }
 
@@ -226,6 +228,7 @@ public static class MullionParameters
     public static readonly ParameterDefinition Material = new("Structural Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition Finish = new("Material", ParameterDataType.Material, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition Stiffness = new("Second Moment Across the Wall (cm⁴)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition StiffnessInches = new("Second Moment Across the Wall (in⁴)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
 }
 
 /// <summary>
@@ -433,7 +436,7 @@ public static class MullionRules
             var name = worst.Mullion.Type?.Name ?? "Mullion";
             var (many, under) = group.Key == "transom under its glass"
                 ? ($"{group.Count()} transoms sag", "under the glass on it")
-                : ($"{group.Count()} {group.Key}s bend", $"at {worst.Pressure:0.00} kPa of wind ({worst.Wind})");
+                : ($"{group.Count()} {group.Key}s bend", $"at {Units.Kilopascals(worst.Pressure, "0.00")} of wind ({worst.Wind})");
             var said = group.Count() == 1 ? (group.Key == "transom under its glass" ? "a transom sags" : $"a {group.Key} bends") : many;
             problems.Add(($"{said} too far - the worst, {name}, {Units.Millimetres(worst.Deflection, "0.0")} over {Units.Metres(worst.Span, "0.00")}, {Units.Bare(worst.Allowed, "0.0")} allowed, {under}.",
                 $"{char.ToUpperInvariant(worst.Rule[0])}{worst.Rule[1..]} - a deeper or stiffer mullion type, closer grid lines, or a support at the floor."));
@@ -605,7 +608,7 @@ public static class MullionFixings
 
             if (splices.Count > 0 && JointNeeded(material, length) > type.StackJoint + 0.05)
                 problems.Add(($"its stack joints are {Units.Millimetres(type.StackJoint, "0")}; a {Units.Metres(length, "0.00")} length of {EnumText.Humanise(material).ToLowerInvariant()} moves {Units.Millimetres(Expansion(material) * length * TemperatureRange, "0.0")} with the heat, and the floor's edge and column {Units.Bare(FloorMovement, "0.0")} more: {Units.Millimetres(JointNeeded(material, length), "0")} wanted.",
-                    "A stack joint takes a length's movement over the -17 to 82 °C its face sees (AAMA's curtain wall guide specification), a slab edge's live-load deflection of 1/2 in and a column's shortening of 1/8 in at each floor - a wider joint, or splices more often."));
+                    $"A stack joint takes a length's movement over the {(Units.Imperial ? "0 to 180 °F" : "-17 to 82 °C")} its face sees (AAMA's curtain wall guide specification), a slab edge's live-load deflection of 1/2 in and a column's shortening of 1/8 in at each floor - a wider joint, or splices more often."));
 
             if (material == MullionMaterial.Aluminium && length > StockLength + 0.5)
                 problems.Add(($"its mullions run {Units.Metres(length, "0.00")} without a splice.",
@@ -617,7 +620,9 @@ public static class MullionFixings
             var worst = anchors.MaxBy(anchor => Math.Max(anchor.Wind, anchor.Dead))!;
             var load = Math.Max(worst.Wind, worst.Dead);
             if (load > type.AnchorCapacity + 1e-6)
-                problems.Add(($"an anchor takes {load:0.00} kN - {worst.Wind:0.00} of wind, {worst.Dead:0.00} of weight - over the {type.AnchorCapacity:0.00} kN it is good for.",
+                problems.Add((Units.Imperial
+                        ? $"an anchor takes {Units.Kilonewtons(load, "0.00")} - {Units.Kilonewtons(worst.Wind, "0.00")} of wind, {Units.Kilonewtons(worst.Dead, "0.00")} of weight - over the {Units.Kilonewtons(type.AnchorCapacity, "0.00")} it is good for."
+                        : $"an anchor takes {load:0.00} kN - {worst.Wind:0.00} of wind, {worst.Dead:0.00} of weight - over the {type.AnchorCapacity:0.00} kN it is good for.",
                     "An anchor is to carry the wind on the spans either side of it and the weight of the length standing on it - a stronger anchor, or more of them."));
         }
 
@@ -633,7 +638,7 @@ public static class MullionFixings
         var said = new List<string>
         {
             anchors.Count > 0
-                ? $"{anchors.Count} anchors, the worst taking {anchors.Max(anchor => anchor.Wind):0.00} kN of wind and {anchors.Max(anchor => anchor.Dead):0.00} kN of weight"
+                ? $"{anchors.Count} anchors, the worst taking {Units.Kilonewtons(anchors.Max(anchor => anchor.Wind), "0.00")} of wind and {Units.Kilonewtons(anchors.Max(anchor => anchor.Dead), "0.00")} of weight"
                 : "not anchored as drawn",
             splices.Count > 0
                 ? $"{splices.Count} splices with {Units.Millimetres(type.StackJoint, "0")} stack joints, the longest length {Units.Metres(lengths.Max(piece => piece.To - piece.From), "0.00")}"

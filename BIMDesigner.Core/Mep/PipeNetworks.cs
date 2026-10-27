@@ -501,7 +501,7 @@ public static class PipeNetworks
         // A size its pipe does not come in - its type changed under it.
         foreach (var pipe in document.All<Pipe>())
             if (document.FindType<PipeType>(pipe.TypeId) is { } pipeType && PipeSizes.Of(pipeType.Material) is { Count: > 0 } sizes && sizes.All(size => Math.Abs(size.Outside - pipe.Diameter) > 0.5))
-                yield return new MepProblem(pipe, $"{pipe.Diameter:0.#} mm is not a size {pipeType.Name} comes in - the nearest is {PipeSizes.Nearest(pipeType.Material, pipe.Diameter).Name}; Size Pipes, or a size from its list");
+                yield return new MepProblem(pipe, $"{Units.Millimetres(pipe.Diameter, "0.#")} is not a size {pipeType.Name} comes in - the nearest is {PipeSizes.Nearest(pipeType.Material, pipe.Diameter).Name}; Size Pipes, or a size from its list");
 
         foreach (var system in document.All<MepSystem>())
         {

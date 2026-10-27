@@ -121,7 +121,7 @@ public static class Wind
     public static WindOnMember OnMember(BimDocument document, Wall wall, double along, double span, double width)
     {
         var project = document.ProjectInformation;
-        if (!FromSite(document)) return new WindOnMember(project.WindPressure, $"{project.WindPressure:0.00} kPa as set");
+        if (!FromSite(document)) return new WindOnMember(project.WindPressure, $"{Units.Kilopascals(project.WindPressure, "0.00")} as set");
 
         var heightMm = Height(document);
         var height = heightMm / 1000;
@@ -144,7 +144,7 @@ public static class Wind
                 : (Between(inCorner ? -1.8 : -0.9, inCorner ? -1.0 : -0.7, 20, 500, area), Between(0.9, 0.6, 20, 500, area));
             var net = Math.Max(-suction, push) + 0.18;
             return new WindOnMember(0.6 * net * q,
-                $"0.6 x {net * q:0.00} kPa - zone {(inCorner ? 5 : 4)}, GCp {(-suction >= push ? suction : push):+0.00;-0.00} and GCpi ±0.18 on {area:0} sq ft, qh {q:0.00} kPa at {Units.Metres(heightMm, "0.0")} (ASCE 7-16 Figure {(low ? "30.3-1" : "30.5-1")})");
+                $"0.6 x {Units.Kilopascals(net * q, "0.00")} - zone {(inCorner ? 5 : 4)}, GCp {(-suction >= push ? suction : push):+0.00;-0.00} and GCpi ±0.18 on {area:0} sq ft, qh {Units.Kilopascals(q, "0.00")} at {Units.Metres(heightMm, "0.0")} (ASCE 7-16 Figure {(low ? "30.3-1" : "30.5-1")})");
         }
 
         var qp = PeakPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height);
@@ -167,10 +167,10 @@ public static class Wind
     public static string Verdict(BimDocument document)
     {
         var project = document.ProjectInformation;
-        if (!FromSite(document)) return $"{project.WindPressure:0.00} kPa on all cladding, as set - give a basic wind speed to work it out";
+        if (!FromSite(document)) return $"{Units.Kilopascals(project.WindPressure, "0.00")} on all cladding, as set - give a basic wind speed to work it out";
         var height = Height(document);
         return project.ClearanceStandard.IsUs()
-            ? $"qh {VelocityPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height / 1000):0.00} kPa at {Units.Metres(height, "0.0")} - {project.BasicWindSpeed:0} mph, exposure {(project.Terrain switch { WindTerrain.Sea => "D", WindTerrain.OpenCountry => "C", _ => "B" })} (ASCE 7-16 26.10)"
+            ? $"qh {Units.Kilopascals(VelocityPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height / 1000), "0.00")} at {Units.Metres(height, "0.0")} - {project.BasicWindSpeed:0} mph, exposure {(project.Terrain switch { WindTerrain.Sea => "D", WindTerrain.OpenCountry => "C", _ => "B" })} (ASCE 7-16 26.10)"
             : $"qp {PeakPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height / 1000):0.00} kPa at {Units.Metres(height, "0.0")} - {project.BasicWindSpeed:0.0} m/s, {project.SiteAltitude:0} m up, terrain category {(project.Terrain switch { WindTerrain.Sea => "0", WindTerrain.OpenCountry => "II", WindTerrain.Suburban => "III", _ => "IV" })} (BS EN 1991-1-4 4.5)";
     }
 }

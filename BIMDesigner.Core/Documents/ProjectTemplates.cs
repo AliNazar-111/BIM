@@ -87,26 +87,48 @@ public static class ProjectTemplates
         _ => ClearanceStandard.ApprovedDocumentM
     };
 
-    // The starter fittings made for one country's homes: a load center, duplex receptacles and a
-    // tank water heater for the US; a consumer unit, BS 1363 sockets, a shaver socket and an
-    // unvented cylinder for England.
-    private static readonly HashSet<string> UsFittings = new(StringComparer.Ordinal)
+    // The starter types made for one country's homes, where the other has its own: a load center,
+    // duplex receptacles and a tank water heater for the US, its stock doors, beds, tub and shower in
+    // inches, its bath fans in cfm, its pipes and ducts in inches, its parking space in feet, its
+    // footings in inches; a consumer unit, BS 1363 sockets, a shaver socket and an unvented cylinder
+    // for England, its doors, beds, baths, fans, pipes and ducts in metric sizes, its parking bays
+    // and footings in millimetres.
+    private static readonly HashSet<string> UsTypes = new(StringComparer.Ordinal)
     {
-        "Load Center - 200 A 40 Space", "Receptacle - Duplex 15 A", "Receptacle - Duplex 20 A Countertop", "Switch - Single Pole", "Water Heater - Electric 50 gal"
+        "Load Center - 200 A 40 Space", "Receptacle - Duplex 15 A", "Receptacle - Duplex 20 A Countertop", "Switch - Single Pole", "Water Heater - Electric 50 gal",
+        "Exterior Door - 36 x 80 in", "Interior Door - 30 x 80 in", "Interior Door - 32 x 80 in", "Garage Entry Door - 36 x 80 in, 20 min", "Double Hung Twin - 60 x 60 in",
+        "Double Hung - 36 x 60 in", "Casement - 24 x 48 in",
+        "Bed - Twin 38 x 75 in", "Bed - Full 54 x 75 in", "Bed - Queen 60 x 80 in", "Bed - King 76 x 80 in", "Bed - California King 72 x 84 in",
+        "Bathtub - 60 x 30 in", "Shower - 36 x 36 in", "Exhaust Fan - Bath 50 cfm", "Exhaust Fan - Bath 80 cfm", "HRV - 150 cfm", "Heat Pump - Air Source 3 ton",
+        "Round - Galvanized Steel (in)", "Flexible - Insulated (in)", "Rectangular - Galvanized Steel (in)", "PVC DWV - Schedule 40 (ASTM D2665)",
+        "Copper - Type L (ASTM B88)", "PEX - CTS SDR 9 (ASTM F876)",
+        "Parking Space - 9 x 18 ft", "Parking Space - Accessible 96 + 60 in", "Turning Circle - 60 in",
+        "Footing - 16 x 8 in", "Footing - 24 x 10 in", "Pad Footing - 24 x 24 x 12 in"
     };
 
-    private static readonly HashSet<string> EnglishFittings = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> EnglishTypes = new(StringComparer.Ordinal)
     {
-        "Consumer Unit - 12 Way", "Socket - Double", "Switch - One Gang", "Shaver Socket", "Hot Water Cylinder - Unvented 210 l"
+        "Consumer Unit - 12 Way", "Socket - Double", "Switch - One Gang", "Shaver Socket", "Hot Water Cylinder - Unvented 210 l",
+        "Single - 900 x 2100", "Single - 1000 x 2100", "Front Door - 1000 x 2100", "Fire Door FD30S - 900 x 2100",
+        "Double Hung - 900 x 1500", "Casement - 1200 x 1200",
+        "Bed - Single 900 x 1900", "Bed - Small Double 1200 x 1900", "Bed - Double 1350 x 1900", "Bed - King 1500 x 2000", "Bed - Super King 1800 x 2000",
+        "Bath - 1700 x 700", "Bath - 1800 x 800", "Shower Tray - 900 x 900", "Extract Fan - 100 (15 l/s)", "Extract Fan - 150 (60 l/s)",
+        "Heat Recovery Unit - 75 l/s", "Background Ventilator - 5000 mm²", "Heat Pump - Air Source 7 kW",
+        "Round - Galvanised Spiral", "Round - PVC Rigid", "Flat Channel - PVC", "Flexible - Insulated", "Rectangular - Galvanised Steel",
+        "PVC-U Soil and Waste - BS EN 1329", "PVC-U Drain - BS EN 1401", "Copper - BS EN 1057", "PE-X",
+        "Parking Bay - 2400 x 4800", "Parking Bay - Accessible 3600 x 6000", "Turning Circle - 1500",
+        "Strip Footing - 450 x 225", "Strip Footing - 600 x 225", "Strip Footing - 750 x 300", "Strip Footing - 900 x 300", "Strip Footing - 1100 x 400",
+        "Pad Footing - 600 x 600 x 300", "Pad Footing - 900 x 900 x 350", "Pad Footing - 1200 x 1200 x 450", "Pad Footing - 1500 x 1500 x 600"
     };
 
     /// <summary>
-    /// Whether a fitting is one the project's country fits: a US project is not offered a consumer
-    /// unit or a shaver socket, nor an English one a load center. A fitting made or brought in by
-    /// hand is offered to both.
+    /// Whether a type is one the project's country is offered: a US project is not offered a
+    /// consumer unit, a 900 x 2100 door or a parking bay in millimetres, nor an English one a
+    /// load center, a queen bed or a parking space in feet. A type made or brought in by hand is
+    /// offered to both.
     /// </summary>
-    public static bool Fits(BimDocument document, ComponentType type) =>
-        document.ProjectInformation.ClearanceStandard.IsUs() ? !EnglishFittings.Contains(type.Name) : !UsFittings.Contains(type.Name);
+    public static bool Fits(BimDocument document, Elements.ElementType type) =>
+        document.ProjectInformation.ClearanceStandard.IsUs() ? !EnglishTypes.Contains(type.Name) : !UsTypes.Contains(type.Name);
 
     /// <summary>What a storey is called, counting up from the ground: the UK's ground and first floors, the US's first and second.</summary>
     public static string StoreyName(ProjectTemplate template, int index)

@@ -14,8 +14,38 @@ public enum HeatPath
     Room
 }
 
-/// <summary>One surface of a room and the heat through it: its area (m²), its U-value with the allowance for thermal bridges, what is beyond and at what temperature.</summary>
-public sealed record HeatLossLine(string What, double Area, double U, HeatPath Path, double Beyond, double Watts, Element? Through, Room? Next = null);
+/// <summary>What a surface of a room is: what its gains in summer go by as much as its losses in winter.</summary>
+public enum HeatSurface
+{
+    Wall,
+    Window,
+    Door,
+
+    /// <summary>A roof over the room itself - flat, or sloping as a cathedral ceiling.</summary>
+    Roof,
+
+    /// <summary>A ceiling with a loft or an attic between it and the roof.</summary>
+    CeilingUnderLoft,
+
+    /// <summary>A ground floor on the ground, and one suspended over a void.</summary>
+    GroundFloor,
+    SuspendedFloor,
+
+    /// <summary>A floor over, or a ceiling under, another space - a room, a space not heated, or the open air.</summary>
+    Floor,
+    Ceiling,
+
+    /// <summary>A US slab on the ground, losing its heat at its exposed edge: its "area" the edge's length, m, its "U" W/m·K.</summary>
+    SlabEdge
+}
+
+/// <summary>
+/// One surface of a room and the heat through it: its area (m²), its U-value with the allowance for
+/// thermal bridges, what is beyond and at what temperature - and what it is, and for a wall, a window
+/// or a door the way it faces on the plan, degrees clockwise from up the plan.
+/// </summary>
+public sealed record HeatLossLine(string What, double Area, double U, HeatPath Path, double Beyond, double Watts, Element? Through, Room? Next = null,
+    HeatSurface Kind = HeatSurface.Wall, double? Facing = null);
 
 /// <summary>
 /// One room's heat loss at the design conditions: through each surface, and with the air coming in.
@@ -56,8 +86,17 @@ public sealed record BuildingHeatLoss(double Outside, double Ground, double AirP
     /// <summary>What leaves the heated building through its surfaces, W.</summary>
     public double Fabric => Rooms.Where(room => room.Heated).Sum(room => room.Lost);
 
+    /// <summary>What a US house's ducts lose outside what is heated, as a share of the rest (ASHRAE Table 6).</summary>
+    public double DuctFactor { get; init; }
+
+    /// <summary>What its ducts lose, W.</summary>
+    public double Distribution => DuctFactor * (Fabric + Ventilation);
+
+    /// <summary>A US house's air: its infiltration, with its ventilation, as ASHRAE's residential method takes it; none in England.</summary>
+    public ResidentialAir.Flow? Air { get; init; }
+
     /// <summary>The building's design heat load, W: what its heat sources have to give.</summary>
-    public double Total => Fabric + Ventilation;
+    public double Total => Fabric + Ventilation + Distribution;
 
     public RoomHeatLoss? Of(Room room) => Rooms.FirstOrDefault(each => ReferenceEquals(each.Room, room));
 }
@@ -129,9 +168,21 @@ public static class HeatLoss
     public static BuildingHeatLoss? Of(BimDocument document) =>
         ModelCache.Of(document) is { } kept ? kept.Keep("heat loss", document, null, null, () => Work(document)) : Work(document);
 
-    private static BuildingHeatLoss? Work(BimDocument document)
+    /// <summary>
+    /// The building's rooms and their surfaces as the heat loss finds them, with or without a winter
+    /// design temperature set - worked to freezing where there is none: what a cooling load starts from.
+    /// </summary>
+    public static BuildingHeatLoss? Surveyed(BimDocument document) =>
+        Climate.DesignOutside(document) is not null ? Of(document)
+        : ModelCache.Of(document) is { } kept ? kept.Keep("heat loss survey", document, null, null, () => Work(document, 0)) : Work(document, 0);
+
+    /// <summary>A slab's heat loss a metre of its exposed edge a kelvin, W/m·K: ASHRAE's F_p of 0.68 Btu/h·ft·°F uninsulated and 0.50 insulated (Fundamentals chapter 18, Table 24, a block wall).</summary>
+    public const double SlabEdgeUninsulated = 0.68 * CoolingLoads.WattsPerMetreKelvinPerBtuFootF, SlabEdgeInsulated = 0.50 * CoolingLoads.WattsPerMetreKelvinPerBtuFootF;
+
+    private static BuildingHeatLoss? Work(BimDocument document, double? survey = null)
     {
-        if (Climate.DesignOutside(document) is not { } outside) return null;
+        if ((Climate.DesignOutside(document) ?? survey) is not { } outside) return null;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var ground = Climate.Ground(document) ?? outside;
         var permeability = document.ProjectInformation.AirPermeability;
 
@@ -153,7 +204,7 @@ public static class HeatLoss
             var notes = new List<string>();
             var volume = (RoomHeadroom.Measure(document, room)?.Volume ?? boundary.Area * room.Height) / 1e9;
             if (temperatures[room] is { } inside)
-                Surfaces(document, room, boundary, inside, outside, ground, volume, levels, temperatures, RoomAt, lines, notes);
+                Surfaces(document, room, boundary, inside, outside, ground, volume, levels, temperatures, RoomAt, lines, notes, us);
             surveyed.Add((room, boundary, lines, notes, volume));
         }
 
@@ -202,9 +253,52 @@ public static class HeatLoss
         }
 
         var balanced = recovery is not null && supplyZone > 0;
+        if (us) return UsAir(document, surveyed.Select(entry => (entry.Room, entry.Boundary, entry.Lines, entry.Notes, entry.Volume)).ToList(), temperatures, outside, ground, recovery, balanced, supplied);
         return new BuildingHeatLoss(outside, ground, permeability, results, building)
         {
             Recovery = balanced ? recovery!.Value.Efficiency : null, SupplyTemperature = balanced ? supplied : null, Extracted = Math.Max(extractZone - supplyZone, 0)
+        };
+    }
+
+    /// <summary>
+    /// A US house's air, as ASHRAE's residential method takes it: its infiltration through the
+    /// leakage area its air leakage gives, at the heating's driving force, with its ventilation - each
+    /// room the house's air change, its share by its volume; and its ducts' losses outside what is heated.
+    /// </summary>
+    private static BuildingHeatLoss UsAir(
+        BimDocument document, List<(Room Room, RoomBoundaryResult Boundary, List<HeatLossLine> Lines, List<string> Notes, double Volume)> surveyed,
+        IReadOnlyDictionary<Room, double?> temperatures, double outside, double ground,
+        (double Efficiency, IReadOnlyDictionary<Room, (double Supply, double Extract)> Rooms)? recovery, bool balanced, double supplied)
+    {
+        var heated = surveyed.Where(entry => temperatures[entry.Room] is not null).ToList();
+        var inside = heated.Count == 0 ? 20 : heated.Average(entry => temperatures[entry.Room]!.Value);
+        var stack = ResidentialAir.StackFeet(document, heated.Select(entry => entry.Room));
+        var air = ResidentialAir.Of(document, heated.SelectMany(entry => entry.Lines), stack, inside - outside, cooling: false, recovery,
+            room => temperatures.GetValueOrDefault(room) is not null);
+        var factor = ResidentialAir.Sensible * ResidentialAir.AltitudeFactor(document);
+        var volume = heated.Sum(entry => entry.Volume);
+
+        var results = new List<RoomHeatLoss>();
+        double building = 0;
+        foreach (var (room, boundary, lines, notes, roomVolume) in surveyed)
+        {
+            var temperature = temperatures[room];
+            var share = temperature is not null && volume > 0 ? roomVolume / volume : 0;
+            var watts = temperature is { } t ? factor * share * air.SensibleFlow * (t - outside) : 0;
+            building += watts;
+            results.Add(new RoomHeatLoss(room, room.ToString(), temperature, lines, boundary.Area / 1e6, roomVolume,
+                lines.Where(line => line.Path is HeatPath.Outside or HeatPath.Ground).Sum(line => line.Kind == HeatSurface.SlabEdge ? 0 : line.Area),
+                share * air.Infiltration, 0, share * air.SensibleFlow, watts, notes)
+            {
+                Supply = temperature is null ? 0 : recovery?.Rooms.GetValueOrDefault(room).Supply ?? 0, SupplyTemperature = supplied
+            });
+        }
+
+        var storeys = heated.Select(entry => entry.Room.LevelId).Distinct().Count();
+        return new BuildingHeatLoss(outside, ground, document.ProjectInformation.AirPermeability, results, building)
+        {
+            Recovery = balanced ? recovery!.Value.Efficiency : null, SupplyTemperature = balanced ? supplied : null, Air = air,
+            DuctFactor = ResidentialAir.DuctFactor(document, cooling: false, storeys)
         };
     }
 
@@ -214,8 +308,10 @@ public static class HeatLoss
     private static void Surfaces(
         BimDocument document, Room room, RoomBoundaryResult boundary, double inside, double outside, double ground, double volume,
         IReadOnlyList<Datums.Level> levels, IReadOnlyDictionary<Room, double?> temperatures, Func<Guid, Point2D, Room, Room?> roomAt,
-        List<HeatLossLine> lines, List<string> notes)
+        List<HeatLossLine> lines, List<string> notes, bool us)
     {
+        // How much of its floor's edge is exposed: along outside walls and walls to spaces not heated, as ASHRAE counts it for a slab.
+        var edge = 0.0;
         var polygon = boundary.Polygon;
         var area = boundary.Area / 1e6;
         var centre = boundary.Centroid;
@@ -227,11 +323,13 @@ public static class HeatLoss
         // The walls' height: storey to storey, as a net internal height with the floor between; under the roof, the room's own.
         var storey = above is not null && level is not null ? above.Elevation - level.Elevation : area > 0 ? volume / area * 1000 : room.Height;
 
-        void Add(string what, double square, double u, HeatPath path, double beyond, Element? through, Room? next = null)
+        void Add(string what, double square, double u, HeatPath path, double beyond, Element? through, Room? next = null, HeatSurface kind = HeatSurface.Wall, double? facing = null)
         {
             if (square <= 1e-6) return;
-            var bridged = u + (path is HeatPath.Outside or HeatPath.Ground ? ExternalBridging : InternalBridging);
-            lines.Add(new HeatLossLine(what, square, bridged, path, beyond, square * bridged * (inside - beyond), through, next));
+            // A US window's or door's rated U-factor is its whole product's, frame and all; a slab's edge is reckoned on its own.
+            var bridged = us && kind is HeatSurface.Window or HeatSurface.Door or HeatSurface.SlabEdge ? u
+                : u + (path is HeatPath.Outside or HeatPath.Ground ? ExternalBridging : InternalBridging);
+            lines.Add(new HeatLossLine(what, square, bridged, path, beyond, square * bridged * (inside - beyond), through, next, kind, facing));
         }
 
         // What is beyond a surface: another room at its temperature, or a space nobody heats.
@@ -253,6 +351,7 @@ public static class HeatLoss
 
             var along = (to - from) * (1 / length);
             var outward = new Vector2D(along.Y, -along.X);
+            var facing = (Math.Atan2(outward.X, outward.Y) * 180 / Math.PI + 360) % 360;
             var curtain = document.FindType<CurtainWallType>(wall.TypeId);
             var type = document.GetWallType(wall);
             var width = type?.Width ?? 0;
@@ -261,6 +360,7 @@ public static class HeatLoss
             var next = roomAt(room.LevelId, middle + outward * (width + 150), room);
             if (Across(next, exterior ? HeatPath.Outside : HeatPath.Unheated) is not { } faces) continue;
             var (path, beyond, neighbour) = faces;
+            if (path is HeatPath.Outside or HeatPath.Unheated) edge += length;
 
             var gross = length * storey / 1e6;
             double? wallU = curtain is not null ? curtain.HeatTransferCoefficient : type is null ? null : WallRules.UValue(document, type);
@@ -282,11 +382,13 @@ public static class HeatLoss
 
                     var square = opening.WidthOf(openingType) * opening.HeightOf(openingType) / 1e6;
                     openings += square;
-                    Add($"{(opening is Door ? "Door" : "Window")} {openingType.Name}", square, openingType.HeatTransferCoefficient, path, beyond, opening, neighbour);
+                    Add($"{(opening is Door ? "Door" : "Window")} {openingType.Name}", square, openingType.HeatTransferCoefficient, path, beyond, opening, neighbour,
+                        opening is Door && !Glazed(openingType) ? HeatSurface.Door : HeatSurface.Window, facing);
                 }
 
             var what = path switch { HeatPath.Outside => "Wall", HeatPath.Room => $"Wall to {neighbour}", _ => neighbour is null ? "Wall to a space not heated" : $"Wall to {neighbour}, not heated" };
-            if (wallU is { } u) Add($"{what} ({curtain?.Name ?? type!.Name})", Math.Max(0, gross - openings), u, path, beyond, wall, neighbour);
+            if (wallU is { } u) Add($"{what} ({curtain?.Name ?? type!.Name})", Math.Max(0, gross - openings), u, path, beyond, wall, neighbour,
+                curtain is not null ? HeatSurface.Window : HeatSurface.Wall, facing);
             else notes.Add($"{curtain?.Name ?? type?.Name ?? "a wall"}'s U-value is not known - its layers' materials want their conductivity");
         }
 
@@ -300,10 +402,18 @@ public static class HeatLoss
         if (below is null)
         {
             if (floor is null) notes.Add("no floor under it - nothing lost to the ground counted");
+            else if (us && !Suspended(document, floorType))
+            {
+                // A US slab on the ground: lost at its exposed edge (ASHRAE Fundamentals chapter 18, eq. 41).
+                var insulated = floorType is not null && Thermal.UValue(document, floorType.Structure, Thermal.Flow.Downward) is < 1.0;
+                Add($"Slab edge, {(insulated ? "insulated" : "uninsulated")} ({floorType?.Name})", edge / 1000, insulated ? SlabEdgeInsulated : SlabEdgeUninsulated,
+                    HeatPath.Ground, outside, floor, kind: HeatSurface.SlabEdge);
+            }
             else if (SlabRules.UValue(document, floor) is { } u)
             {
                 var suspended = Suspended(document, floorType);
-                Add($"Ground floor, {(suspended ? "suspended" : "solid")} ({floorType?.Name})", area, u, HeatPath.Ground, suspended ? outside : ground, floor);
+                Add($"Ground floor, {(suspended ? "suspended" : "solid")} ({floorType?.Name})", area, u, HeatPath.Ground, suspended ? outside : ground, floor,
+                    kind: suspended ? HeatSurface.SuspendedFloor : HeatSurface.GroundFloor);
             }
             else notes.Add($"{floorType?.Name ?? "its floor"}'s U-value is not known");
         }
@@ -311,7 +421,7 @@ public static class HeatLoss
         {
             var (path, beyond, neighbour) = under;
             if (floorType is not null && Thermal.UValue(document, floorType.Structure, Thermal.Flow.Downward) is { } u)
-                Add(path == HeatPath.Room ? $"Floor over {neighbour}" : neighbour is null ? "Floor over a space not heated" : $"Floor over {neighbour}, not heated", area, u, path, beyond, floor, neighbour);
+                Add(path == HeatPath.Room ? $"Floor over {neighbour}" : neighbour is null ? "Floor over a space not heated" : $"Floor over {neighbour}, not heated", area, u, path, beyond, floor, neighbour, HeatSurface.Floor);
             else notes.Add("the U-value of the floor under it is not known");
         }
 
@@ -330,7 +440,8 @@ public static class HeatLoss
             var sloped = over?.By is Roof && !roof.Surface(document).IsFlat;
             var square = sloped ? area / Math.Max(0.2, Math.Cos(roof.SlopeDegrees * Math.PI / 180)) : area;
             if (SlabRules.UValue(document, roof) is { } u)
-                Add($"{(over?.By is Roof ? "Roof" : "Ceiling under the roof")} ({document.FindType<SlabType>(roof.TypeId)?.Name})", square, u, HeatPath.Outside, outside, roof);
+                Add($"{(over?.By is Roof ? "Roof" : "Ceiling under the roof")} ({document.FindType<SlabType>(roof.TypeId)?.Name})", square, u, HeatPath.Outside, outside, roof,
+                    kind: over?.By is Roof ? HeatSurface.Roof : HeatSurface.CeilingUnderLoft);
             else notes.Add("the roof's U-value is not known");
         }
         else if (covers.OfType<Floor>().Where(each => each.Contains(centre)).OrderBy(each => each.GetBottomElevation(document)).FirstOrDefault() is { } upper)
@@ -341,12 +452,15 @@ public static class HeatLoss
             {
                 var (path, beyond, neighbour) = overhead;
                 if (document.FindType<SlabType>(upper.TypeId) is { } upperType && Thermal.UValue(document, upperType.Structure, Thermal.Flow.Upward) is { } u)
-                    Add(path == HeatPath.Room ? $"Ceiling under {neighbour}" : neighbour is null ? "Ceiling under a space not heated" : $"Ceiling under {neighbour}, not heated", area, u, path, beyond, upper, neighbour);
+                    Add(path == HeatPath.Room ? $"Ceiling under {neighbour}" : neighbour is null ? "Ceiling under a space not heated" : $"Ceiling under {neighbour}, not heated", area, u, path, beyond, upper, neighbour, HeatSurface.Ceiling);
                 else notes.Add("the U-value of the floor over it is not known");
             }
         }
         else notes.Add("nothing over it - no roof or floor found, so nothing lost upward is counted");
     }
+
+    /// <summary>Whether a door is mostly glass - its gains in summer a window's.</summary>
+    private static bool Glazed(OpeningType type) => type is DoorType { LeafDesign: DoorLeafDesign.Glazed or DoorLeafDesign.FrenchGlazed or DoorLeafDesign.FullGlass };
 
     /// <summary>
     /// Whether a ground floor is suspended over a void - timber, or beam and block - rather than

@@ -463,7 +463,7 @@ public static class StructureRules
         if (Bearing(project.Ground) is not { } soil)
             problems.Add(($"it stands on {Describe(project.Ground)}.", "The IRC (Table R401.4.1, note b) takes ground softer than 1,500 psf to a soils investigation, to size the footing on it."));
         else if (pad.ColumnId is not null && load / area > soil * Loads.Psf + 0.05)
-            problems.Add(($"it carries {load:0.0} kN on {Units.OfSquareMetres(area, "0.00")} - {load / area / Loads.Psf:#,0} psf on soil good for {soil:#,0}.",
+            problems.Add(($"it carries {Units.Kilonewtons(load, "0.0")} on {Units.OfSquareMetres(area, "0.00")} - {load / area / Loads.Psf:#,0} psf on soil good for {soil:#,0}.",
                 $"The IRC (R403.1.1, Table R401.4.1) sizes a column's footing by its load and the soil: {Units.OfSquareMetres(load / (soil * Loads.Psf), "0.00")} at the least."));
         if (Math.Min(type.Width, type.Length) < 305 - 0.5 || type.Thickness < 152 - 0.5)
             problems.Add(($"it is {Inches(type.Width)} by {Inches(type.Length)}, {Inches(type.Thickness)} thick.", "The IRC (R403.1.1) asks a footing 12 in wide and 6 in deep at the least."));
@@ -569,9 +569,9 @@ public static class StructureRules
                         : "Meets Approved Document A";
                 return $"Meets the IRC's {TableName(ConstructionOf(document, wall))} for {Stories(document, wall)} story {EnumText(FoundationOf(document, wall))}";
             case PadFooting pad:
-                return pad.ColumnId is null ? "Carries no column" : $"Carries {PadLoad(document, pad):0.0} kN - big, thick and deep enough";
+                return pad.ColumnId is null ? "Carries no column" : $"Carries {Units.Kilonewtons(PadLoad(document, pad), "0.0")} - big, thick and deep enough";
             case Column column:
-                return $"Carries {Loads.OnColumn(document, column):0.0} kN - meets the rules";
+                return $"Carries {Units.Kilonewtons(Loads.OnColumn(document, column), "0.0")} - meets the rules";
             default:
                 return "Nothing asked";
         }

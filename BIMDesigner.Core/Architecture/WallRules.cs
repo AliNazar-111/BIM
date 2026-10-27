@@ -175,8 +175,8 @@ public static class WallRules
     {
         if (document.GetWallType(wall) is not { } type) return string.Empty;
         var problems = Problems(document, wall, document.ProjectInformation.ClearanceStandard);
-        var u = document.FindType<CurtainWallType>(wall.TypeId) is { } curtain ? $"U {curtain.HeatTransferCoefficient:0.0#} W/m²K{(curtain.SafetyGlazing ? ", safety glass" : string.Empty)}"
-            : type.Function == WallFunction.Exterior && UValue(document, type) is { } value ? $"U {value:0.00} W/m²K" : $"Rw {type.AcousticRating:0} dB";
+        var u = document.FindType<CurtainWallType>(wall.TypeId) is { } curtain ? $"{Units.UValue(curtain.HeatTransferCoefficient, "0.0#")}{(curtain.SafetyGlazing ? ", safety glass" : string.Empty)}"
+            : type.Function == WallFunction.Exterior && UValue(document, type) is { } value ? Units.UValue(value, "0.00") : $"Rw {type.AcousticRating:0} dB";
         return problems.Count == 0 ? u : $"{u} - {string.Join(" ", problems.Select(problem => $"{char.ToUpperInvariant(problem.Said[0])}{problem.Said[1..]} {problem.Rule}"))}";
     }
 

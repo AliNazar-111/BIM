@@ -148,7 +148,8 @@ public static class Bathrooms
     /// <summary>
     /// What a room comes to as a WC or a bathroom - "Bathroom: bath, basin and WC" - with what
     /// Approved Document G asks of it that it falls short of; null for a room with neither a WC
-    /// nor a bath or shower in it.
+    /// nor a bath or shower in it. The IRC asks a home for a WC, a lavatory and a bath or shower
+    /// (R306.1), not where they are, so a US room is only described.
     /// </summary>
     public static string? Verdict(BimDocument document, Room room)
     {
@@ -162,7 +163,7 @@ public static class Bathrooms
 
         var fittings = new[] { bath ? "bath" : null, shower ? "shower" : null, basin ? "basin" : null, wc ? "WC" : null }.OfType<string>().ToList();
         var said = $"{(bath || shower ? "Bathroom" : "WC")}: {(fittings.Count == 1 ? fittings[0] : $"{string.Join(", ", fittings.SkipLast(1))} and {fittings[^1]}")}";
-        if (!wc) return said;
+        if (!wc || document.ProjectInformation.ClearanceStandard.IsUs()) return said;
 
         var wanting = new List<string>();
         if (Kitchen(types))

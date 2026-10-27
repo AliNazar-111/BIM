@@ -215,8 +215,10 @@ public sealed class RailingType : ElementType
             () => EnumText.Humanise(HandrailEnds),
             v => { if (EnumText.TryParse<HandrailEnds>(v, out var ends)) HandrailEnds = ends; },
             EnumText.Choices<HandrailEnds>());
-        yield return Size(RailingTypeParameters.LineLoad, () => LineLoad, v => LineLoad = v, 0, 10);
-        yield return Size(RailingTypeParameters.PointLoad, () => PointLoad, v => PointLoad = v, 0, 10);
+        yield return ParameterValue.BindScaled(RailingTypeParameters.LineLoad, RailingTypeParameters.LineLoadPounds, Units.PoundsPerFootPerKilonewtonPerMetre, 0,
+            () => LineLoad, v => { if (v is < 0 or > 10) return false; LineLoad = v; return true; });
+        yield return ParameterValue.BindScaled(RailingTypeParameters.PointLoad, RailingTypeParameters.PointLoadPounds, Units.PoundsPerKilonewton, 0,
+            () => PointLoad, v => { if (v is < 0 or > 10) return false; PointLoad = v; return true; });
 
         if (document is not null)
         {
@@ -354,6 +356,8 @@ public static class RailingTypeParameters
     public static readonly ParameterDefinition HandrailEnds = new("Handrail Ends", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition LineLoad = new("Line Load (kN/m)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
     public static readonly ParameterDefinition PointLoad = new("Point Load (kN)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition LineLoadPounds = new("Line Load (lb/ft)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition PointLoadPounds = new("Point Load (lb)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
 }
 
 /// <summary>
@@ -1223,7 +1227,8 @@ public static class Railings
     /// Whether a floor or flat roof is walked on, and so guarded round its edge where it drops: a
     /// floor always; a flat roof where it is reached - a stair comes up onto it, a door opens onto
     /// it - or is a floor itself, with walls standing on it, or has a railing on it already. A
-    /// roof reached for its upkeep only is not guarded (Approved Document K, paragraph 3.4).
+    /// roof reached for its upkeep only is not guarded (Approved Document K, paragraph 3.4; the IRC
+    /// guards walking surfaces only, R312.1.1).
     /// </summary>
     public static bool WalkedOn(BimDocument document, Slab slab)
     {
@@ -1265,7 +1270,9 @@ public static class Railings
     {
         if (!FloorSurfaces.IsStoodOn(document, slab)) return "Not walked on";
         if (!WalkedOn(document, slab))
-            return "A roof reached for its upkeep only: Approved Document K asks for no guarding round it - a door or a stair onto it would make it a terrace, to be guarded 1100 high.";
+            return document.ProjectInformation.ClearanceStandard.IsUs()
+                ? $"A roof reached for its upkeep only: the IRC guards walking surfaces, not it (R312.1.1) - a door or a stair onto it would make it a deck, to be guarded 36 in{Units.MetricAside("914")} high."
+                : "A roof reached for its upkeep only: Approved Document K asks for no guarding round it - a door or a stair onto it would make it a terrace, to be guarded 1100 high.";
         var open = Edges(document, slab, RailingBuilding.Dwelling).Open;
         if (open.Count == 0) return "Its edges are guarded, or drop too little to need it";
         var length = open.Sum(edge => Polygon2D.Perimeter(edge.Points) - (edge.Closed ? 0 : edge.Points[^1].DistanceTo(edge.Points[0])));

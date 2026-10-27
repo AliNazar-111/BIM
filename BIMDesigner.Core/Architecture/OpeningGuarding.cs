@@ -145,7 +145,7 @@ public static class OpeningGuarding
             if (here <= limit || GuardAcross(document, wall, cell.From, cell.To) is not null) continue;
 
             if (cell.Kind == CurtainPanelKind.Door) doors++;
-            else if (cell.Kind == CurtainPanelKind.Empty && cell.Bottom < 1100) empty++;
+            else if (cell.Kind == CurtainPanelKind.Empty && cell.Bottom < (us ? 914 : 1100)) empty++;
             else if (!us && cell.Kind == CurtainPanelKind.Glazed && cell.Bottom < WindowGuard && cell.Glass is not (CurtainGlass.Laminated or CurtainGlass.Spandrel)) low++;
             else continue;
             drop = Math.Max(drop, here);
@@ -174,7 +174,7 @@ public static class OpeningGuarding
     {
         if (document.Find<Wall>(opening.HostWallId) is not { } wall) return "In no wall";
         var drop = Drop(document, wall, opening.DistanceAlongWall);
-        if (drop <= 600) return "Not over a drop";
+        if (drop <= (document.ProjectInformation.ClearanceStandard.IsUs() ? 762 : 600)) return "Not over a drop";
         var type = document.FindType<OpeningType>(opening.TypeId);
         var (from, to) = (opening.DistanceAlongWall - opening.WidthOf(type) / 2, opening.DistanceAlongWall + opening.WidthOf(type) / 2);
         return GuardAcross(document, wall, from, to, opening) is { } railing
@@ -187,6 +187,9 @@ public static class OpeningGuarding
     {
         var problems = CurtainProblems(document, wall);
         if (problems.Count > 0) return string.Join(" ", problems);
-        return Drop(document, wall, wall.Length / 2) > 600 ? "Over a drop: its glass low down is laminated, or guarded" : "Not over a drop";
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        return Drop(document, wall, wall.Length / 2) > (us ? 762 : 600)
+            ? us ? "Over a drop: glazed or guarded across each bay" : "Over a drop: its glass low down is laminated, or guarded"
+            : "Not over a drop";
     }
 }

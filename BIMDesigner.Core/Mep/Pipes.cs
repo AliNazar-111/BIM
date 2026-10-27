@@ -20,7 +20,10 @@ public enum PipeMaterial
     CopperTypeL,
 
     /// <summary>PEX tubing to ASTM F876 in copper tube sizes, SDR 9 - the same outside as Type L copper, its wall thicker.</summary>
-    PexCts
+    PexCts,
+
+    /// <summary>PVC drain, waste and vent pipe to ASTM D2665, Schedule 40, in the US's nominal inches: for drainage, not water.</summary>
+    PvcDwv
 }
 
 public static class PipeMaterials
@@ -30,6 +33,7 @@ public static class PipeMaterials
     {
         PipeMaterial.CopperTypeL => PipeMaterial.Copper,
         PipeMaterial.PexCts => PipeMaterial.PeX,
+        PipeMaterial.PvcDwv => PipeMaterial.PvcU,
         _ => material
     };
 
@@ -98,6 +102,13 @@ public static class PipeSizes
         Inches("1-1/4\"", 1.375, 1.069), Inches("1-1/2\"", 1.625, 1.263), Inches("2\"", 2.125, 1.653)
     };
 
+    // Schedule 40 PVC DWV (ASTM D2665), named by its nominal inches: its outside, and its bore inside the least wall.
+    private static readonly PipeSize[] PvcDwvSizes =
+    {
+        Inches("1-1/4\"", 1.660, 1.380), Inches("1-1/2\"", 1.900, 1.610), Inches("2\"", 2.375, 2.067), Inches("3\"", 3.500, 3.068),
+        Inches("4\"", 4.500, 4.026), Inches("6\"", 6.625, 6.065)
+    };
+
     /// <summary>PVC-U's sizes by their nominal bore - what Approved Document H sizes traps, branches, stacks and drains by - with their outside diameters.</summary>
     private static readonly PipeSize[] PvcSizes =
     {
@@ -112,6 +123,7 @@ public static class PipeSizes
         PipeMaterial.PvcU => PvcSizes,
         PipeMaterial.CopperTypeL => CopperTypeLSizes,
         PipeMaterial.PexCts => PexCtsSizes,
+        PipeMaterial.PvcDwv => PvcDwvSizes,
         _ => SteelSizes
     };
 
@@ -135,7 +147,7 @@ public static class PipeSizes
         return material switch
         {
             // Drain pipe, and the US's copper tube sizes, which the IRC sizes instead.
-            PipeMaterial.PvcU or PipeMaterial.CopperTypeL or PipeMaterial.PexCts => Array.Empty<PipeSizingColumn>(),
+            PipeMaterial.PvcU or PipeMaterial.CopperTypeL or PipeMaterial.PexCts or PipeMaterial.PvcDwv => Array.Empty<PipeSizingColumn>(),
             PipeMaterial.GalvanisedSteel => new[]
             {
                 Column(0, 6, 4, 10), Column(1, 16, 15, 6), Column(2, 40), Column(3, 160), Column(4, 300), Column(5, 600), Column(6, 1600)
@@ -229,7 +241,8 @@ public sealed class PipeType : ElementType
         new PipeType("PVC-U Soil and Waste - BS EN 1329", PipeMaterial.PvcU) { TypeMark = "PI5", AssemblyCode = "D2030", Cost = 16m },
         new PipeType("PVC-U Drain - BS EN 1401", PipeMaterial.PvcU) { TypeMark = "PI6", AssemblyCode = "G3020", Cost = 45m },
         new PipeType("Copper - Type L (ASTM B88)", PipeMaterial.CopperTypeL) { TypeMark = "PI7", AssemblyCode = "D2020", Cost = 26m },
-        new PipeType("PEX - CTS SDR 9 (ASTM F876)", PipeMaterial.PexCts) { TypeMark = "PI8", AssemblyCode = "D2020", Cost = 9m }
+        new PipeType("PEX - CTS SDR 9 (ASTM F876)", PipeMaterial.PexCts) { TypeMark = "PI8", AssemblyCode = "D2020", Cost = 9m },
+        new PipeType("PVC DWV - Schedule 40 (ASTM D2665)", PipeMaterial.PvcDwv) { TypeMark = "PI9", AssemblyCode = "D2030", Cost = 14m }
     };
 
     public static string Title(PipeMaterial material) => material switch
@@ -240,6 +253,7 @@ public sealed class PipeType : ElementType
         PipeMaterial.PvcU => "PVC-U",
         PipeMaterial.CopperTypeL => "Copper Type L",
         PipeMaterial.PexCts => "PEX (CTS)",
+        PipeMaterial.PvcDwv => "PVC DWV",
         _ => "Copper"
     };
 
@@ -353,7 +367,7 @@ public sealed class Pipe : Element
         yield return ParameterValue.BindValidated(PipeParameters.StartOffset, () => StartOffset, v => { StartOffset = v; return true; });
         yield return ParameterValue.BindValidated(PipeParameters.EndOffset, () => EndOffset, v => { EndOffset = v; return true; });
         yield return ParameterValue.ReadOnly(PipeParameters.Length, () => Length);
-        yield return ParameterValue.BindValidated(PipeParameters.Insulation, () => Insulation, v => { if (v is < 0 or > 200) return false; Insulation = v; return true; });
+        yield return ParameterValue.BindValidated(Units.Imperial ? PipeParameters.InsulationThickness : PipeParameters.Insulation, () => Insulation, v => { if (v is < 0 or > 200) return false; Insulation = v; return true; });
         yield return ParameterValue.BindChoice(PipeParameters.Seal, () => Seal.Title(),
             v => { foreach (var seal in Enum.GetValues<PipeSeal>()) if (seal.Title() == v) Seal = seal; },
             Enum.GetValues<PipeSeal>().Select(seal => seal.Title()).ToArray());
@@ -397,6 +411,7 @@ public static class PipeParameters
     public static readonly ParameterDefinition Carries = new("Carries", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition Circuit = new("Flow or Return", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition Insulation = new("Insulation (mm)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition InsulationThickness = new("Insulation Thickness", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Seal = new("Fire Stopping", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Supports = new("Supports", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 }

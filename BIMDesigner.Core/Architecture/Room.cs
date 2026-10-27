@@ -114,17 +114,23 @@ public sealed class Room : Element
         yield return ParameterValue.ReadOnly(
             RoomParameters.Perimeter, () => boundary.IsEnclosed ? boundary.Perimeter : (double?)null);
 
-        // Under what is over it: a ceiling, the storey above, a sloping roof - measured once.
-        var space = new Lazy<RoomSpace?>(() => boundary.IsEnclosed ? RoomHeadroom.Measure(document, this) : null);
+        // Under what is over it: a ceiling, the storey above, a sloping roof - measured once; in the US at the IRC's heights.
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        var ceiling = us && boundary.IsEnclosed ? RoomHeadroom.UsCeilingOf(document, this, boundary.Polygon) : RoomHeadroom.FullHeadroom;
+        var space = new Lazy<RoomSpace?>(() => boundary.IsEnclosed
+            ? us ? RoomHeadroom.Measure(document, this, RoomHeadroom.UsCounted, ceiling) : RoomHeadroom.Measure(document, this)
+            : null);
 
         yield return ParameterValue.ReadOnly(RoomParameters.Volume, () => space.Value?.Volume);
         yield return ParameterValue.ReadOnly(RoomParameters.Height, () => Height);
         yield return ParameterValue.ReadOnly(RoomParameters.LowestHeadroom, () => space.Value?.Lowest);
         yield return ParameterValue.ReadOnly(RoomParameters.HighestHeadroom, () => space.Value?.Highest);
-        yield return ParameterValue.ReadOnly(RoomParameters.CountedArea, () => space.Value?.AreaCounted);
-        yield return ParameterValue.ReadOnly(RoomParameters.FullHeightArea, () => space.Value?.AreaFullHeight);
-        yield return ParameterValue.ReadOnly(RoomParameters.SpaceStandard, () => space.Value is { } measured
-            ? measured.FullHeightShare >= RoomHeadroom.FullHeightShare
+        yield return ParameterValue.ReadOnly(us ? RoomParameters.UsCountedArea : RoomParameters.CountedArea, () => space.Value?.AreaCounted);
+        yield return ParameterValue.ReadOnly(us ? ceiling >= RoomHeadroom.UsCeiling ? RoomParameters.UsFullHeightArea : RoomParameters.UsWetFullHeightArea : RoomParameters.FullHeightArea,
+            () => space.Value?.AreaFullHeight);
+        yield return ParameterValue.ReadOnly(us ? RoomParameters.UsCeilingHeight : RoomParameters.SpaceStandard, () => space.Value is { } measured
+            ? us ? RoomHeadroom.UsVerdict(measured, ceiling)
+            : measured.FullHeightShare >= RoomHeadroom.FullHeightShare
                 ? $"Meets it: {measured.FullHeightShare:P0} at 2.3 m or more"
                 : $"Short: {measured.FullHeightShare:P0} at 2.3 m or more, 75% needed"
             : null);
@@ -158,7 +164,6 @@ public sealed class Room : Element
         yield return ParameterValue.ReadOnly(RoomParameters.BoundingWalls, () => boundary.BoundingWalls.Count);
 
         // Its heating: the temperature it is kept at, what it loses at the design conditions, and what heats it.
-        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         string Degrees(double celsius) => us ? $"{celsius * 9 / 5 + 32:0} °F" : $"{celsius:0.#} °C";
         yield return ParameterValue.Bind(RoomParameters.DesignTemperature,
             () => Unheated ? "Unheated" : DesignTemperature is { } set ? Degrees(set) : Mep.HeatLoss.ByUse(document, this) is { } byUse ? $"By its use ({Degrees(byUse)})" : "By its use (unheated)",
@@ -176,9 +181,17 @@ public sealed class Room : Element
         {
             null => "Not worked out" + (Mep.Climate.DesignOutside(document) is null ? " - no winter design temperature set" : string.Empty),
             { Heated: false } => "Not heated",
-            var loss => $"{loss.Total:#,0} W - {loss.Fabric:#,0} through its surfaces, {loss.Ventilation:#,0} with the air"
+            var loss => Units.Imperial
+                ? $"{Units.Watts(loss.Total, "#,0")} - {loss.Fabric * Units.BtuPerHourPerWatt:#,0} through its surfaces, {loss.Ventilation * Units.BtuPerHourPerWatt:#,0} with the air"
+                : $"{loss.Total:#,0} W - {loss.Fabric:#,0} through its surfaces, {loss.Ventilation:#,0} with the air"
         });
         yield return ParameterValue.ReadOnly(RoomParameters.HeatOutput, () => heat.Value is { Heated: true } loss ? Mep.Heating.Verdict(document, this, loss) : string.Empty);
+
+        // In the US its cooling too: what it gains at the summer design conditions.
+        if (document.ProjectInformation.ClearanceStandard.IsUs())
+            yield return ParameterValue.ReadOnly(RoomParameters.CoolingLoad, () => Mep.CoolingLoads.OfRoom(document, this) is { } cooling
+                ? $"{Units.Watts(cooling.Sensible, "#,0")} sensible - {cooling.Envelope * Units.BtuPerHourPerWatt:#,0} through its surfaces, {cooling.Air * Units.BtuPerHourPerWatt:#,0} with the air, {cooling.Internal * Units.BtuPerHourPerWatt:#,0} from people and appliances"
+                : document.ProjectInformation.SummerDesignTemperature is null ? "No summer design temperature set" : "Not cooled");
 
         // Finishes - what a finishes schedule reports
         yield return ParameterValue.Bind(RoomParameters.FloorFinish, () => FloorFinish, v => FloorFinish = v);
@@ -253,6 +266,19 @@ public static class RoomParameters
     public static readonly ParameterDefinition SpaceStandard =
         new("Space Standard (75% at 2.3 m)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
+    // The same in the US, at the IRC's ceiling heights (R305.1).
+    public static readonly ParameterDefinition UsCountedArea =
+        new("Area over 5 ft Headroom", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition UsFullHeightArea =
+        new("Area over 7 ft Headroom", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition UsWetFullHeightArea =
+        new("Area over 6 ft 8 in Headroom", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition UsCeilingHeight =
+        new("Ceiling Height (IRC R305.1)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
     public static readonly ParameterDefinition BedroomSize =
         new("Bedroom Size", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
@@ -274,6 +300,9 @@ public static class RoomParameters
     /// <summary>The room's view out, seated in its middle, as BS EN 17037 grades it.</summary>
     public static readonly ParameterDefinition ViewOut =
         new("View Out (BS EN 17037)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition CoolingLoad =
+        new("Cooling Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition DesignTemperature =
         new("Design Temperature", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);

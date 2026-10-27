@@ -219,7 +219,7 @@ public class StartUpTests
         // The US: the inch-sized door and a double-hung window; a 3 in steel pipe column.
         typeof(MainWindow).GetMethod("Begin", Hidden)!.Invoke(window, new object[] { new StartChoice(ProjectTemplates.Create(new NewProjectSpec { Template = ProjectTemplate.UsHouse }), null, "new") });
         Assert.Equal("Exterior Door - 36 x 80 in", Picked(window, "DoorTypePicker"));
-        Assert.StartsWith("Double Hung", Picked(window, "WindowTypePicker"));
+        Assert.Equal("Double Hung - 36 x 60 in", Picked(window, "WindowTypePicker"));
         Assert.Equal("Exterior Door - 36 x 80 in", Placing(plan => plan.ActiveDoorTypeId));
         Assert.StartsWith("CHS 88.9", Placing(plan => plan.ActiveStructuralColumnTypeId));
     });

@@ -587,9 +587,7 @@ public sealed class Roof : Slab
             if (RoofDrainage.Drains(document, this))
             {
                 yield return ParameterValue.ReadOnly(RoofParameters.ValleyFall, () => $"1 in {RoofDrainage.ValleyFall(this):0}");
-                yield return ParameterValue.ReadOnly(RoofParameters.FallCheck, () => RoofDrainage.ValleyFall(this) <= RoofDrainage.FinishedFall
-                    ? $"Falls at 1 in {RoofDrainage.FinishedFall:0} or steeper everywhere, valleys included"
-                    : $"Valleys fall at only 1 in {RoofDrainage.ValleyFall(this):0}: steeper than 1 in {RoofDrainage.FinishedFall:0} is needed");
+                yield return ParameterValue.ReadOnly(RoofParameters.FallCheck, () => RoofDrainage.FallCheck(document, this));
                 yield return ParameterValue.ReadOnly(RoofParameters.Drains, () => RoofDrainage.On(document, this).Count());
                 yield return ParameterValue.ReadOnly(RoofParameters.ThickestTaper, () =>
                     (document.FindType<SlabType>(TypeId) is { } type && RoofDrainage.TaperedLayer(type.Structure) is var layer and >= 0

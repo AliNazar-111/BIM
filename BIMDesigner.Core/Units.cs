@@ -151,6 +151,91 @@ public static class Units
     /// <summary>A volume already in cubic metres, said to a format - "3.2 m³" - or in cubic feet.</summary>
     public static string OfCubicMetres(double cubicMetres, string format) => CubicMetres(cubicMetres * CubicMillimetresPerCubicMetre, format);
 
+    /// <summary>Pounds a square foot in a kilopascal.</summary>
+    public const double PoundsPerSquareFootPerKilopascal = 20.8854;
+
+    /// <summary>A pressure in kPa said to a format - "0.85 kPa" - or in pounds a square foot, "17.8 psf".</summary>
+    public static string Kilopascals(double kPa, string format) =>
+        Imperial ? $"{kPa * PoundsPerSquareFootPerKilopascal:0.#} psf" : $"{kPa.ToString(format, CultureInfo.CurrentCulture)} kPa";
+
+    /// <summary>Litres a second in a cubic foot a minute.</summary>
+    public const double LitresPerSecondPerCfm = 0.4719474;
+
+    /// <summary>Pascals in an inch of water column.</summary>
+    public const double PascalsPerInchOfWater = 249.0889;
+
+    /// <summary>Btu an hour in a watt.</summary>
+    public const double BtuPerHourPerWatt = 3.412142;
+
+    /// <summary>Pounds force in a kilonewton, and pounds a foot in a kilonewton a metre.</summary>
+    public const double PoundsPerKilonewton = 224.8089, PoundsPerFootPerKilonewtonPerMetre = 68.52177;
+
+    /// <summary>A U-value in Btu/h·ft²·°F for one in W/m²K.</summary>
+    public const double UFactorPerUValue = 0.1761102;
+
+    /// <summary>Litres in a US gallon.</summary>
+    public const double LitresPerGallon = 3.785412;
+
+    /// <summary>An airflow in l/s said to a format - "15 l/s" - or in cubic feet a minute, "32 cfm".</summary>
+    public static string Airflow(double litresPerSecond, string format) =>
+        Imperial ? $"{litresPerSecond / LitresPerSecondPerCfm:#,0} cfm" : $"{litresPerSecond.ToString(format, CultureInfo.CurrentCulture)} l/s";
+
+    /// <summary>An air pressure in Pa said to a format - "60 Pa" - or in inches of water, "0.24 in. w.c.".</summary>
+    public static string Pascals(double pascals, string format) =>
+        Imperial ? $"{pascals / PascalsPerInchOfWater:0.00} in. w.c." : $"{pascals.ToString(format, CultureInfo.CurrentCulture)} Pa";
+
+    /// <summary>Heat in W said to a format - "1,250 W" - or in Btu an hour, "4,265 Btu/h".</summary>
+    public static string Watts(double watts, string format) =>
+        Imperial ? $"{watts * BtuPerHourPerWatt:#,0} Btu/h" : $"{watts.ToString(format, CultureInfo.CurrentCulture)} W";
+
+    /// <summary>Heat a square metre said to a format - "70 W/m²" - or a square foot, "22 Btu/h·sq ft".</summary>
+    public static string WattsPerSquareMetre(double watts, string format) =>
+        Imperial ? $"{watts * BtuPerHourPerWatt / 10.76391:0} Btu/h·sq ft" : $"{watts.ToString(format, CultureInfo.CurrentCulture)} W/m²";
+
+    /// <summary>A temperature in °C said to a format - "55 °C" - or in °F, "131 °F".</summary>
+    public static string Celsius(double celsius, string format) =>
+        Imperial ? $"{celsius * 1.8 + 32:0} °F" : $"{celsius.ToString(format, CultureInfo.CurrentCulture)} °C";
+
+    /// <summary>A heating system's flow and return - "55/45 °C" - or in °F, "131/113 °F".</summary>
+    public static string FlowAndReturn(double flow, double back) =>
+        Imperial ? $"{flow * 1.8 + 32:0}/{back * 1.8 + 32:0} °F" : $"{flow:0}/{back:0} °C";
+
+    /// <summary>A difference of temperature in K said to a format - "9 K" - or in °F, "16 °F".</summary>
+    public static string Kelvins(double kelvins, string format) =>
+        Imperial ? $"{kelvins * 1.8:0.#} °F" : $"{kelvins.ToString(format, CultureInfo.CurrentCulture)} K";
+
+    /// <summary>A U-value in W/m²K said to a format - "U 0.18 W/m²K" - or as a US U-factor, "U-factor 0.032".</summary>
+    public static string UValue(double u, string format) =>
+        Imperial ? $"U-factor {u * UFactorPerUValue:0.000}" : $"U {u.ToString(format, CultureInfo.CurrentCulture)} W/m²K";
+
+    /// <summary>A force in kN said to a format - "2.4 kN" - or in pounds, "540 lb".</summary>
+    public static string Kilonewtons(double kN, string format) =>
+        Imperial ? $"{kN * PoundsPerKilonewton:#,0} lb" : $"{kN.ToString(format, CultureInfo.CurrentCulture)} kN";
+
+    /// <summary>A load along a length in kN/m said to a format - "12.5 kN/m" - or in pounds a foot, "857 lb/ft".</summary>
+    public static string KilonewtonsPerMetre(double kNm, string format) =>
+        Imperial ? $"{kNm * PoundsPerFootPerKilonewtonPerMetre:#,0} lb/ft" : $"{kNm.ToString(format, CultureInfo.CurrentCulture)} kN/m";
+
+    /// <summary>A speed in m/s said to a format - "0.8 m/s" - or in feet a second, "2.6 ft/s".</summary>
+    public static string MetresPerSecond(double speed, string format) =>
+        Imperial ? $"{speed / 0.3048:0.0} ft/s" : $"{speed.ToString(format, CultureInfo.CurrentCulture)} m/s";
+
+    /// <summary>A pipe's pressure loss in Pa a metre said to a format - "300 Pa/m" - or in feet of head a 100 ft, "3.1 ft/100 ft".</summary>
+    public static string PascalsPerMetre(double pascals, string format) =>
+        Imperial ? $"{pascals / 9806.65 * 100:0.0} ft/100 ft" : $"{pascals.ToString(format, CultureInfo.CurrentCulture)} Pa/m";
+
+    /// <summary>Water's flow in l/h said to a format - "430 l/h" - or in US gallons a minute, "1.9 gpm".</summary>
+    public static string LitresPerHour(double litres, string format) =>
+        Imperial ? $"{litres / LitresPerGallon / 60:0.0} gpm" : $"{litres.ToString(format, CultureInfo.CurrentCulture)} l/h";
+
+    /// <summary>A fall in mm a metre said to a format - "12 mm a metre" - or in inches a foot, "1/8" a foot".</summary>
+    public static string Fall(double mmPerMetre, string format) =>
+        Imperial ? FormatFall(mmPerMetre) : $"{mmPerMetre.ToString(format, CultureInfo.CurrentCulture)} mm a metre";
+
+    /// <summary>A long run in mm said in metres to a format - "85 m" - or in whole feet, "279 ft".</summary>
+    public static string Run(double mm, string format) =>
+        Imperial ? $"{mm / MillimetresPerFoot:#,0} ft" : $"{(mm / MillimetresPerMetre).ToString(format, CultureInfo.CurrentCulture)} m";
+
     /// <summary>A pipe's fall, held as mm a metre: "20 mm a metre", or in a US project "1/4" a foot".</summary>
     public static string FormatFall(double mmPerMetre) =>
         Imperial ? $"{FallText(mmPerMetre)} a foot" : $"{mmPerMetre:0.#} mm a metre";

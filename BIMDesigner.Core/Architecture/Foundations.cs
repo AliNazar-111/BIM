@@ -127,7 +127,9 @@ public sealed class WallFooting : Element, IHostedElement
         yield return ParameterValue.BindValidated(FootingParameters.Depth, () => Depth, v => { if (v < (type?.Thickness ?? 0) || v > 10000) return false; Depth = v; return true; });
         yield return ParameterValue.Bind(FootingParameters.Eccentricity, () => Eccentricity, v => Eccentricity = v);
         yield return ParameterValue.ReadOnly(FootingParameters.BelowGround, () => Math.Round(Footings.DepthBelowGround(document, this) ?? 0));
-        yield return ParameterValue.ReadOnly(FootingParameters.LineLoad, () => document.Find<Wall>(WallId) is { } wall ? Math.Round(Loads.OnWall(document, wall), 1) : 0);
+        yield return Units.Imperial
+            ? ParameterValue.ReadOnly(FootingParameters.LineLoadPounds, () => document.Find<Wall>(WallId) is { } wall ? Math.Round(Loads.OnWall(document, wall) * Units.PoundsPerFootPerKilonewtonPerMetre) : 0)
+            : ParameterValue.ReadOnly(FootingParameters.LineLoad, () => document.Find<Wall>(WallId) is { } wall ? Math.Round(Loads.OnWall(document, wall), 1) : 0);
         yield return ParameterValue.ReadOnly(FootingParameters.Volume, () => Footings.Volume(document, this));
         yield return ParameterValue.ReadOnly(FootingParameters.Regulations, () => StructureRules.Verdict(document, this));
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
@@ -165,7 +167,9 @@ public sealed class PadFooting : Element, IHostedElement
         yield return ParameterValue.BindValidated(FootingParameters.Depth, () => Depth, v => { if (v < (type?.Thickness ?? 0) || v > 10000) return false; Depth = v; return true; });
         if (ColumnId is null) yield return ParameterValue.Bind(FootingParameters.Rotation, () => Rotation, v => Rotation = ((v % 360) + 360) % 360);
         yield return ParameterValue.ReadOnly(FootingParameters.BelowGround, () => Math.Round(Footings.DepthBelowGround(document, this) ?? 0));
-        yield return ParameterValue.ReadOnly(FootingParameters.PointLoad, () => ColumnId is { } id && document.FindElement(id) is Column carried ? Math.Round(Loads.OnColumn(document, carried), 1) : 0);
+        yield return Units.Imperial
+            ? ParameterValue.ReadOnly(FootingParameters.PointLoadPounds, () => ColumnId is { } id && document.FindElement(id) is Column carried ? Math.Round(Loads.OnColumn(document, carried) * Units.PoundsPerKilonewton) : 0)
+            : ParameterValue.ReadOnly(FootingParameters.PointLoad, () => ColumnId is { } id && document.FindElement(id) is Column carried ? Math.Round(Loads.OnColumn(document, carried), 1) : 0);
         yield return ParameterValue.ReadOnly(FootingParameters.Volume, () => Footings.Volume(document, this));
         yield return ParameterValue.ReadOnly(FootingParameters.Regulations, () => StructureRules.Verdict(document, this));
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
@@ -188,6 +192,8 @@ public static class FootingParameters
     public static readonly ParameterDefinition BelowGround = new("Depth below Ground", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition LineLoad = new("Load Carried (kN/m)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition PointLoad = new("Load Carried (kN)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition LineLoadPounds = new("Load Carried (lb/ft)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition PointLoadPounds = new("Load Carried (lb)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Analytical);
     public static readonly ParameterDefinition Volume = new("Volume", ParameterDataType.Volume, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Regulations = new("Regulations", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

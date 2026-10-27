@@ -369,11 +369,14 @@ public static class DuctNetworks
         return (index.Pressure, index.Longest, index.Flow);
     }
 
-    /// <summary>What a system's static pressure is kept to, Pa: Approved Document F's Table 1.8 in the UK; in the US its unit's available pressure.</summary>
+    /// <summary>The static pressure a US unit is taken to have for its ducts where its own is not given, Pa: 0.25 in. w.c., what US fans are rated at.</summary>
+    public const double UsRatedPressure = 0.25 * Units.PascalsPerInchOfWater;
+
+    /// <summary>What a system's static pressure is kept to, Pa: Approved Document F's Table 1.8 in the UK; in the US its unit's available pressure, or 0.25 in. w.c.</summary>
     public static double LimitOf(BimDocument document, DuctNetwork network, double flow)
     {
         var available = MepSystems.SourceOf(document, network.System) is { } unit && document.FindType<ComponentType>(unit.TypeId) is { AvailablePressure: > 0 } type ? type.AvailablePressure : 0;
-        if (document.ProjectInformation.ClearanceStandard.IsUs()) return available > 0 ? available : PressureLimit(flow);
+        if (document.ProjectInformation.ClearanceStandard.IsUs()) return available > 0 ? available : UsRatedPressure;
 
         // In the UK Table 1.8's, or less where the unit has less to give.
         return available > 0 ? Math.Min(available, PressureLimit(flow)) : PressureLimit(flow);
@@ -440,7 +443,9 @@ public static class DuctNetworks
         var index = IndexOf(document, network);
         var limit = LimitOf(document, network, index.Flow);
         var end = system.Kind == SystemKind.OutsideAir ? "terminal" : "valve";
-        var run = $"{system.Name}'s furthest {end} {index.Pressure:0} Pa - {index.Friction:0} along the ducts, {index.Fittings:0} at the bends and tees, {index.Device:0} through the {end} - of {limit:0} allowed";
+        var run = Units.Imperial
+            ? $"{system.Name}'s furthest {end} {Units.Pascals(index.Pressure, "0")} - {index.Friction / Units.PascalsPerInchOfWater:0.00} along the ducts, {index.Fittings / Units.PascalsPerInchOfWater:0.00} at the bends and tees, {index.Device / Units.PascalsPerInchOfWater:0.00} through the {end} - of {Units.Pascals(limit, "0")} allowed"
+            : $"{system.Name}'s furthest {end} {index.Pressure:0} Pa - {index.Friction:0} along the ducts, {index.Fittings:0} at the bends and tees, {index.Device:0} through the {end} - of {limit:0} allowed";
         return document.ProjectInformation.ClearanceStandard.IsUs()
             ? $"{carried.Flow / Ventilation.LitresPerCfm:0} cfm at {carried.Velocity / Fpm:0} fpm, friction {carried.Gradient * 30.48 / 249.09:0.000} in. w.c. per 100 ft; {run}"
             : $"{carried.Flow:0.0} l/s at {carried.Velocity:0.00} m/s, losing {carried.Gradient:0.00} Pa/m; {run}";
@@ -555,7 +560,7 @@ public static class DuctNetworks
                     yield return new MepProblem(system,
                         $"its furthest {end} is {index.Pressure:0} Pa away - {index.Friction:0} along the ducts, {index.Fittings:0} at the bends and tees, {index.Device:0} through the {end} - and Approved Document F (2026 edition, from 24 March 2027, Table 1.8) keeps a system of {index.Flow:0} l/s to {PressureLimit(index.Flow):0} Pa; larger ducts, fewer bends, or shorter runs");
                 if (document.FindType<ComponentType>(unit.TypeId) is { AvailablePressure: > 0 } type && index.Pressure > type.AvailablePressure + 0.05)
-                    yield return new MepProblem(unit, $"its ducts on {system.Name} lose {index.Pressure:0} Pa to the furthest {end} - more than the {type.AvailablePressure:0} Pa it has for them");
+                    yield return new MepProblem(unit, $"its ducts on {system.Name} lose {Units.Pascals(index.Pressure, "0")} to the furthest {end} - more than the {Units.Pascals(type.AvailablePressure, "0")} it has for them");
             }
 
             foreach (var fitting in network.NotDucted)
@@ -575,7 +580,8 @@ public static class DuctNetworks
             foreach (var duct in ducts)
             {
                 // Flexible duct: only the last connection to a valve, and short - its pieces together. Without a unit nothing says where the valves' connections are.
-                if (MaterialOf(document, duct) == DuctMaterial.Flexible && MepSystems.SourceOf(document, system) is not null)
+                // Approved Document F's: the US's flexible air duct runs as long as it is sized for.
+                if (!us && MaterialOf(document, duct) == DuctMaterial.Flexible && MepSystems.SourceOf(document, system) is not null)
                 {
                     if (!finals.TryGetValue(duct, out var final))
                     {

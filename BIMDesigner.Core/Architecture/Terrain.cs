@@ -786,7 +786,7 @@ public static class Terrains
                         // A hard surface against the walls - paving, a path, a paved pad - need only fall 2%.
                         var falls = ground - away;
                         var hard = Hard(document, surface, near);
-                        var asked = hard ? 3048 / 50.0 : 152;
+                        var asked = hard ? 3048 / 50.0 : 152.4;
                         if (asked - falls > (worstFall?.Short ?? 0.5)) worstFall = (asked - falls, falls, hard);
                     }
 
@@ -805,7 +805,7 @@ public static class Terrains
             }
         }
 
-        if (worstKept is { } least && least < 150 - 0.5)
+        if (worstKept is { } least && least < (us ? 152.4 : 150) - 0.5)
             problems.Add(us
                 ? $"The ground comes up to {Units.Bare(least)} below the floor beside its walls: the IRC asks for 6 in{Units.MetricAside("152")} of foundation above the finished grade."
                 : $"The ground comes up to {least:0} below the floor beside its walls: Approved Document C asks for the damp-proof course 150 above the ground at least.");

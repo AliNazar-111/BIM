@@ -69,8 +69,8 @@ public abstract class SlabType : ElementType
         yield return ParameterValue.Bind(SlabTypeParameters.FireRating, () => FireRating, v => FireRating = v);
         if (this is FloorType) yield return ParameterValue.Bind(SlabTypeParameters.Separating, () => Separating, v => Separating = v);
         yield return ParameterValue.Bind(SlabTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
-        yield return ParameterValue.Bind(SlabTypeParameters.HeatTransferCoefficient,
-            () => HeatTransferCoefficient, v => HeatTransferCoefficient = v);
+        yield return ParameterValue.BindScaled(SlabTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
+            () => HeatTransferCoefficient, v => { HeatTransferCoefficient = v; return true; });
     }
 }
 

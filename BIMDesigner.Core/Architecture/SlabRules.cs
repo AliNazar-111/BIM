@@ -164,7 +164,7 @@ public static class SlabRules
     public static string Verdict(BimDocument document, Slab slab)
     {
         var problems = Problems(document, slab, document.ProjectInformation.ClearanceStandard);
-        var u = UValue(document, slab) is { } value ? $"U {value:0.00} W/m²K" : slab is Floor ? "Between storeys" : "U not known";
+        var u = UValue(document, slab) is { } value ? Units.UValue(value, "0.00") : slab is Floor ? "Between storeys" : "U not known";
         return problems.Count == 0 ? u : $"{u} - {string.Join(" ", problems.Select(problem => $"{char.ToUpperInvariant(problem.Said[0])}{problem.Said[1..]} {problem.Rule}"))}";
     }
 

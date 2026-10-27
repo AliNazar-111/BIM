@@ -30,7 +30,7 @@ public sealed record EmitterOutput(Component Component, ComponentType Type, MepS
 /// the most BS EN 1264 lets a floor's surface be warm: 9 K over the room where people are (29 °C at
 /// 20, 33 in a bathroom at 24); its surface temperature is the standard's basic characteristic, q =
 /// 8.92 (θF - θi)^1.1. A loop is kept to 100 m of pipe and its flow to 55 °C over a cement screed
-/// (the Danfoss underfloor handbook).
+/// (the Danfoss underfloor handbook) - in the US to the 300 ft its makers keep a ½ in PEX loop to.
 ///
 /// A zone runs at its source's usual temperatures unless they are set: a boiler 55 °C, a heat pump
 /// 45 - Approved Document L's notional dwelling's (Table 1.1) - coming back 10 and 5 K cooler. A
@@ -52,6 +52,9 @@ public static class Heating
 
     /// <summary>The longest underfloor loop, mm, and the warmest flow over a cement screed, °C (the Danfoss underfloor handbook).</summary>
     public const double LongestLoop = 100_000, ScreedFlow = 55;
+
+    /// <summary>The longest underfloor loop in the US, mm: the 300 ft US makers keep a ½ in PEX loop to.</summary>
+    public const double UsLongestLoop = 300 * Units.MillimetresPerFoot;
 
     /// <summary>A home's hot water a day for each person, litres (MIS 3005-D 5.6.2).</summary>
     public const double HotWaterPerPerson = 45;
@@ -142,13 +145,17 @@ public static class Heating
     {
         if (loss.Temperature is not { } temperature) return "Not heated";
         var emitters = In(document, room, room.GetBoundary(document).Polygon, temperature);
-        if (emitters.Count == 0) return $"Nothing - it loses {loss.Total:#,0} W";
+        if (emitters.Count == 0) return $"Nothing - it loses {Units.Watts(loss.Total, "#,0")}";
 
         var given = emitters.Sum(emitter => emitter.Watts);
-        var at = string.Join(", ", emitters.Select(emitter => $"{emitter.Flow:0}/{emitter.Return:0}").Distinct());
-        var said = $"{Count(emitters)} giving {given:#,0} W at {at} °C";
-        return given >= loss.Total - 0.5 ? $"{said} - enough for its {loss.Total:#,0} W" : $"{said} - {loss.Total - given:#,0} W short of its {loss.Total:#,0} W";
+        var said = $"{Count(emitters)} giving {Units.Watts(given, "#,0")} at {At(emitters)}";
+        return given >= loss.Total - 0.5 ? $"{said} - enough for its {Units.Watts(loss.Total, "#,0")}" : $"{said} - {Units.Watts(loss.Total - given, "#,0")} short of its {Units.Watts(loss.Total, "#,0")}";
     }
+
+    /// <summary>The temperatures emitters run at: "55/45, 50/40 °C" - or in °F.</summary>
+    private static string At(IEnumerable<EmitterOutput> emitters) => Units.Imperial
+        ? $"{string.Join(", ", emitters.Select(emitter => $"{emitter.Flow * 1.8 + 32:0}/{emitter.Return * 1.8 + 32:0}").Distinct())} °F"
+        : $"{string.Join(", ", emitters.Select(emitter => $"{emitter.Flow:0}/{emitter.Return:0}").Distinct())} °C";
 
     private static string Count(IReadOnlyList<EmitterOutput> emitters)
     {
@@ -178,8 +185,8 @@ public static class Heating
         var (flow, back) = Design(document, zone);
         var emitters = MepSystems.MembersOf(document, zone).Select(member => OutputOf(document, member)).OfType<EmitterOutput>().ToList();
         return emitters.Count == 0
-            ? $"{flow:0}/{back:0} °C - nothing on it heating a room yet"
-            : $"{flow:0}/{back:0} °C - {Count(emitters)} giving {emitters.Sum(emitter => emitter.Watts):#,0} W";
+            ? $"{Units.FlowAndReturn(flow, back)} - nothing on it heating a room yet"
+            : $"{Units.FlowAndReturn(flow, back)} - {Count(emitters)} giving {Units.Watts(emitters.Sum(emitter => emitter.Watts), "#,0")}";
     }
 
     /// <summary>The home's hot water a day, litres, and the people it is reckoned for: the bedrooms and one more, or the occupants if more (MIS 3005-D 5.6.2).</summary>
@@ -236,25 +243,28 @@ public static class Heating
             var emitters = In(document, loss.Room, loss.Room.GetBoundary(document).Polygon, loss.Temperature!.Value);
             if (emitters.Count == 0)
             {
-                if (heatingZones.Count > 0) yield return new MepProblem(loss.Room, $"nothing heats it - it loses {loss.Total:#,0} W at the design conditions; {rule}");
+                if (heatingZones.Count > 0) yield return new MepProblem(loss.Room, $"nothing heats it - it loses {Units.Watts(loss.Total, "#,0")} at the design conditions; {rule}");
                 continue;
             }
 
             var given = emitters.Sum(emitter => emitter.Watts);
             if (given < loss.Total - 0.5)
                 yield return new MepProblem(loss.Room,
-                    $"what heats it gives {given:#,0} W at {string.Join(", ", emitters.Select(emitter => $"{emitter.Flow:0}/{emitter.Return:0}").Distinct())} °C - it loses {loss.Total:#,0} W; {rule}");
+                    $"what heats it gives {Units.Watts(given, "#,0")} at {At(emitters)} - it loses {Units.Watts(loss.Total, "#,0")}; {rule}");
 
             foreach (var floor in emitters.Where(emitter => emitter.Floor))
             {
                 if (floor.Flux >= FloorLimit(floor.Type) - 0.01 && given < loss.Total - 0.5)
                     yield return new MepProblem(floor.Component,
-                        $"its floor gives {floor.Flux:0} W/m² at most - BS EN 1264 keeps a floor's surface within 9 K of the room where people are - so the rest of the room's heat wants another emitter");
-                if (floor.Type.PipeSpacing > 0 && floor.FloorArea * 1e6 / floor.Type.PipeSpacing > LongestLoop)
+                        us
+                            ? $"its floor gives {Units.WattsPerSquareMetre(floor.Flux, "0")} at most - ASHRAE 55 keeps a floor's surface at 84 °F{Units.MetricAside("29 °C")} at most where people stand - so the rest of the room's heat wants another emitter"
+                            : $"its floor gives {floor.Flux:0} W/m² at most - BS EN 1264 keeps a floor's surface within 9 K of the room where people are - so the rest of the room's heat wants another emitter");
+                var longest = us ? UsLongestLoop : LongestLoop;
+                if (floor.Type.PipeSpacing > 0 && floor.FloorArea * 1e6 / floor.Type.PipeSpacing > longest)
                     yield return new MepProblem(floor.Component,
-                        $"its {Units.OfSquareMetres(floor.FloorArea, "0.0")} takes about {Units.Metres(floor.FloorArea * 1e6 / floor.Type.PipeSpacing, "0")} of pipe at {Units.Millimetres(floor.Type.PipeSpacing, "0")} centres - more than the {Units.Metres(LongestLoop, "0")} a loop is kept to; it wants {Math.Ceiling(floor.FloorArea * 1e6 / floor.Type.PipeSpacing / LongestLoop):0} loops");
+                        $"its {Units.OfSquareMetres(floor.FloorArea, "0.0")} takes about {Units.Run(floor.FloorArea * 1e6 / floor.Type.PipeSpacing, "0")} of pipe at {Units.Millimetres(floor.Type.PipeSpacing, "0")} centres - more than the {Units.Run(longest, "0")} a loop is kept to; it wants {Math.Ceiling(floor.FloorArea * 1e6 / floor.Type.PipeSpacing / longest):0} loops");
                 if (floor.Flow > ScreedFlow + 0.01)
-                    yield return new MepProblem(floor.Component, $"its water flows at {floor.Flow:0} °C - over a cement screed, the flow is kept to 55 °C at most");
+                    yield return new MepProblem(floor.Component, $"its water flows at {Units.Celsius(floor.Flow, "0")} - over a cement screed, the flow is kept to {Units.Celsius(ScreedFlow, "0")} at most");
             }
         }
 
@@ -272,15 +282,49 @@ public static class Heating
             if (rooms.Count == 0) continue;
             if (type.HeatOutput <= 0)
             {
-                yield return new MepProblem(source, $"its heat output is not set - it heats rooms losing {load:#,0} W at the design conditions");
+                yield return new MepProblem(source, $"its heat output is not set - it heats rooms losing {Units.Watts(load, "#,0")} at the design conditions");
                 continue;
             }
 
-            if (type.HeatOutput < load - 0.5)
+            // In the US equipment is sized by ACCA Manual S to the load (IRC M1401.3); a heat pump short of it at the design temperature leaves the rest to supplementary heat.
+            if (us && type.HeatOutput < load - 0.5)
+                yield return new MepProblem(source, type.Form == ComponentForm.HeatPump
+                    ? $"it gives {Units.Watts(type.HeatOutput, "#,0")} against a heat load of {Units.Watts(load, "#,0")} at the design temperature - the rest wants supplementary heat, as ACCA Manual S sizes it (IRC M1401.3)"
+                    : $"it gives {Units.Watts(type.HeatOutput, "#,0")} against a heat load of {Units.Watts(load, "#,0")} - the IRC (M1401.3) sizes heating equipment by ACCA Manual S to the house's heat load");
+            else if (type.HeatOutput < load - 0.5)
                 yield return new MepProblem(source, type.Form == ComponentForm.HeatPump
                     ? $"it gives {type.HeatOutput:#,0} W against a heat load of {load:#,0} W - MCS MIS 3005-D (5.5.1 e) and Approved Document L (5.12) select a heat pump to give the whole of the heat load at the design temperature, with no supplementary electric heater"
                     : $"it gives {type.HeatOutput:#,0} W against a heat load of {load:#,0} W - Approved Document L (5.8) bases a heating system on the dwelling's heat loss");
+
+            // Manual S also keeps a US furnace or boiler to 140% of the load, so it does not run short cycles.
+            if (us && type.Form == ComponentForm.Boiler && type.HeatOutput > MostHeating * load + 0.5)
+                yield return new MepProblem(source,
+                    $"it gives {Units.Watts(type.HeatOutput, "#,0")}, {type.HeatOutput / load:P0} of a heat load of {Units.Watts(load, "#,0")} - ACCA Manual S keeps a furnace or boiler to 100 to 140% of it (IRC M1401.3)");
         }
+
+        // In the US a heat pump that cools too: its cooling against the house's cooling load, as Manual S sizes it.
+        if (us && CoolingLoads.Of(document) is { } cooling)
+            foreach (var source in heatingZones.Select(zone => MepSystems.SourceOf(document, zone)).OfType<Component>().Distinct())
+                if (document.FindType<ComponentType>(source.TypeId) is { Form: ComponentForm.HeatPump, CoolingOutput: > 0 } pump && CoolingProblem(pump.CoolingOutput, cooling, building.Total) is { } said)
+                    yield return new MepProblem(source, said);
+    }
+
+    /// <summary>The most a US furnace or boiler gives against its heat load, ACCA Manual S's 140%.</summary>
+    public const double MostHeating = 1.40;
+
+    /// <summary>
+    /// What is wanting in a US heat pump's or air conditioner's cooling against the house's cooling
+    /// load, as ACCA Manual S sizes it: no less than the load, no more than 115% of it - 125% where
+    /// the heating load is the larger, a heat pump sized up to meet it; null where it is within.
+    /// </summary>
+    public static string? CoolingProblem(double capacity, BuildingCooling cooling, double heating)
+    {
+        var most = heating > cooling.Total ? 1.25 : 1.15;
+        if (capacity < cooling.Total - 0.5)
+            return $"it cools {Units.Watts(capacity, "#,0")} against a cooling load of {Units.Watts(cooling.Total, "#,0")} ({cooling.Tons:0.0} tons) - ACCA Manual S sizes cooling to the house's whole load, sensible and latent (IRC M1401.3)";
+        if (capacity > most * cooling.Total + 0.5)
+            return $"it cools {Units.Watts(capacity, "#,0")}, {capacity / cooling.Total:P0} of a cooling load of {Units.Watts(cooling.Total, "#,0")} - ACCA Manual S keeps it to {most:P0}{(most > 1.15 ? ", the heating load being the larger" : string.Empty)}, so it dries the air as it cools (IRC M1401.3)";
+        return null;
     }
 
     // ---- sizing radiators ------------------------------------------------------
@@ -344,7 +388,7 @@ public static class Heating
                     .FirstOrDefault();
                 if (fits.Type is null)
                 {
-                    unmet.Add($"{loss.Name}: {share:#,0} W is more than one radiator {Units.Bare(tall)} high gives at {radiator.Flow:0}/{radiator.Return:0} °C");
+                    unmet.Add($"{loss.Name}: {Units.Watts(share, "#,0")} is more than one radiator {Units.Bare(tall)} high gives at {Units.FlowAndReturn(radiator.Flow, radiator.Return)}");
                     continue;
                 }
 
