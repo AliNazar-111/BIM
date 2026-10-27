@@ -98,6 +98,7 @@ public partial class MainWindow
         }
 
         menu.IsOpen = true;
+        StatusHint.Text = $"What is selected could make {kinds.Count} kinds of system: pick which from the list. Make System again for another.";
     }
 
     internal void MakeSystem(SystemKind kind, IReadOnlyList<Component> picked)
@@ -180,7 +181,10 @@ public partial class MainWindow
         }
 
         _history.Execute(new SetPipeSizesCommand(sized));
-        StatusHint.Text = $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre.";
+        StatusHint.Text = _document.ProjectInformation.ClearanceStandard.IsUs()
+            // Said plainly: the IRC's own sizing by fixture units is not done yet.
+            ? $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized - water by BS EN 806-3's loading units and its pipe sizes, as a first guide: the IRC's sizing by fixture units (Table P2903.7) is not done yet, so check them against it. Heating by the heat beyond each."
+            : $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre.";
     }
 
     private const string DuctSizeFromFitting = "As the spigot";

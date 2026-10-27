@@ -649,11 +649,13 @@ public partial class MainWindow : Window
 
         // Whatever the picker shows: it starts on an exterior wall, not the first type by name.
         Plan.ActiveWallTypeId = (WallTypePicker.SelectedItem as ElementType)?.Id ?? Guid.Empty;
-        Plan.ActiveDoorTypeId = doorTypes.FirstOrDefault()?.Id ?? Guid.Empty;
-        Plan.ActiveWindowTypeId = windowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
+        // The door and window the tools put in are the ones their pickers show, not the first by name.
+        Plan.ActiveDoorTypeId = (DoorTypePicker.SelectedItem as DoorType)?.Id ?? doorTypes.FirstOrDefault()?.Id ?? Guid.Empty;
+        Plan.ActiveWindowTypeId = (WindowTypePicker.SelectedItem as WindowType)?.Id ?? windowTypes.FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveComponentTypeId = (ComponentTypePicker.SelectedItem as ComponentFamilyChoice)?.Type.Id ?? Guid.Empty;
         Plan.ActiveColumnTypeId = (ColumnTypePicker.SelectedItem as ColumnType)?.Id ?? Guid.Empty;
-        Plan.ActiveStructuralColumnTypeId = _document.TypesOf<ColumnType>().Where(t => t.Structural).OrderBy(t => t.Name).FirstOrDefault()?.Id ?? Guid.Empty;
+        Plan.ActiveStructuralColumnTypeId = StartingType(_document.TypesOf<ColumnType>().Where(t => t.Structural).OrderBy(t => t.Name).ToList(),
+            us ? new[] { "CHS 88.9", "W8" } : new[] { "UC 152 x 152 x 23", "UC" })?.Id ?? Guid.Empty;
         Plan.ActiveFloorTypeId = _document.TypesOf<FloorType>().FirstOrDefault()?.Id ?? Guid.Empty;
         Plan.ActiveCeilingTypeId = _document.TypesOf<CeilingType>().FirstOrDefault()?.Id ?? Guid.Empty;
         // The Roof tool starts out sloping its sides, so with a pitched build-up rather than a flat one.
@@ -1347,7 +1349,9 @@ public partial class MainWindow : Window
         _loadingOptions = true;
         var types = _document.TypesOf<BeamType>().ToList();
         BeamTypePicker.ItemsSource = types;
-        BeamTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveBeamTypeId) ?? types.FirstOrDefault();
+        // To start with, a steel beam a house's opening is usually spanned by, not the smallest there is.
+        BeamTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveBeamTypeId)
+                                      ?? StartingType(types, _document.ProjectInformation.ClearanceStandard.IsUs() ? new[] { "W8x10", "W" } : new[] { "UB 203x133x25", "UB" });
         Plan.ActiveBeamTypeId = (BeamTypePicker.SelectedItem as BeamType)?.Id ?? Guid.Empty;
         BeamOffsetBox.Text = Plan.ActiveBeamOffset.ToString("0");
         _loadingOptions = false;
@@ -2795,7 +2799,11 @@ public partial class MainWindow : Window
         var types = _document.TypesOf<ColumnType>().Where(type => type.Structural == structural).OrderBy(type => type.Name).ToList();
         var active = structural ? Plan.ActiveStructuralColumnTypeId : Plan.ActiveColumnTypeId;
         ColumnTypePicker.ItemsSource = types;
-        ColumnTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == active) ?? types.FirstOrDefault();
+        // A structural column starts as a house's usually is: a small universal column in England, a
+        // 3 in steel pipe - a lally column - in the US; not whichever sorts first.
+        var us = _document.ProjectInformation.ClearanceStandard.IsUs();
+        ColumnTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == active)
+                                        ?? (structural ? StartingType(types, us ? new[] { "CHS 88.9", "W8" } : new[] { "UC 152 x 152 x 23", "UC" }) : types.FirstOrDefault());
         _loadingOptions = false;
         if (ColumnTypePicker.SelectedItem is ColumnType chosen)
         {
@@ -2803,6 +2811,11 @@ public partial class MainWindow : Window
             else Plan.ActiveColumnTypeId = chosen.Id;
         }
     }
+
+    /// <summary>The first of these names a type starts with, of those there are - or the first type, where none does.</summary>
+    private static T? StartingType<T>(IReadOnlyList<T> types, IEnumerable<string> names) where T : ElementType =>
+        names.Select(name => types.FirstOrDefault(type => type.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(type => type is not null)
+        ?? types.FirstOrDefault();
 
     /// <summary>
     /// How high a new column goes: up from this storey to the level chosen, or down from it -

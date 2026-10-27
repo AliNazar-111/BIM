@@ -151,7 +151,13 @@ public static class Terrains
     private static readonly ConditionalWeakTable<Toposurface, Worked> ExistingCache = new();
 
     /// <summary>The ground as it is worked: its points with the retaining walls' faces laid in, its triangles, and the walls' footprints, where there is none.</summary>
-    private sealed record Model(string Signature, IReadOnlyList<Point3D> Points, IReadOnlyList<(int A, int B, int C)> Triangles, IReadOnlyList<IReadOnlyList<Point2D>> Walls);
+    /// <summary>
+    /// The ground as it is worked: its points and triangles, the walls stepping it, the points the
+    /// grading put in or moved, and how far apart the existing ground was sampled - so it is known
+    /// where the working reached.
+    /// </summary>
+    private sealed record Model(string Signature, IReadOnlyList<Point3D> Points, IReadOnlyList<(int A, int B, int C)> Triangles, IReadOnlyList<IReadOnlyList<Point2D>> Walls,
+        IReadOnlyList<Point2D> Reshaped, double Spacing);
 
     private static readonly ConditionalWeakTable<Toposurface, Model> Models = new();
 
@@ -231,6 +237,13 @@ public static class Terrains
 
         var points = surface.Points.ToList();
         var footprints = new List<IReadOnlyList<Point2D>>();
+
+        // The ground as it was, sampled on a grid first, where anything is to work it: the points
+        // a pad or a wall puts in then reshape the ground about them only - not every triangle a
+        // few spot levels span, out to the far side of the site.
+        var spacing = SampleSpacing(surface);
+        if (walls.Count > 0 || pads.Count > 0) points.AddRange(Samples(surface, spacing));
+        var unworked = points.ToHashSet();
         foreach (var (wall, type) in walls)
         {
             var structure = type.Structure;
@@ -265,9 +278,33 @@ public static class Terrains
         var triangles = Delaunay.Triangulate(plan)
             .Where(t => !footprints.Any(wall => Polygon2D.Contains(wall, new Point2D((plan[t.A].X + plan[t.B].X + plan[t.C].X) / 3, (plan[t.A].Y + plan[t.B].Y + plan[t.C].Y) / 3))))
             .ToList();
-        var model = new Model(signature, points, triangles, footprints);
+        var reshaped = points.Where(point => !unworked.Contains(point)).Select(point => new Point2D(point.X, point.Y)).ToList();
+        var model = new Model(signature, points, triangles, footprints, reshaped, spacing);
         Models.AddOrUpdate(surface, model);
         return model;
+    }
+
+    /// <summary>How far apart the existing ground is sampled for working it: a metre, or more on a large site - 4,000 samples at most.</summary>
+    private static double SampleSpacing(Toposurface surface)
+    {
+        if (surface.Points.Count < 3) return 1000;
+        var (width, depth) = (surface.Points.Max(p => p.X) - surface.Points.Min(p => p.X), surface.Points.Max(p => p.Y) - surface.Points.Min(p => p.Y));
+        return Math.Max(1000, Math.Sqrt(width * depth / 4000));
+    }
+
+    /// <summary>The ground as surveyed, read off at a grid's points across it - those not by a spot level already.</summary>
+    private static IEnumerable<Point3D> Samples(Toposurface surface, double spacing)
+    {
+        if (surface.Points.Count < 3) yield break;
+        var (minX, maxX) = (surface.Points.Min(p => p.X), surface.Points.Max(p => p.X));
+        var (minY, maxY) = (surface.Points.Min(p => p.Y), surface.Points.Max(p => p.Y));
+        var near = spacing / 4;
+        for (var x = minX + spacing / 2; x < maxX; x += spacing)
+        for (var y = minY + spacing / 2; y < maxY; y += spacing)
+        {
+            if (surface.Points.Any(point => Math.Abs(point.X - x) < near && Math.Abs(point.Y - y) < near)) continue;
+            if (HeightAt(surface, new Point2D(x, y)) is { } height) yield return new Point3D(x, y, height);
+        }
     }
 
     /// <summary>
@@ -629,15 +666,34 @@ public static class Terrains
                 if (Polygon2D.Contains(outline, Centre(i, j))) act(i, j);
         }
 
-        foreach (var wall in model.Walls) Over(wall, (i, j) => after[i, j] = null);
-        foreach (var (boundary, formation) in pads) Over(boundary, (i, j) => after[i, j] = formation);
-        foreach (var (boundary, formation) in basements) Over(boundary, (i, j) => after[i, j] = after[i, j] is { } above ? Math.Min(above, formation) : formation);
+        // Only where the ground is worked: under its pads, about the points the grading put in or
+        // moved, and under the building - elsewhere it is as it was, however its triangles happen
+        // to have been drawn. Against the ground as recorded before, everywhere it has changed.
+        var worked = new bool[across, up];
+        if (surface.ExistingPoints.Count >= 3)
+            for (var i = 0; i < across; i++)
+            for (var j = 0; j < up; j++)
+                worked[i, j] = true;
+        foreach (var pad in SitePads.On(document, surface.LevelId).Where(pad => pad.Boundary.Count >= 3))
+            Over(pad.Boundary, (i, j) => worked[i, j] = true);
+        var reach = (int)Math.Ceiling(2 * model.Spacing / cell);
+        foreach (var point in model.Reshaped)
+        {
+            var (ci, cj) = ((int)Math.Floor((point.X - minX) / cell), (int)Math.Floor((point.Y - minY) / cell));
+            for (var i = Math.Max(0, ci - reach); i <= Math.Min(across - 1, ci + reach); i++)
+            for (var j = Math.Max(0, cj - reach); j <= Math.Min(up - 1, cj + reach); j++)
+                worked[i, j] = true;
+        }
+
+        foreach (var wall in model.Walls) Over(wall, (i, j) => (after[i, j], worked[i, j]) = (null, true));
+        foreach (var (boundary, formation) in pads) Over(boundary, (i, j) => (after[i, j], worked[i, j]) = (formation, true));
+        foreach (var (boundary, formation) in basements) Over(boundary, (i, j) => (after[i, j], worked[i, j]) = (after[i, j] is { } above ? Math.Min(above, formation) : formation, true));
 
         double cut = 0, fill = 0;
         for (var i = 0; i < across; i++)
         for (var j = 0; j < up; j++)
         {
-            if (before[i, j] is not { } was || after[i, j] is not { } to) continue;
+            if (!worked[i, j] || before[i, j] is not { } was || after[i, j] is not { } to) continue;
             var change = to - was;
             if (change > 0) fill += change;
             else cut -= change;

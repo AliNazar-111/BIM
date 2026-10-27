@@ -78,6 +78,58 @@ public class SiteTests
     }
 
     [Fact]
+    public void APadOnGroundOfFewSpotLevelsFillsOnlyWhatIsUnderItAndRoundIt()
+    {
+        // Ground of five spot levels: four corners at -150 and one far down the garden at -1200,
+        // so the ground under the patio falls away - and its triangles span the whole site.
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0].Id;
+        var ground = new Toposurface { LevelId = level };
+        ground.SetPoints(new[] { new Point3D(-15000, -15000, -150), new Point3D(27000, -15000, -150), new Point3D(27000, 24000, -150), new Point3D(-15000, 24000, -150), new Point3D(6000, -14000, -1200) });
+        document.Add(ground);
+        var patio = Pad(document, -150, batter: 2, size: 4000, x: 14500, y: 3500);
+
+        // What the patio stands over, filled up to it; and the most its batter can add round it.
+        var under = 0.0;
+        var deepest = 0.0;
+        for (var x = 12550.0; x < 16500; x += 100)
+        for (var y = 1550.0; y < 5500; y += 100)
+        {
+            var depth = -150 - Terrains.HeightAt(ground, new Point2D(x, y))!.Value;
+            under += Math.Max(0, depth) * 100 * 100;
+            deepest = Math.Max(deepest, depth);
+        }
+
+        var batter = 4 * 4000 * deepest * deepest * patio.Batter / 2 * 1.5;
+        var (_, fill) = Terrains.CutAndFill(document, ground);
+        Assert.InRange(fill, under * 0.9, under + batter);
+
+        // And the ground well away from it is where it was, to within what reading it off a grid loses.
+        foreach (var far in new[] { new Point2D(-10000, 15000), new Point2D(0, -10000), new Point2D(22000, 20000) })
+            Assert.Equal(Terrains.HeightAt(ground, far)!.Value, Terrains.HeightAt(document, ground, far)!.Value, 25.0);
+    }
+
+    [Fact]
+    public void AHouseDrawnWithoutItsFloorStillCoversThePlotItsWallsStandRound()
+    {
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0].Id;
+        var type = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior"));
+        var corners = new[] { new Point2D(0, 0), new Point2D(12000, 0), new Point2D(12000, 9000), new Point2D(0, 9000) };
+        for (var i = 0; i < 4; i++)
+            document.Add(new Wall { Start = corners[i], End = corners[(i + 1) % 4], TypeId = type.Id, LevelId = level, UnconnectedHeight = 3000 });
+        document.Add(new Wall { Start = new Point2D(6000, 0), End = new Point2D(6000, 9000), TypeId = document.TypesOf<WallType>().First(t => t.Name.StartsWith("Interior")).Id, LevelId = level, UnconnectedHeight = 3000 });
+
+        // Its outside: 12 m by 9 m to the walls' middles, out by half a wall all round - the corners' squares aside.
+        var outside = (12000 + type.Structure.TotalWidth) * (9000 + type.Structure.TotalWidth);
+        Assert.InRange(PropertyLines.Footprint(document), outside - 4 * 330 * 330, outside + 1);
+
+        var plot = new PropertyLine { LevelId = level };
+        plot.SetBoundary(new[] { new Point2D(-9000, -10500), new Point2D(21000, -10500), new Point2D(21000, 19500), new Point2D(-9000, 19500) });
+        Assert.InRange(PropertyLines.Coverage(document, plot), 0.12, 0.13);
+    }
+
+    [Fact]
     public void ASheerPadLeavesTheGroundRoundItAndOneFallingFallsTheWayItIsTold()
     {
         var document = BimDocument.CreateDefault();
@@ -197,7 +249,10 @@ public class SiteTests
         document.Add(line);
 
         Assert.Equal(15000.0 * 13000, Polygon2D.Area(line.Boundary), 0);
-        Assert.Equal(6000.0 * 5000 / (15000 * 13000), PropertyLines.Coverage(document, line), 6);
+        // Covered to the outside of its walls - its gross external area - as planning measures it.
+        var wall = document.GetWallType(document.Walls.First())!.Structure.TotalWidth;
+        var outside = (6000 + wall) * (5000 + wall);
+        Assert.InRange(PropertyLines.Coverage(document, line), (outside - wall * wall) / (15000 * 13000), outside / (15000.0 * 13000));
         Assert.Equal("Within it, behind its setback", PropertyLines.Verdict(document, line));
 
         line.Setback = 4000;

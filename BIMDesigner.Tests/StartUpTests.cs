@@ -204,10 +204,24 @@ public class StartUpTests
         Assert.Equal("Casement - 1200 x 1200", Picked(window, "WindowTypePicker"));
         Assert.Equal(Core.Elements.BuiltInCategory.Furniture, Core.Documents.BimDocument.CreateDefault().TypesOf<ComponentType>().First(type => type.Name == Picked(window, "ComponentTypePicker")).Kind);
 
-        // The US: the inch-sized door and a double-hung window.
+        // And what the tools put in is what the pickers show - a structural column a small universal column.
+        string Placing(Func<BIMDesigner.UI.Controls.PlanView, Guid> active)
+        {
+            var plan = (BIMDesigner.UI.Controls.PlanView)typeof(MainWindow).GetField("Plan", Hidden)!.GetValue(window)!;
+            var document = (Core.Documents.BimDocument)typeof(MainWindow).GetField("_document", Hidden)!.GetValue(window)!;
+            return document.ElementTypes.First(type => type.Id == active(plan)).Name;
+        }
+
+        Assert.Equal("Single - 900 x 2100", Placing(plan => plan.ActiveDoorTypeId));
+        Assert.Equal("Casement - 1200 x 1200", Placing(plan => plan.ActiveWindowTypeId));
+        Assert.Equal("UC 152 x 152 x 23", Placing(plan => plan.ActiveStructuralColumnTypeId));
+
+        // The US: the inch-sized door and a double-hung window; a 3 in steel pipe column.
         typeof(MainWindow).GetMethod("Begin", Hidden)!.Invoke(window, new object[] { new StartChoice(ProjectTemplates.Create(new NewProjectSpec { Template = ProjectTemplate.UsHouse }), null, "new") });
         Assert.Equal("Exterior Door - 36 x 80 in", Picked(window, "DoorTypePicker"));
         Assert.StartsWith("Double Hung", Picked(window, "WindowTypePicker"));
+        Assert.Equal("Exterior Door - 36 x 80 in", Placing(plan => plan.ActiveDoorTypeId));
+        Assert.StartsWith("CHS 88.9", Placing(plan => plan.ActiveStructuralColumnTypeId));
     });
 
     [Fact]

@@ -287,15 +287,35 @@ public static class PropertyLines
     /// <summary>The building's footprint in plan: its ground storey's floors and the outlines its outside walls stand on, as one.</summary>
     public static double Footprint(BimDocument document)
     {
+        // The lowest storey the building stands on: of its floors, and of its walls - a garden's retaining walls are not the building.
+        double Elevation(Element element) => document.FindLevel(element.LevelId)?.Elevation ?? 0;
         var floors = document.All<Floor>().Where(floor => floor.Boundary.Count >= 3).ToList();
-        if (floors.Count == 0) return 0;
-        var lowest = floors.Min(floor => document.FindLevel(floor.LevelId)?.Elevation ?? 0);
-        var ground = floors.Where(floor => Math.Abs((document.FindLevel(floor.LevelId)?.Elevation ?? 0) - lowest) < 1).Select(floor => floor.Boundary).ToList();
-        if (ground.Count == 1) return Polygon2D.Area(ground[0]);
-        var union = PolygonBoolean.Combine(ground[0], ground[1], BooleanOperation.Union);
-        foreach (var more in ground.Skip(2))
-            union = union.SelectMany(region => PolygonBoolean.Combine(region.Outer, more, BooleanOperation.Union)).ToList();
-        return union.Sum(region => region.Area);
+        var walls = document.Walls.Where(wall => wall.Length >= 1 && document.GetWallType(wall) is { Function: not WallFunction.Retaining }).ToList();
+        if (floors.Count + walls.Count == 0) return 0;
+        var lowest = floors.Cast<Element>().Concat(walls).Min(Elevation);
+
+        // Its floors there and the bodies of its walls, as one - all inside the outside of them,
+        // so a house drawn without its floor yet still covers what its walls stand round.
+        var outlines = floors.Where(floor => Math.Abs(Elevation(floor) - lowest) < 1).Select(floor => floor.Boundary).ToList();
+        foreach (var wall in walls.Where(wall => Math.Abs(Elevation(wall) - lowest) < 1))
+        {
+            var half = document.GetWallType(wall)!.Structure.TotalWidth / 2;
+            if (half > 0) outlines.Add(CurtainGeometry.Band(wall, document.GetWallType(wall)!, 0, wall.Length, half, -half));
+        }
+
+        if (outlines.Count == 0) return 0;
+        if (outlines.Count == 1) return Polygon2D.Area(outlines[0]);
+        var union = new List<IReadOnlyList<Point2D>> { outlines[0] };
+        foreach (var more in outlines.Skip(1))
+        {
+            // Merged with each piece it overlaps; kept on its own where it meets none.
+            var touching = union.Where(piece => PolygonBoolean.Combine(piece, more, BooleanOperation.Intersection).Count > 0).ToList();
+            var merged = touching.Aggregate((IReadOnlyList<Point2D>)more, (sum, piece) =>
+                PolygonBoolean.Combine(sum, piece, BooleanOperation.Union).OrderByDescending(region => Polygon2D.Area(region.Outer)).First().Outer);
+            union = union.Except(touching).Append(merged).ToList();
+        }
+
+        return union.Sum(Polygon2D.Area);
     }
 
     /// <summary>How much of the plot the building covers: its footprint over the plot's area.</summary>
