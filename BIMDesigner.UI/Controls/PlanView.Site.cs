@@ -29,7 +29,7 @@ public partial class PlanView
     public double ActiveSetback { get; set; }
 
     /// <summary>How far round the building Around Building puts the ground, mm.</summary>
-    public const double GroundMargin = 15000;
+    public static double GroundMargin => Core.Units.Imperial ? 50 * Core.Units.MillimetresPerFoot : 15000;
 
     private GroundColouring _groundColouring;
 
@@ -74,7 +74,7 @@ public partial class PlanView
         var made = new Toposurface { LevelId = ActiveLevelId };
         made.SetPoints(new[] { new Point3D(minX, minY, height), new Point3D(maxX, minY, height), new Point3D(maxX, maxY, height), new Point3D(minX, maxY, height) });
         Apply(new AddElementCommand(Document, made, "Ground Around Building"));
-        HintChanged?.Invoke(this, $"Ground put round the building, {GroundMargin / 1000:0} m out, at {Units.FormatLength(ActiveGroundElevation)} from {level.Name}. {Terrains.Verdict(Document, made)}.");
+        HintChanged?.Invoke(this, $"Ground put round the building, {Core.Units.Metres(GroundMargin, "0")} out, at {Units.FormatLength(ActiveGroundElevation)} from {level.Name}. {Terrains.Verdict(Document, made)}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

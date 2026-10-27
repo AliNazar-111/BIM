@@ -39,7 +39,7 @@ public static class Bedrooms
     /// <summary>The least floor area and width a bedroom of a kind needs, m² and mm, and whose rule asks for them.</summary>
     public static (double Area, double Width, string Rule) Needs(Kind kind, ClearanceStandard standard) => standard switch
     {
-        _ when standard.IsUs() => (6.5, 2134, "IRC R304 asks for 70 sq ft (6.5 m²) and 7 ft (2134) across every way"),
+        _ when standard.IsUs() => (6.5, 2134, $"IRC R304 asks for 70 sq ft{Units.MetricAside("6.5 m²")} and 7 ft{Units.MetricAside("2134")} across every way"),
         ClearanceStandard.ApprovedDocumentM3 => kind switch
         {
             Kind.Principal => (13.5, 3000, "Approved Document M (M4(3)) 3.35d asks for 13.5 m² and 3 m wide for the principal bedroom"),
@@ -68,11 +68,11 @@ public static class Bedrooms
         var (area, width, rule) = Needs(kind, standard);
         var (hasArea, hasWidth) = (boundary.Area / 1e6, Narrowest(boundary.Polygon));
         var what = kind switch { Kind.Principal => "Principal bedroom", Kind.Double => "Double bedroom", _ => "Single bedroom" };
-        var measured = $"{what}: {hasArea:0.0} m², {hasWidth / 1000:0.00} m wide";
+        var measured = $"{what}: {Units.OfSquareMetres(hasArea, "0.0")}, {Units.Metres(hasWidth, "0.00")} wide";
 
         var shortOf = new List<string>();
-        if (hasArea < area - 0.005) shortOf.Add($"{area - hasArea:0.0} m² too small");
-        if (hasWidth < width - 0.5) shortOf.Add($"{(width - hasWidth) / 1000:0.00} m too narrow");
+        if (hasArea < area - 0.005) shortOf.Add($"{Units.OfSquareMetres(area - hasArea, "0.0")} too small");
+        if (hasWidth < width - 0.5) shortOf.Add($"{Units.Metres((width - hasWidth), "0.00")} too narrow");
         return shortOf.Count == 0 ? $"{measured} - big enough" : $"{measured} - {string.Join(" and ", shortOf)}: {rule}.";
     }
 

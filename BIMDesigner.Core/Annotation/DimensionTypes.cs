@@ -28,8 +28,11 @@ public enum DimensionUnits
     /// <summary>Metres: 2.400.</summary>
     Metres,
 
-    /// <summary>Millimetres up to a metre, metres beyond: 600 mm, 2.40 m.</summary>
-    Automatic
+    /// <summary>Millimetres up to a metre, metres beyond: 600 mm, 2.40 m - or in a US project, feet and inches.</summary>
+    Automatic,
+
+    /// <summary>Feet and inches to the nearest sixteenth, as US drawings are dimensioned: 12'-6 1/2".</summary>
+    FeetAndInches
 }
 
 /// <summary>
@@ -85,6 +88,7 @@ public sealed class DimensionType : ElementType
         {
             DimensionUnits.Metres => (millimetres / 1000).ToString("F" + Math.Max(places, 0)) + (ShowUnits ? " m" : string.Empty),
             DimensionUnits.Automatic => Core.Units.FormatLength(millimetres),
+            DimensionUnits.FeetAndInches => Core.Units.FeetAndInches(millimetres),
             _ => millimetres.ToString("F" + places) + (ShowUnits ? " mm" : string.Empty)
         };
 
@@ -157,16 +161,25 @@ public static class DimensionTypes
 {
     /// <summary>The style a dimension is drawn in: its own type, or the project's first.</summary>
     public static DimensionType Of(BimDocument document, Element dimension) =>
-        document.FindType<DimensionType>(dimension.TypeId) ?? document.TypesOf<DimensionType>().FirstOrDefault() ?? new DimensionType("Linear - 2.5 mm ticks");
+        document.FindType<DimensionType>(dimension.TypeId) ?? Starting(document) ?? new DimensionType("Linear - 2.5 mm ticks");
 
-    /// <summary>The styles a new project starts with: millimetres with ticks, as UK drawings are dimensioned; with arrows; in metres.</summary>
+    /// <summary>The styles a new project starts with: millimetres with ticks, as UK drawings are dimensioned; with arrows; in metres; and feet and inches with arrows, as US ones are.</summary>
     public static IEnumerable<DimensionType> Defaults() => new[]
     {
         new DimensionType("Linear - 2.5 mm ticks"),
         new DimensionType("Linear - 2.5 mm arrows") { Tick = DimensionTick.Arrow, LineExtension = 0 },
         new DimensionType("Linear - metres") { Units = DimensionUnits.Metres, Decimals = 3 },
-        new DimensionType("Linear - automatic (m above 1 m)") { Units = DimensionUnits.Automatic, TextAlongLine = false }
+        new DimensionType("Linear - automatic (m above 1 m)") { Units = DimensionUnits.Automatic, TextAlongLine = false },
+        new DimensionType(FeetAndInchesName) { Units = DimensionUnits.FeetAndInches, Tick = DimensionTick.Arrow, LineExtension = 0 }
     };
+
+    /// <summary>The style a US project dimensions in, to start with.</summary>
+    public const string FeetAndInchesName = "Linear - feet and inches";
+
+    /// <summary>The style a new dimension takes when none is picked: feet and inches in a US project, the first otherwise.</summary>
+    public static DimensionType? Starting(BimDocument document) =>
+        (document.ProjectInformation.Units == UnitSystem.Imperial ? document.TypesOf<DimensionType>().FirstOrDefault(type => type.Units == DimensionUnits.FeetAndInches) : null)
+        ?? document.TypesOf<DimensionType>().FirstOrDefault();
 }
 
 /// <summary>What a radial dimension measures of an arc.</summary>

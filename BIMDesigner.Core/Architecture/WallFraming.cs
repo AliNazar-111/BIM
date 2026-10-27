@@ -407,7 +407,7 @@ public static class WallFramings
             {
                 // A header is two plies on edge; everything else is the stud section.
                 var size = member.Kind == FramingMemberKind.Header
-                    ? $"2 x {section.Thickness:0} x {member.Top - member.Bottom:0}"
+                    ? $"2 x {Units.Bare(section.Thickness)} x {Units.Bare(member.Top - member.Bottom)}"
                     : section.Name;
                 rows.Add((name, EnumText.Humanise(member.Kind), size, Math.Round(member.Length)));
             }

@@ -190,7 +190,7 @@ public static class ElementHandles
                     path.Insert(at, to);
                     bulges.Insert(at, 0);
                     railing.SetPath(path, bulges);
-                    return ($"A corner added: {Railings.Length(railing) / 1000:0.00} m.", $"corner:{at}");
+                    return ($"A corner added: {Units.Metres(Railings.Length(railing), "0.00")}.", $"corner:{at}");
                 }
 
                 if (kind == "bend" && index < path.Count)
@@ -200,14 +200,14 @@ public static class ElementHandles
                     var bulge = WallCurve.BulgeThrough(start, end, to);
                     railing.SetBulge(index, Math.Abs(bulge) >= Bowed ? bulge : railing.BulgeAt(index) < 0 ? -Bowed : Bowed);
                     var curve = WallCurve.Of(start, end, railing.BulgeAt(index));
-                    return (curve.IsArc ? $"An arc {curve.Length / 1000:0.00} m round, radius {Math.Abs(curve.Length / curve.Sweep) / 1000:0.00} m." : "Straight.", handle.Key);
+                    return (curve.IsArc ? $"An arc {Units.Metres(curve.Length, "0.00")} round, radius {Units.Metres(Math.Abs(curve.Length / curve.Sweep), "0.00")}." : "Straight.", handle.Key);
                 }
 
                 if (kind == "corner" && index < path.Count)
                 {
                     path[index] = to;
                     railing.SetPath(path);
-                    return ($"{Railings.Length(railing) / 1000:0.00} m.", handle.Key);
+                    return ($"{Units.Metres(Railings.Length(railing), "0.00")}.", handle.Key);
                 }
 
                 break;
@@ -226,7 +226,7 @@ public static class ElementHandles
                     default: return (string.Empty, handle.Key);
                 }
 
-                return ($"{beam.Length / 1000:0.00} m, its underside at {Beams.Bottom(document, beam, 0):0} and {Beams.Bottom(document, beam, 1):0}.", handle.Key);
+                return ($"{Units.Metres(beam.Length, "0.00")}, its underside at {Units.Bare(Beams.Bottom(document, beam, 0))} and {Units.Bare(Beams.Bottom(document, beam, 1))}.", handle.Key);
             }
 
             case RoomSeparator separator:
@@ -238,7 +238,7 @@ public static class ElementHandles
                     default: return (string.Empty, handle.Key);
                 }
 
-                return ($"{separator.Length / 1000:0.00} m.", handle.Key);
+                return ($"{Units.Metres(separator.Length, "0.00")}.", handle.Key);
             }
 
             case Toposurface ground when index < ground.Points.Count:
@@ -253,13 +253,13 @@ public static class ElementHandles
             case SitePad pad:
             {
                 pad.SetBoundary(Moved(pad.Boundary, kind, index, to, out _));
-                return ($"{Polygon2D.Area(pad.Boundary) / 1e6:0.0} m². {SitePads.Verdict(document, pad)}.", Following(pad.Boundary, to, handle.Key));
+                return ($"{Units.SquareMetres(Polygon2D.Area(pad.Boundary), "0.0")}. {SitePads.Verdict(document, pad)}.", Following(pad.Boundary, to, handle.Key));
             }
 
             case PropertyLine line:
             {
                 line.SetBoundary(Moved(line.Boundary, kind, index, to, out _));
-                return ($"{Polygon2D.Area(line.Boundary) / 1e6:0.0} m². {PropertyLines.Verdict(document, line)}.", Following(line.Boundary, to, handle.Key));
+                return ($"{Units.SquareMetres(Polygon2D.Area(line.Boundary), "0.0")}. {PropertyLines.Verdict(document, line)}.", Following(line.Boundary, to, handle.Key));
             }
 
             case Callout callout when kind == "corner" && index is >= 0 and < 4:
@@ -274,13 +274,13 @@ public static class ElementHandles
                     Math.Abs(to.Y - fixedCorner.Y) < Callouts.Smallest ? fixedCorner.Y + away.Y * Callouts.Smallest : to.Y);
                 callout.Region = new BoundingBox2D(Math.Min(corner.X, fixedCorner.X), Math.Min(corner.Y, fixedCorner.Y), Math.Max(corner.X, fixedCorner.X), Math.Max(corner.Y, fixedCorner.Y));
                 var follow = Enumerable.Range(0, 4).OrderBy(i => Corners(callout.Region)[i].DistanceTo(corner)).First();
-                return ($"Cropped to {callout.Region.Width / 1000:0.00} m by {callout.Region.Height / 1000:0.00} m.", $"corner:{follow}");
+                return ($"Cropped to {Units.Metres(callout.Region.Width, "0.00")} by {Units.Metres(callout.Region.Height, "0.00")}.", $"corner:{follow}");
             }
 
             case GroundRegion region:
             {
                 region.SetBoundary(Moved(region.Boundary, kind, index, to, out _));
-                return ($"{Polygon2D.Area(region.Boundary) / 1e6:0.0} m².", Following(region.Boundary, to, handle.Key));
+                return ($"{Units.SquareMetres(Polygon2D.Area(region.Boundary), "0.0")}.", Following(region.Boundary, to, handle.Key));
             }
 
             case BeamSystem system:
@@ -302,7 +302,7 @@ public static class ElementHandles
                 }
 
                 var area = mass.Round ? Math.PI * mass.Radius * mass.Radius : Polygon2D.Area(mass.Boundary);
-                var said = $"{area / 1e6:0.0} m² on plan, {mass.Height / 1000:0.00} m high" + (mass.Round ? $", radius {mass.Radius / 1000:0.00} m" : string.Empty) + ".";
+                var said = $"{Units.SquareMetres(area, "0.0")} on plan, {Units.Metres(mass.Height, "0.00")} high" + (mass.Round ? $", radius {Units.Metres(mass.Radius, "0.00")}" : string.Empty) + ".";
                 return (mass.Links.Count > 0 ? said + " Update to Face brings what was made from it back to it." : said, key);
             }
 

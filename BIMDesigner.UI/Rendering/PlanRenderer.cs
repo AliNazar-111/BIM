@@ -2133,7 +2133,7 @@ public sealed partial class PlanRenderer
             var centre = a.MidpointTo(b);
             var outward = (b - a).PerpendicularLeft().NormalisedOrDefault(Vector2D.UnitY);
             if ((centre + outward - middle).Length < (centre - middle).Length) outward = outward * -1;
-            var text = Text($"{length / 1000:0.00} m  {PropertyLines.Bearing(a, b)}", Page(8), _wallLabelBrush);
+            var text = Text($"{Core.Units.Metres(length, "0.00")}  {PropertyLines.Bearing(a, b)}", Page(8), _wallLabelBrush);
             var at = ModelToScreen(centre + outward * (9 / Math.Max(1e-9, PixelsPerMm)));
             dc.DrawRectangle(_labelBackdrop, null, new Rect(at.X - text.Width / 2 - 1, at.Y - text.Height / 2, text.Width + 2, text.Height));
             dc.DrawText(text, new Point(at.X - text.Width / 2, at.Y - text.Height / 2));

@@ -278,7 +278,7 @@ public static class Ventilation
                 if (supplied < whole - 0.05)
                     yield return new MepProblem(unit, us
                         ? $"it supplies {supplied / LitresPerCfm:0} cfm - IRC M1505.4.3 asks {whole / LitresPerCfm:0} cfm for {area * 10.7639:0} sq ft and {bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}"
-                        : $"it supplies {supplied:0.0} l/s - Approved Document F (1.24, 1.69) asks {whole:0.0} l/s of {area:0} m² and {bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}");
+                        : $"it supplies {supplied:0.0} l/s - Approved Document F (1.24, 1.69) asks {whole:0.0} l/s of {Core.Units.OfSquareMetres(area, "0")} and {bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}");
             }
         }
         else if (type == VentilationType.ContinuousExtract)

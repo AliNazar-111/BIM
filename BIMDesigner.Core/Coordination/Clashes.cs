@@ -455,14 +455,14 @@ public static class ClashDetective
                 if (Penetration(one, other) is var (into, inside) && into > 0)
                 {
                     if (into + lagging <= test.Tolerance) continue;
-                    yield return (a.Id, b.Id, inside.ToPoint(), -(into + lagging), $"{NameOf(document, a.Id)} runs {into:0} mm into {NameOf(document, b.Id)}, {into + lagging:0} with its insulation.");
+                    yield return (a.Id, b.Id, inside.ToPoint(), -(into + lagging), $"{NameOf(document, a.Id)} runs {Units.Millimetres(into, "0")} into {NameOf(document, b.Id)}, {Units.Bare(into + lagging)} with its insulation.");
                     continue;
                 }
 
                 var apart = one.Distance(other, lagging);
                 if (lagging - apart <= test.Tolerance) continue;
                 yield return (a.Id, b.Id, Middle(one, other).ToPoint(), -(lagging - apart),
-                    $"{NameOf(document, a.Id)} is {apart:0} mm from {NameOf(document, b.Id)} - its insulation, {lagging:0} mm, runs {lagging - apart:0} mm into it.");
+                    $"{NameOf(document, a.Id)} is {Units.Millimetres(apart, "0")} from {NameOf(document, b.Id)} - its insulation, {Units.Millimetres(lagging, "0")}, runs {Units.Millimetres(lagging - apart, "0")} into it.");
                 continue;
             }
 
@@ -474,14 +474,14 @@ public static class ClashDetective
                     var off = Math.Max((one.Min - other.Min).Length, (one.Max - other.Max).Length);
                     if (off > Math.Max(test.Tolerance, 0.5)) continue;
                     var middle = (one.Min + one.Max) * 0.5;
-                    yield return (a.Id, b.Id, middle.ToPoint(), -off, $"{NameOf(document, a.Id)} is drawn twice, {off:0} mm apart.");
+                    yield return (a.Id, b.Id, middle.ToPoint(), -off, $"{NameOf(document, a.Id)} is drawn twice, {Units.Millimetres(off, "0")} apart.");
                     break;
                 }
 
                 case ClashKind.Hard:
                 {
                     if (Penetration(one, other) is not var (depth, at) || depth <= test.Tolerance) continue;
-                    yield return (a.Id, b.Id, at.ToPoint(), -depth, $"{NameOf(document, a.Id)} runs {depth:0} mm into {NameOf(document, b.Id)}.");
+                    yield return (a.Id, b.Id, at.ToPoint(), -depth, $"{NameOf(document, a.Id)} runs {Units.Millimetres(depth, "0")} into {NameOf(document, b.Id)}.");
                     break;
                 }
 
@@ -489,14 +489,14 @@ public static class ClashDetective
                 {
                     if (Penetration(one, other) is var (depth, at) && depth > Touch)
                     {
-                        yield return (a.Id, b.Id, at.ToPoint(), -depth, $"{NameOf(document, a.Id)} runs {depth:0} mm into {NameOf(document, b.Id)}.");
+                        yield return (a.Id, b.Id, at.ToPoint(), -depth, $"{NameOf(document, a.Id)} runs {Units.Millimetres(depth, "0")} into {NameOf(document, b.Id)}.");
                         continue;
                     }
 
                     var gap = one.Distance(other, test.Tolerance);
                     if (gap >= test.Tolerance) continue;
                     var middle = (Middle(one, other));
-                    yield return (a.Id, b.Id, middle.ToPoint(), gap, $"{NameOf(document, a.Id)} is {gap:0} mm from {NameOf(document, b.Id)}, within the {test.Tolerance:0} mm it is to be kept clear by.");
+                    yield return (a.Id, b.Id, middle.ToPoint(), gap, $"{NameOf(document, a.Id)} is {Units.Millimetres(gap, "0")} from {NameOf(document, b.Id)}, within the {Units.Millimetres(test.Tolerance, "0")} it is to be kept clear by.");
                     break;
                 }
             }

@@ -60,9 +60,9 @@ public static class Bathrooms
         switch (type.Form)
         {
             case ComponentForm.Socket when NearestWet() is { } wet && wet.Apart < (us ? 914 : 2500) - 0.5:
-                problems.Add(new PlacementProblem(piece, $"it is {wet.Apart:0} from {wet.Name}.",
+                problems.Add(new PlacementProblem(piece, $"it is {Units.Bare(wet.Apart)} from {wet.Name}.",
                     us
-                        ? "NEC 406.9(C) allows no receptacle within 3 ft (914) of a bathtub or shower, nor 8 ft over it."
+                        ? $"NEC 406.9(C) allows no receptacle within 3 ft{Units.MetricAside("914")} of a bathtub or shower, nor 8 ft over it."
                         : "BS 7671 (701.512.3) keeps a socket 2.5 m from the edge of a bath or shower; only a shaver supply unit may be nearer.",
                     footprint));
                 break;
@@ -75,8 +75,8 @@ public static class Bathrooms
 
             case ComponentForm.CeilingLight when us && type.Height > 250 && NearestWet() is { } wet && wet.Apart < 914 - 0.5
                 && ComponentHosting.BaseElevation(document, piece, type) < wet.Rim + 2438:
-                problems.Add(new PlacementProblem(piece, $"it hangs {wet.Apart:0} from {wet.Name}.",
-                    "NEC 410.10(D) allows no pendant within 3 ft (914) of a bathtub or shower and 8 ft (2438) over its rim.",
+                problems.Add(new PlacementProblem(piece, $"it hangs {Units.Bare(wet.Apart)} from {wet.Name}.",
+                    $"NEC 410.10(D) allows no pendant within 3 ft{Units.MetricAside("914")} of a bathtub or shower and 8 ft{Units.MetricAside("2438")} over its rim.",
                     footprint));
                 break;
 
@@ -86,14 +86,14 @@ public static class Bathrooms
                     .Where(other => other.LevelId == piece.LevelId && document.FindType<ComponentType>(other.TypeId)?.Form == ComponentForm.Socket)
                     .Select(other => ComponentModel.Footprint(document.FindType<ComponentType>(other.TypeId)!, ComponentModel.FrameOf(other, 0)));
                 if (!sockets.Any(socket => Kitchens.Apart(socket, footprint) <= 914 + 0.5))
-                    problems.Add(new PlacementProblem(piece, "there is no receptacle within 3 ft (914) of it.",
-                        "NEC 210.52(D) asks for a receptacle within 3 ft (914) of the outside edge of each basin.", footprint));
+                    problems.Add(new PlacementProblem(piece, $"there is no receptacle within 3 ft{Units.MetricAside("914")} of it.",
+                        $"NEC 210.52(D) asks for a receptacle within 3 ft{Units.MetricAside("914")} of the outside edge of each basin.", footprint));
                 break;
             }
 
             case ComponentForm.Shower when us && (Math.Min(type.Width, type.Depth) < 762 - 0.5 || type.Width * type.Depth < 580645):
-                problems.Add(new PlacementProblem(piece, $"at {type.Width:0} x {type.Depth:0} it is too small to shower in.",
-                    "IRC P2708.1 asks for a shower 30 in (762) across at least, and 900 sq in (0.58 m²).", footprint));
+                problems.Add(new PlacementProblem(piece, $"at {Units.Bare(type.Width)} x {Units.Bare(type.Depth)} it is too small to shower in.",
+                    $"IRC P2708.1 asks for a shower 30 in{Units.MetricAside("762")} across at least, and 900 sq in{Units.MetricAside("0.58 m²")}.", footprint));
                 break;
         }
 

@@ -200,7 +200,7 @@ public static class Penetrations
     /// </summary>
     public static double FireStoppedLimit(BimDocument document, Pipe pipe)
     {
-        var material = document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper;
+        var material = (document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper).Like();
         return material switch
         {
             PipeMaterial.Copper or PipeMaterial.StainlessSteel or PipeMaterial.GalvanisedSteel => 160,
@@ -226,9 +226,9 @@ public static class Penetrations
         foreach (var hole in All(document))
         {
             if (hole.Opening is null)
-                yield return new MepProblem(hole.Service, $"it passes through {Describe(document, hole.Through)} with no opening cut for it - Cut Openings makes one, its size and {Gap:0} mm round it for fire-stopping");
+                yield return new MepProblem(hole.Service, $"it passes through {Describe(document, hole.Through)} with no opening cut for it - Cut Openings makes one, its size and {Units.Millimetres(Gap, "0")} round it for fire-stopping");
             else if (!hole.Fits)
-                yield return new MepProblem(hole.Service, $"the opening where it passes through {Describe(document, hole.Through)} is too small for it - make it {hole.Width:0} x {hole.Height:0} mm, its size and {Gap:0} mm round it");
+                yield return new MepProblem(hole.Service, $"the opening where it passes through {Describe(document, hole.Through)} is too small for it - make it {Units.Bare(hole.Width)} x {Units.Millimetres(hole.Height, "0")}, its size and {Units.Millimetres(Gap, "0")} round it");
             if (!hole.Separating || hole.Service is not Pipe pipe) continue;
 
             var what = hole.Through is Floor ? "compartment floor" : "compartment wall";
@@ -239,14 +239,14 @@ public static class Penetrations
                 continue;
             }
 
-            var material = document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper;
+            var material = (document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper).Like();
             switch (pipe.Seal)
             {
                 case PipeSeal.None:
                     yield return new MepProblem(pipe, $"it passes through a {what} with nothing keeping it fire-separating - Approved Document B (Volume 1, section 9) asks a proprietary seal, fire-stopping round a pipe no larger than Table 9.1 allows, or a sleeve");
                     break;
                 case PipeSeal.FireStopped when Bore(document, pipe) > FireStoppedLimit(document, pipe) + 0.5:
-                    yield return new MepProblem(pipe, $"a pipe of {Bore(document, pipe):0} mm bore fire-stopped through a {what} - Approved Document B (Table 9.1) fire-stops a pipe of {PipeType.Title(material)} up to {FireStoppedLimit(document, pipe):0} mm alone; a proprietary seal or a sleeve for it");
+                    yield return new MepProblem(pipe, $"a pipe of {Units.Millimetres(Bore(document, pipe), "0")} bore fire-stopped through a {what} - Approved Document B (Table 9.1) fire-stops a pipe of {PipeType.Title(material)} up to {Units.Millimetres(FireStoppedLimit(document, pipe), "0")} alone; a proprietary seal or a sleeve for it");
                     break;
                 case PipeSeal.Sleeved when material != PipeMaterial.PvcU || pipe.Diameter > 160 + 0.5:
                     yield return new MepProblem(pipe, $"a pipe of {PipeType.Title(material)} sleeved through a {what} - Approved Document B (Volume 1, section 9) sleeves PVC-U, lead, aluminium or fibre-cement pipe up to 160 mm, in metal pipe 1 m either side");

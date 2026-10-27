@@ -1186,7 +1186,7 @@ public static class Eaves
     /// </summary>
     public const double NoProjection = 610, ProtectedUnder = 1524, ProtectedUnderSprinklered = 914;
 
-    private static string Feet(double millimetres) => $"{millimetres / 1000:0.00} m ({millimetres / 304.8:0.0} ft)";
+    private static string Feet(double millimetres) => $"{Units.Metres(millimetres, "0.00")}{(Units.Imperial ? "" : $" ({millimetres / 304.8:0.0} ft)")}";
 
     /// <summary>What an eave falls short of, as the project's standard asks.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Eave eave, ClearanceStandard standard)
@@ -1204,7 +1204,7 @@ public static class Eaves
             Add(eave.FireBlocked
                     ? "it is fireblocked at the wall, so it lets no air into the cold roof over it, its insulation on the ceiling."
                     : air > 0
-                        ? $"it lets {air:#,0} mm² of air a metre into the cold roof over it, its insulation on the ceiling."
+                        ? $"it lets {Units.AreaPerLength(air, " of air")} into the cold roof over it, its insulation on the ceiling."
                         : "it lets no air into the cold roof over it, its insulation on the ceiling.",
                 $"{rule} - {(type.IsOpen ? "vents in the blocking between the rafters" : "a vented soffit")}, or vents over the fascia.");
 
@@ -1222,7 +1222,7 @@ public static class Eaves
             var table = sprinklered ? "Table R302.1(2)" : "Table R302.1(1)";
             if (distance < NoProjection)
                 Add(distance <= 0 ? "its edge reaches over the property line." : $"its edge is {Feet(distance)} from the property line.",
-                    $"The IRC (R302.1, {table}) allows no projection less than 2 ft (610 mm) from the lot line - shorten the overhang there.");
+                    $"The IRC (R302.1, {table}) allows no projection less than 2 ft{Units.MetricAside("610 mm")} from the lot line - shorten the overhang there.");
             else if (distance < (sprinklered ? ProtectedUnderSprinklered : ProtectedUnder) && type.Underside == EaveUnderside.Unprotected && !eave.FireBlocked)
                 Add($"its edge is {Feet(distance)} from the property line, its underside unprotected.",
                     $"The IRC ({table}) asks a projection 2 to {(sprinklered ? "3 ft from the lot line of a sprinklered house" : "5 ft from the lot line")} for one-hour fire-resistive construction on its underside, heavy timber or fire-retardant-treated wood - or fireblocking from the wall's top plate to the roof sheathing (note {(sprinklered ? "b" : "a")}).");
@@ -1245,7 +1245,7 @@ public static class Eaves
         if (document.Find<Roof>(eave.RoofId) is not { } roof) return "Nothing asked";
         var parts = new List<string>();
         parts.Add(RoofEdgeRules.EavesAirAsked(document, roof, standard) is var (asked, _)
-            ? $"Airs the cold roof over it: {asked:#,0} mm² a metre asked"
+            ? $"Airs the cold roof over it: {Units.AreaPerLength(asked)} asked"
             : "The roof over it is not a cold roof: no air asked");
         if (!standard.IsUs() && PartyWalls(document, eave).Count is > 0 and var walls && eave.FireStopped)
             parts.Add($"fire-stopped over {walls} party wall{(walls == 1 ? "" : "s")}");

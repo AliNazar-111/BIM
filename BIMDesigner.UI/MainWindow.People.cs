@@ -80,6 +80,6 @@ public partial class MainWindow
 
         _history.Execute(new DelegateCommand($"Walk {type.Name}", () => Put(after), () => Put(before)));
         AfterDataChange();
-        StatusHint.Text = $"{type.Name} left where the walk ended, {person.Location.DistanceTo(before.Location) / 1000:0.0} m from where they stood{(level.Id != before.LevelId ? $", on {level.Name}" : string.Empty)}.";
+        StatusHint.Text = $"{type.Name} left where the walk ended, {Core.Units.Metres(person.Location.DistanceTo(before.Location), "0.0")} from where they stood{(level.Id != before.LevelId ? $", on {level.Name}" : string.Empty)}.";
     }
 }

@@ -54,7 +54,7 @@ public sealed class CurtainWallPreview : FrameworkElement
         dc.DrawRectangle(null, EdgePen, Box(0, SampleLength, 0, SampleHeight));
 
         var text = new FormattedText(
-            $"A {SampleLength / 1000:0} m by {SampleHeight / 1000:0} m wall: {_layout.Columns} x {_layout.Rows} panels",
+            $"A {Core.Units.Metres(SampleLength, "0")} by {Core.Units.Metres(SampleHeight, "0")} wall: {_layout.Columns} x {_layout.Rows} panels",
             CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 11, MutedBrush,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(text, new Point(left, bottom + 4));

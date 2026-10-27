@@ -276,6 +276,11 @@ public class SiteTests
         document.Add(outside);
         Assert.Equal("FFL +0.000", SpotElevations.Label(document, inside));
         Assert.Equal("GL -0.450", SpotElevations.Label(document, outside));
+
+        // In a US project, as its drawings write a level: feet and inches, signed.
+        using var units = BIMDesigner.Core.Units.Use(BIMDesigner.Core.UnitSystem.Imperial);
+        Assert.Equal("FFL +0'-0\"", SpotElevations.Label(document, inside));
+        Assert.Equal("GL -1'-5 11/16\"", SpotElevations.Label(document, outside));
     }
 
     [Fact]

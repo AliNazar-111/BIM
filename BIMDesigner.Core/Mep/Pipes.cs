@@ -14,7 +14,27 @@ public enum PipeMaterial
     GalvanisedSteel,
 
     /// <summary>PVC-U soil, waste and drain pipe (BS EN 1329 above the ground, BS EN 1401 below it): for drainage, not water.</summary>
-    PvcU
+    PvcU,
+
+    /// <summary>Copper tube to ASTM B88, Type L, in the US's copper tube sizes - 1/2", 3/4", 1" - sized by the IRC.</summary>
+    CopperTypeL,
+
+    /// <summary>PEX tubing to ASTM F876 in copper tube sizes, SDR 9 - the same outside as Type L copper, its wall thicker.</summary>
+    PexCts
+}
+
+public static class PipeMaterials
+{
+    /// <summary>What a US material is - Type L copper copper, CTS PEX PE-X - for what goes by the material rather than its sizes: its roughness, its fire-stopping, its supports.</summary>
+    public static PipeMaterial Like(this PipeMaterial material) => material switch
+    {
+        PipeMaterial.CopperTypeL => PipeMaterial.Copper,
+        PipeMaterial.PexCts => PipeMaterial.PeX,
+        _ => material
+    };
+
+    /// <summary>Whether it comes in the US's copper tube sizes, named by their nominal inches.</summary>
+    public static bool IsCts(this PipeMaterial material) => material is PipeMaterial.CopperTypeL or PipeMaterial.PexCts;
 }
 
 /// <summary>A size a pipe is made in: its name, its outside diameter and wall, and its bore - what the water flows through.</summary>
@@ -62,6 +82,22 @@ public static class PipeSizes
         Size("DN 50", 60.3, 53), Size("DN 65", 76.1, 68.8)
     };
 
+    // The US's copper tube sizes, named by their nominal inches: Type L copper (ASTM B88) and SDR 9
+    // PEX (ASTM F876) the same outside - an eighth of an inch over the nominal - PEX's bore smaller.
+    private static PipeSize Inches(string name, double outside, double inside) => new(name, outside * Units.MillimetresPerInch, inside * Units.MillimetresPerInch);
+
+    private static readonly PipeSize[] CopperTypeLSizes =
+    {
+        Inches("3/8\"", 0.500, 0.430), Inches("1/2\"", 0.625, 0.545), Inches("3/4\"", 0.875, 0.785), Inches("1\"", 1.125, 1.025),
+        Inches("1-1/4\"", 1.375, 1.265), Inches("1-1/2\"", 1.625, 1.505), Inches("2\"", 2.125, 1.985), Inches("2-1/2\"", 2.625, 2.465)
+    };
+
+    private static readonly PipeSize[] PexCtsSizes =
+    {
+        Inches("3/8\"", 0.500, 0.360), Inches("1/2\"", 0.625, 0.485), Inches("3/4\"", 0.875, 0.681), Inches("1\"", 1.125, 0.875),
+        Inches("1-1/4\"", 1.375, 1.069), Inches("1-1/2\"", 1.625, 1.263), Inches("2\"", 2.125, 1.653)
+    };
+
     /// <summary>PVC-U's sizes by their nominal bore - what Approved Document H sizes traps, branches, stacks and drains by - with their outside diameters.</summary>
     private static readonly PipeSize[] PvcSizes =
     {
@@ -74,6 +110,8 @@ public static class PipeSizes
         PipeMaterial.StainlessSteel => StainlessSizes,
         PipeMaterial.PeX => PeXSizes,
         PipeMaterial.PvcU => PvcSizes,
+        PipeMaterial.CopperTypeL => CopperTypeLSizes,
+        PipeMaterial.PexCts => PexCtsSizes,
         _ => SteelSizes
     };
 
@@ -96,7 +134,8 @@ public static class PipeSizes
         PipeSizingColumn Column(int size, int load, int? highest = null, double? length = null) => new(sizes[size], load, highest, length);
         return material switch
         {
-            PipeMaterial.PvcU => Array.Empty<PipeSizingColumn>(),
+            // Drain pipe, and the US's copper tube sizes, which the IRC sizes instead.
+            PipeMaterial.PvcU or PipeMaterial.CopperTypeL or PipeMaterial.PexCts => Array.Empty<PipeSizingColumn>(),
             PipeMaterial.GalvanisedSteel => new[]
             {
                 Column(0, 6, 4, 10), Column(1, 16, 15, 6), Column(2, 40), Column(3, 160), Column(4, 300), Column(5, 600), Column(6, 1600)
@@ -151,13 +190,20 @@ public static class PipeSizes
     /// A fixture's water-supply fixture units in a dwelling, IRC Table P2903.6 (combined hot and
     /// cold): a lavatory 0.7, a tank WC 2.2, a bathtub, shower, kitchen sink, dishwasher or clothes washer 1.4.
     /// </summary>
-    public static double FixtureUnits(Architecture.ComponentForm form) => form switch
+    public static double FixtureUnits(Architecture.ComponentForm form) => FixtureUnitsOf(form).Combined;
+
+    /// <summary>
+    /// A fixture's water-supply fixture units, IRC Table P2903.6, hot, cold and the two together: a
+    /// lavatory 0.5, 0.5 and 0.7; a bathtub, shower, kitchen sink or clothes washer 1.0, 1.0 and 1.4;
+    /// a dishwasher 1.4 hot; a tank WC 2.2 cold.
+    /// </summary>
+    public static (double Hot, double Cold, double Combined) FixtureUnitsOf(Architecture.ComponentForm form) => form switch
     {
-        Architecture.ComponentForm.Basin => 0.7,
-        Architecture.ComponentForm.Toilet or Architecture.ComponentForm.WallHungToilet => 2.2,
-        Architecture.ComponentForm.Bath or Architecture.ComponentForm.Shower or Architecture.ComponentForm.Sink
-            or Architecture.ComponentForm.Dishwasher or Architecture.ComponentForm.WashingMachine => 1.4,
-        _ => 0
+        Architecture.ComponentForm.Basin => (0.5, 0.5, 0.7),
+        Architecture.ComponentForm.Toilet or Architecture.ComponentForm.WallHungToilet => (0, 2.2, 2.2),
+        Architecture.ComponentForm.Bath or Architecture.ComponentForm.Shower or Architecture.ComponentForm.Sink or Architecture.ComponentForm.WashingMachine => (1.0, 1.0, 1.4),
+        Architecture.ComponentForm.Dishwasher => (1.4, 0, 1.4),
+        _ => (0, 0, 0)
     };
 }
 
@@ -181,7 +227,9 @@ public sealed class PipeType : ElementType
         new PipeType("Stainless Steel", PipeMaterial.StainlessSteel) { TypeMark = "PI3", AssemblyCode = "D2020", Cost = 38m },
         new PipeType("Galvanised Steel", PipeMaterial.GalvanisedSteel) { TypeMark = "PI4", AssemblyCode = "D2020", Cost = 30m },
         new PipeType("PVC-U Soil and Waste - BS EN 1329", PipeMaterial.PvcU) { TypeMark = "PI5", AssemblyCode = "D2030", Cost = 16m },
-        new PipeType("PVC-U Drain - BS EN 1401", PipeMaterial.PvcU) { TypeMark = "PI6", AssemblyCode = "G3020", Cost = 45m }
+        new PipeType("PVC-U Drain - BS EN 1401", PipeMaterial.PvcU) { TypeMark = "PI6", AssemblyCode = "G3020", Cost = 45m },
+        new PipeType("Copper - Type L (ASTM B88)", PipeMaterial.CopperTypeL) { TypeMark = "PI7", AssemblyCode = "D2020", Cost = 26m },
+        new PipeType("PEX - CTS SDR 9 (ASTM F876)", PipeMaterial.PexCts) { TypeMark = "PI8", AssemblyCode = "D2020", Cost = 9m }
     };
 
     public static string Title(PipeMaterial material) => material switch
@@ -190,6 +238,8 @@ public sealed class PipeType : ElementType
         PipeMaterial.PeX => "PE-X",
         PipeMaterial.GalvanisedSteel => "Galvanised Steel",
         PipeMaterial.PvcU => "PVC-U",
+        PipeMaterial.CopperTypeL => "Copper Type L",
+        PipeMaterial.PexCts => "PEX (CTS)",
         _ => "Copper"
     };
 

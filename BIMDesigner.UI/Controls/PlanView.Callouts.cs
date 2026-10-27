@@ -84,7 +84,7 @@ public partial class PlanView
 
         if (Math.Abs(at.X - first.X) < Callouts.Smallest || Math.Abs(at.Y - first.Y) < Callouts.Smallest)
         {
-            HintChanged?.Invoke(this, $"A callout is at least {Callouts.Smallest:0} mm each way: click further from the first corner.");
+            HintChanged?.Invoke(this, $"A callout is at least {Core.Units.Millimetres(Callouts.Smallest, "0")} each way: click further from the first corner.");
             return false;
         }
 

@@ -160,7 +160,7 @@ public partial class PlanView
             _pipeRun.Clear();
             if (commands.Count > 0) Apply(new CompositeCommand("Split Pipe", commands));
             HintChanged?.Invoke(this, drains
-                ? $"A {_pipeKind.Title().ToLowerInvariant()} pipe from here, {(_pipeUpstream ? "rising" : "falling")} {NewPipeFall:0} mm a metre: click where it goes, and end it on {(_pipeUpstream ? "a fitting" : "a stack, a drain or an outfall")}. Esc to stop."
+                ? $"A {_pipeKind.Title().ToLowerInvariant()} pipe from here, {(_pipeUpstream ? "rising" : "falling")} {Core.Units.FormatFall(NewPipeFall)}: click where it goes, and end it on {(_pipeUpstream ? "a fitting" : "a stack, a drain or an outfall")}. Esc to stop."
                 : $"A {(_pipeKind == SystemKind.Heating ? _pipeReturn ? "heating return" : "heating flow" : _pipeKind.Title().ToLowerInvariant())} pipe from here: click where it goes - it runs level {Core.Units.FormatLength(_pipeHeight - level.Elevation)} up - and end it on a fitting or a pipe. Esc to stop.");
             InvalidateVisual();
             return true;
@@ -193,13 +193,13 @@ public partial class PlanView
         {
             if (drainage && !_pipeUpstream && end.Z > along.Z)
             {
-                HintChanged?.Invoke(this, $"That is {(end.Z - along.Z) / 1000:0.00} m higher than the pipe gets to, falling {NewPipeFall:0} mm a metre: it would drain uphill.");
+                HintChanged?.Invoke(this, $"That is {Core.Units.Metres(end.Z - along.Z, "0.00")} higher than the pipe gets to, falling {Core.Units.FormatFall(NewPipeFall)}: it would drain uphill.");
                 return false;
             }
 
             if (drainage && _pipeUpstream && end.Z < along.Z)
             {
-                HintChanged?.Invoke(this, $"That is {(along.Z - end.Z) / 1000:0.00} m lower than the pipe gets to, rising {NewPipeFall:0} mm a metre: it would drain uphill.");
+                HintChanged?.Invoke(this, $"That is {Core.Units.Metres(along.Z - end.Z, "0.00")} lower than the pipe gets to, rising {Core.Units.FormatFall(NewPipeFall)}: it would drain uphill.");
                 return false;
             }
 
@@ -261,14 +261,14 @@ public partial class PlanView
         if (joins)
         {
             _pipeFrom = null;
-            HintChanged?.Invoke(this, $"Pipe joined, {length / 1000:0.00} m.{said} Click where the next run starts.");
+            HintChanged?.Invoke(this, $"Pipe joined, {Core.Units.Metres(length, "0.00")}.{said} Click where the next run starts.");
         }
         else
         {
             _pipeFrom = points[^1];
             _pipeHeight = points[^1].Z;
             _pipeFromFitting = false;
-            HintChanged?.Invoke(this, $"Pipe {length / 1000:0.00} m. Click where it goes next, or end it on a fitting or a pipe; Esc to stop.");
+            HintChanged?.Invoke(this, $"Pipe {Core.Units.Metres(length, "0.00")}. Click where it goes next, or end it on a fitting or a pipe; Esc to stop.");
         }
 
         ModelChanged?.Invoke(this, EventArgs.Empty);

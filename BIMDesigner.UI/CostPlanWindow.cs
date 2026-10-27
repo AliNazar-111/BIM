@@ -101,7 +101,9 @@ internal sealed class CostPlanWindow : System.Windows.Window
             .ToList();
         var status = Document.Construction.StatusDate ?? DateOnly.FromDateTime(DateTime.Today);
         _curve.Show(CostPlanning.CashFlow(Document), Document.Construction.Tasks.Count > 0 ? CostPlanning.Earned(Document, status) : null, currency);
-        _summary.Text = $"{Money(plan.Total)} in all - {plan.FloorArea:0.#} m² of floor, {Money(plan.PerSquareMetre)} a m².";
+        _summary.Text = Core.Units.Imperial
+            ? $"{Money(plan.Total)} in all - {Core.Units.FormatArea(plan.FloorArea * Core.Units.SquareMillimetresPerSquareMetre)} of floor, {Money(plan.PerSquareMetre * (decimal)(Core.Units.SquareMillimetresPerSquareFoot / Core.Units.SquareMillimetresPerSquareMetre))} a sq ft."
+            : $"{Money(plan.Total)} in all - {plan.FloorArea:0.#} m² of floor, {Money(plan.PerSquareMetre)} a m².";
         ShowSettings();
     }
 
@@ -157,7 +159,7 @@ internal sealed class CostPlanWindow : System.Windows.Window
         {
             using var file = File.Create(dialog.FileName);
             CostReports.WriteXlsx(file, Document);
-            _problem.Text = $"Saved {Path.GetFileName(dialog.FileName)}.";
+            DialogLook.Say(_problem, $"Saved {Path.GetFileName(dialog.FileName)}.");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { _problem.Text = exception.Message; }
     }

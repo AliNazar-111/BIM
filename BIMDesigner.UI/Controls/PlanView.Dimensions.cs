@@ -31,7 +31,7 @@ public partial class PlanView
     private DimensionReference? _radialTarget;
 
     private Guid ActiveDimensionType() =>
-        Document?.FindType<DimensionType>(ActiveDimensionTypeId)?.Id ?? Document?.TypesOf<DimensionType>().FirstOrDefault()?.Id ?? Guid.Empty;
+        Document?.FindType<DimensionType>(ActiveDimensionTypeId)?.Id ?? (Document is null ? null : DimensionTypes.Starting(Document)?.Id) ?? Guid.Empty;
 
     /// <summary>A line to measure an angle or a radius to: a wall's line, by the options bar's preference, or a gridline - not a wall's end.</summary>
     private DimensionReference? LineReferenceAt(Point2D point)

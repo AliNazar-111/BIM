@@ -252,7 +252,7 @@ public static class Heating
                         $"its floor gives {floor.Flux:0} W/m² at most - BS EN 1264 keeps a floor's surface within 9 K of the room where people are - so the rest of the room's heat wants another emitter");
                 if (floor.Type.PipeSpacing > 0 && floor.FloorArea * 1e6 / floor.Type.PipeSpacing > LongestLoop)
                     yield return new MepProblem(floor.Component,
-                        $"its {floor.FloorArea:0.0} m² takes about {floor.FloorArea / (floor.Type.PipeSpacing / 1000):0} m of pipe at {floor.Type.PipeSpacing:0} mm centres - more than the 100 m a loop is kept to; it wants {Math.Ceiling(floor.FloorArea * 1e6 / floor.Type.PipeSpacing / LongestLoop):0} loops");
+                        $"its {Units.OfSquareMetres(floor.FloorArea, "0.0")} takes about {Units.Metres(floor.FloorArea * 1e6 / floor.Type.PipeSpacing, "0")} of pipe at {Units.Millimetres(floor.Type.PipeSpacing, "0")} centres - more than the {Units.Metres(LongestLoop, "0")} a loop is kept to; it wants {Math.Ceiling(floor.FloorArea * 1e6 / floor.Type.PipeSpacing / LongestLoop):0} loops");
                 if (floor.Flow > ScreedFlow + 0.01)
                     yield return new MepProblem(floor.Component, $"its water flows at {floor.Flow:0} °C - over a cement screed, the flow is kept to 55 °C at most");
             }
@@ -344,7 +344,7 @@ public static class Heating
                     .FirstOrDefault();
                 if (fits.Type is null)
                 {
-                    unmet.Add($"{loss.Name}: {share:#,0} W is more than one radiator {tall:0} high gives at {radiator.Flow:0}/{radiator.Return:0} °C");
+                    unmet.Add($"{loss.Name}: {share:#,0} W is more than one radiator {Units.Bare(tall)} high gives at {radiator.Flow:0}/{radiator.Return:0} °C");
                     continue;
                 }
 

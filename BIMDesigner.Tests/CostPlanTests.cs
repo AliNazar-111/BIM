@@ -35,6 +35,24 @@ public class CostPlanTests
     }
 
     [Fact]
+    public void ATemplateBeamIsCostedByTheMetreItsSteelByItsWeight()
+    {
+        var document = BimDocument.CreateDefault();
+
+        // Every beam a project starts with has a rate - none costs nothing.
+        Assert.All(document.TypesOf<BeamType>(), type => Assert.True(type.Cost > 0, $"{type.Name} has no rate"));
+
+        // Steel at about 3 a kilogram: a UB 203x133x25 at its 25 kg a metre, about 75; the heavier, the dearer.
+        var ub = document.TypesOf<BeamType>().Single(type => type.Name == "UB 203x133x25");
+        Assert.InRange(ub.Cost, 70m, 80m);
+        Assert.True(document.TypesOf<BeamType>().Single(type => type.Name == "UB 457x191x67").Cost > 2.5m * ub.Cost);
+
+        var beam = new Beam { TypeId = ub.Id, LevelId = document.Levels[1].Id, Start = new BIMDesigner.Core.Geometry.Point2D(0, 0), End = new BIMDesigner.Core.Geometry.Point2D(6000, 0) };
+        document.Add(beam);
+        Assert.Equal(6 * ub.Cost, CostPlanning.CostOf(document, beam), 2);
+    }
+
+    [Fact]
     public void InEnglandTheCostPlanIsSetOutByNrm1()
     {
         var document = ConstructionTests.House();

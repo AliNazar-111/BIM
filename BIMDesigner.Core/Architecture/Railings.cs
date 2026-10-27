@@ -488,6 +488,9 @@ public static class Railings
     /// <summary>How far in from a slab's edge guarding put up along it runs - its rail's middle, mm.</summary>
     public const double EdgeInset = 50;
 
+    // A load as a US project says it: pounds, and pounds a foot.
+    private const double PoundsPerKilonewton = 224.809, FeetPerMetre = 3.28084;
+
     private static readonly RailingType Fallback = RailingType.Library()[0];
 
     public static RailingType TypeOf(BimDocument document, Railing railing) => document.FindType<RailingType>(railing.TypeId) ?? Fallback;
@@ -725,12 +728,12 @@ public static class Railings
 
         // Across a window: Approved Document K's 800 from the floor; under the IRC, the 24 in a window's own sill would give.
         if (Host(document, railing) is { Opening: Window })
-            return us ? (610, "the IRC asks for 610 (24 in) across a window from the floor") : (800, "Approved Document K asks for 800 across a window from the floor");
+            return us ? (610, $"the IRC asks for {Units.Figure("610", "24 in")} across a window from the floor") : (800, "Approved Document K asks for 800 across a window from the floor");
 
         if (us)
             return railing.Building == RailingBuilding.Dwelling
-                ? (914, "the IRC asks for 914 (36 in) round a home")
-                : (1067, "the IBC asks for 1067 (42 in) in a building other than a home");
+                ? (914, $"the IRC asks for {Units.Figure("914", "36 in")} round a home")
+                : (1067, $"the IBC asks for {Units.Figure("1067", "42 in")} in a building other than a home");
 
         if (railing.Building == RailingBuilding.Other) return (1100, "Approved Document K asks for 1100 in a building other than a dwelling");
         return railing.Outside
@@ -750,8 +753,8 @@ public static class Railings
         if (TypeOf(document, railing).Use == RailingUse.Fence) return (0, 0, "a fence guards no drop");
         if (document.ProjectInformation.ClearanceStandard.IsUs())
             return railing.Building == RailingBuilding.Dwelling
-                ? (0, 0.89, "the IRC asks a guard round a home to take 200 lb (0.89 kN) at any point on its top")
-                : (0.73, 0.89, "the IBC asks a guard to take 50 lb/ft (0.73 kN/m) along its top and 200 lb (0.89 kN) at any point on it");
+                ? (0, 0.89, $"the IRC asks a guard round a home to take 200 lb{Units.MetricAside("0.89 kN")} at any point on its top")
+                : (0.73, 0.89, $"the IBC asks a guard to take 50 lb/ft{Units.MetricAside("0.73 kN/m")} along its top and 200 lb{Units.MetricAside("0.89 kN")} at any point on it");
 
         const string annex = "BS EN 1991-1-1's UK National Annex asks";
         if (railing.Building == RailingBuilding.Other) return (1.5, 1.5, $"{annex} 1.5 kN/m along its top and 1.5 kN at a point where people gather");
@@ -779,20 +782,20 @@ public static class Railings
         var stands = EffectiveHeight(document, railing);
         if (stands < height - 0.5)
             problems.Add(Math.Abs(stands - type.Height) < 1
-                ? $"It is {type.Height:0} high: {rule}."
-                : $"It stands {stands:0} over the floor it guards, at its lowest: {rule}.");
+                ? $"It is {Units.Bare(type.Height)} high: {rule}."
+                : $"It stands {Units.Bare(stands)} over the floor it guards, at its lowest: {rule}.");
 
         // Nothing a child's head goes through: 100 mm, the IRC's 4 in (102) - between balusters, rails, panes, under it and at its ends.
-        var (sphere, said) = us ? (102.0, "the IRC asks for less than 102 (4 in)") : (100.0, "Approved Document K asks for less than 100");
+        var (sphere, said) = us ? (102.0, $"the IRC asks for less than {Units.Figure("102", "4 in")}") : (100.0, "Approved Document K asks for less than 100");
         if (type.Infill == RailingInfill.Balusters && Clear(type) >= sphere)
-            problems.Add($"Its balusters are {Clear(type):0} apart: {said}, so a child's head cannot pass.");
+            problems.Add($"Its balusters are {Units.Bare(Clear(type))} apart: {said}, so a child's head cannot pass.");
         if (type.Infill is RailingInfill.HorizontalBars or RailingInfill.Cables && BarGap(type) >= sphere)
-            problems.Add($"Its {(type.Infill == RailingInfill.Cables ? "cables" : "rails")} are {BarGap(type):0} apart: {said}, so a child's head cannot pass.");
+            problems.Add($"Its {(type.Infill == RailingInfill.Cables ? "cables" : "rails")} are {Units.Bare(BarGap(type))} apart: {said}, so a child's head cannot pass.");
         if (type.Infill == RailingInfill.FramelessGlass && type.GlassJoint >= sphere)
-            problems.Add($"Its panes are {type.GlassJoint:0} apart: {said}, so a child's head cannot pass.");
-        if (type.Infill != RailingInfill.FramelessGlass && type.BottomGap >= sphere) problems.Add($"It stands {type.BottomGap:0} clear of the floor: {said} under it.");
+            problems.Add($"Its panes are {Units.Bare(type.GlassJoint)} apart: {said}, so a child's head cannot pass.");
+        if (type.Infill != RailingInfill.FramelessGlass && type.BottomGap >= sphere) problems.Add($"It stands {Units.Bare(type.BottomGap)} clear of the floor: {said} under it.");
         foreach (var (_, gap, what) in EndGaps(document, railing))
-            problems.Add($"Its end stands {gap:0} clear of {what}: {said} there too.");
+            problems.Add($"Its end stands {Units.Bare(gap)} clear of {what}: {said} there too.");
 
         // Rails along are a ladder: not for a home, where children are.
         if (!us && railing.Building == RailingBuilding.Dwelling)
@@ -814,7 +817,9 @@ public static class Railings
         // Made for the loads its place asks.
         var (line, point, loads) = RequiredLoad(document, railing);
         if (type.LineLoad < line - 0.005 || type.PointLoad < point - 0.005)
-            problems.Add($"It is made for {type.LineLoad:0.##} kN/m along its top and {type.PointLoad:0.##} kN at a point: {loads}.");
+            problems.Add(Units.Imperial
+                ? $"It is made for {type.LineLoad * PoundsPerKilonewton / FeetPerMetre:0} lb/ft along its top and {type.PointLoad * PoundsPerKilonewton:0} lb at a point: {loads}."
+                : $"It is made for {type.LineLoad:0.##} kN/m along its top and {type.PointLoad:0.##} kN at a point: {loads}.");
 
         return problems;
     }
@@ -1193,17 +1198,17 @@ public static class Railings
             made.Add(railing);
         }
 
-        string Metres(double mm) => $"{mm / 1000:0.0} m";
+        string Metres(double mm) => $"{Units.Metres(mm, "0.0")}";
         var left = new List<string>();
         if (walled > 0) left.Add($"{Metres(walled)} against walls");
         if (joined > 0) left.Add($"{Metres(joined)} where a floor carries on");
         if (atStairs > 0) left.Add($"{Metres(atStairs)} where a stair or a ramp comes up");
         if (guarded > 0) left.Add($"{Metres(guarded)} guarded already");
-        if (low > 0) left.Add($"{Metres(low)} dropping {GuardedDrop(document, building):0} or less");
+        if (low > 0) left.Add($"{Metres(low)} dropping {Units.Bare(GuardedDrop(document, building))} or less");
         var lengths = made.Sum(Length);
         message = made.Count == 0
-            ? $"Nothing to guard: no edge of it drops more than {GuardedDrop(document, building):0} with nothing there{(left.Count > 0 ? $" ({string.Join(", ", left)})" : "")}."
-            : $"Guarded {Metres(lengths)} of its edge, {string.Join(", ", made.Select(railing => TypeOf(document, railing).Height).Distinct().Select(height => $"{height:0}"))} high{(left.Count > 0 ? $"; left open {string.Join(", ", left)}" : "")}.";
+            ? $"Nothing to guard: no edge of it drops more than {Units.Bare(GuardedDrop(document, building))} with nothing there{(left.Count > 0 ? $" ({string.Join(", ", left)})" : "")}."
+            : $"Guarded {Metres(lengths)} of its edge, {string.Join(", ", made.Select(railing => TypeOf(document, railing).Height).Distinct().Select(height => Units.Bare(height)))} high{(left.Count > 0 ? $"; left open {string.Join(", ", left)}" : "")}.";
         return made;
     }
 
@@ -1266,9 +1271,9 @@ public static class Railings
         var length = open.Sum(edge => Polygon2D.Perimeter(edge.Points) - (edge.Closed ? 0 : edge.Points[^1].DistanceTo(edge.Points[0])));
         var drop = open.Max(edge => edge.Drop);
         var standard = document.ProjectInformation.ClearanceStandard;
-        var asked = standard.IsUs() ? "the IRC asks for a guard 36 in (914) high" : slab is Roof || !Within(document, slab.LevelId, Polygon2D.Centroid(slab.Boundary, slab.Boundary[0]))
+        var asked = standard.IsUs() ? $"the IRC asks for a guard 36 in{Units.MetricAside("914")} high" : slab is Roof || !Within(document, slab.LevelId, Polygon2D.Centroid(slab.Boundary, slab.Boundary[0]))
             ? "Approved Document K asks for guarding 1100 high round a balcony or a roof"
             : "Approved Document K asks for guarding 900 high at a floor's edge inside a home";
-        return $"{length / 1000:0.0} m of its edge drops {drop:0} with no guarding: {asked} - Guard Edges puts it up.";
+        return $"{Units.Metres(length, "0.0")} of its edge drops {Units.Bare(drop)} with no guarding: {asked} - Guard Edges puts it up.";
     }
 }

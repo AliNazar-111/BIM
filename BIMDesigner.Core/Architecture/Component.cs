@@ -799,7 +799,7 @@ public sealed class Component : Element, IHostedElement
             {
                 var (_, area, rooms, openings) = Views.Sight.Of(document, this);
                 var named = openings.Select(opening => string.IsNullOrWhiteSpace(opening.Mark) ? opening.Category == BuiltInCategory.Doors ? "a door" : "a window" : opening.Mark).ToList();
-                return $"{area:0} m² in sight{(rooms.Count > 0 ? $"; {string.Join(", ", rooms)}" : string.Empty)}{(named.Count > 0 ? $"; {named.Count} door{(named.Count == 1 ? "" : "s")} and windows: {string.Join(", ", named.Take(12))}" : string.Empty)}";
+                return $"{Units.OfSquareMetres(area, "0")} in sight{(rooms.Count > 0 ? $"; {string.Join(", ", rooms)}" : string.Empty)}{(named.Count > 0 ? $"; {named.Count} door{(named.Count == 1 ? "" : "s")} and windows: {string.Join(", ", named.Take(12))}" : string.Empty)}";
             });
             yield return ParameterValue.ReadOnly(ComponentParameters.ViewOut, () =>
                 Views.ViewOut.From(document, LevelId, Location, Views.Walker.Of(type!, us).EyeHeight, null, new HashSet<Guid> { Id }).Said);
@@ -850,7 +850,7 @@ public sealed class Component : Element, IHostedElement
                 yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.DesignOutput, () => Mep.Heating.OutputOf(document, this) switch
                 {
                     null => "Not in a heated room",
-                    { Floor: true } floor => $"{floor.Watts:#,0} W at {floor.Flow:0}/{floor.Return:0} °C - {floor.Flux:0} W/m² over {floor.FloorArea:0.0} m², the floor at {floor.SurfaceTemperature:0.0} °C",
+                    { Floor: true } floor => $"{floor.Watts:#,0} W at {floor.Flow:0}/{floor.Return:0} °C - {floor.Flux:0} W/m² over {Units.OfSquareMetres(floor.FloorArea, "0.0")}, the floor at {floor.SurfaceTemperature:0.0} °C",
                     var output => $"{output.Watts:#,0} W at {output.Flow:0}/{output.Return:0} °C"
                 });
 
@@ -862,7 +862,7 @@ public sealed class Component : Element, IHostedElement
             if (Mep.MepSystems.MemberOf(document, this, Mep.SystemKind.HotWater) is { } hot && Mep.PipeNetworks.PipesOf(document, hot).Count > 0)
                 yield return ParameterValue.ReadOnly(Mep.MepSystemParameters.HotWaterRun, () =>
                     Mep.PipeNetworks.Trace(document, hot).RunTo.TryGetValue(this, out var run)
-                        ? $"{run / 1000:0.0} m of pipe from {document.FindType<ComponentType>(Mep.MepSystems.SourceOf(document, hot)?.TypeId ?? Guid.Empty)?.Name ?? "its source"}"
+                        ? $"{Units.Metres(run, "0.0")} of pipe from {document.FindType<ComponentType>(Mep.MepSystems.SourceOf(document, hot)?.TypeId ?? Guid.Empty)?.Name ?? "its source"}"
                         : "No pipe reaches it yet");
         }
 

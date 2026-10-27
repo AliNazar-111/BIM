@@ -35,7 +35,7 @@ internal static class DialogLook
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         problem.VerticalAlignment = VerticalAlignment.Center;
         problem.TextTrimming = TextTrimming.CharacterEllipsis;
-        problem.Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x4A));
+        problem.Foreground = Problem;
         grid.Children.Add(problem);
         var right = new StackPanel { Orientation = Orientation.Horizontal };
         foreach (var button in buttons)
@@ -52,6 +52,23 @@ internal static class DialogLook
         footer.SetResourceReference(Border.BorderBrushProperty, "Line");
         DockPanel.SetDock(footer, Dock.Bottom);
         return footer;
+    }
+
+    /// <summary>The red what is wrong is said in.</summary>
+    private static readonly Brush Problem = new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x4A));
+
+    /// <summary>Says something in a footer that is news, not a fault - saved, made, how many - in the muted text colour.</summary>
+    public static void Say(TextBlock line, string text)
+    {
+        line.Text = text;
+        line.SetResourceReference(TextBlock.ForegroundProperty, "Text.Muted");
+    }
+
+    /// <summary>Says what is wrong in a footer, in red.</summary>
+    public static void Warn(TextBlock line, string text)
+    {
+        line.Text = text;
+        line.Foreground = Problem;
     }
 
     public static TextBlock Intro(string text)

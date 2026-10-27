@@ -35,13 +35,14 @@ public static class Supports
         {
             case Pipe pipe:
             {
-                var material = document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper;
+                var material = (document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper).Like();
                 var d = pipe.Diameter;
                 if (us)
                     return material switch
                     {
+                        // 1-1/4" and under, 1" and under - a CTS tube an eighth over its nominal outside.
                         PipeMaterial.Copper => d <= 35 ? (6 * Foot, 10 * Foot, "IRC Table P2605.1") : (10 * Foot, 10 * Foot, "IRC Table P2605.1"),
-                        PipeMaterial.PeX => d <= 28 ? (32 * 25.4, 10 * Foot, "IRC Table P2605.1") : (4 * Foot, 10 * Foot, "IRC Table P2605.1"),
+                        PipeMaterial.PeX => d <= 29 ? (32 * 25.4, 10 * Foot, "IRC Table P2605.1") : (4 * Foot, 10 * Foot, "IRC Table P2605.1"),
                         PipeMaterial.PvcU => (4 * Foot, 10 * Foot, "IRC Table P2605.1"),
                         PipeMaterial.GalvanisedSteel => (12 * Foot, 15 * Foot, "IRC Table P2605.1"),
                         _ => (10 * Foot, 10 * Foot, "IRC Table P2605.1")
@@ -122,7 +123,7 @@ public static class Supports
         var upright = service is Pipe { Upright: true } or Duct { Upright: true };
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var spacing = upright ? up : along;
-        return $"{count} {(service is Duct ? "hanger" : "clip")}{(count == 1 ? string.Empty : "s")}, {(us ? $"{spacing / Foot:0.#} ft" : $"{spacing / 1000:0.0#} m")} apart at most {(upright ? "up it" : "along it")} ({source})";
+        return $"{count} {(service is Duct ? "hanger" : "clip")}{(count == 1 ? string.Empty : "s")}, {(us ? $"{spacing / Foot:0.#} ft" : $"{Units.Metres(spacing, "0.0#")}")} apart at most {(upright ? "up it" : "along it")} ({source})";
     }
 
     /// <summary>What one support costs: a pipe clip or a duct hanger and its fixing.</summary>
@@ -176,7 +177,7 @@ public static class ServiceClearances
                 var apart = Distance(start, end, box) - pipe.Diameter / 2;
                 if (apart < least - 0.5)
                 {
-                    yield return new MepProblem(pipe, $"it runs {Math.Max(apart, 0):0} mm from a {(type.Form == ComponentForm.ConsumerUnit ? "consumer unit" : type.Form == ComponentForm.Socket ? "socket" : "switch")} - BS 6891 (8.4.2) keeps gas pipe {least} mm from {(least == 150 ? "consumer units and electricity meters" : "cables, switches and sockets")}");
+                    yield return new MepProblem(pipe, $"it runs {Units.Millimetres(Math.Max(apart, 0), "0")} from a {(type.Form == ComponentForm.ConsumerUnit ? "consumer unit" : type.Form == ComponentForm.Socket ? "socket" : "switch")} - BS 6891 (8.4.2) keeps gas pipe {least} mm from {(least == 150 ? "consumer units and electricity meters" : "cables, switches and sockets")}");
                     break;
                 }
             }

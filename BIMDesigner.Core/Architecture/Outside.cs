@@ -63,7 +63,7 @@ public static class Outside
                     var zone = (shrub ? 0.75 : ZoneFactor(type.WaterDemand)) * type.Height;
                     var demand = type.WaterDemand == TreeWaterDemand.Unknown ? "high (as one of no named species is taken)" : EnumText.Humanise(type.WaterDemand).ToLowerInvariant();
                     if (apart < zone - 0.5)
-                        problems.Add(new PlacementProblem(piece, $"it is {apart / 1000:0.0} m from the building, inside the {zone / 1000:0.0} m round it its roots may dry a clay soil.",
+                        problems.Add(new PlacementProblem(piece, $"it is {Units.Metres(apart, "0.0")} from the building, inside the {Units.Metres(zone, "0.0")} round it its roots may dry a clay soil.",
                             shrub
                                 ? "NHBC Standards 4.2 (Table 6) keep a shrub over 1.8 m tall 0.75 times its mature height from foundations not taken deeper."
                                 : $"NHBC Standards 4.2 put a {demand} water demand tree's zone of influence at {ZoneFactor(type.WaterDemand)} times its mature height (Table 3): foundations inside it on a shrinkable clay go deeper (Tables 4 and 5), an engineer's design past 2.5 m.",
@@ -72,7 +72,7 @@ public static class Outside
 
                 // A tree kept on the site: its roots kept clear of the building.
                 if (!shrub && piece.PhaseCreated == DesignPhase.Existing && type.StemDiameter > 0 && RootProtection(type) is var root && apart < root - 0.5)
-                    problems.Add(new PlacementProblem(piece, $"it is {apart / 1000:0.0} m from the building, inside its {root / 1000:0.0} m root protection area.",
+                    problems.Add(new PlacementProblem(piece, $"it is {Units.Metres(apart, "0.0")} from the building, inside its {Units.Metres(root, "0.0")} root protection area.",
                         us
                             ? "Keep building out of a kept tree's critical root zone: 1 ft for each inch of its trunk's diameter - 12 times it."
                             : "BS 5837 keeps building out of a kept tree's root protection area: a circle 12 times its stem's diameter, 15 m at most.",
@@ -88,13 +88,13 @@ public static class Outside
                 // Its size.
                 var (wide, deep, sizeRule) = (accessible, us) switch
                 {
-                    (true, true) => (3962.0, 0.0, "ADA 502.2 asks for an accessible space 96 in (2438) wide with a 60 in (1524) aisle beside it."),
+                    (true, true) => (3962.0, 0.0, $"ADA 502.2 asks for an accessible space 96 in{Units.MetricAside("2438")} wide with a 60 in{Units.MetricAside("1524")} aisle beside it."),
                     (true, false) => (3600.0, 6000.0, "Approved Document M (M4(3) 3.12) asks for a 2.4 x 4.8 m bay with 1.2 m to one side and behind it - 3.6 x 6.0 m."),
                     (false, false) => (2400.0, 4800.0, "Approved Document M's standard parking bay is 2.4 x 4.8 m."),
                     _ => (0.0, 0.0, string.Empty)
                 };
                 if (type.Width < wide - 0.5 || type.Depth < deep - 0.5)
-                    problems.Add(new PlacementProblem(piece, $"at {type.Width / 1000:0.00} x {type.Depth / 1000:0.00} m it is too small.", sizeRule, footprint));
+                    problems.Add(new PlacementProblem(piece, $"at {(Units.Imperial ? Units.FeetAndInches(type.Width) : $"{type.Width / 1000:0.00}")} x {Units.Metres(type.Depth, "0.00")} it is too small.", sizeRule, footprint));
 
                 // How steep the ground under it is, along it and across it.
                 var frame = ComponentModel.FrameOf(piece, 0);

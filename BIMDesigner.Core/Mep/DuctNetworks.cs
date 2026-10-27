@@ -436,7 +436,7 @@ public static class DuctNetworks
         var network = Trace(document, system);
         if (!network.Loads.ContainsKey(duct))
             return MepSystems.SourceOf(document, system) is null ? $"{system.Name} has no unit feeding it" : $"Not joined to the unit feeding {system.Name}";
-        if (Carried(document, duct, network) is not { } carried) return $"{network.Loads[duct].FromSource / 1000:0.0} m from the unit - no valve beyond it yet";
+        if (Carried(document, duct, network) is not { } carried) return $"{Units.Metres(network.Loads[duct].FromSource, "0.0")} from the unit - no valve beyond it yet";
         var index = IndexOf(document, network);
         var limit = LimitOf(document, network, index.Flow);
         var end = system.Kind == SystemKind.OutsideAir ? "terminal" : "valve";
@@ -583,7 +583,7 @@ public static class DuctNetworks
                             yield return new MepProblem(duct, "flexible duct away from a valve - Approved Document F (1.77) keeps flexible duct to the final connection");
                     }
                     else if (final.First == duct && final.Length > LongestFlexible + 0.5)
-                        yield return new MepProblem(duct, $"flexible duct {final.Length / 1000:0.00} m long to its valve - Approved Document F (1.77) keeps it to 1.5 m");
+                        yield return new MepProblem(duct, $"flexible duct {Units.Metres(final.Length, "0.00")} long to its valve - Approved Document F (1.77) keeps it to 1.5 m");
                 }
 
                 // Too fast for ACCA Manual D.
@@ -592,7 +592,7 @@ public static class DuctNetworks
 
                 // Insulated as where it runs asks.
                 if (InsulationAsked(document, duct) is var (thickness, rule) && duct.Insulation < thickness - 0.5)
-                    yield return new MepProblem(duct, $"{(duct.Insulation > 0 ? $"insulated with {duct.Insulation:0} mm" : "not insulated")} - {rule}");
+                    yield return new MepProblem(duct, $"{(duct.Insulation > 0 ? $"insulated with {Units.Millimetres(duct.Insulation, "0")}" : "not insulated")} - {rule}");
             }
 
             if (us) continue;

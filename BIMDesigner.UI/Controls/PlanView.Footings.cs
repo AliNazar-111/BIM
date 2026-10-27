@@ -47,7 +47,7 @@ public partial class PlanView
         var footing = Footings.Fit(Document, wall, Document.FindType<FootingType>(ActiveWallFootingTypeId));
         Apply(new AddElementCommand(Document, footing, "Wall Foundation"));
         Select(footing);
-        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(footing.TypeId)?.Name ?? "A footing"} under the wall, {Footings.DepthBelowGround(Document, footing) ?? footing.Depth:0} below the ground. {StructureRules.Verdict(Document, footing)}.");
+        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(footing.TypeId)?.Name ?? "A footing"} under the wall, {Core.Units.FormatMm(Footings.DepthBelowGround(Document, footing) ?? footing.Depth)} below the ground. {StructureRules.Verdict(Document, footing)}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -85,7 +85,7 @@ public partial class PlanView
 
         Apply(new AddElementCommand(Document, pad, "Isolated Foundation"));
         Select(pad);
-        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(pad.TypeId)?.Name ?? "A pad"}, {Footings.DepthBelowGround(Document, pad) ?? pad.Depth:0} below the ground. {StructureRules.Verdict(Document, pad)}.");
+        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(pad.TypeId)?.Name ?? "A pad"}, {Core.Units.FormatMm(Footings.DepthBelowGround(Document, pad) ?? pad.Depth)} below the ground. {StructureRules.Verdict(Document, pad)}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

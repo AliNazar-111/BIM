@@ -201,8 +201,89 @@ public class PipesTests
         Assert.Contains(MepSystems.Problems(document), problem => problem.Element == basin && problem.Text.Contains("IRC P2905.3"));
         Assert.Equal($"{pipe.Length / 1000:0.0} m of pipe from Boiler - Gas Combi",
             basin.GetInstanceParameters(document).Single(parameter => parameter.Name == "Hot Water Run").Value);
-        Assert.Contains("0.7 water-supply fixture units (IRC Table P2903.6)", PipeNetworks.Describe(document, pipe));
+        // Its hot pipe carries the basin's hot water-supply fixture units, 0.5 (IRC Table P2903.6).
+        Assert.Contains("0.5 water-supply fixture units (IRC Table P2903.6)", PipeNetworks.Describe(document, pipe));
         Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Text.Contains("BS EN 806-3"));
+    }
+
+    [Fact]
+    public void InTheUsWaterPipesAreSizedByTheIrcsAppendixAp()
+    {
+        // Table AP201.1 read as the code reads it: the pressure range, the developed length column,
+        // the main for the whole demand and each segment under the same or next smaller meter.
+        Assert.Equal(1, IrcWaterSizing.RangeOf(45));
+        Assert.Null(IrcWaterSizing.RangeOf(25));
+        Assert.Equal(3, IrcWaterSizing.ColumnOf(95));
+        Assert.Null(IrcWaterSizing.ColumnOf(520));
+        var row = IrcWaterSizing.Main(1, 3, 20)!;
+        Assert.Equal((0.75, 1.0), (row.Meter, row.Distribution));
+        Assert.Equal(0.75, IrcWaterSizing.Segment(1, 3, 5, row));
+        Assert.Equal(0.5, IrcWaterSizing.Segment(1, 3, 1.4, row));
+        Assert.Equal(1.0, IrcWaterSizing.Segment(1, 3, 25, row));
+        Assert.Equal("1-1/4\"", IrcWaterSizing.Name(1.25));
+        Assert.Equal("3/4\"", IrcWaterSizing.SizeOf(PipeMaterial.CopperTypeL, 0.75).Name);
+        Assert.Equal("22 x 1.0", IrcWaterSizing.SizeOf(PipeMaterial.Copper, 0.75).Name);
+
+        // A US house: the main in from the stop valve to a tee, a basin, a bath and the water heater
+        // off it, and the heater's hot to the basin and the bath - in Type L copper.
+        var document = BimDocument.CreateDefault();
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
+        document.ProjectInformation.WaterPressure = 45;
+        var copper = document.TypesOf<PipeType>().First(type => type.Material == PipeMaterial.CopperTypeL);
+        Pipe Copper(Point3D from, Point3D to, MepSystem system)
+        {
+            var pipe = Run(document, from, to, system, 15.875);
+            pipe.TypeId = copper.Id;
+            return pipe;
+        }
+
+        var valve = Put(document, "Stop Valve - Incoming Main", 0, 0);
+        var basin = Put(document, "Basin - Pedestal", 3000, 2000);
+        var bath = Put(document, "Bath - 1700 x 700", 8000, -3000);
+        var heater = Put(document, "Water Heater - Electric 50 gal", 3000, -3000);
+        var cold = Make(document, SystemKind.ColdWater, valve, basin, bath, heater);
+        var hot = Make(document, SystemKind.HotWater, heater, basin, bath);
+
+        var start = ConnectorOf(document, valve, SystemKind.ColdWater);
+        var tee = new Point3D(3000, 0, start.Z);
+        var main = Copper(start, tee, cold);
+        var toBasin = Copper(tee, ConnectorOf(document, basin, SystemKind.ColdWater), cold);
+        Copper(tee, ConnectorOf(document, bath, SystemKind.ColdWater), cold);
+        var toHeater = Copper(tee, ConnectorOf(document, heater, SystemKind.ColdWater), cold);
+        var drawOff = Connectors.Placed(document, heater).First(placed => placed.Connector.Kind == SystemKind.HotWater && placed.Connector.Feeds).At;
+        var hotTee = new Point3D(5000, -1000, drawOff.Z);
+        var hotMain = Copper(drawOff, hotTee, hot);
+        Copper(hotTee, ConnectorOf(document, basin, SystemKind.HotWater), hot);
+        Copper(hotTee, ConnectorOf(document, bath, SystemKind.HotWater), hot);
+
+        // The fixture units each pipe carries: both supplies of a fixture through it together, one alone its own.
+        var network = PipeNetworks.Trace(document, cold);
+        Assert.Equal(0.7 + 1.4, network.Loads[main].FixtureUnits, 6);
+        Assert.Equal(0.5, network.Loads[toBasin].FixtureUnits, 6);
+        Assert.Equal(0.5 + 1.0, network.Loads[toHeater].FixtureUnits, 6);
+        Assert.Equal(0.5 + 1.0, PipeNetworks.Trace(document, hot).Loads[hotMain].FixtureUnits, 6);
+
+        // Read at 40 to 49 psi and 60 ft - its pipe and a fifth more for its fittings: a 3/4" main for 2.1 fixture units, 1/2" after it.
+        var water = PipeNetworks.UsWaterOf(document, hot);
+        Assert.Same(cold, water.Supply);
+        Assert.Equal((1, 1), (water.Range, water.Column));
+        Assert.Equal((0.75, 0.75), (water.Main!.Meter, water.Main.Distribution));
+        var sized = PipeNetworks.Sized(document, new[] { cold, hot }).ToDictionary(entry => entry.Pipe, entry => entry.Diameter);
+        Assert.Equal(0.875 * 25.4, sized[main], 3);
+        Assert.False(sized.ContainsKey(toBasin));
+        Assert.Contains("2.1 water-supply fixture units (IRC Table P2903.6)", PipeNetworks.Describe(document, main));
+        Assert.Contains("Appendix AP asks 3/4\" (Table AP201.1, 40 to 49 psi, 60 ft)", PipeNetworks.Describe(document, main));
+
+        // The main left at 1/2" is too small; the water over 80 psi wants a pressure-reducing valve; under 30 the table goes no further.
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == main && problem.Text.Contains("too small at 1/2\"") && problem.Text.Contains("Appendix AP asks 3/4\""));
+        document.ProjectInformation.WaterPressure = 85;
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == valve && problem.Text.Contains("IRC P2903.3.2"));
+        document.ProjectInformation.WaterPressure = 25;
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Text.Contains("cannot be sized by the IRC's Appendix AP: the water is at"));
+        Assert.Empty(PipeNetworks.Sized(document, new[] { cold, hot }));
+
+        // The pressure kept in the file.
+        Assert.Equal(25, ProjectFile.FromJson(ProjectFile.ToJson(document)).ProjectInformation.WaterPressure, 6);
     }
 
     [Fact]
@@ -218,7 +299,7 @@ public class PipesTests
         var saved = reopened.All<Pipe>().Single(pipe => pipe.Id == main.Id);
         Assert.Equal((main.Start, main.End, main.StartOffset, main.EndOffset, main.Diameter, SystemKind.ColdWater, cold.Id, "P1"),
             (saved.Start, saved.End, saved.StartOffset, saved.EndOffset, saved.Diameter, saved.Kind, saved.SystemId!.Value, saved.Mark));
-        Assert.Equal(6, reopened.TypesOf<PipeType>().Count());
+        Assert.Equal(PipeType.Library().Count, reopened.TypesOf<PipeType>().Count());
         Assert.True(reopened.ProjectInformation.WaterOptionalRequirement);
         Assert.Equal(180, reopened.TypesOf<ComponentType>().First(type => type.Name == "Bath - 1700 x 700").Capacity);
 

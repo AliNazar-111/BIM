@@ -148,7 +148,7 @@ internal sealed class SystemsWindow : System.Windows.Window
         _summary.Text = systems.Count == 0 && open.Count == 0
             ? "No fittings with services yet. Place them from Systems → Fitting, select some and Make System."
             : $"{systems.Count} system{(systems.Count == 1 ? string.Empty : "s")}; {open.Count} fitting{(open.Count == 1 ? string.Empty : "s")} not connected; {problems.Count} thing{(problems.Count == 1 ? string.Empty : "s")} wanting." +
-              (pipes.Count > 0 ? $" {pipes.Sum(pipe => pipe.Length) / 1000:0.0} m of pipe." : string.Empty) +
+              (pipes.Count > 0 ? $" {Core.Units.Metres(pipes.Sum(pipe => pipe.Length), "0.0")} of pipe." : string.Empty) +
               (document.ProjectInformation.ClearanceStandard.IsUs() ? string.Empty : $"\nWater use: {WaterUse.Assess(document).Said}.") +
               (Ventilation.Designed(document) && Ventilation.WholeDwelling(document) is var (whole, _, _)
                   ? Ventilation.TypeOf(document) switch

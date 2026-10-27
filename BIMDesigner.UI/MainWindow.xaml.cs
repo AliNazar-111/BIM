@@ -144,7 +144,7 @@ public partial class MainWindow : Window
             var (callout, before, after) = (cropped.Callout, cropped.Before, cropped.Callout.Region);
             _history.Record(new DelegateCommand("Crop Callout", () => callout.Region = after, () => callout.Region = before));
             AfterHistoryChange();
-            StatusHint.Text = $"{callout.Name} cropped to {after.Width / 1000:0.00} m by {after.Height / 1000:0.00} m.";
+            StatusHint.Text = $"{callout.Name} cropped to {Core.Units.Metres(after.Width, "0.00")} by {Core.Units.Metres(after.Height, "0.00")}.";
         };
 
         // Clicking something in an interior elevation selects it everywhere, as in 3D.
@@ -493,6 +493,12 @@ public partial class MainWindow : Window
         _document = document;
         _path = path;
 
+        // Shown and typed in its own units from here on: a US project in feet and inches, snapping to 4 in.
+        Core.Units.System = document.ProjectInformation.Units;
+        Plan.SnapStepMm = Core.Units.Imperial ? 4 * Core.Units.MillimetresPerInch : 100;
+        StatusGrid.Text = $"Grid: {Core.Units.FormatLength(Plan.SnapStepMm)}";
+        StartToolFigures();
+
         // A project opened is shown whole, not as built on a date of the last one's programme.
         Model3D.ConstructionDate = null;
         Dispatcher.BeginInvoke(RaiseCoordinationChanged);
@@ -748,7 +754,9 @@ public partial class MainWindow : Window
             DimensionPreferPicker.SelectedItem = DimensionPreferences.First(entry => entry.Value == Plan.DimensionPrefer).Key;
             var styles = _document.TypesOf<DimensionType>().OrderBy(type => type.Name).ToList();
             DimensionTypePicker.ItemsSource = styles;
-            DimensionTypePicker.SelectedItem = styles.FirstOrDefault(type => type.Id == Plan.ActiveDimensionTypeId) ?? _document.TypesOf<DimensionType>().FirstOrDefault();
+            // What the tool dimensions in is what the picker shows: feet and inches in a US project.
+            DimensionTypePicker.SelectedItem = styles.FirstOrDefault(type => type.Id == Plan.ActiveDimensionTypeId) ?? DimensionTypes.Starting(_document);
+            Plan.ActiveDimensionTypeId = (DimensionTypePicker.SelectedItem as DimensionType)?.Id ?? Guid.Empty;
             DimensionStringBox.IsChecked = Plan.DimensionString;
             DimensionStringBox.Visibility = tool == PlanTool.Dimension ? Visibility.Visible : Visibility.Collapsed;
             _loadingOptions = false;
@@ -1310,10 +1318,10 @@ public partial class MainWindow : Window
         StairTurnPicker.SelectedIndex = Plan.NewStairTurnsLeft ? 1 : 0;
         StairTurnPicker.Visibility = Plan.NewStairShape is StairShape.Straight or StairShape.Bifurcated or StairShape.Custom or StairShape.AlternatingTread or StairShape.Ladder
             ? Visibility.Collapsed : Visibility.Visible;
-        StairWidthBox.Text = Plan.NewStairWidth.ToString("0");
+        StairWidthBox.Text = LengthText(Plan.NewStairWidth);
         var round = Plan.NewStairShape is StairShape.Spiral or StairShape.Curved ? Visibility.Visible : Visibility.Collapsed;
         (StairRadiusLabel.Visibility, StairRadiusBox.Visibility) = (round, round);
-        StairRadiusBox.Text = Plan.NewStairInnerRadius.ToString("0");
+        StairRadiusBox.Text = LengthText(Plan.NewStairInnerRadius);
         _loadingOptions = false;
     }
 
@@ -1353,7 +1361,7 @@ public partial class MainWindow : Window
         BeamTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveBeamTypeId)
                                       ?? StartingType(types, _document.ProjectInformation.ClearanceStandard.IsUs() ? new[] { "W8x10", "W" } : new[] { "UB 203x133x25", "UB" });
         Plan.ActiveBeamTypeId = (BeamTypePicker.SelectedItem as BeamType)?.Id ?? Guid.Empty;
-        BeamOffsetBox.Text = Plan.ActiveBeamOffset.ToString("0");
+        BeamOffsetBox.Text = LengthText(Plan.ActiveBeamOffset);
         _loadingOptions = false;
     }
 
@@ -1362,14 +1370,14 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
 
         if (BeamTypePicker.SelectedItem is BeamType type) Plan.ActiveBeamTypeId = type.Id;
-        if (double.TryParse(BeamOffsetBox.Text, out var offset) && Math.Abs(offset) <= 20000) Plan.ActiveBeamOffset = offset;
+        if (TryLength(BeamOffsetBox.Text, out var offset) && Math.Abs(offset) <= 20000) Plan.ActiveBeamOffset = offset;
         ShowBeamOptions();
     }
 
     private void ShowGroundOptions()
     {
         _loadingOptions = true;
-        GroundElevationBox.Text = Plan.ActiveGroundElevation.ToString("0");
+        GroundElevationBox.Text = LengthText(Plan.ActiveGroundElevation);
         GroundUnitsPicker.ItemsSource ??= new[] { "In millimetres", "In metres" };
         if (GroundUnitsPicker.SelectedIndex < 0) GroundUnitsPicker.SelectedIndex = 1;
         _loadingOptions = false;
@@ -1378,7 +1386,7 @@ public partial class MainWindow : Window
     private void OnGroundOptionChanged(object sender, RoutedEventArgs e)
     {
         if (_loadingOptions || Plan is null) return;
-        if (double.TryParse(GroundElevationBox.Text, out var elevation) && Math.Abs(elevation) <= 100000) Plan.ActiveGroundElevation = elevation;
+        if (TryLength(GroundElevationBox.Text, out var elevation) && Math.Abs(elevation) <= 100000) Plan.ActiveGroundElevation = elevation;
         ShowGroundOptions();
     }
 
@@ -1413,7 +1421,7 @@ public partial class MainWindow : Window
         _loadingOptions = true;
         PadSurfacePicker.ItemsSource ??= EnumText.Choices<GroundSurface>();
         PadSurfacePicker.SelectedItem = EnumText.Humanise(Plan.ActivePadSurface);
-        PadOffsetBox.Text = Plan.ActivePadOffset.ToString("0");
+        PadOffsetBox.Text = LengthText(Plan.ActivePadOffset);
         PadBatterBox.Text = Plan.ActivePadBatter.ToString("0.##");
         _loadingOptions = false;
     }
@@ -1422,7 +1430,7 @@ public partial class MainWindow : Window
     {
         if (_loadingOptions || Plan is null) return;
         if (PadSurfacePicker.SelectedItem is string surface && EnumText.TryParse<GroundSurface>(surface, out var picked)) Plan.ActivePadSurface = picked;
-        if (double.TryParse(PadOffsetBox.Text, out var offset) && Math.Abs(offset) <= 20000) Plan.ActivePadOffset = offset;
+        if (TryLength(PadOffsetBox.Text, out var offset) && Math.Abs(offset) <= 20000) Plan.ActivePadOffset = offset;
         if (double.TryParse(PadBatterBox.Text, out var batter) && batter is >= 0 and <= 100) Plan.ActivePadBatter = batter;
         ShowPadOptions();
     }
@@ -1434,7 +1442,7 @@ public partial class MainWindow : Window
         MassFootprintPicker.SelectedItem = EnumText.Humanise(Plan.ActiveMassFootprint);
         MassTopPicker.ItemsSource ??= EnumText.Choices<MassTop>();
         MassTopPicker.SelectedItem = EnumText.Humanise(Plan.ActiveMassTop);
-        MassHeightBox.Text = Plan.ActiveMassHeight.ToString("0");
+        MassHeightBox.Text = LengthText(Plan.ActiveMassHeight);
         MassPitchBox.Text = Plan.ActiveMassPitch.ToString("0.#");
         MassScaleBox.Text = Plan.ActiveMassTopScale.ToString("0.##");
         MassPitchLabel.Visibility = MassPitchBox.Visibility = Plan.ActiveMassTop is MassTop.Gable or MassTop.Hip or MassTop.Shed ? Visibility.Visible : Visibility.Collapsed;
@@ -1447,7 +1455,7 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
         if (MassFootprintPicker.SelectedItem is string footprint && EnumText.TryParse<MassFootprint>(footprint, out var drawn)) Plan.ActiveMassFootprint = drawn;
         if (MassTopPicker.SelectedItem is string top && EnumText.TryParse<MassTop>(top, out var topped)) Plan.ActiveMassTop = topped;
-        if (double.TryParse(MassHeightBox.Text, out var height) && height is >= 300 and <= 500000) Plan.ActiveMassHeight = height;
+        if (TryLength(MassHeightBox.Text, out var height) && height is >= 300 and <= 500000) Plan.ActiveMassHeight = height;
         if (double.TryParse(MassPitchBox.Text, out var pitch) && pitch is >= 1 and <= 75) Plan.ActiveMassPitch = pitch;
         if (double.TryParse(MassScaleBox.Text, out var scale) && scale is >= 0 and < 1) Plan.ActiveMassTopScale = scale;
         ShowMassOptions();
@@ -1466,14 +1474,14 @@ public partial class MainWindow : Window
     private void ShowPropertyLineOptions()
     {
         _loadingOptions = true;
-        SetbackBox.Text = Plan.ActiveSetback.ToString("0");
+        SetbackBox.Text = LengthText(Plan.ActiveSetback);
         _loadingOptions = false;
     }
 
     private void OnPropertyLineOptionChanged(object sender, RoutedEventArgs e)
     {
         if (_loadingOptions || Plan is null) return;
-        if (double.TryParse(SetbackBox.Text, out var setback) && setback is >= 0 and <= 100000) Plan.ActiveSetback = setback;
+        if (TryLength(SetbackBox.Text, out var setback) && setback is >= 0 and <= 100000) Plan.ActiveSetback = setback;
         ShowPropertyLineOptions();
     }
 
@@ -1491,7 +1499,7 @@ public partial class MainWindow : Window
         RegionSurfacePicker.ItemsSource ??= EnumText.Choices<GroundSurface>();
         RegionSurfacePicker.SelectedItem = EnumText.Humanise(Plan.ActiveGroundSurface);
         RegionPathBox.IsChecked = Plan.DrawingPath;
-        PathWidthBox.Text = Plan.ActivePathWidth.ToString("0");
+        PathWidthBox.Text = LengthText(Plan.ActivePathWidth);
         PathWidthBox.IsEnabled = Plan.DrawingPath;
         _loadingOptions = false;
     }
@@ -1501,7 +1509,7 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
         if (RegionSurfacePicker.SelectedItem is string surface && EnumText.TryParse<GroundSurface>(surface, out var picked)) Plan.ActiveGroundSurface = picked;
         Plan.DrawingPath = RegionPathBox.IsChecked == true;
-        if (double.TryParse(PathWidthBox.Text, out var width) && width is >= 300 and <= 20000) Plan.ActivePathWidth = width;
+        if (TryLength(PathWidthBox.Text, out var width) && width is >= 300 and <= 20000) Plan.ActivePathWidth = width;
         ShowRegionOptions();
     }
 
@@ -1513,7 +1521,7 @@ public partial class MainWindow : Window
         JoistTypePicker.SelectedItem = types.FirstOrDefault(type => type.Id == Plan.ActiveJoistTypeId)
                                        ?? types.FirstOrDefault(type => type.Name.Contains("47x200", StringComparison.Ordinal)) ?? types.FirstOrDefault();
         Plan.ActiveJoistTypeId = (JoistTypePicker.SelectedItem as BeamType)?.Id ?? Guid.Empty;
-        JoistSpacingBox.Text = Plan.ActiveJoistSpacing.ToString("0");
+        JoistSpacingBox.Text = LengthText(Plan.ActiveJoistSpacing);
         _loadingOptions = false;
     }
 
@@ -1521,7 +1529,7 @@ public partial class MainWindow : Window
     {
         if (_loadingOptions || Plan is null) return;
         if (JoistTypePicker.SelectedItem is BeamType type) Plan.ActiveJoistTypeId = type.Id;
-        if (double.TryParse(JoistSpacingBox.Text, out var spacing) && spacing is >= 100 and <= 3000) Plan.ActiveJoistSpacing = spacing;
+        if (TryLength(JoistSpacingBox.Text, out var spacing) && spacing is >= 100 and <= 3000) Plan.ActiveJoistSpacing = spacing;
         ShowJoistOptions();
     }
 
@@ -1579,7 +1587,7 @@ public partial class MainWindow : Window
         _history.Execute(new CompositeCommand(made.Count == 1 ? "Juliet Balcony" : $"{made.Count} Juliet Balconies",
             made.Select(railing => (IUndoableCommand)new AddElementCommand(_document, railing, "Juliet Balcony")).ToList()));
         AfterHistoryChange();
-        StatusHint.Text = $"{(made.Count == 1 ? "A Juliet balcony" : $"{made.Count} Juliet balconies")} across {(made.Count == 1 ? "it" : "them")}, {Railings.TypeOf(_document, made[0]).Height:0} high from the sill: {Railings.Verdict(_document, made[0])}.";
+        StatusHint.Text = $"{(made.Count == 1 ? "A Juliet balcony" : $"{made.Count} Juliet balconies")} across {(made.Count == 1 ? "it" : "them")}, {Units.FormatMm(Railings.TypeOf(_document, made[0]).Height)} high from the sill: {Railings.Verdict(_document, made[0])}.";
     }
 
     /// <summary>All Round, on the floor, balcony or roof terrace picked: one railing round every side of it.</summary>
@@ -1603,8 +1611,8 @@ public partial class MainWindow : Window
         if (StairShapePicker.SelectedItem is string shape && EnumText.TryParse<StairShape>(shape, out var picked)) Plan.NewStairShape = picked;
         Plan.NewStairCorner = StairCornerPicker.SelectedIndex switch { 1 => StairCorner.Winders, 2 => StairCorner.BalancedWinders, _ => StairCorner.Landing };
         Plan.NewStairTurnsLeft = StairTurnPicker.SelectedIndex == 1;
-        if (double.TryParse(StairWidthBox.Text, out var width) && width is >= 500 and <= 5000) Plan.NewStairWidth = width;
-        if (double.TryParse(StairRadiusBox.Text, out var radius) && radius is >= 0 and <= 10000) Plan.NewStairInnerRadius = radius;
+        if (TryLength(StairWidthBox.Text, out var width) && width is >= 500 and <= 5000) Plan.NewStairWidth = width;
+        if (TryLength(StairRadiusBox.Text, out var radius) && radius is >= 0 and <= 10000) Plan.NewStairInnerRadius = radius;
         ShowStairOptions();
         Plan.InvalidateVisual();
     }
@@ -1633,9 +1641,9 @@ public partial class MainWindow : Window
         RampTurnPicker.Visibility = Plan.NewRampShape is RampShape.QuarterTurn or RampShape.HalfTurn ? Visibility.Visible : Visibility.Collapsed;
         RampBuildingPicker.ItemsSource ??= new[] { "In a dwelling", "In another building" };
         RampBuildingPicker.SelectedIndex = Plan.NewRampBuilding == RailingBuilding.Other ? 1 : 0;
-        RampWidthBox.Text = Plan.NewRampWidth.ToString("0");
+        RampWidthBox.Text = LengthText(Plan.NewRampWidth);
         RampGradientBox.Text = Plan.NewRampGradient.ToString("0.#");
-        RampRiseBox.Text = Plan.NewRampRise is { } rise ? rise.ToString("0") : "Auto";
+        RampRiseBox.Text = Plan.NewRampRise is { } rise ? LengthText(rise) : "Auto";
         _loadingOptions = false;
     }
 
@@ -1653,9 +1661,9 @@ public partial class MainWindow : Window
         if (building != Plan.NewRampBuilding && ReferenceEquals(sender, RampBuildingPicker))
             Plan.NewRampWidth = building == RailingBuilding.Other ? Math.Max(Plan.NewRampWidth, 1500) : Plan.NewRampWidth;
         Plan.NewRampBuilding = building;
-        if (double.TryParse(RampWidthBox.Text, out var width) && width is >= 600 and <= 6000 && !ReferenceEquals(sender, RampBuildingPicker)) Plan.NewRampWidth = width;
+        if (TryLength(RampWidthBox.Text, out var width) && width is >= 600 and <= 6000 && !ReferenceEquals(sender, RampBuildingPicker)) Plan.NewRampWidth = width;
         if (double.TryParse(RampGradientBox.Text, out var gradient) && gradient is >= 4 and <= 100) Plan.NewRampGradient = gradient;
-        Plan.NewRampRise = double.TryParse(RampRiseBox.Text, out var rise) && rise >= Ramps.MinimumRise && rise <= 10000 ? rise : null;
+        Plan.NewRampRise = TryLength(RampRiseBox.Text, out var rise) && rise >= Ramps.MinimumRise && rise <= 10000 ? rise : null;
         ShowRampOptions();
         Plan.InvalidateVisual();
     }
@@ -3026,7 +3034,7 @@ public partial class MainWindow : Window
         _history.Execute(FloorSurfaces.SetOn(_document, new[] { level }, floor));
         AfterHistoryChange();
         StatusHint.Text = $"{level.Name} now stands on the top of {_document.FindType<ElementType>(floor.TypeId)?.Name ?? "the floor"}: " +
-                          $"up {level.Elevation - before:0} mm to {level.Elevation:0}, with everything on it - each storey keeps its own height, and follows the floor however thick it is made.";
+                          $"up {Core.Units.Millimetres(level.Elevation - before, "0")} to {(Core.Units.Imperial ? Core.Units.FeetAndInches(level.Elevation) : $"{level.Elevation:0}")}, with everything on it - each storey keeps its own height, and follows the floor however thick it is made.";
         return true;
     }
 
@@ -4122,6 +4130,9 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition FrostDepthParameter = new("Frost Line (US, 0 = none)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition GroundSnowParameter = new("Ground Snow Load (US, psf)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
+    /// <summary>The water's static pressure where it comes in, that the IRC sizes a US house's pipes by (Table P2903.7).</summary>
+    private static readonly ParameterDefinition WaterPressureParameter = new("Water Pressure (US, psi)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+
     /// <summary>The wind's pressure on the cladding, that curtain wall mullions are checked against: from the wind map and the building's height and exposure.</summary>
     private static readonly ParameterDefinition WindPressureParameter = new("Wind Pressure on Cladding (kPa, with no wind speed)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
@@ -4242,6 +4253,11 @@ public partial class MainWindow : Window
             {
                 _document.ProjectInformation.GroundSnowLoad = Math.Max(0, snow);
                 Plan.RefreshModel();
+            }),
+            ParameterValue.Bind(WaterPressureParameter, () => _document.ProjectInformation.WaterPressure, pressure =>
+            {
+                _document.ProjectInformation.WaterPressure = Math.Clamp(pressure, 1, 200);
+                if (Plan.ShowClearances) ShowClearances(true);
             }),
             ParameterValue.Bind(WindSpeedParameter, () => _document.ProjectInformation.BasicWindSpeed, speed =>
             {
@@ -4649,7 +4665,7 @@ public partial class MainWindow : Window
         var walkthroughs = new TreeViewItem { Header = "Walkthroughs", IsExpanded = true };
         foreach (var walk in _document.All<Walkthrough>().OrderBy(walk => walk.Name, StringComparer.OrdinalIgnoreCase))
         {
-            var item = new TreeViewItem { Header = $"{walk.Name}  —  {walk.Length / 1000:0.0} m, {walk.Duration:0} s", Tag = walk };
+            var item = new TreeViewItem { Header = $"{walk.Name}  —  {Core.Units.Metres(walk.Length, "0.0")}, {walk.Duration:0} s", Tag = walk };
             item.MouseLeftButtonUp += (_, args) =>
             {
                 ShowWalkthrough(walk);
@@ -7222,8 +7238,8 @@ public partial class MainWindow : Window
 
     private void OnCursorMoved(object? sender, Point2D model)
     {
-        StatusX.Text = $"X: {model.X:0} mm";
-        StatusY.Text = $"Y: {model.Y:0} mm";
+        StatusX.Text = $"X: {Core.Units.Millimetres(model.X, "0")}";
+        StatusY.Text = $"Y: {Core.Units.Millimetres(model.Y, "0")}";
     }
 
     private void RefreshStatus() => StatusZoom.Text = $"Zoom {Plan.ZoomPercent:0}%";

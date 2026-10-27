@@ -225,6 +225,70 @@ public class StartUpTests
     });
 
     [Fact]
+    public void AUsProjectIsStartedShownAndTypedInFeetAndInches() => OnUiThread(() =>
+    {
+        T Field<T>(MainWindow window, string name) => (T)typeof(MainWindow).GetField(name, Hidden)!.GetValue(window)!;
+        void Call(MainWindow window, string method) => typeof(MainWindow).GetMethod(method, Hidden, Type.EmptyTypes)!.Invoke(window, null);
+
+        // The steps: the US template's storey height in feet and inches, 10'-0" to start with - and
+        // carried over, not misread, when the template is changed with a height typed.
+        var steps = new NewProjectSteps { Template = ProjectTemplate.UsHouse };
+        Assert.Equal("10'-0\"", steps.StoreyHeight.Text);
+        Assert.Equal(3048, steps.Spec.StoreyHeight, 1);
+        steps.StoreyHeight.Text = "9' 1 1/8\"";
+        Assert.Equal(2771.775, steps.Spec.StoreyHeight, 2);
+        steps.Template = ProjectTemplate.EnglandHouse;
+        Assert.Equal("2772", steps.StoreyHeight.Text);
+        steps.Template = ProjectTemplate.UsHouse;
+        Assert.Equal("9'-1 1/8\"", steps.StoreyHeight.Text);
+        steps.Template = ProjectTemplate.EnglandHouse;
+        steps.StoreyHeight.Text = "3000";
+        steps.Template = ProjectTemplate.UsHouse;
+        Assert.Equal("10'-0\"", steps.StoreyHeight.Text);
+
+        // Checked in feet: 6' refused, a bare 10 is ten feet.
+        Assert.True(steps.Next());
+        steps.ProjectName.Text = "Oak Lane";
+        Assert.True(steps.Next());
+        Assert.True(steps.Next());
+        steps.StoreyHeight.Text = "6'";
+        Assert.False(steps.Next());
+        Assert.Contains("feet and inches", steps.Problem);
+        steps.StoreyHeight.Text = "10";
+        Assert.True(steps.Next());
+        Assert.Equal(3048, steps.Spec.StoreyHeight, 1);
+
+        // Opened: the grid 4", the tools on round US figures - the ground 6" down, a mass 30' high,
+        // joists at 16" - shown in feet and inches, and typed in them.
+        var window = new MainWindow();
+        typeof(MainWindow).GetMethod("Begin", Hidden)!.Invoke(window, new object[] { new StartChoice(ProjectTemplates.Create(new NewProjectSpec { Template = ProjectTemplate.UsHouse }), null, "new") });
+        var plan = Field<BIMDesigner.UI.Controls.PlanView>(window, "Plan");
+        Assert.Equal("Grid: 4\"", Field<System.Windows.Controls.TextBlock>(window, "StatusGrid").Text);
+        Assert.Equal(-152.4, plan.ActiveGroundElevation, 3);
+        Assert.Equal(406.4, plan.ActiveJoistSpacing, 3);
+        Call(window, "ShowMassOptions");
+        var height = Field<System.Windows.Controls.TextBox>(window, "MassHeightBox");
+        Assert.Equal("30'-0\"", height.Text);
+        height.Text = "24' 6\"";
+        typeof(MainWindow).GetMethod("OnMassOptionChanged", Hidden)!.Invoke(window, new object[] { height, new RoutedEventArgs() });
+        Assert.Equal(7467.6, plan.ActiveMassHeight, 3);
+        Assert.Equal("24'-6\"", height.Text);
+
+        // A drain's fall in inches a foot.
+        Call(window, "ShowPipeOptions");
+        Assert.Equal("1/4\"", Field<System.Windows.Controls.TextBox>(window, "PipeFallBox").Text);
+        Assert.Equal("Fall (in/ft)", Field<System.Windows.Controls.TextBlock>(window, "PipeFallLabel").Text);
+
+        // An English project after it: millimetres again, and the tools back on round millimetres.
+        typeof(MainWindow).GetMethod("Begin", Hidden)!.Invoke(window, new object[] { new StartChoice(ProjectTemplates.Create(new NewProjectSpec()), null, "new") });
+        Assert.Equal("Grid: 100 mm", Field<System.Windows.Controls.TextBlock>(window, "StatusGrid").Text);
+        Assert.Equal(-150, plan.ActiveGroundElevation, 3);
+        Assert.Equal(9000, plan.ActiveMassHeight, 3);
+        Call(window, "ShowMassOptions");
+        Assert.Equal("9000", height.Text);
+    });
+
+    [Fact]
     public void TheHomeScreenListsRecentProjectsFindsThemAndOpensWhatIsPicked() => WithOwnRecentList(() => OnUiThread(() =>
     {
         var folder = Path.Combine(RecentProjects.Folder, "projects");

@@ -69,17 +69,17 @@ public static class Dwellings
         var storage = rooms
             .Where(entry => new[] { "store", "storage", "cupboard", "airing" }.Any(word => entry.Room.Name.Contains(word, StringComparison.OrdinalIgnoreCase)))
             .Sum(entry => entry.Boundary.Area) / 1e6;
-        var said = $"{bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}, {bedspaces} bedspace{(bedspaces == 1 ? string.Empty : "s")}, {storeys} storey{(storeys == 1 ? string.Empty : "s")}: rooms {area:0.0} m²";
+        var said = $"{bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}, {bedspaces} bedspace{(bedspaces == 1 ? string.Empty : "s")}, {storeys} storey{(storeys == 1 ? string.Empty : "s")}: rooms {Units.OfSquareMetres(area, "0.0")}";
 
         // A one-bedroom flat for one with a shower room, not a bath: 37 m².
         var showerRoom = bedrooms == 1 && bedspaces == 1 && storeys == 1
             && !document.All<Component>().Any(piece => document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.Bath);
         var wanting = new List<string>();
         if ((showerRoom ? 37 : AreaAsked(bedrooms, bedspaces, storeys)) is { } asked && area < asked - 0.05)
-            wanting.Add($"the Nationally Described Space Standard asks {asked:0} m² of gross internal area, which takes in the walls between the rooms - short if they do not make up the {asked - area:0.0} m²");
+            wanting.Add($"the Nationally Described Space Standard asks {Units.OfSquareMetres(asked, "0")} of gross internal area, which takes in the walls between the rooms - short if they do not make up the {Units.OfSquareMetres(asked - area, "0.0")}");
         var stored = StorageAsked(bedrooms, bedspaces);
         if (storage < stored - 0.05)
-            wanting.Add($"built-in storage {storage:0.0} m² in rooms called a store or cupboard - it asks {stored:0.0} m²");
+            wanting.Add($"built-in storage {Units.OfSquareMetres(storage, "0.0")} in rooms called a store or cupboard - it asks {Units.OfSquareMetres(stored, "0.0")}");
 
         return wanting.Count == 0 ? $"{said} - big enough" : $"{said} - {string.Join("; ", wanting)}";
     }

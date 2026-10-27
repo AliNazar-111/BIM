@@ -78,7 +78,7 @@ public sealed class WallTypePreview : FrameworkElement
         Label(dc, "INTERIOR", y - 12, dpi);
 
         var width = new FormattedText(
-            $"{total:0.#} mm", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            Core.Units.Imperial ? Core.Units.FeetAndInches(total) : $"{total:0.#} mm", CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface("Segoe UI"), 11, TextBrush, dpi);
         dc.DrawText(width, new Point(right - width.Width, y + 4));
     }

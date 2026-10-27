@@ -102,7 +102,7 @@ public static class OpeningGuarding
             if (guarded || opening.SillHeight > 600 || drop <= (us ? 762 : 600)) return Array.Empty<string>();
             return new[]
             {
-                us ? $"It opens onto a drop of {drop:0} with nothing outside it: the IRC asks for a guard 914 (36 in) high across it."
+                us ? $"It opens onto a drop of {Units.Bare(drop)} with nothing outside it: the IRC asks for a guard {Units.Figure("914", "36 in")} high across it."
                    : $"It opens onto a drop of {drop:0} with nothing outside it: Approved Document K asks for guarding across it 1100 high from the floor - a Juliet balcony."
             };
         }
@@ -117,7 +117,7 @@ public static class OpeningGuarding
         if (us)
         {
             if (!opens || guarded || openSill >= 610 || drop <= 1829) return Array.Empty<string>();
-            return new[] { $"It opens, its sill {openSill:0} above the floor and {drop:0} over the ground outside: the IRC asks for a window opening control device, or a guard across it, where a window is less than 610 (24 in) above the floor and more than 1829 (72 in) up (R312.2)." };
+            return new[] { $"It opens, its sill {Units.Bare(openSill)} above the floor and {Units.Bare(drop)} over the ground outside: the IRC asks for a window opening control device, or a guard across it, where a window is less than {Units.Figure("610", "24 in")} above the floor and more than {Units.Figure("1829", "72 in")} up (R312.2)." };
         }
 
         if (guarded || sill >= WindowGuard - 0.5 || drop <= 600) return Array.Empty<string>();
@@ -155,9 +155,9 @@ public static class OpeningGuarding
         if (low > 0)
             problems.Add($"{Count(low, "pane")} of its glass below 800, over a drop of {drop:0}, {(low == 1 ? "is" : "are")} the guarding: Approved Document K asks for it to be made as guarding - laminated glass (BS 6180) - or a rail across inside.");
         if (empty > 0)
-            problems.Add($"{Count(empty, "bay")} of it {(empty == 1 ? "is" : "are")} left open over a drop of {drop:0}: {(us ? "the IRC asks for a guard 914 (36 in) high" : "Approved Document K asks for guarding 1100 high")} across {(empty == 1 ? "it" : "them")}.");
+            problems.Add($"{Count(empty, "bay")} of it {(empty == 1 ? "is" : "are")} left open over a drop of {Units.Bare(drop)}: {(us ? $"the IRC asks for a guard {Units.Figure("914", "36 in")} high" : "Approved Document K asks for guarding 1100 high")} across {(empty == 1 ? "it" : "them")}.");
         if (doors > 0)
-            problems.Add($"{Count(doors, "door")} in it open{(doors == 1 ? "s" : "")} onto a drop of {drop:0} with nothing outside: {(us ? "the IRC asks for a guard 914 (36 in) high" : "Approved Document K asks for a Juliet balcony 1100 high")} across {(doors == 1 ? "it" : "each")}.");
+            problems.Add($"{Count(doors, "door")} in it open{(doors == 1 ? "s" : "")} onto a drop of {Units.Bare(drop)} with nothing outside: {(us ? $"the IRC asks for a guard {Units.Figure("914", "36 in")} high" : "Approved Document K asks for a Juliet balcony 1100 high")} across {(doors == 1 ? "it" : "each")}.");
         return problems;
     }
 
@@ -179,7 +179,7 @@ public static class OpeningGuarding
         var (from, to) = (opening.DistanceAlongWall - opening.WidthOf(type) / 2, opening.DistanceAlongWall + opening.WidthOf(type) / 2);
         return GuardAcross(document, wall, from, to, opening) is { } railing
             ? $"Guarded by a railing across it: {Railings.Verdict(document, railing)}"
-            : $"Over a drop of {drop:0}, high enough not to need guarding";
+            : $"Over a drop of {Units.Bare(drop)}, high enough not to need guarding";
     }
 
     /// <summary>A curtain wall's guarding, as its Properties say it.</summary>

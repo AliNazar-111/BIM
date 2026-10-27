@@ -130,8 +130,8 @@ public static class Alarms
                     .DefaultIfEmpty(double.MaxValue)
                     .Min();
                 if (cooker < 1828 - 0.5)
-                    problems.Add(new PlacementProblem(piece, $"it is {cooker:0} from the cooker.",
-                        "IRC R314.3.1 keeps a smoke alarm 6 ft (1828) from a cooking appliance - a photoelectric one; an ionization one 20 ft.", footprint));
+                    problems.Add(new PlacementProblem(piece, $"it is {Units.Bare(cooker)} from the cooker.",
+                        $"IRC R314.3.1 keeps a smoke alarm 6 ft{Units.MetricAside("1828")} from a cooking appliance - a photoelectric one; an ionization one 20 ft.", footprint));
 
                 var bathroomDoor = document.All<Room>()
                     .Where(other => other.LevelId == piece.LevelId)
@@ -143,8 +143,8 @@ public static class Alarms
                     .DefaultIfEmpty(double.MaxValue)
                     .Min();
                 if (bathroomDoor < 914 - 0.5)
-                    problems.Add(new PlacementProblem(piece, $"it is {bathroomDoor:0} from a bathroom's door.",
-                        "IRC R314.3 keeps a smoke alarm 3 ft (914) from the door of a bathroom with a tub or shower, out of its steam.", footprint));
+                    problems.Add(new PlacementProblem(piece, $"it is {Units.Bare(bathroomDoor)} from a bathroom's door.",
+                        $"IRC R314.3 keeps a smoke alarm 3 ft{Units.MetricAside("914")} from the door of a bathroom with a tub or shower, out of its steam.", footprint));
                 break;
             }
 
@@ -156,7 +156,7 @@ public static class Alarms
                     .OrderBy(appliance => appliance.Apart)
                     .FirstOrDefault();
                 if (near.Name is not null && (near.Apart < 1000 - 0.5 || near.Apart > 3000 + 0.5))
-                    problems.Add(new PlacementProblem(piece, $"it is {near.Apart / 1000:0.0} m from {near.Name}.",
+                    problems.Add(new PlacementProblem(piece, $"it is {Units.Metres(near.Apart, "0.0")} from {near.Name}.",
                         "Approved Document J (2.36, 3.45) puts a carbon monoxide alarm 1 to 3 m from the appliance, in its room.", footprint));
                 break;
             }
@@ -213,7 +213,7 @@ public static class Alarms
             var reach = bedroom ? 3000 : 7500;
             var nearest = doors.Min(NearestSmoke);
             if (nearest > reach + 0.5)
-                wanting.Add($"its door is {nearest / 1000:0.0} m from a smoke alarm - BS 5839-6 asks for one within {(bedroom ? "3 m of a bedroom's door" : "7.5 m of a room's door")}");
+                wanting.Add($"its door is {Units.Metres(nearest, "0.0")} from a smoke alarm - BS 5839-6 asks for one within {(bedroom ? "3 m of a bedroom's door" : "7.5 m of a room's door")}");
         }
 
         // A heat alarm in the kitchen of a house of three storeys or more: LD2.

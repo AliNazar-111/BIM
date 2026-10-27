@@ -323,7 +323,7 @@ public static partial class IfcExport
                 each.Name = $"{(type is null ? "Pipe" : type.Name)} {pipe.SizeName(type)}";
                 each.ObjectType = pipe.Kind.Title();
                 each.Tag = pipe.Mark;
-                each.PredefinedType = type?.Material == PipeMaterial.PeX ? IfcPipeSegmentTypeEnum.FLEXIBLESEGMENT : IfcPipeSegmentTypeEnum.RIGIDSEGMENT;
+                each.PredefinedType = type?.Material.Like() == PipeMaterial.PeX ? IfcPipeSegmentTypeEnum.FLEXIBLESEGMENT : IfcPipeSegmentTypeEnum.RIGIDSEGMENT;
                 each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
                 {
                     placement.PlacementRelTo = storey?.ObjectPlacement;

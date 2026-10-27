@@ -186,13 +186,13 @@ public static class SitePads
 
         if (worstKept is { } least && least < (us ? 152 : 150) - 0.5)
             problems.Add(us
-                ? $"Against the walls it is {least:0} below the floor: the IRC asks for 6 in (152) of foundation above the finished grade."
+                ? $"Against the walls it is {Units.Bare(least)} below the floor: the IRC asks for 6 in{Units.MetricAside("152")} of foundation above the finished grade."
                 : $"Against the walls it is {least:0} below the floor: Approved Document C asks for the damp-proof course 150 above it - keep it 150 down, or make it a level threshold drained at the door.");
         if (hard && toward)
             problems.Add("It falls toward the building: rain runs to the walls. Make it fall away from them.");
         else if (hard && tooFlat)
             problems.Add(us
-                ? "Against the walls it is too flat: the IRC and the IBC ask a hard surface within 10 ft (3048) of them to fall 1 in 48 (2%) away."
+                ? $"Against the walls it is too flat: the IRC and the IBC ask a hard surface within 10 ft{Units.MetricAside("3048")} of them to fall 1 in 48 (2%) away."
                 : "Against the walls it is level: give it a fall away from them - 1 in 48 (2%) or so - so rain runs off.");
         if (pad.Batter > 0 && pad.Batter < 1 - 1e-9)
             problems.Add($"Battered at 1 in {pad.Batter:0.##}, steeper than earth will stand: hold its edge with a retaining wall (a Batter of 0), or batter it 1 in 1 or gentler.");
@@ -351,7 +351,7 @@ public static class PropertyLines
 
         if (outside > 0) problems.Add("Walls of the building stand over the property line.");
         else if (line.Setback > 0 && nearest < line.Setback - 0.5)
-            problems.Add($"The building comes within {nearest / 1000:0.00} m of the property line: its setback is {line.Setback / 1000:0.00} m.");
+            problems.Add($"The building comes within {Units.Metres(nearest, "0.00")} of the property line: its setback is {Units.Metres(line.Setback, "0.00")}.");
         return problems;
     }
 
@@ -407,12 +407,11 @@ public static class SpotElevations
         return (level, "Level");
     }
 
-    /// <summary>Its label: what it reads, and the height in metres, signed - "FFL +0.000", "GL -0.450".</summary>
+    /// <summary>Its label: what it reads, and the height signed - in metres, "FFL +0.000", "GL -0.450"; in a US project "GL -0'-6"".</summary>
     public static string Label(BimDocument document, SpotElevation spot)
     {
         var (height, what) = Reading(document, spot);
         var prefix = what switch { "Floor" => "FFL", "Ground" => "GL", "Pad" => "PL", "Ramp" => "RL", "Roof" => "RL", _ => "LVL" };
-        var rounded = Math.Round(height / 1000, 3);
-        return $"{prefix} {(rounded < 0 ? "-" : "+")}{Math.Abs(rounded):0.000}";
+        return $"{prefix} {Units.Elevation(height)}";
     }
 }

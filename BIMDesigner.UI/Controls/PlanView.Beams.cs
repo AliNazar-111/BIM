@@ -55,7 +55,7 @@ public partial class PlanView
         _beamStart = at;
 
         var clearances = Beams.Verdict(Document, beam);
-        HintChanged?.Invoke(this, $"Beam in: {Beams.TypeOf(Document, beam).Name}, {beam.Length / 1000:0.00} m, its underside at {Beams.Bottom(Document, beam, 0):0}. {(clearances == "Clear" ? "" : clearances + " ")}Click where the next ends; Esc to stop.");
+        HintChanged?.Invoke(this, $"Beam in: {Beams.TypeOf(Document, beam).Name}, {Core.Units.Metres(beam.Length, "0.00")}, its underside at {Core.Units.FormatMm(Beams.Bottom(Document, beam, 0))}. {(clearances == "Clear" ? "" : clearances + " ")}Click where the next ends; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

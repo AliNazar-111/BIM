@@ -20,6 +20,9 @@ public sealed class ProjectInformation
     /// <summary>Whose rules the clear space round fittings is checked against: Approved Document M, or the ADA.</summary>
     public ClearanceStandard ClearanceStandard { get; set; } = ClearanceStandard.ApprovedDocumentM;
 
+    /// <summary>What it is shown and typed in: metric, or feet and inches - a US project's.</summary>
+    public UnitSystem Units { get; set; } = UnitSystem.Metric;
+
     /// <summary>
     /// Whether the building has a sprinkler system throughout - BS 9251 in England, IRC P2904 in
     /// the US. It lets a side near the boundary have more windows (Approved Document B 11.21), and
@@ -44,6 +47,12 @@ public sealed class ProjectInformation
 
     /// <summary>The ground snow load for a US house, psf - its jurisdiction's, from Table R301.2: what its roof and footings are sized for.</summary>
     public double GroundSnowLoad { get; set; } = 20;
+
+    /// <summary>
+    /// The water's static pressure where it comes in, psi - a US house's, from its water supplier:
+    /// what IRC Table P2903.7 sizes its pipes by. 40 to start, the least P2903.3 lets a supply have.
+    /// </summary>
+    public double WaterPressure { get; set; } = 40;
 
     /// <summary>
     /// The wind pressure on the cladding, kPa, where it is given rather than worked out from the
@@ -384,6 +393,10 @@ public sealed class BimDocument
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
+                     // The US's copper tube sizes came later: a project from before gains their pipe types by name.
+                     Mep.PipeType { Material: Mep.PipeMaterial.CopperTypeL or Mep.PipeMaterial.PexCts } => !_types.Values.OfType<Mep.PipeType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     // Feet and inches came later: a project from before gains the style by name.
+                     Annotation.DimensionType { Units: Annotation.DimensionUnits.FeetAndInches } => !_types.Values.OfType<Annotation.DimensionType>().Any(own => own.Units == Annotation.DimensionUnits.FeetAndInches),
                      _ => !present.Contains(type.Category)
                  }))
         {
@@ -2017,6 +2030,36 @@ public sealed class BimDocument
             {
                 TypeMark = "E5", Colour = new ColourRgb(0x9A, 0x9E, 0xA3), Cost = 320m, Ways = 40, SupplyRating = 200,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 900
+            },
+
+            // A US home's wiring devices on their 2¾ by 4½ in plates: a duplex receptacle 15 in up, the
+            // ADA's lowest reach (308.2.1); a 20 A one 42 in up, over a kitchen's countertop on its
+            // small-appliance circuit (NEC 210.11(C)(1)); a single-pole switch 42 in up, its top under
+            // the 48 in the ADA reaches to.
+            new ComponentType("Receptacle - Duplex 15 A", BuiltInCategory.ElectricalFixtures, ComponentForm.Socket, 70, 12, 114)
+            {
+                TypeMark = "E11", Colour = white, Cost = 4m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 381,
+                Description = "NEMA 5-15R, tamper-resistant (NEC 406.12)"
+            },
+            new ComponentType("Receptacle - Duplex 20 A Countertop", BuiltInCategory.ElectricalFixtures, ComponentForm.Socket, 70, 12, 114)
+            {
+                TypeMark = "E12", Colour = white, Cost = 7m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1067,
+                Description = "NEMA 5-20R, tamper-resistant (NEC 406.12)"
+            },
+            new ComponentType("Switch - Single Pole", BuiltInCategory.LightingDevices, ComponentForm.Switch, 70, 12, 114)
+            {
+                TypeMark = "E13", Colour = white, Cost = 3m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1067
+            },
+
+            // A US tank water heater: 50 gallons, electric, two 4500 W elements that never run
+            // together, on its own 240 V circuit (NEC 422.13); 22 in across and 59 in high.
+            new ComponentType("Water Heater - Electric 50 gal", BuiltInCategory.MechanicalEquipment, ComponentForm.HotWaterCylinder, 559, 559, 1499)
+            {
+                TypeMark = "M17", Colour = white, Cost = 650m, Load = 4500, AgainstWall = true,
+                Description = "Two 4500 W elements, not together; 240 V"
             },
             new ComponentType("Room Thermostat", BuiltInCategory.MechanicalEquipment, ComponentForm.Thermostat, 86, 25, 86)
             {

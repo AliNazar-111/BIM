@@ -19,6 +19,15 @@ internal sealed class HeatLossWindow : System.Windows.Window
     private readonly TextBlock _summary = new() { Margin = new Thickness(16, 12, 16, 8), TextWrapping = TextWrapping.Wrap, Opacity = 0.85 };
     private readonly TextBlock _problem = new();
 
+    // What a US project is shown in, from the watts and metres it is worked in.
+    private const double BtuPerHourPerWatt = 3.412142;
+    private const double SquareFeetPerSquareMetre = 10.76391;
+    private const double CubicFeetPerCubicMetre = 35.31467;
+    private const double CubicMetresPerHourPerCfm = 1.699011;
+    private const double UsUPerMetricU = 0.1761102;
+    private const double GallonsPerMinutePerKilogramPerSecond = 15.85032;
+    private const double PascalsPerFootOfHead = 2989.067;
+
     public HeatLossWindow(MainWindow main)
     {
         _main = main;
@@ -74,13 +83,19 @@ internal sealed class HeatLossWindow : System.Windows.Window
             return;
         }
 
+        // A US project's in its own units - Btu/h, sq ft, cfm and °F - worked the same way underneath.
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         string Degrees(double celsius) => us ? $"{celsius * 9 / 5 + 32:0} °F" : $"{celsius:0.#} °C";
+        string Heat(double watts) => us ? $"{watts * BtuPerHourPerWatt:#,0} Btu/h" : $"{watts:#,0} W";
+        string Area(double squareMetres) => us ? $"{squareMetres * SquareFeetPerSquareMetre:#,0.#} sq ft" : $"{squareMetres:0.00} m²";
         var lines = new List<string>
         {
             $"{Climate.Describe(document)}.",
-            $"Air permeability {building.AirPermeability:0.#} m³/h·m² at 50 Pa. The building loses {building.Total:#,0} W: {building.Fabric:#,0} through its surfaces and {building.Ventilation:#,0} with the air - " +
-            "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once (BS EN 12831-1)."
+            us
+                ? $"Air leakage {building.AirPermeability / CubicMetresPerHourPerCfm / SquareFeetPerSquareMetre:0.00} cfm a sq ft of envelope at 50 Pa. The building loses {Heat(building.Total)}: {Heat(building.Fabric)} through its surfaces and {Heat(building.Ventilation)} with the air - " +
+                  "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once. Worked by BS EN 12831-1 - ACCA Manual J's room-by-room load is not done yet."
+                : $"Air permeability {building.AirPermeability:0.#} m³/h·m² at 50 Pa. The building loses {building.Total:#,0} W: {building.Fabric:#,0} through its surfaces and {building.Ventilation:#,0} with the air - " +
+                  "less than its rooms' own losses add up to, each room sized for the wind on its side and the heat it passes to the rooms round it, which the whole building takes once (BS EN 12831-1)."
         };
         if (building is { Recovery: { } recovery, SupplyTemperature: { } supplied })
             lines.Add($"Ventilated with heat recovery at {recovery:P0}: its supply comes in at {Degrees(supplied)} at the design conditions.");
@@ -94,8 +109,8 @@ internal sealed class HeatLossWindow : System.Windows.Window
         {
             if (document.FindType<ComponentType>(source.TypeId) is not { } type) continue;
             var (load, rooms) = Heating.LoadOn(document, source, building);
-            var said = type.HeatOutput > 0 ? $"gives {type.HeatOutput:#,0} W" : "its output not set";
-            lines.Add($"{type.Name}: {said} against a heat load of {load:#,0} W in the {rooms.Count} room{(rooms.Count == 1 ? string.Empty : "s")} it heats.");
+            var said = type.HeatOutput > 0 ? $"gives {Heat(type.HeatOutput)}" : "its output not set";
+            lines.Add($"{type.Name}: {said} against a heat load of {Heat(load)} in the {rooms.Count} room{(rooms.Count == 1 ? string.Empty : "s")} it heats.");
         }
 
         // Each zone's temperatures and the pump's duty along its pipes.
@@ -104,9 +119,11 @@ internal sealed class HeatLossWindow : System.Windows.Window
             var network = PipeNetworks.Trace(document, zone);
             var (index, pressure, mass) = HeatingPipes.IndexCircuit(document, network);
             var (flow, back) = Heating.Design(document, zone);
+            var temperatures = us ? $"{flow * 9 / 5 + 32:0}/{back * 9 / 5 + 32:0} °F" : $"{flow:0}/{back:0} °C";
+            var duty = us ? $"{mass * GallonsPerMinutePerKilogramPerSecond:0.0} gpm, against {pressure / PascalsPerFootOfHead:0.0} ft of head" : $"{mass * 3600:0} kg/h, against {pressure / 1000:0.0} kPa";
             lines.Add(index is null
-                ? $"{zone.Name}: {flow:0}/{back:0} °C."
-                : $"{zone.Name}: {flow:0}/{back:0} °C; its pump moves {mass * 3600:0} kg/h, against {pressure / 1000:0.0} kPa along the pipes to {MepSystems.Describe(document, index)} and back - the index circuit - with its emitters, valves and fittings to add.");
+                ? $"{zone.Name}: {temperatures}."
+                : $"{zone.Name}: {temperatures}; its pump moves {duty} along the pipes to {MepSystems.Describe(document, index)} and back - the index circuit - with its emitters, valves and fittings to add.");
         }
 
         if (!us)
@@ -123,7 +140,7 @@ internal sealed class HeatLossWindow : System.Windows.Window
             var rooms = building.Rooms.Where(room => room.Room.LevelId == level.Id).OrderBy(room => room.Name, StringComparer.OrdinalIgnoreCase).ToList();
             if (rooms.Count == 0) continue;
 
-            var storey = new TreeViewItem { Header = $"{level.Name}  -  its rooms' own losses {rooms.Where(room => room.Heated).Sum(room => room.Total):#,0} W", IsExpanded = true };
+            var storey = new TreeViewItem { Header = $"{level.Name}  -  its rooms' own losses {Heat(rooms.Where(room => room.Heated).Sum(room => room.Total))}", IsExpanded = true };
             foreach (var room in rooms)
             {
                 // Two lines: what it loses, and what heats it - wrapped to the window rather than run off it.
@@ -131,7 +148,7 @@ internal sealed class HeatLossWindow : System.Windows.Window
                 header.Children.Add(new TextBlock
                 {
                     Text = room.Temperature is { } temperature
-                        ? $"{room.Name}  {Degrees(temperature)}  -  {room.Total:#,0} W: {room.Fabric:#,0} through its surfaces, {room.Ventilation:#,0} with the air"
+                        ? $"{room.Name}  {Degrees(temperature)}  -  {Heat(room.Total)}: {Heat(room.Fabric)} through its surfaces, {Heat(room.Ventilation)} with the air"
                         : $"{room.Name}  -  not heated",
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -143,13 +160,15 @@ internal sealed class HeatLossWindow : System.Windows.Window
                 foreach (var line in room.Lines)
                     item.Items.Add(new TreeViewItem
                     {
-                        Header = Wrapped($"{line.What}: {line.Area:0.00} m² at U {line.U:0.00} to {Degrees(line.Beyond)} - {line.Watts:#,0} W"),
+                        Header = Wrapped($"{line.What}: {Area(line.Area)} at U {(us ? $"{line.U * UsUPerMetricU:0.000}" : $"{line.U:0.00}")} to {Degrees(line.Beyond)} - {Heat(line.Watts)}"),
                         Tag = line.Through
                     });
                 if (room.Heated)
                     item.Items.Add(new TreeViewItem
                     {
-                        Header = Wrapped($"Air: {room.AirFlow:0.0} m³/h into {room.Volume:0.0} m³ ({(room.Volume > 0 ? room.AirFlow / room.Volume : 0):0.00} an hour), its envelope {room.Envelope:0.0} m² - {room.Ventilation:#,0} W")
+                        Header = Wrapped(us
+                            ? $"Air: {room.AirFlow / CubicMetresPerHourPerCfm:0.0} cfm into {room.Volume * CubicFeetPerCubicMetre:#,0} cu ft ({(room.Volume > 0 ? room.AirFlow / room.Volume : 0):0.00} an hour), its envelope {Area(room.Envelope)} - {Heat(room.Ventilation)}"
+                            : $"Air: {room.AirFlow:0.0} m³/h into {room.Volume:0.0} m³ ({(room.Volume > 0 ? room.AirFlow / room.Volume : 0):0.00} an hour), its envelope {room.Envelope:0.0} m² - {room.Ventilation:#,0} W")
                     });
                 foreach (var note in room.Notes)
                     item.Items.Add(new TreeViewItem { Header = Wrapped($"Note: {note}"), Opacity = 0.75 });

@@ -5441,7 +5441,7 @@ public partial class PlanView : FrameworkElement
             Select(component);
             HintChanged?.Invoke(this, ceiling is not null
                 ? $"{type.Name} hung from the ceiling. Click for the next one."
-                : $"{type.Name} hung with its top {type.DefaultElevation + type.Height:0} above the floor - there's no ceiling over it to hang from.");
+                : $"{type.Name} hung with its top {Core.Units.FormatMm(type.DefaultElevation + type.Height)} above the floor - there's no ceiling over it to hang from.");
             InvalidateVisual();
             return;
         }

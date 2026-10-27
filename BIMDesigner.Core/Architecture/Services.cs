@@ -41,7 +41,7 @@ public static class Services
         {
             ClearanceStandard.Irc => null,
             ClearanceStandard.Ada when board => null,
-            ClearanceStandard.Ada => (381, 1219, 0, "ADA 308 keeps what is reached for within 15 to 48 in (381 to 1219) of the floor."),
+            ClearanceStandard.Ada => (381, 1219, 0, $"ADA 308 keeps what is reached for within 15 to 48 in{Units.MetricAside("381 to 1219")} of the floor."),
             _ when board => (1350, 1450, 0, "Approved Document M (1.18b) puts a consumer unit's switches 1350 to 1450 above the floor."),
             ClearanceStandard.ApprovedDocumentM3 => (700, 1000, 700, "Approved Document M (M4(3) 3.44b) puts switches, sockets and controls 700 to 1000 above the floor, 700 from an inside corner."),
             _ when control => (900, 1200, 300, "Approved Document M (M4(2) 2.30e) puts heating controls 900 to 1200 above the floor, 300 from an inside corner."),
@@ -113,7 +113,7 @@ public static class Services
         {
             var middle = piece.Elevation + type.Height / 2;
             if (middle < least - 0.5 || middle > most + 0.5)
-                problems.Add(new PlacementProblem(piece, $"its middle is {middle:0} above the floor.", rule, footprint));
+                problems.Add(new PlacementProblem(piece, $"its middle is {Units.Bare(middle)} above the floor.", rule, footprint));
             if (corner > 0 && FromCorner(document, piece, type) is { } apart && apart < corner - 0.5)
                 problems.Add(new PlacementProblem(piece, $"it is {apart:0} from an inside corner.", rule, footprint));
         }
@@ -124,8 +124,8 @@ public static class Services
             {
                 var top = ComponentHosting.BaseElevation(document, piece, type) + type.Height;
                 if (top > sill - 50 + 0.5)
-                    problems.Add(new PlacementProblem(piece, $"its top is {sill - top:0} under the sill over it.",
-                        "Radiator makers ask for 50 at least between a radiator's top and a sill or shelf over it, for its warm air to rise.", footprint));
+                    problems.Add(new PlacementProblem(piece, $"its top is {Units.Bare(sill - top)} under the sill over it.",
+                        $"Radiator makers ask for {Units.Bare(50)} at least between a radiator's top and a sill or shelf over it, for its warm air to rise.", footprint));
                 break;
             }
 
@@ -272,7 +272,7 @@ public static class Services
                 said.Add("no light - NEC 210.70 asks for a lighting outlet in every habitable room, kitchen and bathroom");
 
             if (!bathroom && !wc && ShortWallSpaces(document, room, boundary.Polygon, pieces) is > 0 and var spaces)
-                said.Add($"{spaces} wall {(spaces == 1 ? "space" : "spaces")} with a point more than 6 ft (1829) from a receptacle - NEC 210.52(A) asks for none");
+                said.Add($"{spaces} wall {(spaces == 1 ? "space" : "spaces")} with a point more than 6 ft{Units.MetricAside("1829")} from a receptacle - NEC 210.52(A) asks for none");
         }
 
         // The light its lights give, against what the room is lit to.

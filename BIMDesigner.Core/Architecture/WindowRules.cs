@@ -225,11 +225,11 @@ public static class WindowRules
                     .DefaultIfEmpty(double.MaxValue)
                     .Min();
                 if (nearDoor <= 610 && glassBottom < 1524)
-                    Add($"its glass is {nearDoor:0} from a door's edge, {glassBottom:0} off the floor.", "IRC R308.4.2 makes glass within 24 in (610) of a door's edge and under 60 in (1524) up a hazardous location: safety glazing.");
+                    Add($"its glass is {Units.Bare(nearDoor)} from a door's edge, {Units.Bare(glassBottom)} off the floor.", $"IRC R308.4.2 makes glass within 24 in{Units.MetricAside("610")} of a door's edge and under 60 in{Units.MetricAside("1524")} up a hazardous location: safety glazing.");
                 else if (lowPane > 0)
-                    Add($"its pane of {lowPane:0.0} m² comes down to {lowBottom:0} off the floor.", "IRC R308.4.3 makes an individual pane over 9 sq ft whose bottom is under 18 in (457) and top over 36 in a hazardous location: safety glazing.");
+                    Add($"its pane of {Units.OfSquareMetres(lowPane, "0.0")} comes down to {Units.Bare(lowBottom)} off the floor.", $"IRC R308.4.3 makes an individual pane over 9 sq ft whose bottom is under 18 in{Units.MetricAside("457")} and top over 36 in a hazardous location: safety glazing.");
                 else if (wet <= 1524 && glassBottom < 1524)
-                    Add($"its glass is {wet:0} from a bath or shower, {glassBottom:0} off the floor.", "IRC R308.4.5 makes glass within 60 in (1524) of a bath or shower and under 60 in up a hazardous location: safety glazing.");
+                    Add($"its glass is {Units.Bare(wet)} from a bath or shower, {Units.Bare(glassBottom)} off the floor.", $"IRC R308.4.5 makes glass within 60 in{Units.MetricAside("1524")} of a bath or shower and under 60 in up a hazardous location: safety glazing.");
             }
             else if (glassBottom < 800)
                 Add($"its glass comes down to {glassBottom:0} off the floor.", "Approved Document K (Diagram 5.1) makes glass below 800 a critical location: safety glass to BS EN 12600, or small panes.");
@@ -250,7 +250,7 @@ public static class WindowRules
         var problems = Problems(document, window, document.ProjectInformation.ClearanceStandard);
         var (width, height, fully, opens) = Opening(type);
         var lights = WindowLights.Divided(type) ? $"{WindowLights.Of(type).Count} lights, " : string.Empty;
-        var opening = !opens ? $"{lights}Fixed" : fully ? $"{lights}Opens {width:0} x {height:0} clear{(lights.Length > 0 ? " through one" : string.Empty)} ({OpenArea(type):0.00} m²)" : $"{lights}Opens part way ({OpenArea(type):0.00} m²)";
+        var opening = !opens ? $"{lights}Fixed" : fully ? $"{lights}Opens {Units.Bare(width)} x {Units.Bare(height)} clear{(lights.Length > 0 ? " through one" : string.Empty)} ({Units.OfSquareMetres(OpenArea(type), "0.00")})" : $"{lights}Opens part way ({Units.OfSquareMetres(OpenArea(type), "0.00")})";
         return problems.Count == 0 ? opening : $"{opening} - {string.Join(" ", problems.Select(problem => $"{char.ToUpperInvariant(problem.Said[0])}{problem.Said[1..]} {problem.Rule}"))}";
     }
 
@@ -298,7 +298,7 @@ public static class WindowRules
             said.Add(escapes
                 ? "an escape window"
                 : us
-                    ? "no escape window - IRC R310.2 asks for one in every bedroom: 5.7 sq ft (0.53 m²) clear, 24 in high, 20 in wide, its sill 44 in (1118) up at most"
+                    ? $"no escape window - IRC R310.2 asks for one in every bedroom: 5.7 sq ft{Units.MetricAside("0.53 m²")} clear, 24 in high, 20 in wide, its sill 44 in{Units.MetricAside("1118")} up at most"
                     : "no escape window - Approved Document B (2.2, 2.10) asks for one in every habitable room up here: 0.33 m² clear, 450 by 450, its bottom 1100 up at most");
         }
 
@@ -323,11 +323,11 @@ public static class WindowRules
         if (us)
         {
             var glass = windows.Sum(entry => GlassArea(entry.Type)) + doors.Where(entry => Architecture.Doors.Glazed(entry.Type)).Sum(entry => Math.Max(0, entry.Type.Width - 200) * Math.Max(0, entry.Type.Height - 200) / 1e6 * 0.6);
-            if (glass < floor * 0.08 - 1e-6) said.Add($"glass {glass:0.00} m² - IRC R303.1 asks for 8% of its floor, {floor * 0.08:0.00} m²");
-            if (open < floor * 0.04 - 1e-6) said.Add($"opens {open:0.00} m² - IRC R303.1 asks for 4% of its floor, {floor * 0.04:0.00} m²");
+            if (glass < floor * 0.08 - 1e-6) said.Add($"glass {Units.OfSquareMetres(glass, "0.00")} - IRC R303.1 asks for 8% of its floor, {Units.OfSquareMetres(floor * 0.08, "0.00")}");
+            if (open < floor * 0.04 - 1e-6) said.Add($"opens {Units.OfSquareMetres(open, "0.00")} - IRC R303.1 asks for 4% of its floor, {Units.OfSquareMetres(floor * 0.04, "0.00")}");
         }
         else if (wide < floor / 20 - 1e-6 && open < floor / 10 - 1e-6)
-            said.Add($"opens {open:0.00} m² - Approved Document F (Table 1.4) asks for a twentieth of its floor, {floor / 20:0.00} m², to purge its air (a tenth through windows opening only part way)");
+            said.Add($"opens {Units.OfSquareMetres(open, "0.00")} - Approved Document F (Table 1.4) asks for a twentieth of its floor, {Units.OfSquareMetres(floor / 20, "0.00")}, to purge its air (a tenth through windows opening only part way)");
 
         return said.Count == 0 ? null : $"Windows: {string.Join("; ", said)}";
     }

@@ -50,11 +50,11 @@ public static class Approaches
 
         var (least, rule) = standard switch
         {
-            _ when standard.IsUs() => (915.0, "the ADA asks for an accessible route 36 in (915) wide (403.5.1)"),
+            _ when standard.IsUs() => (915.0, $"the ADA asks for an accessible route 36 in{Units.MetricAside("915")} wide (403.5.1)"),
             ClearanceStandard.ApprovedDocumentM3 => (1200.0, "Approved Document M asks a wheelchair user's approach for 1200 (M4(3) 3.9b)"),
             _ => (900.0, "Approved Document M asks for 900 (M4(2) 2.9b)")
         };
-        if (width < least - 0.5) problems.Add($"It is {width:0} wide: {rule}.");
+        if (width < least - 0.5) problems.Add($"It is {Units.Bare(width)} wide: {rule}.");
 
         var (most, fallRule) = standard.IsUs() ? (1 / 48.0, "the ADA allows 1:48 across an accessible route (403.3)") : (1 / 40.0, "Approved Document M allows 1 in 40 across an approach (1.6)");
         if (CrossFall(document, path) is { } fall && fall > most + 1e-6)
@@ -67,7 +67,7 @@ public static class Approaches
             var wanted = (int)Math.Floor(length / 10000);
             var places = PassingPlaces(document, path);
             if (places < wanted)
-                problems.Add($"It runs {length / 1000:0.0} m at {width:0} wide with {(places == 0 ? "no" : places.ToString())} passing place{(places == 1 ? "" : "s")}: " +
+                problems.Add($"It runs {Units.Metres(length, "0.0")} at {width:0} wide with {(places == 0 ? "no" : places.ToString())} passing place{(places == 1 ? "" : "s")}: " +
                              "Approved Document M asks for a level space 1500 square at least every 10 m (M4(3) 3.9d) - widen it there, or lay paving 1500 square beside it.");
         }
 

@@ -137,15 +137,25 @@ public sealed class BeamType : ElementType
             return true;
         });
 
-    private static BeamType Steel(string name, double depth, double width, double web, double flange, string mark) =>
-        new(name) { Section = BeamSection.IBeam, Material = BeamMaterial.Steel, Depth = depth, Width = width, WebThickness = web, FlangeThickness = flange, TypeMark = mark };
+    /// <summary>A steel section, costed by the metre at its weight - about 3 a kilogram, supplied and fixed, painted.</summary>
+    private static BeamType Steel(string name, double depth, double width, double web, double flange, string mark)
+    {
+        var kilograms = (2 * width * flange + (depth - 2 * flange) * web) * 1e-6 * 7850;
+        return new BeamType(name)
+        {
+            Section = BeamSection.IBeam, Material = BeamMaterial.Steel, Depth = depth, Width = width, WebThickness = web, FlangeThickness = flange, TypeMark = mark,
+            Cost = Math.Round((decimal)kilograms * 3m)
+        };
+    }
 
-    private static BeamType Rectangle(string name, BeamMaterial material, double width, double depth, string mark) =>
-        new(name) { Material = material, Width = width, Depth = depth, TypeMark = mark };
+    private static BeamType Rectangle(string name, BeamMaterial material, double width, double depth, string mark, decimal cost) =>
+        new(name) { Material = material, Width = width, Depth = depth, TypeMark = mark, Cost = cost };
 
     /// <summary>
     /// The beams a project starts with: UK universal beams (British Steel's sizes) and US wide
-    /// flanges; C24 timber joists and beams; GL24h glulam; and reinforced concrete.
+    /// flanges; C24 timber joists and beams; GL24h glulam; and reinforced concrete. Each costed
+    /// by the metre, supplied and fixed, at rough rates to start a cost plan with - to be put
+    /// right from the office's own.
     /// </summary>
     public static IReadOnlyList<BeamType> Library() => new[]
     {
@@ -159,15 +169,15 @@ public sealed class BeamType : ElementType
         Steel("W10x12", 250.7, 100.6, 4.8, 5.3, "W2"),
         Steel("W12x26", 310.4, 164.8, 5.8, 9.7, "W3"),
         Steel("W16x31", 403.4, 140.5, 7.0, 11.2, "W4"),
-        Rectangle("Timber C24 47x150 Joist", BeamMaterial.Timber, 47, 150, "T1"),
-        Rectangle("Timber C24 47x200 Joist", BeamMaterial.Timber, 47, 200, "T2"),
-        Rectangle("Timber C24 47x225 Joist", BeamMaterial.Timber, 47, 225, "T3"),
-        Rectangle("Timber C24 75x225", BeamMaterial.Timber, 75, 225, "T4"),
-        Rectangle("Glulam GL24h 90x270", BeamMaterial.Glulam, 90, 270, "G1"),
-        Rectangle("Glulam GL24h 115x315", BeamMaterial.Glulam, 115, 315, "G2"),
-        Rectangle("Glulam GL24h 140x360", BeamMaterial.Glulam, 140, 360, "G3"),
-        Rectangle("Concrete 300x500", BeamMaterial.Concrete, 300, 500, "C1"),
-        Rectangle("Concrete 300x600", BeamMaterial.Concrete, 300, 600, "C2")
+        Rectangle("Timber C24 47x150 Joist", BeamMaterial.Timber, 47, 150, "T1", 6m),
+        Rectangle("Timber C24 47x200 Joist", BeamMaterial.Timber, 47, 200, "T2", 8m),
+        Rectangle("Timber C24 47x225 Joist", BeamMaterial.Timber, 47, 225, "T3", 9m),
+        Rectangle("Timber C24 75x225", BeamMaterial.Timber, 75, 225, "T4", 15m),
+        Rectangle("Glulam GL24h 90x270", BeamMaterial.Glulam, 90, 270, "G1", 55m),
+        Rectangle("Glulam GL24h 115x315", BeamMaterial.Glulam, 115, 315, "G2", 80m),
+        Rectangle("Glulam GL24h 140x360", BeamMaterial.Glulam, 140, 360, "G3", 110m),
+        Rectangle("Concrete 300x500", BeamMaterial.Concrete, 300, 500, "C1", 180m),
+        Rectangle("Concrete 300x600", BeamMaterial.Concrete, 300, 600, "C2", 210m)
     };
 }
 
@@ -443,7 +453,7 @@ public static class Beams
         var type = TypeOf(document, beam);
         var ratio = type.Material switch { BeamMaterial.Timber => 19, BeamMaterial.Glulam => 18, _ => 20 };
         if (type.Depth > 0 && beam.Length > ratio * type.Depth + 0.5)
-            problems.Add($"It spans {beam.Length / 1000:0.0} m on a section {type.Depth:0} deep - more than the {ratio} times its depth a floor's {EnumText.Humanise(type.Material).ToLowerInvariant()} beam is first sized at: have an engineer check it, or take a deeper section.");
+            problems.Add($"It spans {Units.Metres(beam.Length, "0.0")} on a section {Units.Bare(type.Depth)} deep - more than the {ratio} times its depth a floor's {EnumText.Humanise(type.Material).ToLowerInvariant()} beam is first sized at: have an engineer check it, or take a deeper section.");
 
         foreach (var door in document.All<Door>())
         {
@@ -454,7 +464,7 @@ public static class Beams
             var doorway = new[] { wall.PointAt(wallType.Structure, from, -half), wall.PointAt(wallType.Structure, to, -half), wall.PointAt(wallType.Structure, to, half), wall.PointAt(wallType.Structure, from, half) };
             var head = wall.GetBaseElevation(document) + door.SillHeight + doorType.Height;
             if (LowestOver(document, beam, doorway) is { } low && low < head - 0.5 && low > wall.GetBaseElevation(document) + door.SillHeight)
-                problems.Add($"Its underside comes down to {low:0} across the doorway{(string.IsNullOrEmpty(door.Mark) ? "" : $" of door {door.Mark}")}, below the door's head at {head:0}: raise it, or carry it over the door as a lintel.");
+                problems.Add($"Its underside comes down to {Units.Bare(low)} across the doorway{(string.IsNullOrEmpty(door.Mark) ? "" : $" of door {door.Mark}")}, below the door's head at {Units.Bare(head)}: raise it, or carry it over the door as a lintel.");
         }
 
         return problems;

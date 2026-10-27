@@ -383,7 +383,7 @@ public static class StructureRules
                 problems.Add(($"its underside is {depth:0} below the ground.",
                     project.ClayShrinkage == ClayShrinkage.None
                         ? "Approved Document A (2E4) takes a strip footing's underside 0.45 m down at the least, out of the frost."
-                        : $"Approved Document A (2E4) takes a strip footing's underside {down / 1000:0.00} m down at the least in a clay of {project.ClayShrinkage.ToString().ToLowerInvariant()} shrinkage."));
+                        : $"Approved Document A (2E4) takes a strip footing's underside {Units.Metres(down, "0.00")} down at the least in a clay of {project.ClayShrinkage.ToString().ToLowerInvariant()} shrinkage."));
             return problems;
         }
 
@@ -449,22 +449,22 @@ public static class StructureRules
             if (project.Ground == GroundType.VerySoft)
                 problems.Add(($"it stands on {Describe(project.Ground)}.", "Approved Document A (Table 10) refers footings on very soft ground (type VII) to specialist advice."));
             else if (pad.ColumnId is not null && Table10Pressure(project.Ground) is { } allowed && load / area > allowed + 0.05)
-                problems.Add(($"it carries {load:0.0} kN on {area:0.00} m² - {load / area:0} kN/m² on {Describe(project.Ground)}.",
+                problems.Add(($"it carries {load:0.0} kN on {Units.OfSquareMetres(area, "0.00")} - {load / area:0} kN/m² on {Describe(project.Ground)}.",
                     $"Approved Document A gives no table for pads: it is checked at the pressure its Table 10 bears strip footings at on this ground, {allowed:0} kN/m² - a pad {Math.Sqrt(load / allowed) * 1000:0} square at the least."));
             if (type.Thickness < Math.Max(150, projection) - 0.5)
                 problems.Add(($"it is {type.Thickness:0} thick, standing {Math.Max(0, projection):0} out past its pier.",
                     "Approved Document A (2E2c) asks plain concrete footings to be 150 thick at the least, and no thinner than they project."));
             var down = AdaDepth(project.Ground, project.ClayShrinkage);
             if (depth < down - 0.5)
-                problems.Add(($"its underside is {depth:0} below the ground.", $"Approved Document A (2E4) takes a footing's underside {down / 1000:0.00} m down at the least - out of the frost{(project.ClayShrinkage == ClayShrinkage.None ? "" : ", and below the clay's shrinkage")}."));
+                problems.Add(($"its underside is {depth:0} below the ground.", $"Approved Document A (2E4) takes a footing's underside {Units.Metres(down, "0.00")} down at the least - out of the frost{(project.ClayShrinkage == ClayShrinkage.None ? "" : ", and below the clay's shrinkage")}."));
             return problems;
         }
 
         if (Bearing(project.Ground) is not { } soil)
             problems.Add(($"it stands on {Describe(project.Ground)}.", "The IRC (Table R401.4.1, note b) takes ground softer than 1,500 psf to a soils investigation, to size the footing on it."));
         else if (pad.ColumnId is not null && load / area > soil * Loads.Psf + 0.05)
-            problems.Add(($"it carries {load:0.0} kN on {area:0.00} m² - {load / area / Loads.Psf:#,0} psf on soil good for {soil:#,0}.",
-                $"The IRC (R403.1.1, Table R401.4.1) sizes a column's footing by its load and the soil: {load / (soil * Loads.Psf):0.00} m² at the least."));
+            problems.Add(($"it carries {load:0.0} kN on {Units.OfSquareMetres(area, "0.00")} - {load / area / Loads.Psf:#,0} psf on soil good for {soil:#,0}.",
+                $"The IRC (R403.1.1, Table R401.4.1) sizes a column's footing by its load and the soil: {Units.OfSquareMetres(load / (soil * Loads.Psf), "0.00")} at the least."));
         if (Math.Min(type.Width, type.Length) < 305 - 0.5 || type.Thickness < 152 - 0.5)
             problems.Add(($"it is {Inches(type.Width)} by {Inches(type.Length)}, {Inches(type.Thickness)} thick.", "The IRC (R403.1.1) asks a footing 12 in wide and 6 in deep at the least."));
         if (pad.ColumnId is not null && (projection < 51 - 0.5 || projection > type.Thickness + 0.5))
@@ -541,8 +541,8 @@ public static class StructureRules
             case BeamMaterial.Steel:
                 // A round section is drawn as a polygon, a little inside the circle: within 2% is the pipe itself.
                 if (section.Area < SchedulePipe.Area * 0.98 || section.LeastRadiusOfGyration < SchedulePipe.Radius * 0.98)
-                    problems.Add(($"its section is {section.Area:0} mm², its least radius of gyration {section.LeastRadiusOfGyration:0.0}.",
-                        $"The IRC (R407.3) asks a steel column to be 3 in Schedule 40 pipe or its equal - {SchedulePipe.Area:0} mm² and {SchedulePipe.Radius:0.0} least radius of gyration."));
+                    problems.Add(($"its section is {Units.SquareMillimetres(section.Area, "0")}, its least radius of gyration {Units.Bare(section.LeastRadiusOfGyration, "0.0")}.",
+                        $"The IRC (R407.3) asks a steel column to be 3 in Schedule 40 pipe or its equal - {Units.SquareMillimetres(SchedulePipe.Area, "0")} and {Units.Bare(SchedulePipe.Radius, "0.0")} least radius of gyration."));
                 if (!type.RustProtected)
                     problems.Add(("it has no rust-inhibitive paint.", "The IRC (R407.2) asks every surface of a steel column, inside and out, for a shop coat of rust-inhibitive paint, unless it is a corrosion-resistant steel."));
                 break;

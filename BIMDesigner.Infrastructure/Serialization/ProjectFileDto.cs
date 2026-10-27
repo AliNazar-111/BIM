@@ -1179,6 +1179,7 @@ internal sealed class ProjectInformationDto
 
     /// <summary>Whose rules clearances are checked against; none in a file from before, for Approved Document M.</summary>
     public string? ClearanceStandard { get; set; }
+    public string? Units { get; set; }
 
     public bool Sprinklered { get; set; }
 
@@ -1190,6 +1191,9 @@ internal sealed class ProjectInformationDto
     public string? ClayShrinkage { get; set; }
     public double FrostDepth { get; set; }
     public double GroundSnowLoad { get; set; } = 20;
+
+    /// <summary>A US house's water pressure where it comes in, psi; 40 in older files.</summary>
+    public double WaterPressure { get; set; } = 40;
 
     /// <summary>The wind pressure on the cladding, kPa; 1 kPa in older files.</summary>
     public double WindPressure { get; set; } = 1.0;

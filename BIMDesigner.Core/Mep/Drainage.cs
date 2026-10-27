@@ -199,14 +199,14 @@ public static class Drainage
                 var bore = Bore(document, pipe);
                 if (fall < -0.5)
                 {
-                    yield return new MepProblem(pipe, $"it runs uphill, {-fall:0} mm a metre, to where it drains");
+                    yield return new MepProblem(pipe, $"it runs uphill, {Units.Millimetres(-fall, "0")} a metre, to where it drains");
                     continue;
                 }
 
                 if (!BelowGround(document, pipe))
                 {
                     if (us && !pipe.Upright && fall < UsFall(bore) - 0.05)
-                        yield return new MepProblem(pipe, $"it falls {fall:0.#} mm a metre - IRC P3005.3 lays a {(bore <= 65 ? "2½ in pipe or less at ¼" : "3 to 6 in pipe at ⅛")} in a foot");
+                        yield return new MepProblem(pipe, $"it falls {Units.Millimetres(fall, "0.#")} a metre - IRC P3005.3 lays a {(bore <= 65 ? "2½ in pipe or less at ¼" : "3 to 6 in pipe at ⅛")} in a foot");
                     continue;
                 }
 
@@ -261,20 +261,20 @@ public static class Drainage
                     _ => null
                 };
                 if (longest is { } limit && length > limit + 1)
-                    yield return new MepProblem(fitting, $"its branch runs {length / 1000:0.00} m - unventilated, Approved Document H (Diagram 3, Table 2) keeps it to {limit / 1000:0.0} m at {bore:0} falling up to {most:0} mm a metre: vent it, or fit an air admittance valve (1.20)");
+                    yield return new MepProblem(fitting, $"its branch runs {Units.Metres(length, "0.00")} - unventilated, Approved Document H (Diagram 3, Table 2) keeps it to {Units.Metres(limit, "0.0")} at {bore:0} falling up to {Units.Millimetres(most, "0")} a metre: vent it, or fit an air admittance valve (1.20)");
 
                 var (flattestBranch, steepest) = type.Form == ComponentForm.Basin && bore < 40 - 1 ? (18.0, 87.0) : (18.0, wc ? double.PositiveInfinity : 90.0);
                 if (falls.Count > 0 && least < flattestBranch - 0.05)
-                    yield return new MepProblem(fitting, $"its branch falls {least:0.#} mm a metre - Approved Document H (Table 2) lays it at {flattestBranch:0} at the least");
+                    yield return new MepProblem(fitting, $"its branch falls {Units.Millimetres(least, "0.#")} a metre - Approved Document H (Table 2) lays it at {flattestBranch:0} at the least");
                 else if (falls.Count > 0 && most > steepest + 0.05)
-                    yield return new MepProblem(fitting, $"its branch falls {most:0} mm a metre - Approved Document H (Table 2) lays it no steeper than {steepest:0}");
+                    yield return new MepProblem(fitting, $"its branch falls {Units.Millimetres(most, "0")} a metre - Approved Document H (Table 2) lays it no steeper than {steepest:0}");
 
                 // A ground floor WC straight to a drain: only where the drain is within 1.3 m of the floor.
                 if (wc && network.Loads[branch[^1]].Toward is { } into && BelowGround(document, into) && fitting.LevelId == document.Levels.OrderBy(level => level.Elevation).First().Id)
                 {
                     var depth = floor - (network.Loads[branch[^1]].Near.Z - Bore(document, into) / 2);
                     if (depth > 1300 + 1)
-                        yield return new MepProblem(fitting, $"it goes straight to a drain {depth / 1000:0.00} m below the floor - Approved Document H (1.9) asks 1.3 m at most: take it to a stack");
+                        yield return new MepProblem(fitting, $"it goes straight to a drain {Units.Metres(depth, "0.00")} below the floor - Approved Document H (1.9) asks 1.3 m at most: take it to a stack");
                 }
             }
 
@@ -298,7 +298,7 @@ public static class Drainage
             {
                 var nearest = document.Walls.Select(wall => Line2D.DistanceFromSegment(soakaway.Location, wall.Start, wall.End)).DefaultIfEmpty(double.MaxValue).Min();
                 if (nearest < 5000)
-                    yield return new MepProblem(soakaway, $"it is {nearest / 1000:0.0} m from the building - Approved Document H (3.25) keeps a soakaway 5 m from a building");
+                    yield return new MepProblem(soakaway, $"it is {Units.Metres(nearest, "0.0")} from the building - Approved Document H (3.25) keeps a soakaway 5 m from a building");
             }
         }
     }
@@ -331,7 +331,7 @@ public static class Drainage
             if (!us)
                 foreach (var (pipe, load) in network.Loads.Where(entry => !entry.Key.Upright && !BelowGround(document, entry.Key)))
                     if (new Point2D(load.Near.X, load.Near.Y).DistanceTo(stack.At) <= PipeNetworks.Touch * 4 && load.Near.Z - stack.Foot is > 1 and < 450)
-                        yield return new MepProblem(pipe, $"it joins the stack {load.Near.Z - stack.Foot:0} mm above its foot - Approved Document H (1.11) keeps branches 450 mm above the bend at a stack's foot");
+                        yield return new MepProblem(pipe, $"it joins the stack {Units.Millimetres(load.Near.Z - stack.Foot, "0")} above its foot - Approved Document H (1.11) keeps branches 450 mm above the bend at a stack's foot");
 
             // Ventilated: open above the roof, or closed with an air admittance valve (Approved Document H 1.29 to 1.33).
             var valve = valves.Any(each => each.Location.DistanceTo(stack.At) <= 200 && Math.Abs(ComponentHosting.BaseElevation(document, each, document.FindType<ComponentType>(each.TypeId)!) - stack.Top) <= 500);
@@ -358,7 +358,7 @@ public static class Drainage
                 if (reach < 3000 && stack.Top < head + 900)
                 {
                     yield return new MepProblem(stack.Pipes[0],
-                        $"its vent finishes {(stack.Top - head) / 1000:0.00} m above the head of {(string.IsNullOrEmpty(opening.Mark) ? type.Name : opening.Mark)}, {reach / 1000:0.0} m away - Approved Document H (1.31) asks 900 mm above any opening within 3 m");
+                        $"its vent finishes {Units.Metres((stack.Top - head), "0.00")} above the head of {(string.IsNullOrEmpty(opening.Mark) ? type.Name : opening.Mark)}, {Units.Metres(reach, "0.0")} away - Approved Document H (1.31) asks 900 mm above any opening within 3 m");
                     break;
                 }
             }
@@ -420,7 +420,7 @@ public static class Drainage
                     if (point is { } reached)
                     {
                         if (last is { } from && Spacing(from, reached) is { } most && run > most * 1000 + 1 && reported.Add(pipe))
-                            yield return new MepProblem(pipe, $"{run / 1000:0.0} m of drain from {Name(from)} to {Name(reached)} - Approved Document H (Table 13) allows {most:0} m");
+                            yield return new MepProblem(pipe, $"{Units.Metres(run, "0.0")} of drain from {Name(from)} to {Name(reached)} - Approved Document H (Table 13) allows {most:0} m");
                         if (access is { } kept) { last = kept; run = 0; }
                     }
                 }
@@ -431,7 +431,7 @@ public static class Drainage
             // The last length, to the chamber where the drain leaves - at the boundary, by the sewer.
             if (previous is not null && final is not null && At(final.Near) is { } leaving && last is { } fromLast
                 && Spacing(fromLast, leaving) is { } furthest && run > furthest * 1000 + 1 && reported.Add(previous))
-                yield return new MepProblem(previous, $"{run / 1000:0.0} m of drain from {Name(fromLast)} to {Name(leaving)} - Approved Document H (Table 13) allows {furthest:0} m");
+                yield return new MepProblem(previous, $"{Units.Metres(run, "0.0")} of drain from {Name(fromLast)} to {Name(leaving)} - Approved Document H (Table 13) allows {furthest:0} m");
         }
     }
 

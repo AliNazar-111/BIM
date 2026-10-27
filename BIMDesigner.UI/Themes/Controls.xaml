@@ -92,6 +92,58 @@
         </Setter>
     </Style>
 
+    <!-- ============================ TAB CONTROL ============================ -->
+
+    <!-- Tabs in a window - a programme's bar chart, a cost plan's cash flow - in the window's colours. The ribbon has its own. -->
+    <Style TargetType="TabControl">
+        <Setter Property="Background" Value="{StaticResource Bg.Window}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid KeyboardNavigation.TabNavigation="Local">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TabPanel Grid.Row="0" IsItemsHost="True" Panel.ZIndex="1" Margin="0,0,0,-1"/>
+                        <Border Grid.Row="1" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter ContentSource="SelectedContent" Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="TabItem">
+        <Setter Property="Foreground" Value="{StaticResource Text.Muted}"/>
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
+        <Setter Property="FontSize" Value="{StaticResource UiFontSize}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1,1,1,0" Padding="14,6" Margin="0,0,2,0" CornerRadius="3,3,0,0">
+                        <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bg.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bg.Window}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Line}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ============================ BUTTON ============================ -->
 
     <!-- A button that stays in: as a button, with the accent while it is on. -->

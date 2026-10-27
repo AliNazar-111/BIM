@@ -62,6 +62,11 @@ public class ViewAndManageTabTests
             var style = Assert.IsType<Style>(Application.Current.TryFindResource(typeof(ListBox)));
             Assert.Contains(style.Setters.OfType<Setter>(), setter => setter.Property == Control.BackgroundProperty);
             Assert.IsType<Style>(Application.Current.TryFindResource(typeof(ListBoxItem)));
+
+            // And a window's tabs - a programme's bar chart, a cost plan's cash flow - not white on white.
+            var tabs = Assert.IsType<Style>(Application.Current.TryFindResource(typeof(TabControl)));
+            Assert.Contains(tabs.Setters.OfType<Setter>(), setter => setter.Property == Control.BackgroundProperty);
+            Assert.IsType<Style>(Application.Current.TryFindResource(typeof(TabItem)));
         });
     }
 }

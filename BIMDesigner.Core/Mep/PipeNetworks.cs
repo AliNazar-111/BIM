@@ -202,6 +202,16 @@ public static class PipeNetworks
         var draws = new Dictionary<int, (double Load, double Highest, double Units, int Fittings, int Wcs, double Heat)>();
         var members = MepSystems.MembersOf(document, system);
         var at = new Dictionary<Component, int>();
+
+        // In the US, the fixtures each node's water goes on to, and whether to their cold, their hot or both:
+        // what their water-supply fixture units come to there (IRC Table P2903.6).
+        var us = IsWater(system.Kind) && document.ProjectInformation.ClearanceStandard.IsUs();
+        var supplied = new Dictionary<int, Dictionary<Component, Supply>>();
+        void Supplies(int node, Component fixture, Supply supply)
+        {
+            if (!supplied.TryGetValue(node, out var known)) supplied[node] = known = new Dictionary<Component, Supply>();
+            known[fixture] = known.GetValueOrDefault(fixture) | supply;
+        }
         foreach (var member in members)
         {
             var heat = system.Kind == SystemKind.Heating ? HeatOf(document, member) : 0;
@@ -222,6 +232,11 @@ public static class PipeNetworks
                 var form = document.FindType<ComponentType>(member.TypeId)?.Form ?? ComponentForm.Box;
                 var (load, highest) = Draw(document, member, system.Kind);
                 var units = IsWater(system.Kind) ? PipeSizes.FixtureUnits(form) : Drainage.IsDrainage(system.Kind) ? Drainage.FixtureUnits(form) : 0;
+                if (us && form is ComponentForm.Boiler or ComponentForm.HotWaterCylinder && system.Kind == SystemKind.ColdWater)
+                    foreach (var served in MepSystems.FedBy(document, member, SystemKind.HotWater).SelectMany(hot => MepSystems.MembersOf(document, hot)))
+                        Supplies(node, served, Supply.Hot);
+                else if (us)
+                    Supplies(node, member, system.Kind == SystemKind.HotWater ? Supply.Hot : Supply.Cold);
                 var known = draws.GetValueOrDefault(node);
                 draws[node] = (known.Load + load, Math.Max(known.Highest, highest), known.Units + units, known.Fittings + 1,
                     known.Wcs + (form is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 1 : 0), known.Heat + heat);
@@ -281,8 +296,12 @@ public static class PipeNetworks
             var beyond = behind.GetValueOrDefault(node);
             var all = (Load: beyond.Load + own.Load, Highest: Math.Max(beyond.Highest, own.Highest), beyond.Downstream, Units: beyond.Units + own.Units,
                 Fittings: beyond.Fittings + own.Fittings, Wcs: beyond.Wcs + own.Wcs, Heat: beyond.Heat + own.Heat);
+            if (us) all.Units = FixtureUnits(document, supplied.GetValueOrDefault(node));
             behind[node] = all;
             if (!parent.TryGetValue(node, out var up)) continue;
+            if (us && supplied.TryGetValue(node, out var going))
+                foreach (var (fixture, supply) in going)
+                    Supplies(up.From, fixture, supply);
 
             loads[up.Pipe] = new PipeLoad(all.Load, all.Highest, all.Downstream + up.Pipe.Length, distance[up.From], all.Units)
             {
@@ -309,6 +328,35 @@ public static class PipeNetworks
         return new PipeNetwork(system, loads, runTo, unreached, notPiped) { FirstPipe = first, Downpipes = downpipes.Where(downpipe => Under(Downpipes.Path(document, downpipe)!.Foot) is { } foot && distance.ContainsKey(foot)).ToList() };
     }
 
+    /// <summary>Which of a fixture's supplies a pipe carries: its cold, its hot - through the water heater it feeds - or both.</summary>
+    [Flags]
+    private enum Supply
+    {
+        Cold = 1,
+        Hot = 2
+    }
+
+    /// <summary>
+    /// The water-supply fixture units a pipe carries, IRC Table P2903.6: each fixture's cold or hot
+    /// value where it carries only that, both together where it carries both - its cold and, through
+    /// the water heater beyond, its hot - and the whole of a fixture with only a cold supply, a tank
+    /// WC's 2.2 or a cold-fill dishwasher's 1.4.
+    /// </summary>
+    private static double FixtureUnits(BimDocument document, Dictionary<Component, Supply>? supplied)
+    {
+        if (supplied is null) return 0;
+        var units = 0.0;
+        foreach (var (fixture, supply) in supplied)
+        {
+            if (document.FindType<ComponentType>(fixture.TypeId) is not { } type) continue;
+            var (hot, cold, combined) = PipeSizes.FixtureUnitsOf(type.Form);
+            var hasHot = Connectors.Of(type).Any(connector => connector.Kind == SystemKind.HotWater && !connector.Feeds);
+            units += supply == (Supply.Cold | Supply.Hot) || !hasHot ? combined : supply == Supply.Cold ? cold : hot;
+        }
+
+        return units;
+    }
+
     /// <summary>The heat a fitting on a heating zone gives at its temperatures, W: a radiator's or a floor's in its room, a cylinder coil's rating.</summary>
     private static double HeatOf(BimDocument document, Component member)
     {
@@ -323,6 +371,78 @@ public static class PipeNetworks
             ? PipeSizes.Required(type.Material, carried.Load, carried.Highest, carried.Downstream)
             : null;
 
+    /// <summary>
+    /// A US house's water as the IRC's Appendix AP takes it for a system: the static pressure where
+    /// it comes in and what is left at the highest outlet, the developed length to the furthest
+    /// fixture - through the water heater to a hot one - with its fittings, the pressure range and
+    /// length column of Table AP201.1 they pick, every fixture's combined fixture units, the meter
+    /// and main they ask, and the cold water system the house's water comes in on.
+    /// </summary>
+    public sealed record UsWater(double Static, double Pressure, double DevelopedFeet, int? Range, int? Column, double Units, IrcWaterSizing.Row? Main, MepSystem? Supply)
+    {
+        /// <summary>The table's row and column it is read in: "40 to 49 psi, 100 ft".</summary>
+        public string Where => Range is { } range && Column is { } column ? $"{IrcWaterSizing.RangeTitle(range)}, {IrcWaterSizing.Lengths[column]:0} ft" : string.Empty;
+
+        /// <summary>Why the table goes no further, where it does not.</summary>
+        public string? Beyond =>
+            Range is null ? $"the water is at {Pressure:0} psi at its highest outlet - under the 30 psi Table AP201.1 starts at"
+            : Column is null ? $"its furthest fixture is {DevelopedFeet:0} ft developed with its fittings - past Table AP201.1's 500 ft"
+            : Main is null ? $"its fixtures come to {Units:0.#} water-supply fixture units - more than Table AP201.1 goes to at {Where}"
+            : null;
+    }
+
+    /// <summary>A water system's water as Appendix AP takes it, in a US house.</summary>
+    public static UsWater UsWaterOf(BimDocument document, MepSystem system)
+    {
+        // The cold water system the house's water comes in on: a hot one's water heater is on it.
+        var supply = system.Kind == SystemKind.ColdWater ? system
+            : MepSystems.SourceOf(document, system) is { } heats
+                ? document.All<MepSystem>().FirstOrDefault(cold => cold.Kind == SystemKind.ColdWater && MepSystems.MembersOf(document, cold).Contains(heats))
+                : null;
+        var root = supply ?? system;
+        var network = Trace(document, root);
+
+        // How far the water goes to each fixture, and how high: on through each water heater to its hot taps.
+        var runs = new List<double>(network.RunTo.Values);
+        var outlets = new List<double>();
+        void Outlets(MepSystem each) => outlets.AddRange(MepSystems.MembersOf(document, each).SelectMany(member => Connectors.Placed(document, member))
+            .Where(placed => placed.Connector.Kind == each.Kind && !placed.Connector.Feeds && placed.Connector.Domain == ConnectorDomain.Pipe).Select(placed => placed.At.Z));
+        Outlets(root);
+        if (supply is not null)
+            foreach (var hot in document.All<MepSystem>().Where(hot => hot.Kind == SystemKind.HotWater))
+                if (MepSystems.SourceOf(document, hot) is { } heater && network.RunTo.TryGetValue(heater, out var toHeater))
+                {
+                    runs.AddRange(Trace(document, hot).RunTo.Values.Select(run => toHeater + run));
+                    Outlets(hot);
+                }
+
+        // The pressure left at the highest outlet: half a psi lost for each foot it is above where the water comes in, gained for each below.
+        var pressure = document.ProjectInformation.WaterPressure;
+        var source = MepSystems.SourceOf(document, root);
+        var sourceZ = source is null ? null : Connectors.Placed(document, source).Where(placed => placed.Connector.Kind == root.Kind && placed.Connector.Feeds).Select(placed => (double?)placed.At.Z).FirstOrDefault();
+        var left = sourceZ is { } z && outlets.Count > 0 ? pressure - IrcWaterSizing.PsiPerFoot * (outlets.Max() - z) / Units.MillimetresPerFoot : pressure;
+        var developed = runs.DefaultIfEmpty(0).Max() / Units.MillimetresPerFoot * IrcWaterSizing.FittingsAllowance;
+        var units = network.Loads.Values.Where(load => load.Toward is null).Sum(load => load.FixtureUnits);
+
+        var range = IrcWaterSizing.RangeOf(left);
+        var column = IrcWaterSizing.ColumnOf(developed);
+        var main = range is { } r && column is { } c ? IrcWaterSizing.Main(r, c, units) : null;
+        return new UsWater(pressure, left, developed, range, column, units, main, supply);
+    }
+
+    /// <summary>
+    /// The size a US water pipe needs by Appendix AP, and its nominal inches: the main's where it
+    /// leaves where the water comes in, each segment's after it - or null for one carrying nothing,
+    /// or where the table goes no further.
+    /// </summary>
+    public static (PipeSize Size, double Inches)? UsRequired(BimDocument document, Pipe pipe, PipeNetwork network, UsWater water)
+    {
+        if (!IsWater(pipe.Kind) || document.FindType<PipeType>(pipe.TypeId) is not { } type || !network.Loads.TryGetValue(pipe, out var carried) || carried.FixtureUnits <= 0) return null;
+        if (water is not { Range: { } range, Column: { } column, Main: { } main }) return null;
+        var inches = ReferenceEquals(network.System, water.Supply) && carried.Toward is null ? main.Distribution : IrcWaterSizing.Segment(range, column, carried.FixtureUnits, main);
+        return (IrcWaterSizing.SizeOf(type.Material, inches), inches);
+    }
+
     /// <summary>What a pipe carries, as its Properties say it.</summary>
     public static string Describe(BimDocument document, Pipe pipe)
     {
@@ -331,11 +451,17 @@ public static class PipeNetworks
         if (!network.Loads.TryGetValue(pipe, out var carried))
             return MepSystems.SourceOf(document, system) is null ? $"{system.Name} has nothing feeding it" : $"Not joined to what feeds {system.Name}";
         if (pipe.Kind == SystemKind.Heating) return HeatingPipes.Describe(document, pipe, network);
-        if (!IsWater(pipe.Kind)) return $"{carried.FromSource / 1000:0.0} m from what feeds {system.Name}";
+        if (!IsWater(pipe.Kind)) return $"{Units.Metres(carried.FromSource, "0.0")} from what feeds {system.Name}";
 
         if (document.ProjectInformation.ClearanceStandard.IsUs())
-            return $"{carried.FixtureUnits:0.#} water-supply fixture units (IRC Table P2903.6), {carried.Downstream / 304.8:0} ft to the last fixture";
-        var said = $"{carried.Load:0} loading units, the most on one draw-off {carried.Highest:0}, {carried.Downstream / 1000:0.0} m to the last";
+        {
+            var units = $"{carried.FixtureUnits:0.#} water-supply fixture units (IRC Table P2903.6), {carried.Downstream / 304.8:0} ft to the last fixture";
+            var water = UsWaterOf(document, system);
+            return UsRequired(document, pipe, network, water) is { } need
+                ? $"{units} - Appendix AP asks {IrcWaterSizing.Name(need.Inches)} (Table AP201.1, {water.Where})"
+                : carried.FixtureUnits > 0 && water.Beyond is { } beyond ? $"{units} - {beyond}" : units;
+        }
+        var said = $"{carried.Load:0} loading units, the most on one draw-off {carried.Highest:0}, {Units.Metres(carried.Downstream, "0.0")} to the last";
         var type = document.FindType<PipeType>(pipe.TypeId);
         return Required(document, pipe, network) is { } column && type is not null
             ? $"{said} - BS EN 806-3 {PipeSizes.TableOf(type.Material)} asks {column.Size.Name}"
@@ -343,16 +469,23 @@ public static class PipeNetworks
     }
 
 
-    /// <summary>Every water pipe sized as BS EN 806-3 asks, and every heating pipe for its flow and pressure drop: its new outside diameter, where it changes.</summary>
+    /// <summary>
+    /// Every water pipe sized as BS EN 806-3 asks - in the US, as the IRC's Appendix AP does - and
+    /// every heating pipe for its flow and pressure drop: its new outside diameter, where it changes.
+    /// </summary>
     public static IReadOnlyList<(Pipe Pipe, double Diameter)> Sized(BimDocument document, IEnumerable<MepSystem> systems)
     {
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var sized = new List<(Pipe, double)>();
         foreach (var system in systems.Where(system => IsWater(system.Kind) || system.Kind == SystemKind.Heating))
         {
             var network = Trace(document, system);
+            var water = us && IsWater(system.Kind) ? UsWaterOf(document, system) : null;
             foreach (var pipe in network.Loads.Keys)
             {
-                var size = system.Kind == SystemKind.Heating ? HeatingPipes.Required(document, pipe, network) : Required(document, pipe, network)?.Size;
+                var size = system.Kind == SystemKind.Heating ? HeatingPipes.Required(document, pipe, network)
+                    : water is not null ? UsRequired(document, pipe, network, water)?.Size
+                    : Required(document, pipe, network)?.Size;
                 if (size is not null && Math.Abs(size.Outside - pipe.Diameter) > 0.01) sized.Add((pipe, size.Outside));
             }
         }
@@ -391,8 +524,22 @@ public static class PipeNetworks
                         yield return new MepProblem(pipe, $"carries {carried.Load:0} loading units - more than BS EN 806-3's {PipeSizes.TableOf(type.Material)} goes to");
                     else if (pipe.Diameter < required.Size.Outside - 0.01)
                         yield return new MepProblem(pipe,
-                            $"too small at {pipe.SizeName(type)}: it carries {carried.Load:0} loading units, the most on one draw-off {carried.Highest:0}, {carried.Downstream / 1000:0.0} m to the last - BS EN 806-3 {PipeSizes.TableOf(type.Material)} asks {required.Size.Name}");
+                            $"too small at {pipe.SizeName(type)}: it carries {carried.Load:0} loading units, the most on one draw-off {carried.Highest:0}, {Units.Metres(carried.Downstream, "0.0")} to the last - BS EN 806-3 {PipeSizes.TableOf(type.Material)} asks {required.Size.Name}");
                 }
+
+            // In the US, each pipe against Appendix AP; the water past its table, or over the 80 psi P2903.3.2 allows, said once.
+            if (IsWater(system.Kind) && us)
+            {
+                var water = UsWaterOf(document, system);
+                if (ReferenceEquals(system, water.Supply) && water.Static > IrcWaterSizing.MostPressure && MepSystems.SourceOf(document, system) is { } comesIn)
+                    yield return new MepProblem(comesIn, $"the water comes in at {water.Static:0} psi - IRC P2903.3.2 asks a pressure-reducing valve where it is over 80");
+                if (water.Beyond is { } beyond && network.Loads.Values.Any(load => load.FixtureUnits > 0))
+                    yield return new MepProblem((Elements.Element?)MepSystems.SourceOf(document, system) ?? network.Loads.Keys.First(), $"{system.Name} cannot be sized by the IRC's Appendix AP: {beyond}");
+                foreach (var (pipe, carried) in network.Loads)
+                    if (document.FindType<PipeType>(pipe.TypeId) is { } type && UsRequired(document, pipe, network, water) is { } need && pipe.Diameter < need.Size.Outside - 0.01)
+                        yield return new MepProblem(pipe,
+                            $"too small at {pipe.SizeName(type)}: it carries {carried.FixtureUnits:0.#} water-supply fixture units - IRC Appendix AP asks {IrcWaterSizing.Name(need.Inches)} (Table AP201.1, {water.Where})");
+            }
 
             if (system.Kind == SystemKind.Heating)
                 foreach (var problem in HeatingPipes.Problems(document, network))

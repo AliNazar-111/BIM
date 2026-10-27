@@ -64,7 +64,7 @@ public sealed class StackedWallPreview : FrameworkElement
                 type.Name, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
                 new Typeface("Segoe UI"), 11, TextBrush, dpi);
             var detail = new FormattedText(
-                $"{bottom:0} to {tierTop:0} mm{(type.Id == variableType ? "  - variable" : string.Empty)}",
+                $"{(Core.Units.Imperial ? $"{Core.Units.FeetAndInches(bottom)} to {Core.Units.FeetAndInches(tierTop)}" : $"{bottom:0} to {tierTop:0} mm")}{(type.Id == variableType ? "  - variable" : string.Empty)}",
                 CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 10, MutedBrush, dpi);
 
             var middle = band.Top + band.Height / 2;

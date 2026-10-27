@@ -91,11 +91,11 @@ public sealed class Toposurface : Element
                 var kept = Terrains.Simplified(Points, Terrains.SimplifyWithin);
                 if (kept.Count >= Points.Count)
                 {
-                    message = $"Nothing to take out: each of its {Points.Count} spot levels shapes it by more than {Terrains.SimplifyWithin:0}.";
+                    message = $"Nothing to take out: each of its {Points.Count} spot levels shapes it by more than {Units.Bare(Terrains.SimplifyWithin)}.";
                     return null;
                 }
 
-                message = $"From {Points.Count} spot levels to {kept.Count}: the ground keeps its shape within {Terrains.SimplifyWithin:0}.";
+                message = $"From {Points.Count} spot levels to {kept.Count}: the ground keeps its shape within {Units.Bare(Terrains.SimplifyWithin)}.";
                 return new SetToposurfacePointsCommand(this, kept, "Simplify Surface");
             });
 
@@ -807,24 +807,24 @@ public static class Terrains
 
         if (worstKept is { } least && least < 150 - 0.5)
             problems.Add(us
-                ? $"The ground comes up to {least:0} below the floor beside its walls: the IRC asks for 6 in (152) of foundation above the finished grade."
+                ? $"The ground comes up to {Units.Bare(least)} below the floor beside its walls: the IRC asks for 6 in{Units.MetricAside("152")} of foundation above the finished grade."
                 : $"The ground comes up to {least:0} below the floor beside its walls: Approved Document C asks for the damp-proof course 150 above the ground at least.");
         if (worstFall is { } fall)
             problems.Add(fall.Hard
                 ? Math.Round(fall.Falls) < 0
-                    ? $"A hard surface rises {-fall.Falls:0} toward its walls over the first 10 ft (3048): the IRC and the IBC ask for it to fall 2% away from them."
-                    : $"A hard surface falls only {Math.Round(fall.Falls) + 0.0:0} in the first 10 ft (3048) away from its walls: the IRC and the IBC ask for 2% (61)."
+                    ? $"A hard surface rises {Units.Bare(-fall.Falls)} toward its walls over the first 10 ft{Units.MetricAside("3048")}: the IRC and the IBC ask for it to fall 2% away from them."
+                    : $"A hard surface falls only {Units.Bare(Math.Round(fall.Falls) + 0.0)} in the first 10 ft{Units.MetricAside("3048")} away from its walls: the IRC and the IBC ask for 2%{Units.MetricAside("61")}."
                 : Math.Round(fall.Falls) < 0
-                    ? $"The ground rises {-fall.Falls:0} toward its walls over the first 10 ft (3048): the IRC asks for it to fall 6 in (152) away from them, or 5%, so water runs off."
-                    : $"The ground falls only {Math.Round(fall.Falls) + 0.0:0} in the first 10 ft (3048) away from its walls: the IRC asks for 6 in (152), or 5%, so water runs off.");
+                    ? $"The ground rises {Units.Bare(-fall.Falls)} toward its walls over the first 10 ft{Units.MetricAside("3048")}: the IRC asks for it to fall 6 in{Units.MetricAside("152")} away from them, or 5%, so water runs off."
+                    : $"The ground falls only {Units.Bare(Math.Round(fall.Falls) + 0.0)} in the first 10 ft{Units.MetricAside("3048")} away from its walls: the IRC asks for 6 in{Units.MetricAside("152")}, or 5%, so water runs off.");
         if (worstTimber is { } timber && timber < (us ? 203 : 150) - 0.5)
             problems.Add(us
-                ? $"Timber framing in its walls is {Math.Max(0, timber):0} over the ground outside: the IRC asks for 8 in (203), or treated or naturally durable wood (R317.1)."
+                ? $"Timber framing in its walls is {Units.Bare(Math.Max(0, timber))} over the ground outside: the IRC asks for 8 in{Units.MetricAside("203")}, or treated or naturally durable wood (R317.1)."
                 : $"Timber framing in its walls is {Math.Max(0, timber):0} over the ground outside: Approved Document C asks for it on the damp-proof course, 150 above the ground.");
         if (worstSetback is { } slope)
             problems.Add(slope.Descending
-                ? $"The ground falls away {slope.Height / 1000:0.0} m steeper than 1 in 3 just {slope.Gap / 1000:0.0} m from its walls: the IRC asks for the building to be set back {slope.Asked / 1000:0.0} m from the top of such a slope - a third of its height, 40 ft at most (R403.1.7) - or an engineered foundation."
-                : $"The ground rises {slope.Height / 1000:0.0} m steeper than 1 in 3 just {slope.Gap / 1000:0.0} m from its walls: the IRC asks for {slope.Asked / 1000:0.0} m clear of the foot of such a slope - half its height, 15 ft at most (R403.1.7).");
+                ? $"The ground falls away {Units.Metres(slope.Height, "0.0")} steeper than 1 in 3 just {Units.Metres(slope.Gap, "0.0")} from its walls: the IRC asks for the building to be set back {Units.Metres(slope.Asked, "0.0")} from the top of such a slope - a third of its height, 40 ft at most (R403.1.7) - or an engineered foundation."
+                : $"The ground rises {Units.Metres(slope.Height, "0.0")} steeper than 1 in 3 just {Units.Metres(slope.Gap, "0.0")} from its walls: the IRC asks for {Units.Metres(slope.Asked, "0.0")} clear of the foot of such a slope - half its height, 15 ft at most (R403.1.7).");
 
         // A retaining wall's top: a drop off it, guarded by a railing along it, or not.
         var limit = us ? 762 : 600;
@@ -836,7 +836,7 @@ public static class Terrains
             var reach = type.Structure.TotalWidth / 2 + 600;
             if (document.All<Railing>().Any(railing => Railings.Lengths(railing).Any(length => Line2D.DistanceFromSegment(middle, length.From, length.To) < reach))) continue;
             problems.Add(us
-                ? $"Its retaining wall ({type.Name}) holds back {held:0}, with nothing along its top: the IRC asks for a guard where it drops more than 30 in (762)."
+                ? $"Its retaining wall ({type.Name}) holds back {Units.Bare(held)}, with nothing along its top: the IRC asks for a guard where it drops more than 30 in{Units.MetricAside("762")}."
                 : $"Its retaining wall ({type.Name}) holds back {held:0}, with nothing along its top: Approved Document K asks for guarding where it drops more than 600.");
         }
 
@@ -1040,8 +1040,21 @@ public static class GroundColours
         (double.PositiveInfinity, new Band("Steeper than earth stands", new ColourRgb(0x9A, 0x48, 0xA8)))
     };
 
-    /// <summary>What is dug out (red) and made up (blue), mm deep.</summary>
-    private static readonly (double Below, Band Band)[] Changes =
+    /// <summary>What is dug out (red) and made up (blue), mm deep: in metres and millimetres, or in a US project feet and inches.</summary>
+    private static (double Below, Band Band)[] Changes => Units.Imperial ? UsChanges : MetricChanges;
+
+    private static readonly (double Below, Band Band)[] UsChanges =
+    {
+        (-914.4, new Band("Cut over 3 ft", new ColourRgb(0xA0, 0x28, 0x28))),
+        (-304.8, new Band("Cut 1 to 3 ft", new ColourRgb(0xD8, 0x58, 0x50))),
+        (-50.8, new Band("Cut 2 in to 1 ft", new ColourRgb(0xF0, 0xA8, 0x98))),
+        (50.8, new Band("Within 2 in of as it was", new ColourRgb(0xD8, 0xD8, 0xD0))),
+        (304.8, new Band("Filled 2 in to 1 ft", new ColourRgb(0xA8, 0xC8, 0xF0))),
+        (914.4, new Band("Filled 1 to 3 ft", new ColourRgb(0x58, 0x88, 0xD8))),
+        (double.PositiveInfinity, new Band("Filled over 3 ft", new ColourRgb(0x28, 0x48, 0xA0)))
+    };
+
+    private static readonly (double Below, Band Band)[] MetricChanges =
     {
         (-1000, new Band("Cut over 1 m", new ColourRgb(0xA0, 0x28, 0x28))),
         (-300, new Band("Cut 300 to 1000", new ColourRgb(0xD8, 0x58, 0x50))),

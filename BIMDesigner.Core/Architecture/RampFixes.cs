@@ -118,18 +118,18 @@ public static class RampFixes
         if (Has("it is steeper than") && Math.Max(12, Ramps.SteepestAllowed(document, ramp)) is var steepest)
             Set(ramp.Gradient, steepest, v => ramp.Gradient = v, $"made 1:{steepest:0}");
         var (least, _) = Ramps.LeastWidth(document, ramp);
-        if (Has(" wide: ") && least > 0) Set(ramp.Width, least, v => ramp.Width = v, $"widened to {least:0}");
+        if (Has(" wide: ") && least > 0) Set(ramp.Width, least, v => ramp.Width = v, $"widened to {Units.Bare(least)}");
         var end = Ramps.EndLanding(document, ramp);
-        if (Has("Its head comes up onto")) Set(ramp.TopLanding, end, v => ramp.TopLanding = v, $"a landing {end:0} long at its head");
-        if (Has("Its foot starts from")) Set(ramp.BottomLanding, end, v => ramp.BottomLanding = v, $"a landing {end:0} long at its foot");
+        if (Has("Its head comes up onto")) Set(ramp.TopLanding, end, v => ramp.TopLanding = v, $"a landing {Units.Bare(end)} long at its head");
+        if (Has("Its foot starts from")) Set(ramp.BottomLanding, end, v => ramp.BottomLanding = v, $"a landing {Units.Bare(end)} long at its foot");
         if (Has("It has handrails") || Has("with nothing along it")) Set(ramp.Railings, StairRailings.Auto, v => ramp.Railings = v, "handrails and guarding as asked");
         if (Has("The space under it")) Set(ramp.ClosedUnderneath, true, v => ramp.ClosedUnderneath = v, "closed underneath");
 
         // Its type's copy: handrails the height, run-on and size asked, a kerb 100 high.
-        if (Has("Its handrails stand")) Set(type.HandrailHeight, 900.0, v => type.HandrailHeight = v, "handrails 900 high");
-        if (Has("Its handrails run on")) Set(type.HandrailExtension, us ? 305.0 : 300.0, v => type.HandrailExtension = v, $"handrails running on {(us ? 305 : 300)} past its ends");
-        if (Has("Its handrails are")) Set(type.HandrailDiameter, 42.0, v => type.HandrailDiameter = v, "handrails 42 round");
-        if (Has("Its kerb is") || Has("no edge protection")) Set(type.KerbHeight, 100.0, v => type.KerbHeight = v, "a kerb 100 high");
+        if (Has("Its handrails stand")) Set(type.HandrailHeight, 900.0, v => type.HandrailHeight = v, $"handrails {Units.Bare(900)} high");
+        if (Has("Its handrails run on")) Set(type.HandrailExtension, us ? 305.0 : 300.0, v => type.HandrailExtension = v, $"handrails running on {Units.Bare(us ? 305 : 300)} past its ends");
+        if (Has("Its handrails are")) Set(type.HandrailDiameter, 42.0, v => type.HandrailDiameter = v, $"handrails {Units.Bare(42)} round");
+        if (Has("Its kerb is") || Has("no edge protection")) Set(type.KerbHeight, 100.0, v => type.KerbHeight = v, $"a kerb {Units.Bare(100)} high");
 
         return changes.Count > count;
     }

@@ -136,13 +136,13 @@ public static class Clearances
                 if (either.Length == 0) either = new[] { new Area(455 - 1525, 455, -halfD, -halfD + 1420), new Area(-455, 1525 - 455, -halfD, -halfD + 1420) };
 
                 yield return new Zone("the clearance round the WC", either,
-                    "ADA 604.3 asks for 1525 (60 in) wide from the side wall by 1420 (56 in) deep from the rear wall.");
+                    $"ADA 604.3 asks for {Units.Figure("1525", "60 in")} wide from the side wall by {Units.Figure("1420", "56 in")} deep from the rear wall.");
                 break;
             }
 
             case ComponentForm.Toilet or ComponentForm.WallHungToilet when irc:
                 yield return new Zone("the space round the WC", new[] { new Area(-381, 381, -halfD, halfD + 533) },
-                    "IRC R307.1 (P2705.1) asks for 21 in (533) clear in front of a WC, and 15 in (381) from its centreline to a wall or anything beside it.");
+                    $"IRC R307.1 (P2705.1) asks for 21 in{Units.MetricAside("533")} clear in front of a WC, and 15 in{Units.MetricAside("381")} from its centreline to a wall or anything beside it.");
                 break;
 
             case ComponentForm.Toilet or ComponentForm.WallHungToilet when m43:
@@ -161,12 +161,12 @@ public static class Clearances
 
             case ComponentForm.Basin when ada:
                 yield return new Zone("the clear floor space at the lavatory", new[] { new Area(-380, 380, halfD, halfD + 1220) },
-                    "ADA 606.2 asks for 760 by 1220 (30 by 48 in) for a forward approach.");
+                    $"ADA 606.2 asks for {Units.Figure("760 by 1220", "30 by 48 in")} for a forward approach.");
                 break;
 
             case ComponentForm.Basin when irc:
                 yield return new Zone("the space round the basin", new[] { new Area(-381, 381, -halfD, halfD + 533) },
-                    "IRC R307.1 (P2705.1) asks for 21 in (533) clear in front of a lavatory, and 15 in (381) from its centreline to a wall or anything beside it.");
+                    $"IRC R307.1 (P2705.1) asks for 21 in{Units.MetricAside("533")} clear in front of a lavatory, and 15 in{Units.MetricAside("381")} from its centreline to a wall or anything beside it.");
                 break;
 
             case ComponentForm.Basin when m43:
@@ -181,12 +181,12 @@ public static class Clearances
 
             case ComponentForm.Bath when ada:
                 yield return new Zone("the clearance along the bath", new[] { new Area(-halfW, halfW, halfD, halfD + 760) },
-                    "ADA 607.2 asks for 760 (30 in) wide along the length of a bathtub.");
+                    $"ADA 607.2 asks for {Units.Figure("760", "30 in")} wide along the length of a bathtub.");
                 break;
 
             case ComponentForm.Bath when irc:
                 yield return new Zone("the space in front of the bath", new[] { new Area(-halfW, halfW, halfD, halfD + 533) },
-                    "IRC Figure R307.1 asks for 21 in (533) clear in front of a bathtub.");
+                    $"IRC Figure R307.1 asks for 21 in{Units.MetricAside("533")} clear in front of a bathtub.");
                 break;
 
             case ComponentForm.Bath when m43:
@@ -202,7 +202,7 @@ public static class Clearances
 
             case ComponentForm.Shower when ada && type.Width >= 1525:
                 yield return new Zone("the clearance at the roll-in shower", new[] { new Area(-halfW, -halfW + 1525, halfD, halfD + 760) },
-                    "ADA 608.2.2 asks for 760 by 1525 (30 by 60 in) beside the open face of a roll-in shower.");
+                    $"ADA 608.2.2 asks for {Units.Figure("760 by 1525", "30 by 60 in")} beside the open face of a roll-in shower.");
                 break;
 
             case ComponentForm.Shower when ada:
@@ -210,12 +210,12 @@ public static class Clearances
                 {
                     new Area(-halfW, -halfW + 1220, halfD, halfD + 915),
                     new Area(halfW - 1220, halfW, halfD, halfD + 915)
-                }, "ADA 608.2.1 asks for 915 by 1220 (36 by 48 in) from the control wall of a transfer shower.");
+                }, $"ADA 608.2.1 asks for {Units.Figure("915 by 1220", "36 by 48 in")} from the control wall of a transfer shower.");
                 break;
 
             case ComponentForm.Shower when irc:
                 yield return new Zone("the space in front of the shower", new[] { new Area(-halfW, halfW, halfD, halfD + 610) },
-                    "IRC Figure R307.1 asks for 24 in (610) clear in front of a shower's opening.");
+                    $"IRC Figure R307.1 asks for 24 in{Units.MetricAside("610")} clear in front of a shower's opening.");
                 break;
 
             case ComponentForm.Shower when m43:
@@ -234,7 +234,7 @@ public static class Clearances
                 {
                     new Area(-halfW - 760, -halfW, -610, 610),
                     new Area(halfW, halfW + 760, -610, 610)
-                }, "ADA 806.2.3 asks for 760 by 1220 (30 by 48 in) beside a bed for a parallel approach.");
+                }, $"ADA 806.2.3 asks for {Units.Figure("760 by 1220", "30 by 48 in")} beside a bed for a parallel approach.");
                 break;
 
             case ComponentForm.Bed or ComponentForm.BunkBed when !irc:
@@ -294,9 +294,9 @@ public static class Clearances
                 yield return standard switch
                 {
                     ClearanceStandard.Ada => new Zone("the clearance in front of the kitchen", new[] { new Area(-halfW, halfW, halfD, halfD + 1015) },
-                        "ADA 804.2 asks for 1015 (40 in) clear in front of kitchen units, and 1525 (60 in) in a U-shaped kitchen."),
+                        $"ADA 804.2 asks for {Units.Figure("1015", "40 in")} clear in front of kitchen units, and {Units.Figure("1525", "60 in")} in a U-shaped kitchen."),
                     ClearanceStandard.Irc => new Zone("the work aisle in front of the kitchen", new[] { new Area(-halfW, halfW, halfD, halfD + 1067) },
-                        "The IRC sets none; the NKBA's Kitchen Planning Guideline 6 asks for a work aisle of 42 in (1067) for one cook, 48 in (1219) for more."),
+                        $"The IRC sets none; the NKBA's Kitchen Planning Guideline 6 asks for a work aisle of 42 in{Units.MetricAside("1067")} for one cook, 48 in{Units.MetricAside("1219")} for more."),
                     ClearanceStandard.ApprovedDocumentM3 => new Zone("the clear space in front of the kitchen", new[] { new Area(-halfW, halfW, halfD, halfD + 1500) },
                         "Approved Document M (M4(3)) 3.32b asks for 1500 clear in front of and between all kitchen units and appliances."),
                     _ => new Zone("the clear space in front of the kitchen", new[] { new Area(-halfW, halfW, halfD, halfD + 1200) },
@@ -307,7 +307,7 @@ public static class Clearances
             case ComponentForm.TurningCircle:
                 yield return new Zone("the turning circle", new[] { new Area(-halfW, halfW, -halfD, halfD) },
                     standard.IsUs()
-                        ? "ADA 304.3 asks for a 60 in (1525) turning space, clear of anything standing in it."
+                        ? $"ADA 304.3 asks for a 60 in{Units.MetricAside("1525")} turning space, clear of anything standing in it."
                         : "Approved Document M (M4(3)) asks for a 1500 turning circle in a wheelchair user's living space, bedrooms and bathroom (3.22d, 3.35, 3.43e).",
                     Round: true);
                 break;
@@ -335,8 +335,8 @@ public static class Clearances
     /// out and sat on: the NKBA's 32 in - 800 - or, for a wheelchair user, its access standard's 36 in.
     /// </summary>
     private static (double Reach, string Rule) DiningReach(ClearanceStandard standard) => standard is ClearanceStandard.Ada or ClearanceStandard.ApprovedDocumentM3
-        ? (915, "The NKBA's access standard asks for 36 in (915) from a table's edge to a wall or anything standing where no one passes behind - 60 in (1525) where a wheelchair passes.")
-        : (800, "The NKBA's Kitchen Planning Guideline 8 asks for 32 in (800) from a table's edge to a wall or anything standing, to draw a chair out and sit - 36 in to edge past someone seated, 44 in to walk past.");
+        ? (915, $"The NKBA's access standard asks for 36 in{Units.MetricAside("915")} from a table's edge to a wall or anything standing where no one passes behind - 60 in{Units.MetricAside("1525")} where a wheelchair passes.")
+        : (800, $"The NKBA's Kitchen Planning Guideline 8 asks for 32 in{Units.MetricAside("800")} from a table's edge to a wall or anything standing, to draw a chair out and sit - 36 in to edge past someone seated, 44 in to walk past.");
 
     /// <summary>Whether a fitting of this type needs room kept clear by it.</summary>
     public static bool Needs(ComponentType type, ClearanceStandard standard) => ZonesOf(type, standard).Any();

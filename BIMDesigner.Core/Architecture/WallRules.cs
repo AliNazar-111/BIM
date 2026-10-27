@@ -60,7 +60,7 @@ public static class WallRules
             if (!us && lowest < 800)
                 yield return Problem($"its glass comes down to {lowest:0} off the floor, not safety glass.", "Approved Document K (Diagram 5.1) makes glass below 800 a critical location: safety glass to BS EN 12600.");
             else if (us && glass.Any(cell => (cell.ClearTo - cell.ClearFrom) * (cell.ClearTop - cell.ClearBottom) > 836000 && cell.ClearBottom < 457 && cell.ClearTop > 914))
-                yield return Problem("a pane over 9 sq ft comes down below 18 in (457), not safety glass.", "IRC R308.4.3 makes such a pane a hazardous location: safety glazing.");
+                yield return Problem($"a pane over 9 sq ft comes down below 18 in{Units.MetricAside("457")}, not safety glass.", "IRC R308.4.3 makes such a pane a hazardous location: safety glazing.");
         }
 
         // Its mullions and transoms: how far the wind bends them, and the glass on a transom - and how they are fixed and spliced.
@@ -81,13 +81,13 @@ public static class WallRules
             };
             var (wanted, rule) = standard switch
             {
-                ClearanceStandard.Ada => (815.0, "ADA 404.2.3 asks for 32 in (815) clear through a door."),
+                ClearanceStandard.Ada => (815.0, $"ADA 404.2.3 asks for 32 in{Units.MetricAside("815")} clear through a door."),
                 ClearanceStandard.Irc => (0.0, string.Empty),
                 ClearanceStandard.ApprovedDocumentM3 => (850.0, "Approved Document M (M4(3) 3.22) asks for 850 clear through every door, for a wheelchair user."),
                 _ => (850.0, "Approved Document M (M4(2) 2.20d-e, 2.21) asks for 850 clear through an external door - a pair's main leaf.")
             };
             if (clear < wanted - 0.5)
-                yield return Problem($"its door gives {clear:0} clear.", rule);
+                yield return Problem($"its door gives {Units.Bare(clear)} clear.", rule);
         }
     }
 
@@ -125,7 +125,7 @@ public static class WallRules
             if (us && garage && !type.Structure.Layers.Any(layer => document.FindMaterial(layer.MaterialId)?.Name is { } name
                     && (name.Contains("plasterboard", StringComparison.OrdinalIgnoreCase) || name.Contains("gypsum", StringComparison.OrdinalIgnoreCase)) && layer.Thickness >= 12.5))
                 Add("it stands between the house and its garage, with no gypsum board on it.",
-                    "IRC R302.6 asks for 1/2 in (12.7) gypsum board on the garage side of the wall between a garage and the house.");
+                    $"IRC R302.6 asks for 1/2 in{Units.MetricAside("12.7")} gypsum board on the garage side of the wall between a garage and the house.");
 
             if (!us && !garage && type.Function == WallFunction.Interior && (Quiet(document, one) || Quiet(document, other)) && type.AcousticRating < 40 - 0.05)
                 Add($"it keeps sound in to Rw {type.AcousticRating:0} dB, round a bedroom or a room with a WC.",

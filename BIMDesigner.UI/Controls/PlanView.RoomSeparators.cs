@@ -41,7 +41,7 @@ public partial class PlanView
         var separator = new RoomSeparator { LevelId = ActiveLevelId, Start = start, End = at };
         Apply(new AddElementCommand(Document, separator, "Room Separator"));
         _separatorStart = at;
-        HintChanged?.Invoke(this, $"Room separator in, {separator.Length / 1000:0.00} m: the rooms either side are bounded by it. Click where the next ends; Esc to stop.");
+        HintChanged?.Invoke(this, $"Room separator in, {Core.Units.Metres(separator.Length, "0.00")}: the rooms either side are bounded by it. Click where the next ends; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

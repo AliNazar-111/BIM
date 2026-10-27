@@ -539,7 +539,7 @@ public static class Circuits
             if (design.Length > design.LengthLimit + 0.05)
                 faults.Add($"it runs {design.Length:0.#} m - the On-Site Guide (Table 7.1) takes a {(design.Use == CircuitUse.RingFinal ? "ring" : "radial")} of {design.Cable.Name} on a {name} to {design.LengthLimit:0} m");
             if (design.Area > design.AreaLimit + 0.05)
-                faults.Add($"its sockets serve {design.Area:0} m² - the On-Site Guide (Appendix H) takes a {(design.Use == CircuitUse.RingFinal ? "ring final" : "radial")} of {design.Cable.Name} on a {name} to {design.AreaLimit:0} m²");
+                faults.Add($"its sockets serve {Units.OfSquareMetres(design.Area, "0")} - the On-Site Guide (Appendix H) takes a {(design.Use == CircuitUse.RingFinal ? "ring final" : "radial")} of {design.Cable.Name} on a {name} to {Units.OfSquareMetres(design.AreaLimit, "0")}");
         }
         else
         {
@@ -575,7 +575,7 @@ public static class Circuits
                 : $"designed for {design.Current:0.#} A{(design.Connected > 0 ? $" ({design.Connected:#,0} W at {design.Voltage:0} V)" : string.Empty)}";
         var run = us ? $"{design.Length * 3.28084:0} ft" : $"{design.Length:0.#} m";
         var rest = design.Standard
-            ? $"{run} of {design.LengthLimit:0}, serving {design.Area:0} m² of {design.AreaLimit:0} (On-Site Guide)"
+            ? $"{run} of {design.LengthLimit:0}, serving {Units.OfSquareMetres(design.Area, "0")} of {design.AreaLimit:0} (On-Site Guide)"
             : us
                 ? $"{run}, dropping {design.Drop:0.0} V ({design.Drop / design.Voltage:P1}) of 3%"
                 : $"{run}, dropping {design.Drop:0.0} V ({design.Drop / design.Voltage:P1}) of {design.DropLimit / design.Voltage:P0}; Zs {design.Impedance:0.00} Ω{(circuit.Rcd ? string.Empty : $" of {design.ImpedanceLimit:0.00}")}";

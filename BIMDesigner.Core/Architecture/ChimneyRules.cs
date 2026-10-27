@@ -70,8 +70,8 @@ public static class ChimneyRules
                 if (us)
                 {
                     if (flueArea < width * height / 12 - 1)
-                        Add($"its flue is {flue:0} across for the {floor} fire's {width:0} by {height:0} opening.",
-                            $"The IRC asks for a round flue a twelfth of the fireplace opening's area (R1003.15): {Across(width * height / 12):0} across.");
+                        Add($"its flue is {Units.Bare(flue)} across for the {floor} fire's {Units.Bare(width)} by {Units.Bare(height)} opening.",
+                            $"The IRC asks for a round flue a twelfth of the fireplace opening's area (R1003.15): {Units.Bare(Across(width * height / 12))} across.");
                 }
                 else if (width <= 500 + 0.5 && height <= 550 + 0.5)
                 {
@@ -88,7 +88,7 @@ public static class ChimneyRules
                     "Approved Document J (Table 2) asks for 125 across at the least for a closed appliance - 150 for one burning any fuel.");
 
             if (!us && top - entry < FlueHeight - 0.5)
-                Add($"the flue from the {floor} {(kind == ChimneyFireplace.Stove ? "stove" : "fire")} rises {(top - entry) / 1000:0.0} m to the top.",
+                Add($"the flue from the {floor} {(kind == ChimneyFireplace.Stove ? "stove" : "fire")} rises {Units.Metres((top - entry), "0.0")} to the top.",
                     "Approved Document J (2.8) takes a 4.5 m flue as enough to draw - stand the stack higher (Extra Height), or have its draught worked out to BS EN 13384-1.");
         }
 

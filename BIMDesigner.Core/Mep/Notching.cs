@@ -113,16 +113,16 @@ public static class Notching
                 var end = cut.FromSupport < cut.Depth;
                 var most = cut.Depth / (end ? 4 : 6);
                 if (cut.Size > most + 0.5)
-                    faults.Add($"a notch {cut.Size:0} mm deep in a joist {cut.Depth:0} deep - IRC R502.8.1 notches no deeper than {(end ? "a quarter of the depth at the end" : "a sixth of it")}, {most:0} mm");
+                    faults.Add($"a notch {Units.Millimetres(cut.Size, "0")} deep in a joist {Units.Bare(cut.Depth)} deep - IRC R502.8.1 notches no deeper than {(end ? "a quarter of the depth at the end" : "a sixth of it")}, {Units.Millimetres(most, "0")}");
                 if (share > 1.0 / 3 + 1e-6)
                     faults.Add("a notch in the middle third of the joist's span - IRC R502.8.1 allows none there");
             }
             else
             {
                 if (cut.Hole > cut.Depth / 3 + 0.5)
-                    faults.Add($"a hole {cut.Hole:0} mm across in a joist {cut.Depth:0} deep - IRC R502.8.1 bores no larger than a third of the depth, {cut.Depth / 3:0} mm");
+                    faults.Add($"a hole {Units.Millimetres(cut.Hole, "0")} across in a joist {Units.Bare(cut.Depth)} deep - IRC R502.8.1 bores no larger than a third of the depth, {Units.Millimetres(cut.Depth / 3, "0")}");
                 if (cut.Centre - cut.Size / 2 < 2 * inch - 0.5 || cut.Depth - (cut.Centre + cut.Size / 2) < 2 * inch - 0.5)
-                    faults.Add("a hole within 2 in (51 mm) of the joist's top or bottom edge - IRC R502.8.1 keeps holes 2 in from them");
+                    faults.Add($"a hole within 2 in{Units.MetricAside("51 mm")} of the joist's top or bottom edge - IRC R502.8.1 keeps holes 2 in from them");
             }
 
             return faults;
@@ -131,7 +131,7 @@ public static class Notching
         const string nhbc = "NHBC Standards 6.4.18, Table 6";
         if (cut.Depth > 250 + 0.5)
         {
-            faults.Add($"a {(cut.Notch ? "notch" : "hole")} in a joist {cut.Depth:0} mm deep - {nhbc} has an engineer design the cuts in a joist deeper than 250 mm");
+            faults.Add($"a {(cut.Notch ? "notch" : "hole")} in a joist {Units.Millimetres(cut.Depth, "0")} deep - {nhbc} has an engineer design the cuts in a joist deeper than 250 mm");
             return faults;
         }
 
@@ -140,14 +140,14 @@ public static class Notching
             if (cut.FromBelow)
                 faults.Add($"a notch in the joist's underside - notches are cut in the top edge only ({nhbc})");
             if (cut.Size > 0.15 * cut.Depth + 0.5)
-                faults.Add($"a notch {cut.Size:0} mm deep in a joist {cut.Depth:0} deep - a notch is no deeper than 0.15 of the depth, {0.15 * cut.Depth:0} mm ({nhbc})");
+                faults.Add($"a notch {Units.Millimetres(cut.Size, "0")} deep in a joist {Units.Bare(cut.Depth)} deep - a notch is no deeper than 0.15 of the depth, {Units.Millimetres(0.15 * cut.Depth, "0")} ({nhbc})");
             if (share < 0.1 - 1e-6 || share > 0.2 + 1e-6)
                 faults.Add($"a notch {share:0.00} of the span from the support - notches go between 0.1 and 0.2 of it ({nhbc})");
         }
         else
         {
             if (cut.Hole > 0.25 * cut.Depth + 0.5)
-                faults.Add($"a hole {cut.Hole:0} mm across in a joist {cut.Depth:0} deep - a hole is no wider than 0.25 of the depth, {0.25 * cut.Depth:0} mm ({nhbc})");
+                faults.Add($"a hole {Units.Millimetres(cut.Hole, "0")} across in a joist {Units.Bare(cut.Depth)} deep - a hole is no wider than 0.25 of the depth, {Units.Millimetres(0.25 * cut.Depth, "0")} ({nhbc})");
             if (Math.Abs(cut.Centre - cut.Depth / 2) > Math.Max(10, cut.Depth * 0.05))
                 faults.Add($"a hole off the joist's centre line - holes are drilled on it ({nhbc})");
             if (share < 0.25 - 1e-6 || share > 0.4 + 1e-6)

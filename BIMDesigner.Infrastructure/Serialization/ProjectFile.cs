@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using BIMDesigner.Core;
 using BIMDesigner.Core.Annotation;
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Datums;
@@ -73,12 +74,14 @@ public static partial class ProjectFile
                 Address = document.ProjectInformation.Address,
                 BuildingType = document.ProjectInformation.BuildingType,
                 ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString(),
+                Units = document.ProjectInformation.Units.ToString(),
                 Sprinklered = document.ProjectInformation.Sprinklered,
                 WaterOptionalRequirement = document.ProjectInformation.WaterOptionalRequirement,
                 Ground = document.ProjectInformation.Ground.ToString(),
                 ClayShrinkage = document.ProjectInformation.ClayShrinkage.ToString(),
                 FrostDepth = document.ProjectInformation.FrostDepth,
                 GroundSnowLoad = document.ProjectInformation.GroundSnowLoad,
+                WaterPressure = document.ProjectInformation.WaterPressure,
                 WindPressure = document.ProjectInformation.WindPressure,
                 BasicWindSpeed = document.ProjectInformation.BasicWindSpeed,
                 SiteAltitude = document.ProjectInformation.SiteAltitude,
@@ -1493,12 +1496,16 @@ public static partial class ProjectFile
         document.ProjectInformation.Address = dto.Project.Address;
         document.ProjectInformation.BuildingType = dto.Project.BuildingType;
         document.ProjectInformation.ClearanceStandard = ParseEnum(dto.Project.ClearanceStandard, ClearanceStandard.ApprovedDocumentM);
+
+        // Written before a project had units of its own: a US project's are feet and inches.
+        document.ProjectInformation.Units = ParseEnum(dto.Project.Units, document.ProjectInformation.ClearanceStandard.IsUs() ? UnitSystem.Imperial : UnitSystem.Metric);
         document.ProjectInformation.Sprinklered = dto.Project.Sprinklered;
         document.ProjectInformation.WaterOptionalRequirement = dto.Project.WaterOptionalRequirement;
         document.ProjectInformation.Ground = ParseEnum(dto.Project.Ground, GroundType.FirmClay);
         document.ProjectInformation.ClayShrinkage = ParseEnum(dto.Project.ClayShrinkage, ClayShrinkage.None);
         document.ProjectInformation.FrostDepth = double.IsFinite(dto.Project.FrostDepth) && dto.Project.FrostDepth > 0 ? dto.Project.FrostDepth : 0;
         document.ProjectInformation.GroundSnowLoad = double.IsFinite(dto.Project.GroundSnowLoad) && dto.Project.GroundSnowLoad >= 0 ? dto.Project.GroundSnowLoad : 20;
+        document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
         document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;
         document.ProjectInformation.SiteAltitude = double.IsFinite(dto.Project.SiteAltitude) && dto.Project.SiteAltitude is >= -500 and <= 5000 ? dto.Project.SiteAltitude : 0;

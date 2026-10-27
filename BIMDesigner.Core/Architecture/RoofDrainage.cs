@@ -335,7 +335,7 @@ public static class RoofDrainage
 
         var boundary = roof.Boundary;
         var edge = Enumerable.Range(0, boundary.Count).Min(i => Line2D.DistanceFromSegment(at, boundary[i], boundary[(i + 1) % boundary.Count]));
-        if (edge < EdgeClearance) return $"Too near the roof's edge: keep a drain {EdgeClearance:0} mm in from it.";
+        if (edge < EdgeClearance) return $"Too near the roof's edge: keep a drain {Units.Millimetres(EdgeClearance, "0")} in from it.";
 
         if (On(document, roof).Any(drain => !ReferenceEquals(drain, except) && drain.Location.DistanceTo(at) < DrainSpacing))
             return "There is a drain there already.";

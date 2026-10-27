@@ -348,7 +348,7 @@ public static class MepSystems
 
             if (zones.Count == 1 && (only is null || ReferenceEquals(zones[0], only)) && DwellingArea(document) is var area and >= TwoZoneArea)
                 yield return new MepProblem(zones[0],
-                    $"the rooms come to {area:0} m² - Approved Document L (2021) asks a new dwelling of {TwoZoneArea:0} m² or more for two heating zones at least, each with its own time and temperature control");
+                    $"the rooms come to {Units.OfSquareMetres(area, "0")} - Approved Document L (2021) asks a new dwelling of {Units.OfSquareMetres(TwoZoneArea, "0")} or more for two heating zones at least, each with its own time and temperature control");
         }
     }
 

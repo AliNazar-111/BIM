@@ -29,7 +29,7 @@ public static class HeatingPipes
     public const double VelocityLimit = 1.0, LargeVelocityLimit = 1.5, GradientLimit = 300;
 
     /// <summary>A pipe's absolute roughness, mm.</summary>
-    public static double Roughness(PipeMaterial material) => material switch
+    public static double Roughness(PipeMaterial material) => material.Like() switch
     {
         PipeMaterial.PeX => 0.007,
         PipeMaterial.GalvanisedSteel => 0.15,
@@ -119,7 +119,7 @@ public static class HeatingPipes
     /// <summary>What a heating pipe carries, as its Properties say it.</summary>
     public static string Describe(BimDocument document, Pipe pipe, PipeNetwork network)
     {
-        if (Of(document, pipe, network) is not { } carried) return $"{network.Loads[pipe].FromSource / 1000:0.0} m from what feeds {network.System.Name} - nothing beyond it gives heat yet";
+        if (Of(document, pipe, network) is not { } carried) return $"{Units.Metres(network.Loads[pipe].FromSource, "0.0")} from what feeds {network.System.Name} - nothing beyond it gives heat yet";
         var (flow, back) = Heating.Design(document, network.System);
         var litres = carried.MassFlow / Water((flow + back) / 2).Density * 1000 * 3600;
         var said = $"{carried.Watts:#,0} W beyond it: {litres:0} l/h at {carried.Velocity:0.00} m/s, losing {carried.Gradient:0} Pa/m";

@@ -150,7 +150,7 @@ public static class SlabRules
 
             // A cold roof pitched steeply or spanning far is aired high up as well as at its eaves.
             if (Cold(document, roof) && !roof.HighLevelVents && (roof.SlopeDegrees > 35 || Span(roof) > 10000))
-                Add($"it is a cold roof {(roof.SlopeDegrees > 35 ? $"pitched {roof.SlopeDegrees:0.#}°" : $"spanning {Span(roof) / 1000:0.0} m")}, aired at its eaves only.",
+                Add($"it is a cold roof {(roof.SlopeDegrees > 35 ? $"pitched {roof.SlopeDegrees:0.#}°" : $"spanning {Units.Metres(Span(roof), "0.0")}")}, aired at its eaves only.",
                     "BS 5250 asks a cold roof pitched over 35° or spanning more than 10 m for air high up as well - 5,000 mm² a metre at the ridge; tick Vented at the Ridge.");
 
             if (roof.SlopeDegrees > 0.5 && document.FindType<RoofType>(roof.TypeId) is { } roofType && CoveringPitch(document, roofType) is var (least, covering) && roof.SlopeDegrees < least - 0.05)

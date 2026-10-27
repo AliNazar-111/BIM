@@ -41,6 +41,10 @@ public sealed class NewProjectSteps : Grid
 
     private readonly ComboBox _storeys = new() { ItemsSource = Enumerable.Range(1, ProjectTemplates.MostStoreys).ToList(), SelectedItem = 2, Width = 120, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly TextBox _height = Box("3000");
+    private TextBlock? _heightLabel;
+
+    // Whether the storey height box is in feet and inches, as it is for the US template.
+    private bool _heightInFeet;
     private readonly CheckBox _basement = new() { Content = "A basement under the ground floor" };
     private readonly StackPanel _levels = new() { Margin = new Thickness(0, 6, 0, 0) };
 
@@ -224,7 +228,7 @@ public sealed class NewProjectSteps : Grid
         var spec = Spec;
         var document = ProjectTemplates.Create(spec);
         var storeys = spec.Storeys == 1 ? "one storey" : $"{spec.Storeys} storeys";
-        var said = $"New project {document.ProjectInformation.Name}: {spec.Template.Title()}, {storeys} {spec.StoreyHeight / 1000:0.0##} m floor to floor{(spec.Basement ? " over a basement" : string.Empty)}. "
+        var said = $"New project {document.ProjectInformation.Name}: {spec.Template.Title()}, {storeys} {(Us ? Core.Units.FeetAndInches(spec.StoreyHeight) : $"{spec.StoreyHeight / 1000:0.0##} m")} floor to floor{(spec.Basement ? " over a basement" : string.Empty)}. "
                    + "Start drawing walls on the Architecture tab.";
         Created?.Invoke(this, new StartChoice(document, null, said) { SaveTo = SavePath });
         return true;
@@ -241,7 +245,7 @@ public sealed class NewProjectSteps : Grid
         GroundSnowLoad = Number(_snow.Text) ?? 0,
         FrostDepth = (Number(_frost.Text) ?? 0) * 25.4,
         Storeys = _storeys.SelectedItem is int storeys ? storeys : 2,
-        StoreyHeight = Number(_height.Text) ?? 3000,
+        StoreyHeight = Height(Us) ?? 3000,
         Basement = _basement.IsChecked == true
     };
 
@@ -264,7 +268,9 @@ public sealed class NewProjectSteps : Grid
                 return "The ground snow load is in psf, 0 or more.";
             case 2 when Us && (Number(_frost.Text) is not { } frost || frost < 0):
                 return "The frost line depth is in inches, 0 or more.";
-            case 3 when Number(_height.Text) is not { } height || height < 2000 || height > 6000:
+            case 3 when Us && (Height(true) is not { } height || height < 7 * Core.Units.MillimetresPerFoot || height > 19 * Core.Units.MillimetresPerFoot):
+                return "The storey height is floor to floor in feet and inches - 10'-0\", 10' 6\" or 10 - from 7' to 19'.";
+            case 3 when !Us && (Height(false) is not { } height || height < 2000 || height > 6000):
                 return "The storey height is floor to floor in millimetres, 2000 to 6000.";
             case 4 when _saveNow.IsChecked == true:
                 if (string.IsNullOrWhiteSpace(_folder.Text)) return "Pick a folder to keep the project in.";
@@ -352,7 +358,7 @@ public sealed class NewProjectSteps : Grid
             ? spec.WinterDesignTemperature is { } winter ? $"{winter:0} °F winter design temperature" : "Winter design temperature to be set"
             : $"{Station(spec.HeatingLocation)}, {spec.SiteAltitude:0} m up");
         Line("Ground", MainWindow.GroundLabel(spec.Ground));
-        Line("Storeys", $"{spec.Storeys} at {spec.StoreyHeight:0} mm{(spec.Basement ? ", and a basement" : string.Empty)}");
+        Line("Storeys", $"{spec.Storeys} at {(Us ? Core.Units.FeetAndInches(spec.StoreyHeight) : $"{spec.StoreyHeight:0} mm")}{(spec.Basement ? ", and a basement" : string.Empty)}");
         Line("Kept in", SavePath ?? "Not saved yet");
 
         // The levels it will have, top down.
@@ -372,7 +378,7 @@ public sealed class NewProjectSteps : Grid
             var bar = new Border { Height = 3, VerticalAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(1.5) };
             bar.SetResourceReference(Border.BackgroundProperty, name == "Roof" ? "Line.Strong" : "Accent");
             var text = new TextBlock { Text = name, FontWeight = FontWeights.SemiBold };
-            var at = Muted($"{(elevation >= 0 ? "+" : "−")}{Math.Abs(elevation) / 1000:0.000} m");
+            var at = Muted($"{(elevation >= 0 ? "+" : "−")}{(Us ? Core.Units.FeetAndInches(Math.Abs(elevation)) : $"{Math.Abs(elevation) / 1000:0.000} m")}");
             at.HorizontalAlignment = HorizontalAlignment.Right;
             SetColumn(bar, 1);
             SetColumn(at, 2);
@@ -404,7 +410,7 @@ public sealed class NewProjectSteps : Grid
             var words = new StackPanel();
             words.Children.Add(new TextBlock { Text = template.Title(), FontSize = 15, FontWeight = FontWeights.SemiBold });
             words.Children.Add(new TextBlock { Text = template.Description(), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4) });
-            words.Children.Add(Muted(template == ProjectTemplate.UsHouse ? "Millimetres - IRC 2021 - NEC 2023" : "Millimetres - Approved Documents - BS 7671:2018+A4:2026"));
+            words.Children.Add(Muted(template == ProjectTemplate.UsHouse ? "Feet and inches - IRC 2021 - NEC 2023" : "Millimetres - Approved Documents - BS 7671:2018+A4:2026"));
             var content = new DockPanel();
             DockPanel.SetDock(badge, Dock.Left);
             content.Children.Add(badge);
@@ -470,12 +476,39 @@ public sealed class NewProjectSteps : Grid
                 : "Where the building is: the weather station the heat loss works to, how high the site is, and the ground under it.";
         if (_groundHint is not null)
             _groundHint.Text = Us ? "Its presumptive bearing value sizes the footings (IRC Table R401.4.1)." : "Approved Document A's ground type sizes the strip footings.";
+        ShowHeightUnits();
+    }
+
+    /// <summary>
+    /// The storey height in the template's units: millimetres, or feet and inches for the US -
+    /// the 3000 it starts on made 10'-0", and a height typed in the other's carried over.
+    /// </summary>
+    private void ShowHeightUnits()
+    {
+        if (_heightLabel is not null) _heightLabel.Text = Us ? "Storey height, floor to floor, ft-in" : "Storey height, floor to floor, mm";
+        if (_heightInFeet == Us) return;
+        var was = Height(_heightInFeet);
+        _heightInFeet = Us;
+        if (was is not { } mm) return;
+        _height.Text = Us
+            ? Math.Abs(mm - 3000) < 0.5 ? "10'-0\"" : Core.Units.FeetAndInches(mm)
+            : Math.Abs(mm - 10 * Core.Units.MillimetresPerFoot) < 0.5 ? "3000" : $"{mm:0}";
+    }
+
+    /// <summary>The storey height typed, in mm: millimetres; or for the US, feet and inches - 10'-0", 10' 6", or 10 feet bare.</summary>
+    private double? Height(bool feet)
+    {
+        using var units = Core.Units.Use(feet ? Core.UnitSystem.Imperial : Core.UnitSystem.Metric);
+        return Core.Units.TryParseLength(_height.Text, out var mm) ? mm : feet ? null : Number(_height.Text);
     }
 
     private FrameworkElement StoreysPage()
     {
         var page = Page("Storeys", "A level for each storey and one for the roof over them - more can be added, and any moved, in Manage > Levels.");
-        page.Children.Add(Pair(Field("Storeys above the ground", _storeys), Field("Storey height, floor to floor, mm", _height)));
+        var height = (StackPanel)Field("Storey height, floor to floor, mm", _height);
+        _heightLabel = (TextBlock)height.Children[0];
+        page.Children.Add(Pair(Field("Storeys above the ground", _storeys), height));
+        ShowHeightUnits();
         page.Children.Add(_basement);
         var drawn = new Border { CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), Padding = new Thickness(16, 12, 16, 10), Margin = new Thickness(0, 16, 0, 0), Child = _levels };
         drawn.SetResourceReference(Border.BackgroundProperty, "Bg.Field");

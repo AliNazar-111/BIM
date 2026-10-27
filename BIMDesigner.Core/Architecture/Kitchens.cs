@@ -83,9 +83,9 @@ public static class Kitchens
                         "The NKBA's Kitchen Planning Guideline 20 asks that a hob not stand under a window that opens: a draught over its flames, a blind or a curtain catching.", footprint));
 
                 if (us ? Math.Min(left, right) < 305 - 0.5 || Math.Max(left, right) < 381 - 0.5 : Math.Min(left, right) < 300 - 0.5)
-                    problems.Add(new PlacementProblem(piece, $"the worktop beside it is {left:0} on its left and {right:0} on its right.",
+                    problems.Add(new PlacementProblem(piece, $"the worktop beside it is {Units.Bare(left)} on its left and {Units.Bare(right)} on its right.",
                         us
-                            ? "The NKBA's Kitchen Planning Guideline 17 asks for 12 in (305) of worktop one side of a cooktop and 15 in (381) the other."
+                            ? $"The NKBA's Kitchen Planning Guideline 17 asks for 12 in{Units.MetricAside("305")} of worktop one side of a cooktop and 15 in{Units.MetricAside("381")} the other."
                             : "Kitchen planners and housing standards ask for 300 of worktop each side of a hob, to set a pan down and keep its handle clear of a wall or a tall unit.",
                         footprint));
 
@@ -96,9 +96,9 @@ public static class Kitchens
                 {
                     var clear = us ? hoods.Count > 0 ? 610.0 : 762 : 650;
                     if (bottom - hob >= clear - 0.5 || bottom < hob) continue;
-                    problems.Add(new PlacementProblem(piece, $"{overType.Name} over it is {bottom - hob:0} above the hob.",
+                    problems.Add(new PlacementProblem(piece, $"{overType.Name} over it is {Units.Bare(bottom - hob)} above the hob.",
                         us
-                            ? $"IRC M1901.1 asks for 30 in (762) from a range to anything that can burn over it - 24 in (610) with a hood over it."
+                            ? $"IRC M1901.1 asks for 30 in{Units.MetricAside("762")} from a range to anything that can burn over it - 24 in{Units.MetricAside("610")} with a hood over it."
                             : "Hob makers ask that nothing that can burn hang closer than 650 over a hob.",
                         footprint));
                 }
@@ -106,9 +106,9 @@ public static class Kitchens
                 foreach (var (_, hoodType, bottom) in hoods)
                 {
                     if (bottom - hob < least - 0.5 || bottom - hob > most + 0.5)
-                        problems.Add(new PlacementProblem(piece, $"its hood is {bottom - hob:0} over it.",
+                        problems.Add(new PlacementProblem(piece, $"its hood is {Units.Bare(bottom - hob)} over it.",
                             us
-                                ? "Cooker hoods are hung 24 to 30 in (610 to 762) over a cooktop, as the IRC and their makers ask - low enough to catch its fumes."
+                                ? $"Cooker hoods are hung 24 to 30 in{Units.MetricAside("610 to 762")} over a cooktop, as the IRC and their makers ask - low enough to catch its fumes."
                                 : "Approved Document F (1.21) asks for a hood 650 to 750 over the hob where its maker gives no height.",
                             footprint));
                     if (!us && hoodType.Width < type.Width - 0.5)
@@ -121,14 +121,14 @@ public static class Kitchens
 
             case ComponentForm.Sink when us:
                 if (!(Math.Min(left, right) >= 457 - 0.5 && Math.Max(left, right) >= 610 - 0.5))
-                    problems.Add(new PlacementProblem(piece, $"the worktop beside it is {left:0} on its left and {right:0} on its right.",
-                        "The NKBA's Kitchen Planning Guideline 11 asks for 24 in (610) of worktop one side of a sink and 18 in (457) the other.", footprint));
+                    problems.Add(new PlacementProblem(piece, $"the worktop beside it is {Units.Bare(left)} on its left and {Units.Bare(right)} on its right.",
+                        $"The NKBA's Kitchen Planning Guideline 11 asks for 24 in{Units.MetricAside("610")} of worktop one side of a sink and 18 in{Units.MetricAside("457")} the other.", footprint));
                 break;
 
             case ComponentForm.Fridge when us && !ComponentModel.UnderCounter(type):
                 if (Math.Max(left, right) < 381 - 0.5)
-                    problems.Add(new PlacementProblem(piece, $"there is no worktop beside it - {Math.Max(left, right):0} at most.",
-                        "The NKBA's Kitchen Planning Guideline 16 asks for 15 in (381) of worktop beside a fridge, to set things down from it.", footprint));
+                    problems.Add(new PlacementProblem(piece, $"there is no worktop beside it - {Units.Bare(Math.Max(left, right))} at most.",
+                        $"The NKBA's Kitchen Planning Guideline 16 asks for 15 in{Units.MetricAside("381")} of worktop beside a fridge, to set things down from it.", footprint));
                 break;
 
             case ComponentForm.Dishwasher when us:
@@ -139,8 +139,8 @@ public static class Kitchens
                     .ToList();
                 var nearest = sinks.Count == 0 ? double.MaxValue : sinks.Min(sink => Apart(sink, footprint));
                 if (nearest > 914 + 0.5)
-                    problems.Add(new PlacementProblem(piece, sinks.Count == 0 ? "there is no sink for it." : $"it is {nearest:0} from the sink.",
-                        "The NKBA's Kitchen Planning Guideline 13 asks for a dishwasher within 36 in (914) of the sink.", footprint));
+                    problems.Add(new PlacementProblem(piece, sinks.Count == 0 ? "there is no sink for it." : $"it is {Units.Bare(nearest)} from the sink.",
+                        $"The NKBA's Kitchen Planning Guideline 13 asks for a dishwasher within 36 in{Units.MetricAside("914")} of the sink.", footprint));
                 break;
             }
         }
@@ -252,10 +252,10 @@ public static class Kitchens
             var legs = new[] { ("sink to hob", s.DistanceTo(h)), ("hob to fridge", h.DistanceTo(f)), ("fridge to sink", f.DistanceTo(s)) };
             var total = legs.Sum(leg => leg.Item2);
             var odd = legs.Where(leg => leg.Item2 < 1200 - 0.5 || leg.Item2 > 2700 + 0.5).ToList();
-            var triangle = $"work triangle {total / 1000:0.0} m ({string.Join(", ", legs.Select(leg => $"{leg.Item1} {leg.Item2 / 1000:0.0}"))})";
+            var triangle = $"work triangle {Units.Metres(total, "0.0")} ({string.Join(", ", legs.Select(leg => $"{leg.Item1} {(Units.Imperial ? Units.FeetAndInches(leg.Item2) : $"{leg.Item2 / 1000:0.0}")}"))})";
             said.Add(odd.Count == 0 && total <= 7900 + 0.5
-                ? $"{triangle} - within 1.2 to 2.7 m a leg"
-                : $"{triangle} - the NKBA's Kitchen Planning Guideline 3 asks for 1.2 to 2.7 m (4 to 9 ft) a leg and 7.9 m (26 ft) in all at most");
+                ? $"{triangle} - within {(Units.Imperial ? "4 to 9 ft" : "1.2 to 2.7 m")} a leg"
+                : $"{triangle} - the NKBA's Kitchen Planning Guideline 3 asks for {Units.Figure("1.2 to 2.7 m", "4 to 9 ft")} a leg and {Units.Figure("7.9 m", "26 ft")} in all at most");
         }
 
         if (standard == ClearanceStandard.ApprovedDocumentM3 && Bedspaces(document) is > 0 and var bedspaces)
@@ -265,8 +265,8 @@ public static class Kitchens
                 .Sum(entry => entry.Type.Width);
             var wanted = WorktopFor(bedspaces);
             said.Add(worktop >= wanted - 0.5
-                ? $"worktop {worktop / 1000:0.00} m - long enough for {bedspaces} bedspaces"
-                : $"worktop {worktop / 1000:0.00} m - Approved Document M (M4(3)) Table 3.3 asks for {wanted / 1000:0.00} m for {bedspaces} bedspaces");
+                ? $"worktop {Units.Metres(worktop, "0.00")} - long enough for {bedspaces} bedspaces"
+                : $"worktop {Units.Metres(worktop, "0.00")} - Approved Document M (M4(3)) Table 3.3 asks for {Units.Metres(wanted, "0.00")} for {bedspaces} bedspaces");
         }
 
         if (hob is not null && !pieces.Any(entry => entry.Type.Form == ComponentForm.CookerHood))

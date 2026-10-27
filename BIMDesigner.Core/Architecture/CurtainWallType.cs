@@ -371,17 +371,17 @@ public sealed class CurtainWallType : ElementType
     public string? Problem()
     {
         if (VerticalLayout is CurtainGridLayout.FixedDistance or CurtainGridLayout.MaximumSpacing && !(VerticalSpacing >= 100))
-            return "The vertical grid spacing must be at least 100 mm.";
+            return $"The vertical grid spacing must be at least {Units.Millimetres(100, "0")}.";
         if (HorizontalLayout is CurtainGridLayout.FixedDistance or CurtainGridLayout.MaximumSpacing && !(HorizontalSpacing >= 100))
-            return "The horizontal grid spacing must be at least 100 mm.";
+            return $"The horizontal grid spacing must be at least {Units.Millimetres(100, "0")}.";
         if (VerticalLayout == CurtainGridLayout.FixedNumber && VerticalCount is < 1 or > 200)
             return "The number of panels along the wall must be between 1 and 200.";
         if (HorizontalLayout == CurtainGridLayout.FixedNumber && HorizontalCount is < 1 or > 200)
             return "The number of panels up the wall must be between 1 and 200.";
-        if (!(PanelThickness >= 1 && PanelThickness <= 500)) return "Panels must be between 1 and 500 mm thick.";
-        if (!(MullionWidth >= 0 && MullionWidth <= 1000)) return "Mullions must be between 0 and 1000 mm wide.";
+        if (!(PanelThickness >= 1 && PanelThickness <= 500)) return $"Panels must be between {Units.Bare(1)} and {Units.Millimetres(500, "0")} thick.";
+        if (!(MullionWidth >= 0 && MullionWidth <= 1000)) return $"Mullions must be between {Units.Bare(0)} and {Units.Millimetres(1000, "0")} wide.";
         if (MullionProfile == MullionProfile.Rectangular && MullionWidth > 0 && !(MullionDepth >= 1 && MullionDepth <= 2000))
-            return "Mullions must be between 1 and 2000 mm deep.";
+            return $"Mullions must be between {Units.Bare(1)} and {Units.Millimetres(2000, "0")} deep.";
         return null;
     }
 
@@ -396,12 +396,12 @@ public sealed class CurtainWallType : ElementType
         yield return ParameterValue.ReadOnly(CurtainWallTypeParameters.Mullions, () => MullionWidth <= 0
             ? "None"
             : MullionProfile == MullionProfile.Circular
-                ? $"Round, {MullionWidth:0} mm"
-                : $"{MullionWidth:0} x {MullionDepth:0} mm");
+                ? $"Round, {Units.Millimetres(MullionWidth, "0")}"
+                : $"{Units.Bare(MullionWidth)} x {Units.Millimetres(MullionDepth, "0")}");
         // Each line's mullion type, chosen from the project's: its own, none, or a type.
         if (document is not null)
         {
-            var own = OwnMullion is { } mine ? $"<its own: {(mine.Shape == MullionShape.Circular ? $"round {MullionWidth:0}" : $"{MullionWidth:0} x {MullionDepth:0}")}>" : "<its own: none>";
+            var own = OwnMullion is { } mine ? $"<its own: {(mine.Shape == MullionShape.Circular ? $"round {Units.Bare(MullionWidth)}" : $"{Units.Bare(MullionWidth)} x {Units.Bare(MullionDepth)}")}>" : "<its own: none>";
             var choices = new[] { own, "None" }.Concat(document.TypesOf<MullionType>().Select(type => type.Name).OrderBy(name => name)).ToArray();
             ParameterValue Slot(ParameterDefinition definition, Func<Guid?> get, Action<Guid?> set) => ParameterValue.BindChoice(definition,
                 () => get() switch { null => own, { } id when id == Guid.Empty => "None", { } id => document.FindType<MullionType>(id)?.Name ?? own },
@@ -443,8 +443,8 @@ public sealed class CurtainWallType : ElementType
     {
         CurtainGridLayout.None => "None",
         CurtainGridLayout.FixedNumber => $"{count} panels",
-        CurtainGridLayout.MaximumSpacing => $"At most {spacing:0} mm",
-        _ => $"Every {spacing:0} mm"
+        CurtainGridLayout.MaximumSpacing => $"At most {Units.Millimetres(spacing, "0")}",
+        _ => $"Every {Units.Millimetres(spacing, "0")}"
     };
 }
 

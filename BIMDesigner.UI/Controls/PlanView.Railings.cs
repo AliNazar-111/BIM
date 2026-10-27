@@ -146,7 +146,7 @@ public partial class PlanView
 
         var steps = replaced.Select(old => (IUndoableCommand)new DeleteElementCommand(Document, old)).Append(new AddElementCommand(Document, railing, "Railing")).ToList();
         Apply(new CompositeCommand("Railing All Round", steps));
-        HintChanged?.Invoke(this, $"Railing all the way round: {Railings.Length(railing) / 1000:0.0} m, {Railings.TypeOf(Document, railing).Height:0} high{(Railings.StairGaps(Document, railing).Count > 0 ? ", open where a stair comes up" : "")}. {Railings.Verdict(Document, railing)}.");
+        HintChanged?.Invoke(this, $"Railing all the way round: {Core.Units.Metres(Railings.Length(railing), "0.0")}, {Core.Units.FormatMm(Railings.TypeOf(Document, railing).Height)} high{(Railings.StairGaps(Document, railing).Count > 0 ? ", open where a stair comes up" : "")}. {Railings.Verdict(Document, railing)}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -230,7 +230,7 @@ public partial class PlanView
         }
 
         Apply(new CompositeCommand("Railing Along Edge", steps));
-        HintChanged?.Invoke(this, $"Railing along the edge: {Railings.Length(made) / 1000:0.0} m{(made.Closed ? ", all the way round" : "")}, {Railings.TypeOf(Document, made).Height:0} high. {Railings.Verdict(Document, made)}. Click the next edge; Esc to stop.");
+        HintChanged?.Invoke(this, $"Railing along the edge: {Core.Units.Metres(Railings.Length(made), "0.0")}{(made.Closed ? ", all the way round" : "")}, {Core.Units.FormatMm(Railings.TypeOf(Document, made).Height)} high. {Railings.Verdict(Document, made)}. Click the next edge; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -325,7 +325,7 @@ public partial class PlanView
 
         Apply(new AddElementCommand(Document, railing, "Railing"));
         var type = Railings.TypeOf(Document, railing);
-        HintChanged?.Invoke(this, $"Railing in: {Railings.Length(railing) / 1000:0.0} m, {type.Height:0} high{(railing.Outside ? ", outside" : "")}. {Railings.Verdict(Document, railing)}. Click for another; Esc to stop.");
+        HintChanged?.Invoke(this, $"Railing in: {Core.Units.Metres(Railings.Length(railing), "0.0")}, {Core.Units.FormatMm(type.Height)} high{(railing.Outside ? ", outside" : "")}. {Railings.Verdict(Document, railing)}. Click for another; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

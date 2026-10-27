@@ -5,10 +5,9 @@ namespace BIMDesigner.Core.Parameters;
 /// <summary>
 /// Turns stored parameter values into display text and back again.
 ///
-/// The model always stores millimetres, but people type and read metres, so every length
-/// field accepts "5250", "5250 mm", "5.25 m" and "525 cm" and shows the friendliest form.
-/// Specification section 2.3 calls for per-discipline unit formats and dual-unit display;
-/// this is the single place that will grow to support them.
+/// The model always stores millimetres, but people type and read metres - or feet and inches
+/// in a US project - so every length field accepts "5250", "5250 mm", "5.25 m" and "525 cm",
+/// and 12'-6", 12' 6 1/2", 150", and shows the friendliest form in the project's units.
 /// </summary>
 public static class ParameterFormatter
 {
@@ -64,17 +63,17 @@ public static class ParameterFormatter
         switch (dataType)
         {
             case ParameterDataType.Length:
-                if (!TryParseScaled(text, LengthUnits, out var mm)) return false;
+                if (!Units.TryParseLength(text, out var mm)) return false;
                 value = mm;
                 return true;
 
             case ParameterDataType.Area:
-                if (!TryParseScaled(text, AreaUnits, out var mm2)) return false;
+                if (!Units.TryParseArea(text, out var mm2)) return false;
                 value = mm2;
                 return true;
 
             case ParameterDataType.Volume:
-                if (!TryParseScaled(text, VolumeUnits, out var mm3)) return false;
+                if (!Units.TryParseVolume(text, out var mm3)) return false;
                 value = mm3;
                 return true;
 
@@ -124,43 +123,4 @@ public static class ParameterFormatter
         }
     }
 
-    // Longest suffix first, so "mm" is matched before "m".
-    private static readonly (string Suffix, double Factor)[] LengthUnits =
-    {
-        ("mm", 1),
-        ("cm", 10),
-        ("m", Units.MillimetresPerMetre)
-    };
-
-    private static readonly (string Suffix, double Factor)[] AreaUnits =
-    {
-        ("mm²", 1), ("mm2", 1),
-        ("m²", Units.SquareMillimetresPerSquareMetre), ("m2", Units.SquareMillimetresPerSquareMetre)
-    };
-
-    private static readonly (string Suffix, double Factor)[] VolumeUnits =
-    {
-        ("mm³", 1), ("mm3", 1),
-        ("m³", Units.CubicMillimetresPerCubicMetre), ("m3", Units.CubicMillimetresPerCubicMetre)
-    };
-
-    /// <summary>Reads a number with an optional unit suffix; no suffix means the base unit.</summary>
-    private static bool TryParseScaled(string text, (string Suffix, double Factor)[] units, out double result)
-    {
-        result = 0;
-        var factor = 1.0;
-
-        foreach (var (suffix, unitFactor) in units)
-        {
-            if (!text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
-            factor = unitFactor;
-            text = text[..^suffix.Length].Trim();
-            break;
-        }
-
-        if (!double.TryParse(text, NumberStyles.Float, Culture, out var number)) return false;
-
-        result = number * factor;
-        return true;
-    }
 }

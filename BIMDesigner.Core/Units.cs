@@ -1,17 +1,65 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 namespace BIMDesigner.Core;
+
+/// <summary>The units a project is shown and typed in: metric, or US feet and inches.</summary>
+public enum UnitSystem
+{
+    /// <summary>Millimetres and metres, square and cubic metres.</summary>
+    Metric,
+
+    /// <summary>Feet and inches to the nearest sixteenth - 12'-6 1/2" - square and cubic feet.</summary>
+    Imperial
+}
 
 /// <summary>
 /// Every length inside the model is millimetres, every area mm² and every volume mm³,
 /// stored as a double. Conversions live here only - never convert ad-hoc elsewhere.
 ///
-/// Specification section 2.3 asks for metric/imperial and per-discipline unit formats; this
-/// is the single place that will grow to support them.
+/// What is shown and typed is in the project's units: metric, or feet and inches. The model
+/// itself never changes - a wall 3658 long is 12'-0" in a US project and 3.66 m in an English
+/// one - so a project can be shown either way, and the rules it is checked against stay in
+/// their own units underneath.
 /// </summary>
 public static class Units
 {
     public const double MillimetresPerMetre = 1000.0;
     public const double SquareMillimetresPerSquareMetre = 1_000_000.0;
     public const double CubicMillimetresPerCubicMetre = 1_000_000_000.0;
+
+    public const double MillimetresPerInch = 25.4;
+    public const double MillimetresPerFoot = 304.8;
+    public const double SquareMillimetresPerSquareFoot = MillimetresPerFoot * MillimetresPerFoot;
+    public const double CubicMillimetresPerCubicFoot = SquareMillimetresPerSquareFoot * MillimetresPerFoot;
+
+    [ThreadStatic] private static UnitSystem? _system;
+
+    /// <summary>
+    /// The units shown and typed now: the open project's, set when it opens. Held for the
+    /// thread the project is worked on, so a test - or another window's thread - is not
+    /// changed by it.
+    /// </summary>
+    public static UnitSystem System
+    {
+        get => _system ?? UnitSystem.Metric;
+        set => _system = value;
+    }
+
+    public static bool Imperial => System == UnitSystem.Imperial;
+
+    /// <summary>The units in force until what is returned is disposed: for a piece of work in another project's units.</summary>
+    public static IDisposable Use(UnitSystem system)
+    {
+        var was = _system;
+        _system = system;
+        return new Restore(() => _system = was);
+    }
+
+    private sealed class Restore(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
 
     public static double MetresToMm(double metres) => metres * MillimetresPerMetre;
 
@@ -21,17 +69,250 @@ public static class Units
 
     public static double CubicMmToCubicMetres(double mm3) => mm3 / CubicMillimetresPerCubicMetre;
 
-    /// <summary>Formats a stored mm value, e.g. 5250 -> "5.25 m", 200 -> "200 mm".</summary>
+    /// <summary>Formats a stored mm value in the project's units: 5250 -> "5.25 m", 200 -> "200 mm"; or 12'-6 1/2", 6".</summary>
     public static string FormatLength(double mm) =>
-        Math.Abs(mm) >= MillimetresPerMetre
+        Imperial ? FeetAndInches(mm)
+        : Math.Abs(mm) >= MillimetresPerMetre
             ? $"{MmToMetres(mm):0.00} m"
             : $"{mm:0.##} mm";
 
-    /// <summary>Formats a stored mm² value as square metres, the unit used on schedules.</summary>
-    public static string FormatArea(double mm2) => $"{SquareMmToSquareMetres(mm2):0.00} m²";
+    /// <summary>Formats a stored mm² value: square metres, or square feet in a US project.</summary>
+    public static string FormatArea(double mm2) =>
+        Imperial ? $"{mm2 / SquareMillimetresPerSquareFoot:#,0.#} sq ft" : $"{SquareMmToSquareMetres(mm2):0.00} m²";
 
-    /// <summary>Formats a stored mm³ value as cubic metres, the unit used for takeoff.</summary>
-    public static string FormatVolume(double mm3) => $"{CubicMmToCubicMetres(mm3):0.000} m³";
+    /// <summary>Formats a stored mm³ value: cubic metres, or cubic feet in a US project.</summary>
+    public static string FormatVolume(double mm3) =>
+        Imperial ? $"{mm3 / CubicMillimetresPerCubicFoot:#,0.#} cu ft" : $"{CubicMmToCubicMetres(mm3):0.000} m³";
+
+    /// <summary>A size as a UK drawing says it, in millimetres - 1100 mm - or as a US one does, 3'-7 5/16".</summary>
+    public static string FormatMm(double mm) => Millimetres(mm, "0");
+
+    // What is said in a message, in the words it was always said in for a metric project - so
+    // many places of millimetres or metres, square or cubic metres - and in feet and inches,
+    // square and cubic feet, in a US one.
+
+    /// <summary>A US rule's figure in millimetres put after it in brackets - 6 in (152) - where the project is metric; nothing where it is in feet and inches already.</summary>
+    public static string MetricAside(string mm) => Imperial ? string.Empty : $" ({mm})";
+
+    /// <summary>A rule's figure in millimetres with its inches in brackets - 196 (7¾ in) - where the project is metric; the inches alone, 7¾ in, where it is in feet and inches.</summary>
+    public static string Figure(string mm, string inches) => Imperial ? inches : $"{mm} ({inches})";
+
+    /// <summary>A size written bare, as a UK drawing does - 150, or 187.5 to "0.#" - or in feet and inches, 6"; signed where the format signs it, "+0;-0".</summary>
+    public static string Bare(double mm, string format = "0") =>
+        Imperial ? (format.StartsWith('+') && FeetAndInches(mm) is var written && !written.StartsWith('-') && written != "0\"" ? "+" + written : FeetAndInches(mm))
+        : mm.ToString(format, CultureInfo.CurrentCulture);
+
+    /// <summary>A small area said in mm² to a format - "2,800 mm²" - or in square inches, "4.34 sq in".</summary>
+    public static string SquareMillimetres(double mm2, string format) =>
+        Imperial ? $"{mm2 / (MillimetresPerInch * MillimetresPerInch):#,0.##} sq in" : $"{mm2.ToString(format, CultureInfo.CurrentCulture)} mm²";
+
+    /// <summary>An opening's area along a length - a soffit's ventilation - "25,000 mm² of air a metre", or in square inches a foot.</summary>
+    public static string AreaPerLength(double mm2PerMetre, string what = "") =>
+        Imperial
+            ? $"{mm2PerMetre / (MillimetresPerInch * MillimetresPerInch) * MillimetresPerFoot / MillimetresPerMetre:#,0.#} sq in{what} a foot"
+            : $"{mm2PerMetre:#,0} mm²{what} a metre";
+
+    /// <summary>
+    /// A level, signed: in metres to three places - "+0.000", "-0.450" - or in feet and inches as a
+    /// US drawing writes an elevation, "+0'-0"", "-0'-6"", "+10'-1 1/8"".
+    /// </summary>
+    public static string Elevation(double mm)
+    {
+        if (!Imperial)
+        {
+            var rounded = Math.Round(mm / MillimetresPerMetre, 3);
+            return $"{(rounded < 0 ? "-" : "+")}{Math.Abs(rounded):0.000}";
+        }
+
+        var written = FeetAndInches(Math.Abs(mm));
+        var sign = mm < 0 && written != "0\"" ? "-" : "+";
+        return sign + (written.Contains('\'') ? written : $"0'-{written}");
+    }
+
+    /// <summary>A length said in millimetres to a format - "1100 mm" - or in feet and inches.</summary>
+    public static string Millimetres(double mm, string format) =>
+        Imperial ? FeetAndInches(mm) : $"{mm.ToString(format, CultureInfo.CurrentCulture)} mm";
+
+    /// <summary>A length in mm said in metres to a format - "2.40 m" - or in feet and inches.</summary>
+    public static string Metres(double mm, string format) =>
+        Imperial ? FeetAndInches(mm) : $"{(mm / MillimetresPerMetre).ToString(format, CultureInfo.CurrentCulture)} m";
+
+    /// <summary>An area in mm² said in square metres to a format - "12.5 m²" - or in square feet.</summary>
+    public static string SquareMetres(double mm2, string format) =>
+        Imperial ? $"{mm2 / SquareMillimetresPerSquareFoot:#,0.#} sq ft" : $"{(mm2 / SquareMillimetresPerSquareMetre).ToString(format, CultureInfo.CurrentCulture)} m²";
+
+    /// <summary>An area already in square metres, said to a format - "12.5 m²" - or in square feet.</summary>
+    public static string OfSquareMetres(double squareMetres, string format) => SquareMetres(squareMetres * SquareMillimetresPerSquareMetre, format);
+
+    /// <summary>A volume in mm³ said in cubic metres to a format - "3.2 m³" - or in cubic feet.</summary>
+    public static string CubicMetres(double mm3, string format) =>
+        Imperial ? $"{mm3 / CubicMillimetresPerCubicFoot:#,0.#} cu ft" : $"{(mm3 / CubicMillimetresPerCubicMetre).ToString(format, CultureInfo.CurrentCulture)} m³";
+
+    /// <summary>A volume already in cubic metres, said to a format - "3.2 m³" - or in cubic feet.</summary>
+    public static string OfCubicMetres(double cubicMetres, string format) => CubicMetres(cubicMetres * CubicMillimetresPerCubicMetre, format);
+
+    /// <summary>A pipe's fall, held as mm a metre: "20 mm a metre", or in a US project "1/4" a foot".</summary>
+    public static string FormatFall(double mmPerMetre) =>
+        Imperial ? $"{FallText(mmPerMetre)} a foot" : $"{mmPerMetre:0.#} mm a metre";
+
+    /// <summary>A fall as a box shows it: mm a metre, 20; or inches a foot, 1/4".</summary>
+    public static string FallText(double mmPerMetre) =>
+        Imperial ? FeetAndInches(mmPerMetre / MillimetresPerMetre * MillimetresPerFoot) : $"{mmPerMetre:0.#}";
+
+    /// <summary>A fall as typed, in mm a metre: in metric "20"; in a US project inches a foot - 1/4, 1/4", 0.25.</summary>
+    public static bool TryParseFall(string? text, out double mmPerMetre)
+    {
+        mmPerMetre = 0;
+        text = text?.Trim() ?? string.Empty;
+        if (!Imperial)
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out mmPerMetre)
+                   || double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out mmPerMetre);
+
+        if (!text.EndsWith('"') && !text.EndsWith("in", StringComparison.OrdinalIgnoreCase)) text += "\"";
+        if (!TryParseLength(text, out var perFoot)) return false;
+        mmPerMetre = perFoot / MillimetresPerFoot * MillimetresPerMetre;
+        return true;
+    }
+
+    /// <summary>
+    /// A length in feet and inches as a US drawing writes it, to the nearest sixteenth of an
+    /// inch: 12'-6 1/2", 12'-0", 6 1/2", 1/4". Under a foot, inches alone.
+    /// </summary>
+    public static string FeetAndInches(double mm)
+    {
+        var sixteenths = (long)Math.Round(Math.Abs(mm) / MillimetresPerInch * 16, MidpointRounding.AwayFromZero);
+        var sign = mm < 0 && sixteenths > 0 ? "-" : string.Empty;
+        var feet = sixteenths / (12 * 16);
+        var inches = sixteenths % (12 * 16) / 16;
+        var fraction = (int)(sixteenths % 16);
+        var part = Fraction(fraction);
+        var inchText = part.Length == 0 ? $"{inches}\"" : inches == 0 && feet == 0 ? $"{part}\"" : $"{inches} {part}\"";
+        return feet > 0 ? $"{sign}{feet}'-{inchText}" : sign + inchText;
+    }
+
+    /// <summary>So many sixteenths in lowest terms: 8 -> "1/2", 4 -> "1/4", 0 -> "".</summary>
+    private static string Fraction(int sixteenths)
+    {
+        if (sixteenths == 0) return string.Empty;
+        var (top, bottom) = (sixteenths, 16);
+        while (top % 2 == 0)
+        {
+            top /= 2;
+            bottom /= 2;
+        }
+
+        return $"{top}/{bottom}";
+    }
+
+    /// <summary>
+    /// A length as typed, in mm: in metric "2400", "2.4 m", "240 cm"; in feet and inches -
+    /// either way, whatever the project's units - 12'-6 1/2", 12' 6", 12'6", 12', 6", 6 1/2",
+    /// 1/2", 12.5', 150", "12 ft 6 in". A bare number is millimetres in a metric project and
+    /// feet in a US one, as a US drawing's are. False where it cannot be read.
+    /// </summary>
+    public static bool TryParseLength(string? text, out double mm)
+    {
+        mm = 0;
+        text = text?.Trim() ?? string.Empty;
+        if (text.Length == 0) return false;
+
+        // Metric, with its unit.
+        foreach (var (suffix, factor) in new[] { ("mm", 1.0), ("cm", 10.0), ("m", MillimetresPerMetre) })
+            if (text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && !text.EndsWith("in", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!double.TryParse(text[..^suffix.Length].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var metric)) return false;
+                mm = metric * factor;
+                return true;
+            }
+
+        // Feet and inches, with their marks or words.
+        var match = FeetInches.Match(text);
+        if (match.Success && (match.Groups["feet"].Success || match.Groups["inches"].Success))
+        {
+            var sign = match.Groups["minus"].Success ? -1 : 1;
+            var feet = match.Groups["feet"].Success ? Number(match.Groups["feet"].Value) : 0;
+            var inches = match.Groups["inches"].Success ? Inches(match.Groups["inches"].Value) : 0;
+            if (double.IsNaN(feet) || double.IsNaN(inches)) return false;
+            mm = sign * (feet * MillimetresPerFoot + inches * MillimetresPerInch);
+            return true;
+        }
+
+        // A bare number: the project's own unit.
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var bare)) return false;
+        mm = Imperial ? bare * MillimetresPerFoot : bare;
+        return true;
+    }
+
+    /// <summary>An area as typed, in mm²: "12.5 m²", "1200 sq ft", "1200 SF"; bare, the project's own unit.</summary>
+    public static bool TryParseArea(string? text, out double mm2) =>
+        TryParseScaled(text, new[]
+        {
+            ("mm²", 1.0), ("mm2", 1.0), ("m²", SquareMillimetresPerSquareMetre), ("m2", SquareMillimetresPerSquareMetre),
+            ("sq ft", SquareMillimetresPerSquareFoot), ("ft²", SquareMillimetresPerSquareFoot), ("ft2", SquareMillimetresPerSquareFoot), ("sf", SquareMillimetresPerSquareFoot)
+        }, Imperial ? SquareMillimetresPerSquareFoot : 1, out mm2);
+
+    /// <summary>A volume as typed, in mm³: "3 m³", "100 cu ft", "4 cu yd"; bare, the project's own unit.</summary>
+    public static bool TryParseVolume(string? text, out double mm3) =>
+        TryParseScaled(text, new[]
+        {
+            ("mm³", 1.0), ("mm3", 1.0), ("m³", CubicMillimetresPerCubicMetre), ("m3", CubicMillimetresPerCubicMetre),
+            ("cu ft", CubicMillimetresPerCubicFoot), ("ft³", CubicMillimetresPerCubicFoot), ("ft3", CubicMillimetresPerCubicFoot), ("cf", CubicMillimetresPerCubicFoot),
+            ("cu yd", 27 * CubicMillimetresPerCubicFoot), ("yd³", 27 * CubicMillimetresPerCubicFoot), ("yd3", 27 * CubicMillimetresPerCubicFoot)
+        }, Imperial ? CubicMillimetresPerCubicFoot : 1, out mm3);
+
+    private static bool TryParseScaled(string? text, (string Suffix, double Factor)[] units, double bare, out double result)
+    {
+        result = 0;
+        text = text?.Trim() ?? string.Empty;
+        var factor = bare;
+
+        // Longest suffix first, so "mm²" is matched before "m²".
+        foreach (var (suffix, unitFactor) in units.OrderByDescending(unit => unit.Suffix.Length))
+        {
+            if (!text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+            factor = unitFactor;
+            text = text[..^suffix.Length].Trim();
+            break;
+        }
+
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)) return false;
+        result = number * factor;
+        return true;
+    }
+
+    // 12'-6 1/2", 12' 6", 12'6", 12', 6", 6 1/2", 1/2", 12.5', 150", 12 ft 6 in, 12ft, 6in, -1'-6"
+    private static readonly Regex FeetInches = new(
+        @"^\s*(?<minus>-)?\s*(?:(?<feet>\d+(?:\.\d+)?)\s*(?:'|ft|feet|foot)\s*-?\s*)?(?:(?<inches>(?:\d+(?:\.\d+)?)?(?:\s*\d+/\d+)?)\s*(?:""|in|inch|inches)\s*)?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static double Number(string text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : double.NaN;
+
+    /// <summary>Inches as written: "6", "6.5", "6 1/2", "1/2".</summary>
+    private static double Inches(string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0) return 0;
+        var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var total = 0.0;
+        foreach (var part in parts)
+        {
+            if (part.Split('/') is [var top, var bottom])
+            {
+                var (n, d) = (Number(top), Number(bottom));
+                if (double.IsNaN(n) || double.IsNaN(d) || d == 0) return double.NaN;
+                total += n / d;
+            }
+            else
+            {
+                var whole = Number(part);
+                if (double.IsNaN(whole)) return double.NaN;
+                total += whole;
+            }
+        }
+
+        return total;
+    }
 
     /// <summary>Rounds a mm value onto the nearest grid step, used for snapping.</summary>
     public static double SnapToGrid(double mm, double stepMm) =>

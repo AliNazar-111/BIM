@@ -336,7 +336,7 @@ public sealed class SetChimneyFireplaceCommand : IUndoableCommand
         }
 
         if (widthAfter > widthBefore + 1e-6)
-            message = $"Each fireplace has a flue of its own, with a withe of brick between: the stack is widened to {widthAfter:0} mm to carry {flues} flues.";
+            message = $"Each fireplace has a flue of its own, with a withe of brick between: the stack is widened to {Units.Millimetres(widthAfter, "0")} to carry {flues} flues.";
 
         return new SetChimneyFireplaceCommand(chimney, levelId, before, kind, widthBefore, widthAfter);
     }

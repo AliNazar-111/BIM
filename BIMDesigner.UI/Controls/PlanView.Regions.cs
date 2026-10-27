@@ -89,14 +89,14 @@ public partial class PlanView
             var (cut, fill) = GroundOnLevel is { } graded ? Terrains.CutAndFill(Document, graded) : (0, 0);
             HintChanged?.Invoke(this, GroundOnLevel is null
                 ? "Pad drawn - but there is no ground on this level for it to be graded into: draw the ground with Toposurface, or Around Building."
-                : $"Pad graded in: {Polygon2D.Area(pad.Boundary) / 1e6:0.0} m² at {Core.Units.FormatLength(pad.HeightOffset)}; the ground's cut now {cut / 1e9:0.0} m³, fill {fill / 1e9:0.0} m³. {SitePads.Verdict(Document, pad)}. Draw another; Esc to stop.");
+                : $"Pad graded in: {Core.Units.SquareMetres(Polygon2D.Area(pad.Boundary), "0.0")} at {Core.Units.FormatLength(pad.HeightOffset)}; the ground's cut now {Core.Units.CubicMetres(cut, "0.0")}, fill {Core.Units.CubicMetres(fill, "0.0")}. {SitePads.Verdict(Document, pad)}. Draw another; Esc to stop.");
         }
         else if (ActiveTool == PlanTool.PropertyLine)
         {
             var line = new PropertyLine { LevelId = ActiveLevelId, Setback = Math.Max(0, ActiveSetback) };
             line.SetBoundary(outline);
             Apply(new AddElementCommand(Document, line, "Property Line"));
-            HintChanged?.Invoke(this, $"Property line: {Polygon2D.Area(line.Boundary) / 1e6:0.0} m², {Polygon2D.Perimeter(line.Boundary) / 1000:0.00} m round; the building covers {PropertyLines.Coverage(Document, line) * 100:0.#}% of it. {PropertyLines.Verdict(Document, line)}.");
+            HintChanged?.Invoke(this, $"Property line: {Core.Units.SquareMetres(Polygon2D.Area(line.Boundary), "0.0")}, {Core.Units.Metres(Polygon2D.Perimeter(line.Boundary), "0.00")} round; the building covers {PropertyLines.Coverage(Document, line) * 100:0.#}% of it. {PropertyLines.Verdict(Document, line)}.");
         }
         else if (ActiveTool == PlanTool.Joists)
         {
@@ -106,7 +106,7 @@ public partial class PlanView
             var system = new BeamSystem { LevelId = ActiveLevelId, TypeId = type?.Id ?? Guid.Empty, Spacing = Math.Max(100, ActiveJoistSpacing) };
             system.SetBoundary(outline);
             Apply(new AddElementCommand(Document, system, "Joist Layout"));
-            HintChanged?.Invoke(this, $"Joists in: {BeamSystems.Joists(Document, system).Count} of {BeamSystems.TypeOf(Document, system).Name} at {system.Spacing:0}, spanning {BeamSystems.Joists(Document, system).Select(joist => joist.From.DistanceTo(joist.To)).DefaultIfEmpty(0).Max() / 1000:0.00} m at most. Draw another; Esc to stop.");
+            HintChanged?.Invoke(this, $"Joists in: {BeamSystems.Joists(Document, system).Count} of {BeamSystems.TypeOf(Document, system).Name} at {(Core.Units.Imperial ? Core.Units.FeetAndInches(system.Spacing) : $"{system.Spacing:0}")}, spanning {Core.Units.Metres(BeamSystems.Joists(Document, system).Select(joist => joist.From.DistanceTo(joist.To)).DefaultIfEmpty(0).Max(), "0.00")} at most. Draw another; Esc to stop.");
         }
         else
         {
@@ -116,7 +116,7 @@ public partial class PlanView
             Apply(new AddElementCommand(Document, region, "Ground Region"));
             HintChanged?.Invoke(this, GroundRegions.Host(Document, region) is null
                 ? "Region laid - but not on any ground on this level: draw the ground with Toposurface first."
-                : $"{Core.Parameters.EnumText.Humanise(region.Surface)} laid: {Polygon2D.Area(region.Boundary) / 1e6:0.0} m², at its steepest {(GroundRegions.Steepest(Document, region) is { } steepest && steepest > 1e-6 ? $"1:{1 / steepest:0.#}" : "level")}. Draw another; Esc to stop.");
+                : $"{Core.Parameters.EnumText.Humanise(region.Surface)} laid: {Core.Units.SquareMetres(Polygon2D.Area(region.Boundary), "0.0")}, at its steepest {(GroundRegions.Steepest(Document, region) is { } steepest && steepest > 1e-6 ? $"1:{1 / steepest:0.#}" : "level")}. Draw another; Esc to stop.");
         }
 
         ModelChanged?.Invoke(this, EventArgs.Empty);

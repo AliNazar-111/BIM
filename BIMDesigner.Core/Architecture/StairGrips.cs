@@ -232,7 +232,7 @@ public static class StairGrips
                 var width = Math.Clamp(Math.Round(widest / ratio / 10) * 10, 500, 5000);
                 if (stair.Shape != StairShape.Bifurcated) stair.Start += side * ((width - layout.Width) * ratio / 2);
                 stair.Width = width;
-                said = width <= 500 ? "500 wide: it is no narrower" : $"{width:0} wide";
+                said = width <= 500 ? $"{Units.Bare(500)} wide: it is no narrower" : $"{Units.Bare(width)} wide";
                 break;
             }
 
@@ -260,7 +260,7 @@ public static class StairGrips
             {
                 var well = Math.Clamp(Math.Round((stair.Well + (to - grip.At).Dot(grip.Axis)) / 10) * 10, 0, 3000);
                 stair.Well = well;
-                said = $"A well of {well:0} between its flights";
+                said = $"A well of {Units.Bare(well)} between its flights";
                 break;
             }
 
@@ -275,7 +275,7 @@ public static class StairGrips
                 var towards = (centre - stair.Start).NormalisedOrDefault(left * -1);
                 stair.Start = centre - towards * (inner + width / 2);
                 (stair.InnerRadius, stair.Width) = (inner, width);
-                said = grip.Kind == StairGripKind.Inside ? $"{inner:0} from its centre to its inside" : $"{width:0} wide";
+                said = grip.Kind == StairGripKind.Inside ? $"{Units.Bare(inner)} from its centre to its inside" : $"{Units.Bare(width)} wide";
                 break;
             }
 
@@ -309,7 +309,7 @@ public static class StairGrips
                     stair.TopOffset += top - layout.Top;
                 else
                     stair.UnconnectedHeight = top - layout.Bottom;
-                said = $"{top - layout.Bottom:0} high";
+                said = $"{Units.Bare(top - layout.Bottom)} high";
                 break;
             }
 
@@ -318,7 +318,7 @@ public static class StairGrips
                 var bottom = Math.Round(height / 10) * 10;
                 if (layout.Top - bottom < 300) bottom = layout.Top - 300;
                 stair.BaseOffset += bottom - layout.Bottom;
-                said = $"Its foot {stair.BaseOffset:+0;-0;0} off its floor";
+                said = $"Its foot {Units.Bare(stair.BaseOffset, "+0;-0;0")} off its floor";
                 break;
             }
 
@@ -330,14 +330,14 @@ public static class StairGrips
             stair.RisersBeforeTurn = risersBefore;
 
         var now = Stairs.Layout(document, stair);
-        return $"{said}: {now.Risers} risers of {now.Rise:0.#}, going {now.Going:0}." + (check ? $" {Stairs.Verdict(document, stair)}." : "");
+        return $"{said}: {now.Risers} risers of {Units.Bare(now.Rise, "0.#")}, going {Units.Bare(now.Going)}." + (check ? $" {Stairs.Verdict(document, stair)}." : "");
     }
 
     /// <summary>What a stair is, in a line: its risers and going, and whether it meets its regulations.</summary>
     public static string Summary(BimDocument document, Stair stair)
     {
         var layout = Stairs.Layout(document, stair);
-        return $"{layout.Risers} risers of {layout.Rise:0.#}, going {layout.Going:0}, {layout.Width:0} wide. {Stairs.Verdict(document, stair)}.";
+        return $"{layout.Risers} risers of {Units.Bare(layout.Rise, "0.#")}, going {Units.Bare(layout.Going)}, {Units.Bare(layout.Width)} wide. {Stairs.Verdict(document, stair)}.";
     }
 
     /// <summary>A turn, in words: "90° right", "45° left", "straight on".</summary>

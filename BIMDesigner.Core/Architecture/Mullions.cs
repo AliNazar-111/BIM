@@ -435,7 +435,7 @@ public static class MullionRules
                 ? ($"{group.Count()} transoms sag", "under the glass on it")
                 : ($"{group.Count()} {group.Key}s bend", $"at {worst.Pressure:0.00} kPa of wind ({worst.Wind})");
             var said = group.Count() == 1 ? (group.Key == "transom under its glass" ? "a transom sags" : $"a {group.Key} bends") : many;
-            problems.Add(($"{said} too far - the worst, {name}, {worst.Deflection:0.0} mm over {worst.Span / 1000:0.00} m, {worst.Allowed:0.0} allowed, {under}.",
+            problems.Add(($"{said} too far - the worst, {name}, {Units.Millimetres(worst.Deflection, "0.0")} over {Units.Metres(worst.Span, "0.00")}, {Units.Bare(worst.Allowed, "0.0")} allowed, {under}.",
                 $"{char.ToUpperInvariant(worst.Rule[0])}{worst.Rule[1..]} - a deeper or stiffer mullion type, closer grid lines, or a support at the floor."));
         }
 
@@ -448,7 +448,7 @@ public static class MullionRules
         var all = Of(document, wall);
         if (all.Count == 0) return "No mullions";
         var worst = all.MaxBy(bending => bending.Deflection / Math.Max(bending.Allowed, 1e-6))!;
-        return $"{(worst.TooMuch ? "Too far" : "Within limits")}: its worst, a {worst.What}, bends {worst.Deflection:0.0} mm over {worst.Span / 1000:0.00} m, {worst.Allowed:0.0} allowed";
+        return $"{(worst.TooMuch ? "Too far" : "Within limits")}: its worst, a {worst.What}, bends {Units.Millimetres(worst.Deflection, "0.0")} over {Units.Metres(worst.Span, "0.00")}, {Units.Bare(worst.Allowed, "0.0")} allowed";
     }
 }
 
@@ -604,12 +604,12 @@ public static class MullionFixings
             var material = longest.Mullion.Type!.Material;
 
             if (splices.Count > 0 && JointNeeded(material, length) > type.StackJoint + 0.05)
-                problems.Add(($"its stack joints are {type.StackJoint:0} mm; a {length / 1000:0.00} m length of {EnumText.Humanise(material).ToLowerInvariant()} moves {Expansion(material) * length * TemperatureRange:0.0} mm with the heat, and the floor's edge and column {FloorMovement:0.0} more: {JointNeeded(material, length):0} mm wanted.",
+                problems.Add(($"its stack joints are {Units.Millimetres(type.StackJoint, "0")}; a {Units.Metres(length, "0.00")} length of {EnumText.Humanise(material).ToLowerInvariant()} moves {Units.Millimetres(Expansion(material) * length * TemperatureRange, "0.0")} with the heat, and the floor's edge and column {Units.Bare(FloorMovement, "0.0")} more: {Units.Millimetres(JointNeeded(material, length), "0")} wanted.",
                     "A stack joint takes a length's movement over the -17 to 82 °C its face sees (AAMA's curtain wall guide specification), a slab edge's live-load deflection of 1/2 in and a column's shortening of 1/8 in at each floor - a wider joint, or splices more often."));
 
             if (material == MullionMaterial.Aluminium && length > StockLength + 0.5)
-                problems.Add(($"its mullions run {length / 1000:0.00} m without a splice.",
-                    "Aluminium mullions are sold in 24 ft (7.3 m) lengths - splice them above the floors (Mullion Splices)."));
+                problems.Add(($"its mullions run {Units.Metres(length, "0.00")} without a splice.",
+                    $"Aluminium mullions are sold in 24 ft{Units.MetricAside("7.3 m")} lengths - splice them above the floors (Mullion Splices)."));
         }
 
         if (anchors.Count > 0 && type.AnchorCapacity > 0)
@@ -636,8 +636,8 @@ public static class MullionFixings
                 ? $"{anchors.Count} anchors, the worst taking {anchors.Max(anchor => anchor.Wind):0.00} kN of wind and {anchors.Max(anchor => anchor.Dead):0.00} kN of weight"
                 : "not anchored as drawn",
             splices.Count > 0
-                ? $"{splices.Count} splices with {type.StackJoint:0} mm stack joints, the longest length {lengths.Max(piece => piece.To - piece.From) / 1000:0.00} m"
-                : lengths.Count > 0 ? $"unspliced, the longest {lengths.Max(piece => piece.To - piece.From) / 1000:0.00} m" : "no vertical mullions"
+                ? $"{splices.Count} splices with {Units.Millimetres(type.StackJoint, "0")} stack joints, the longest length {Units.Metres(lengths.Max(piece => piece.To - piece.From), "0.00")}"
+                : lengths.Count > 0 ? $"unspliced, the longest {Units.Metres(lengths.Max(piece => piece.To - piece.From), "0.00")}" : "no vertical mullions"
         };
         var text = string.Join("; ", said);
         text = $"{char.ToUpperInvariant(text[0])}{text[1..]}";

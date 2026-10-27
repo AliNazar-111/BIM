@@ -139,45 +139,45 @@ public static class StairFixes
             Set(stair.Railings, StairRailings.BothSides, v => stair.Railings = v, "handrails on both sides");
         // 900, or 33 in (840) up alternating treads or a ship's ladder under the IRC, which asks 30 to 34 in there.
         var railHeight = us && stair.Shape is StairShape.AlternatingTread or StairShape.Ladder ? 840.0 : 900.0;
-        if (Has("Its handrail is") && Has(" high:")) Set(type.HandrailHeight, railHeight, v => type.HandrailHeight = v, $"handrails {railHeight:0} high");
+        if (Has("Its handrail is") && Has(" high:")) Set(type.HandrailHeight, railHeight, v => type.HandrailHeight = v, $"handrails {Units.Bare(railHeight)} high");
         if (Has("across:") || Has("deep, or round") || Has(" round:"))
         {
-            Set(type.HandrailProfile, HandrailProfile.Round, v => type.HandrailProfile = v, "a round 44 handrail");
+            Set(type.HandrailProfile, HandrailProfile.Round, v => type.HandrailProfile = v, $"a round {Units.Bare(44)} handrail");
             type.HandrailWidth = 44;
         }
 
-        if (Has("off the wall")) Set(type.WallClearance, 60.0, v => type.WallClearance = v, "handrails 60 off the wall");
+        if (Has("off the wall")) Set(type.WallClearance, 60.0, v => type.WallClearance = v, $"handrails {Units.Bare(60)} off the wall");
         if (Has("ends are cut off")) Set(type.HandrailEnds, HandrailEnds.ReturnToWall, v => type.HandrailEnds = v, "handrail ends returned to the wall");
         if (Has("run on 300")) Set(type.HandrailExtension, 300.0, v => type.HandrailExtension = v, "handrails run on 300 past its ends");
         if (Has("past its top riser and a tread's depth") && Math.Max(305, Stairs.Layout(document, stair).Going) is var extension)
-            Set(type.HandrailExtension, extension, v => type.HandrailExtension = v, $"handrails run on {extension:0} past its ends");
+            Set(type.HandrailExtension, extension, v => type.HandrailExtension = v, $"handrails run on {Units.Bare(extension)} past its ends");
         if (Has("Its guarding is"))
         {
             var guard = standard == ClearanceStandard.Ada && stair.Use != StairUse.Private ? 1070.0 : us ? 920.0 : house ? 900.0 : 1100.0;
-            Set(type.GuardHeight, guard, v => type.GuardHeight = v, $"guarding {guard:0} high where level");
+            Set(type.GuardHeight, guard, v => type.GuardHeight = v, $"guarding {Units.Bare(guard)} high where level");
         }
-        if (Has("balusters are")) Set(type.BalusterSpacing, 120.0, v => type.BalusterSpacing = v, "balusters 120 apart");
+        if (Has("balusters are")) Set(type.BalusterSpacing, 120.0, v => type.BalusterSpacing = v, $"balusters {Units.Bare(120)} apart");
 
         // Its risers: barred where open, closed where they may not be open, its nosings as asked.
         if (Has("risers are open") || Has("leave") && type.RiserBars)
             Set(type.OpenRisers, false, v => type.OpenRisers = v, "closed risers");
         else if (Has("leave")) Set(type.RiserBars, true, v => type.RiserBars = v, "bars across its open risers");
         if (Has("overlap by")) Set(type.Nosing, 20.0, v => type.Nosing = v, "nosings of 20");
-        if (Has("Its nosings are") || Has("Its nosings stand")) Set(type.Nosing, 25.0, v => type.Nosing = v, "nosings of 25");
+        if (Has("Its nosings are") || Has("Its nosings stand")) Set(type.Nosing, 25.0, v => type.Nosing = v, $"nosings of {Units.Bare(25)}");
 
         // An alternating tread device under the IRC: treads 5 in (127) deep, a tread every half its going - and 8½ in (216) with their nosing.
-        if (Has("deep: the IRC asks for 127")) Set(type.Going, Math.Max(type.Going, 255.0), v => type.Going = v, "a tread every 127 (5 in)");
+        if (Has($"deep: the IRC asks for {Units.Figure("127", "5 in")}")) Set(type.Going, Math.Max(type.Going, 255.0), v => type.Going = v, $"a tread every {Units.Figure("127", "5 in")}");
         if (Has("with their nosing:"))
         {
             var nosing = Math.Ceiling((216 - Stairs.Layout(document, stair).Going) / 5) * 5;
-            if (nosing > type.Nosing) Set(type.Nosing, nosing, v => type.Nosing = v, $"nosings of {nosing:0}");
+            if (nosing > type.Nosing) Set(type.Nosing, nosing, v => type.Nosing = v, $"nosings of {Units.Bare(nosing)}");
         }
 
         // Its width: as wide as it must be.
         var layout = Stairs.Layout(document, stair);
         var wide = Has("wide:") || Has("between handrails") || Has("landings are") ? WidthWanted(stair, layout, standard) : stair.Width;
         if (Has("winders' going")) wide = Math.Max(wide, 860);
-        if (wide > stair.Width + 0.5) Set(stair.Width, wide, v => stair.Width = v, $"{wide:0} wide");
+        if (wide > stair.Width + 0.5) Set(stair.Width, wide, v => stair.Width = v, $"{Units.Bare(wide)} wide");
 
         // Winders the IRC's walkline cannot be had on, or balanced ones too tight at their inside: a landing, or a newel's.
         if (Has("winders are too shallow at the walkline") || us && Has("winders are") && Has("narrow end"))
@@ -189,7 +189,7 @@ public static class StairFixes
         if (Has("comes up at the edge") && Stairs.Overrun(document, stair, Stairs.Layout(document, stair), stair.TopLevelId) is { } overrun)
         {
             stair.Start += overrun.Back * overrun.By;
-            changes.Add($"its foot set back {overrun.By:0}, to come up at the edge of the floor");
+            changes.Add($"its foot set back {Units.Bare(overrun.By)}, to come up at the edge of the floor");
         }
 
         // Its floor cut where it wants headroom.
@@ -203,7 +203,7 @@ public static class StairFixes
             var needed = Stairs.Headroom(standard, layout.Shape) + (type0.Construction == StairConstruction.Timber ? type0.TreadThickness : layout.Rise + 150);
             var middle = needed * layout.Going / (2 * Math.PI * layout.Rise);
             var width = Math.Ceiling(2 * (middle - layout.InnerRadius) / 10) * 10;
-            if (width > stair.Width && width <= 2000) Set(stair.Width, width, v => stair.Width = v, $"{width:0} wide, to come round higher");
+            if (width > stair.Width && width <= 2000) Set(stair.Width, width, v => stair.Width = v, $"{Units.Bare(width)} wide, to come round higher");
         }
 
         // A straight run rising too far for the IRC: a landing halfway up it.
@@ -284,12 +284,12 @@ public static class StairFixes
         if (chosen.Risers != layout.Risers)
         {
             type.MaxRiser = Math.Round(height / chosen.Risers + 0.5, 1);
-            changes.Add($"{chosen.Risers} risers of {height / chosen.Risers:0.#} rather than {layout.Risers} of {layout.Rise:0.#}");
+            changes.Add($"{chosen.Risers} risers of {Units.Bare(height / chosen.Risers, "0.#")} rather than {layout.Risers} of {Units.Bare(layout.Rise, "0.#")}");
         }
 
         if (Math.Abs(chosen.Going - type.Going) > 0.5)
         {
-            changes.Add($"a going of {chosen.Going:0} rather than {type.Going:0}");
+            changes.Add($"a going of {Units.Bare(chosen.Going)} rather than {Units.Bare(type.Going)}");
             type.Going = chosen.Going;
         }
     }

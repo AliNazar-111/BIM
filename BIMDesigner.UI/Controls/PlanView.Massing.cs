@@ -78,7 +78,7 @@ public partial class PlanView
 
     private void AfterMass(Mass mass)
     {
-        HintChanged?.Invoke(this, $"Mass: {Polygon2D.Area(mass.Boundary) / 1e6:0.0} m² on the ground, {Units.FormatLength(mass.Height)} high, {Masses.Volume(mass) / 1e9:0} m³. " +
+        HintChanged?.Invoke(this, $"Mass: {Core.Units.SquareMetres(Polygon2D.Area(mass.Boundary), "0.0")} on the ground, {Units.FormatLength(mass.Height)} high, {Core.Units.CubicMetres(Masses.Volume(mass), "0")}. " +
                                   "Draw another, or make its faces into walls, floors and a roof with the By Face tools.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -329,7 +329,7 @@ public partial class PlanView
         var every = Masses.LevelsWithin(Document, mass);
         var all = every.Count > 0 && every.All(mass.FloorLevels.Contains);
         Apply(new SetMassFloorsCommand(mass, all ? Array.Empty<Guid>() : every));
-        HintChanged?.Invoke(this, all ? "Its mass floors taken off." : $"Mass floors at {every.Count} level{(every.Count == 1 ? "" : "s")}: {Masses.GrossFloorArea(Document, mass) / 1e6:0.0} m² gross floor area.");
+        HintChanged?.Invoke(this, all ? "Its mass floors taken off." : $"Mass floors at {every.Count} level{(every.Count == 1 ? "" : "s")}: {Core.Units.SquareMetres(Masses.GrossFloorArea(Document, mass), "0.0")} gross floor area.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

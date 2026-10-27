@@ -188,7 +188,7 @@ public sealed class CurtainGridEditor : FrameworkElement
 
         if (at < MinimumPanel || at > extent - MinimumPanel || lines.Any(x => Math.Abs(x - at) < MinimumPanel))
         {
-            Refused?.Invoke(this, $"A line there would leave a panel narrower than {MinimumPanel:0} mm.");
+            Refused?.Invoke(this, $"A line there would leave a panel narrower than {Core.Units.Millimetres(MinimumPanel, "0")}.");
             return false;
         }
 

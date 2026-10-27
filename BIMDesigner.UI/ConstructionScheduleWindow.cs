@@ -217,7 +217,7 @@ internal sealed class ConstructionScheduleWindow : System.Windows.Window
             return;
         var start = DateOnly.TryParse(_start.Text, out var given) ? given : DateOnly.FromDateTime(DateTime.Today);
         Change("Make Programme from Model", () => ConstructionPlanning.Generate(Document, start));
-        _problem.Text = $"{Schedule.Tasks.Count} tasks, finishing {ConstructionPlanning.Finish(Schedule):d MMMM yyyy}.";
+        DialogLook.Say(_problem, $"{Schedule.Tasks.Count} tasks, finishing {ConstructionPlanning.Finish(Schedule):d MMMM yyyy}.");
     }
 
     private void AddTask() => Change("New Task", () =>
@@ -242,7 +242,7 @@ internal sealed class ConstructionScheduleWindow : System.Windows.Window
     private void SaveBaseline()
     {
         Change("Save Baseline", () => ConstructionPlanning.SaveBaseline(Schedule));
-        _problem.Text = "Baseline saved: progress is measured against the programme as it stands.";
+        DialogLook.Say(_problem, "Baseline saved: progress is measured against the programme as it stands.");
     }
 
     private void ShowTask()
@@ -316,7 +316,7 @@ internal sealed class ConstructionScheduleWindow : System.Windows.Window
         builds.Children.Add(Act("Attach Selection", () =>
         {
             var picked = _host.Selected.Select(element => element.Id).ToList();
-            if (picked.Count == 0) { _problem.Text = "Select the elements in the model first."; return; }
+            if (picked.Count == 0) { DialogLook.Warn(_problem, "Select the elements in the model first."); return; }
             Set("Attach to Task", live => live.ElementIds.AddRange(picked.Where(id => !live.ElementIds.Contains(id))));
         }, "Link what is selected in the model to this task"));
         builds.Children.Add(Act("Detach Selection", () =>
@@ -358,9 +358,9 @@ internal sealed class ConstructionScheduleWindow : System.Windows.Window
             var read = 0;
             using var file = File.OpenRead(dialog.FileName);
             Change("Import Programme", () => read = MsProjectXml.Read(file, Document));
-            _problem.Text = $"{read} tasks read from {Path.GetFileName(dialog.FileName)}.";
+            DialogLook.Say(_problem, $"{read} tasks read from {Path.GetFileName(dialog.FileName)}.");
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidDataException) { _problem.Text = exception.Message; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Xml.XmlException or InvalidDataException) { DialogLook.Warn(_problem, exception.Message); }
     }
 
     private void Export()
@@ -371,9 +371,9 @@ internal sealed class ConstructionScheduleWindow : System.Windows.Window
         {
             using var file = File.Create(dialog.FileName);
             MsProjectXml.Write(file, Document);
-            _problem.Text = $"Saved {Path.GetFileName(dialog.FileName)}.";
+            DialogLook.Say(_problem, $"Saved {Path.GetFileName(dialog.FileName)}.");
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { _problem.Text = exception.Message; }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { DialogLook.Warn(_problem, exception.Message); }
     }
 
     // ---- simulation ----------------------------------------------------------------------

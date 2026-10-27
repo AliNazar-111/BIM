@@ -87,6 +87,27 @@ public static class ProjectTemplates
         _ => ClearanceStandard.ApprovedDocumentM
     };
 
+    // The starter fittings made for one country's homes: a load center, duplex receptacles and a
+    // tank water heater for the US; a consumer unit, BS 1363 sockets, a shaver socket and an
+    // unvented cylinder for England.
+    private static readonly HashSet<string> UsFittings = new(StringComparer.Ordinal)
+    {
+        "Load Center - 200 A 40 Space", "Receptacle - Duplex 15 A", "Receptacle - Duplex 20 A Countertop", "Switch - Single Pole", "Water Heater - Electric 50 gal"
+    };
+
+    private static readonly HashSet<string> EnglishFittings = new(StringComparer.Ordinal)
+    {
+        "Consumer Unit - 12 Way", "Socket - Double", "Switch - One Gang", "Shaver Socket", "Hot Water Cylinder - Unvented 210 l"
+    };
+
+    /// <summary>
+    /// Whether a fitting is one the project's country fits: a US project is not offered a consumer
+    /// unit or a shaver socket, nor an English one a load center. A fitting made or brought in by
+    /// hand is offered to both.
+    /// </summary>
+    public static bool Fits(BimDocument document, ComponentType type) =>
+        document.ProjectInformation.ClearanceStandard.IsUs() ? !EnglishFittings.Contains(type.Name) : !UsFittings.Contains(type.Name);
+
     /// <summary>What a storey is called, counting up from the ground: the UK's ground and first floors, the US's first and second.</summary>
     public static string StoreyName(ProjectTemplate template, int index)
     {
@@ -110,6 +131,7 @@ public static class ProjectTemplates
         info.Address = spec.Address.Trim();
         info.BuildingType = spec.BuildingType.Trim();
         info.ClearanceStandard = StandardOf(spec.Template);
+        info.Units = spec.Template == ProjectTemplate.UsHouse ? UnitSystem.Imperial : UnitSystem.Metric;
         info.Ground = spec.Ground;
         info.SiteAltitude = Math.Max(0, spec.SiteAltitude);
         if (spec.Template == ProjectTemplate.UsHouse)

@@ -141,7 +141,7 @@ public partial class PlanView
         var (cut, fill) = Terrains.CutAndFill(Document, ground);
         HintChanged?.Invoke(this, record
             ? "Existing ground recorded: drag its points in plan, raise them in 3D, and its Cut and Fill are measured from this."
-            : $"Existing ground let go: cut {cut / 1e9:0.0} m³, fill {fill / 1e9:0.0} m³ - the building's dig only.");
+            : $"Existing ground let go: cut {Core.Units.CubicMetres(cut, "0.0")}, fill {Core.Units.CubicMetres(fill, "0.0")} - the building's dig only.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }

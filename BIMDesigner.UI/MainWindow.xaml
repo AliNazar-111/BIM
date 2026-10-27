@@ -1904,9 +1904,9 @@
                     <TextBlock Text="Carries" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <ComboBox x:Name="PipeKindPicker" Style="{StaticResource OptionCombo}" MinWidth="110" SelectionChanged="OnPipeOptionChanged"
                               ToolTip="What a run started away from any fitting or pipe carries; one started at a fitting or a pipe carries what it does"/>
-                    <TextBlock Text="Fall (mm/m)" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBlock x:Name="PipeFallLabel" Text="Fall (mm/m)" VerticalAlignment="Center" Margin="12,0,6,0"/>
                     <TextBox x:Name="PipeFallBox" MinWidth="44" VerticalAlignment="Center" LostFocus="OnPipeOptionChanged"
-                             ToolTip="How much a foul or rainwater pipe falls toward where it drains, mm a metre: 18 to 90 for a branch (a basin's long branch 18 to 22), 1 in 80 - 12.5 - at the flattest for a drain with a WC"/>
+                             ToolTip="How much a foul or rainwater pipe falls toward where it drains: mm a metre - 18 to 90 for a branch (a basin's long branch 18 to 22), 1 in 80 - 12.5 - at the flattest for a drain with a WC; in a US project inches a foot - 1/4&quot; for a drain 3&quot; and under, 1/8&quot; for one 3&quot; to 6&quot; (IRC Table P3005.3)"/>
                 </StackPanel>
 
                 <StackPanel x:Name="DuctOptions" Orientation="Horizontal" Visibility="Collapsed">
@@ -2895,7 +2895,7 @@
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
                     <TextBlock x:Name="StatusX" Text="X: 0 mm" MinWidth="96" Style="{StaticResource StatusText}"/>
                     <TextBlock x:Name="StatusY" Text="Y: 0 mm" MinWidth="96" Style="{StaticResource StatusText}"/>
-                    <TextBlock Text="Grid: 100 mm" Style="{StaticResource StatusText}"/>
+                    <TextBlock x:Name="StatusGrid" Text="Grid: 100 mm" Style="{StaticResource StatusText}"/>
                     <TextBlock x:Name="StatusZoom" Text="Zoom 100%" MinWidth="86" Style="{StaticResource StatusText}"/>
                     <TextBlock x:Name="StatusDetail" Text="Detail: Fine" Style="{StaticResource StatusText}"/>
                     <TextBlock x:Name="StatusSaved" Text="Unsaved project" Style="{StaticResource StatusText}"/>

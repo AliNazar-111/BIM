@@ -229,7 +229,8 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
                     found += ClashDetective.Run(Document, run, DateTime.Now, meshes).Count;
                 }
             });
-            _problem.Text = found == 0 ? "No open clashes." : $"{found} open clash{(found == 1 ? "" : "es")}.";
+            if (found == 0) DialogLook.Say(_problem, "No open clashes.");
+            else DialogLook.Warn(_problem, $"{found} open clash{(found == 1 ? "" : "es")}.");
         }
         finally
         {
@@ -320,7 +321,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         var keep = Picked?.Id;
         var rows = (Test?.Results ?? new List<Clash>())
             .Where(clash => _showResolved.IsChecked == true || clash.IsOpen)
-            .Select(clash => new ClashRow(clash, clash.Name, clash.Status.ToString(), $"{clash.Distance:0} mm", clash.Level, clash.GridLocation,
+            .Select(clash => new ClashRow(clash, clash.Name, clash.Status.ToString(), $"{Core.Units.Millimetres(clash.Distance, "0")}", clash.Level, clash.GridLocation,
                 ClashDetective.NameOf(Document, clash.ElementA), ClashDetective.NameOf(Document, clash.ElementB), clash.AssignedTo, clash.Priority.ToString(),
                 clash.DueDate?.ToString("d MMM yyyy") ?? string.Empty, clash.Found.ToString("d MMM yyyy")))
             .ToList();

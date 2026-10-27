@@ -133,9 +133,9 @@ public partial class ColumnEditorWindow : System.Windows.Window
 
     private void ShowStatus(ProfileSketch.SketchStatus status) =>
         StatusText.Text = status.Drawing
-            ? $"{status.Width:0} × {status.Depth:0} mm    at  X {status.At.X:0}   Y {status.At.Y:0}"
-            : $"X {status.At.X:0} mm    Y {status.At.Y:0} mm    Scale {Sketch.ScalePercent:0}%    " +
-              $"Snap {(Sketch.SnapOn ? $"{Sketch.SnapStep:0} mm" : "off")}    " +
+            ? $"{Core.Units.FormatMm(status.Width)} × {Core.Units.FormatMm(status.Depth)}    at  X {Core.Units.FormatMm(status.At.X)}   Y {Core.Units.FormatMm(status.At.Y)}"
+            : $"X {Core.Units.FormatMm(status.At.X)}    Y {Core.Units.FormatMm(status.At.Y)}    Scale {Sketch.ScalePercent:0}%    " +
+              $"Snap {(Sketch.SnapOn ? Core.Units.FormatMm(Sketch.SnapStep) : "off")}    " +
               "·   wheel zooms, middle-drag pans";
 
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";

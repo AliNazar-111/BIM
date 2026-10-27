@@ -241,7 +241,7 @@ public sealed record ViewOutResult(double SightAngle, double OutsideDistance, bo
 
     public string Said => Windows == 0
         ? "No window seen"
-        : $"{Level}: {SightAngle:0}° of window, the view going {(OutsideDistance >= ViewOut.Far ? "over 1 km" : $"{OutsideDistance / 1000:0.#} m")} out, " +
+        : $"{Level}: {SightAngle:0}° of window, the view going {(OutsideDistance >= ViewOut.Far ? "over 1 km" : $"{Units.Metres(OutsideDistance, "0.#")}")} out, " +
           $"{string.Join(", ", new[] { Sky ? "sky" : null, Landscape ? "landscape" : null, Ground ? "ground" : null }.OfType<string>().DefaultIfEmpty("nothing outside"))}";
 }
 

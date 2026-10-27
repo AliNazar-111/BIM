@@ -159,7 +159,7 @@ public static class Doors
                     "Approved Document M (M4(3) 3.22, 3.24) asks for 850 clear through every door, for a wheelchair user.");
                 break;
             case ClearanceStandard.Ada when clear < 815 - 0.5:
-                Add($"it gives {clear:0} clear.", "ADA 404.2.3 asks for 32 in (815) clear through a door.");
+                Add($"it gives {Units.Bare(clear)} clear.", $"ADA 404.2.3 asks for 32 in{Units.MetricAside("815")} clear through a door.");
                 break;
         }
 
@@ -167,7 +167,7 @@ public static class Doors
         if (standard.IsUs() && external && swings && !Kept(document, "egress door", () => document.All<Door>().Any(other =>
                 document.FindType<DoorType>(other.TypeId) is { Operation: DoorOperation.Swing or DoorOperation.DoubleSwing } otherType
                 && External(document, other, otherType) && ClearWidth(otherType) >= 813 - 0.5 && otherType.Height - Frame >= 1981 - 0.5)))
-            Add("no door out of the dwelling is 32 in (813) clear and 78 in (1981) high.",
+            Add($"no door out of the dwelling is 32 in{Units.MetricAside("813")} clear and 78 in{Units.MetricAside("1981")} high.",
                 "IRC R311.2 asks for one side-hinged egress door 32 in clear, 78 in high, at the least.");
 
         // A nib beside its leading edge, on the side it opens to: every external door, and every door on the entrance storey under M4(2); every door under M4(3).
@@ -227,7 +227,7 @@ public static class Doors
     {
         if (document.FindType<DoorType>(door.TypeId) is not { } type) return string.Empty;
         var problems = Problems(document, door, document.ProjectInformation.ClearanceStandard);
-        var clear = $"{ClearWidth(type):0} clear";
+        var clear = $"{Units.Bare(ClearWidth(type))} clear";
         return problems.Count == 0 ? $"{clear} - meets {Clearances.Label(document.ProjectInformation.ClearanceStandard)}"
             : $"{clear} - {string.Join(" ", problems.Select(problem => $"{char.ToUpperInvariant(problem.Said[0])}{problem.Said[1..]} {problem.Rule}"))}";
     }

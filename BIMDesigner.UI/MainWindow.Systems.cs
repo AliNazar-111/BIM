@@ -39,7 +39,8 @@ public partial class MainWindow
         foreach (var category in ServiceCategories)
         {
             var types = _document.TypesOf<ComponentType>()
-                .Where(type => type.Kind == category && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage
+                .Where(type => type.Kind == category && ProjectTemplates.Fits(_document, type)
+                                                     && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage
                                                          || type.Form is ComponentForm.AirAdmittanceValve or ComponentForm.BackgroundVentilator or ComponentForm.DuctSmokeDetector))
                 .OrderBy(type => type.Name).ToList();
             if (types.Count == 0) continue;
@@ -135,7 +136,9 @@ public partial class MainWindow
         _loadingOptions = true;
         var types = _document.TypesOf<PipeType>().ToList();
         PipeTypePicker.ItemsSource = types;
-        var type = types.FirstOrDefault(each => each.Id == Plan.ActivePipeTypeId) ?? types.FirstOrDefault();
+        // A US project starts on its own copper tube sizes, an English one on BS EN 1057.
+        var us = _document.ProjectInformation.ClearanceStandard.IsUs();
+        var type = types.FirstOrDefault(each => each.Id == Plan.ActivePipeTypeId) ?? types.FirstOrDefault(each => each.Material.IsCts() == us && each.Material != PipeMaterial.PvcU) ?? types.FirstOrDefault();
         PipeTypePicker.SelectedItem = type;
         Plan.ActivePipeTypeId = type?.Id ?? Guid.Empty;
 
@@ -145,7 +148,8 @@ public partial class MainWindow
         PipeOffsetBox.Text = Core.Units.FormatLength(Plan.NewPipeOffset);
         PipeKindPicker.ItemsSource = PipeKinds.Select(kind => kind.Title()).ToList();
         PipeKindPicker.SelectedItem = Plan.NewPipeKind.Title();
-        PipeFallBox.Text = Plan.NewPipeFall.ToString("0.#");
+        PipeFallBox.Text = Core.Units.FallText(Plan.NewPipeFall);
+        PipeFallLabel.Text = Core.Units.Imperial ? "Fall (in/ft)" : "Fall (mm/m)";
         _loadingOptions = false;
     }
 
@@ -160,30 +164,36 @@ public partial class MainWindow
             Plan.NewPipeOffset = offset;
         if (PipeKinds.FirstOrDefault(kind => kind.Title() == PipeKindPicker.SelectedItem as string) is var picked && picked.Title() == PipeKindPicker.SelectedItem as string)
             Plan.NewPipeKind = picked;
-        if (double.TryParse(PipeFallBox.Text, out var fall) && fall is > 0 and <= 200) Plan.NewPipeFall = fall;
+        if (Core.Units.TryParseFall(PipeFallBox.Text, out var fall) && fall is > 0 and <= 200) Plan.NewPipeFall = fall;
         ShowPipeOptions();
     }
 
-    /// <summary>Size Pipes: every cold and hot water pipe - of the systems selected, or all of them - sized as BS EN 806-3 asks, as one step.</summary>
+    /// <summary>Size Pipes: every cold and hot water pipe - of the systems selected, or all of them - sized as BS EN 806-3 asks, or in the US the IRC's Appendix AP, as one step.</summary>
     private void OnSizePipes(object sender, RoutedEventArgs e)
     {
         var picked = Plan.SelectedElements.OfType<MepSystem>()
             .Concat(Plan.SelectedElements.OfType<Pipe>().Select(pipe => _document.Find<MepSystem>(pipe.SystemId)).OfType<MepSystem>())
             .Distinct().ToList();
         var systems = picked.Count > 0 ? picked : _document.All<MepSystem>().ToList();
+        var us = _document.ProjectInformation.ClearanceStandard.IsUs();
         var sized = PipeNetworks.Sized(_document, systems);
+
+        // A US house's water as the table was read for it - or why it could not be.
+        var water = us && systems.FirstOrDefault(system => PipeNetworks.IsWater(system.Kind)) is { } first ? PipeNetworks.UsWaterOf(_document, first) : null;
         if (sized.Count == 0)
         {
-            StatusHint.Text = _document.All<Pipe>().Any()
-                ? "Every water pipe traced from its source is the size BS EN 806-3 asks already."
-                : "There are no pipes yet: draw them with Pipe, from the fittings to what feeds them.";
+            StatusHint.Text = !_document.All<Pipe>().Any() ? "There are no pipes yet: draw them with Pipe, from the fittings to what feeds them."
+                : water?.Beyond is { } beyond ? $"The water pipes cannot be sized by the IRC's Appendix AP: {beyond}."
+                : us ? "Every water pipe traced from its source is the size the IRC's Appendix AP asks already."
+                : "Every water pipe traced from its source is the size BS EN 806-3 asks already.";
             return;
         }
 
         _history.Execute(new SetPipeSizesCommand(sized));
-        StatusHint.Text = _document.ProjectInformation.ClearanceStandard.IsUs()
-            // Said plainly: the IRC's own sizing by fixture units is not done yet.
-            ? $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized - water by BS EN 806-3's loading units and its pipe sizes, as a first guide: the IRC's sizing by fixture units (Table P2903.7) is not done yet, so check them against it. Heating by the heat beyond each."
+        StatusHint.Text = us
+            ? $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the IRC's Appendix AP - the water-supply fixture units beyond each (Table P2903.6) read off Table AP201.1"
+              + (water is { Beyond: null } ? $" at {water.Pressure:0} psi at the highest outlet and {water.DevelopedFeet:0} ft developed to the furthest fixture ({water.Where})" : string.Empty)
+              + "; heating by the heat beyond each."
             : $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre.";
     }
 
@@ -274,7 +284,7 @@ public partial class MainWindow
         var walls = openings.OfType<WallOpening>().Count();
         var floors = openings.Count - walls;
         return $"{openings.Count} opening{(openings.Count == 1 ? string.Empty : "s")} cut for the services - {walls} through walls, {floors} through floors - " +
-               $"each its pipe or duct and {Penetrations.Gap:0} mm round it for fire-stopping.";
+               $"each its pipe or duct and {Core.Units.Millimetres(Penetrations.Gap, "0")} round it for fire-stopping.";
     }
 
     private ElectricalWindow? _electricalWindow;
@@ -369,7 +379,7 @@ public partial class MainWindow
         }
 
         new DrainSectionWindow(section) { Owner = IsLoaded ? this : null }.Show();
-        StatusHint.Text = $"{section.System.Name}: {section.Length / 1000:0.0} m of drain, {section.Accesses.Count} access point{(section.Accesses.Count == 1 ? string.Empty : "s")} along it.";
+        StatusHint.Text = $"{section.System.Name}: {Core.Units.Metres(section.Length, "0.0")} of drain, {section.Accesses.Count} access point{(section.Accesses.Count == 1 ? string.Empty : "s")} along it.";
     }
 
     /// <summary>The system to act on: the one selected, or the one a fitting selected is on, or the one picked in the System Browser.</summary>

@@ -199,14 +199,14 @@ public partial class PlanView
         if (joins)
         {
             _ductFrom = null;
-            HintChanged?.Invoke(this, $"Duct joined, {length / 1000:0.00} m.{said} Click where the next run starts.");
+            HintChanged?.Invoke(this, $"Duct joined, {Core.Units.Metres(length, "0.00")}.{said} Click where the next run starts.");
         }
         else
         {
             _ductFrom = points[^1];
             _ductHeight = points[^1].Z;
             _ductFromFitting = false;
-            HintChanged?.Invoke(this, $"Duct {length / 1000:0.00} m. Click where it goes next, or end it on a fitting or a duct; Esc to stop.");
+            HintChanged?.Invoke(this, $"Duct {Core.Units.Metres(length, "0.00")}. Click where it goes next, or end it on a fitting or a duct; Esc to stop.");
         }
 
         ModelChanged?.Invoke(this, EventArgs.Empty);

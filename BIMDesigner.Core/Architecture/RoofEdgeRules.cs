@@ -207,7 +207,7 @@ public static class RoofEdgeRules
             if (channel.Outlets.Count == 0)
             {
                 if (channel.Area > NoGutter)
-                    Add($"the {channel.Area:0.0} m² of roof draining into it has no downpipe to go down.", "Approved Document H (H3) asks for a gutter's water to be taken to a drain - put a downpipe on it.");
+                    Add($"the {Units.OfSquareMetres(channel.Area, "0.0")} of roof draining into it has no downpipe to go down.", "Approved Document H (H3) asks for a gutter's water to be taken to a drain - put a downpipe on it.");
                 continue;
             }
 
@@ -224,7 +224,7 @@ public static class RoofEdgeRules
                 if (side > takes + 0.05)
                 {
                     var needed = Asked(side / LongFactor(reach, depth));
-                    Add($"{side:0.0} m² of roof - its effective area for its pitch - comes to an outlet {reach / 1000:0.0} m along it, more than {said} takes there ({takes:0.0} m²).",
+                    Add($"{Units.OfSquareMetres(side, "0.0")} of roof - its effective area for its pitch - comes to an outlet {Units.Metres(reach, "0.0")} along it, more than {said} takes there ({Units.OfSquareMetres(takes, "0.0")}).",
                         needed is { } row
                             ? $"Approved Document H (Table 2) asks for a {row.Gutter:0} half-round gutter for that - or another downpipe, to share the water."
                             : "Approved Document H (Table 2) gives no half round big enough - put in another downpipe, to share the water.");
@@ -234,11 +234,11 @@ public static class RoofEdgeRules
 
                 // Onto a lower roof, a shoe - and past 25 m², a distributor to spread the water along its gutter.
                 if (total > 25 + 0.05 && !channel.Pipes[i].Distributor && Downpipes.Path(document, channel.Pipes[i]) is { OntoRoof: true })
-                    Add($"its downpipe takes {total:0.0} m² of roof down onto the roof below with no distributor on its shoe.",
+                    Add($"its downpipe takes {Units.OfSquareMetres(total, "0.0")} of roof down onto the roof below with no distributor on its shoe.",
                         "Approved Document H (1.9) asks for a distributor pipe on the shoe of a downpipe from more than 25 m² onto a lower roof, so its gutter is not over-topped - tick Distributor on its Shoe.");
 
                 if (Asked(total) is { } outlet && bore < outlet.Outlet - 0.5)
-                    Add($"its downpipe is {Downpipes.Size(type)} - {bore:0} bore - and the {total:0.0} m² coming to it wants an outlet of {outlet.Outlet:0}.",
+                    Add($"its downpipe is {Downpipes.Size(type)} - {bore:0} bore - and the {Units.OfSquareMetres(total, "0.0")} coming to it wants an outlet of {outlet.Outlet:0}.",
                         "Approved Document H asks for a downpipe at least as big as its outlet (1.10), and the outlet Table 2 gives for the area.");
             }
         }
@@ -272,7 +272,7 @@ public static class RoofEdgeRules
         var outlines = RoofEdgeSweeps.SoffitPieces(document, soffit).Select(piece => piece.Outline).ToList();
         if (outlines.Count == 0) return Array.Empty<PlacementProblem>();
         var said = type.FreeAirArea > 0
-            ? $"it lets {type.FreeAirArea:#,0} mm² of air a metre into the cold roof over it, its insulation on the ceiling."
+            ? $"it lets {Units.AreaPerLength(type.FreeAirArea, " of air")} into the cold roof over it, its insulation on the ceiling."
             : "it lets no air into the cold roof over it, its insulation on the ceiling.";
         return outlines.Select(outline => new PlacementProblem(soffit, said, $"{rule} - a vented soffit, or vents over the fascia.", outline)).ToList();
     }
@@ -291,13 +291,13 @@ public static class RoofEdgeRules
         {
             if (standard.IsUs()) return "Not sized by the IRC";
             var area = Channels(document, gutter, roof).Sum(channel => channel.Area);
-            var head = $"{area:0.0} m² of roof drains into it; {(type.Shape == GutterShape.HalfRound ? $"a {type.Width:0} half round" : $"as much as a {HalfRoundSize(type):0} half round")} takes {Capacity(HalfRoundSize(type)):0} m² to an outlet at its end";
+            var head = $"{Units.OfSquareMetres(area, "0.0")} of roof drains into it; {(type.Shape == GutterShape.HalfRound ? $"a {type.Width:0} half round" : $"as much as a {HalfRoundSize(type):0} half round")} takes {Units.OfSquareMetres(Capacity(HalfRoundSize(type)), "0")} to an outlet at its end";
             return problems.Count == 0 ? $"{head} - big enough" : $"{head} - {said} {rules}";
         }
 
         if (sweep is Soffit && document.Find<Roof>(sweep.RoofId) is { } over)
             return EavesAirAsked(document, over, standard) is var (asked, _)
-                ? problems.Count == 0 ? $"Airs the cold roof over it: {asked:#,0} mm² a metre asked" : $"{said} {rules}"
+                ? problems.Count == 0 ? $"Airs the cold roof over it: {Units.AreaPerLength(asked)} asked" : $"{said} {rules}"
                 : "The roof over it is not a cold roof: no air asked";
 
         return problems.Count == 0 ? "Nothing asked" : $"{said} {rules}";

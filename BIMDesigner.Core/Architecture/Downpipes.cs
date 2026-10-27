@@ -89,9 +89,9 @@ public static class Downpipes
     /// <summary>A downpipe's size as it is written: "68" for a round one, "65 x 65", "65 x 100".</summary>
     public static string Size(GutterType type) => type.DownpipeShape switch
     {
-        DownpipeShape.Round => $"Ø{type.DownpipeWidth:0}",
-        DownpipeShape.Square => $"{type.DownpipeWidth:0} x {type.DownpipeWidth:0}",
-        _ => $"{type.DownpipeWidth:0} x {type.DownpipeDepth:0}"
+        DownpipeShape.Round => $"Ø{Units.Bare(type.DownpipeWidth)}",
+        DownpipeShape.Square => $"{Units.Bare(type.DownpipeWidth)} x {Units.Bare(type.DownpipeWidth)}",
+        _ => $"{Units.Bare(type.DownpipeWidth)} x {Units.Bare(type.DownpipeDepth)}"
     };
 
     /// <summary>The section of a gutter type's downpipes: across the wall, then out from it.</summary>

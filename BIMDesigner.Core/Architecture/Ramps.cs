@@ -893,14 +893,14 @@ public static class Ramps
     /// <summary>The narrowest it may be between its kerbs or handrails, and why - none under the IRC, which asks no width of a home's ramp.</summary>
     public static (double Width, string Rule) LeastWidth(BimDocument document, Ramp ramp) =>
         Irc(document, ramp) ? (0, "")
-        : Us(document) ? (915, "the ADA asks for 36 in (915) clear between its handrails")
+        : Us(document) ? (915, $"the ADA asks for 36 in{Units.MetricAside("915")} clear between its handrails")
         : ramp.Building == RailingBuilding.Other ? (1500, "Approved Document M asks for 1.5 m between its kerbs")
         : document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? (1200, "Approved Document M asks a wheelchair user's ramp for 1200 clear (M4(3) 3.10c)")
         : (900, "Approved Document M asks a dwelling's ramp for 900 clear - 1200 on a communal approach");
 
     /// <summary>The headroom it must have over its surface, and why: 2 m, Approved Document K; 80 in (2030) under the ADA and the IRC.</summary>
     public static (double Height, string Rule) HeadroomAsked(BimDocument document) =>
-        Us(document) ? (2030, "80 in (2030) of headroom is asked over it") : (2000, "Approved Document K asks for 2 m of headroom over it");
+        Us(document) ? (2030, $"80 in{Units.MetricAside("2030")} of headroom is asked over it") : (2000, "Approved Document K asks for 2 m of headroom over it");
 
     /// <summary>
     /// Laid out under its rules: in a building other than a dwelling, those of three flights or
@@ -960,7 +960,7 @@ public static class Ramps
     public static (double Height, string Rule) GuardHeight(BimDocument document, Ramp ramp, bool landing)
     {
         if (Us(document))
-            return ramp.Building == RailingBuilding.Dwelling ? (914, "the IRC asks for 36 in (914)") : (1067, "the IBC asks for 42 in (1067)");
+            return ramp.Building == RailingBuilding.Dwelling ? (914, $"the IRC asks for 36 in{Units.MetricAside("914")}") : (1067, $"the IBC asks for 42 in{Units.MetricAside("1067")}");
         if (ramp.Building == RailingBuilding.Dwelling) return (900, "Approved Document K asks for 900 in a dwelling");
         return landing ? (1100, "Approved Document K asks for 1100 round a landing") : (900, "Approved Document K asks for 900 along a flight");
     }
@@ -1331,7 +1331,7 @@ public static class Ramps
                     : $"At {said} it is steeper than the 1:12 Approved Document M allows a ramp.");
 
         var (least, widthRule) = LeastWidth(document, ramp);
-        if (least > 0 && layout.Width < least - 0.5) problems.Add($"It is {layout.Width:0} wide: {widthRule}.");
+        if (least > 0 && layout.Width < least - 0.5) problems.Add($"It is {Units.Bare(layout.Width)} wide: {widthRule}.");
 
         if (!us && other && layout.Rise > 2000)
             problems.Add($"It rises {layout.Rise:0} in all: past 2 m, Approved Document M asks for a lift as well.");
@@ -1340,20 +1340,20 @@ public static class Ramps
 
         // A level landing at either end, as long as asked, clear of any door swinging over it.
         var end = EndLanding(document, ramp);
-        var endRule = irc ? "the IRC asks for 36 in (915)"
-            : us ? "the ADA asks for 60 in (1525)"
+        var endRule = irc ? $"the IRC asks for 36 in{Units.MetricAside("915")}"
+            : us ? $"the ADA asks for 60 in{Units.MetricAside("1525")}"
             : end > 1200 + 0.5 ? $"Approved Document K asks for one as long as the ramp is wide, {end:0}"
             : "Approved Document M asks for 1200";
         if (IsRamp(ramp) && ramp.TopLanding < end - 0.5 && !LandsOn(document, layout.Head + layout.HeadUp * (end / 2), layout.Top))
-            problems.Add($"Its head comes up onto {(ramp.TopLanding > 0.5 ? $"a landing {ramp.TopLanding:0} long" : "no landing")} and no floor beyond: {endRule}.");
+            problems.Add($"Its head comes up onto {(ramp.TopLanding > 0.5 ? $"a landing {Units.Bare(ramp.TopLanding)} long" : "no landing")} and no floor beyond: {endRule}.");
         // Its foot: on the floor or the ground in front of it - with none modelled, the ground the building stands on, at the lowest level.
         var before = layout.Foot - layout.FootUp * (end / 2);
         var floorThere = FloorSurfaces.StoodOnNear(document, layout.Bottom, before, Stairs.FloorReach)?.Top;
         var under = floorThere ?? GroundUnder(document, before);
         if (under > layout.Bottom + 20)
-            problems.Add($"Its foot is {under - layout.Bottom:0} below the {(floorThere is null ? "ground" : "floor")} in front of it: it starts underground. Model the ground there, or raise its foot.");
+            problems.Add($"Its foot is {Units.Bare(under - layout.Bottom)} below the {(floorThere is null ? "ground" : "floor")} in front of it: it starts underground. Model the ground there, or raise its foot.");
         else if (IsRamp(ramp) && ramp.BottomLanding < end - 0.5 && layout.Bottom - under > 50)
-            problems.Add($"Its foot starts from {(ramp.BottomLanding > 0.5 ? $"a landing {ramp.BottomLanding:0} long" : "no landing")}, {layout.Bottom - under:0} off the floor or ground in front of it: {endRule}.");
+            problems.Add($"Its foot starts from {(ramp.BottomLanding > 0.5 ? $"a landing {Units.Bare(ramp.BottomLanding)} long" : "no landing")}, {Units.Bare(layout.Bottom - under)} off the floor or ground in front of it: {endRule}.");
         if (!us && IsRamp(ramp) && layout.Pieces.LastOrDefault() is { Kind: RampPieceKind.Landing } head
             && Stairs.DoorSwings(document, layout.Top).Any(swing => PolygonBoolean.Combine(swing, head.Outline, BooleanOperation.Intersection).Sum(piece => piece.Area) > 10000))
             problems.Add("A door swings over the landing at its head: Approved Document M asks for 1200 clear of any door swing.");
@@ -1365,16 +1365,16 @@ public static class Ramps
             problems.Add($"It has handrails {Sides(left, right)}: {asked.Rule}.");
         if (left || right)
         {
-            var (low, high, heightRule) = us ? (865, 965, "the ADA asks for 34 in to 38 in (865 to 965)") : (900, 1000, "Approved Document M asks for 900 to 1000");
+            var (low, high, heightRule) = us ? (865, 965, $"the ADA asks for 34 in to 38 in{Units.MetricAside("865 to 965")}") : (900, 1000, "Approved Document M asks for 900 to 1000");
             if (type.HandrailHeight < low - 0.5 || type.HandrailHeight > high + 0.5)
-                problems.Add($"Its handrails stand {type.HandrailHeight:0} over its surface: {heightRule}.");
+                problems.Add($"Its handrails stand {Units.Bare(type.HandrailHeight)} over its surface: {heightRule}.");
             if (IsRamp(ramp) && !irc && (us || other) && type.HandrailExtension < (us ? 304.8 : 300) - 0.5)
                 problems.Add(us
-                    ? $"Its handrails run on {type.HandrailExtension:0} past its ends: the ADA asks for 12 in (305) (505.10)."
+                    ? $"Its handrails run on {Units.Bare(type.HandrailExtension)} past its ends: the ADA asks for 12 in{Units.MetricAside("305")} (505.10)."
                     : $"Its handrails run on {type.HandrailExtension:0} past its ends: Approved Document M asks for 300.");
             if ((us || other) && (type.HandrailDiameter < 32 - 0.5 || type.HandrailDiameter > (us ? 51 : 50) + 0.5))
                 problems.Add(us
-                    ? $"Its handrails are {type.HandrailDiameter:0} thick: the ADA asks for 1¼ in to 2 in (32 to 51) round (505.7)."
+                    ? $"Its handrails are {Units.Bare(type.HandrailDiameter)} thick: the ADA asks for 1¼ in to 2 in{Units.MetricAside("32 to 51")} round (505.7)."
                     : $"Its handrails are {type.HandrailDiameter:0} thick: Approved Document M asks for 32 to 50 round.");
         }
 
@@ -1382,12 +1382,12 @@ public static class Ramps
         if (IsRamp(ramp) && !us && other && type.KerbHeight < 100 - 0.5)
             problems.Add($"Its kerb is {(type.KerbHeight > 0.5 ? $"{type.KerbHeight:0} high" : "missing")}: Approved Document M asks for one 100 high on its open sides.");
         if (IsRamp(ramp) && us && !irc && layout.Rise > 150 && type.KerbHeight < 100 - 0.5 && type.KerbWidth < 305 - 0.5)
-            problems.Add("Its sides have no edge protection: the ADA asks for a curb 4 in (100) high, or its surface 12 in past its handrails (405.9).");
+            problems.Add($"Its sides have no edge protection: the ADA asks for a curb 4 in{Units.MetricAside("100")} high, or its surface 12 in past its handrails (405.9).");
 
         // Headroom over it, and the space under one built as a slab or a deck.
         var (headroom, headroomRule) = HeadroomAsked(document);
         if (LeastHeadroom(document, ramp, layout) is { } over && over.Clear < headroom - 0.5)
-            problems.Add($"{Describe(over.By)} is only {over.Clear:0} over it: {headroomRule}.");
+            problems.Add($"{Describe(over.By)} is only {Units.Bare(over.Clear)} over it: {headroomRule}.");
         if (!us && other && LowSpaceUnder(document, ramp, layout) is { } space)
             problems.Add($"The space under it is {space:0} high in places: under 2 m, Approved Document K asks for it to be guarded off, with something low enough for a cane to find - or close it underneath.");
 
@@ -1395,7 +1395,7 @@ public static class Ramps
         var limit = Railings.GuardedDrop(document, ramp.Building);
         var drops = Drops(document, ramp, layout);
         if (ramp.Railings == StairRailings.None && Math.Max(drops.Left, drops.Right) > limit + 0.5)
-            problems.Add($"Its side drops {Math.Max(drops.Left, drops.Right):0} with nothing along it: guarding is asked past {limit:0}.");
+            problems.Add($"Its side drops {Units.Bare(Math.Max(drops.Left, drops.Right))} with nothing along it: guarding is asked past {Units.Bare(limit)}.");
 
         return problems;
     }
@@ -1442,6 +1442,6 @@ public static class Ramps
     {
         var layout = Layout(document, ramp);
         var flights = layout.FlightCount;
-        return $"1:{ramp.Gradient:0.#}, rising {layout.Rise:0} in {flights} flight{(flights == 1 ? "" : "s")} over {layout.Run / 1000:0.00} m - {layout.Length / 1000:0.00} m long, {layout.Width:0} wide";
+        return $"1:{ramp.Gradient:0.#}, rising {Units.Bare(layout.Rise)} in {flights} flight{(flights == 1 ? "" : "s")} over {Units.Metres(layout.Run, "0.00")} - {Units.Metres(layout.Length, "0.00")} long, {Units.Bare(layout.Width)} wide";
     }
 }

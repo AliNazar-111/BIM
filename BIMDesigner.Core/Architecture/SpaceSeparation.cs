@@ -130,21 +130,21 @@ public static class SpaceSeparation
         if (distance < 1000)
         {
             if (document.GetWallType(wall) is { } type && !document.IsCurtainWall(wall) && Doors.FireMinutes(type.FireRating) < 30)
-                problems.Add(($"it is {distance / 1000:0.00} m from the property line, {(Doors.FireMinutes(type.FireRating) is > 0 and var minutes ? $"rated {minutes} minutes" : "not fire-rated")}.",
+                problems.Add(($"it is {Units.Metres(distance, "0.00")} from the property line, {(Doors.FireMinutes(type.FireRating) is > 0 and var minutes ? $"rated {minutes} minutes" : "not fire-rated")}.",
                     "Approved Document B (11.8, Table B4) asks a wall less than 1 m from the boundary to resist fire for 30 minutes from both sides."));
             var big = OpeningsOver(document, wall, 1.0);
             if (big > 0 || document.IsCurtainWall(wall))
-                problems.Add(($"it is {distance / 1000:0.00} m from the property line, with {(document.IsCurtainWall(wall) ? "its glass" : $"{big} opening{(big == 1 ? "" : "s")} over 1 m²")} in it.",
+                problems.Add(($"it is {Units.Metres(distance, "0.00")} from the property line, with {(document.IsCurtainWall(wall) ? "its glass" : $"{big} opening{(big == 1 ? "" : "s")} over 1 m²")} in it.",
                     "Approved Document B (11.8, Diagram 11.5) allows a wall less than 1 m from the boundary only small openings - 1 m² at most, 4 m apart."));
             return problems;
         }
 
         var sprinklered = document.ProjectInformation.Sprinklered;
         if (own > 0 && Allowed(side.Distance / 1000, sprinklered) is { } allowed && side.Unprotected > allowed + 0.005)
-            problems.Add(($"its side, facing {side.Facing} {side.Distance / 1000:0.0} m from the property line, has {side.Unprotected:0.0} m² of windows, glazed doors and glass.",
+            problems.Add(($"its side, facing {side.Facing} {Units.Metres(side.Distance, "0.0")} from the property line, has {Units.OfSquareMetres(side.Unprotected, "0.0")} of windows, glazed doors and glass.",
                 sprinklered
-                    ? $"Approved Document B (11.18, Diagram 11.7, and 11.21 for a building sprinklered throughout) allows a house's side {allowed:0.#} m² of unprotected area there - smaller windows, fire-resisting glazing, or the house further from the boundary."
-                    : $"Approved Document B (11.18, Diagram 11.7) allows a house's side {allowed:0.#} m² of unprotected area there - smaller windows, fire-resisting glazing, sprinklers throughout (11.21), or the house further from the boundary."));
+                    ? $"Approved Document B (11.18, Diagram 11.7, and 11.21 for a building sprinklered throughout) allows a house's side {Units.OfSquareMetres(allowed, "0.#")} of unprotected area there - smaller windows, fire-resisting glazing, or the house further from the boundary."
+                    : $"Approved Document B (11.18, Diagram 11.7) allows a house's side {Units.OfSquareMetres(allowed, "0.#")} of unprotected area there - smaller windows, fire-resisting glazing, sprinklers throughout (11.21), or the house further from the boundary."));
         return problems;
     }
 
@@ -192,7 +192,7 @@ public static class SpaceSeparation
 
         var problems = new List<(string, string)>();
         var sprinklered = document.ProjectInformation.Sprinklered;
-        var feet = $"{distance / 1000:0.00} m ({distance / 304.8:0.0} ft)";
+        var feet = $"{Units.Metres(distance, "0.00")}{(Units.Imperial ? "" : $" ({distance / 304.8:0.0} ft)")}";
         var curtain = document.IsCurtainWall(wall);
         var minutes = curtain ? 0 : Doors.FireMinutes(document.GetWallType(wall)?.FireRating ?? string.Empty);
 
@@ -209,7 +209,7 @@ public static class SpaceSeparation
             problems.Add(($"it is {feet} from the lot line, with {what}.",
                 $"The IRC ({(sprinklered ? "Table R302.1(2)" : "Table R302.1(1)")}) allows no openings in a wall less than 3 ft from the lot line."));
         else if (!sprinklered && distance < RatedWithin && area > 0 && open > area / 4 + 0.005)
-            problems.Add(($"it is {feet} from the lot line, its openings {open:0.0} m² of its {area:0.0} m² - {open / area:0%}.",
+            problems.Add(($"it is {feet} from the lot line, its openings {Units.OfSquareMetres(open, "0.0")} of its {Units.OfSquareMetres(area, "0.0")} - {open / area:0%}.",
                 "The IRC (Table R302.1(1)) allows a wall 3 to 5 ft from the lot line openings of 25% of its area at most - or any, with sprinklers throughout (Table R302.1(2))."));
         return problems;
     }
@@ -275,8 +275,8 @@ public static class SpaceSeparation
         {
             var metres = side.Distance / 1000;
             var allowed = Allowed(metres, sprinklered);
-            var limit = metres < 1 ? "only small openings" : allowed is { } most ? $"{most:0.#} m² allowed" : "no limit";
-            return $"{char.ToUpperInvariant(side.Facing[0])}{side.Facing[1..]} {metres:0.0} m: {side.Unprotected:0.0} m² open, {limit}";
+            var limit = metres < 1 ? "only small openings" : allowed is { } most ? $"{Units.OfSquareMetres(most, "0.#")} allowed" : "no limit";
+            return $"{char.ToUpperInvariant(side.Facing[0])}{side.Facing[1..]} {metres:0.0} m: {Units.OfSquareMetres(side.Unprotected, "0.0")} open, {limit}";
         }));
     }
 }

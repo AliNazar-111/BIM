@@ -53,7 +53,7 @@ public partial class PlanView
 
         var view = Views3D.Camera(Document, ActiveLevelId, eye, at);
         Apply(new AddElementCommand(Document, view, "Camera"));
-        HintChanged?.Invoke(this, $"{view.Name}: a perspective from {Views3D.EyeHeight:0} mm above the floor. It is in the Project Browser under 3D Views.");
+        HintChanged?.Invoke(this, $"{view.Name}: a perspective from {Core.Units.Millimetres(Views3D.EyeHeight, "0")} above the floor. It is in the Project Browser under 3D Views.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         CameraPlaced?.Invoke(this, view);
@@ -91,7 +91,7 @@ public partial class PlanView
         made.SetPath(_walkPoints);
         _walkPoints.Clear();
         Apply(new AddElementCommand(Document, made, "Walkthrough"));
-        HintChanged?.Invoke(this, $"{made.Name}: {made.Length / 1000:0.0} m, {made.Frames} frames at {made.FramesPerSecond:0} a second. It is in the Project Browser under Walkthroughs.");
+        HintChanged?.Invoke(this, $"{made.Name}: {Core.Units.Metres(made.Length, "0.0")}, {made.Frames} frames at {made.FramesPerSecond:0} a second. It is in the Project Browser under Walkthroughs.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         WalkthroughPlaced?.Invoke(this, made);

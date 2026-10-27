@@ -277,7 +277,7 @@ public partial class ModelView
         var walker = Walker;
         if (Walking.Blocked(_allMeshes, from, to, _feet, walker.EyeHeight, walker.Width))
         {
-            Stopped(walker.Width > 0 ? $"Something is in the way of {walker.Name} {walker.Width:0} wide - a wall, a narrow doorway, furniture." : "Something is in the way.");
+            Stopped(walker.Width > 0 ? $"Something is in the way of {walker.Name} {Core.Units.FormatMm(walker.Width)} wide - a wall, a narrow doorway, furniture." : "Something is in the way.");
             return;
         }
 
@@ -290,13 +290,13 @@ public partial class ModelView
             var rule = us ? "the ADA allows 1/2 in, bevelled, at a change of level (303.3)" : "Approved Document M allows a threshold of 15 mm at most";
             if (rise > walker.StepUp + 0.5)
             {
-                Stopped($"A step up of {rise:0} mm: {walker.Name} cannot get up it - {rule}. A ramp, or a level threshold, is needed.");
+                Stopped($"A step up of {Core.Units.Millimetres(rise, "0")}: {walker.Name} cannot get up it - {rule}. A ramp, or a level threshold, is needed.");
                 return;
             }
 
             if (next < _feet - walker.StepUp - 0.5)
             {
-                Stopped($"A step down of {_feet - next:0} mm: {walker.Name} cannot get down it - {rule}.");
+                Stopped($"A step down of {Core.Units.Millimetres(_feet - next, "0")}: {walker.Name} cannot get down it - {rule}.");
                 return;
             }
 

@@ -168,7 +168,7 @@ public partial class PlanView
         stair.Outside = Stairs.StandsOutside(Document, stair);
         Apply(new AddElementCommand(Document, stair, "Stair"));
         var layout = Stairs.Layout(Document, stair);
-        HintChanged?.Invoke(this, $"Stair in from {level.Name}: {layout.Risers} risers of {layout.Rise:0.#}. Pick it to turn it, move it or reshape it by its handles. {Stairs.Verdict(Document, stair)}.");
+        HintChanged?.Invoke(this, $"Stair in from {level.Name}: {layout.Risers} risers of {(Core.Units.Imperial ? Core.Units.FeetAndInches(layout.Rise) : $"{layout.Rise:0.#}")}. Pick it to turn it, move it or reshape it by its handles. {Stairs.Verdict(Document, stair)}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -232,7 +232,7 @@ public partial class PlanView
         Apply(new AddElementCommand(Document, stair, "Stair"));
 
         var layout = Stairs.Layout(Document, stair);
-        HintChanged?.Invoke(this, $"Stair in: {layout.Risers} risers of {layout.Rise:0.#}, going {layout.Going:0}, pitch {layout.Pitch:0.#}°. {Stairs.Verdict(Document, stair)}. Click for another; Esc to stop.");
+        HintChanged?.Invoke(this, $"Stair in: {layout.Risers} risers of {(Core.Units.Imperial ? Core.Units.FeetAndInches(layout.Rise) : $"{layout.Rise:0.#}")}, going {(Core.Units.Imperial ? Core.Units.FeetAndInches(layout.Going) : $"{layout.Going:0}")}, pitch {layout.Pitch:0.#}°. {Stairs.Verdict(Document, stair)}. Click for another; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -252,7 +252,7 @@ public partial class PlanView
         Apply(new AddElementCommand(Document, stair, "Stair"));
 
         var layout = Stairs.Layout(Document, stair);
-        HintChanged?.Invoke(this, $"Stair in: {layout.Risers} risers of {layout.Rise:0.#}, going {layout.Going:0}, turning {stair.PathTurns.Count} times. {Stairs.Verdict(Document, stair)}. Click for another; Esc to stop.");
+        HintChanged?.Invoke(this, $"Stair in: {layout.Risers} risers of {(Core.Units.Imperial ? Core.Units.FeetAndInches(layout.Rise) : $"{layout.Rise:0.#}")}, going {(Core.Units.Imperial ? Core.Units.FeetAndInches(layout.Going) : $"{layout.Going:0}")}, turning {stair.PathTurns.Count} times. {Stairs.Verdict(Document, stair)}. Click for another; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;

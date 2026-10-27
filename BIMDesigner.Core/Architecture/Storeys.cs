@@ -139,7 +139,7 @@ public static class Storeys
             var floorName = document.FindType<ElementType>(slab.TypeId)?.Name ?? "the floor";
             var split = through.Count == 0 ? null : $"{Walls(through.Count)} running up through it split there";
             said.Add(made is not null
-                ? $"{made} made at {slab.GetTopElevation(document):0}, standing on {floorName} and moving with it; {split ?? $"{Walls(standing.Count)} built on it"}, the part over it on {made}"
+                ? $"{made} made at {Units.Bare(slab.GetTopElevation(document))}, standing on {floorName} and moving with it; {split ?? $"{Walls(standing.Count)} built on it"}, the part over it on {made}"
                 : $"{split ?? Walls(through.Count)} running up through {floorName}: the part under it stops at its underside, the part over it stands on its top");
         }
 
