@@ -482,11 +482,16 @@ public static class CoolingLoads
     /// <summary>A window's cooling factor, Btu/h·ft²: its exposure from the way it faces, an overhang over it, its screen, its glass.</summary>
     private static double WindowFactorOf(BimDocument document, HeatLossLine line, double u, double difference, double range, double latitude, double north)
     {
-        var exposure = line.Facing is { } facing ? ExposureOf(facing + north) : Exposure.South;
+        // True north so many degrees clockwise from up the plan: what faces up the plan faces that much west of north.
+        // A roof window's sun a skylight's, from the sky overhead.
+        var exposure = line.Tilt is not null ? Exposure.Horizontal : line.Facing is { } facing ? ExposureOf(facing - north) : Exposure.South;
         double shgc, screen = 1, height = 0;
         WindowType? windowType = null;
         switch (line.Through)
         {
+            case RoofWindow roofWindow when document.FindType<RoofWindowType>(roofWindow.TypeId) is { } type:
+                shgc = type.SolarHeatGainCoefficient;
+                break;
             case Window window when document.FindType<WindowType>(window.TypeId) is { } type:
                 windowType = type;
                 shgc = type.SolarHeatGainCoefficient;

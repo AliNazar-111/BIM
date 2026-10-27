@@ -4183,6 +4183,7 @@ public partial class MainWindow : Window
     {
         _systemsWindow?.Refresh();
         _heatLossWindow?.Refresh();
+        _energyRatingWindow?.Refresh();
     }
 
     /// <summary>The ground as the plan's Properties offer it: what it is, Approved Document A's type, the IRC's bearing value.</summary>
@@ -4200,7 +4201,7 @@ public partial class MainWindow : Window
     private static readonly HashSet<ParameterDefinition> UsOnlyParameters = new()
     {
         FrostDepthParameter, GroundSnowParameter, WaterPressureParameter, WinterDesignParameter,
-        SummerDesignParameter, SummerWetBulbParameter, DailyRangeParameter, LatitudeParameter, TrueNorthParameter,
+        SummerDesignParameter, SummerWetBulbParameter, DailyRangeParameter, LatitudeParameter,
         DuctRunParameter, DuctInsulationParameter, DuctsSealedParameter, CoolingLoadParameter
     };
 

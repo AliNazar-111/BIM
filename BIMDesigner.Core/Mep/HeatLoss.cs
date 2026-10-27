@@ -45,7 +45,14 @@ public enum HeatSurface
 /// or a door the way it faces on the plan, degrees clockwise from up the plan.
 /// </summary>
 public sealed record HeatLossLine(string What, double Area, double U, HeatPath Path, double Beyond, double Watts, Element? Through, Room? Next = null,
-    HeatSurface Kind = HeatSurface.Wall, double? Facing = null);
+    HeatSurface Kind = HeatSurface.Wall, double? Facing = null)
+{
+    /// <summary>Its U-value as its layers or its maker give it, without the allowance for thermal bridges - what an energy rating counts its bridges on their own beside.</summary>
+    public double Bare { get; init; } = U;
+
+    /// <summary>A roof window's tilt from the level, degrees - 0 for a rooflight on a flat roof; none for what stands upright.</summary>
+    public double? Tilt { get; init; }
+}
 
 /// <summary>
 /// One room's heat loss at the design conditions: through each surface, and with the air coming in.
@@ -323,13 +330,13 @@ public static class HeatLoss
         // The walls' height: storey to storey, as a net internal height with the floor between; under the roof, the room's own.
         var storey = above is not null && level is not null ? above.Elevation - level.Elevation : area > 0 ? volume / area * 1000 : room.Height;
 
-        void Add(string what, double square, double u, HeatPath path, double beyond, Element? through, Room? next = null, HeatSurface kind = HeatSurface.Wall, double? facing = null)
+        void Add(string what, double square, double u, HeatPath path, double beyond, Element? through, Room? next = null, HeatSurface kind = HeatSurface.Wall, double? facing = null, double? tilt = null)
         {
             if (square <= 1e-6) return;
             // A US window's or door's rated U-factor is its whole product's, frame and all; a slab's edge is reckoned on its own.
             var bridged = us && kind is HeatSurface.Window or HeatSurface.Door or HeatSurface.SlabEdge ? u
                 : u + (path is HeatPath.Outside or HeatPath.Ground ? ExternalBridging : InternalBridging);
-            lines.Add(new HeatLossLine(what, square, bridged, path, beyond, square * bridged * (inside - beyond), through, next, kind, facing));
+            lines.Add(new HeatLossLine(what, square, bridged, path, beyond, square * bridged * (inside - beyond), through, next, kind, facing) { Bare = u, Tilt = tilt });
         }
 
         // What is beyond a surface: another room at its temperature, or a space nobody heats.
@@ -439,6 +446,20 @@ public static class HeatLoss
         {
             var sloped = over?.By is Roof && !roof.Surface(document).IsFlat;
             var square = sloped ? area / Math.Max(0.2, Math.Cos(roof.SlopeDegrees * Math.PI / 180)) : area;
+
+            // The roof windows in the roof over it, lying in its slope - or level, rooflights on a flat roof.
+            if (over?.By is Roof)
+                foreach (var window in RoofWindows.On(document, roof))
+                {
+                    if (RoofWindows.Frame(document, window) is not { } frame || !Polygon2D.Contains(polygon, frame.Centre)) continue;
+                    var glazed = Math.Min(frame.Type.Width * frame.Type.Height / 1e6, square);
+                    var plane = frame.Plane;
+                    var downhill = plane.Rise < 0.01 ? (double?)null : (Math.Atan2(-plane.A, -plane.B) * 180 / Math.PI + 360) % 360;
+                    Add($"{(downhill is null ? "Rooflight" : "Roof window")} {frame.Type.Name}", glazed, frame.Type.HeatTransferCoefficient, HeatPath.Outside, outside, window,
+                        kind: HeatSurface.Window, facing: downhill, tilt: plane.SlopeDegrees);
+                    square -= glazed;
+                }
+
             if (SlabRules.UValue(document, roof) is { } u)
                 Add($"{(over?.By is Roof ? "Roof" : "Ceiling under the roof")} ({document.FindType<SlabType>(roof.TypeId)?.Name})", square, u, HeatPath.Outside, outside, roof,
                     kind: over?.By is Roof ? HeatSurface.Roof : HeatSurface.CeilingUnderLoft);

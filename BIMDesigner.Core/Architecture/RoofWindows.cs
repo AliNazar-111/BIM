@@ -50,10 +50,20 @@ public sealed class RoofWindowType : ElementType
 
     public Guid GlassMaterialId { get; set; }
 
+    /// <summary>
+    /// Its U-value as fitted at its pitch, W/m²K - its maker's for the inclined position, or a vertical
+    /// rating with SAP's allowance for the slope added (Table 6e, note 1); a rooflight's on its kerb.
+    /// </summary>
+    public double HeatTransferCoefficient { get; set; } = 1.4;
+
+    /// <summary>Its glass's total solar energy transmittance (g-value), 0 to 1.</summary>
+    public double SolarHeatGainCoefficient { get; set; } = 0.5;
+
     public RoofWindowType Duplicate(string name) => new(name)
     {
         Width = Width, Height = Height, FrameWidth = FrameWidth, Upstand = Upstand, Operation = Operation,
-        FrameMaterialId = FrameMaterialId, GlassMaterialId = GlassMaterialId, Description = Description, Cost = Cost
+        FrameMaterialId = FrameMaterialId, GlassMaterialId = GlassMaterialId, Description = Description, Cost = Cost,
+        HeatTransferCoefficient = HeatTransferCoefficient, SolarHeatGainCoefficient = SolarHeatGainCoefficient
     };
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
@@ -70,6 +80,10 @@ public sealed class RoofWindowType : ElementType
             () => EnumText.Humanise(Operation),
             v => { if (EnumText.TryParse<RoofWindowOperation>(v, out var operation)) Operation = operation; },
             EnumText.Choices<RoofWindowOperation>());
+        yield return ParameterValue.BindScaled(OpeningTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
+            () => HeatTransferCoefficient, v => Set(v > 0, () => HeatTransferCoefficient = v));
+        yield return ParameterValue.BindValidated(WindowTypeParameters.SolarHeatGain, () => SolarHeatGainCoefficient,
+            (double v) => Set(v is >= 0 and <= 1, () => SolarHeatGainCoefficient = v));
 
         if (document is not null)
         {
@@ -159,7 +173,8 @@ public sealed class RoofWindow : Element, IHostedElement
                 Id = type.Id, TypeMark = type.TypeMark, Description = type.Description, Cost = type.Cost, Operation = type.Operation,
                 Width = Width ?? type.Width, Height = Height ?? type.Height,
                 FrameWidth = FrameWidth ?? type.FrameWidth, Upstand = Upstand ?? type.Upstand,
-                FrameMaterialId = FrameMaterialId ?? type.FrameMaterialId, GlassMaterialId = GlassMaterialId ?? type.GlassMaterialId
+                FrameMaterialId = FrameMaterialId ?? type.FrameMaterialId, GlassMaterialId = GlassMaterialId ?? type.GlassMaterialId,
+                HeatTransferCoefficient = type.HeatTransferCoefficient, SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
             };
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)

@@ -821,6 +821,10 @@ internal sealed class SlabDto
 
     public double RoofFasciaDepth { get; set; } = 150;
     public bool RoofHighLevelVents { get; set; }
+
+    /// <summary>For a roof, its solar array's peak power, kWp, and overshading; none in a file from before.</summary>
+    public double? RoofSolarPeakPower { get; set; }
+    public string? RoofSolarOvershading { get; set; }
     public double RoofDrainageFall { get; set; } = 40;
 
     /// <summary>For a roof, the slope arrows drawn in its sketch.</summary>
@@ -1038,6 +1042,12 @@ internal sealed class ComponentTypeDto
     public double? AvailablePressure { get; set; }
     public double? HeatRecovery { get; set; }
 
+    /// <summary>What the energy rating takes: a fan's specific fan power, a heat source's seasonal efficiencies, a cylinder's declared loss; none in a file from before.</summary>
+    public double? SpecificFanPower { get; set; }
+    public double? SpaceEfficiency { get; set; }
+    public double? WaterEfficiency { get; set; }
+    public double? StandingLoss { get; set; }
+
     /// <summary>A valve's pressure loss at its rated airflow, a fan's continuous rate, a background ventilator's equivalent area; none in a file from before.</summary>
     public double? PressureLoss { get; set; }
     public double? RatedAirflow { get; set; }
@@ -1172,6 +1182,20 @@ internal sealed class ComponentMeshDto
     public string Edges { get; set; } = string.Empty;
 }
 
+/// <summary>A project's energy settings; none in a file from before.</summary>
+internal sealed class EnergyDto
+{
+    public string? Overshading { get; set; }
+    public int ShelteredSides { get; set; } = 2;
+    public string? Bridging { get; set; }
+    public double YValue { get; set; } = 0.15;
+    public Dictionary<string, double>? Psi { get; set; }
+    public double WasteWaterRecovery { get; set; }
+    public double WasteWaterUtilisation { get; set; } = 0.98;
+    public double Battery { get; set; }
+    public bool Flat { get; set; }
+}
+
 internal sealed class ProjectInformationDto
 {
     public string Name { get; set; } = "Untitled Project";
@@ -1217,6 +1241,9 @@ internal sealed class ProjectInformationDto
     public double? DailyRange { get; set; }
     public double? Latitude { get; set; }
     public double TrueNorth { get; set; }
+
+    /// <summary>What its energy rating takes that the model does not say; none in older files.</summary>
+    public EnergyDto? Energy { get; set; }
 
     /// <summary>Where its ducts run, their insulation and sealing; none in older files.</summary>
     public string? DuctRun { get; set; }
@@ -2496,6 +2523,10 @@ internal sealed class RoofWindowTypeDto
     public Guid GlassMaterialId { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+
+    /// <summary>Its U-value as fitted and its g-value; none in a file from before.</summary>
+    public double? HeatTransferCoefficient { get; set; }
+    public double? SolarHeatGainCoefficient { get; set; }
 }
 
 internal sealed class RoofWindowDto

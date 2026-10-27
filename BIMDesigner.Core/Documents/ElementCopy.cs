@@ -457,6 +457,8 @@ public static class ElementCopy
             copied.SetOpenings(roof.Openings);
             copied.FasciaDepth = roof.FasciaDepth;
             copied.HighLevelVents = roof.HighLevelVents;
+            copied.SolarPeakPower = roof.SolarPeakPower;
+            copied.SolarOvershading = roof.SolarOvershading;
             copied.DrainageFall = roof.DrainageFall;
             copied.SetSlopeArrows(roof.SlopeArrows.Select(arrow => arrow.Copy()));
             copied.SetExtrusion(roof.Extrusion);

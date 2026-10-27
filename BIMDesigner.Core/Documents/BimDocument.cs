@@ -108,6 +108,9 @@ public sealed class ProjectInformation
     /// design figure, or as tested; at most 8 for a new dwelling (Approved Document L Table 4.1).
     /// </summary>
     public double AirPermeability { get; set; } = Mep.HeatLoss.LimitingAirPermeability;
+
+    /// <summary>What its energy rating takes that the model does not say.</summary>
+    public Energy.EnergySettings Energy { get; } = new();
 }
 
 /// <summary>
@@ -2179,7 +2182,8 @@ public sealed class BimDocument
             // main comes in, and the gas meter in its box on the outside wall.
             new ComponentType("Hot Water Cylinder - Unvented 210 l", BuiltInCategory.MechanicalEquipment, ComponentForm.HotWaterCylinder, 580, 580, 1480)
             {
-                TypeMark = "M9", Colour = white, Cost = 1150m, AgainstWall = true
+                TypeMark = "M9", Colour = white, Cost = 1150m, AgainstWall = true, Capacity = 210, StandingLoss = 1.45,
+                Description = "Its declared heat loss from its maker's data"
             },
             new ComponentType("Stop Valve - Incoming Main", BuiltInCategory.PlumbingFixtures, ComponentForm.StopValve, 100, 80, 150)
             {
@@ -2219,8 +2223,8 @@ public sealed class BimDocument
             // limit at BS EN 1264's warmest floor.
             new ComponentType("Heat Pump - Air Source 7 kW", BuiltInCategory.MechanicalEquipment, ComponentForm.HeatPump, 1100, 450, 980)
             {
-                TypeMark = "M11", Colour = new ColourRgb(0xE4, 0xE6, 0xE8), Cost = 5500m, HeatOutput = 7000,
-                Description = "Monobloc; its output at the design temperature, from its maker's data"
+                TypeMark = "M11", Colour = new ColourRgb(0xE4, 0xE6, 0xE8), Cost = 5500m, HeatOutput = 7000, SpaceEfficiency = 320, WaterEfficiency = 240,
+                Description = "Monobloc; its output at the design temperature and its seasonal efficiencies at a 45 °C flow, from its maker's data"
             },
 
             // The US's: a ducted air-source heat pump of 3 tons, cooling as well as heating.
@@ -2246,7 +2250,7 @@ public sealed class BimDocument
             // extracts through, and the grille on the outside wall its air comes in and goes out at.
             new ComponentType("Heat Recovery Unit - 75 l/s", BuiltInCategory.MechanicalEquipment, ComponentForm.HeatRecoveryUnit, 560, 300, 650)
             {
-                TypeMark = "M14", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 2400m, Airflow = 75, AvailablePressure = 150, HeatRecovery = 0.9,
+                TypeMark = "M14", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 2400m, Airflow = 75, AvailablePressure = 150, HeatRecovery = 0.9, SpecificFanPower = 0.75,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1500,
                 Description = "Mechanical ventilation with heat recovery; its airflow, available pressure and efficiency from its maker's data"
             },
@@ -2275,13 +2279,13 @@ public sealed class BimDocument
             // running all the time and boosting - and the background ventilators the air comes in by.
             new ComponentType("Extract Unit - Central MEV 60 l/s", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractUnit, 400, 250, 300)
             {
-                TypeMark = "M15", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 900m, Airflow = 60, AvailablePressure = 100,
+                TypeMark = "M15", Colour = new ColourRgb(0xE8, 0xEA, 0xEC), Cost = 900m, Airflow = 60, AvailablePressure = 100, SpecificFanPower = 0.4,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1800,
                 Description = "Continuous mechanical extract; its airflow and available pressure from its maker's data"
             },
             new ComponentType("Extract Fan - Continuous dMEV", BuiltInCategory.MechanicalEquipment, ComponentForm.ExtractFan, 160, 50, 160)
             {
-                TypeMark = "M16", Colour = white, Cost = 140m, ExtractRate = 15, ContinuousRate = 8,
+                TypeMark = "M16", Colour = white, Cost = 140m, ExtractRate = 15, ContinuousRate = 8, SpecificFanPower = 0.15,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 2150,
                 Description = "Decentralised mechanical extract: running at its continuous rate, boosting to its extract rate"
             },

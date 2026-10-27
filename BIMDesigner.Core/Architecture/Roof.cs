@@ -267,6 +267,31 @@ public sealed class Roof : Slab
     public bool HighLevelVents { get; set; }
 
     /// <summary>
+    /// The solar photovoltaic array on it, kWp: laid on its face turned most to the south, or on a flat
+    /// roof on frames facing south at 30° - none at 0 - and how much of the sky to the south is blocked
+    /// to it (SAP Table M1).
+    /// </summary>
+    public double SolarPeakPower { get; set; }
+
+    public Energy.PvOvershading SolarOvershading { get; set; }
+
+    /// <summary>Its solar array's peak power and overshading, to show and change.</summary>
+    private IEnumerable<ParameterValue> SolarParameters()
+    {
+        yield return ParameterValue.BindValidated(RoofParameters.SolarPeakPower, () => SolarPeakPower, (double kwp) =>
+        {
+            if (kwp is < 0 or > 1000) return false;
+            SolarPeakPower = kwp;
+            return true;
+        });
+        yield return ParameterValue.BindChoice(
+            RoofParameters.SolarOvershading,
+            () => EnumText.Humanise(SolarOvershading),
+            v => { if (EnumText.TryParse<Energy.PvOvershading>(v, out var shading)) SolarOvershading = shading; },
+            EnumText.Choices<Energy.PvOvershading>());
+    }
+
+    /// <summary>
     /// Where the roof bears on the walls it was picked from - Revit's Rafter or Truss. Truss
     /// by default, as in Revit: the slope starts on the walls' outside faces.
     /// </summary>
@@ -531,6 +556,7 @@ public sealed class Roof : Slab
             RoofParameters.RidgeHeight, () => RidgeElevation(document) - BaseElevation(document));
 
         yield return ParameterValue.ReadOnly(RoofParameters.SlopingArea, () => SlopingArea(document));
+        foreach (var parameter in SolarParameters()) yield return parameter;
     }
 
     /// <summary>Whether this is a dormer's roof that changes as one with its walls - see <see cref="Dormers.Change"/>.</summary>
@@ -670,6 +696,7 @@ public sealed class Roof : Slab
             });
 
         yield return ParameterValue.Bind(RoofParameters.HighLevelVents, () => HighLevelVents, v => HighLevelVents = v);
+        foreach (var parameter in SolarParameters()) yield return parameter;
 
         yield return ParameterValue.ReadOnly(
             RoofParameters.RidgeHeight, () => RidgeElevation(document) - BaseElevation(document));
@@ -804,6 +831,12 @@ public static class RoofParameters
 {
     public static readonly ParameterDefinition HighLevelVents =
         new("Vented at the Ridge", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SolarPeakPower =
+        new("Solar PV (kWp, 0 = none)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SolarOvershading =
+        new("Solar PV Overshading", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition DrainageFall =
         new("Drainage Fall (1 in)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Construction);

@@ -304,8 +304,27 @@ public sealed class ComponentType : ElementType
     /// <summary>For a dual-flush WC, its part flush, litres; none for a single flush.</summary>
     public double PartFlushVolume { get; set; }
 
-    /// <summary>For a bath, how much it holds to its overflow, litres.</summary>
+    /// <summary>For a bath, how much it holds to its overflow, litres; for a hot water cylinder, how much it holds.</summary>
     public double Capacity { get; set; }
+
+    /// <summary>
+    /// For a boiler or a heat pump, its seasonal efficiency heating the home, %: a boiler's winter seasonal
+    /// efficiency, a heat pump's space heating efficiency - its SCOP as a percentage - from the Product
+    /// Characteristics Database or its maker. None where not known: SAP's default for its kind is taken.
+    /// </summary>
+    public double SpaceEfficiency { get; set; }
+
+    /// <summary>For a boiler or a heat pump, its efficiency heating the hot water, %: a boiler's summer seasonal efficiency, a heat pump's water heating efficiency; none where not known.</summary>
+    public double WaterEfficiency { get; set; }
+
+    /// <summary>For a hot water cylinder, its maker's declared heat loss, kWh a day; none where not known, and its loss is worked out from its volume and 50 mm of factory insulation.</summary>
+    public double StandingLoss { get; set; }
+
+    /// <summary>
+    /// For a heat recovery unit, a central extract unit or an extract fan running continuously, its
+    /// specific fan power in use, W/(l/s) - the PCDB's, with its in-use factor; none where not known.
+    /// </summary>
+    public double SpecificFanPower { get; set; }
 
     /// <summary>For a dishwasher, the water it uses a place setting; for a washing machine, a kilo of dry load - litres, from its energy label.</summary>
     public double WaterPerUse { get; set; }
@@ -417,6 +436,7 @@ public sealed class ComponentType : ElementType
         Placement = Placement, DefaultElevation = DefaultElevation, MaterialId = MaterialId, Colour = Colour, AgainstWall = AgainstWall,
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
         HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
+        SpaceEfficiency = SpaceEfficiency, WaterEfficiency = WaterEfficiency, StandingLoss = StandingLoss, SpecificFanPower = SpecificFanPower,
         Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
         ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
@@ -552,14 +572,25 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.PipeSpacing, () => PipeSpacing, v => NotNegative(v, x => PipeSpacing = x));
         }
         if (Form is ComponentForm.Boiler or ComponentForm.HeatPump)
+        {
             yield return ParameterValue.BindScaled(ComponentTypeParameters.HeatOutput, ComponentTypeParameters.HeatOutputBtu, Units.BtuPerHourPerWatt, 0,
                 () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+
+            // What the energy rating takes of it: its seasonal efficiencies.
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.SpaceEfficiency, () => SpaceEfficiency, v => { if (v is < 0 or > 1000) return false; SpaceEfficiency = v; return true; });
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.WaterEfficiency, () => WaterEfficiency, v => { if (v is < 0 or > 1000) return false; WaterEfficiency = v; return true; });
+        }
         if (Form == ComponentForm.HeatPump)
             yield return ParameterValue.BindScaled(ComponentTypeParameters.CoolingOutput, ComponentTypeParameters.CoolingOutputBtu, Units.BtuPerHourPerWatt, 0,
                 () => CoolingOutput, v => NotNegative(v, x => CoolingOutput = x));
         if (Form == ComponentForm.HotWaterCylinder)
+        {
             yield return ParameterValue.BindScaled(ComponentTypeParameters.CoilOutput, ComponentTypeParameters.CoilOutputBtu, Units.BtuPerHourPerWatt, 0,
                 () => HeatOutput, v => NotNegative(v, x => HeatOutput = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.CylinderVolume, ComponentTypeParameters.CylinderVolumeGallons, ComponentTypeParameters.GallonsPerLitre, 1,
+                () => Capacity, v => NotNegative(v, x => Capacity = x));
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.StandingLoss, () => StandingLoss, v => NotNegative(v, x => StandingLoss = x));
+        }
         if (Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit)
         {
             yield return ParameterValue.BindScaled(ComponentTypeParameters.Airflow, ComponentTypeParameters.AirflowCfm, ComponentTypeParameters.CfmPerLitreSecond, 0,
@@ -569,6 +600,8 @@ public sealed class ComponentType : ElementType
         }
         if (Form == ComponentForm.HeatRecoveryUnit)
             yield return ParameterValue.BindValidated(ComponentTypeParameters.HeatRecovery, () => HeatRecovery * 100, v => { if (v is < 0 or > 100) return false; HeatRecovery = v / 100; return true; });
+        if (Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit or ComponentForm.ExtractFan)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.SpecificFanPower, () => SpecificFanPower, v => { if (v is < 0 or > 10) return false; SpecificFanPower = v; return true; });
         if (Form is ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal)
         {
             yield return ParameterValue.BindScaled(ComponentTypeParameters.PressureLoss, ComponentTypeParameters.PressureLossWc, 1 / Units.PascalsPerInchOfWater, 3,
@@ -1025,6 +1058,24 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition HeatRecovery =
         new("Heat Recovery Efficiency (%)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SpecificFanPower =
+        new("Specific Fan Power (W/(l/s), 0 = not known)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SpaceEfficiency =
+        new("Seasonal Efficiency, Heating (%, 0 = not known)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition WaterEfficiency =
+        new("Seasonal Efficiency, Hot Water (%, 0 = not known)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition CylinderVolume =
+        new("Volume (l)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition CylinderVolumeGallons =
+        new("Volume (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition StandingLoss =
+        new("Declared Heat Loss (kWh/day, 0 = not known)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition PressureLoss =
         new("Pressure Loss (Pa)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);

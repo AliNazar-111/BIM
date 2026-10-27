@@ -251,6 +251,25 @@ public partial class MainWindow
         StatusHint.Text = $"{sized.Count} duct{(sized.Count == 1 ? string.Empty : "s")} sized by equal friction, to keep each system within Approved Document F's static pressure (Table 1.8), and its air to 2.5 m/s for quiet.";
     }
 
+    private EnergyRatingWindow? _energyRatingWindow;
+
+    private void OnEnergyRating(object sender, RoutedEventArgs e) => OpenEnergyRating();
+
+    /// <summary>The Energy Rating window: the home's SAP 10.3 rating and its Future Homes Standard check.</summary>
+    internal EnergyRatingWindow OpenEnergyRating()
+    {
+        if (_energyRatingWindow is { IsLoaded: true })
+        {
+            _energyRatingWindow.Activate();
+            return _energyRatingWindow;
+        }
+
+        _energyRatingWindow = new EnergyRatingWindow(this);
+        if (IsLoaded) _energyRatingWindow.Owner = this;
+        _energyRatingWindow.Show();
+        return _energyRatingWindow;
+    }
+
     private HeatLossWindow? _heatLossWindow;
 
     private void OnHeatLoss(object sender, RoutedEventArgs e) => OpenHeatLoss();

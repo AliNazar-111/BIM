@@ -5,6 +5,7 @@ using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
+using BIMDesigner.Core.Energy;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Mep;
@@ -96,7 +97,8 @@ public static partial class ProjectFile
                 TrueNorth = document.ProjectInformation.TrueNorth,
                 DuctRun = document.ProjectInformation.DuctRun.ToString(),
                 DuctInsulation = document.ProjectInformation.DuctInsulation,
-                DuctsSealed = document.ProjectInformation.DuctsSealed
+                DuctsSealed = document.ProjectInformation.DuctsSealed,
+                Energy = EnergyOf(document.ProjectInformation.Energy)
             }
         };
 
@@ -488,7 +490,8 @@ public static partial class ProjectFile
             {
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Width = type.Width, Height = type.Height,
                 FrameWidth = type.FrameWidth, Upstand = type.Upstand, Operation = type.Operation.ToString(),
-                FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
+                FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description,
+                HeatTransferCoefficient = type.HeatTransferCoefficient, SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
             });
 
         foreach (var window in document.All<RoofWindow>())
@@ -1032,6 +1035,8 @@ public static partial class ProjectFile
                     : null,
                 RoofFasciaDepth = slab is Roof fascia ? fascia.FasciaDepth : 150,
                 RoofHighLevelVents = slab is Roof { HighLevelVents: true },
+                RoofSolarPeakPower = slab is Roof { SolarPeakPower: > 0 } solar ? solar.SolarPeakPower : null,
+                RoofSolarOvershading = slab is Roof { SolarPeakPower: > 0, SolarOvershading: not PvOvershading.NoneOrVeryLittle } shaded ? shaded.SolarOvershading.ToString() : null,
                 RoofDrainageFall = slab is Roof drained ? drained.DrainageFall : RoofDrainage.DesignFall,
                 RoofExtrusion = slab is Roof { Extrusion: { } extrusion }
                     ? new RoofExtrusionDto
@@ -1183,6 +1188,10 @@ public static partial class ProjectFile
                 Airflow = type.Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit ? type.Airflow : null,
                 AvailablePressure = type.Form is ComponentForm.HeatRecoveryUnit or ComponentForm.ExtractUnit ? type.AvailablePressure : null,
                 HeatRecovery = type.Form == ComponentForm.HeatRecoveryUnit ? type.HeatRecovery : null,
+                SpecificFanPower = type.SpecificFanPower > 0 ? type.SpecificFanPower : null,
+                SpaceEfficiency = type.SpaceEfficiency > 0 ? type.SpaceEfficiency : null,
+                WaterEfficiency = type.WaterEfficiency > 0 ? type.WaterEfficiency : null,
+                StandingLoss = type.StandingLoss > 0 ? type.StandingLoss : null,
                 PressureLoss = type.PressureLoss > 0 ? type.PressureLoss : null,
                 RatedAirflow = type.RatedAirflow > 0 ? type.RatedAirflow : null,
                 ContinuousRate = type.ContinuousRate > 0 ? type.ContinuousRate : null,
@@ -1495,6 +1504,29 @@ public static partial class ProjectFile
         return structure.InteriorWidth > 0 ? WallWrapping.Interior : WallWrapping.None;
     }
 
+    /// <summary>A project's energy settings as saved.</summary>
+    private static EnergyDto EnergyOf(EnergySettings settings) => new()
+    {
+        Overshading = settings.Overshading.ToString(), ShelteredSides = settings.ShelteredSides, Bridging = settings.Bridging.ToString(),
+        YValue = settings.YValue, Psi = settings.Psi.Count > 0 ? new Dictionary<string, double>(settings.Psi) : null,
+        WasteWaterRecovery = settings.WasteWaterRecovery, WasteWaterUtilisation = settings.WasteWaterUtilisation, Battery = settings.Battery, Flat = settings.Flat
+    };
+
+    /// <summary>A project's energy settings read back, each within reason.</summary>
+    private static void ReadEnergy(EnergyDto saved, EnergySettings settings)
+    {
+        settings.Overshading = ParseEnum(saved.Overshading, SapOvershading.AverageOrUnknown);
+        settings.ShelteredSides = Math.Clamp(saved.ShelteredSides, 0, 4);
+        settings.Bridging = ParseEnum(saved.Bridging, ThermalBridging.ReferenceDetails);
+        settings.YValue = double.IsFinite(saved.YValue) && saved.YValue is >= 0 and <= 1 ? saved.YValue : 0.15;
+        foreach (var (code, psi) in saved.Psi ?? new Dictionary<string, double>())
+            if (double.IsFinite(psi) && psi is > -1 and < 5) settings.Psi[code] = psi;
+        settings.WasteWaterRecovery = double.IsFinite(saved.WasteWaterRecovery) && saved.WasteWaterRecovery is >= 0 and <= 1 ? saved.WasteWaterRecovery : 0;
+        settings.WasteWaterUtilisation = double.IsFinite(saved.WasteWaterUtilisation) && saved.WasteWaterUtilisation is > 0 and <= 1 ? saved.WasteWaterUtilisation : 0.98;
+        settings.Battery = double.IsFinite(saved.Battery) && saved.Battery is >= 0 and <= 100 ? saved.Battery : 0;
+        settings.Flat = saved.Flat;
+    }
+
     private static BimDocument FromDto(ProjectFileDto dto)
     {
         var document = new BimDocument();
@@ -1531,6 +1563,7 @@ public static partial class ProjectFile
         document.ProjectInformation.DuctRun = ParseEnum(dto.Project.DuctRun, DuctRun.ConditionedSpace);
         document.ProjectInformation.DuctInsulation = dto.Project.DuctInsulation is { } r && double.IsFinite(r) && r is >= 0 and <= 30 ? r : 8;
         document.ProjectInformation.DuctsSealed = dto.Project.DuctsSealed ?? true;
+        if (dto.Project.Energy is { } energy) ReadEnergy(energy, document.ProjectInformation.Energy);
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
@@ -1686,7 +1719,9 @@ public static partial class ProjectFile
                 Id = type.Id, TypeMark = type.TypeMark, Width = PositiveOr(type.Width, 780), Height = PositiveOr(type.Height, 980),
                 FrameWidth = PositiveOr(type.FrameWidth, 70), Upstand = double.IsFinite(type.Upstand) && type.Upstand >= 0 ? type.Upstand : 90,
                 Operation = ParseEnum(type.Operation, RoofWindowOperation.CentrePivot),
-                FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description
+                FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description,
+                HeatTransferCoefficient = type.HeatTransferCoefficient is > 0 and < 20 ? type.HeatTransferCoefficient.Value : 1.4,
+                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient is >= 0 and <= 1 ? type.SolarHeatGainCoefficient.Value : 0.5
             });
 
         foreach (var type in dto.StairTypes)
@@ -2219,6 +2254,8 @@ public static partial class ProjectFile
                 }
                 pitched.FasciaDepth = slab.RoofFasciaDepth;
                 pitched.HighLevelVents = slab.RoofHighLevelVents;
+                pitched.SolarPeakPower = slab.RoofSolarPeakPower is > 0 and <= 1000 ? slab.RoofSolarPeakPower.Value : 0;
+                pitched.SolarOvershading = ParseEnum(slab.RoofSolarOvershading, PvOvershading.NoneOrVeryLittle);
                 pitched.DrainageFall = double.IsFinite(slab.RoofDrainageFall) && slab.RoofDrainageFall >= 10 ? slab.RoofDrainageFall : RoofDrainage.DesignFall;
                 if (slab.RoofExtrusion is { } extruded)
                 {
@@ -2816,6 +2853,10 @@ public static partial class ProjectFile
                 Airflow = type.Airflow is >= 0 and < 100000 ? type.Airflow.Value : 0,
                 AvailablePressure = type.AvailablePressure is >= 0 and < 100000 ? type.AvailablePressure.Value : 0,
                 HeatRecovery = type.HeatRecovery is >= 0 and <= 1 ? type.HeatRecovery.Value : 0,
+                SpecificFanPower = type.SpecificFanPower is >= 0 and <= 10 ? type.SpecificFanPower.Value : TemplateElectric(type.Name, type.Form)?.SpecificFanPower ?? 0,
+                SpaceEfficiency = type.SpaceEfficiency is >= 0 and <= 1000 ? type.SpaceEfficiency.Value : TemplateElectric(type.Name, type.Form)?.SpaceEfficiency ?? 0,
+                WaterEfficiency = type.WaterEfficiency is >= 0 and <= 1000 ? type.WaterEfficiency.Value : TemplateElectric(type.Name, type.Form)?.WaterEfficiency ?? 0,
+                StandingLoss = type.StandingLoss is >= 0 and < 100 ? type.StandingLoss.Value : TemplateElectric(type.Name, type.Form)?.StandingLoss ?? 0,
                 PressureLoss = type.PressureLoss is >= 0 and < 100000 ? type.PressureLoss.Value : 0,
                 RatedAirflow = type.RatedAirflow is >= 0 and < 100000 ? type.RatedAirflow.Value : 0,
                 ContinuousRate = type.ContinuousRate is >= 0 and < 100000 ? type.ContinuousRate.Value : 0,
@@ -2831,7 +2872,10 @@ public static partial class ProjectFile
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
                 PartFlushVolume = type.PartFlushVolume is >= 0 and < 100 ? type.PartFlushVolume.Value
                     : type.FlushVolume is null && ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 4 : 0,
-                Capacity = Water(type.Capacity, ParseEnum(type.Form, ComponentForm.Box) == ComponentForm.Bath ? 185 : 0),
+                Capacity = Water(type.Capacity, ParseEnum(type.Form, ComponentForm.Box) switch
+                {
+                    ComponentForm.Bath => 185, ComponentForm.HotWaterCylinder => TemplateElectric(type.Name, type.Form)?.Capacity ?? 0, _ => 0
+                }),
                 WaterPerUse = Water(type.WaterPerUse, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Dishwasher => 1.25, ComponentForm.WashingMachine => 8.17, _ => 0 }),
                 Mesh = MeshFrom(type.Mesh),
                 MaterialId = type.MaterialId,

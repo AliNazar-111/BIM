@@ -668,6 +668,9 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Radiator}"
                                             Content="Size Radiators" Click="OnSizeRadiators"
                                             ToolTip="Size each room's radiators to its heat loss at its zone's temperatures: the shortest single or double panel radiator, as high as it is, that gives its share"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EnergyRating}"
+                                            Content="Energy Rating" Click="OnEnergyRating"
+                                            ToolTip="The home's SAP 10.3 rating and its Future Homes Standard check: its emission, primary energy and fabric energy efficiency rates against the notional home's targets, the limiting U-values, its heating's fuel, its fans and lights, and requirement L3's solar output - worked from the model, its junctions measured"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
