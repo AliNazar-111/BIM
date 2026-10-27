@@ -206,6 +206,11 @@ public partial class PlanView
 
         var selection = _selection.ToList();
         if (RefusePinned(selection, "scaled")) return false;
+        if (selection.Any(element => element is Group))
+        {
+            HintChanged?.Invoke(this, "A group is not scaled: every one of it would have to change. Ungroup it to scale what was in it.");
+            return false;
+        }
 
         var command = new ScaleElementsCommand(selection, origin, factor, Document);
         if (command.IsEmpty) return false;

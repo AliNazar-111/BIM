@@ -130,7 +130,10 @@ public enum BuiltInCategory
     Drainage,
 
     /// <summary>Air terminals: the valves and grilles air is supplied and extracted through, and the terminals outside.</summary>
-    AirTerminals
+    AirTerminals,
+
+    /// <summary>Groups: elements kept together as one, placed again as more of the same group.</summary>
+    ModelGroups
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

@@ -870,6 +870,9 @@
                                             Content="Delete" Command="Delete" ToolTip="Delete the selection (Del)"/>
                                 </StackPanel>
                                 <StackPanel Margin="2,0,0,0">
+                                    <RadioButton x:Name="AlignTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Align}"
+                                                 Content="Align" Checked="OnToolChanged"
+                                                 ToolTip="Click a wall's face or centreline, or a gridline, then a wall, gridline, edge or column to bring onto it (L)"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pin}" Content="Pin" Click="OnPin"
                                             ToolTip="Pin the selection where it is: it cannot be moved, rotated, scaled or deleted until unpinned (P)"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Unpin}" Content="Unpin" Click="OnUnpin"
@@ -878,17 +881,26 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Group" Style="{StaticResource RibbonPanel}">
+                            <StackPanel>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Group}" Content="Create Group" Click="OnCreateGroup"
+                                        ToolTip="Make what is picked a group - a bathroom's fittings, a kitchen run, a typical flat - picked, moved and copied as one. A copy of it is another of the same group: edit one and every one changes"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Group}" Content="Edit Group" Click="OnEditGroup"
+                                        ToolTip="Change what is in the group picked - its members picked one by one, what is drawn put in it - then Finish: every other of the same group is made over to match"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Ungroup" Click="OnUngroup"
+                                        ToolTip="Break up the group picked: what was in it stays, on its own"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Framing" Style="{StaticResource RibbonPanel}">
-                            <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Framing}" Content="Frame Walls"
+                            <StackPanel>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Framing}" Content="Frame Walls"
                                         Click="OnFrameWalls"
                                         ToolTip="Frame the selected walls with studs - timber, or steel for a metal stud wall - laid out with their openings: plates, studs at the spacing, kings, jacks, headers, sills, cripples, corner studs and noggings"/>
-                                <StackPanel>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="Cut List" Click="OnCutList"
-                                            ToolTip="List every member of the selected frames - or all of them - by section and length, with how many; export it as CSV"/>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Remove Framing" Click="OnRemoveFraming"
-                                            ToolTip="Take the frame out of the selected walls"/>
-                                </StackPanel>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="Cut List" Click="OnCutList"
+                                        ToolTip="List every member of the selected frames - or all of them - by section and length, with how many; export it as CSV"/>
+                                <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Delete}" Content="Remove Framing" Click="OnRemoveFraming"
+                                        ToolTip="Take the frame out of the selected walls"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -2280,6 +2292,25 @@
                     <TextBox x:Name="ArrayCountBox" MinWidth="60" VerticalAlignment="Center"
                              Text="3" LostFocus="OnArrayCountChanged"
                              ToolTip="How many in total, including the original"/>
+                    <CheckBox x:Name="ArrayRadialBox" Content="Radial" VerticalAlignment="Center" Margin="12,0,0,0" Click="OnArrayRadialChanged"
+                              ToolTip="Repeat round a centre - chairs round a table - instead of along a line: click the centre"/>
+                    <TextBlock x:Name="ArrayAngleLabel" Text="Angle" Style="{StaticResource OptionLabel}" Margin="12,0,6,0" Visibility="Collapsed"/>
+                    <TextBox x:Name="ArrayAngleBox" MinWidth="60" VerticalAlignment="Center" Visibility="Collapsed"
+                             Text="360°" LostFocus="OnArrayAngleChanged"
+                             ToolTip="How far round, anticlockwise: 360 spaces them evenly all the way round; less puts the last that far round from the first"/>
+                </StackPanel>
+
+                <!-- Editing a group: whatever tool is in hand, until it is finished. -->
+                <StackPanel x:Name="GroupEditOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock x:Name="GroupEditLabel" Text="Editing group" Style="{StaticResource OptionLabel}" FontWeight="SemiBold"/>
+                    <Button Content="Add" Padding="10,3" Margin="0,0,6,0" VerticalAlignment="Center" Click="OnAddToGroup"
+                            ToolTip="Put what is picked in the group - with what is hosted in it"/>
+                    <Button Content="Remove" Padding="10,3" Margin="0,0,6,0" VerticalAlignment="Center" Click="OnRemoveFromGroup"
+                            ToolTip="Take what is picked out of the group: it stays where it is, on its own"/>
+                    <Button Content="Finish" Padding="10,3" Margin="0,0,6,0" VerticalAlignment="Center" Click="OnFinishGroup"
+                            ToolTip="Finish editing: every other of the same group is made over to match"/>
+                    <Button Content="Cancel" Padding="10,3" VerticalAlignment="Center" Click="OnCancelGroup"
+                            ToolTip="Stop editing, with what was done since it began undone"/>
                 </StackPanel>
             </WrapPanel>
         </Border>

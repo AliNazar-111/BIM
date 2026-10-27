@@ -333,6 +333,12 @@ public partial class MainWindow : Window
         Plan.DoorRefused += (_, why) => MessageBox.Show(this, why, "Door", MessageBoxButton.OK, MessageBoxImage.Warning);
         Plan.RoofWindowRefused += (_, why) => MessageBox.Show(this, why, "Roof Window", MessageBoxButton.OK, MessageBoxImage.Warning);
         Plan.PinnedRefused += (_, why) => MessageBox.Show(this, why, "Pinned", MessageBoxButton.OK, MessageBoxImage.Warning);
+        Plan.EditingGroupChanged += (_, _) =>
+        {
+            GroupEditOptions.Visibility = Plan.EditingGroup is null ? Visibility.Collapsed : Visibility.Visible;
+            GroupEditLabel.Text = Plan.EditingGroup is { } editing ? $"Editing {editing.Name}" : string.Empty;
+            AfterHistoryChange();
+        };
         Plan.ToolFinished += (_, _) => BackToModify();
         Plan.ElevationPicked += (_, side) => ShowElevation(side);
         Plan.SplitFaceChanged += (_, _) => Model3D.PendingCorner = Plan.SplitFaceCorner;
@@ -2294,7 +2300,7 @@ public partial class MainWindow : Window
         FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
         StructuralColumnTool, WallFootingTool, PadFootingTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
-        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, OffsetTool, MirrorTool, ArrayTool,
+        SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, AlignTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
         SweepTool, RevealTool, WallJoinsTool, JoinGeometryTool, JoinRoofTool, WallOpeningTool, SlabEdgeTool,
         MassTool, WallByFaceTool, CurtainByFaceTool, FloorByFaceTool, RoofByFaceTool, CameraTool, WalkthroughTool, InteriorElevationTool, CalloutTool,
@@ -2417,6 +2423,7 @@ public partial class MainWindow : Window
             : SplitFaceTool.IsChecked == true ? PlanTool.SplitFace
             : TrimTool.IsChecked == true ? PlanTool.Trim
             : OffsetTool.IsChecked == true ? PlanTool.Offset
+            : AlignTool.IsChecked == true ? PlanTool.Align
             : MirrorTool.IsChecked == true ? PlanTool.Mirror
             : ArrayTool.IsChecked == true ? PlanTool.Array
             : RotateTool.IsChecked == true ? PlanTool.Rotate
@@ -2664,6 +2671,9 @@ public partial class MainWindow : Window
                 break;
             case Key.O:
                 OffsetTool.IsChecked = true;
+                break;
+            case Key.L:
+                AlignTool.IsChecked = true;
                 break;
             case Key.I:
                 MirrorTool.IsChecked = true;
@@ -3933,6 +3943,11 @@ public partial class MainWindow : Window
         if (dormer is not null && !ReferenceEquals(dormer, _propertyDormer)) _propertyCategory = dormer.Category;
         _propertyDormer = dormer;
 
+        // A group picked shows as the group, unless what is in it has been asked for from the list since.
+        var group = selected.OfType<Group>().Take(2).ToList() is [var only] ? only : null;
+        if (group is not null && !ReferenceEquals(group, _propertyGroup)) _propertyCategory = BuiltInCategory.ModelGroups;
+        _propertyGroup = group;
+
         var categories = selected
             .GroupBy(element => element.Category)
             .Select(group => new PropertyCategoryChoice(group.Key, group.Count()))
@@ -3954,7 +3969,7 @@ public partial class MainWindow : Window
 
         SelectedTypeImage.Source = TryFindResource(IconFor(element, type)) as System.Windows.Media.ImageSource;
         SelectedFamilyName.Text = elements.Count == 1 && element is Roof { Dormer: not null } ? "Dormer" : FamilyName(category, type);
-        SelectedTypeName.Text = typeIds.Count > 1 ? "Multiple Types" : type?.Name ?? CategoryTitle(category);
+        SelectedTypeName.Text = element is Group shownGroup && elements.Count == 1 ? shownGroup.Name : typeIds.Count > 1 ? "Multiple Types" : type?.Name ?? CategoryTitle(category);
 
         // "Doors" -> "door", so the hint reads naturally for whatever is selected.
         var noun = CategoryTitle(category).TrimEnd('s').ToLowerInvariant();
@@ -4004,6 +4019,9 @@ public partial class MainWindow : Window
 
     /// <summary>The dormer the panel last showed whole, so a choice of its walls from the list is kept while it stays picked.</summary>
     private Roof? _propertyDormer;
+
+    /// <summary>The group the panel last showed, so a choice of what is in it from the list is kept while it stays picked.</summary>
+    private Group? _propertyGroup;
 
     private void OnPropertyCategoryChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -4354,8 +4372,15 @@ public partial class MainWindow : Window
         RoofWindowType => "Roof Window",
         ChimneyType => "Chimney",
         WallSweepType => "Wall Sweep",
-        _ => category == BuiltInCategory.CurtainPanels ? "Curtain Panel" : CategoryTitle(category).TrimEnd('s')
+        _ => category == BuiltInCategory.CurtainPanels ? "Curtain Panel" : Singular(CategoryTitle(category))
     };
+
+    /// <summary>One of a category: "Masses" a mass, "Stairs" a stair, "Model Groups" a model group - not "Masse".</summary>
+    private static string Singular(string plural) =>
+        plural.EndsWith("sses", StringComparison.Ordinal) ? plural[..^2]
+        : plural.EndsWith("ies", StringComparison.Ordinal) ? plural[..^3] + "y"
+        : plural.EndsWith('s') && !plural.EndsWith("ss", StringComparison.Ordinal) ? plural[..^1]
+        : plural;
 
     /// <summary>
     /// Wraps parameters as editable rows grouped by their parameter group, which is what
@@ -4830,7 +4855,10 @@ public partial class MainWindow : Window
 
         _loadingSheets = true;
         SheetViewPicker.ItemsSource = options;
+        // To start with, the plan being worked on - not the first storey listed, which may be empty.
+        var working = _document.FindLevel(Plan.ActiveLevelId) is { } open ? $"{open.Name} Plan" : null;
         SheetViewPicker.SelectedItem = options.FirstOrDefault(option => option.Display == current)
+                                       ?? options.FirstOrDefault(option => option.Display == working)
                                        ?? options.FirstOrDefault();
         _loadingSheets = false;
     }
@@ -5349,9 +5377,10 @@ public partial class MainWindow : Window
             if (ModelPanel.Visibility != Visibility.Visible) Show3D();
             StatusHint.Text = "Plan and 3D side by side. Draw in the plan and watch the model follow.";
         }
-        else if (ModelPanel.Visibility == Visibility.Visible)
+        else
         {
-            OnClose3D(this, new RoutedEventArgs());
+            if (ModelPanel.Visibility == Visibility.Visible) OnClose3D(this, new RoutedEventArgs());
+            StatusHint.Text = "The plan on its own again. 3D View brings the model back.";
         }
     }
 
@@ -6256,6 +6285,53 @@ public partial class MainWindow : Window
         ArrayCountBox.Text = Plan.ArrayCount.ToString();
     }
 
+    // ---- groups ----------------------------------------------------------------
+
+    private void OnCreateGroup(object sender, RoutedEventArgs e)
+    {
+        if (Plan.GroupSelection() is not null) AfterHistoryChange();
+    }
+
+    private void OnEditGroup(object sender, RoutedEventArgs e) => Plan.BeginGroupEdit();
+
+    private void OnUngroup(object sender, RoutedEventArgs e)
+    {
+        if (Plan.UngroupSelection()) AfterHistoryChange();
+    }
+
+    private void OnAddToGroup(object sender, RoutedEventArgs e)
+    {
+        if (Plan.AddToEditingGroup()) AfterHistoryChange();
+    }
+
+    private void OnRemoveFromGroup(object sender, RoutedEventArgs e)
+    {
+        if (Plan.RemoveFromEditingGroup()) AfterHistoryChange();
+    }
+
+    private void OnFinishGroup(object sender, RoutedEventArgs e) => Plan.FinishGroupEdit();
+
+    private void OnCancelGroup(object sender, RoutedEventArgs e) => Plan.CancelGroupEdit();
+
+    private void OnArrayRadialChanged(object sender, RoutedEventArgs e)
+    {
+        Plan.ArrayRadial = ArrayRadialBox.IsChecked == true;
+        ArrayAngleLabel.Visibility = ArrayAngleBox.Visibility = Plan.ArrayRadial ? Visibility.Visible : Visibility.Collapsed;
+        StatusHint.Text = Plan.ArrayRadial
+            ? "Radial: set the Count and Angle, then click the centre to repeat the selection round it."
+            : "Click two points for the spacing.";
+    }
+
+    private void OnArrayAngleChanged(object sender, RoutedEventArgs e)
+    {
+        var typed = ArrayAngleBox.Text.Trim().TrimEnd('°').Trim();
+        if ((double.TryParse(typed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out var degrees) ||
+             double.TryParse(typed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out degrees)) && Math.Abs(degrees) is >= 1 and <= 360)
+            Plan.ArrayAngle = degrees;
+
+        ArrayAngleBox.Text = $"{Plan.ArrayAngle.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture)}°";
+    }
+
     // ---- levels ----------------------------------------------------------------
 
     private void OnManageLevels(object sender, RoutedEventArgs e)
@@ -6393,7 +6469,7 @@ public partial class MainWindow : Window
         if (sheets.Count == 0)
         {
             MessageBox.Show(this,
-                "There are no sheets to export. Create one from the Sheets menu.",
+                "There are no sheets to export. Make one with View → New Sheet and place views on it.",
                 "Export to PDF", MessageBoxButton.OK, MessageBoxImage.Information);
 
             return;
@@ -6474,7 +6550,7 @@ public partial class MainWindow : Window
         if (sheets.Count == 0)
         {
             MessageBox.Show(this,
-                "There are no sheets to print. Create one from the Sheets menu.",
+                "There are no sheets to print. Make one with View → New Sheet and place views on it.",
                 "Print", MessageBoxButton.OK, MessageBoxImage.Information);
 
             return;

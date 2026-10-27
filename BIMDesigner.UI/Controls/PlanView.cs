@@ -65,6 +65,9 @@ public enum PlanTool
     Split,
     Trim,
     Offset,
+
+    /// <summary>Brings a wall, gridline, edge or column onto a line picked first.</summary>
+    Align,
     Mirror,
     Array,
     SplitGap,
@@ -1252,8 +1255,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.SplitFace => "Open an elevation or the 3D view and click two opposite corners on a wall's face to split that part off it.",
         PlanTool.Trim => "Click the wall to trim or extend - on the part to keep, where it runs past - then the wall to trim or extend it to.",
         PlanTool.Offset => "Click on or beside a wall, on the side the copy should go - it shows dashed. Set the distance above.",
+        PlanTool.Align => "Click the line to align to - a wall's face or centreline, or a gridline - then what is to come onto it.",
         PlanTool.Mirror => "Select what to mirror first, then click two points on the mirror line.",
-        PlanTool.Array => "Select what to repeat first, then click two points for the spacing.",
+        PlanTool.Array => "Select what to repeat first, then click two points for the spacing - or tick Radial and click the centre to repeat it round.",
         PlanTool.Rotate => "Select what to rotate first. Click where the angle starts, then where it ends - or type an Angle and press Enter.",
         PlanTool.Scale => "Select what to scale first, set the scale above, then click the point it is scaled about.",
         PlanTool.WallJoins => "Click the square at a wall join to change it; Ctrl+click adds more. Then choose on the option bar.",
@@ -1334,7 +1338,7 @@ public partial class PlanView : FrameworkElement
 
     public void SelectMany(IEnumerable<Element> elements)
     {
-        var replacement = elements.Distinct().ToList();
+        var replacement = WithGroups(elements).Distinct().ToList();
         if (replacement.SequenceEqual(_selection)) return;
 
         _selection.Clear();
@@ -1347,7 +1351,14 @@ public partial class PlanView : FrameworkElement
     /// <summary>Adds an element to the selection, or takes it out if it is already in.</summary>
     public void ToggleSelected(Element element)
     {
-        if (!_selection.Remove(element)) _selection.Add(element);
+        // A group, or anything in one, goes in or out whole.
+        var whole = WithGroups(new[] { element }).ToList();
+        if (whole.Count > 1)
+        {
+            if (whole.All(_selection.Contains)) _selection.RemoveAll(whole.Contains);
+            else _selection.AddRange(whole.Where(part => !_selection.Contains(part)));
+        }
+        else if (!_selection.Remove(element)) _selection.Add(element);
 
         RaiseSelectionChanged();
         InvalidateVisual();
@@ -1429,6 +1440,7 @@ public partial class PlanView : FrameworkElement
                       | CancelCamera()
                       | CancelCallout()
                       | CancelDimensionTools()
+                      | CancelAlign()
                       | CancelRevisionTools()
                       | CancelSplitFace()
                       | CancelArcTools()
@@ -1873,7 +1885,7 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
         }
-        else if (ActiveTool == PlanTool.Offset)
+        else if (ActiveTool is PlanTool.Offset or PlanTool.Align)
         {
             // Which side of the wall the cursor is decides where the copy goes, shown as it moves.
             _cursorModel = raw;
@@ -2095,6 +2107,10 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.Trim:
                 TrimAt(raw);
+                return;
+
+            case PlanTool.Align:
+                AlignClick(raw);
                 return;
 
             case PlanTool.Offset:
@@ -4111,6 +4127,15 @@ public partial class PlanView : FrameworkElement
     /// <summary>How many there are in an array, the original included.</summary>
     public int ArrayCount { get; set; } = 3;
 
+    /// <summary>Whether the Array tool repeats round a centre rather than along a line.</summary>
+    public bool ArrayRadial { get; set; }
+
+    /// <summary>
+    /// How far round a radial array goes, degrees anticlockwise: 360 spaces the copies evenly
+    /// all the way round; less puts the last of them that far round from the first.
+    /// </summary>
+    public double ArrayAngle { get; set; } = 360;
+
     /// <summary>
     /// Offsets a wall: a parallel copy, the set distance away, on the side that was clicked.
     ///
@@ -4270,6 +4295,12 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
+        if (ArrayRadial)
+        {
+            RadialArrayAbout(point);
+            return;
+        }
+
         if (_pendingWallStart is null)
         {
             _pendingWallStart = point;
@@ -4322,6 +4353,79 @@ public partial class PlanView : FrameworkElement
 
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
+    }
+
+    /// <summary>The turn between one copy of a radial array and the next, degrees.</summary>
+    private double RadialStep => Math.Abs(Math.Abs(ArrayAngle) - 360) < 1e-6 ? ArrayAngle / ArrayCount : ArrayAngle / (ArrayCount - 1);
+
+    /// <summary>A point turned about a centre, anticlockwise.</summary>
+    private static Point2D TurnedAbout(Point2D point, Point2D centre, double degrees)
+    {
+        var (sin, cos) = Math.SinCos(degrees * Math.PI / 180);
+        var offset = point - centre;
+        return centre + new Vector2D(offset.X * cos - offset.Y * sin, offset.X * sin + offset.Y * cos);
+    }
+
+    /// <summary>
+    /// Repeats the selection round a centre - chairs round a table, columns round a rotunda -
+    /// each copy turned as well as moved, as one step to undo. Doors and windows on their own go
+    /// into the wall each copy lands in. Public so tests can drive it.
+    /// </summary>
+    public bool RadialArrayAbout(Point2D centre)
+    {
+        if (Document is null || !HostedCopies.AnyToMove(_selection) || ArrayCount < 2) return false;
+        if (Math.Abs(ArrayAngle) < 1e-6 || Math.Abs(ArrayAngle) > 360 + 1e-6)
+        {
+            HintChanged?.Invoke(this, "Give an angle for the array between 1° and 360°: 360 spaces them all the way round.");
+            return false;
+        }
+
+        var step = RadialStep;
+        var placed = new List<Element>();
+        var homeless = new List<Element>();
+        var taken = new List<(Guid Wall, double From, double To)>();
+        for (var i = 1; i < ArrayCount; i++)
+        {
+            var copies = ElementCopy.Duplicate(Document, _selection);
+            var degrees = step * i;
+            var ids = copies.Select(copy => copy.Id).ToHashSet();
+            foreach (var copy in copies.Where(copy => !HostedCopies.Alone(copy, ids)))
+                ElementTransforms.Rotate(copy, centre, degrees);
+
+            var left = HostedCopies.Settle(Document, copies, point => TurnedAbout(point, centre, degrees), taken);
+            homeless.AddRange(left);
+            placed.AddRange(copies.Except(left));
+        }
+
+        if (placed.Count == 0)
+        {
+            HintChanged?.Invoke(this, HomelessHint(homeless, "repeated"));
+            InvalidateVisual();
+            return false;
+        }
+
+        FitLoneChimneys(placed);
+        Apply(Dormers.AddCopies(Document, placed, $"Radial Array x{ArrayCount}"));
+        HintChanged?.Invoke(this,
+            $"Placed {ArrayCount - 1} {(ArrayCount - 1 == 1 ? "copy" : "copies")} round the centre, {Math.Abs(step).ToString("0.##", CultureInfo.CurrentCulture)}° apart." +
+            (homeless.Count > 0 ? " " + HomelessHint(homeless, "placed") : ""));
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>A radial array as it would be made about the cursor: the selection's lines at each turn.</summary>
+    private void DrawRadialArrayPreview(DrawingContext dc)
+    {
+        if (ActiveTool != PlanTool.Array || !ArrayRadial || Document is null || !IsMouseOver || _selection.Count == 0 || ArrayCount < 2) return;
+
+        var centre = _cursorModel;
+        DrawCentreMarker(dc, centre);
+        var step = RadialStep;
+        var lines = _selection.SelectMany(Ghost).ToList();
+        for (var i = 1; i < ArrayCount; i++)
+        foreach (var line in lines)
+            DrawModelPolyline(dc, RotatePreviewPen, line.Select(point => TurnedAbout(point, centre, step * i)).ToList());
     }
 
     private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
@@ -6450,6 +6554,8 @@ public partial class PlanView : FrameworkElement
         DrawRotatePreview(dc);
         DrawScalePreview(dc);
         DrawOffsetPreview(dc);
+        DrawAlignLine(dc);
+        DrawRadialArrayPreview(dc);
         DrawPins(dc);
         DrawTrimSubject(dc);
         DrawHover(dc);
@@ -6458,6 +6564,7 @@ public partial class PlanView : FrameworkElement
         DrawOpeningPreview(dc);
         DrawPickNewHostPreview(dc);
         DrawPastePreview(dc);
+        DrawGroups(dc);
         DrawOpeningFlipControls(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);

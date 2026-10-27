@@ -35,7 +35,7 @@ public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
     public static bool Has(Element element) =>
-        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Callout { Parent.Kind: ViewKind.FloorPlan };
+        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -116,6 +116,18 @@ public static class ElementHandles
             case BeamSystem system:
                 Outline(handles, system.Boundary, _ => BeamSystems.Top(document, system));
                 break;
+
+            // A mass's footprint, its corners and a "+" along each side - or a round one's radius -
+            // and, in 3D, an arrow on top to raise it or bring it down.
+            case Mass mass:
+            {
+                var foot = (document.FindLevel(mass.LevelId)?.Elevation ?? 0) + mass.BaseOffset;
+                if (mass.Round) handles.Add(new ElementHandle("radius", mass.Centre + new Vector2D(mass.Radius, 0), foot, false, HandleShape.End));
+                else Outline(handles, mass.Boundary, _ => foot);
+                var middle = mass.Round ? mass.Centre : Polygon2D.Centroid(mass.Boundary, mass.Boundary.Count > 0 ? mass.Boundary[0] : default);
+                handles.Add(new ElementHandle("raise:top", middle, foot + mass.Height + RaiseOver, true, HandleShape.Raise));
+                break;
+            }
 
             case Ramp ramp:
             {
@@ -277,6 +289,23 @@ public static class ElementHandles
                 return ($"{BeamSystems.Joists(document, system).Count} joists.", Following(system.Boundary, to, handle.Key));
             }
 
+            case Mass mass:
+            {
+                var key = handle.Key;
+                var foot = (document.FindLevel(mass.LevelId)?.Elevation ?? 0) + mass.BaseOffset;
+                if (kind == "raise") mass.Height = Math.Max(300, Math.Round(height - RaiseOver - foot));
+                else if (kind == "radius" && mass.Round) mass.SetCircle(mass.Centre, mass.Centre.DistanceTo(to));
+                else if (!mass.Round)
+                {
+                    mass.SetBoundary(Moved(mass.Boundary, kind, index, to, out _));
+                    key = Following(mass.Boundary, to, handle.Key);
+                }
+
+                var area = mass.Round ? Math.PI * mass.Radius * mass.Radius : Polygon2D.Area(mass.Boundary);
+                var said = $"{area / 1e6:0.0} m² on plan, {mass.Height / 1000:0.00} m high" + (mass.Round ? $", radius {mass.Radius / 1000:0.00} m" : string.Empty) + ".";
+                return (mass.Links.Count > 0 ? said + " Update to Face brings what was made from it back to it." : said, key);
+            }
+
             case Ramp ramp:
             {
                 var level = document.FindLevel(ramp.LevelId)?.Elevation ?? 0;
@@ -338,6 +367,9 @@ public static class ElementHandles
             Start == other.Start && Angle == other.Angle && Width == other.Width && Lengths.SequenceEqual(other.Lengths) && Turns.SequenceEqual(other.Turns)
             && BaseOffset == other.BaseOffset && TopOffset == other.TopOffset && UnconnectedHeight == other.UnconnectedHeight;
     }
+
+    /// <summary>What a mass's handles change: its footprint, or its circle, and its height.</summary>
+    private sealed record MassState(List<Point2D> Boundary, bool Round, Point2D Centre, double Radius, double Height);
 
     /// <summary>How far over a spot level its arrow raising it is, mm.</summary>
     private const double RaiseOver = 300;
@@ -427,6 +459,10 @@ public static class ElementHandles
                 system.SetBoundary(Merged(system.Boundary, closed: true, least: 3));
                 break;
 
+            case Mass { Round: false } mass:
+                mass.SetBoundary(Merged(mass.Boundary, closed: true, least: 3));
+                break;
+
             case Toposurface ground when key is not null && Parse(key) is ("point", var moved) && moved < ground.Points.Count:
             {
                 // The spot level dragged, dropped on another, taken out - and no other: points close together in a survey stay.
@@ -465,6 +501,7 @@ public static class ElementHandles
         SitePad => "Reshape Pad",
         PropertyLine => "Reshape Property Line",
         BeamSystem => "Reshape Joist Layout",
+        Mass => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Mass" : "Reshape Mass",
         Ramp => key switch
         {
             "start" => "Move Ramp",
@@ -487,6 +524,7 @@ public static class ElementHandles
         SitePad pad => pad.Boundary.ToList(),
         PropertyLine line => line.Boundary.ToList(),
         BeamSystem system => system.Boundary.ToList(),
+        Mass mass => new MassState(mass.Boundary.ToList(), mass.Round, mass.Centre, mass.Radius, mass.Height),
         Callout callout => callout.Region,
         Ramp ramp => new RampState(ramp.Start, ramp.Angle, ramp.Width, ramp.PathLengths.ToArray(), ramp.PathTurns.ToArray(), ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight),
         _ => new object()
@@ -524,6 +562,11 @@ public static class ElementHandles
             case (Callout callout, BoundingBox2D region):
                 callout.Region = region;
                 break;
+            case (Mass mass, MassState state):
+                if (state.Round) mass.SetCircle(state.Centre, state.Radius);
+                else mass.SetBoundary(state.Boundary);
+                mass.Height = state.Height;
+                break;
             case (Ramp ramp, RampState state):
                 (ramp.Start, ramp.Angle, ramp.Width, ramp.BaseOffset, ramp.TopOffset, ramp.UnconnectedHeight) =
                     (state.Start, state.Angle, state.Width, state.BaseOffset, state.TopOffset, state.UnconnectedHeight);
@@ -540,6 +583,7 @@ public static class ElementHandles
         (List<Point3D> x, List<Point3D> y) => x.SequenceEqual(y),
         (List<Point2D> x, List<Point2D> y) => x.SequenceEqual(y),
         (RampState x, RampState y) => x.Same(y),
+        (MassState x, MassState y) => x.Round == y.Round && x.Centre == y.Centre && x.Radius == y.Radius && x.Height == y.Height && x.Boundary.SequenceEqual(y.Boundary),
         _ => Equals(a, b)
     };
 }

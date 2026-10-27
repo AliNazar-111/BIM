@@ -328,6 +328,13 @@ public static partial class ProjectFile
                 PathWidth = region.PathWidth
             });
 
+        foreach (var group in document.All<Group>())
+            dto.Groups.Add(new GroupDto
+            {
+                Id = group.Id, LevelId = group.LevelId, Name = group.Name, OriginX = group.Origin.X, OriginY = group.Origin.Y,
+                Rotation = group.Rotation, Mirrored = group.Mirrored, MemberIds = group.MemberIds.ToList(), Comments = group.Comments
+            });
+
         foreach (var mass in document.All<Mass>())
             dto.Masses.Add(new MassDto
             {
@@ -3226,6 +3233,21 @@ public static partial class ProjectFile
 
         ReadRound6(dto, document);
         ReadCoordination(dto, document);
+
+        // Groups last, once what is in them has been read: holding only what is still there.
+        foreach (var saved in dto.Groups ?? new List<GroupDto>())
+        {
+            var members = (saved.MemberIds ?? new List<Guid>()).Where(id => document.FindElement(id) is not null and not Group).Distinct().ToList();
+            if (members.Count == 0 || document.FindLevel(saved.LevelId) is null) continue;
+            var group = new Group
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Name = string.IsNullOrWhiteSpace(saved.Name) ? Groups.NextName(document) : saved.Name!,
+                Origin = new Point2D(Within(saved.OriginX, -1e9, 1e9, 0), Within(saved.OriginY, -1e9, 1e9, 0)), Rotation = Within(saved.Rotation, -1e6, 1e6, 0), Mirrored = saved.Mirrored,
+                Comments = saved.Comments ?? string.Empty
+            };
+            group.MemberIds.AddRange(members);
+            document.Add(group);
+        }
 
         document.EnsureDefaultTypes();
 

@@ -315,7 +315,7 @@ public class SheetView : FrameworkElement
 
         if (_sheet is null || _document is null)
         {
-            DrawMessage(dc, "No sheet open. Create one from the Sheets menu, or pick one in the browser.");
+            DrawMessage(dc, "No sheet open. Make one with View → New Sheet, or pick one in the browser.");
             return;
         }
 

@@ -249,6 +249,7 @@ public partial class MainWindow
     {
         var window = new System.Windows.Window();
         DialogLook.Apply(window, "Export COBie", 520, 380);
+        window.SizeToContent = SizeToContent.Height;
         window.Owner = this;
         TextBox Field(string value) => new() { Text = value, Width = 300, Margin = new Thickness(0, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
         var email = Field(_lastCobie.ContactEmail);

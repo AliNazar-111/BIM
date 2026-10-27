@@ -21,6 +21,9 @@ public sealed class UndoStack
 
     public bool CanUndo => _done.Count > 0;
 
+    /// <summary>How many steps there are to undo: where the history stands, to come back to.</summary>
+    public int Depth => _done.Count;
+
     public bool CanRedo => _undone.Count > 0;
 
     public string? UndoName => CanUndo ? _done[^1].Name : null;

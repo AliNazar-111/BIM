@@ -76,6 +76,7 @@ internal sealed class ProjectFileDto
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
     public List<SitePadDto> SitePads { get; set; } = new();
     public List<MassDto> Masses { get; set; } = new();
+    public List<GroupDto> Groups { get; set; } = new();
     public List<PropertyLineDto> PropertyLines { get; set; } = new();
     public List<SpotElevationDto> SpotElevations { get; set; } = new();
     public List<BeamSystemDto> BeamSystems { get; set; } = new();
@@ -2102,6 +2103,19 @@ internal sealed class GroundRegionDto
     public List<double>? PathLine { get; set; }
     public double PathWidth { get; set; }
     public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class GroupDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Name { get; set; }
+    public double OriginX { get; set; }
+    public double OriginY { get; set; }
+    public double Rotation { get; set; }
+    public bool Mirrored { get; set; }
+    public List<Guid>? MemberIds { get; set; }
     public string Comments { get; set; } = string.Empty;
 }
 

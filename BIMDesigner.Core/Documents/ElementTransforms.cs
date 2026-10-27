@@ -66,6 +66,7 @@ public static class ElementTransforms
         Callout { Parent.Kind: ViewKind.FloorPlan } => true,
         PadFooting { ColumnId: null } => true,
         IHostedElement => false,
+        Group => true,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
         AngularDimension or RadialDimension => true,
         RevisionCloud or KeynoteTag => true,
@@ -95,6 +96,10 @@ public static class ElementTransforms
     {
         switch (element)
         {
+            case Group group:
+                Groups.Move(group, delta);
+                break;
+
             case Wall wall:
                 wall.Start += delta;
                 wall.End += delta;
@@ -291,6 +296,10 @@ public static class ElementTransforms
 
         switch (element)
         {
+            case Group group:
+                Groups.Mirror(group, axis);
+                break;
+
             case Wall wall:
                 wall.Start = Reflect(wall.Start);
                 wall.End = Reflect(wall.End);
@@ -587,6 +596,12 @@ public static class ElementTransforms
 
         Vector2D TurnWay(Vector2D way) => new(way.X * cos - way.Y * sin, way.X * sin + way.Y * cos);
 
+        if (element is Group group)
+        {
+            Groups.Rotate(group, centre, degrees);
+            return;
+        }
+
         Transform(element, Turn, TurnWay, degrees, 1);
     }
 
@@ -596,7 +611,7 @@ public static class ElementTransforms
     /// a point, which keep their own size and only move. Not a roof by extrusion, whose section
     /// would have to change shape.
     /// </summary>
-    public static bool CanScale(Element element) => CanMove(element) && element is not Roof { Extrusion: not null } || element is SlabEdge;
+    public static bool CanScale(Element element) => CanMove(element) && element is not (Roof { Extrusion: not null } or Group) || element is SlabEdge;
 
     /// <summary>
     /// Scales an element's setting out about a point: its points move away from it, or toward

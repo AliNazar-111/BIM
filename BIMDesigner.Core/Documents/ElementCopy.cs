@@ -341,6 +341,7 @@ public static class ElementCopy
         }, pad.Boundary), pad),
         PropertyLine line => CarryCommon(Outline(new PropertyLine { Setback = line.Setback }, line.Boundary), line),
         Mass mass => CarryCommon(CloneMass(mass), mass),
+        Group group => CarryCommon(CloneGroup(group), group),
         View3D view => CarryCommon(CloneView(view), view),
         Walkthrough walk => CarryCommon(CloneWalkthrough(walk), walk),
         Callout callout => CarryCommon(new Callout { Name = callout.Name, Parent = callout.Parent, Region = callout.Region }, callout),
@@ -591,6 +592,14 @@ public static class ElementCopy
         return copy;
     }
 
+    /// <summary>Another of the same group: its name and frame, holding what it holds until it is redirected to the copies.</summary>
+    private static Group CloneGroup(Group group)
+    {
+        var copy = new Group { Name = group.Name, Origin = group.Origin, Rotation = group.Rotation, Mirrored = group.Mirrored };
+        copy.MemberIds.AddRange(group.MemberIds);
+        return copy;
+    }
+
     private static Element CarryCommon(Element copy, Element original)
     {
         copy.TypeId = original.TypeId;
@@ -624,6 +633,14 @@ public static class ElementCopy
 
     private static void Redirect(Element copy, IReadOnlyDictionary<Guid, Guid> replacements)
     {
+        // A group copied with what is in it holds the copies; what was left behind is not in it.
+        if (copy is Group group)
+        {
+            var members = group.MemberIds.Where(replacements.ContainsKey).Select(id => replacements[id]).ToList();
+            group.MemberIds.Clear();
+            group.MemberIds.AddRange(members);
+        }
+
         // A system copied with its fittings is a system of the copies - a fitting is on one system of a kind,
         // so those left behind stay off it - fed by the copy of its source, or by nothing until one is picked.
         if (copy is Mep.MepSystem system)
