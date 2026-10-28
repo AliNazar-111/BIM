@@ -5,6 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="ACadSharp" Version="3.8.30" />
     <PackageReference Include="Xbim.Essentials" Version="6.1.605" />
   </ItemGroup>
 

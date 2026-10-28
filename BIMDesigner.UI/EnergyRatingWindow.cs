@@ -30,6 +30,10 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
     private readonly TextBox _recovery = new() { Width = 56 };
     private readonly TextBox _battery = new() { Width = 56 };
     private readonly CheckBox _flat = new() { Content = "A flat", VerticalAlignment = VerticalAlignment.Center };
+    private readonly ComboBox _location = new() { Width = 130, ItemsSource = new[] { "By postcode", "Moderate risk", "High risk" } };
+    private readonly TextBox _postcode = new() { Width = 90 };
+    private readonly CheckBox _shutters = new() { Content = "External shutters", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+    private readonly CheckBox _noisy = new() { Content = "Noisy at night", VerticalAlignment = VerticalAlignment.Center };
     private bool _filling;
 
     private static readonly Brush Unmet = new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x4A));
@@ -53,7 +57,7 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
     public EnergyRatingWindow(MainWindow main)
     {
         _main = main;
-        DialogLook.Apply(this, "Energy Rating", 900, 860);
+        DialogLook.Apply(this, "Energy Rating and Overheating", 900, 880);
         MinWidth = 560;
         MinHeight = 520;
 
@@ -78,6 +82,16 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         _recovery.LostFocus += (_, _) => Number(_recovery, 0, 100, value => Change(settings => settings.WasteWaterRecovery = value / 100));
         _battery.LostFocus += (_, _) => Number(_battery, 0, 100, value => Change(settings => settings.Battery = value));
         _flat.Click += (_, _) => Change(settings => settings.Flat = _flat.IsChecked == true);
+        _location.SelectionChanged += (_, _) => Change(settings => settings.OverheatingLocation = (OverheatingLocation)Math.Max(0, _location.SelectedIndex));
+        _postcode.LostFocus += (_, _) => Change(settings => settings.Postcode = _postcode.Text.Trim().ToUpperInvariant());
+        _postcode.KeyDown += (_, args) =>
+        {
+            if (args.Key != System.Windows.Input.Key.Enter) return;
+            Change(settings => settings.Postcode = _postcode.Text.Trim().ToUpperInvariant());
+            args.Handled = true;
+        };
+        _shutters.Click += (_, _) => Change(settings => settings.Shutters = _shutters.IsChecked == true);
+        _noisy.Click += (_, _) => Change(settings => settings.NoisyAtNight = _noisy.IsChecked == true);
 
         var options = new WrapPanel { Margin = new Thickness(16, 2, 16, 6) };
         void Option(string label, FrameworkElement control, string tip)
@@ -96,6 +110,24 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         Option("Battery (kWh)", _battery, "A battery's usable capacity for the solar electricity; 0 for none");
         options.Children.Add(_flat);
 
+        // What Part O asks that the model does not say.
+        var overheating = new WrapPanel { Margin = new Thickness(16, 0, 16, 6) };
+        overheating.Children.Add(new TextBlock { Text = "Overheating:", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 4, 12, 4), Opacity = 0.85 });
+        void Overheating(string label, FrameworkElement control, string tip)
+        {
+            var pair = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 18, 4), ToolTip = tip };
+            pair.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0), Opacity = 0.85 });
+            pair.Children.Add(control);
+            overheating.Children.Add(pair);
+        }
+
+        Overheating("Location", _location, "Approved Document O's risk category (1.3): by the postcode - the high risk part of London in Table C1 - or as set");
+        Overheating("Postcode", _postcode, "The site's postcode, or its district (SW1A); left empty, the one in the project's address");
+        _shutters.ToolTip = "External shutters with means of ventilation on the glazing, lockable: shading it (1.9) and keeping it secure open at night (3.7)";
+        _noisy.ToolTip = "Noise at night will keep the windows shut - as the planning authority found: only dynamic thermal modelling (TM59) can then show compliance (3.1 to 3.3)";
+        overheating.Children.Add(_shutters);
+        overheating.Children.Add(_noisy);
+
         var close = new Button { Content = "Close" };
         close.Click += (_, _) => Close();
 
@@ -110,9 +142,11 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         var root = new DockPanel();
         DockPanel.SetDock(_ratings, Dock.Top);
         DockPanel.SetDock(options, Dock.Top);
+        DockPanel.SetDock(overheating, Dock.Top);
         root.Children.Add(DialogLook.Footer(_problem, close));
         root.Children.Add(_ratings);
         root.Children.Add(options);
+        root.Children.Add(overheating);
         root.Children.Add(lists);
         Content = root;
 
@@ -156,6 +190,10 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         _recovery.Text = (settings.WasteWaterRecovery * 100).ToString("0", CultureInfo.CurrentCulture);
         _battery.Text = settings.Battery.ToString("0.#", CultureInfo.CurrentCulture);
         _flat.IsChecked = settings.Flat;
+        _location.SelectedIndex = (int)settings.OverheatingLocation;
+        _postcode.Text = settings.Postcode;
+        _shutters.IsChecked = settings.Shutters;
+        _noisy.IsChecked = settings.NoisyAtNight;
         _filling = false;
 
         _tree.Items.Clear();
@@ -187,8 +225,19 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         });
         foreach (var check in assessment.Checks.Take(3))
             verdict.Children.Add(new TextBlock { Text = $"{(check.Met ? "✓" : "✗")} {check.Requirement}: {check.Detail}", TextWrapping = TextWrapping.Wrap, Foreground = check.Met ? Met : Unmet, Margin = new Thickness(0, 0, 0, 4) });
+        var overheating = Overheating.Of(document);
+        if (overheating is not null)
+        {
+            var hot = overheating.Checks.Count(check => !check.Met);
+            verdict.Children.Add(new TextBlock
+            {
+                Text = overheating.Complies ? "Meets Part O by the simplified method" : $"Does not meet Part O by the simplified method - {hot} of {overheating.Checks.Count} checks not met",
+                FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Foreground = overheating.Complies ? Met : Unmet, Margin = new Thickness(0, 4, 0, 4)
+            });
+        }
+
         verdict.Children.Add(Wrapped($"£{rating.Cost:#,0} a year at SAP's prices; {rating.SpaceHeating / rating.FloorArea:0} kWh/m² of space heating. " +
-                                     "SAP 10.3, UK average climate; Approved Document L 2026, in force from 24 March 2027.", 0.75));
+                                     "SAP 10.3, UK average climate; Approved Document L 2026, in force from 24 March 2027; Approved Document O 2021.", 0.75));
         _ratings.Children.Add(verdict);
 
         // What Approved Document L asks, each met or not.
@@ -201,6 +250,32 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         }
 
         _tree.Items.Add(checks);
+
+        // Part O: its checks, and each room and opening as the simplified method counts them.
+        if (overheating is not null)
+        {
+            var part = Item($"Overheating - Approved Document O, simplified method  -  {overheating.Checks.Count(check => check.Met)} of {overheating.Checks.Count} met", null, true);
+            part.Items.Add(Item($"The home is {overheating.Location}; {overheating.CrossVentilation}. Its floor {overheating.FloorArea:0.0} m², its glazing {overheating.Glazing:0.00} m², most of it facing {overheating.Facade}; " +
+                                $"it opens to {overheating.TotalFree:0.00} m² of equivalent area against {overheating.TotalFreeRequired:0.00}.", null));
+            foreach (var check in overheating.Checks)
+            {
+                var item = Item($"{(check.Met ? "✓" : "✗")} {check.Requirement}: {check.Detail}", check.Element);
+                ((TextBlock)item.Header).Foreground = check.Met ? Met : Unmet;
+                part.Items.Add(item);
+            }
+
+            var rooms = Item("Rooms - their glazing as a share of their floor, and a bedroom's opening at night", null);
+            foreach (var room in overheating.Rooms.OrderByDescending(room => room.Share))
+                rooms.Items.Add(Item($"{room.Name}: {room.Glazing:0.00} m² of glass, {room.Share * 100:0.#}% of {room.FloorArea:0.0} m², most facing {room.Facade}" +
+                                     (room.Bedroom ? $"; opens {room.NightFree:0.00} m² at night" : string.Empty), room.Room));
+            part.Items.Add(rooms);
+            var openings = Item("Openings - their glass, and the equivalent area they open to (Appendix D)", null);
+            foreach (var opening in overheating.Openings)
+                openings.Items.Add(Item($"{opening.Name} in {opening.Room.Name}: {opening.Glazing:0.00} m² of glass, facing {(opening.Bearing is { } way ? Compass(way) : "up")}; " +
+                                        $"opens {opening.Equivalent:0.00} m² by day, {opening.NightEquivalent:0.00} at night - {opening.Note}", opening.Element));
+            part.Items.Add(openings);
+            _tree.Items.Add(part);
+        }
 
         // What was taken that the model does not say.
         var model = assessment.Model;

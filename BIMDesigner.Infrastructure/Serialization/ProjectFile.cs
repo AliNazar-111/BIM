@@ -432,6 +432,9 @@ public static partial class ProjectFile
                 Mark = beam.Mark, Comments = beam.Comments
             });
 
+        foreach (var underlay in document.All<CadUnderlay>())
+            (dto.CadUnderlays ??= new List<CadUnderlayDto>()).Add(UnderlayOf(underlay));
+
         foreach (var separator in document.All<RoomSeparator>())
             dto.RoomSeparators.Add(new RoomSeparatorDto
             {
@@ -1504,12 +1507,94 @@ public static partial class ProjectFile
         return structure.InteriorWidth > 0 ? WallWrapping.Interior : WallWrapping.None;
     }
 
+    /// <summary>
+    /// An imported drawing as saved: where it is and how it is shown, and the drawing itself - its
+    /// points packed as 64-bit numbers in base 64, so a surveyed site's coordinates keep their millimetres.
+    /// </summary>
+    private static CadUnderlayDto UnderlayOf(CadUnderlay underlay)
+    {
+        var drawing = underlay.Drawing;
+        var points = new List<double>();
+        foreach (var path in drawing.Paths)
+            foreach (var point in path.Points)
+            {
+                points.Add(point.X);
+                points.Add(point.Y);
+            }
+
+        return new CadUnderlayDto
+        {
+            Id = underlay.Id, LevelId = underlay.LevelId, Source = underlay.Source, X = underlay.Location.X, Y = underlay.Location.Y,
+            Rotation = underlay.Rotation, Scale = underlay.Scale, Halftone = underlay.Halftone, HiddenLayers = underlay.HiddenLayers.ToList(),
+            Mark = underlay.Mark, Comments = underlay.Comments,
+            Layers = drawing.Layers.Select(layer => new CadLayerDto { Name = layer.Name, Colour = layer.Colour.ToString() }).ToList(),
+            PathLayers = drawing.Paths.Select(path => path.Layer).ToList(),
+            PathCounts = drawing.Paths.Select(path => path.Points.Count * (path.Closed ? -1 : 1)).ToList(),
+            PathColours = drawing.Paths.Any(path => path.Colour is not null) ? drawing.Paths.Select(path => path.Colour?.ToString() ?? string.Empty).ToList() : null,
+            Points = Convert.ToBase64String(System.Runtime.InteropServices.MemoryMarshal.AsBytes(points.ToArray().AsSpan())),
+            Labels = drawing.Labels.Select(label => new CadLabelDto
+            {
+                Layer = label.Layer, X = label.At.X, Y = label.At.Y, Height = label.Height, Rotation = label.Rotation, Text = label.Text, Colour = label.Colour?.ToString()
+            }).ToList()
+        };
+    }
+
+    /// <summary>An imported drawing read back; null where its points do not add up.</summary>
+    private static CadUnderlay? ReadUnderlay(CadUnderlayDto saved)
+    {
+        double[] numbers;
+        try
+        {
+            numbers = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, double>(Convert.FromBase64String(saved.Points ?? string.Empty)).ToArray();
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        ColourRgb? Colour(string? text) => ColourRgb.TryParse(text, out var colour) ? colour : null;
+        var layers = (saved.Layers ?? new List<CadLayerDto>()).Select(layer => new CadDrawingLayer(layer.Name ?? "0", Colour(layer.Colour) ?? new ColourRgb(0, 0, 0))).ToList();
+        int Layer(int index) => index >= 0 && index < layers.Count ? index : 0;
+        var paths = new List<CadPath>();
+        var counts = saved.PathCounts ?? new List<int>();
+        var at = 0;
+        for (var i = 0; i < counts.Count; i++)
+        {
+            var count = Math.Abs(counts[i]);
+            if (at + 2 * count > numbers.Length) return null;
+            var points = Enumerable.Range(0, count).Select(j => new Point2D(numbers[at + 2 * j], numbers[at + 2 * j + 1])).ToList();
+            at += 2 * count;
+            if (points.Count < 2 || !points.All(point => double.IsFinite(point.X) && double.IsFinite(point.Y))) continue;
+            var layer = saved.PathLayers is { } pathLayers && i < pathLayers.Count ? Layer(pathLayers[i]) : 0;
+            var colour = saved.PathColours is { } colours && i < colours.Count ? Colour(colours[i]) : null;
+            paths.Add(new CadPath(layer, points, counts[i] < 0, colour));
+        }
+
+        var labels = (saved.Labels ?? new List<CadLabelDto>())
+            .Where(label => double.IsFinite(label.X) && double.IsFinite(label.Y) && double.IsFinite(label.Height) && double.IsFinite(label.Rotation) && !string.IsNullOrEmpty(label.Text))
+            .Select(label => new CadLabel(Layer(label.Layer), new Point2D(label.X, label.Y), label.Height, label.Rotation, label.Text!, Colour(label.Colour)))
+            .ToList();
+        var underlay = new CadUnderlay
+        {
+            Id = saved.Id, LevelId = saved.LevelId, Source = saved.Source ?? string.Empty,
+            Location = double.IsFinite(saved.X) && double.IsFinite(saved.Y) ? new Point2D(saved.X, saved.Y) : default,
+            Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0,
+            Scale = double.IsFinite(saved.Scale) && saved.Scale > 0 ? saved.Scale : 1,
+            Halftone = saved.Halftone, Drawing = new CadDrawing(layers, paths, labels),
+            Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+        };
+        underlay.HiddenLayers.UnionWith(saved.HiddenLayers ?? new List<string>());
+        return underlay;
+    }
+
     /// <summary>A project's energy settings as saved.</summary>
     private static EnergyDto EnergyOf(EnergySettings settings) => new()
     {
         Overshading = settings.Overshading.ToString(), ShelteredSides = settings.ShelteredSides, Bridging = settings.Bridging.ToString(),
         YValue = settings.YValue, Psi = settings.Psi.Count > 0 ? new Dictionary<string, double>(settings.Psi) : null,
-        WasteWaterRecovery = settings.WasteWaterRecovery, WasteWaterUtilisation = settings.WasteWaterUtilisation, Battery = settings.Battery, Flat = settings.Flat
+        WasteWaterRecovery = settings.WasteWaterRecovery, WasteWaterUtilisation = settings.WasteWaterUtilisation, Battery = settings.Battery, Flat = settings.Flat,
+        OverheatingLocation = settings.OverheatingLocation == OverheatingLocation.ByPostcode ? null : settings.OverheatingLocation.ToString(),
+        Postcode = string.IsNullOrWhiteSpace(settings.Postcode) ? null : settings.Postcode, Shutters = settings.Shutters, NoisyAtNight = settings.NoisyAtNight
     };
 
     /// <summary>A project's energy settings read back, each within reason.</summary>
@@ -1525,6 +1610,10 @@ public static partial class ProjectFile
         settings.WasteWaterUtilisation = double.IsFinite(saved.WasteWaterUtilisation) && saved.WasteWaterUtilisation is > 0 and <= 1 ? saved.WasteWaterUtilisation : 0.98;
         settings.Battery = double.IsFinite(saved.Battery) && saved.Battery is >= 0 and <= 100 ? saved.Battery : 0;
         settings.Flat = saved.Flat;
+        settings.OverheatingLocation = ParseEnum(saved.OverheatingLocation, OverheatingLocation.ByPostcode);
+        settings.Postcode = (saved.Postcode ?? string.Empty).Trim();
+        settings.Shutters = saved.Shutters;
+        settings.NoisyAtNight = saved.NoisyAtNight;
     }
 
     private static BimDocument FromDto(ProjectFileDto dto)
@@ -2614,6 +2703,10 @@ public static partial class ProjectFile
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
         }
+
+        // An imported drawing, placed and shown as it was.
+        foreach (var saved in (dto.CadUnderlays ?? new List<CadUnderlayDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null))
+            if (ReadUnderlay(saved) is { } underlay) document.Add(underlay);
 
         // A room separator between its ends; one with no length is nothing.
         foreach (var saved in (dto.RoomSeparators ?? new List<RoomSeparatorDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null

@@ -354,6 +354,7 @@ public static class ElementCopy
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
+        CadUnderlay underlay => CarryCommon(Underlay(underlay), underlay),
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
             Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
@@ -404,6 +405,18 @@ public static class ElementCopy
     private static Element CarryJoins(Wall original, Element copy)
     {
         ((Wall)copy).JoinedTo.AddRange(original.JoinedTo);
+        return copy;
+    }
+
+    /// <summary>An imported drawing copied: the same drawing, placed and shown as the original is.</summary>
+    private static CadUnderlay Underlay(CadUnderlay original)
+    {
+        var copy = new CadUnderlay
+        {
+            Source = original.Source, Drawing = original.Drawing, Location = original.Location, Rotation = original.Rotation,
+            Scale = original.Scale, Halftone = original.Halftone
+        };
+        copy.HiddenLayers.UnionWith(original.HiddenLayers);
         return copy;
     }
 

@@ -133,7 +133,10 @@ public enum BuiltInCategory
     AirTerminals,
 
     /// <summary>Groups: elements kept together as one, placed again as more of the same group.</summary>
-    ModelGroups
+    ModelGroups,
+
+    /// <summary>Drawings brought in from DWG or DXF files to work over: underlays, not built.</summary>
+    ImportedDrawings
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

@@ -72,6 +72,9 @@ internal sealed class ProjectFileDto
     public List<DuctTypeDto>? DuctTypes { get; set; }
     public List<DuctDto>? Ducts { get; set; }
     public List<RoomSeparatorDto> RoomSeparators { get; set; } = new();
+
+    /// <summary>Drawings imported from DWG or DXF files to work over. Missing from older files.</summary>
+    public List<CadUnderlayDto>? CadUnderlays { get; set; }
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
     public List<SitePadDto> SitePads { get; set; } = new();
@@ -1194,6 +1197,12 @@ internal sealed class EnergyDto
     public double WasteWaterUtilisation { get; set; } = 0.98;
     public double Battery { get; set; }
     public bool Flat { get; set; }
+
+    /// <summary>Approved Document O: the location as set (none - by postcode), the postcode, shutters, noise at night.</summary>
+    public string? OverheatingLocation { get; set; }
+    public string? Postcode { get; set; }
+    public bool Shutters { get; set; }
+    public bool NoisyAtNight { get; set; }
 }
 
 internal sealed class ProjectInformationDto
@@ -2380,6 +2389,48 @@ internal sealed class MepSystemDto
 
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class CadUnderlayDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Source { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Rotation { get; set; }
+    public double Scale { get; set; } = 1;
+    public bool Halftone { get; set; } = true;
+    public List<string>? HiddenLayers { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+    public List<CadLayerDto>? Layers { get; set; }
+
+    /// <summary>Each path's layer, its number of points - less than none where it is closed - and its own colour where it has one.</summary>
+    public List<int>? PathLayers { get; set; }
+    public List<int>? PathCounts { get; set; }
+    public List<string>? PathColours { get; set; }
+
+    /// <summary>Every path's points, x then y, as 64-bit numbers in base 64.</summary>
+    public string? Points { get; set; }
+    public List<CadLabelDto>? Labels { get; set; }
+}
+
+internal sealed class CadLayerDto
+{
+    public string? Name { get; set; }
+    public string? Colour { get; set; }
+}
+
+internal sealed class CadLabelDto
+{
+    public int Layer { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Height { get; set; }
+    public double Rotation { get; set; }
+    public string? Text { get; set; }
+    public string? Colour { get; set; }
 }
 
 internal sealed class RoomSeparatorDto

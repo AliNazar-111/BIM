@@ -388,6 +388,8 @@
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Redo}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
                         <Separator/>
+                        <MenuItem Header="Import DW_G or DXF..." Click="OnImportCad"
+                                  ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over: the drawing tools snap to its lines"/>
                         <MenuItem Header="Export _IFC..." Click="OnExportIfc">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Export}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
@@ -397,10 +399,10 @@
                                   ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
                         <MenuItem Header="Export _gbXML..." Click="OnExportGbXml"
                                   ToolTip="The building for energy analysis - OpenStudio and EnergyPlus, IES VE, DesignBuilder: each room a space, its walls, floors and roofs at their centre lines with their constructions and U-values, its windows and doors"/>
-                        <MenuItem Header="Export Plan to D_XF..." Click="OnExportPlanDxf"
-                                  ToolTip="The plan shown, as a DXF drawing at full size in millimetres"/>
-                        <MenuItem Header="Export This Sheet to DX_F..." Click="OnExportSheetDxf"
-                                  ToolTip="The sheet open, as a DXF drawing at paper size in millimetres"/>
+                        <MenuItem Header="Export Plan to D_WG or DXF..." Click="OnExportPlanCad"
+                                  ToolTip="The plan shown, as a DWG or DXF drawing at full size in millimetres, each kind of element on its own layer"/>
+                        <MenuItem Header="Export This Sheet to DWG or DX_F..." Click="OnExportSheetCad"
+                                  ToolTip="The sheet open, as a DWG or DXF drawing at paper size in millimetres"/>
                         <MenuItem Header="_Export This Sheet to PDF..." Click="OnExportSheetPdf">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Pdf}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
@@ -670,7 +672,7 @@
                                             ToolTip="Size each room's radiators to its heat loss at its zone's temperatures: the shortest single or double panel radiator, as high as it is, that gives its share"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EnergyRating}"
                                             Content="Energy Rating" Click="OnEnergyRating"
-                                            ToolTip="The home's SAP 10.3 rating and its Future Homes Standard check: its emission, primary energy and fabric energy efficiency rates against the notional home's targets, the limiting U-values, its heating's fuel, its fans and lights, and requirement L3's solar output - worked from the model, its junctions measured"/>
+                                            ToolTip="The home's SAP 10.3 rating and its Future Homes Standard check - its emission, primary energy and fabric energy efficiency rates against the notional home's targets, the limiting U-values, its heating's fuel, its fans and lights, and requirement L3's solar output - and its overheating by Approved Document O's simplified method: its glazing, shading and openings. Worked from the model"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -1131,6 +1133,12 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
+                        <HeaderedContentControl Header="Import" Style="{StaticResource RibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.ImportCad}"
+                                    Content="Import CAD" Click="OnImportCad"
+                                    ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over, faded under the model. The drawing tools snap to its ends and along its lines; double-click it for its layers"/>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Export" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Export}"
@@ -1140,8 +1148,8 @@
                                             ToolTip="The model as IFC2x3 Coordination View 2.0, for software that does not yet read IFC4"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Schedule}" Content="COBie" Click="OnExportCobie"
                                             ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
-                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Plan}" Content="Plan DXF" Click="OnExportPlanDxf"
-                                            ToolTip="The plan shown as a DXF drawing, full size in millimetres"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Plan}" Content="Plan DWG" Click="OnExportPlanCad"
+                                            ToolTip="The plan shown as a DWG or DXF drawing, full size in millimetres, each kind of element on its own layer"/>
                                 </StackPanel>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Pdf}"
                                         Content="PDF Set" Click="OnExportDrawingSetPdf" ToolTip="Every sheet to one PDF"/>
@@ -2636,9 +2644,9 @@
                                     <Button Content="Export PDF" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnExportSheetPdf"
                                             ToolTip="Write this sheet out as a PDF"/>
-                                    <Button Content="Export DXF" Padding="8,4" Margin="0,0,6,0"
-                                            Click="OnExportSheetDxf"
-                                            ToolTip="Write this sheet out as a DXF drawing, at paper size in millimetres"/>
+                                    <Button Content="Export DWG" Padding="8,4" Margin="0,0,6,0"
+                                            Click="OnExportSheetCad"
+                                            ToolTip="Write this sheet out as a DWG or DXF drawing, at paper size in millimetres"/>
                                     <Button x:Name="RemoveViewportButton" Content="Remove View" Padding="8,4"
                                             Margin="0,0,6,0" IsEnabled="False" Click="OnRemoveViewport"/>
                                     <Button Content="Zoom to Fit" Padding="8,4" Margin="0,0,6,0"

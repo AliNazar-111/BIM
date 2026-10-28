@@ -237,7 +237,8 @@ internal sealed class PdfContent
             ApplyPen(pen, transform);
         }
 
-        if (!AppendPath(drawing.Geometry, transform, out var evenOdd))
+        // A line alone - no fill - is drawn along every figure, filled or not: an open one is a line too.
+        if (!AppendPath(drawing.Geometry, transform, out var evenOdd, everyFigure: fill is null))
         {
             Line("Q");
             return;
@@ -301,8 +302,16 @@ internal sealed class PdfContent
     /// the writer has to understand. Returns false for an empty geometry, so the caller can
     /// skip the paint operator rather than emitting one with nothing to paint.
     /// </summary>
-    private bool AppendPath(Geometry geometry, Matrix transform, out bool evenOdd)
+    private bool AppendPath(Geometry geometry, Matrix transform, out bool evenOdd, bool everyFigure = false)
     {
+        // WPF flattens only the figures that are filled: where every figure is wanted, a copy of it all filled is flattened.
+        if (everyFigure)
+        {
+            var whole = PathGeometry.CreateFromGeometry(geometry).CloneCurrentValue();
+            foreach (var figure in whole.Figures) figure.IsFilled = true;
+            geometry = whole;
+        }
+
         // The tolerance is absolute and in points: about a fiftieth of a millimetre, which is
         // finer than any printer resolves. The default is relative to the geometry's own size
         // and at this scale would leave door swings visibly faceted.

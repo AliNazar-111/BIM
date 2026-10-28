@@ -404,6 +404,7 @@ public partial class MainWindow : Window
         // width just clicked - where Revit would go to an elevation to draw it.
         Plan.ExtrusionPlaced += (_, request) => DrawExtrusionProfile(request);
         Plan.EditProfileRequested += (_, roof) => EditRoofProfile(roof);
+        Plan.UnderlayLayersRequested += (_, underlay) => EditUnderlayLayers(underlay);
 
         // Attach Top/Base offers its style and offset only while it waits for a target.
         Plan.AttachColumnsChanged += (_, _) => ShowOptionsForActiveTool();

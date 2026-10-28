@@ -54,6 +54,7 @@ public static class ElementTransforms
         Railing => true,
         Beam => true,
         RoomSeparator => true,
+        CadUnderlay => true,
         Mep.Pipe => true,
         Mep.Duct => true,
 
@@ -171,6 +172,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (separator.Start + delta, separator.End + delta);
+                break;
+
+            case CadUnderlay underlay:
+                underlay.Location += delta;
                 break;
 
             case Mep.Pipe pipe:
@@ -719,6 +724,13 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (map(separator.Start), map(separator.End));
+                break;
+
+            // An imported drawing turns about where it is turned, and grows as it is scaled.
+            case CadUnderlay underlay:
+                underlay.Location = map(underlay.Location);
+                underlay.Rotation = ((underlay.Rotation + degrees) % 360 + 360) % 360;
+                underlay.Scale *= factor;
                 break;
 
             case Mep.Pipe pipe:

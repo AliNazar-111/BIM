@@ -67,11 +67,13 @@ public static class SapSurvey
                 : room.Volume / room.Area;
 
         // Its size: the heated rooms' floors, and the volume storey by storey.
-        var floorArea = heated.Sum(room => room.Area);
-        var volume = heated.Sum(room => room.Area * StoreyHeight(room));
+        // Its size to the inside of its outside walls (box 4): its rooms and the floor under the partitions between them.
+        var floorArea = heated.Sum(room => room.Area) + Partitions(document, heated);
+        var volume = heated.Sum(room => room.Area * StoreyHeight(room))
+                     + heated.GroupBy(room => room.Room.LevelId).Sum(storey => Partitions(document, heated, storey.Key) * StoreyHeight(storey.First()));
         var storeys = heated.Select(room => room.Room.LevelId).Distinct().ToList();
         var lowest = levels.FirstOrDefault(level => storeys.Contains(level.Id));
-        var groundFloor = building.Rooms.Where(room => room.Room.LevelId == lowest?.Id).Sum(room => room.Area);
+        var groundFloor = building.Rooms.Where(room => room.Room.LevelId == lowest?.Id).Sum(room => room.Area) + (lowest is null ? 0 : Partitions(document, heated, lowest.Id));
 
         // Its living room: one called so, or the biggest room for sitting in.
         bool Says(Room room, IEnumerable<string> words) => words.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
@@ -343,6 +345,42 @@ public static class SapSurvey
         }
 
         return new SapModel(home, notes);
+    }
+
+    /// <summary>
+    /// The floor under the home's own partitions, m² - what its rooms leave out of the floor measured to the
+    /// inside of its outside walls (SAP's total floor area, Approved Document O's floor area): each wall
+    /// with one of its rooms on both sides, by its thickness, along as much of it as has. On one storey, or all.
+    /// </summary>
+    public static double Partitions(BimDocument document, IReadOnlyCollection<RoomHeatLoss> rooms, Guid? level = null)
+    {
+        var outlines = rooms.Where(room => level is null || room.Room.LevelId == level)
+            .GroupBy(room => room.Room.LevelId)
+            .ToDictionary(storey => storey.Key, storey => storey.Select(room => room.Room.GetBoundary(document).Polygon).ToList());
+        double area = 0;
+        foreach (var wall in document.Walls.Where(wall => outlines.ContainsKey(wall.LevelId) && wall.Length >= 1))
+        {
+            if (document.FindType<CurtainWallType>(wall.TypeId) is not null || document.GetWallType(wall) is not { } type) continue;
+            if (type.Function == WallFunction.Exterior || type.Separating) continue;
+            bool In(Point2D point) => outlines[wall.LevelId].Any(polygon => Polygon2D.Contains(polygon, point));
+
+            // Along it a step at a time: the share of it with a room either side.
+            var steps = Math.Max(4, (int)(wall.Length / 100));
+            var between = 0;
+            for (var i = 0; i < steps; i++)
+            {
+                var along = wall.Length * (i + 0.5) / steps;
+                var at = wall.LocationCurve.PointAt(along);
+                var ahead = wall.LocationCurve.PointAt(Math.Min(wall.Length, along + 1)) - wall.LocationCurve.PointAt(Math.Max(0, along - 1));
+                if (ahead.Length < 1e-9) continue;
+                var across = new Vector2D(ahead.Y, -ahead.X) * (1 / ahead.Length) * (type.Width / 2 + 100);
+                if (In(at + across) && In(at - across)) between++;
+            }
+
+            area += wall.Length * between / steps * type.Width / 1e6;
+        }
+
+        return area;
     }
 
     /// <summary>The windows and doors in a wall along a side of a room: each one's width and height, m, and whether it is a window.</summary>

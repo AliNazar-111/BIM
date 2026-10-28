@@ -183,11 +183,11 @@ public class SapTests
         _output.WriteLine(string.Join("\n", model.Notes));
         _output.WriteLine(string.Join("\n", home.Junctions.Select(junction => $"{junction.Code} {junction.Length:0.00} m at {junction.Psi:0.00}")));
 
-        // Four rooms of 4 m by 3 m, the living room the living area; one storey.
-        Assert.Equal(48, home.FloorArea, 1);
+        // Four rooms of 4 m by 3 m and the three 200 mm partitions between them, the living room the living area; one storey.
+        Assert.Equal(48 + 3 * 0.2 * 3, home.FloorArea, 1);
         Assert.Equal(12, home.LivingArea, 1);
         Assert.Equal(1, home.Storeys);
-        Assert.Equal(48, home.GroundFloorArea, 1);
+        Assert.Equal(48 + 3 * 0.2 * 3, home.GroundFloorArea, 1);
 
         // What heats it and its water, how it is ventilated, its shower and bath.
         Assert.Equal(SapHeatSource.HeatPump, home.Heating.Source);

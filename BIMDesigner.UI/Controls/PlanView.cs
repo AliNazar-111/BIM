@@ -839,6 +839,9 @@ public partial class PlanView : FrameworkElement
 
     public event EventHandler<Point2D>? CursorMoved;
     public event EventHandler? SelectionChanged;
+
+    /// <summary>An imported drawing double-clicked: its layers to show or hide.</summary>
+    public event EventHandler<CadUnderlay>? UnderlayLayersRequested;
     public event EventHandler? ViewChanged;
     public event EventHandler? ModelChanged;
 
@@ -1530,11 +1533,19 @@ public partial class PlanView : FrameworkElement
 
     /// <summary>
     /// Everything a zoom to fit has to take in: walls, bowed ones by their curve; the outlines
-    /// of floors and roofs, overhangs and all; and the notes on the drawing - dimensions set
-    /// off from the walls, tags, rooms, grids and sections.
+    /// of floors and roofs, overhangs and all; the notes on the drawing - dimensions set off
+    /// from the walls, tags, rooms, grids and sections; and drawings imported to work over.
     /// </summary>
     private static IEnumerable<Point2D> ExtentPoints(BimDocument document)
     {
+        // An imported drawing by the corners of what it holds.
+        foreach (var underlay in document.All<CadUnderlay>())
+            if (underlay.Bounds is { IsEmpty: false } box)
+            {
+                yield return new Point2D(box.MinX, box.MinY);
+                yield return new Point2D(box.MaxX, box.MaxY);
+            }
+
         foreach (var wall in document.Walls)
         {
             var curve = wall.LocationCurve;
@@ -1677,6 +1688,15 @@ public partial class PlanView : FrameworkElement
         }
 
         foreach (var column in OnActiveLevel<Column>()) Consider(column.Location);
+
+        // An imported drawing's ends and corners, so walls can be traced over it - and where nothing else is near, a point along its lines.
+        var traced = new List<Point2D>();
+        foreach (var underlay in OnActiveLevel<CadUnderlay>().Where(underlay => !ReferenceEquals(underlay, _snapIgnore)))
+        {
+            var (ends, along) = underlay.Near(model, SnapPixelRadius / PixelsPerMm);
+            foreach (var end in ends) Consider(end);
+            traced.AddRange(along);
+        }
         foreach (var stair in Document.All<Stair>().Where(stair => stair.LevelId == ActiveLevelId || stair.TopLevelId == ActiveLevelId))
             foreach (var (from, to) in Stairs.Layout(Document, stair).Arrivals)
             {
@@ -1701,6 +1721,9 @@ public partial class PlanView : FrameworkElement
             foreach (var wall in OnActiveLevel<Wall>().Where(wall => !ReferenceEquals(wall, ignore) && wall.Length > 1))
                 Consider(wall.LocationCurve.PointAt(Math.Clamp(wall.LocationCurve.Locate(model).Along, 0, wall.LocationCurve.Length)));
         }
+
+        if (!found)
+            foreach (var point in traced) Consider(point);
 
         snappedToFeature = found;
         return found ? best : SnapToGrid(model);
@@ -1969,6 +1992,14 @@ public partial class PlanView : FrameworkElement
             Select(doubleClicked);
             if (doubleClicked.IsExtrusion) EditProfileRequested?.Invoke(this, doubleClicked);
             else EditFootprint();
+            return;
+        }
+
+        // Double-clicking an imported drawing opens its layers.
+        if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && HitTest(raw) is CadUnderlay underlayClicked)
+        {
+            Select(underlayClicked);
+            UnderlayLayersRequested?.Invoke(this, underlayClicked);
             return;
         }
 
@@ -6384,6 +6415,10 @@ public partial class PlanView : FrameworkElement
         foreach (var separator in RoomSeparatorsAt(model)) yield return separator;
         foreach (var pipe in PipesAt(model)) yield return pipe;
         foreach (var duct in DuctsAt(model)) yield return duct;
+
+        // An imported drawing by its lines, where it shows them: under the walls drawn over it, over the floors and rooms.
+        foreach (var underlay in OnActiveLevel<CadUnderlay>())
+            if (underlay.Near(model, 5 / PixelsPerMm) is var near && (near.Ends.Count > 0 || near.Along.Count > 0)) yield return underlay;
 
         // Roof windows are in roofs, so they are picked before the roofs they are in.
         foreach (var roofWindow in OnActiveLevel<RoofWindow>().Where(roofWindow =>

@@ -26,6 +26,7 @@ public sealed partial class PlanRenderer
         bool done;
         using (var inner = drawn.Open()) done = DrawFailures.Guard(element, () => draw(inner));
         if (!done) return;
+        CadLayers.SetElement(drawn, element);
 
         var style = Style(element);
         if (style.IsPlain)
@@ -36,6 +37,7 @@ public sealed partial class PlanRenderer
 
         // A copy to restyle: what is drawn can be a drawing kept from before, frozen.
         var group = drawn.CloneCurrentValue();
+        CadLayers.SetElement(group, element);
         Restyle(group, style);
         if (style.Halftone) group.Opacity = HalftoneOpacity;
         dc.DrawDrawing(group);

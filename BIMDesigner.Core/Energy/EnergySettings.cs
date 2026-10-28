@@ -42,13 +42,25 @@ public sealed class EnergySettings
     /// <summary>Whether the home is a flat - its solar array sized to its share of the block's ground floor.</summary>
     public bool Flat { get; set; }
 
+    /// <summary>Where the home is for Approved Document O - by its postcode, here or in the project's address, or as set.</summary>
+    public OverheatingLocation OverheatingLocation { get; set; }
+
+    public string Postcode { get; set; } = string.Empty;
+
+    /// <summary>Whether its glazing has external shutters with means of ventilation, lockable - shading it and keeping it secure open at night (Approved Document O 1.9, 3.7).</summary>
+    public bool Shutters { get; set; }
+
+    /// <summary>Whether noise at night will keep its windows shut - as the planning authority found - so only dynamic thermal modelling can show it does not overheat (3.1 to 3.3).</summary>
+    public bool NoisyAtNight { get; set; }
+
     /// <summary>A copy, to change and put back as one step.</summary>
     public EnergySettings Copy()
     {
         var copy = new EnergySettings
         {
             Overshading = Overshading, ShelteredSides = ShelteredSides, Bridging = Bridging, YValue = YValue,
-            WasteWaterRecovery = WasteWaterRecovery, WasteWaterUtilisation = WasteWaterUtilisation, Battery = Battery, Flat = Flat
+            WasteWaterRecovery = WasteWaterRecovery, WasteWaterUtilisation = WasteWaterUtilisation, Battery = Battery, Flat = Flat,
+            OverheatingLocation = OverheatingLocation, Postcode = Postcode, Shutters = Shutters, NoisyAtNight = NoisyAtNight
         };
         foreach (var (code, psi) in Psi) copy.Psi[code] = psi;
         return copy;
@@ -58,7 +70,8 @@ public sealed class EnergySettings
     public bool SameAs(EnergySettings other) =>
         Overshading == other.Overshading && ShelteredSides == other.ShelteredSides && Bridging == other.Bridging && YValue.Equals(other.YValue)
         && WasteWaterRecovery.Equals(other.WasteWaterRecovery) && WasteWaterUtilisation.Equals(other.WasteWaterUtilisation) && Battery.Equals(other.Battery)
-        && Flat == other.Flat && Psi.Count == other.Psi.Count && Psi.All(entry => other.Psi.TryGetValue(entry.Key, out var psi) && psi.Equals(entry.Value));
+        && Flat == other.Flat && Psi.Count == other.Psi.Count && Psi.All(entry => other.Psi.TryGetValue(entry.Key, out var psi) && psi.Equals(entry.Value))
+        && OverheatingLocation == other.OverheatingLocation && Postcode == other.Postcode && Shutters == other.Shutters && NoisyAtNight == other.NoisyAtNight;
 
     /// <summary>Takes on another's settings.</summary>
     public void CopyFrom(EnergySettings other)
@@ -71,6 +84,10 @@ public sealed class EnergySettings
         WasteWaterUtilisation = other.WasteWaterUtilisation;
         Battery = other.Battery;
         Flat = other.Flat;
+        OverheatingLocation = other.OverheatingLocation;
+        Postcode = other.Postcode;
+        Shutters = other.Shutters;
+        NoisyAtNight = other.NoisyAtNight;
         Psi.Clear();
         foreach (var (code, psi) in other.Psi) Psi[code] = psi;
     }

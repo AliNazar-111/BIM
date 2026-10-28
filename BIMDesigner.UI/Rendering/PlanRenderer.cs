@@ -108,9 +108,13 @@ public sealed partial class PlanRenderer
 
     private Func<Point2D, Point> _toScreen = point => new Point(point.X, point.Y);
 
+    /// <summary>The colours the plan is drawn in.</summary>
+    private readonly DrawingPalette _ink;
+
     public PlanRenderer(DrawingPalette? palette = null)
     {
         var ink = palette ?? AppTheme.Drawing;
+        _ink = ink;
 
         _wallOutlinePen = RenderPens.Solid(ink.WallOutline, 1.3);
         _layerPen = RenderPens.Solid(ink.LayerSeparator, 0.7);
@@ -294,7 +298,7 @@ public sealed partial class PlanRenderer
         // lining storeys up against them is the point of having them. An underlay leaves them
         // to the storey above, which is drawing the same ones.
         if (!underlay)
-            foreach (var grid in Document.All<Grid>()) DrawGrid(dc, grid);
+            foreach (var grid in Document.All<Grid>()) CadLayers.Draw(dc, grid, d => DrawGrid(d, grid));
 
         // Slabs are construction under everything else; rooms are the space above them.
         foreach (var slab in OnActiveLevel<Slab>()) Styled(dc, slab, d => DrawSlab(d, slab));
@@ -332,6 +336,9 @@ public sealed partial class PlanRenderer
         if (Document is not null)
             foreach (var footing in Document.Elements.Where(element => element is WallFooting or PadFooting && Footings.LevelOf(Document, element) == ActiveLevelId))
                 Styled(dc, footing, d => DrawFooting(d, footing));
+
+        // Drawings imported to work over: over the floors and rooms, so they show through, and under the walls drawn on them.
+        if (!underlay) DrawUnderlays(dc);
 
         foreach (var wall in OnActiveLevel<Wall>()) Styled(dc, wall, d => DrawWall(d, wall));
         foreach (var opening in OnActiveLevel<Opening>()) Styled(dc, opening, d => DrawOpening(d, opening));
@@ -387,22 +394,23 @@ public sealed partial class PlanRenderer
         if (underlay) return;
 
         // The property line round it all, and the heights read off it.
-        foreach (var line in OnActiveLevel<PropertyLine>()) DrawPropertyLine(dc, line);
-        foreach (var spot in OnActiveLevel<SpotElevation>()) DrawSpotElevation(dc, spot);
+        // Each kept on what it was drawn for, so a DWG puts it on its layer.
+        foreach (var line in OnActiveLevel<PropertyLine>()) CadLayers.Draw(dc, line, d => DrawPropertyLine(d, line));
+        foreach (var spot in OnActiveLevel<SpotElevation>()) CadLayers.Draw(dc, spot, d => DrawSpotElevation(d, spot));
 
         if (ShowWallLabels)
             foreach (var wall in OnActiveLevel<Wall>()) DrawWallLabel(dc, wall);
-        foreach (var room in OnActiveLevel<Room>()) DrawRoomTag(dc, room);
+        foreach (var room in OnActiveLevel<Room>()) CadLayers.Draw(dc, room, d => DrawRoomTag(d, room), CadLayers.RoomTags);
 
-        foreach (var dimension in OnActiveLevel<Dimension>()) DrawStyledDimension(dc, dimension);
-        foreach (var angular in OnActiveLevel<AngularDimension>()) DrawAngularDimension(dc, angular);
-        foreach (var radial in OnActiveLevel<RadialDimension>()) DrawRadialDimension(dc, radial);
-        foreach (var section in OnActiveLevel<SectionMarker>()) DrawSectionMarker(dc, section);
+        foreach (var dimension in OnActiveLevel<Dimension>()) CadLayers.Draw(dc, dimension, d => DrawStyledDimension(d, dimension));
+        foreach (var angular in OnActiveLevel<AngularDimension>()) CadLayers.Draw(dc, angular, d => DrawAngularDimension(d, angular));
+        foreach (var radial in OnActiveLevel<RadialDimension>()) CadLayers.Draw(dc, radial, d => DrawRadialDimension(d, radial));
+        foreach (var section in OnActiveLevel<SectionMarker>()) CadLayers.Draw(dc, section, d => DrawSectionMarker(d, section));
         DrawCallouts(dc);
-        foreach (var tag in OnActiveLevel<Tag>()) DrawTag(dc, tag);
-        foreach (var note in OnActiveLevel<TextNote>()) DrawTextNote(dc, note);
-        foreach (var keynote in OnActiveLevel<KeynoteTag>()) DrawKeynoteTag(dc, keynote);
-        foreach (var cloud in OnActiveLevel<RevisionCloud>()) DrawRevisionCloud(dc, cloud);
+        foreach (var tag in OnActiveLevel<Tag>()) CadLayers.Draw(dc, tag, d => DrawTag(d, tag));
+        foreach (var note in OnActiveLevel<TextNote>()) CadLayers.Draw(dc, note, d => DrawTextNote(d, note));
+        foreach (var keynote in OnActiveLevel<KeynoteTag>()) CadLayers.Draw(dc, keynote, d => DrawKeynoteTag(d, keynote));
+        foreach (var cloud in OnActiveLevel<RevisionCloud>()) CadLayers.Draw(dc, cloud, d => DrawRevisionCloud(d, cloud));
     }
 
     // ---- walls -----------------------------------------------------------------
