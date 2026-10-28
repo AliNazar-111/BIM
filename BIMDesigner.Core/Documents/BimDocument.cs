@@ -111,6 +111,16 @@ public sealed class ProjectInformation
 
     /// <summary>What its energy rating takes that the model does not say.</summary>
     public Energy.EnergySettings Energy { get; } = new();
+
+    /// <summary>How its renderings are made: the place, date and time the sun is worked out for, the sky, size and quality.</summary>
+    public Rendering.RenderSettings Render { get; } = new();
+
+    /// <summary>
+    /// Where the model's origin is in the coordinates other programs set the building out in - a national
+    /// grid's - mm east and north of theirs: set when an IFC set out kilometres from its origin is
+    /// brought to it, and given back in the IFC and BCF it writes, so they line up with the original.
+    /// </summary>
+    public Geometry.Vector2D SurveyOffset { get; set; }
 }
 
 /// <summary>
@@ -221,6 +231,9 @@ public sealed class BimDocument
 
     /// <summary>The clash tests run on the model, each with what it found and how each clash stands.</summary>
     public List<Coordination.ClashTest> ClashTests { get; } = new();
+
+    /// <summary>The issues raised about the model - BCF topics - its own and those brought in from other programs.</summary>
+    public List<Coordination.Issue> Issues { get; } = new();
 
     /// <summary>The construction programme the model is built to (4D).</summary>
     public Coordination.ConstructionSchedule Construction { get; } = new();
@@ -337,6 +350,8 @@ public sealed class BimDocument
     public int IndexOfLevel(Level level) => _levels.IndexOf(level);
 
     public void AddMaterial(Material material) => _materials[material.Id] = material;
+
+    public bool RemoveMaterial(Material material) => _materials.Remove(material.Id);
 
     public void AddType(ElementType type) => _types[type.Id] = type;
 
@@ -2494,6 +2509,9 @@ public sealed class BimDocument
         document.Keynotes.CopyFrom(Annotation.KeynoteTable.Starter());
         Annotation.StarterKeynotes.Apply(document);
         document.Classification.CopyFrom(Parameters.ClassificationTable.Starter());
+
+        // Each material's face as its name says it is laid: brick in bond, slates in courses.
+        Rendering.SurfacePatterns.Settle(document);
 
         return document;
     }

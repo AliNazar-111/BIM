@@ -649,7 +649,7 @@ public partial class MainWindow : Window
         LocationLinePicker.SelectedItem = EnumText.Humanise(WallLocationLine.WallCentreline);
 
         // In the order of the styles themselves.
-        VisualStylePicker.ItemsSource = new[] { "Shaded", "Flat colours", "X-ray", "Wireframe", "Hidden line" };
+        VisualStylePicker.ItemsSource = new[] { "Shaded", "Flat colours", "X-ray", "Wireframe", "Hidden line", "Realistic" };
         VisualStylePicker.SelectedIndex = 0;
 
         RefreshSchedulePicker(_document.Schedules.FirstOrDefault());

@@ -78,12 +78,16 @@ test before the next begins.
 | **2.6** | **View templates, filters, keynotes, revisions** — templates (Round 3); keynotes and revisions (Round 4); view filters by parameter rules, hiding, colouring or fading what they pick out (Round 6) | §6.2 §7 | ✅ |
 | **2.7** | **Design options and phasing** — phases created and demolished on every element; each view's phase and Revit's phase filters, existing faded and demolished red and dashed; design option sets with their primaries, worked on, shown by view and accepted | §7 | ✅ |
 | **2.8** | **Classification systems, shared parameters** — the project's own parameters, instance or type, on chosen categories; shared parameter files read and written with their GUIDs; types and rooms coded to Uniclass 2015 or any table loaded, carried to IFC and COBie | §2.1 §7 | ✅ |
-| 2.9 | Material library and rendering basics - materials with surface colours, paints and finishes done; textures and rendering to come | §13.1 | 🔨 |
+| 2.9 | Material library and rendering basics - materials with surface colours, paints and finishes; each material's face laid in its pattern at its true size, edited in a Materials window and drawn in the 3D view's Realistic style; and renderings, path traced in the sun at the site's place, date and time | §13.1 | ✅ |
 | 2.10 | IFC import, DWG - **IFC import** done (Round 5); **DWG and DXF** brought onto a storey to work over (kept in the project rather than linked to the file), snapped to and traced, and plans and sheets written out as DWG or DXF on the National CAD Standard's layers | §8 | ✅ |
 
-## Phase 3 — Collaboration ⬜
+## Phase 3 — Collaboration 🔨
 Worksharing, model linking, copy/monitor, cloud CDE, web/mobile viewer, issues/BCF,
 version compare, permissions. §7 §12.1
+
+Issues and BCF are done: issues raised on the 3D view or from clashes, kept in the project, and
+exchanged as BCF 2.1 and 3.0 files with the other coordination tools; a BCF server (the BCF API) is
+not. The rest of the phase is to come.
 
 ## Phase 4 — Structure & MEP 🔨
 Beams of steel, timber, glulam and concrete and joist layouts are built, measured against
@@ -140,8 +144,9 @@ looked up first, then it is built, tested and written up in the README.
 | **13** | **Starting work** — a splash while BIMDesigner gets ready, then a home screen: the projects opened or saved before, newest first and the pinned above them, each with a picture of its plan, searchable, and New project, Open a project, Open an IFC file, the example house, or recovering unsaved work. New Project in five steps - the template (England, England M4(3), the US), the project's particulars, the site and ground, the storeys and where it is kept - each checked before the next, the levels made for them. File > Close Project back to the home screen, File > Open Recent | ✅ |
 
 Left until those are done: Phase 3's collaboration, the rest of Phase 4's structure and MEP,
-Phase 6's handover beyond COBie, and Phase 2's textures and rendering. A DWG brought in is kept
-in the project; linking it so that it follows changes to the file is not done.
+and Phase 6's handover beyond COBie. A DWG brought in is kept in the project; linking it so that
+it follows changes to the file is not done. A rendering is saved as a picture; putting it on a
+sheet, and lights in the model for night scenes, are not done.
 
 ## The services: rounds M1 to M8
 

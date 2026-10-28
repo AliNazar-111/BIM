@@ -261,8 +261,19 @@ public static class IfcImport
             if (Math.Max(Math.Abs(x), Math.Abs(y)) < FarAway) return;
 
             _shift = new Vector2D(-Math.Round(x / 1e6) * 1e6, -Math.Round(y / 1e6) * 1e6);
+            _document.ProjectInformation.SurveyOffset = new Vector2D(-_shift.X, -_shift.Y);
             _result.Notes.Add($"It is set out {Math.Abs(x) / 1e6:0.#} km and {Math.Abs(y) / 1e6:0.#} km from its origin: brought to the origin, moved by {-_shift.X / 1000:0} m and {-_shift.Y / 1000:0} m.");
         }
+
+        private readonly HashSet<Guid> _ids = new();
+
+        /// <summary>
+        /// An element's id as its IFC GlobalId stands for, so the IFC it came from and the BCF other programs
+        /// write about it find it here - and the IFC written from here gives it back; a new one where
+        /// the GlobalId does not read or is taken, by a second element made of the same product.
+        /// </summary>
+        private Guid IdOf(IIfcRoot root) =>
+            IfcGuids.TryExpand(root.GlobalId.ToString(), out var id) && id != Guid.Empty && _document.FindElement(id) is null && _ids.Add(id) ? id : Guid.NewGuid();
 
         private static double Median(IEnumerable<double> values)
         {
@@ -523,6 +534,7 @@ public static class IfcImport
             var level = LevelOf(wall, bottom);
             var created = new CoreWall
             {
+                Id = IdOf(wall),
                 Start = worldStart, End = worldEnd, Bulge = bulge, TypeId = type.Id, LevelId = level.Id, Flipped = flipped,
                 BaseOffset = Math.Round(bottom - level.Elevation, 3), UnconnectedHeight = Math.Round(top - bottom, 3), Mark = wall.Tag?.ToString() ?? string.Empty
             };
@@ -810,7 +822,7 @@ public static class IfcImport
             var baseElevation = (_document.FindLevel(wall.LevelId)?.Elevation ?? 0) + wall.BaseOffset;
             var isWindow = element is IIfcWindow;
             var type = OpeningTypeFor(element, isWindow, Math.Round(width, 1), Math.Round(height, 1));
-            Opening opening = isWindow ? new CoreWindow() : new Door();
+            Opening opening = isWindow ? new CoreWindow { Id = IdOf(element) } : new Door { Id = IdOf(element) };
             opening.HostWallId = wall.Id;
             opening.TypeId = type.Id;
             opening.LevelId = wall.LevelId;
@@ -959,8 +971,8 @@ public static class IfcImport
             var level = LevelOf(slab, flat.Bottom);
 
             Slab made = isRoof
-                ? new Roof { TypeId = SlabTypeFor<RoofType>(slab, thickness, structure, (name, s) => new RoofType(name, s)).Id }
-                : new Floor { TypeId = SlabTypeFor<FloorType>(slab, thickness, structure, (name, s) => new FloorType(name, s)).Id };
+                ? new Roof { Id = IdOf(slab), TypeId = SlabTypeFor<RoofType>(slab, thickness, structure, (name, s) => new RoofType(name, s)).Id }
+                : new Floor { Id = IdOf(slab), TypeId = SlabTypeFor<FloorType>(slab, thickness, structure, (name, s) => new FloorType(name, s)).Id };
             made.LevelId = level.Id;
             // A floor is held by its top, a roof by its underside - where it sits on its walls.
             made.HeightOffset = Math.Round((isRoof ? flat.Bottom : flat.Top) - level.Elevation, 3);
@@ -981,7 +993,7 @@ public static class IfcImport
             if (Flat(roof) is not { } flat || flat.Top - flat.Bottom < 1) return false;
 
             var level = LevelOf(roof, flat.Bottom);
-            var made = new Roof { TypeId = SlabTypeFor<RoofType>(roof, flat.Top - flat.Bottom, null, (name, s) => new RoofType(name, s)).Id, LevelId = level.Id, HeightOffset = Math.Round(flat.Bottom - level.Elevation, 3) };
+            var made = new Roof { Id = IdOf(roof), TypeId = SlabTypeFor<RoofType>(roof, flat.Top - flat.Bottom, null, (name, s) => new RoofType(name, s)).Id, LevelId = level.Id, HeightOffset = Math.Round(flat.Bottom - level.Elevation, 3) };
             made.SetBoundary(flat.Outline);
             made.SetEdges(flat.Outline.Select(_ => new RoofEdge()));
             _document.Add(made);
@@ -997,6 +1009,7 @@ public static class IfcImport
             var level = LevelOf(covering, flat.Bottom);
             var ceiling = new Ceiling
             {
+                Id = IdOf(covering),
                 TypeId = SlabTypeFor<CeilingType>(covering, thickness, Structure(Layers(covering).Set), (name, s) => new CeilingType(name, s)).Id,
                 LevelId = level.Id, HeightOffset = Math.Round(flat.Top - level.Elevation, 3)
             };
@@ -1043,6 +1056,7 @@ public static class IfcImport
             var hasLongName = !string.IsNullOrWhiteSpace(space.LongName);
             var room = new Room
             {
+                Id = IdOf(space),
                 Location = location, LevelId = level.Id,
                 Name = hasLongName ? space.LongName!.ToString()! : space.Name?.ToString() ?? "Room",
                 Number = hasLongName ? space.Name?.ToString() ?? string.Empty : string.Empty
@@ -1239,6 +1253,7 @@ public static class IfcImport
                 var type = _document.TypesOf<PipeType>().FirstOrDefault(each => each.Material == material) ?? _document.TypesOf<PipeType>().FirstOrDefault();
                 made = new Pipe
                 {
+                    Id = IdOf(segment),
                     LevelId = level.Id, TypeId = type?.Id ?? Guid.Empty, Start = Plan(start), End = Plan(end), StartOffset = start.Z - level.Elevation, EndOffset = end.Z - level.Elevation,
                     Diameter = (width + height) / 2, Kind = kind
                 };
@@ -1249,6 +1264,7 @@ public static class IfcImport
                            ?? _document.TypesOf<DuctType>().FirstOrDefault();
                 made = new Duct
                 {
+                    Id = IdOf(segment),
                     LevelId = level.Id, TypeId = type?.Id ?? Guid.Empty, Start = Plan(start), End = Plan(end), StartOffset = start.Z - level.Elevation, EndOffset = end.Z - level.Elevation,
                     Width = round ? (width + height) / 2 : width, Height = round ? (width + height) / 2 : height, Kind = kind
                 };
@@ -1442,6 +1458,7 @@ public static class IfcImport
             var level = LevelOf(product, world.Z);
             var placed = new Component
             {
+                Id = IdOf(product),
                 TypeId = componentType.Id, LevelId = level.Id, Location = Plan(world),
                 Rotation = Math.Round((upright ? frame.Rotation : 0) + turn * 180 / Math.PI, 6),
                 Elevation = Math.Round(world.Z - level.Elevation, 3),

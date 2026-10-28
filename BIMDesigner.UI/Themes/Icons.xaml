@@ -628,6 +628,29 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Green}" Geometry="M1,18 L9,18 M6,15 L9,18 L6,21"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Issues"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M4,5 L28,5 L28,21 L14,21 L8,27 L8,21 L4,21 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Line}" Geometry="M15,8 L17,8 L16.6,15 L15.4,15 Z M16,16.4 A1.2,1.2 0 1 1 15.99,16.4 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Materials"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M3,5 L29,5 L29,27 L3,27 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Geometry="M4,6 L15,6 L15,10 L4,10 Z M17,6 L28,6 L28,10 L17,10 Z M4,12 L9,12 L9,16 L4,16 Z M11,12 L22,12 L22,16 L11,16 Z M24,12 L28,12 L28,16 L24,16 Z M4,18 L15,18 L15,22 L4,22 Z M17,18 L28,18 L28,22 L17,22 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Timber}" Geometry="M4,24 L28,24 L28,26 L4,26 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <DrawingImage x:Key="Icon.Render"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Glass}" Pen="{StaticResource Stroke}" Geometry="M2,4 L30,4 L30,28 L2,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Geometry="M24,9 A3,3 0 1 1 23.99,9 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Green}" Geometry="M2,23 L30,23 L30,28 L2,28 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M7,23 L7,15 L13,10 L19,15 L19,23 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Geometry="M13,10 L19,15 L19,23 L16,23 L16,16 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Roof}" Pen="{StaticResource Stroke}" Geometry="M5.5,16 L13,9.5 L20.5,16"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.EnergyRating"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Green}" Geometry="M3,4 L13,4 L15,7 L13,10 L3,10 Z"/>

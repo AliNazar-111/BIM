@@ -37,6 +37,12 @@ internal interface ICoordinationHost
 
     /// <summary>Raised when the coordination has changed - an undo, a redo, a project opened.</summary>
     event EventHandler? CoordinationChanged;
+
+    /// <summary>A viewpoint of the 3D view as it is - opened first if it is not: its camera, section box, what is selected, and a picture.</summary>
+    IssueViewpoint CaptureViewpoint();
+
+    /// <summary>Turns the 3D view to a viewpoint - its camera and section box, as a step to undo - and selects the elements it is about.</summary>
+    void ShowViewpoint(IssueViewpoint viewpoint);
 }
 
 /// <summary>

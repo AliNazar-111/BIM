@@ -239,6 +239,7 @@ public partial class ModelView : Border
         // Converted once per rebuild. Selecting something or changing the style only swaps
         // materials, and should not pay to copy every vertex again.
         _allGeometry.Clear();
+        ForgetTextures();
         foreach (var mesh in _allMeshes) _allGeometry[mesh] = ToGeometry(mesh);
 
         ApplySectionBox();
@@ -260,6 +261,7 @@ public partial class ModelView : Border
     private void ApplySectionBox()
     {
         _meshes = _elevation is null && _view.ActiveBox is { } box ? SectionBoxes.Clip(_allMeshes, box) : _allMeshes;
+        _textured.Clear();
 
         _geometry.Clear();
         foreach (var mesh in _meshes)
@@ -346,6 +348,7 @@ public partial class ModelView : Border
         var solid = new Model3DGroup();
         var clear = new Model3DGroup();
         (_solidGroup, _clearGroup) = (solid, clear);
+        if (_view.Style == VisualStyle.Realistic) PrepareTextures();
 
         foreach (var mesh in _meshes)
         {
@@ -354,6 +357,10 @@ public partial class ModelView : Border
 
             if (!_geometry.TryGetValue(mesh, out var geometry)) continue;
             var material = MaterialFor(mesh);
+
+            // Realistic: in its material's pattern, where it has one.
+            if (_view.Style == VisualStyle.Realistic && Textured(mesh) is { } textured)
+                (geometry, material) = (textured.Geometry, TexturedMaterial(mesh, textured.Texture));
 
             var model = new GeometryModel3D(geometry, material) { BackMaterial = material };
             _meshOf[model] = mesh;

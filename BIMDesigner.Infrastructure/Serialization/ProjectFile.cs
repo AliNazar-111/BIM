@@ -9,6 +9,7 @@ using BIMDesigner.Core.Energy;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Mep;
+using BIMDesigner.Core.Rendering;
 using BIMDesigner.Core.Schedules;
 using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
@@ -95,10 +96,13 @@ public static partial class ProjectFile
                 DailyRange = document.ProjectInformation.DailyRange,
                 Latitude = document.ProjectInformation.Latitude,
                 TrueNorth = document.ProjectInformation.TrueNorth,
+                SurveyOffsetX = document.ProjectInformation.SurveyOffset.X,
+                SurveyOffsetY = document.ProjectInformation.SurveyOffset.Y,
                 DuctRun = document.ProjectInformation.DuctRun.ToString(),
                 DuctInsulation = document.ProjectInformation.DuctInsulation,
                 DuctsSealed = document.ProjectInformation.DuctsSealed,
-                Energy = EnergyOf(document.ProjectInformation.Energy)
+                Energy = EnergyOf(document.ProjectInformation.Energy),
+                Render = RenderOf(document.ProjectInformation.Render)
             }
         };
 
@@ -117,7 +121,13 @@ public static partial class ProjectFile
                 Manufacturer = material.Manufacturer,
                 ClassificationCode = material.ClassificationCode,
                 CostPerCubicMetre = material.CostPerCubicMetre,
-                Keynote = NullIfEmpty(material.Keynote)
+                Keynote = NullIfEmpty(material.Keynote),
+                Pattern = material.Pattern.ToString(),
+                UnitLength = material.UnitLength,
+                UnitHeight = material.UnitHeight,
+                JointWidth = material.JointWidth,
+                JointColour = material.JointColour.ToString(),
+                Reflectance = material.Reflectance
             });
 
         foreach (var stacked in document.TypesOf<StackedWallType>())
@@ -1588,6 +1598,32 @@ public static partial class ProjectFile
     }
 
     /// <summary>A project's energy settings as saved.</summary>
+    private static RenderDto RenderOf(RenderSettings settings) => new()
+    {
+        Date = settings.Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        Time = settings.Time.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+        Latitude = settings.Latitude, Longitude = settings.Longitude, UtcOffset = settings.UtcOffset, Summer = settings.Summer?.ToString(),
+        Sky = settings.Sky.ToString(), Quality = settings.Quality.ToString(), Width = settings.Width, Height = settings.Height, Exposure = settings.Exposure
+    };
+
+    private static void ReadRender(RenderDto saved, RenderSettings settings)
+    {
+        var invariant = System.Globalization.CultureInfo.InvariantCulture;
+        if (DateOnly.TryParseExact(saved.Date, "yyyy-MM-dd", invariant, System.Globalization.DateTimeStyles.None, out var date)) settings.Date = date;
+        if (TimeOnly.TryParseExact(saved.Time, "HH:mm", invariant, System.Globalization.DateTimeStyles.None, out var time)) settings.Time = time;
+        settings.Latitude = saved.Latitude is { } latitude && double.IsFinite(latitude) ? Math.Clamp(latitude, -90, 90) : null;
+        settings.Longitude = saved.Longitude is { } longitude && double.IsFinite(longitude) ? Math.Clamp(longitude, -180, 180) : null;
+        settings.UtcOffset = saved.UtcOffset is { } offset && double.IsFinite(offset) ? Math.Clamp(offset, -12, 14) : null;
+        settings.Summer = saved.Summer is null ? null : ParseEnum(saved.Summer, SummerTime.None);
+        settings.Sky = ParseEnum(saved.Sky, RenderSky.Clear);
+        settings.Quality = ParseEnum(saved.Quality, RenderQuality.Medium);
+        settings.Width = Math.Clamp(saved.Width, 64, 8192);
+        settings.Height = Math.Clamp(saved.Height, 64, 8192);
+        settings.Exposure = double.IsFinite(saved.Exposure) ? Math.Clamp(saved.Exposure, -5, 5) : 0;
+    }
+
+    private static double Finite(double value, double least, double most) => double.IsFinite(value) ? Math.Clamp(value, least, most) : least;
+
     private static EnergyDto EnergyOf(EnergySettings settings) => new()
     {
         Overshading = settings.Overshading.ToString(), ShelteredSides = settings.ShelteredSides, Bridging = settings.Bridging.ToString(),
@@ -1649,17 +1685,21 @@ public static partial class ProjectFile
         document.ProjectInformation.DailyRange = dto.Project.DailyRange is { } range && double.IsFinite(range) && range is >= 0 and <= 60 ? range : 20;
         document.ProjectInformation.Latitude = dto.Project.Latitude is { } latitude && double.IsFinite(latitude) && latitude is >= 0 and <= 70 ? latitude : 40;
         document.ProjectInformation.TrueNorth = double.IsFinite(dto.Project.TrueNorth) ? (dto.Project.TrueNorth % 360 + 360) % 360 : 0;
+        if (double.IsFinite(dto.Project.SurveyOffsetX) && double.IsFinite(dto.Project.SurveyOffsetY))
+            document.ProjectInformation.SurveyOffset = new Vector2D(dto.Project.SurveyOffsetX, dto.Project.SurveyOffsetY);
         document.ProjectInformation.DuctRun = ParseEnum(dto.Project.DuctRun, DuctRun.ConditionedSpace);
         document.ProjectInformation.DuctInsulation = dto.Project.DuctInsulation is { } r && double.IsFinite(r) && r is >= 0 and <= 30 ? r : 8;
         document.ProjectInformation.DuctsSealed = dto.Project.DuctsSealed ?? true;
         if (dto.Project.Energy is { } energy) ReadEnergy(energy, document.ProjectInformation.Energy);
+        if (dto.Project.Render is { } render) ReadRender(render, document.ProjectInformation.Render);
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
             document.AddLevel(new Level { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn });
 
         foreach (var material in dto.Materials)
-            document.AddMaterial(new Material(material.Name)
+        {
+            var read = new Material(material.Name)
             {
                 Id = material.Id,
                 Density = material.Density,
@@ -1670,7 +1710,22 @@ public static partial class ProjectFile
                 ClassificationCode = material.ClassificationCode,
                 CostPerCubicMetre = material.CostPerCubicMetre,
                 Keynote = material.Keynote ?? string.Empty
-            });
+            };
+
+            // Its face as saved; a material saved before patterns laid as its name says.
+            if (material.Pattern is null) SurfacePatterns.Settle(read);
+            else
+            {
+                read.Pattern = ParseEnum(material.Pattern, SurfacePattern.None);
+                read.UnitLength = Finite(material.UnitLength, 0, 100000);
+                read.UnitHeight = Finite(material.UnitHeight, 0, 100000);
+                read.JointWidth = Finite(material.JointWidth, 0, 1000);
+                read.JointColour = ParseColour(material.JointColour, new ColourRgb(0xC8, 0xC2, 0xB4));
+                read.Reflectance = Finite(material.Reflectance, 0, 1);
+            }
+
+            document.AddMaterial(read);
+        }
 
         foreach (var type in dto.WallTypes)
         {

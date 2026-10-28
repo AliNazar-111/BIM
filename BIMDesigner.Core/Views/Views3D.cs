@@ -23,7 +23,10 @@ public enum VisualStyle
     Wireframe,
 
     /// <summary>White faces and black edges, those behind hidden: the building as a line drawing.</summary>
-    HiddenLine
+    HiddenLine,
+
+    /// <summary>Lit as Shaded, each face in its material's pattern - brick, boards, slates - at its true size.</summary>
+    Realistic
 }
 
 /// <summary>

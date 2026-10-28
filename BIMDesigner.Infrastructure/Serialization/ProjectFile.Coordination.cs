@@ -12,6 +12,7 @@ public static partial class ProjectFile
 {
     private static void WriteCoordination(BimDocument document, ProjectFileDto dto)
     {
+        WriteIssues(document, dto);
         dto.ClashTests = document.ClashTests.Select(test => new ClashTestDto
         {
             Id = test.Id, Name = test.Name, Kind = test.Kind.ToString(), Tolerance = test.Tolerance, IgnoreHosted = test.IgnoreHosted, LastRun = test.LastRun,
@@ -58,6 +59,7 @@ public static partial class ProjectFile
 
     private static void ReadCoordination(ProjectFileDto dto, BimDocument document)
     {
+        ReadIssues(dto, document);
         static List<BuiltInCategory> Categories(IEnumerable<string>? names) =>
             (names ?? Enumerable.Empty<string>()).Select(name => Enum.TryParse<BuiltInCategory>(name, out var category) ? (BuiltInCategory?)category : null)
                 .OfType<BuiltInCategory>().ToList();

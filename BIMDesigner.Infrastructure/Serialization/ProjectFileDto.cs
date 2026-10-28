@@ -165,6 +165,9 @@ internal sealed class ProjectFileDto
 
     /// <summary>The clash tests and their clashes, the construction programme and the cost plan's additions; none in older files.</summary>
     public List<ClashTestDto>? ClashTests { get; set; }
+
+    /// <summary>The issues raised about the model, BCF topics; none in older files.</summary>
+    public List<IssueDto>? Issues { get; set; }
     public ConstructionScheduleDto? Construction { get; set; }
     public CostSettingsDto? CostSettings { get; set; }
 
@@ -1186,6 +1189,21 @@ internal sealed class ComponentMeshDto
 }
 
 /// <summary>A project's energy settings; none in a file from before.</summary>
+internal sealed class RenderDto
+{
+    public string? Date { get; set; }
+    public string? Time { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? UtcOffset { get; set; }
+    public string? Summer { get; set; }
+    public string? Sky { get; set; }
+    public string? Quality { get; set; }
+    public int Width { get; set; } = 1600;
+    public int Height { get; set; } = 900;
+    public double Exposure { get; set; }
+}
+
 internal sealed class EnergyDto
 {
     public string? Overshading { get; set; }
@@ -1251,8 +1269,15 @@ internal sealed class ProjectInformationDto
     public double? Latitude { get; set; }
     public double TrueNorth { get; set; }
 
+    /// <summary>Where the model's origin is in the coordinates of the IFC it came from, mm east and north; none in older files.</summary>
+    public double SurveyOffsetX { get; set; }
+    public double SurveyOffsetY { get; set; }
+
     /// <summary>What its energy rating takes that the model does not say; none in older files.</summary>
     public EnergyDto? Energy { get; set; }
+
+    /// <summary>How its renderings are made; none in older files.</summary>
+    public RenderDto? Render { get; set; }
 
     /// <summary>Where its ducts run, their insulation and sealing; none in older files.</summary>
     public string? DuctRun { get; set; }
@@ -1327,6 +1352,14 @@ internal sealed class MaterialDto
     public string ClassificationCode { get; set; } = string.Empty;
     public decimal CostPerCubicMetre { get; set; }
     public string? Keynote { get; set; }
+
+    /// <summary>Its face: pattern, units, joints and reflection - no pattern in older files, then guessed from its name.</summary>
+    public string? Pattern { get; set; }
+    public double UnitLength { get; set; }
+    public double UnitHeight { get; set; }
+    public double JointWidth { get; set; }
+    public string? JointColour { get; set; }
+    public double Reflectance { get; set; }
 }
 
 internal sealed class MaterialLayerDto

@@ -176,7 +176,8 @@ public static class Ifc2x3Export
                 context.WorldCoordinateSystem = Placement(0, 0, 0);
                 context.TrueNorth = Direction(0, 1, 0);
             });
-            _origin = New<IfcLocalPlacement>(p => p.RelativePlacement = Placement(0, 0, 0));
+            var survey = _document.ProjectInformation.SurveyOffset;
+            _origin = New<IfcLocalPlacement>(p => p.RelativePlacement = Placement(survey.X, survey.Y, 0));
 
             var information = _document.ProjectInformation;
             var project = New<IfcProject>(p =>

@@ -64,6 +64,24 @@ public sealed class Material
     /// <summary>Colour used where a view cuts through the material, as in a floor plan.</summary>
     public ColourRgb CutColour { get; set; } = new(0x7A, 0x7A, 0x7A);
 
+    // --- Rendering --------------------------------------------------------------
+
+    /// <summary>What its face is laid as - brick in stretcher bond, boards, slates - drawn on it in a realistic view and a rendering.</summary>
+    public SurfacePattern Pattern { get; set; }
+
+    /// <summary>One unit of the pattern, mm: a brick's length and height, a board's length and width, a slate's width and gauge.</summary>
+    public double UnitLength { get; set; }
+
+    public double UnitHeight { get; set; }
+
+    /// <summary>The joint between the units, mm, and its colour - mortar, grout, the gap between boards.</summary>
+    public double JointWidth { get; set; }
+
+    public ColourRgb JointColour { get; set; } = new(0xC8, 0xC2, 0xB4);
+
+    /// <summary>How much of the light it reflects as a mirror would, looked at square on, 0 to 1: matt brick none, glass 0.04 rising at a glancing angle, polished metal more.</summary>
+    public double Reflectance { get; set; }
+
     // --- Identity ---------------------------------------------------------------
 
     public string Manufacturer { get; set; } = string.Empty;
@@ -78,4 +96,39 @@ public sealed class Material
     public decimal CostPerCubicMetre { get; set; }
 
     public override string ToString() => Name;
+
+    /// <summary>The look of its face - its pattern, colours and how it reflects - as one value to copy, compare and put back.</summary>
+    public SurfaceFinish Finish
+    {
+        get => new(SurfaceColour, Pattern, UnitLength, UnitHeight, JointWidth, JointColour, Reflectance);
+        set => (SurfaceColour, Pattern, UnitLength, UnitHeight, JointWidth, JointColour, Reflectance) =
+            (value.Colour, value.Pattern, value.UnitLength, value.UnitHeight, value.JointWidth, value.JointColour, value.Reflectance);
+    }
 }
+
+/// <summary>What a material's face is laid as, so it can be drawn so.</summary>
+public enum SurfacePattern
+{
+    /// <summary>Its colour alone: paint, plastic, glass, what is never seen.</summary>
+    None,
+    Brick,
+    Block,
+    Stone,
+    Render,
+    Concrete,
+    Boards,
+    Tiles,
+    Slate,
+    PlainTiles,
+    InterlockingTiles,
+    StandingSeam,
+    Metal,
+    Grass,
+    Gravel,
+    Paving,
+    Planting
+}
+
+/// <summary>A face's look: its colour, pattern, units and joints, and its reflection.</summary>
+public readonly record struct SurfaceFinish(
+    ColourRgb Colour, SurfacePattern Pattern, double UnitLength, double UnitHeight, double JointWidth, ColourRgb JointColour, double Reflectance);

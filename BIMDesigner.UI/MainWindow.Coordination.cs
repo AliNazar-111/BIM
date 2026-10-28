@@ -92,6 +92,71 @@ public partial class MainWindow : ICoordinationHost
         }
     }
 
+    IssueViewpoint ICoordinationHost.CaptureViewpoint()
+    {
+        if (ModelPanel.Visibility != Visibility.Visible || Model3D.Elevation is not null || _shownWalkthrough is not null) Show3D();
+        Model3D.UpdateLayout();
+        var aspect = Model3D.ActualHeight > 0 ? Model3D.ActualWidth / Model3D.ActualHeight : 16.0 / 9;
+        byte[]? picture = null;
+        try
+        {
+            picture = Png(Model3D.RenderFrame(), 1500);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
+        {
+            // Not drawn yet: the viewpoint goes without its picture.
+        }
+
+        return Issues.ViewOf(Model3D.CurrentCamera(), aspect, Plan.SelectedElements.Select(element => element.Id), Model3D.View.ActiveBox, picture);
+    }
+
+    void ICoordinationHost.ShowViewpoint(IssueViewpoint viewpoint)
+    {
+        if (ModelPanel.Visibility != Visibility.Visible || Model3D.Elevation is not null || _shownWalkthrough is not null) Show3D();
+        var elements = Issues.Selected(_document, viewpoint);
+        var ids = elements.Select(element => element.Id).ToList();
+        if (viewpoint.Camera is { } camera)
+        {
+            // Looking at what it is about, where it is about anything; ten metres ahead where not.
+            var distance = Model3D.BoxAround(ids) is { } around
+                ? Math.Max(1000, Math.Sqrt(Math.Pow((around.Min.X + around.Max.X) / 2 - camera.Eye.X, 2) + Math.Pow((around.Min.Y + around.Max.Y) / 2 - camera.Eye.Y, 2) + Math.Pow((around.Min.Z + around.Max.Z) / 2 - camera.Eye.Z, 2)))
+                : 10000;
+            var shown = camera.ToCamera(distance);
+            var box = viewpoint.Box();
+            ChangeView(view =>
+            {
+                view.Camera = shown;
+                view.Perspective = shown.Perspective;
+                if (box is { } cut) view.SectionBox = cut;
+                view.SectionBoxOn = box is not null;
+            }, "Show Issue");
+        }
+
+        Plan.SelectMany(elements);
+        Model3D.SetSelection(ids);
+        RefreshProperties();
+        StatusHint.Text = viewpoint.Selected.Count == 0 ? "The issue's view." : $"The issue's view: {elements.Count} of the {viewpoint.Selected.Count} elements it is about are in the model.";
+    }
+
+    /// <summary>A picture as a PNG, made smaller where it is bigger than BCF wants.</summary>
+    internal static byte[] Png(BitmapSource picture, int longest)
+    {
+        var scale = Math.Min(1.0, longest / (double)Math.Max(1, Math.Max(picture.PixelWidth, picture.PixelHeight)));
+        BitmapSource sized = scale < 1 ? new TransformedBitmap(picture, new System.Windows.Media.ScaleTransform(scale, scale)) : picture;
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(sized));
+        using var stream = new MemoryStream();
+        encoder.Save(stream);
+        return stream.ToArray();
+    }
+
+    private IssuesWindow? _issuesWindow;
+
+    private void OnIssues(object sender, RoutedEventArgs e) => Open(ref _issuesWindow, () => new IssuesWindow(this), this);
+
+    /// <summary>The Issues window, opened or brought forward.</summary>
+    internal IssuesWindow OpenIssues() => Open(ref _issuesWindow, () => new IssuesWindow(this), this);
+
     void ICoordinationHost.Select(IEnumerable<Element> elements)
     {
         var list = elements.ToList();

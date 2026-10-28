@@ -1053,12 +1053,22 @@
                                              ToolTip="Click along a path and double-click where it ends: a camera follows it at eye height, played in the 3D view"/>
                                 <RadioButton x:Name="SectionTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Section}"
                                              Content="Section" Checked="OnToolChanged" ToolTip="Cut a section through the building (C)"/>
-                                <ToggleButton x:Name="SectionMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Plan}"
-                                              Content="Section View" Click="OnToggleSection" ToolTip="Show or hide the section under the plan"/>
-                                <ToggleButton x:Name="ScheduleMenuItem" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Schedule}"
-                                              Content="Schedules" Click="OnToggleSchedules" ToolTip="Ctrl+T"/>
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Takeoff}"
-                                        Content="Material Takeoff" Click="OnShowTakeoff"/>
+                                <StackPanel>
+                                    <ToggleButton x:Name="SectionMenuItem" Style="{StaticResource RibbonSmallToggle}" Tag="{StaticResource Icon.Plan}"
+                                                  Content="Section View" Click="OnToggleSection" ToolTip="Show or hide the section under the plan"/>
+                                    <ToggleButton x:Name="ScheduleMenuItem" Style="{StaticResource RibbonSmallToggle}" Tag="{StaticResource Icon.Schedule}"
+                                                  Content="Schedules" Click="OnToggleSchedules" ToolTip="Ctrl+T"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Takeoff}"
+                                            Content="Material Takeoff" Click="OnShowTakeoff"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Presentation" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Render}"
+                                        Content="Render" Click="OnRender"
+                                        ToolTip="A rendering of the 3D view as it looks: the sun where it is at the site on the date and time set, its shadows, the sky's light, glass and reflections, each face in its material's pattern - saved as PNG"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -1099,6 +1109,9 @@
                                         Content="Wall Types" Click="OnManageWallTypes"/>
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Level}"
                                         Content="Levels" Click="OnManageLevels"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Materials}"
+                                        Content="Materials" Click="OnMaterials"
+                                        ToolTip="The project's materials: their colours, and the pattern each face is laid in - brick, block, stone, boards, tiles, slates, standing seams - at its true size, for the Realistic style and renderings"/>
                                 <ToggleButton x:Name="DarkThemeToggle" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Theme}"
                                               Content="Dark Theme" Click="OnToggleDarkTheme"
                                               ToolTip="Light or dark. Takes effect the next time BIMDesigner starts."/>
@@ -1174,6 +1187,14 @@
                                             Content="Run All Tests" Click="OnRunClashTests"
                                             ToolTip="Run every clash test now: what is found again keeps its status, what is gone is resolved"/>
                                 </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Issues" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Issues}"
+                                        Content="Issues" Click="OnIssues"
+                                        ToolTip="Issues raised about the model - from the 3D view as it is, from clashes, or brought in from other programs as BCF 2.0, 2.1 or 3.0 - each with its views, the elements it is about, its status, who has it, by when and what has been said; sent back out as BCF"/>
                             </StackPanel>
                         </HeaderedContentControl>
 

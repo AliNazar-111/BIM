@@ -448,7 +448,9 @@ public static partial class IfcExport
                 context.TrueNorth = Direction(0, 1, 0);
             });
 
-            _origin = New<IfcLocalPlacement>(placement => placement.RelativePlacement = Placement(Point3D(0, 0, 0)));
+            // Everything is placed from here: the origin, or - for a model brought in from a national grid - back where it was set out.
+            var survey = _document.ProjectInformation.SurveyOffset;
+            _origin = New<IfcLocalPlacement>(placement => placement.RelativePlacement = Placement(Point3D(survey.X, survey.Y, 0)));
 
             var information = _document.ProjectInformation;
 

@@ -333,7 +333,7 @@ public static class Projections
     private static ColourRgb Colour(Mesh3D mesh, Point3D a, Point3D b, Point3D c, VisualStyle style)
     {
         if (style == VisualStyle.HiddenLine) return mesh.Cut ? new ColourRgb(0x80, 0x80, 0x80) : new ColourRgb(0xFF, 0xFF, 0xFF);
-        if (style != VisualStyle.Shaded) return mesh.Colour;
+        if (style is not (VisualStyle.Shaded or VisualStyle.Realistic)) return mesh.Colour;
 
         // A sun over the left shoulder, as the 3D view is lit.
         var normal = Camera3D.Unit(Camera3D.Cross(Camera3D.Minus(b, a), Camera3D.Minus(c, a)), new Point3D(0, 0, 1));
