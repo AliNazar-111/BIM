@@ -369,7 +369,7 @@ public static class ConstructionPlanning
     private static readonly BuiltInCategory[] SecondFix =
     {
         BuiltInCategory.PlumbingFixtures, BuiltInCategory.MechanicalEquipment, BuiltInCategory.ElectricalEquipment, BuiltInCategory.ElectricalFixtures,
-        BuiltInCategory.LightingFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.FireAlarmDevices, BuiltInCategory.AirTerminals
+        BuiltInCategory.LightingFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.FireAlarmDevices, BuiltInCategory.AirTerminals, BuiltInCategory.Sprinklers
     };
 
     private static readonly BuiltInCategory[] Fittings =

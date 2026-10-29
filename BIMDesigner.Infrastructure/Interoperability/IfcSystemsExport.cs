@@ -474,6 +474,7 @@ public static partial class IfcExport
             SystemKind.SupplyAir or SystemKind.OutsideAir => IfcDistributionSystemEnum.VENTILATION,
             SystemKind.Power => IfcDistributionSystemEnum.ELECTRICAL,
             SystemKind.Switching => IfcDistributionSystemEnum.CONTROL,
+            SystemKind.Sprinkler => IfcDistributionSystemEnum.FIREPROTECTION,
             _ => IfcDistributionSystemEnum.SIGNAL
         };
     }

@@ -150,6 +150,8 @@ internal sealed class SystemsWindow : System.Windows.Window
             : $"{systems.Count} system{(systems.Count == 1 ? string.Empty : "s")}; {open.Count} fitting{(open.Count == 1 ? string.Empty : "s")} not connected; {problems.Count} thing{(problems.Count == 1 ? string.Empty : "s")} wanting." +
               (pipes.Count > 0 ? $" {Core.Units.Metres(pipes.Sum(pipe => pipe.Length), "0.0")} of pipe." : string.Empty) +
               (document.ProjectInformation.ClearanceStandard.IsUs() ? string.Empty : $"\nWater use: {WaterUse.Assess(document).Said}.") +
+              string.Concat(systems.Where(system => system.Kind == SystemKind.Gas).Select(system => $"\n{system.Name}: {GasPipes.Summary(document, system)}.")) +
+              string.Concat(systems.Where(system => system.Kind == SystemKind.Sprinkler).Select(system => $"\n{system.Name}: {Sprinklers.Summary(document, system)}.")) +
               (Ventilation.Designed(document) && Ventilation.WholeDwelling(document) is var (whole, _, _)
                   ? Ventilation.TypeOf(document) switch
                   {

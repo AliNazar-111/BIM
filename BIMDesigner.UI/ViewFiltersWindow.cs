@@ -35,7 +35,7 @@ public sealed class ViewFiltersWindow : System.Windows.Window
         BuiltInCategory.Columns, BuiltInCategory.StructuralFraming, BuiltInCategory.Stairs, BuiltInCategory.Ramps, BuiltInCategory.Railings, BuiltInCategory.Rooms,
         BuiltInCategory.Furniture, BuiltInCategory.Casework, BuiltInCategory.PlumbingFixtures, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.LightingFixtures,
         BuiltInCategory.LightingDevices, BuiltInCategory.ElectricalFixtures, BuiltInCategory.ElectricalEquipment, BuiltInCategory.MechanicalEquipment,
-        BuiltInCategory.FireAlarmDevices, BuiltInCategory.Chimneys, BuiltInCategory.RoofWindows, BuiltInCategory.Planting, BuiltInCategory.GenericModels
+        BuiltInCategory.FireAlarmDevices, BuiltInCategory.Sprinklers, BuiltInCategory.Chimneys, BuiltInCategory.RoofWindows, BuiltInCategory.Planting, BuiltInCategory.GenericModels
     };
 
     /// <summary>The colours a filter can give what it picks out.</summary>

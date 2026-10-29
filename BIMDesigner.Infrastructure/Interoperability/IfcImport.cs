@@ -1350,6 +1350,7 @@ public static class IfcImport
             IfcDistributionSystemEnum.DRAINAGE or IfcDistributionSystemEnum.SEWAGE or IfcDistributionSystemEnum.WASTEWATER or IfcDistributionSystemEnum.DISPOSAL => SystemKind.Foul,
             IfcDistributionSystemEnum.RAINWATER or IfcDistributionSystemEnum.STORMWATER => SystemKind.Rainwater,
             IfcDistributionSystemEnum.GAS or IfcDistributionSystemEnum.FUEL => SystemKind.Gas,
+            IfcDistributionSystemEnum.FIREPROTECTION => SystemKind.Sprinkler,
             IfcDistributionSystemEnum.EXHAUST => SystemKind.ExtractAir,
             IfcDistributionSystemEnum.VENTILATION or IfcDistributionSystemEnum.AIRCONDITIONING => SystemKind.SupplyAir,
             _ => KindFromName($"{system.Name} {system.LongName}".ToLowerInvariant())
@@ -1362,6 +1363,7 @@ public static class IfcImport
             : name.Contains("heating") || name.Contains("lthw") || name.Contains("radiator") ? SystemKind.Heating
             : name.Contains("rain") || name.Contains("storm") ? SystemKind.Rainwater
             : name.Contains("soil") || name.Contains("waste") || name.Contains("foul") || name.Contains("sanitary") || name.Contains("drain") ? SystemKind.Foul
+            : name.Contains("sprinkler") || name.Contains("fire protection") ? SystemKind.Sprinkler
             : name.Contains("gas") ? SystemKind.Gas
             : name.Contains("extract") || name.Contains("exhaust") ? SystemKind.ExtractAir
             : name.Contains("supply air") || name.Contains("ventilation") ? SystemKind.SupplyAir

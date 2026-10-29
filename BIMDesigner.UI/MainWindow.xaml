@@ -629,18 +629,18 @@
                         <HeaderedContentControl Header="Fittings" Style="{StaticResource RibbonPanel}">
                             <Button x:Name="FittingButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Fitting}"
                                     Content="Fitting" Click="OnPlaceFitting"
-                                    ToolTip="Place a fitting of the services: a basin, WC, bath, shower or sink; a radiator, underfloor heating, boiler, heat pump, cylinder, stop valve or gas meter; a socket, switch, light, consumer unit or alarm. Each has its connectors - hot and cold, waste, flow and return, power - to join systems by"/>
+                                    ToolTip="Place a fitting of the services: a basin, WC, bath, shower or sink; a radiator, underfloor heating, boiler, heat pump, cylinder, stop valve or gas meter; a gas cooker, fire, water heater or dryer; a sprinkler or its valve set; a socket, switch, light, consumer unit or alarm. Each has its connectors - hot and cold, waste, flow and return, power - to join systems by"/>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Piping" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <RadioButton x:Name="PipeTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Pipe}"
                                              Content="Pipe" Checked="OnToolChanged"
-                                             ToolTip="Pipe: click a fitting's connector, the end of a pipe or a point along one, then where the pipe goes. It runs level at the height on the option bar, rises or drops to the fitting or pipe it ends at, and puts the fitting on its system. Copper, PE-X, stainless or galvanised steel, in their sizes"/>
+                                             ToolTip="Pipe: click a fitting's connector, the end of a pipe or a point along one, then where the pipe goes. It runs level at the height on the option bar, rises or drops to the fitting or pipe it ends at, and puts the fitting on its system. Copper, PE-X, stainless or galvanised steel, in their sizes - and for gas in the US, Schedule 40 steel"/>
                                 <StackPanel>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SizePipes}"
                                             Content="Size Pipes" Click="OnSizePipes"
-                                            ToolTip="Size the pipes: cold and hot water as BS EN 806-3 asks - each section by the loading units of the draw-offs beyond it, read off Table 3 for its material - and heating for the heat beyond each, the water kept to 1.0 m/s and 300 Pa a metre"/>
+                                            ToolTip="Size the pipes: cold and hot water as BS EN 806-3 asks - each section by the loading units of the draw-offs beyond it, read off Table 3 for its material - heating for the heat beyond each, the water kept to 1.0 m/s and 300 Pa a metre; and gas for the appliances beyond each, within BS 6891's 1 mbar from the meter to every appliance - in the US by the IRC's branch length method on Table G2413.4(1); and sprinklers so the valve set's supply gives the most demanding room's sprinklers their listed flow"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pipe}"
                                             Content="Long Section" Click="OnDrainSection"
                                             ToolTip="Select a drain below the ground, then see its run from its head to its outfall: the ground over it, its inverts and gradients, its sizes, and each access point's cover level, invert and depth"/>
@@ -703,7 +703,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="MakeSystemButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.MakeSystem}"
                                         Content="Make System" Click="OnMakeSystem"
-                                        ToolTip="Select fittings, then make a system of them: cold or hot water, a heating zone, foul water, gas, extract air, a circuit or the alarms' interlink. What feeds it - a boiler, cylinder, stop valve, gas meter or consumer unit - is picked with them, or found if the model has only one"/>
+                                        ToolTip="Select fittings, then make a system of them: cold or hot water, a heating zone, foul water, gas, fire sprinklers, extract air, a circuit or the alarms' interlink. What feeds it - a boiler, cylinder, stop valve, gas meter, sprinkler valve set or consumer unit - is picked with them, or found if the model has only one"/>
                                 <StackPanel>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EditSystem}"
                                             Content="Edit System" Click="OnEditSystem"

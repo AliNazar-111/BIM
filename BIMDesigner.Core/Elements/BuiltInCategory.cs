@@ -136,7 +136,10 @@ public enum BuiltInCategory
     ModelGroups,
 
     /// <summary>Drawings brought in from DWG or DXF files to work over: underlays, not built.</summary>
-    ImportedDrawings
+    ImportedDrawings,
+
+    /// <summary>Fire sprinklers: the heads in the ceilings and the valve set their supply comes in by.</summary>
+    Sprinklers
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

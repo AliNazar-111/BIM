@@ -1074,6 +1074,15 @@ internal sealed class ComponentTypeDto
 
     /// <summary>A heat pump's cooling capacity, W; none in a file from before, or where it only heats.</summary>
     public double? CoolingOutput { get; set; }
+
+    /// <summary>What a gas appliance takes in as gas, W gross; none for one that burns none - or in a file from before, where a template type takes its own.</summary>
+    public double? GasInput { get; set; }
+
+    /// <summary>A sprinkler's listing - the side of the square it covers, mm, its K-factor, l/min/bar½, and its temperature rating, °C - and a sprinkler valve set's supply pressure, bar.</summary>
+    public double? Coverage { get; set; }
+    public double? KFactor { get; set; }
+    public double? Temperature { get; set; }
+    public double? SupplyPressure { get; set; }
     public double? HeatExponent { get; set; }
     public double? FloorOutput { get; set; }
     public double? FloorOutputLimit { get; set; }

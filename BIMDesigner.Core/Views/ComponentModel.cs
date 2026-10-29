@@ -1071,6 +1071,34 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.Sprinkler:
+            {
+                // Its escutcheon against the ceiling, its body down through it, and its deflector at the foot.
+                Add(-halfW, halfW, -halfD, halfD, h - 8, h, PartFinish.White, PartShape.Upright);
+                Add(-10, 10, -10, 10, 8, h - 8, PartFinish.Body, PartShape.Upright);
+                Add(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 0, 8, PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.SprinklerValve:
+            {
+                // The valve set on the wall, its gauge facing out, and its main up out of the top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-w * 0.15, w * 0.15, halfD - 1, halfD + 10, h * 0.6, h * 0.6 + w * 0.3, PartFinish.White, PartShape.Facing);
+                Add(-16, 16, -16, 16, h, h + 80, PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.GasFire:
+            {
+                // Its hearth across the floor in front, the fire against the breast on it, and the dark of its fire in its face.
+                var fire = FireDepth(type);
+                Add(-halfW, halfW, -halfD, halfD, 0, 30, PartFinish.White);
+                Add(-halfW * 0.8, halfW * 0.8, -halfD, -halfD + fire, 30, h);
+                Add(-halfW * 0.5, halfW * 0.5, -halfD + fire - 1, -halfD + fire, 30 + h * 0.12, h * 0.65, PartFinish.Dark);
+                break;
+            }
+
             case ComponentForm.HeatPump:
             {
                 // Its casing on two feet, and the fan's grille in the front of it.
@@ -1327,7 +1355,7 @@ public static class ComponentModel
             {
                 ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub or ComponentForm.CeilingLight or ComponentForm.RoundTable
                     or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.TurningCircle
-                    or ComponentForm.HotWaterCylinder or ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal =>
+                    or ComponentForm.HotWaterCylinder or ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.Sprinkler =>
                     frame.Ellipse(-halfW, halfW, -halfD, halfD, 32),
                 ComponentForm.CornerSofa => CornerOf(type) is var (run, turn)
                     ? new[] { frame.Plan(-halfW, -halfD), frame.Plan(halfW, -halfD), frame.Plan(halfW, halfD), frame.Plan(halfW - turn, halfD), frame.Plan(halfW - turn, -halfD + run), frame.Plan(-halfW, -halfD + run) }
@@ -1499,6 +1527,21 @@ public static class ComponentModel
             case ComponentForm.HotWaterCylinder:
                 // The pipe out of its top.
                 shapes.Add(frame.Ellipse(-14, 14, -14, 14, 12));
+                break;
+
+            case ComponentForm.Sprinkler:
+                // Its deflector within its escutcheon.
+                shapes.Add(frame.Ellipse(-halfW * 0.4, halfW * 0.4, -halfD * 0.4, halfD * 0.4, 12));
+                break;
+
+            case ComponentForm.SprinklerValve:
+                // Its main up out of its top, seen from above.
+                shapes.Add(frame.Ellipse(-16, 16, -16, 16, 12));
+                break;
+
+            case ComponentForm.GasFire:
+                // The fire against the breast, its hearth in front of it.
+                Inside(-halfW * 0.8, halfW * 0.8, -halfD, -halfD + FireDepth(type));
                 break;
 
             case ComponentForm.HeatPump:
@@ -1803,7 +1846,9 @@ public static class ComponentModel
         ComponentForm.ConsumerUnit => "CU",
         ComponentForm.Thermostat => "T",
         ComponentForm.Boiler => "B",
-        ComponentForm.HotWaterCylinder => "HWC",
+        ComponentForm.GasFire => "GF",
+        ComponentForm.SprinklerValve => "SVS",
+        ComponentForm.HotWaterCylinder => type.BurnsGas ? "WH" : "HWC",
         ComponentForm.StopValve => "SV",
         ComponentForm.GasMeter => "GM",
         ComponentForm.DrainAccess => type.Access switch
@@ -1839,7 +1884,10 @@ public static class ComponentModel
         type.Form is not (ComponentForm.CeilingLight or ComponentForm.WallLight or ComponentForm.Socket or ComponentForm.Switch
             or ComponentForm.ExtractFan or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm
             or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler
-            or ComponentForm.StopValve or ComponentForm.GasMeter);
+            or ComponentForm.StopValve or ComponentForm.GasMeter or ComponentForm.Sprinkler or ComponentForm.SprinklerValve);
+
+    /// <summary>How far a gas fire stands out from the wall behind its hearth, mm.</summary>
+    public static double FireDepth(ComponentType type) => Math.Min(150, type.Depth * 0.5);
 
     /// <summary>How high a WC's seat is: 420 or so, as a WC's is - the ADA's 17 to 19 in, 430 to 485, on an accessible one made taller.</summary>
     public static double SeatOf(ComponentType type) => Math.Min(type.Height * 0.55, 420);
@@ -1899,9 +1947,9 @@ public static class ComponentModel
     /// <summary>How wide a person is across the body either side of the middle, and how thick an arm is.</summary>
     private static (double Torso, double Arm) PersonOf(ComponentType type) => (type.Width * 0.36, type.Width * 0.1);
 
-    /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, or a smoke, heat or carbon monoxide alarm.</summary>
+    /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, a smoke, heat or carbon monoxide alarm, or a sprinkler.</summary>
     public static bool HangsFromCeiling(ComponentType type) =>
-        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm;
+        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.Sprinkler;
 
     /// <summary>An armchair's arms and back, how thick, and the height of its seat - 450 or so on a 950 chair.</summary>
     private static (double Arm, double Back, double Seat) ArmchairOf(ComponentType type) =>

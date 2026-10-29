@@ -49,6 +49,7 @@ public static class CadLayers
             SystemKind.Foul => "P-SANR-PIPE",
             SystemKind.Rainwater => "P-STRM-PIPE",
             SystemKind.Gas => "P-GAS",
+            SystemKind.Sprinkler => "F-SPRN-PIPE",
             _ => "P-PIPE"
         },
         Column { Structural: true } => "S-COLS",
@@ -93,6 +94,7 @@ public static class CadLayers
             BuiltInCategory.ElectricalEquipment => "E-POWR-EQPM",
             BuiltInCategory.ElectricalCircuits => "E-POWR-CIRC",
             BuiltInCategory.FireAlarmDevices => "E-FIRE",
+            BuiltInCategory.Sprinklers => "F-SPRN",
             BuiltInCategory.Topography or BuiltInCategory.Pads => "C-TOPO",
             BuiltInCategory.SpotElevations => "C-TOPO-SPOT",
             BuiltInCategory.PropertyLines => "C-PROP-LINE",

@@ -23,7 +23,10 @@ public enum PipeMaterial
     PexCts,
 
     /// <summary>PVC drain, waste and vent pipe to ASTM D2665, Schedule 40, in the US's nominal inches: for drainage, not water.</summary>
-    PvcDwv
+    PvcDwv,
+
+    /// <summary>Black steel pipe to ASTM A53, Schedule 40, in the US's nominal inches - threaded and malleable-iron fitted: for gas, not water.</summary>
+    SteelSchedule40
 }
 
 public static class PipeMaterials
@@ -34,6 +37,7 @@ public static class PipeMaterials
         PipeMaterial.CopperTypeL => PipeMaterial.Copper,
         PipeMaterial.PexCts => PipeMaterial.PeX,
         PipeMaterial.PvcDwv => PipeMaterial.PvcU,
+        PipeMaterial.SteelSchedule40 => PipeMaterial.GalvanisedSteel,
         _ => material
     };
 
@@ -109,6 +113,14 @@ public static class PipeSizes
         Inches("4\"", 4.500, 4.026), Inches("6\"", 6.625, 6.065)
     };
 
+    // Schedule 40 steel pipe (ASTM A53, ASME B36.10M), named by its nominal inches: its outside, and its bore -
+    // the actual inside diameters the IRC's Table G2413.4(1) heads its columns with.
+    private static readonly PipeSize[] SteelSchedule40Sizes =
+    {
+        Inches("1/2\"", 0.840, 0.622), Inches("3/4\"", 1.050, 0.824), Inches("1\"", 1.315, 1.049), Inches("1-1/4\"", 1.660, 1.380),
+        Inches("1-1/2\"", 1.900, 1.610), Inches("2\"", 2.375, 2.067), Inches("2-1/2\"", 2.875, 2.469), Inches("3\"", 3.500, 3.068)
+    };
+
     /// <summary>PVC-U's sizes by their nominal bore - what Approved Document H sizes traps, branches, stacks and drains by - with their outside diameters.</summary>
     private static readonly PipeSize[] PvcSizes =
     {
@@ -124,6 +136,7 @@ public static class PipeSizes
         PipeMaterial.CopperTypeL => CopperTypeLSizes,
         PipeMaterial.PexCts => PexCtsSizes,
         PipeMaterial.PvcDwv => PvcDwvSizes,
+        PipeMaterial.SteelSchedule40 => SteelSchedule40Sizes,
         _ => SteelSizes
     };
 
@@ -146,8 +159,8 @@ public static class PipeSizes
         PipeSizingColumn Column(int size, int load, int? highest = null, double? length = null) => new(sizes[size], load, highest, length);
         return material switch
         {
-            // Drain pipe, and the US's copper tube sizes, which the IRC sizes instead.
-            PipeMaterial.PvcU or PipeMaterial.CopperTypeL or PipeMaterial.PexCts or PipeMaterial.PvcDwv => Array.Empty<PipeSizingColumn>(),
+            // Drain pipe, the US's copper tube sizes, which the IRC sizes instead, and gas pipe.
+            PipeMaterial.PvcU or PipeMaterial.CopperTypeL or PipeMaterial.PexCts or PipeMaterial.PvcDwv or PipeMaterial.SteelSchedule40 => Array.Empty<PipeSizingColumn>(),
             PipeMaterial.GalvanisedSteel => new[]
             {
                 Column(0, 6, 4, 10), Column(1, 16, 15, 6), Column(2, 40), Column(3, 160), Column(4, 300), Column(5, 600), Column(6, 1600)
@@ -242,7 +255,8 @@ public sealed class PipeType : ElementType
         new PipeType("PVC-U Drain - BS EN 1401", PipeMaterial.PvcU) { TypeMark = "PI6", AssemblyCode = "G3020", Cost = 45m },
         new PipeType("Copper - Type L (ASTM B88)", PipeMaterial.CopperTypeL) { TypeMark = "PI7", AssemblyCode = "D2020", Cost = 26m },
         new PipeType("PEX - CTS SDR 9 (ASTM F876)", PipeMaterial.PexCts) { TypeMark = "PI8", AssemblyCode = "D2020", Cost = 9m },
-        new PipeType("PVC DWV - Schedule 40 (ASTM D2665)", PipeMaterial.PvcDwv) { TypeMark = "PI9", AssemblyCode = "D2030", Cost = 14m }
+        new PipeType("PVC DWV - Schedule 40 (ASTM D2665)", PipeMaterial.PvcDwv) { TypeMark = "PI9", AssemblyCode = "D2030", Cost = 14m },
+        new PipeType("Steel - Schedule 40 Black (ASTM A53)", PipeMaterial.SteelSchedule40) { TypeMark = "PI10", AssemblyCode = "D2090", Cost = 24m }
     };
 
     public static string Title(PipeMaterial material) => material switch
@@ -254,6 +268,7 @@ public sealed class PipeType : ElementType
         PipeMaterial.CopperTypeL => "Copper Type L",
         PipeMaterial.PexCts => "PEX (CTS)",
         PipeMaterial.PvcDwv => "PVC DWV",
+        PipeMaterial.SteelSchedule40 => "Steel Sch 40",
         _ => "Copper"
     };
 

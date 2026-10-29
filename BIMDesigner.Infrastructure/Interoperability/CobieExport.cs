@@ -301,7 +301,7 @@ public static class CobieExport
     private static (string Code, string Title) Uniclass(Core.Mep.SystemKind kind) => kind switch
     {
         Core.Mep.SystemKind.Foul or Core.Mep.SystemKind.Rainwater => ("EF_50", "Waste disposal functions"),
-        Core.Mep.SystemKind.ColdWater or Core.Mep.SystemKind.HotWater or Core.Mep.SystemKind.Gas => ("EF_55", "Piped supply functions"),
+        Core.Mep.SystemKind.ColdWater or Core.Mep.SystemKind.HotWater or Core.Mep.SystemKind.Gas or Core.Mep.SystemKind.Sprinkler => ("EF_55", "Piped supply functions"),
         Core.Mep.SystemKind.Heating => ("EF_60", "Heating, cooling and refrigeration functions"),
         Core.Mep.SystemKind.ExtractAir or Core.Mep.SystemKind.SupplyAir or Core.Mep.SystemKind.OutsideAir => ("EF_65", "Ventilation and air conditioning functions"),
         Core.Mep.SystemKind.FireAlarm => ("EF_75", "Communications, security, safety, control and protection functions"),
@@ -332,6 +332,7 @@ public static class CobieExport
         BuiltInCategory.ElectricalEquipment => ("Electrical distribution", "EF_70"),
         BuiltInCategory.MechanicalEquipment => ("Heating", "EF_60"),
         BuiltInCategory.FireAlarmDevices => ("Fire detection and alarm", "EF_75"),
+        BuiltInCategory.Sprinklers => ("Fire sprinklers", "EF_55"),
         BuiltInCategory.PlumbingFixtures => ("Sanitary", "EF_55"),
         _ => null
     };

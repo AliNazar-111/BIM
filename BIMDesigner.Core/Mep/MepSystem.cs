@@ -142,6 +142,10 @@ public sealed class MepSystem : Element
             });
             yield return ParameterValue.ReadOnly(MepSystemParameters.HeatLoad, () => Heating.Describe(document, this));
         }
+        if (Kind == SystemKind.Gas)
+            yield return ParameterValue.ReadOnly(MepSystemParameters.GasLoad, () => GasPipes.Summary(document, this));
+        if (Kind == SystemKind.Sprinkler)
+            yield return ParameterValue.ReadOnly(MepSystemParameters.SprinklerDesign, () => Sprinklers.Summary(document, this));
         yield return ParameterValue.ReadOnly(MepSystemParameters.Source, () => MepSystems.Describe(document, MepSystems.SourceOf(document, this)) ?? "<none>");
         yield return ParameterValue.ReadOnly(MepSystemParameters.Fittings, () => (double)MepSystems.MembersOf(document, this).Count);
         yield return ParameterValue.ReadOnly(MepSystemParameters.RoomsServed, () => string.Join(", ", MepSystems.RoomsServed(document, this)));
@@ -193,6 +197,8 @@ public static class MepSystemParameters
     public static readonly ParameterDefinition FlowTemperatureF = new("Flow Temperature (°F)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition ReturnTemperatureF = new("Return Temperature (°F)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition HeatLoad = new("Heat Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition GasLoad = new("Gas Load", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition SprinklerDesign = new("Sprinkler Design", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     // A circuit's breaker, protection and cable, and what they come to.
     public static readonly ParameterDefinition Breaker = new("Breaker (A)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Constraints);

@@ -29,7 +29,7 @@ public partial class MainWindow
     private static readonly BuiltInCategory[] ServiceCategories =
     {
         BuiltInCategory.PlumbingFixtures, BuiltInCategory.Drainage, BuiltInCategory.MechanicalEquipment, BuiltInCategory.AirTerminals, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.ElectricalEquipment,
-        BuiltInCategory.ElectricalFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.LightingFixtures, BuiltInCategory.FireAlarmDevices
+        BuiltInCategory.ElectricalFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.LightingFixtures, BuiltInCategory.FireAlarmDevices, BuiltInCategory.Sprinklers
     };
 
     /// <summary>The Fitting button: a menu of the fittings with services, by category - picking one starts placing it.</summary>
@@ -168,7 +168,7 @@ public partial class MainWindow
         ShowPipeOptions();
     }
 
-    /// <summary>Size Pipes: every cold and hot water pipe - of the systems selected, or all of them - sized as BS EN 806-3 asks, or in the US the IRC's Appendix AP, as one step.</summary>
+    /// <summary>Size Pipes: every cold and hot water, heating and gas pipe - of the systems selected, or all of them - sized as BS EN 806-3, its heat and BS 6891 ask, or in the US the IRC's Appendix AP and branch length method, as one step.</summary>
     private void OnSizePipes(object sender, RoutedEventArgs e)
     {
         var picked = Plan.SelectedElements.OfType<MepSystem>()
@@ -184,8 +184,8 @@ public partial class MainWindow
         {
             StatusHint.Text = !_document.All<Pipe>().Any() ? "There are no pipes yet: draw them with Pipe, from the fittings to what feeds them."
                 : water?.Beyond is { } beyond ? $"The water pipes cannot be sized by the IRC's Appendix AP: {beyond}."
-                : us ? "Every water pipe traced from its source is the size the IRC's Appendix AP asks already."
-                : "Every water pipe traced from its source is the size BS EN 806-3 asks already.";
+                : us ? "Every pipe traced from its source is the size the IRC asks already: water by Appendix AP, gas by the branch length method."
+                : "Every pipe traced from its source is the size it needs already: water by BS EN 806-3, heating by its heat, gas by BS 6891.";
             return;
         }
 
@@ -193,8 +193,8 @@ public partial class MainWindow
         StatusHint.Text = us
             ? $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the IRC's Appendix AP - the water-supply fixture units beyond each (Table P2903.6) read off Table AP201.1"
               + (water is { Beyond: null } ? $" at {water.Pressure:0} psi at the highest outlet and {water.DevelopedFeet:0} ft developed to the furthest fixture ({water.Where})" : string.Empty)
-              + "; heating by the heat beyond each."
-            : $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre.";
+              + "; heating by the heat beyond each; gas by the IRC's branch length method on Table G2413.4(1)."
+            : $"{sized.Count} pipe{(sized.Count == 1 ? string.Empty : "s")} sized: water by the loading units of the draw-offs beyond each, as BS EN 806-3 asks; heating by the heat beyond each, within 1.0 m/s and 300 Pa a metre; gas within BS 6891's 1 mbar from the meter to each appliance.";
     }
 
     private const string DuctSizeFromFitting = "As the spigot";

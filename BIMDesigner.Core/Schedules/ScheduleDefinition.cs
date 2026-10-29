@@ -322,6 +322,7 @@ public sealed class ScheduleDefinition
         RoomByRoom("Electrical Equipment Schedule", BuiltInCategory.ElectricalEquipment),
         RoomByRoom("Mechanical Equipment Schedule", BuiltInCategory.MechanicalEquipment),
         RoomByRoom("Fire Alarm Device Schedule", BuiltInCategory.FireAlarmDevices),
+        RoomByRoom("Sprinkler Schedule", BuiltInCategory.Sprinklers),
 
         // The drawing set: every sheet by its number, with its revision and when it was issued -
         // the list that goes on the front sheet, kept from the sheets themselves.

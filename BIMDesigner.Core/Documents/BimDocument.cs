@@ -436,7 +436,7 @@ public sealed class BimDocument
                      FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
                      // The US's copper tube sizes came later: a project from before gains their pipe types by name.
-                     Mep.PipeType { Material: Mep.PipeMaterial.CopperTypeL or Mep.PipeMaterial.PexCts or Mep.PipeMaterial.PvcDwv } => !_types.Values.OfType<Mep.PipeType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     Mep.PipeType { Material: Mep.PipeMaterial.CopperTypeL or Mep.PipeMaterial.PexCts or Mep.PipeMaterial.PvcDwv or Mep.PipeMaterial.SteelSchedule40 } => !_types.Values.OfType<Mep.PipeType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      // And the US's ducts in inches.
                      Mep.DuctType { Inches: true } => !_types.Values.OfType<Mep.DuctType>().Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      // Feet and inches came later: a project from before gains the style by name.
@@ -1955,6 +1955,12 @@ public sealed class BimDocument
                 { TypeMark = "A4", Colour = timber, Cost = 650m },
             new ComponentType("Range Cooker - 1000", BuiltInCategory.SpecialtyEquipment, ComponentForm.Cooker, 1000, 600, 900)
                 { TypeMark = "A5", Colour = enamel, Cost = 1200m },
+            // Gas ones: a cooker on its bayonet - its hob's four burners, its oven and grill together - and the US's
+            // freestanding range at the IRC's estimate for one (Table G2413.2), its dryer at its label's input.
+            new ComponentType("Cooker - Gas 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Cooker, 600, 600, 900)
+                { TypeMark = "A12", Colour = timber, Cost = 600m, GasInput = 11000, Description = "Its gross heat input, hob, oven and grill together, from its maker's data" },
+            new ComponentType("Range - Gas 30 in", BuiltInCategory.SpecialtyEquipment, ComponentForm.Cooker, 762, 711, 914)
+                { TypeMark = "A13", Colour = stainless, Cost = 900m, GasInput = 65_000 / Units.BtuPerHourPerWatt, Description = "65,000 Btu/h, the IRC's estimate for a freestanding range - its label's where known" },
             new ComponentType("Dishwasher - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.Dishwasher, 600, 600, 900)
                 { TypeMark = "A6", Colour = timber, Cost = 380m, WaterPerUse = 0.77 },
             new ComponentType("Dishwasher - Slimline 450", BuiltInCategory.SpecialtyEquipment, ComponentForm.Dishwasher, 450, 600, 900)
@@ -1963,6 +1969,8 @@ public sealed class BimDocument
                 { TypeMark = "A8", Colour = timber, Cost = 400m, WaterPerUse = 6.25 },
             new ComponentType("Tumble Dryer - 600", BuiltInCategory.SpecialtyEquipment, ComponentForm.TumbleDryer, 600, 600, 900)
                 { TypeMark = "A9", Colour = timber, Cost = 420m },
+            new ComponentType("Dryer - Gas 27 in", BuiltInCategory.SpecialtyEquipment, ComponentForm.TumbleDryer, 686, 762, 991)
+                { TypeMark = "A14", Colour = white, Cost = 750m, GasInput = 22_000 / Units.BtuPerHourPerWatt, Description = "22,000 Btu/h, from its label" },
 
             // Chimney cooker hoods over the hob, at least as wide as it as Approved Document F
             // asks, hung 700 over it - the middle of its 650 to 750 - by the wall they are fixed to.
@@ -2143,6 +2151,12 @@ public sealed class BimDocument
                 TypeMark = "M17", Colour = white, Cost = 650m, Load = 4500, AgainstWall = true,
                 Description = "Two 4500 W elements, not together; 240 V"
             },
+            // And a gas one of 50 gallons, its burner under the tank and its flue up through it to a Type B vent.
+            new ComponentType("Water Heater - Gas 50 gal", BuiltInCategory.MechanicalEquipment, ComponentForm.HotWaterCylinder, 559, 559, 1524)
+            {
+                TypeMark = "M23", Colour = white, Cost = 900m, AgainstWall = true, Capacity = 50 * Units.LitresPerGallon, GasInput = 40_000 / Units.BtuPerHourPerWatt,
+                Description = "40,000 Btu/h, from its label"
+            },
             new ComponentType("Room Thermostat", BuiltInCategory.MechanicalEquipment, ComponentForm.Thermostat, 86, 25, 86)
             {
                 TypeMark = "M3", Colour = white, Cost = 60m,
@@ -2182,15 +2196,29 @@ public sealed class BimDocument
             // A gas combi boiler on the wall, its controls at 1150 or so.
             new ComponentType("Boiler - Gas Combi", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
             {
-                TypeMark = "M7", Colour = white, Cost = 1800m, HeatOutput = 24000,
+                TypeMark = "M7", Colour = white, Cost = 1800m, HeatOutput = 24000, GasInput = 27400,
+                Description = "24 kW heating and hot water; its gross heat input from its maker's data",
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
             },
 
             // A system boiler, which heats a cylinder's hot water through its coil rather than as it is drawn.
             new ComponentType("Boiler - Gas System", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
             {
-                TypeMark = "M8", Colour = white, Cost = 1600m, HotWater = BoilerHotWater.Cylinder, HeatOutput = 18000,
+                TypeMark = "M8", Colour = white, Cost = 1600m, HotWater = BoilerHotWater.Cylinder, HeatOutput = 18000, GasInput = 20600,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
+            },
+
+            // Gas fires on their hearths against the chimney breast: an inset radiant convector fire, and the US's
+            // direct vent fireplace at the IRC's estimate for one (Table G2413.2).
+            new ComponentType("Gas Fire - Inset 600", BuiltInCategory.MechanicalEquipment, ComponentForm.GasFire, 760, 300, 650)
+            {
+                TypeMark = "M22", Colour = new ColourRgb(0x3A, 0x3C, 0x40), Cost = 850m, GasInput = 6000,
+                Description = "A radiant convector fire, 4.2 kW; its gross heat input from its maker's data"
+            },
+            new ComponentType("Fireplace - Gas Direct Vent 36 in", BuiltInCategory.MechanicalEquipment, ComponentForm.GasFire, 1067, 457, 1016)
+            {
+                TypeMark = "M24", Colour = new ColourRgb(0x3A, 0x3C, 0x40), Cost = 2400m, GasInput = 40_000 / Units.BtuPerHourPerWatt,
+                Description = "40,000 Btu/h, the IRC's estimate for a direct vent gas fireplace - its label's where known"
             },
 
             // What the systems run from: an unvented cylinder of 210 litres, the stop valve where the
@@ -2329,6 +2357,30 @@ public sealed class BimDocument
             {
                 TypeMark = "FA3", Colour = white, Cost = 30m,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2355
+            },
+
+            // Fire sprinklers: residential pendents hanging from a 2400 ceiling - their listing's coverage, flow and
+            // K-factor as a typical K 4.9 one's, ordinary and intermediate temperature - and the valve set their
+            // supply comes in by, its supply's pressure to set from the pump set's duty or the main's.
+            new ComponentType("Sprinkler - Residential Pendent", BuiltInCategory.Sprinklers, ComponentForm.Sprinkler, 70, 70, 60)
+            {
+                TypeMark = "FS1", Colour = white, Cost = 45m, Coverage = 16 * Units.MillimetresPerFoot, FlowRate = 13 * Units.LitresPerGallon,
+                KFactor = 4.9 * Mep.Sprinklers.KPerUsK, Temperature = 68,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340,
+                Description = "K 4.9 (70.6 metric): 13 gpm (49 l/min) over 16 x 16 ft (4.9 x 4.9 m), 155 °F (68 °C) - its listing's"
+            },
+            new ComponentType("Sprinkler - Residential Pendent, Intermediate", BuiltInCategory.Sprinklers, ComponentForm.Sprinkler, 70, 70, 60)
+            {
+                TypeMark = "FS2", Colour = white, Cost = 48m, Coverage = 16 * Units.MillimetresPerFoot, FlowRate = 13 * Units.LitresPerGallon,
+                KFactor = 4.9 * Mep.Sprinklers.KPerUsK, Temperature = 79,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340,
+                Description = "K 4.9 (70.6 metric): 13 gpm (49 l/min) over 16 x 16 ft (4.9 x 4.9 m), 175 °F (79 °C), for by heat - its listing's"
+            },
+            new ComponentType("Sprinkler Valve Set - 1 in", BuiltInCategory.Sprinklers, ComponentForm.SprinklerValve, 300, 150, 450)
+            {
+                TypeMark = "FS3", Colour = new ColourRgb(0xC0, 0x2A, 0x2A), Cost = 650m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 300,
+                Description = "Stop valve, check valve, flow switch and test and drain valve where the sprinklers' supply comes in"
             },
 
             // Trees at their mature heights, with how much water they draw as NHBC Standards

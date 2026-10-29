@@ -279,6 +279,7 @@ public static class MepSystems
         problems.AddRange(Circuits.Problems(document));
         problems.AddRange(Lighting.Problems(document));
         problems.AddRange(AlarmSiting.Problems(document));
+        problems.AddRange(Sprinklers.Problems(document));
         problems.AddRange(Penetrations.Problems(document));
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));

@@ -153,6 +153,7 @@ public static partial class IfcExport
         Exporter.ComponentClass.HeatPump or Exporter.ComponentClass.ExtractUnit => "IfcUnitaryEquipment",
         Exporter.ComponentClass.HeatRecovery => "IfcAirToAirHeatRecovery",
         Exporter.ComponentClass.AirTerminal => "IfcAirTerminal",
+        Exporter.ComponentClass.Sprinkler => "IfcFireSuppressionTerminal",
         _ => "IfcBuildingElementProxy"
     };
 
@@ -2195,7 +2196,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2207,7 +2208,7 @@ public static partial class IfcExport
             ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
                 or ComponentForm.TumbleDryer or ComponentForm.CookerHood => ComponentClass.Appliance,
             ComponentForm.Sink or ComponentForm.Shower => ComponentClass.Sanitary,
-            ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating => ComponentClass.Heater,
+            ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating or ComponentForm.GasFire => ComponentClass.Heater,
             ComponentForm.HeatPump => ComponentClass.HeatPump,
             ComponentForm.HeatRecoveryUnit => ComponentClass.HeatRecovery,
             ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal or ComponentForm.BackgroundVentilator => ComponentClass.AirTerminal,
@@ -2221,7 +2222,8 @@ public static partial class IfcExport
             ComponentForm.Thermostat => ComponentClass.Control,
             ComponentForm.Boiler => ComponentClass.Boiler,
             ComponentForm.HotWaterCylinder => ComponentClass.Tank,
-            ComponentForm.StopValve => ComponentClass.Valve,
+            ComponentForm.StopValve or ComponentForm.SprinklerValve => ComponentClass.Valve,
+            ComponentForm.Sprinkler => ComponentClass.Sprinkler,
             ComponentForm.GasMeter => ComponentClass.Meter,
             ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway => ComponentClass.Chamber,
             ComponentForm.AirAdmittanceValve => ComponentClass.AirValve,
@@ -2276,21 +2278,26 @@ public static partial class IfcExport
                         _ => IfcSanitaryTerminalTypeEnum.USERDEFINED
                     }),
                 ComponentClass.Appliance => ComponentProduct<IfcElectricAppliance>(component, type, meshes, appliance =>
+                {
                     appliance.PredefinedType = type.Form switch
                     {
                         ComponentForm.Fridge => type.Height > 1200 ? IfcElectricApplianceTypeEnum.FRIDGE_FREEZER : IfcElectricApplianceTypeEnum.REFRIGERATOR,
-                        ComponentForm.Cooker => IfcElectricApplianceTypeEnum.ELECTRICCOOKER,
+                        ComponentForm.Cooker when !type.BurnsGas => IfcElectricApplianceTypeEnum.ELECTRICCOOKER,
                         ComponentForm.Dishwasher => IfcElectricApplianceTypeEnum.DISHWASHER,
                         ComponentForm.WashingMachine => IfcElectricApplianceTypeEnum.WASHINGMACHINE,
                         ComponentForm.TumbleDryer => IfcElectricApplianceTypeEnum.TUMBLEDRYER,
                         _ => IfcElectricApplianceTypeEnum.USERDEFINED
-                    }),
+                    };
+                    // A gas cooker is no electric cooker, as IFC4 has one: an appliance of its own kind.
+                    if (type.Form == ComponentForm.Cooker && type.BurnsGas) appliance.ObjectType = "Gas cooker";
+                }),
                 ComponentClass.Light => ComponentProduct<IfcLightFixture>(component, type, meshes, light =>
                     light.PredefinedType = IfcLightFixtureTypeEnum.POINTSOURCE),
                 ComponentClass.Heater => ComponentProduct<IfcSpaceHeater>(component, type, meshes, heater =>
                 {
-                    heater.PredefinedType = type.Form == ComponentForm.UnderfloorHeating ? IfcSpaceHeaterTypeEnum.USERDEFINED : IfcSpaceHeaterTypeEnum.RADIATOR;
+                    heater.PredefinedType = type.Form is ComponentForm.UnderfloorHeating or ComponentForm.GasFire ? IfcSpaceHeaterTypeEnum.USERDEFINED : IfcSpaceHeaterTypeEnum.RADIATOR;
                     if (type.Form == ComponentForm.UnderfloorHeating) heater.ObjectType = "Underfloor heating";
+                    if (type.Form == ComponentForm.GasFire) heater.ObjectType = "Gas fire";
                 }),
                 ComponentClass.HeatPump => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcUnitaryEquipment>(component, type, meshes, unit =>
                 {
@@ -2338,7 +2345,9 @@ public static partial class IfcExport
                 ComponentClass.Tank => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcTank>(component, type, meshes, tank =>
                     tank.PredefinedType = Xbim.Ifc4.Interfaces.IfcTankTypeEnum.STORAGE),
                 ComponentClass.Valve => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcValve>(component, type, meshes, valve =>
-                    valve.PredefinedType = Xbim.Ifc4.Interfaces.IfcValveTypeEnum.STOPCOCK),
+                    valve.PredefinedType = type.Form == ComponentForm.SprinklerValve ? Xbim.Ifc4.Interfaces.IfcValveTypeEnum.ISOLATING : Xbim.Ifc4.Interfaces.IfcValveTypeEnum.STOPCOCK),
+                ComponentClass.Sprinkler => ComponentProduct<IfcFireSuppressionTerminal>(component, type, meshes, sprinkler =>
+                    sprinkler.PredefinedType = IfcFireSuppressionTerminalTypeEnum.SPRINKLER),
                 ComponentClass.Meter => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcFlowMeter>(component, type, meshes, meter =>
                     meter.PredefinedType = Xbim.Ifc4.Interfaces.IfcFlowMeterTypeEnum.GASMETER),
                 ComponentClass.Chamber => ComponentProduct<Xbim.Ifc4.SharedBldgServiceElements.IfcDistributionChamberElement>(component, type, meshes, chamber =>
@@ -2382,6 +2391,7 @@ public static partial class IfcExport
                 ComponentClass.HeatPump or ComponentClass.ExtractUnit => "Pset_UnitaryEquipmentTypeCommon",
                 ComponentClass.HeatRecovery => "Pset_AirToAirHeatRecoveryTypeCommon",
                 ComponentClass.AirTerminal => "Pset_AirTerminalTypeCommon",
+                ComponentClass.Sprinkler => "Pset_FireSuppressionTerminalTypeCommon",
                 _ => "Pset_BuildingElementProxyCommon"
             };
             WriteSet((IfcObject)product, common, new Dictionary<string, IfcValue?>

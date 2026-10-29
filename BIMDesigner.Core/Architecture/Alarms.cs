@@ -12,7 +12,8 @@ namespace BIMDesigner.Core.Architecture;
 /// and BS 5839-6 sites it: a smoke alarm on every storey, within 3 m of every bedroom's door and
 /// 7.5 m of every other room's, 300 from walls and lights on the ceiling, and none in a kitchen or
 /// bathroom, where cooking and steam set them off. Approved Document J asks for a carbon monoxide
-/// alarm in the room with a stove, an open fire or a boiler, 1 to 3 m from it (2.36, 3.45).
+/// alarm in the room with a stove, an open fire, a boiler or another fixed gas appliance - a gas fire, a
+/// gas water heater or dryer, not a cooker - 1 to 3 m from it (2.36, 3.45).
 ///
 /// In the US, the IRC (R314.3): a smoke alarm in every bedroom, one by the bedrooms outside them,
 /// and one on every storey; 3 ft (914) at least from the door of a bathroom with a tub or shower,
@@ -35,12 +36,13 @@ public static class Alarms
             .ToList();
 
     /// <summary>
-    /// The appliances on a storey that burn a fuel, by name and where they stand: a boiler, and a
-    /// chimney's stove or open fire on that storey - in front of its breast.
+    /// The appliances on a storey that burn a fuel, by name and where they stand: a boiler, a gas fire,
+    /// a gas water heater or dryer - a fixed gas appliance, not a cooker (Approved Document J, 3.43) - and
+    /// a chimney's stove or open fire on that storey, in front of its breast.
     /// </summary>
     public static IReadOnlyList<(string Name, Point2D At)> Appliances(BimDocument document, Guid levelId)
     {
-        var found = All(document, levelId, type => type.Form == ComponentForm.Boiler)
+        var found = All(document, levelId, type => type.BurnsGas && type.Form != ComponentForm.Cooker)
             .Select(entry => (entry.Type.Name, entry.Piece.Location))
             .ToList();
 

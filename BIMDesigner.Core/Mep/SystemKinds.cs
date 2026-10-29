@@ -42,7 +42,10 @@ public enum SystemKind
     OutsideAir,
 
     /// <summary>Lights and the switches that turn them on and off - two or more switches for two-way switching, at the top and foot of a stair.</summary>
-    Switching
+    Switching,
+
+    /// <summary>Fire sprinklers: the heads in the rooms and the pipes to them from the valve set their supply comes in by.</summary>
+    Sprinkler
 }
 
 /// <summary>What a connection is made with: a pipe, a duct, or a cable.</summary>
@@ -93,6 +96,7 @@ public static class SystemKinds
         SystemKind.SupplyAir => "Supply Air",
         SystemKind.OutsideAir => "Outside Air",
         SystemKind.Switching => "Switching",
+        SystemKind.Sprinkler => "Fire Sprinkler",
         _ => "Fire Alarm"
     };
 
@@ -104,12 +108,13 @@ public static class SystemKinds
         SystemKind.SupplyAir => "Supply",
         SystemKind.Power => "Circuit",
         SystemKind.FireAlarm => "Alarm Interlink",
+        SystemKind.Sprinkler => "Sprinklers",
         _ => kind.Title()
     };
 
     public static Discipline Discipline(this SystemKind kind) => kind switch
     {
-        SystemKind.ColdWater or SystemKind.HotWater or SystemKind.Foul or SystemKind.Rainwater => Mep.Discipline.Plumbing,
+        SystemKind.ColdWater or SystemKind.HotWater or SystemKind.Foul or SystemKind.Rainwater or SystemKind.Sprinkler => Mep.Discipline.Plumbing,
         SystemKind.Heating or SystemKind.Gas or SystemKind.ExtractAir or SystemKind.SupplyAir or SystemKind.OutsideAir => Mep.Discipline.Mechanical,
         _ => Mep.Discipline.Electrical
     };
@@ -144,6 +149,7 @@ public static class SystemKinds
         SystemKind.Foul => "an outfall to the foul sewer",
         SystemKind.Rainwater => "an outfall - a soakaway, or the surface water sewer",
         SystemKind.SupplyAir or SystemKind.OutsideAir => "a heat recovery unit",
+        SystemKind.Sprinkler => "a sprinkler valve set",
         _ => null
     };
 
@@ -161,6 +167,7 @@ public static class SystemKinds
         SystemKind.OutsideAir => new ColourRgb(0x6F, 0x9E, 0x55),
         SystemKind.Power => new ColourRgb(0xD0, 0x36, 0x8F),
         SystemKind.Switching => new ColourRgb(0xE8, 0x9A, 0x1C),
+        SystemKind.Sprinkler => new ColourRgb(0xA8, 0x1C, 0x2C),
         _ => new ColourRgb(0xE0, 0x1F, 0x1F)
     };
 

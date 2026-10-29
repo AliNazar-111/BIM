@@ -160,7 +160,16 @@ public enum ComponentForm
     // smoke dampers it closes.
     ExtractUnit,
     BackgroundVentilator,
-    DuctSmokeDetector
+    DuctSmokeDetector,
+
+    // A gas fire against the wall on its hearth - a fixed gas appliance, as a boiler is, that a
+    // carbon monoxide alarm is put up by; in the US a gas fireplace.
+    GasFire,
+
+    // Fire sprinklers: a residential pendent sprinkler hanging from the ceiling, and the valve set where
+    // the sprinklers' supply comes in - its stop valve, check valve, flow switch and test and drain valve.
+    Sprinkler,
+    SprinklerValve
 }
 
 /// <summary>
@@ -252,7 +261,7 @@ public sealed class ComponentType : ElementType
             or ComponentForm.Wardrobe or ComponentForm.TelevisionUnit or ComponentForm.Shower
             or ComponentForm.Drawers or ComponentForm.CornerSofa or ComponentForm.BunkBed
             or ComponentForm.WallUnit or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.CookerHood or ComponentForm.TumbleDryer
-            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler or ComponentForm.HeatPump;
+            or ComponentForm.WallHungToilet or ComponentForm.TowelRail or ComponentForm.Boiler or ComponentForm.HeatPump or ComponentForm.GasFire;
 
     /// <summary>
     /// Whether one put down near a wall backs onto it and faces the room: a bed, a wardrobe, a
@@ -295,8 +304,26 @@ public sealed class ComponentType : ElementType
     /// <summary>For a boiler, whether it heats the hot water as it is drawn - a combi - or a cylinder's.</summary>
     public BoilerHotWater HotWater { get; set; }
 
-    /// <summary>For a basin's or a sink's taps or a shower, its full flow, litres a minute - what Approved Document G's water efficiency calculator counts.</summary>
+    /// <summary>
+    /// For a basin's or a sink's taps or a shower, its full flow, litres a minute - what Approved Document G's
+    /// water efficiency calculator counts; for a sprinkler, the least flow its listing asks at its coverage.
+    /// </summary>
     public double FlowRate { get; set; }
+
+    /// <summary>For a sprinkler, the side of the square its listing lets it cover, mm: 4.9 m (16 ft) for a residential pendent's usual one.</summary>
+    public double Coverage { get; set; }
+
+    /// <summary>For a sprinkler, its K-factor, l/min a bar to the half: what it discharges goes as the square root of the pressure at it.</summary>
+    public double KFactor { get; set; }
+
+    /// <summary>For a sprinkler, the temperature it opens at, °C: 68 ordinary, 79 intermediate.</summary>
+    public double Temperature { get; set; }
+
+    /// <summary>
+    /// For a sprinkler valve set, the pressure its supply gives it at the sprinklers' design flow, bar - a pump
+    /// set's duty, or the main's - none where not known; a US project's water pressure is taken then.
+    /// </summary>
+    public double SupplyPressure { get; set; }
 
     /// <summary>For a WC, its flush, litres - its full flush where it has two.</summary>
     public double FlushVolume { get; set; }
@@ -341,6 +368,18 @@ public sealed class ComponentType : ElementType
 
     /// <summary>How much a heat pump cools, W - its total capacity at the summer design conditions, from its maker's data. None where it only heats.</summary>
     public double CoolingOutput { get; set; }
+
+    /// <summary>
+    /// For an appliance that burns gas, the most heat it takes in as gas, W gross - its maker's maximum
+    /// heat input, a combi boiler's on hot water: what its gas pipes are sized for. A cooker, a water
+    /// heater or a dryer with one burns gas rather than running on electricity; a boiler or a gas fire
+    /// with none is taken at an estimate for its kind.
+    /// </summary>
+    public double GasInput { get; set; }
+
+    /// <summary>Whether it burns gas: a boiler or a gas fire always, a cooker, a water heater or a dryer with a gas input.</summary>
+    public bool BurnsGas => Form is ComponentForm.Boiler or ComponentForm.GasFire
+                            || GasInput > 0 && Form is ComponentForm.Cooker or ComponentForm.HotWaterCylinder or ComponentForm.TumbleDryer;
 
     /// <summary>
     /// For a radiator or a towel rail, how its output falls with the water's temperature: its
@@ -437,7 +476,7 @@ public sealed class ComponentType : ElementType
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
         HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
         SpaceEfficiency = SpaceEfficiency, WaterEfficiency = WaterEfficiency, StandingLoss = StandingLoss, SpecificFanPower = SpecificFanPower,
-        Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
+        Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, GasInput = GasInput, Coverage = Coverage, KFactor = KFactor, Temperature = Temperature, SupplyPressure = SupplyPressure, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
         ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
         Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance
@@ -580,6 +619,27 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.SpaceEfficiency, () => SpaceEfficiency, v => { if (v is < 0 or > 1000) return false; SpaceEfficiency = v; return true; });
             yield return ParameterValue.BindValidated(ComponentTypeParameters.WaterEfficiency, () => WaterEfficiency, v => { if (v is < 0 or > 1000) return false; WaterEfficiency = v; return true; });
         }
+        // What it burns: the gas its pipes are sized for, in kW gross - in the US, Btu/h.
+        if (Form is ComponentForm.Boiler or ComponentForm.GasFire or ComponentForm.Cooker or ComponentForm.HotWaterCylinder or ComponentForm.TumbleDryer)
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.GasInput, ComponentTypeParameters.GasInputBtu, Units.BtuPerHourPerWatt * 1000, 0,
+                () => GasInput / 1000, v => NotNegative(v, x => GasInput = x * 1000));
+
+        // A sprinkler's listing: what it covers, the flow it asks there, its K-factor and the temperature it opens at;
+        // a valve set's supply.
+        if (Form == ComponentForm.Sprinkler)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Coverage, () => Coverage, v => NotNegative(v, x => Coverage = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.ListedFlow, ComponentTypeParameters.ListedFlowGpm, ComponentTypeParameters.GallonsPerLitre, 1,
+                () => FlowRate, v => NotNegative(v, x => FlowRate = x));
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.KFactor, ComponentTypeParameters.KFactorUs, 1 / Mep.Sprinklers.KPerUsK, 2,
+                () => KFactor, v => NotNegative(v, x => KFactor = x));
+            yield return Units.Imperial
+                ? ParameterValue.BindValidated<double>(ComponentTypeParameters.TemperatureF, () => Math.Round(Temperature * 1.8 + 32), v => NotNegative(v, x => Temperature = (x - 32) / 1.8))
+                : ParameterValue.BindValidated(ComponentTypeParameters.Temperature, () => Temperature, v => NotNegative(v, x => Temperature = x));
+        }
+        if (Form == ComponentForm.SprinklerValve)
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.SupplyPressure, ComponentTypeParameters.SupplyPressurePsi, Mep.Sprinklers.PsiPerBar, 1,
+                () => SupplyPressure, v => NotNegative(v, x => SupplyPressure = x));
         if (Form == ComponentForm.HeatPump)
             yield return ParameterValue.BindScaled(ComponentTypeParameters.CoolingOutput, ComponentTypeParameters.CoolingOutputBtu, Units.BtuPerHourPerWatt, 0,
                 () => CoolingOutput, v => NotNegative(v, x => CoolingOutput = x));
@@ -666,6 +726,7 @@ public static class ComponentCategories
         BuiltInCategory.ElectricalEquipment,
         BuiltInCategory.Drainage,
         BuiltInCategory.AirTerminals,
+        BuiltInCategory.Sprinklers,
         BuiltInCategory.Planting,
         BuiltInCategory.Parking,
         BuiltInCategory.Entourage,
@@ -989,6 +1050,17 @@ public static class ComponentTypeParameters
     public static readonly ParameterDefinition CoolingOutput = new("Cooling Output (W, 0 = heats only)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition CoolingOutputBtu = new("Cooling Output (Btu/h, 0 = heats only)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition CoilOutputBtu = new("Coil Output (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition GasInput = new("Gas Input (kW gross)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition GasInputBtu = new("Gas Input (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Coverage = new("Coverage (square side)", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition ListedFlow = new("Listed Flow (l/min)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition ListedFlowGpm = new("Listed Flow (gpm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition KFactor = new("K-Factor (l/min/bar½)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition KFactorUs = new("K-Factor (gpm/psi½)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Temperature = new("Temperature Rating (°C)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition TemperatureF = new("Temperature Rating (°F)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition SupplyPressure = new("Supply Pressure (bar, 0 = not known)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition SupplyPressurePsi = new("Supply Pressure (psi, 0 = the project's)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition AirflowCfm = new("Most Airflow (cfm)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition AvailablePressureWc = new("Available Pressure (in. w.c.)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition PressureLossWc = new("Pressure Loss (in. w.c.)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);

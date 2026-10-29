@@ -27,8 +27,16 @@ public sealed record PipeLoad(double Load, double Highest, double Downstream, do
     /// <summary>How many pipes meet at its near end, it among them: three or more at a junction - a tee into a stack or another branch.</summary>
     public int NearJoins { get; init; }
 
-    /// <summary>On a heating zone, the heat the radiators, floors and coils beyond it give at its temperatures, W.</summary>
+    /// <summary>On a heating zone, the heat the radiators, floors and coils beyond it give at its temperatures, W; on a gas installation, the heat the appliances beyond it take in as gas, W gross.</summary>
     public double Heat { get; init; }
+}
+
+/// <summary>What joins a pipe to the one before it: nothing, an elbow, or a tee.</summary>
+public enum PipeFitting
+{
+    None,
+    Elbow,
+    Tee
 }
 
 /// <summary>
@@ -57,7 +65,8 @@ public sealed record PipeNetwork(
 /// loading units added up back from the last draw-off, its pipe read off Table 3 for its material
 /// - and a water heater's cold feed carries all the hot water draw-offs it serves. In the US, a
 /// fixture's water-supply fixture units (IRC Table P2903.6) are counted instead, and the hot water
-/// piping from its source to each fixture kept within 100 ft (IRC P2905.3).
+/// piping from its source to each fixture kept within 100 ft (IRC P2905.3). Gas is sized by
+/// <see cref="GasPipes"/>, heating by <see cref="HeatingPipes"/>.
 /// </summary>
 public static class PipeNetworks
 {
@@ -156,6 +165,32 @@ public static class PipeNetworks
     public static bool IsWater(SystemKind kind) => kind is SystemKind.ColdWater or SystemKind.HotWater;
 
     /// <summary>
+    /// What joins a pipe to the one before it toward its source: nothing where it leaves the source or
+    /// runs straight on, a tee where three or more pipes meet, an elbow where it turns off the one before
+    /// it by more than 30°.
+    /// </summary>
+    public static PipeFitting FittingAt(BimDocument document, PipeLoad carried)
+    {
+        if (carried.Toward is not { } before) return PipeFitting.None;
+        if (carried.NearJoins >= 3) return PipeFitting.Tee;
+        var (a, b) = before.Ends(document);
+        var (from, to) = Distance(a, carried.Near) < Distance(b, carried.Near) ? (b, a) : (a, b);
+        var way = (X: to.X - from.X, Y: to.Y - from.Y, Z: to.Z - from.Z);
+        var on = (X: carried.Far.X - carried.Near.X, Y: carried.Far.Y - carried.Near.Y, Z: carried.Far.Z - carried.Near.Z);
+        var lengths = Math.Sqrt(way.X * way.X + way.Y * way.Y + way.Z * way.Z) * Math.Sqrt(on.X * on.X + on.Y * on.Y + on.Z * on.Z);
+        return lengths <= 0 || (way.X * on.X + way.Y * on.Y + way.Z * on.Z) / lengths < Math.Cos(Math.PI / 6) ? PipeFitting.Elbow : PipeFitting.None;
+    }
+
+    /// <summary>The pipes from a system's source out to one, the source's first: what what flows to its far end passes along.</summary>
+    public static IReadOnlyList<Pipe> PathTo(PipeNetwork network, Pipe last)
+    {
+        var path = new List<Pipe>();
+        for (Pipe? pipe = last; pipe is not null && path.Count < 10_000; pipe = network.Loads.GetValueOrDefault(pipe)?.Toward) path.Add(pipe);
+        path.Reverse();
+        return path;
+    }
+
+    /// <summary>
     /// What one connector draws, in loading units, and the most of any one draw-off behind it: a
     /// tap's or a cistern's own; a water heater's cold feed, all the hot water draw-offs it serves.
     /// </summary>
@@ -214,7 +249,7 @@ public static class PipeNetworks
         }
         foreach (var member in members)
         {
-            var heat = system.Kind == SystemKind.Heating ? HeatOf(document, member) : 0;
+            var heat = system.Kind == SystemKind.Heating ? HeatOf(document, member) : system.Kind == SystemKind.Gas ? GasPipes.InputOf(document, member) : 0;
             foreach (var placed in Connectors.Placed(document, member).Where(placed => placed.Connector.Kind == system.Kind && !placed.Connector.Feeds && placed.Connector.Domain == ConnectorDomain.Pipe))
             {
                 if (nodes.Find(placed.At) is not { } node) continue;
@@ -451,6 +486,8 @@ public static class PipeNetworks
         if (!network.Loads.TryGetValue(pipe, out var carried))
             return MepSystems.SourceOf(document, system) is null ? $"{system.Name} has nothing feeding it" : $"Not joined to what feeds {system.Name}";
         if (pipe.Kind == SystemKind.Heating) return HeatingPipes.Describe(document, pipe, network);
+        if (pipe.Kind == SystemKind.Gas) return GasPipes.Describe(document, pipe, network);
+        if (pipe.Kind == SystemKind.Sprinkler) return Sprinklers.Describe(document, pipe, network);
         if (!IsWater(pipe.Kind)) return $"{Units.Metres(carried.FromSource, "0.0")} from what feeds {system.Name}";
 
         if (document.ProjectInformation.ClearanceStandard.IsUs())
@@ -471,15 +508,28 @@ public static class PipeNetworks
 
     /// <summary>
     /// Every water pipe sized as BS EN 806-3 asks - in the US, as the IRC's Appendix AP does - and
-    /// every heating pipe for its flow and pressure drop: its new outside diameter, where it changes.
+    /// every heating pipe for its flow and pressure drop, every gas pipe for its appliances (BS 6891, or
+    /// the IRC's branch length method): its new outside diameter, where it changes.
     /// </summary>
     public static IReadOnlyList<(Pipe Pipe, double Diameter)> Sized(BimDocument document, IEnumerable<MepSystem> systems)
     {
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var sized = new List<(Pipe, double)>();
-        foreach (var system in systems.Where(system => IsWater(system.Kind) || system.Kind == SystemKind.Heating))
+        foreach (var system in systems.Where(system => IsWater(system.Kind) || system.Kind is SystemKind.Heating or SystemKind.Gas or SystemKind.Sprinkler))
         {
             var network = Trace(document, system);
+            if (system.Kind == SystemKind.Gas)
+            {
+                sized.AddRange(GasPipes.Sized(document, network));
+                continue;
+            }
+
+            if (system.Kind == SystemKind.Sprinkler)
+            {
+                sized.AddRange(Sprinklers.Sized(document, network));
+                continue;
+            }
+
             var water = us && IsWater(system.Kind) ? UsWaterOf(document, system) : null;
             foreach (var pipe in network.Loads.Keys)
             {
@@ -543,6 +593,10 @@ public static class PipeNetworks
 
             if (system.Kind == SystemKind.Heating)
                 foreach (var problem in HeatingPipes.Problems(document, network))
+                    yield return problem;
+
+            if (system.Kind == SystemKind.Gas)
+                foreach (var problem in GasPipes.Problems(document, network))
                     yield return problem;
 
             if (system.Kind == SystemKind.HotWater && us)

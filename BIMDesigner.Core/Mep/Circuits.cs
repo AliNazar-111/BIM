@@ -212,7 +212,8 @@ public static class Circuits
         ComponentForm.ShaverSocket => 20,
         ComponentForm.ExtractFan => 20,
         ComponentForm.CookerHood => 150,
-        ComponentForm.Cooker => 10000,
+        // A gas cooker's ignition and its oven's light and fan; an electric one's rings and oven.
+        ComponentForm.Cooker => type.GasInput > 0 ? 100 : 10000,
         ComponentForm.OvenHousing => 3000,
         ComponentForm.Boiler => 120,
         ComponentForm.HeatPump => 3000,
@@ -654,12 +655,12 @@ public static class Circuits
 
         var pieces = document.All<Component>().Select(component => (Component: component, Type: TypeOf(document, component))).Where(entry => entry.Type is not null)
             .Select(entry => (entry.Component, Type: entry.Type!)).ToList();
-        var ranges = pieces.Where(entry => entry.Type.Form == ComponentForm.Cooker).Select(entry => LoadOf(entry.Type)).ToList();
+        var ranges = pieces.Where(entry => entry.Type.Form == ComponentForm.Cooker && !entry.Type.BurnsGas).Select(entry => LoadOf(entry.Type)).ToList();
         var ovens = pieces.Where(entry => entry.Type.Form == ComponentForm.OvenHousing).Select(entry => LoadOf(entry.Type)).ToList();
-        var dryers = pieces.Where(entry => entry.Type.Form == ComponentForm.TumbleDryer).Select(entry => Math.Max(5000, LoadOf(entry.Type))).ToList();
+        var dryers = pieces.Where(entry => entry.Type.Form == ComponentForm.TumbleDryer && !entry.Type.BurnsGas).Select(entry => Math.Max(5000, LoadOf(entry.Type))).ToList();
         var heating = pieces.Where(entry => entry.Type.Form == ComponentForm.HeatPump).Sum(entry => LoadOf(entry.Type));
         var fastened = pieces.Where(entry => entry.Type.Form is ComponentForm.HotWaterCylinder or ComponentForm.Dishwasher or ComponentForm.HeatRecoveryUnit
-                or ComponentForm.ExtractUnit or ComponentForm.Boiler or ComponentForm.CookerHood or ComponentForm.ExtractFan)
+                or ComponentForm.ExtractUnit or ComponentForm.Boiler or ComponentForm.CookerHood or ComponentForm.ExtractFan && !(entry.Type.Form == ComponentForm.HotWaterCylinder && entry.Type.BurnsGas))
             .Select(entry => LoadOf(entry.Type)).ToList();
 
         // The standard method.

@@ -281,12 +281,25 @@ public partial class PlanView
 
     /// <summary>
     /// The pipe type a run is drawn in: the one picked - but drainage in PVC-U, its drain type below
-    /// the ground and its soil and waste type above, in the US Schedule 40 PVC DWV; and water in a
-    /// water pipe, not PVC.
+    /// the ground and its soil and waste type above, in the US Schedule 40 PVC DWV; gas in metal pipe,
+    /// in the US Schedule 40 steel unless copper tubing is picked; and water in a water pipe, not PVC
+    /// or black steel.
     /// </summary>
     private PipeType TypeFor(PipeType picked, SystemKind kind, double height)
     {
         var types = Document!.TypesOf<PipeType>().ToList();
+        var us = Document.ProjectInformation.ClearanceStandard.IsUs();
+        if (kind == SystemKind.Gas)
+        {
+            if (us)
+                return picked.Material is PipeMaterial.SteelSchedule40 or PipeMaterial.CopperTypeL ? picked
+                    : types.FirstOrDefault(each => each.Material == PipeMaterial.SteelSchedule40) ?? types.FirstOrDefault(each => each.Material == PipeMaterial.CopperTypeL) ?? picked;
+            return picked.Material.Like() is PipeMaterial.Copper or PipeMaterial.GalvanisedSteel or PipeMaterial.StainlessSteel ? picked
+                : types.FirstOrDefault(each => each.Material == PipeMaterial.Copper) ?? picked;
+        }
+
+        if (picked.Material == PipeMaterial.SteelSchedule40 && !Drainage.IsDrainage(kind))
+            return types.FirstOrDefault(each => each.Material.IsCts() == us && each.Material.Like() != PipeMaterial.PvcU) ?? picked;
         if (Drainage.IsDrainage(kind))
         {
             if (picked.Material.Like() == PipeMaterial.PvcU) return picked;

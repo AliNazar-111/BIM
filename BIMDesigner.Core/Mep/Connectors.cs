@@ -229,6 +229,15 @@ public static class Connectors
                     Pipe("Return", SystemKind.Heating, ConnectorFlow.Out, 16, Math.Min(40, halfW * 0.3), -halfD, 0, Back)
                 };
 
+            case ComponentForm.HotWaterCylinder when type.GasInput > 0:
+                // A gas water heater: cold in and hot out of its top, and the gas to its burner's control low on its front.
+                return new[]
+                {
+                    Pipe("Cold Feed", SystemKind.ColdWater, ConnectorFlow.In, 22, -w * 0.2, 0, h, Up),
+                    Pipe("Hot Draw-off", SystemKind.HotWater, ConnectorFlow.Out, 22, w * 0.2, 0, h, Up) with { Feeds = true },
+                    Pipe("Gas", SystemKind.Gas, ConnectorFlow.In, 15, 0, halfD, Math.Min(300, h * 0.2), Front)
+                };
+
             case ComponentForm.HotWaterCylinder:
                 // Cold in at the bottom, hot out of the top; the boiler's coil through it, flow in high and return out low; its immersion heater.
                 return new[]
@@ -250,6 +259,14 @@ public static class Connectors
 
             case ComponentForm.StopValve:
                 return new[] { Pipe("Cold Main", SystemKind.ColdWater, ConnectorFlow.Out, 22, 0, 0, h, Up) with { Feeds = true } };
+
+            case ComponentForm.Sprinkler:
+                // Its half-inch thread at the top, the pipe in the ceiling void over it.
+                return new[] { Pipe("Sprinkler", SystemKind.Sprinkler, ConnectorFlow.In, 15, 0, 0, h, Up) };
+
+            case ComponentForm.SprinklerValve:
+                // The sprinklers' main out of the top of the valve set.
+                return new[] { Pipe("Sprinkler Main", SystemKind.Sprinkler, ConnectorFlow.Out, 28, 0, 0, h, Up) with { Feeds = true } };
 
             case ComponentForm.GasMeter:
                 return new[] { Pipe("Gas Outlet", SystemKind.Gas, ConnectorFlow.Out, 22, 0, -halfD, h * 0.3, Back) with { Feeds = true } };
@@ -298,8 +315,24 @@ public static class Connectors
                     Cable("Power", halfW - Math.Min(60, halfW * 0.2), -halfD, Math.Max(h - 120, 0), Back)
                 };
 
+            case ComponentForm.Cooker when type.GasInput > 0:
+                // A gas cooker: its bayonet low at the back, and a plug for its ignition and its oven's light.
+                return new[]
+                {
+                    Pipe("Gas", SystemKind.Gas, ConnectorFlow.In, 15, -halfW + Math.Min(100, halfW * 0.4), -halfD, 150, Back),
+                    Cable("Power", halfW - Math.Min(100, halfW * 0.4), -halfD, 150, Back) with { Optional = true }
+                };
+
             case ComponentForm.Cooker:
                 return new[] { Cable("Power", 0, -halfD, 150, Back) };
+
+            case ComponentForm.TumbleDryer when type.GasInput > 0:
+                // A gas dryer: its gas low at the back.
+                return new[] { Pipe("Gas", SystemKind.Gas, ConnectorFlow.In, 15, halfW - Math.Min(80, halfW * 0.3), -halfD, 150, Back) };
+
+            case ComponentForm.GasFire:
+                // Its gas up through the hearth at the back corner, to its tap.
+                return new[] { Pipe("Gas", SystemKind.Gas, ConnectorFlow.In, 15, -halfW + Math.Min(60, halfW * 0.3), -halfD + Math.Min(60, d * 0.3), 0, Down) };
 
             case ComponentForm.OvenHousing:
                 return new[] { Cable("Power", 0, -halfD, 300, Back) with { Optional = true } };

@@ -95,20 +95,20 @@ public static class ProjectTemplates
     // and footings in millimetres.
     private static readonly HashSet<string> UsTypes = new(StringComparer.Ordinal)
     {
-        "Load Center - 200 A 40 Space", "Receptacle - Duplex 15 A", "Receptacle - Duplex 20 A Countertop", "Switch - Single Pole", "Water Heater - Electric 50 gal",
+        "Load Center - 200 A 40 Space", "Receptacle - Duplex 15 A", "Receptacle - Duplex 20 A Countertop", "Switch - Single Pole", "Water Heater - Electric 50 gal", "Water Heater - Gas 50 gal", "Range - Gas 30 in", "Dryer - Gas 27 in", "Fireplace - Gas Direct Vent 36 in",
         "Exterior Door - 36 x 80 in", "Interior Door - 30 x 80 in", "Interior Door - 32 x 80 in", "Garage Entry Door - 36 x 80 in, 20 min", "Double Hung Twin - 60 x 60 in",
         "Double Hung - 36 x 60 in", "Casement - 24 x 48 in",
         "Bed - Twin 38 x 75 in", "Bed - Full 54 x 75 in", "Bed - Queen 60 x 80 in", "Bed - King 76 x 80 in", "Bed - California King 72 x 84 in",
         "Bathtub - 60 x 30 in", "Shower - 36 x 36 in", "Exhaust Fan - Bath 50 cfm", "Exhaust Fan - Bath 80 cfm", "HRV - 150 cfm", "Heat Pump - Air Source 3 ton",
         "Round - Galvanized Steel (in)", "Flexible - Insulated (in)", "Rectangular - Galvanized Steel (in)", "PVC DWV - Schedule 40 (ASTM D2665)",
-        "Copper - Type L (ASTM B88)", "PEX - CTS SDR 9 (ASTM F876)",
+        "Copper - Type L (ASTM B88)", "PEX - CTS SDR 9 (ASTM F876)", "Steel - Schedule 40 Black (ASTM A53)",
         "Parking Space - 9 x 18 ft", "Parking Space - Accessible 96 + 60 in", "Turning Circle - 60 in",
         "Footing - 16 x 8 in", "Footing - 24 x 10 in", "Pad Footing - 24 x 24 x 12 in"
     };
 
     private static readonly HashSet<string> EnglishTypes = new(StringComparer.Ordinal)
     {
-        "Consumer Unit - 12 Way", "Socket - Double", "Switch - One Gang", "Shaver Socket", "Hot Water Cylinder - Unvented 210 l",
+        "Consumer Unit - 12 Way", "Socket - Double", "Switch - One Gang", "Shaver Socket", "Hot Water Cylinder - Unvented 210 l", "Cooker - Gas 600", "Gas Fire - Inset 600",
         "Single - 900 x 2100", "Single - 1000 x 2100", "Front Door - 1000 x 2100", "Fire Door FD30S - 900 x 2100",
         "Double Hung - 900 x 1500", "Casement - 1200 x 1200",
         "Bed - Single 900 x 1900", "Bed - Small Double 1200 x 1900", "Bed - Double 1350 x 1900", "Bed - King 1500 x 2000", "Bed - Super King 1800 x 2000",
