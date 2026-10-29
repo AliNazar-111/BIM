@@ -273,6 +273,9 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         var insulated = new CheckBox { Content = "Allow for pipes' and ducts' insulation", IsChecked = test.AllowInsulation, Margin = new Thickness(0, 4, 0, 0),
             ToolTip = "A pipe or duct is taken with its insulation round it: insulation running into a beam, a column or another pipe clashes" };
         insulated.Click += (_, _) => Change("Clash Test Insulation", () => Test!.AllowInsulation = insulated.IsChecked == true);
+        var linked = new CheckBox { Content = "Selection B from the linked models", IsChecked = test.AgainstLinks, Margin = new Thickness(0, 4, 0, 0),
+            ToolTip = "Selection B's categories taken from the models linked in rather than this one: this project's services against the structural engineer's model, say" };
+        linked.Click += (_, _) => Change("Clash Test Against Links", () => Test!.AgainstLinks = linked.IsChecked == true);
 
         _editor.Children.Add(Label("NAME"));
         _editor.Children.Add(name);
@@ -282,6 +285,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         _editor.Children.Add(tolerance);
         _editor.Children.Add(hosted);
         _editor.Children.Add(insulated);
+        _editor.Children.Add(linked);
         _editor.Children.Add(Label("SELECTION A  -  AGAINST  -  SELECTION B"));
         var sets = new Grid();
         sets.ColumnDefinitions.Add(new ColumnDefinition());

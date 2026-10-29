@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace BIMDesigner.UI.Export;
 
@@ -24,7 +26,7 @@ public sealed record PdfPage(double WidthPoints, double HeightPoints, Drawing? C
 /// none of those.
 ///
 /// Only the operators these drawings actually use are implemented - filled and stroked
-/// paths, clipping, and constant alpha. Every geometry is flattened to polylines first,
+/// paths, clipping, constant alpha, and pictures as deflated images with their transparency. Every geometry is flattened to polylines first,
 /// which is what keeps it that small: curves, arcs and text outlines all arrive as the same
 /// thing, and at drawing scale the flattening error is far below the width of a pen.
 /// </summary>
@@ -32,22 +34,27 @@ public static class PdfWriter
 {
     public const double PointsPerMillimetre = 72.0 / 25.4;
 
+    /// <summary>Writes the pages to a file, each page's drawing deflated.</summary>
     public static void Write(string path, IReadOnlyList<PdfPage> pages)
     {
         if (pages.Count == 0) throw new ArgumentException("A PDF needs at least one page.", nameof(pages));
 
         using var file = File.Create(path);
-        Write(file, pages);
+        Write(file, pages, compress: true);
     }
 
-    public static void Write(Stream output, IReadOnlyList<PdfPage> pages)
+    /// <summary>
+    /// Writes the pages to a stream - each page's drawing deflated where <paramref name="compress"/> is
+    /// asked, five or ten times smaller, as a file is written; left as text otherwise, to be read.
+    /// </summary>
+    public static void Write(Stream output, IReadOnlyList<PdfPage> pages, bool compress = false)
     {
         var objects = new List<byte[]>();
 
         // 1 is the catalogue and 2 the page tree; each page then takes two objects, its own
         // and its content stream.
         var pageIds = new List<int>();
-        var bodies = new List<(int PageId, int ContentId, PdfContent Content, PdfPage Page)>();
+        var bodies = new List<(int PageId, int ContentId, PdfContent Content, PdfPage Page, Dictionary<string, int> Images)>();
 
         var nextId = 3;
 
@@ -64,7 +71,16 @@ public static class PdfWriter
             var contentId = nextId++;
 
             pageIds.Add(pageId);
-            bodies.Add((pageId, contentId, content, page));
+
+            // Each picture on it next: its own object, and its transparency's after it where it has any.
+            var images = new Dictionary<string, int>();
+            foreach (var image in content.Images)
+            {
+                images[image.Name] = nextId++;
+                if (image.Alpha is not null) nextId++;
+            }
+
+            bodies.Add((pageId, contentId, content, page, images));
         }
 
         objects.Add(Latin1($"<< /Type /Catalog /Pages 2 0 R >>"));
@@ -73,19 +89,27 @@ public static class PdfWriter
             $"<< /Type /Pages /Count {pages.Count} " +
             $"/Kids [ {string.Join(" ", pageIds.Select(id => $"{id} 0 R"))} ] >>"));
 
-        foreach (var (pageId, contentId, content, page) in bodies)
+        foreach (var (pageId, contentId, content, page, images) in bodies)
         {
             objects.Add(Latin1(
                 $"<< /Type /Page /Parent 2 0 R " +
                 $"/MediaBox [ 0 0 {Number(page.WidthPoints)} {Number(page.HeightPoints)} ] " +
-                $"/Resources << {content.ResourceDictionary()} >> " +
+                $"/Resources << {content.ResourceDictionary(images)} >> " +
                 $"/Contents {contentId} 0 R >>"));
 
             var stream = Latin1(content.ToString());
+            if (compress) stream = PdfContent.Deflate(stream);
             objects.Add(Combine(
-                Latin1($"<< /Length {stream.Length} >>\nstream\n"),
+                Latin1($"<< /Length {stream.Length}{(compress ? " /Filter /FlateDecode" : string.Empty)} >>\nstream\n"),
                 stream,
                 Latin1("\nendstream")));
+
+            foreach (var image in content.Images)
+            {
+                var id = images[image.Name];
+                objects.Add(ImageObject(image.Width, image.Height, "/DeviceRGB", image.Colour, image.Alpha is null ? null : id + 1));
+                if (image.Alpha is { } alpha) objects.Add(ImageObject(image.Width, image.Height, "/DeviceGray", alpha, null));
+            }
 
             // The two objects were reserved in this order, so they must be added in it.
             _ = pageId;
@@ -93,6 +117,14 @@ public static class PdfWriter
 
         WriteDocument(output, objects);
     }
+
+
+    /// <summary>A picture as a PDF image: its pixels deflated, and the mask of its transparency where it has one.</summary>
+    private static byte[] ImageObject(int width, int height, string colourSpace, byte[] deflated, int? mask) => Combine(
+        Latin1($"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace {colourSpace} /BitsPerComponent 8 " +
+               $"/Filter /FlateDecode{(mask is { } id ? $" /SMask {id} 0 R" : string.Empty)} /Length {deflated.Length} >>\nstream\n"),
+        deflated,
+        Latin1("\nendstream"));
 
     /// <summary>Lays the objects out with a cross-reference table, which is what makes it a PDF.</summary>
     private static void WriteDocument(Stream output, List<byte[]> objects)
@@ -158,9 +190,9 @@ public static class PdfWriter
 /// <summary>
 /// One page's content stream, built by walking a WPF drawing tree.
 ///
-/// It understands three kinds of node: a group (which may carry a transform, a clip and an
-/// opacity), a geometry with a brush and a pen, and a run of glyphs. Everything the
-/// application draws is one of those.
+/// It understands four kinds of node: a group (which may carry a transform, a clip and an
+/// opacity), a geometry with a brush and a pen, a run of glyphs, and a picture - a sheet's
+/// rendering or photograph. Everything the application draws is one of those.
 /// </summary>
 internal sealed class PdfContent
 {
@@ -186,6 +218,10 @@ internal sealed class PdfContent
 
             case GlyphRunDrawing glyphs:
                 DrawGlyphs(glyphs, transform, opacity);
+                break;
+
+            case ImageDrawing image:
+                DrawImage(image, transform, opacity);
                 break;
         }
     }
@@ -268,9 +304,67 @@ internal sealed class PdfContent
         if (colour.Alpha < 0.999) Line($"/{AlphaState(colour.Alpha)} gs");
         Line($"{colour.Rgb} rg");
 
-        if (AppendPath(outline, transform, out var evenOdd)) Line(evenOdd ? "f*" : "f");
+        // Flattened to a fiftieth of its size: finer than ink spreads, and a page of text far fewer bytes.
+        var scale = Math.Sqrt(Math.Abs(transform.M11 * transform.M22 - transform.M12 * transform.M21));
+        var tolerance = Math.Clamp(drawing.GlyphRun.FontRenderingEmSize * (scale > 0 && double.IsFinite(scale) ? scale : 1) / 50, 0.05, 0.4);
+        if (AppendPath(outline, transform, out var evenOdd, tolerance: tolerance)) Line(evenOdd ? "f*" : "f");
 
         Line("Q");
+    }
+
+
+    /// <summary>A picture drawn on a page: its name in the page's resources, its size, its pixels deflated, its transparency deflated where it has any.</summary>
+    internal sealed record PdfImage(string Name, int Width, int Height, byte[] Colour, byte[]? Alpha);
+
+    private readonly List<PdfImage> _images = new();
+    private readonly Dictionary<ImageSource, PdfImage> _imageOf = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The pictures the page draws, each once however often it is drawn.</summary>
+    public IReadOnlyList<PdfImage> Images => _images;
+
+    /// <summary>
+    /// A picture: its pixels written once into the page as an image, then drawn into its rectangle. Its first
+    /// row is the top of the unit square, which the page's y-down transform puts at the rectangle's top.
+    /// </summary>
+    private void DrawImage(ImageDrawing drawing, Matrix transform, double opacity)
+    {
+        if (drawing.ImageSource is not BitmapSource bitmap || bitmap.PixelWidth <= 0 || bitmap.PixelHeight <= 0) return;
+        if (!_imageOf.TryGetValue(bitmap, out var image)) _imageOf[bitmap] = image = Encode(bitmap, $"Im{_images.Count}");
+        var a = transform.Transform(drawing.Rect.TopLeft);
+        var b = transform.Transform(drawing.Rect.BottomRight);
+        Line("q");
+        if (opacity < 0.999) Line($"/{AlphaState(opacity)} gs");
+        Line($"{N(b.X - a.X)} 0 0 {N(-(b.Y - a.Y))} {N(a.X)} {N(b.Y)} cm");
+        Line($"/{image.Name} Do");
+        Line("Q");
+    }
+
+    private PdfImage Encode(BitmapSource bitmap, string name)
+    {
+        var bgra = bitmap.Format == PixelFormats.Bgra32 ? bitmap : new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+        var (width, height) = (bgra.PixelWidth, bgra.PixelHeight);
+        var pixels = new byte[width * height * 4];
+        bgra.CopyPixels(pixels, width * 4, 0);
+        var colour = new byte[width * height * 3];
+        var alpha = new byte[width * height];
+        var opaque = true;
+        for (int i = 0, j = 0; i < width * height; i++, j += 4)
+        {
+            (colour[i * 3], colour[i * 3 + 1], colour[i * 3 + 2]) = (pixels[j + 2], pixels[j + 1], pixels[j]);
+            alpha[i] = pixels[j + 3];
+            opaque &= alpha[i] == 255;
+        }
+
+        var image = new PdfImage(name, width, height, Deflate(colour), opaque ? null : Deflate(alpha));
+        _images.Add(image);
+        return image;
+    }
+
+    internal static byte[] Deflate(byte[] raw)
+    {
+        using var output = new MemoryStream();
+        using (var zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true)) zlib.Write(raw, 0, raw.Length);
+        return output.ToArray();
     }
 
     private void ApplyPen(Pen pen, Matrix transform)
@@ -302,7 +396,7 @@ internal sealed class PdfContent
     /// the writer has to understand. Returns false for an empty geometry, so the caller can
     /// skip the paint operator rather than emitting one with nothing to paint.
     /// </summary>
-    private bool AppendPath(Geometry geometry, Matrix transform, out bool evenOdd, bool everyFigure = false)
+    private bool AppendPath(Geometry geometry, Matrix transform, out bool evenOdd, bool everyFigure = false, double tolerance = 0.05)
     {
         // WPF flattens only the figures that are filled: where every figure is wanted, a copy of it all filled is flattened.
         if (everyFigure)
@@ -315,7 +409,7 @@ internal sealed class PdfContent
         // The tolerance is absolute and in points: about a fiftieth of a millimetre, which is
         // finer than any printer resolves. The default is relative to the geometry's own size
         // and at this scale would leave door swings visibly faceted.
-        var flattened = geometry.GetFlattenedPathGeometry(0.05, ToleranceType.Absolute);
+        var flattened = geometry.GetFlattenedPathGeometry(tolerance, ToleranceType.Absolute);
         evenOdd = flattened.FillRule == FillRule.EvenOdd;
 
         var wrote = false;
@@ -365,14 +459,14 @@ internal sealed class PdfContent
         return name;
     }
 
-    public string ResourceDictionary()
+    public string ResourceDictionary(IReadOnlyDictionary<string, int>? images = null)
     {
-        if (_alphaStates.Count == 0) return string.Empty;
-
-        var entries = _alphaStates.Select(state =>
-            $"/{state.Value} << /Type /ExtGState /ca {N(state.Key)} /CA {N(state.Key)} >>");
-
-        return $"/ExtGState << {string.Join(" ", entries)} >>";
+        var parts = new List<string>();
+        if (_alphaStates.Count > 0)
+            parts.Add($"/ExtGState << {string.Join(" ", _alphaStates.Select(state => $"/{state.Value} << /Type /ExtGState /ca {N(state.Key)} /CA {N(state.Key)} >>"))} >>");
+        if (images is { Count: > 0 })
+            parts.Add($"/XObject << {string.Join(" ", images.Select(image => $"/{image.Key} {image.Value} 0 R"))} >>");
+        return string.Join(" ", parts);
     }
 
     private sealed record Colour(string Rgb, double Alpha);

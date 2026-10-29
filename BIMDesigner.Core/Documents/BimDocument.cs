@@ -115,6 +115,9 @@ public sealed class ProjectInformation
     /// <summary>How its renderings are made: the place, date and time the sun is worked out for, the sky, size and quality.</summary>
     public Rendering.RenderSettings Render { get; } = new();
 
+    /// <summary>How its daylight is worked out: the day its sunlight is counted on, the light outside, how finely.</summary>
+    public Energy.DaylightSettings Daylight { get; } = new();
+
     /// <summary>
     /// Where the model's origin is in the coordinates other programs set the building out in - a national
     /// grid's - mm east and north of theirs: set when an IFC set out kilometres from its origin is

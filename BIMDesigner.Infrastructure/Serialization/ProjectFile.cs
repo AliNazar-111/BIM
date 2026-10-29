@@ -50,6 +50,7 @@ public static partial class ProjectFile
 
     public static void Save(BimDocument document, string path)
     {
+        Interoperability.LinkFiles.Relate(document, path);
         var json = JsonSerializer.Serialize(ToDto(document), Options);
 
         // Write to a temporary file first, so a failure part-way through cannot destroy the
@@ -102,7 +103,8 @@ public static partial class ProjectFile
                 DuctInsulation = document.ProjectInformation.DuctInsulation,
                 DuctsSealed = document.ProjectInformation.DuctsSealed,
                 Energy = EnergyOf(document.ProjectInformation.Energy),
-                Render = RenderOf(document.ProjectInformation.Render)
+                Render = RenderOf(document.ProjectInformation.Render),
+                Daylight = DaylightOf(document.ProjectInformation.Daylight)
             }
         };
 
@@ -444,6 +446,13 @@ public static partial class ProjectFile
 
         foreach (var underlay in document.All<CadUnderlay>())
             (dto.CadUnderlays ??= new List<CadUnderlayDto>()).Add(UnderlayOf(underlay));
+
+        foreach (var link in document.All<BIMDesigner.Core.Coordination.ModelLink>())
+            (dto.ModelLinks ??= new List<ModelLinkDto>()).Add(new ModelLinkDto
+            {
+                Id = link.Id, Path = link.Path, RelativePath = link.RelativePath, Positioning = link.Positioning.ToString(), X = link.Offset.X, Y = link.Offset.Y,
+                Elevation = link.Elevation, Rotation = link.Rotation, Shown = link.Shown, Halftone = link.Halftone, Mark = link.Mark, Comments = link.Comments
+            });
 
         foreach (var separator in document.All<RoomSeparator>())
             dto.RoomSeparators.Add(new RoomSeparatorDto
@@ -911,6 +920,11 @@ public static partial class ProjectFile
                     ShowTitle = viewport.ShowTitle,
                     TitleOverride = viewport.TitleOverride,
                     DetailNumber = viewport.DetailNumber
+                }).ToList(),
+                Images = sheet.Images.Count == 0 ? null : sheet.Images.Select(image => new SheetImageDto
+                {
+                    Id = image.Id, Name = image.Name, Data = image.Data, X = image.Centre.X, Y = image.Centre.Y,
+                    Width = image.Width, ShowTitle = image.ShowTitle, Title = image.Title.Length == 0 ? null : image.Title
                 }).ToList()
             });
 
@@ -1461,7 +1475,8 @@ public static partial class ProjectFile
 
     // ---- loading ---------------------------------------------------------------
 
-    public static BimDocument Load(string path)
+    /// <summary>A project read from its file - its links found again and its linked drawings read again from theirs, unless it is itself being read as a link.</summary>
+    public static BimDocument Load(string path, bool refreshLinks = true)
     {
         string json;
         try
@@ -1473,7 +1488,9 @@ public static partial class ProjectFile
             throw new ProjectFileException($"Could not read '{Path.GetFileName(path)}'.", e);
         }
 
-        return FromJson(json);
+        var document = FromJson(json);
+        if (refreshLinks) Interoperability.LinkFiles.Refresh(document, path);
+        return document;
     }
 
     public static BimDocument FromJson(string json)
@@ -1537,7 +1554,7 @@ public static partial class ProjectFile
 
         return new CadUnderlayDto
         {
-            Id = underlay.Id, LevelId = underlay.LevelId, Source = underlay.Source, X = underlay.Location.X, Y = underlay.Location.Y,
+            Id = underlay.Id, LevelId = underlay.LevelId, Source = underlay.Source, Linked = underlay.Linked ? true : null, X = underlay.Location.X, Y = underlay.Location.Y,
             Rotation = underlay.Rotation, Scale = underlay.Scale, Halftone = underlay.Halftone, HiddenLayers = underlay.HiddenLayers.ToList(),
             Mark = underlay.Mark, Comments = underlay.Comments,
             Layers = drawing.Layers.Select(layer => new CadLayerDto { Name = layer.Name, Colour = layer.Colour.ToString() }).ToList(),
@@ -1589,7 +1606,7 @@ public static partial class ProjectFile
             .ToList();
         var underlay = new CadUnderlay
         {
-            Id = saved.Id, LevelId = saved.LevelId, Source = saved.Source ?? string.Empty,
+            Id = saved.Id, LevelId = saved.LevelId, Source = saved.Source ?? string.Empty, Linked = saved.Linked == true,
             Location = double.IsFinite(saved.X) && double.IsFinite(saved.Y) ? new Point2D(saved.X, saved.Y) : default,
             Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0,
             Scale = double.IsFinite(saved.Scale) && saved.Scale > 0 ? saved.Scale : 1,
@@ -1623,6 +1640,20 @@ public static partial class ProjectFile
         settings.Width = Math.Clamp(saved.Width, 64, 8192);
         settings.Height = Math.Clamp(saved.Height, 64, 8192);
         settings.Exposure = double.IsFinite(saved.Exposure) ? Math.Clamp(saved.Exposure, -5, 5) : 0;
+    }
+
+    private static DaylightDto DaylightOf(Core.Energy.DaylightSettings settings) => new()
+    {
+        SunlightDate = settings.SunlightDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+        OutsideLight = settings.OutsideLight, Quality = settings.Quality.ToString()
+    };
+
+    private static void ReadDaylight(DaylightDto saved, Core.Energy.DaylightSettings settings)
+    {
+        if (DateOnly.TryParseExact(saved.SunlightDate, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
+            settings.SunlightDate = date;
+        settings.OutsideLight = double.IsFinite(saved.OutsideLight) ? Math.Clamp(saved.OutsideLight, 0, 200_000) : 0;
+        settings.Quality = ParseEnum(saved.Quality, Core.Energy.DaylightQuality.Standard);
     }
 
     private static double Finite(double value, double least, double most) => double.IsFinite(value) ? Math.Clamp(value, least, most) : least;
@@ -1695,6 +1726,7 @@ public static partial class ProjectFile
         document.ProjectInformation.DuctsSealed = dto.Project.DuctsSealed ?? true;
         if (dto.Project.Energy is { } energy) ReadEnergy(energy, document.ProjectInformation.Energy);
         if (dto.Project.Render is { } render) ReadRender(render, document.ProjectInformation.Render);
+        if (dto.Project.Daylight is { } daylight) ReadDaylight(daylight, document.ProjectInformation.Daylight);
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
@@ -2766,6 +2798,17 @@ public static partial class ProjectFile
         foreach (var saved in (dto.CadUnderlays ?? new List<CadUnderlayDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null))
             if (ReadUnderlay(saved) is { } underlay) document.Add(underlay);
 
+        // A linked model: where its file was, and where it goes.
+        foreach (var saved in dto.ModelLinks ?? new List<ModelLinkDto>())
+            document.Add(new BIMDesigner.Core.Coordination.ModelLink
+            {
+                Id = saved.Id, Path = saved.Path ?? string.Empty, RelativePath = saved.RelativePath ?? string.Empty,
+                Positioning = ParseEnum(saved.Positioning, BIMDesigner.Core.Coordination.LinkPositioning.OriginToOrigin),
+                Offset = new Point2D(double.IsFinite(saved.X) ? saved.X : 0, double.IsFinite(saved.Y) ? saved.Y : 0) - new Point2D(0, 0),
+                Elevation = double.IsFinite(saved.Elevation) ? saved.Elevation : 0, Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0,
+                Shown = saved.Shown, Halftone = saved.Halftone, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
         // A room separator between its ends; one with no length is nothing.
         foreach (var saved in (dto.RoomSeparators ?? new List<RoomSeparatorDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null
                      && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY }.All(double.IsFinite)))
@@ -3422,6 +3465,18 @@ public static partial class ProjectFile
                     DetailNumber = dtoViewport.DetailNumber ?? string.Empty
                 });
             }
+
+            // Its pictures, sized from their own bytes: one that is not a PNG or a JPEG any more is left out.
+            foreach (var saved in dtoSheet.Images ?? new List<SheetImageDto>())
+                if (saved.Data is { Length: > 0 } data && SheetImage.From(saved.Name, data) is { } image)
+                {
+                    sheet.AddImage(new SheetImage
+                    {
+                        Id = saved.Id, Name = image.Name, Data = data, PixelWidth = image.PixelWidth, PixelHeight = image.PixelHeight,
+                        Centre = new Point2D(saved.X, saved.Y), Width = double.IsFinite(saved.Width) && saved.Width > 1 ? saved.Width : 150,
+                        ShowTitle = saved.ShowTitle, Title = saved.Title ?? string.Empty
+                    });
+                }
 
             document.Add(sheet);
         }

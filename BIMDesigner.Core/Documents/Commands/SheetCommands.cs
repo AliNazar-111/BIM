@@ -133,3 +133,73 @@ public sealed class SetViewportScaleCommand : IUndoableCommand
         return new SetViewportScaleCommand(viewport, to, centre);
     }
 }
+
+/// <summary>A picture put on a sheet.</summary>
+public sealed class AddSheetImageCommand : IUndoableCommand
+{
+    private readonly Sheet _sheet;
+    private readonly SheetImage _image;
+
+    public AddSheetImageCommand(Sheet sheet, SheetImage image, string name = "Place Image on Sheet")
+    {
+        _sheet = sheet;
+        _image = image;
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public SheetImage Image => _image;
+
+    public void Redo() => _sheet.AddImage(_image);
+
+    public void Undo() => _sheet.RemoveImage(_image);
+}
+
+/// <summary>A picture taken off a sheet, put back where it was in the order on undo.</summary>
+public sealed class RemoveSheetImageCommand : IUndoableCommand
+{
+    private readonly Sheet _sheet;
+    private readonly SheetImage _image;
+    private int _index = -1;
+
+    public RemoveSheetImageCommand(Sheet sheet, SheetImage image)
+    {
+        _sheet = sheet;
+        _image = image;
+    }
+
+    public string Name => "Remove Image from Sheet";
+
+    public void Redo()
+    {
+        _index = _sheet.IndexOfImage(_image);
+        _sheet.RemoveImage(_image);
+    }
+
+    public void Undo() => _sheet.InsertImage(_index < 0 ? _sheet.Images.Count : _index, _image);
+}
+
+/// <summary>A picture's place, size and title changed, as one step: dragged, made wider, retitled.</summary>
+public sealed class SetSheetImageCommand : IUndoableCommand
+{
+    private readonly SheetImage _image;
+    private readonly (Point2D Centre, double Width, bool ShowTitle, string Title) _before;
+    private readonly (Point2D Centre, double Width, bool ShowTitle, string Title) _after;
+
+    public SetSheetImageCommand(SheetImage image, (Point2D Centre, double Width, bool ShowTitle, string Title) before, string name = "Change Image on Sheet")
+    {
+        _image = image;
+        _before = before;
+        _after = (image.Centre, image.Width, image.ShowTitle, image.Title);
+        Name = name;
+    }
+
+    public string Name { get; }
+
+    public static (Point2D Centre, double Width, bool ShowTitle, string Title) StateOf(SheetImage image) => (image.Centre, image.Width, image.ShowTitle, image.Title);
+
+    public void Redo() => (_image.Centre, _image.Width, _image.ShowTitle, _image.Title) = _after;
+
+    public void Undo() => (_image.Centre, _image.Width, _image.ShowTitle, _image.Title) = _before;
+}

@@ -1,6 +1,9 @@
 using System.Globalization;
+using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using BIMDesigner.Core.Annotation;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
@@ -11,7 +14,7 @@ using BIMDesigner.Core.Views;
 namespace BIMDesigner.UI.Rendering;
 
 /// <summary>
-/// Draws a whole sheet - paper, border, title block and every viewport on it - into any
+/// Draws a whole sheet - paper, border, title block, every viewport and picture on it - into any
 /// <see cref="DrawingContext"/>, under any transform.
 ///
 /// The sheet on screen and the sheet in an exported PDF are produced by this one class, so a
@@ -63,6 +66,9 @@ public sealed class SheetRenderer
     /// <summary>Highlighted while laying the sheet out. Always null when exporting.</summary>
     public Viewport? SelectedViewport { get; set; }
 
+    /// <summary>The picture highlighted while laying the sheet out; null when exporting.</summary>
+    public SheetImage? SelectedImage { get; set; }
+
     /// <summary>Surface pixels to one millimetre of paper.</summary>
     public double PixelsPerPaperMm { get; private set; } = 1;
 
@@ -104,6 +110,9 @@ public sealed class SheetRenderer
         DrawPaper(dc);
 
         foreach (var viewport in Sheet.Viewports) DrawViewport(dc, viewport);
+
+        // The pictures over the views, in the order they were put there.
+        foreach (var image in Sheet.Images) DrawImage(dc, image);
 
         DrawTitleBlock(dc);
     }
@@ -349,6 +358,57 @@ public sealed class SheetRenderer
         }
 
         dc.DrawRectangle(null, heavy, Cell(left, top, left + table.Width, y));
+    }
+
+
+    /// <summary>Each picture's bitmap, read once from its bytes and kept while they are.</summary>
+    private static readonly ConditionalWeakTable<byte[], BitmapSource> Bitmaps = new();
+
+    /// <summary>A picture's bitmap; null where its bytes cannot be read.</summary>
+    internal static BitmapSource? BitmapOf(SheetImage image)
+    {
+        if (Bitmaps.TryGetValue(image.Data, out var known)) return known;
+        try
+        {
+            using var stream = new MemoryStream(image.Data);
+            var frame = BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            frame.Freeze();
+            Bitmaps.AddOrUpdate(image.Data, frame);
+            return frame;
+        }
+        catch (Exception error) when (error is NotSupportedException or FileFormatException or IOException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>One picture: the picture itself in its rectangle, its frame while laying out, its title under it.</summary>
+    private void DrawImage(DrawingContext dc, SheetImage image)
+    {
+        var frame = ToScreen(image.PaperBounds);
+        if (frame.Width <= 0 || frame.Height <= 0) return;
+
+        if (BitmapOf(image) is { } bitmap) dc.DrawImage(bitmap, frame);
+        else if (ShowGuides)
+        {
+            var warning = Text("This picture cannot be read.", Paper(3), _missingPen.Brush);
+            dc.DrawText(warning, new Point(frame.X + Paper(2), frame.Y + frame.Height / 2 - warning.Height / 2));
+        }
+
+        if (ShowGuides && Sheet is not null && Document is not null)
+        {
+            var selected = ReferenceEquals(image, SelectedImage);
+            var misplaced = !Sheet.IsWellPlaced(Document, image);
+            dc.DrawRectangle(null, misplaced ? _missingPen : selected ? _selectedPen : _viewportPen, frame);
+            if (misplaced && selected) dc.DrawRectangle(null, _selectedPen, new Rect(frame.X - 3, frame.Y - 3, frame.Width + 6, frame.Height + 6));
+        }
+
+        if (!image.ShowTitle) return;
+        var title = Text(image.TitleShown, Paper(3.6), _titleTextBrush, bold: true);
+        var baseline = frame.Bottom + Paper(3);
+        dc.DrawText(title, new Point(frame.X, baseline));
+        var rule = baseline + title.Height + Paper(1);
+        dc.DrawLine(_titleBlockPen, new Point(frame.X, rule), new Point(frame.X + Math.Max(title.Width, Paper(30)), rule));
     }
 
     private void DrawViewportTitle(DrawingContext dc, Viewport viewport, Rect frame)

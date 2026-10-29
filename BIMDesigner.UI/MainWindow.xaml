@@ -661,7 +661,7 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl Header="Heating" Style="{StaticResource RibbonPanel}">
+                        <HeaderedContentControl Header="Environment" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.HeatLoss}"
                                         Content="Heat Loss" Click="OnHeatLoss"
@@ -673,6 +673,9 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.EnergyRating}"
                                             Content="Energy Rating" Click="OnEnergyRating"
                                             ToolTip="The home's SAP 10.3 rating and its Future Homes Standard check - its emission, primary energy and fabric energy efficiency rates against the notional home's targets, the limiting U-values, its heating's fuel, its fans and lights, and requirement L3's solar output - and its overheating by Approved Document O's simplified method: its glazing, shading and openings. Worked from the model"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Daylight}"
+                                            Content="Daylight" Click="OnDaylight"
+                                            ToolTip="Each habitable room's daylight by BS EN 17037 - its daylight factors over the room worked out under the overcast sky through the model, against the standard's levels and, in England, the UK annex's 100, 150 and 200 lux - and the hours of sun its windows let in on 21 March; drawn over the plan as a map"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -1146,10 +1149,20 @@
                             </StackPanel>
                         </HeaderedContentControl>
 
-                        <HeaderedContentControl Header="Import" Style="{StaticResource RibbonPanel}">
-                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.ImportCad}"
+                        <HeaderedContentControl Header="Import &amp; Link" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.ImportCad}"
                                     Content="Import CAD" Click="OnImportCad"
                                     ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over, faded under the model. The drawing tools snap to its ends and along its lines; double-click it for its layers"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Link}" Content="Link Model" Click="OnLinkModel"
+                                            ToolTip="Link a BIMDesigner project or an IFC file - the structure's, the services', the building next door: drawn with this one in 3D and cut on its plans, clash tested against it, read from its own file and reloaded as it changes"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ImportCad}" Content="Link DWG" Click="OnLinkCad"
+                                            ToolTip="A DWG or DXF drawing linked onto the storey shown: drawn as an imported one is, but read again from its file as the project opens and when it is reloaded"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Link}" Content="Manage Links" Click="OnManageLinks"
+                                            ToolTip="The models and drawings linked in: how each stands, to reload from its file or another, unload, or take out"/>
+                                </StackPanel>
+                            </StackPanel>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Export" Style="{StaticResource RibbonPanel}">
@@ -1195,6 +1208,14 @@
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Issues}"
                                         Content="Issues" Click="OnIssues"
                                         ToolTip="Issues raised about the model - from the 3D view as it is, from clashes, or brought in from other programs as BCF 2.0, 2.1 or 3.0 - each with its views, the elements it is about, its status, who has it, by when and what has been said; sent back out as BCF"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Versions" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Compare}"
+                                        Content="Compare" Click="OnCompare"
+                                        ToolTip="Two issues of a model side by side: this project against its last save or another saved project or IFC file, or a linked model against the issue it replaced - what was added, removed, moved or changed, setting by setting, coloured in the plan and 3D, listed and reported as a PDF"/>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -2652,12 +2673,20 @@
                                         <Button Content="Add" Padding="14,5" Margin="0,0,18,0"
                                                 Click="OnPlaceViewOnSheet"
                                                 ToolTip="Place the chosen view on this sheet"/>
+                                        <Button Content="Picture..." Padding="10,5" Margin="0,0,18,0"
+                                                Click="OnPlaceSheetImage"
+                                                ToolTip="Put a picture on this sheet - a rendering, a photograph, a logo: a PNG, JPEG, BMP, GIF or TIFF file. It is kept in the project, drawn over the views, printed in the PDF and written beside a DWG"/>
 
                                         <TextBlock Text="Scale" Style="{StaticResource OptionLabel}"/>
                                         <ComboBox x:Name="ViewportScalePicker" Style="{StaticResource OptionCombo}"
                                                   MinWidth="90" IsEnabled="False"
                                                   SelectionChanged="OnViewportScaleChanged"
                                                   ToolTip="The scale the selected view is drawn at"/>
+
+                                        <TextBlock Text="Width" Style="{StaticResource OptionLabel}" Margin="12,0,6,0"/>
+                                        <TextBox x:Name="SheetImageWidthBox" MinWidth="60" VerticalAlignment="Center" IsEnabled="False"
+                                                 LostFocus="OnSheetImageWidthChanged" KeyDown="OnSheetImageWidthKey"
+                                                 ToolTip="How wide the selected picture is printed on the sheet, mm - its height follows its own proportions"/>
                                     </StackPanel>
                                 </ScrollViewer>
 
@@ -2668,7 +2697,7 @@
                                     <Button Content="Export DWG" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnExportSheetCad"
                                             ToolTip="Write this sheet out as a DWG or DXF drawing, at paper size in millimetres"/>
-                                    <Button x:Name="RemoveViewportButton" Content="Remove View" Padding="8,4"
+                                    <Button x:Name="RemoveViewportButton" Content="Remove" Padding="8,4" ToolTip="Take the selected view or picture off this sheet (Delete)"
                                             Margin="0,0,6,0" IsEnabled="False" Click="OnRemoveViewport"/>
                                     <Button Content="Zoom to Fit" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnZoomSheetToFit"/>

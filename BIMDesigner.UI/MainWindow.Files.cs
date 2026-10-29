@@ -43,7 +43,7 @@ public partial class MainWindow
     /// set out far from the project's origin, a site surveyed to the national grid - its middle at
     /// the middle of the view. Said on the status bar; quietly, where the window is driven unseen.
     /// </summary>
-    internal CadUnderlay? ImportCad(string path, bool quiet)
+    internal CadUnderlay? ImportCad(string path, bool quiet, bool linked = false)
     {
         if (_document.FindLevel(Plan.ActiveLevelId) is not { } level) return null;
         CadImport.Result read;
@@ -69,16 +69,17 @@ public partial class MainWindow
             return null;
         }
 
-        var underlay = new CadUnderlay { LevelId = level.Id, Source = path, Drawing = read.Drawing, Scale = read.Scale };
+        var underlay = new CadUnderlay { LevelId = level.Id, Source = path, Drawing = read.Drawing, Scale = read.Scale, Linked = linked };
         underlay.HiddenLayers.UnionWith(read.HiddenLayers);
         var bounds = underlay.Bounds;
         var far = !bounds.IsEmpty && Math.Max(Math.Abs(bounds.Centre.X), Math.Abs(bounds.Centre.Y)) > FarFromOrigin;
         if (far) underlay.Location = Plan.ViewCentre - (bounds.Centre - new Point2D(0, 0));
 
-        _history.Execute(new AddElementCommand(_document, underlay, "Import DWG or DXF"));
+        _history.Execute(new AddElementCommand(_document, underlay, linked ? "Link DWG or DXF" : "Import DWG or DXF"));
+        if (linked) _underlayRead[underlay.Id] = File.GetLastWriteTimeUtc(path);
         Plan.Select(underlay);
         Plan.ZoomToFit();
-        StatusHint.Text = $"Imported {Path.GetFileName(path)} onto {level.Name}: {read.Drawing.Paths.Count:#,0} lines and {read.Drawing.Labels.Count:#,0} texts on {read.Drawing.Layers.Count} layers, in {read.Units.ToLowerInvariant()}"
+        StatusHint.Text = $"{(linked ? "Linked" : "Imported")} {Path.GetFileName(path)} onto {level.Name}: {read.Drawing.Paths.Count:#,0} lines and {read.Drawing.Labels.Count:#,0} texts on {read.Drawing.Layers.Count} layers, in {read.Units.ToLowerInvariant()}"
                           + (far ? ", its middle put in the middle of the view - it is set out far from the project's origin." : ", origin to origin.")
                           + " Double-click it for its layers; the drawing tools snap to its lines. " + string.Join(" ", read.Notes);
         return underlay;

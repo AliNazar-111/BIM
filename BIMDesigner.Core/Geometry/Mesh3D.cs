@@ -89,6 +89,9 @@ public sealed class Mesh3D
     /// <summary>The storey it belongs to, so a viewer can hide a whole floor to see inside.</summary>
     public Guid LevelId { get; }
 
+    /// <summary>The element of a linked model it was built from, where it is drawn as its link's; null otherwise.</summary>
+    public Guid? SourceId { get; init; }
+
     public MeshKind Kind { get; }
 
     public ColourRgb Colour { get; set; }
@@ -866,11 +869,14 @@ public sealed class Mesh3D
     /// A copy with every point moved - into the frame of a view, say - its faces and edges with
     /// it. How it was shaded is not carried: a moved surface faces new ways.
     /// </summary>
-    public Mesh3D Mapped(Func<Point3D, Point3D> map)
+    public Mesh3D Mapped(Func<Point3D, Point3D> map) => Mapped(map, ElementId, OwnerId, LevelId, SourceId);
+
+    /// <summary>A copy with every point moved and made the element's it is said to be: a linked model's, picked as the link.</summary>
+    public Mesh3D Mapped(Func<Point3D, Point3D> map, Guid elementId, Guid ownerId, Guid levelId, Guid? sourceId = null)
     {
         var copy = _opacity is { } opacity
-            ? new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Opacity = opacity, Cut = Cut }
-            : new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Cut = Cut };
+            ? new Mesh3D(elementId, levelId, Kind, Colour, Description) { OwnerId = ownerId, Opacity = opacity, Cut = Cut, SourceId = sourceId }
+            : new Mesh3D(elementId, levelId, Kind, Colour, Description) { OwnerId = ownerId, Cut = Cut, SourceId = sourceId };
         copy._positions.AddRange(_positions.Select(map));
         copy._indices.AddRange(_indices);
         copy._edges.AddRange(_edges.Select(edge => (map(edge.From), map(edge.To))));
@@ -891,8 +897,8 @@ public sealed class Mesh3D
         if (box.Contains(bounds.Min) && box.Contains(bounds.Max)) return this;
 
         var clipped = _opacity is { } opacity
-            ? new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Opacity = opacity, Cut = Cut }
-            : new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Cut = Cut };
+            ? new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Opacity = opacity, Cut = Cut, SourceId = SourceId }
+            : new Mesh3D(ElementId, LevelId, Kind, Colour, Description) { OwnerId = OwnerId, Cut = Cut, SourceId = SourceId };
         var normals = _normals is null ? null : new List<Point3D>();
 
         // Each face cut by the six planes in turn, its corners carrying which way it faces.

@@ -75,6 +75,9 @@ internal sealed class ProjectFileDto
 
     /// <summary>Drawings imported from DWG or DXF files to work over. Missing from older files.</summary>
     public List<CadUnderlayDto>? CadUnderlays { get; set; }
+
+    /// <summary>The models linked in: where each file is and where it goes; none in a file from before.</summary>
+    public List<ModelLinkDto>? ModelLinks { get; set; }
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
     public List<GroundRegionDto> GroundRegions { get; set; } = new();
     public List<SitePadDto> SitePads { get; set; } = new();
@@ -444,8 +447,23 @@ internal sealed class SheetDto
 
     public List<ViewportDto> Viewports { get; set; } = new();
 
+    /// <summary>The pictures on it, each whole; none in a file from before.</summary>
+    public List<SheetImageDto>? Images { get; set; }
+
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
+}
+
+internal sealed class SheetImageDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Image";
+    public byte[]? Data { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; }
+    public bool ShowTitle { get; set; } = true;
+    public string? Title { get; set; }
 }
 
 internal sealed class ViewportDto
@@ -1213,6 +1231,13 @@ internal sealed class RenderDto
     public double Exposure { get; set; }
 }
 
+internal sealed class DaylightDto
+{
+    public string? SunlightDate { get; set; }
+    public double OutsideLight { get; set; }
+    public string? Quality { get; set; }
+}
+
 internal sealed class EnergyDto
 {
     public string? Overshading { get; set; }
@@ -1287,6 +1312,9 @@ internal sealed class ProjectInformationDto
 
     /// <summary>How its renderings are made; none in older files.</summary>
     public RenderDto? Render { get; set; }
+
+    /// <summary>How its daylight is worked out; none in a file from before.</summary>
+    public DaylightDto? Daylight { get; set; }
 
     /// <summary>Where its ducts run, their insulation and sealing; none in older files.</summary>
     public string? DuctRun { get; set; }
@@ -2433,9 +2461,26 @@ internal sealed class MepSystemDto
     public string Comments { get; set; } = string.Empty;
 }
 
+internal sealed class ModelLinkDto
+{
+    public Guid Id { get; set; }
+    public string? Path { get; set; }
+    public string? RelativePath { get; set; }
+    public string? Positioning { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Elevation { get; set; }
+    public double Rotation { get; set; }
+    public bool Shown { get; set; } = true;
+    public bool Halftone { get; set; } = true;
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
 internal sealed class CadUnderlayDto
 {
     public Guid Id { get; set; }
+    public bool? Linked { get; set; }
     public Guid LevelId { get; set; }
     public string? Source { get; set; }
     public double X { get; set; }

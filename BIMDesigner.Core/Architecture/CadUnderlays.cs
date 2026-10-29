@@ -120,6 +120,13 @@ public sealed class CadUnderlay : Element
     /// <summary>The file it was read from, as it was then.</summary>
     public string Source { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether it is linked to its file rather than kept as it was read: read again from it when the project is
+    /// opened and when it is reloaded - its place, turn, units and hidden layers kept - the copy kept in the
+    /// project drawn where the file cannot be found.
+    /// </summary>
+    public bool Linked { get; set; }
+
     public CadDrawing Drawing { get; set; } = new(Array.Empty<CadDrawingLayer>(), Array.Empty<CadPath>(), Array.Empty<CadLabel>());
 
     /// <summary>Where on the plan the drawing's origin is, mm.</summary>
@@ -202,6 +209,7 @@ public sealed class CadUnderlay : Element
             v => { if (document.Levels.FirstOrDefault(level => level.Name == v) is { } level) LevelId = level.Id; },
             document.Levels.Select(level => level.Name).ToArray());
         yield return ParameterValue.ReadOnly(CadUnderlayParameters.Source, () => System.IO.Path.GetFileName(Source));
+        yield return ParameterValue.ReadOnly(CadUnderlayParameters.Linked, () => Linked ? "Linked to its file: read again as the project opens and when reloaded" : "Imported: kept as it was read");
         yield return ParameterValue.BindChoice(CadUnderlayParameters.Units,
             () => CadUnits.Name(Scale),
             v => { if (CadUnits.ScaleOf(v) is { } scale) Scale = scale; },
@@ -243,6 +251,7 @@ public static class CadUnderlayParameters
 {
     public static readonly ParameterDefinition Level = new("Level", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Source = new("File", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition Linked = new("Linked", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition Units = new("Drawing Units", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Rotation = new("Rotation", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Halftone = new("Halftone", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -275,4 +284,25 @@ public sealed class SetUnderlayLayersCommand : Documents.Commands.IUndoableComma
         _underlay.HiddenLayers.Clear();
         _underlay.HiddenLayers.UnionWith(hidden);
     }
+}
+
+/// <summary>A linked drawing read again from its file - or from another - as one step to undo.</summary>
+public sealed class ReloadUnderlayCommand : Documents.Commands.IUndoableCommand
+{
+    private readonly CadUnderlay _underlay;
+    private readonly (CadDrawing Drawing, string Source, bool Linked) _before;
+    private readonly (CadDrawing Drawing, string Source, bool Linked) _after;
+
+    public ReloadUnderlayCommand(CadUnderlay underlay, CadDrawing drawing, string source)
+    {
+        _underlay = underlay;
+        _before = (underlay.Drawing, underlay.Source, underlay.Linked);
+        _after = (drawing, source, true);
+    }
+
+    public string Name => $"Reload {System.IO.Path.GetFileName(_after.Source)}";
+
+    public void Redo() => (_underlay.Drawing, _underlay.Source, _underlay.Linked) = _after;
+
+    public void Undo() => (_underlay.Drawing, _underlay.Source, _underlay.Linked) = _before;
 }

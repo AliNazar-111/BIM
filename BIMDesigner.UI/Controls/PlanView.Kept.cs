@@ -87,6 +87,7 @@ public partial class PlanView
             DrawUnderlay(context);
             PrepareRenderer();
             _renderer.DrawContent(context);
+            DrawRemoved(context);
         }
 
         if (drawing.CanFreeze) drawing.Freeze();

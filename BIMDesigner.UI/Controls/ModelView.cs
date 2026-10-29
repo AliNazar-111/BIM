@@ -227,6 +227,10 @@ public partial class ModelView : Border
         {
             var shows = _document.ViewSettings.FilterFor(_document, Reference);
             _allMeshes = ModelMeshBuilder.Build(_document, element => shows(element) && StandsOn(element) && element.Id != _walkingAs);
+
+            // The linked models where their links put them, each piece picked as its link.
+            var linked = _document.All<Core.Coordination.ModelLink>().Where(link => shows(link)).SelectMany(link => Core.Coordination.ModelLinks.Meshes(_document, link)).ToList();
+            if (linked.Count > 0) _allMeshes = _allMeshes.Concat(linked).ToList();
         }
 
         // As the view's phasing and filters draw them: faded, in a colour of their own; what is taken down red and faint.
@@ -234,6 +238,7 @@ public partial class ModelView : Border
         {
             var styled = _document.ViewSettings.StyleFor(_document, Reference);
             Restyle(_allMeshes, element => styled(element).Then(ConstructionStyle(element)));
+            if (Comparison is { } comparing) _allMeshes = Compared(_allMeshes, comparing);
         }
 
         // Converted once per rebuild. Selecting something or changing the style only swaps

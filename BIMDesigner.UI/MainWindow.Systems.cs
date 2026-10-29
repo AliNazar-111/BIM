@@ -270,6 +270,28 @@ public partial class MainWindow
         return _energyRatingWindow;
     }
 
+    private DaylightWindow? _daylightWindow;
+
+    private void OnDaylight(object sender, RoutedEventArgs e) => OpenDaylight();
+
+    /// <summary>The Daylight window: each habitable room's daylight and sunlight by BS EN 17037, drawn over the plan.</summary>
+    internal DaylightWindow OpenDaylight()
+    {
+        if (_daylightWindow is { IsLoaded: true })
+        {
+            _daylightWindow.Activate();
+            return _daylightWindow;
+        }
+
+        _daylightWindow = new DaylightWindow(this);
+        if (IsLoaded) _daylightWindow.Owner = this;
+        _daylightWindow.Show();
+        return _daylightWindow;
+    }
+
+    /// <summary>The daylight drawn over the plan, or taken off it.</summary>
+    internal void ShowDaylight(Core.Energy.DaylightResult? result) => Plan.DaylightMap = result;
+
     private HeatLossWindow? _heatLossWindow;
 
     private void OnHeatLoss(object sender, RoutedEventArgs e) => OpenHeatLoss();

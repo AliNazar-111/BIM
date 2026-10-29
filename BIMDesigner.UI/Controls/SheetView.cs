@@ -45,6 +45,8 @@ public class SheetView : FrameworkElement
     private Point2D _panCentreAnchor;
 
     private Viewport? _dragging;
+    private SheetImage? _draggingImage;
+    private (Point2D Centre, double Width, bool ShowTitle, string Title) _imageBefore;
     private Point2D _dragAnchor;
     private Point2D _dragOriginalCentre;
 
@@ -73,6 +75,7 @@ public class SheetView : FrameworkElement
             _document = value;
             _renderer.InvalidateBrushes();
             SelectedViewport = null;
+            SelectedImage = null;
             InvalidateVisual();
         }
     }
@@ -86,6 +89,7 @@ public class SheetView : FrameworkElement
 
             _sheet = value;
             SelectedViewport = null;
+            SelectedImage = null;
             ZoomToFit();
         }
     }
@@ -95,16 +99,33 @@ public class SheetView : FrameworkElement
 
     public event EventHandler? SelectionChanged;
 
+    /// <summary>The picture picked on the sheet, if any - never a viewport as well.</summary>
+    public SheetImage? SelectedImage { get; private set; }
+
     /// <summary>Raised when a viewport has been dragged to a new place, once, on release.</summary>
     public event EventHandler<ViewportMovedEventArgs>? ViewportMoved;
+
+    /// <summary>Raised when a picture has been dragged to a new place, once, on release, with where it was.</summary>
+    public event EventHandler<(SheetImage Image, (Point2D Centre, double Width, bool ShowTitle, string Title) Before)>? ImageMoved;
 
     public void Refresh() => InvalidateVisual();
 
     public void Select(Viewport? viewport)
     {
-        if (ReferenceEquals(SelectedViewport, viewport)) return;
+        if (ReferenceEquals(SelectedViewport, viewport) && SelectedImage is null) return;
 
         SelectedViewport = viewport;
+        SelectedImage = null;
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
+
+    public void SelectImage(SheetImage? image)
+    {
+        if (ReferenceEquals(SelectedImage, image) && SelectedViewport is null) return;
+
+        SelectedImage = image;
+        SelectedViewport = null;
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }
@@ -191,6 +212,19 @@ public class SheetView : FrameworkElement
         if (_document is null || _sheet is null) return;
 
         var paper = ToPaper(e.GetPosition(this));
+
+        if (HitImage(paper) is { } picture)
+        {
+            SelectImage(picture);
+            _draggingImage = picture;
+            _imageBefore = (picture.Centre, picture.Width, picture.ShowTitle, picture.Title);
+            _dragAnchor = paper;
+            _dragOriginalCentre = picture.Centre;
+            CaptureMouse();
+            Cursor = Cursors.SizeAll;
+            return;
+        }
+
         var hit = HitTest(paper);
 
         Select(hit);
@@ -219,9 +253,18 @@ public class SheetView : FrameworkElement
             return;
         }
 
+        if (_draggingImage is { } image)
+        {
+            var shift = ToPaper(e.GetPosition(this)) - _dragAnchor;
+            var wanted = new Point2D(Math.Round(_dragOriginalCentre.X + shift.X), Math.Round(_dragOriginalCentre.Y + shift.Y));
+            if (_sheet is not null && _document is not null) image.Centre = _sheet.ConstrainMove(_document, image, wanted);
+            InvalidateVisual();
+            return;
+        }
+
         if (_dragging is null)
         {
-            Cursor = _document is not null && HitTest(ToPaper(e.GetPosition(this))) is not null
+            Cursor = _document is not null && (HitImage(ToPaper(e.GetPosition(this))) is not null || HitTest(ToPaper(e.GetPosition(this))) is not null)
                 ? Cursors.SizeAll
                 : Cursors.Arrow;
 
@@ -265,6 +308,15 @@ public class SheetView : FrameworkElement
             return;
         }
 
+        if (_draggingImage is { } dragged)
+        {
+            _draggingImage = null;
+            ReleaseMouseCapture();
+            Cursor = Cursors.Arrow;
+            if (dragged.Centre != _imageBefore.Centre) ImageMoved?.Invoke(this, (dragged, _imageBefore));
+            return;
+        }
+
         if (_dragging is null) return;
 
         var moved = _dragging;
@@ -288,6 +340,15 @@ public class SheetView : FrameworkElement
 
         ZoomToFit();
         e.Handled = true;
+    }
+
+    /// <summary>The picture under a point on the paper, the last put there first: it is drawn on top.</summary>
+    private SheetImage? HitImage(Point2D paper)
+    {
+        if (_sheet is null) return null;
+        for (var i = _sheet.Images.Count - 1; i >= 0; i--)
+            if (_sheet.Images[i].Contains(paper)) return _sheet.Images[i];
+        return null;
     }
 
     /// <summary>
@@ -324,6 +385,7 @@ public class SheetView : FrameworkElement
         _renderer.Document = _document;
         _renderer.Sheet = _sheet;
         _renderer.SelectedViewport = SelectedViewport;
+        _renderer.SelectedImage = SelectedImage;
         _renderer.PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         _renderer.ShowGuides = true;
         _renderer.SetTransform(ToScreen, _pixelsPerPaperMm);

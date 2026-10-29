@@ -263,10 +263,10 @@ public static class ViewOut
     public const double Far = 1_000_000;
 
     /// <summary>One window or glazed panel to see out of: its glass's two sides in plan, the way out, its bottom and top, and the elements it is part of.</summary>
-    private sealed record Pane(Point2D A, Point2D B, Vector2D Out, double Sill, double Head, Guid Id, Guid Host);
+    internal sealed record Pane(Point2D A, Point2D B, Vector2D Out, double Sill, double Head, Guid Id, Guid Host);
 
     /// <summary>The panes of glass to the outside on a storey: windows and glazed doors in outside walls, and the glass of outside curtain walls.</summary>
-    private static List<Pane> Panes(BimDocument document, Guid levelId)
+    internal static List<Pane> Panes(BimDocument document, Guid levelId)
     {
         var panes = new List<Pane>();
         foreach (var wall in document.Walls.Where(wall => wall.LevelId == levelId && wall.Length > 1))

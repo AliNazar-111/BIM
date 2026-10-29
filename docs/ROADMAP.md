@@ -79,7 +79,7 @@ test before the next begins.
 | **2.7** | **Design options and phasing** — phases created and demolished on every element; each view's phase and Revit's phase filters, existing faded and demolished red and dashed; design option sets with their primaries, worked on, shown by view and accepted | §7 | ✅ |
 | **2.8** | **Classification systems, shared parameters** — the project's own parameters, instance or type, on chosen categories; shared parameter files read and written with their GUIDs; types and rooms coded to Uniclass 2015 or any table loaded, carried to IFC and COBie | §2.1 §7 | ✅ |
 | 2.9 | Material library and rendering basics - materials with surface colours, paints and finishes; each material's face laid in its pattern at its true size, edited in a Materials window and drawn in the 3D view's Realistic style; and renderings, path traced in the sun at the site's place, date and time | §13.1 | ✅ |
-| 2.10 | IFC import, DWG - **IFC import** done (Round 5); **DWG and DXF** brought onto a storey to work over (kept in the project rather than linked to the file), snapped to and traced, and plans and sheets written out as DWG or DXF on the National CAD Standard's layers | §8 | ✅ |
+| 2.10 | IFC import, DWG - **IFC import** done (Round 5); **DWG and DXF** brought onto a storey to work over, kept in the project or linked to the file, snapped to and traced, and plans and sheets written out as DWG or DXF on the National CAD Standard's layers | §8 | ✅ |
 
 ## Phase 3 — Collaboration 🔨
 Worksharing, model linking, copy/monitor, cloud CDE, web/mobile viewer, issues/BCF,
@@ -87,7 +87,23 @@ version compare, permissions. §7 §12.1
 
 Issues and BCF are done: issues raised on the 3D view or from clashes, kept in the project, and
 exchanged as BCF 2.1 and 3.0 files with the other coordination tools; a BCF server (the BCF API) is
-not. The rest of the phase is to come.
+not.
+
+Model linking is done: another project or an IFC file linked, put origin to origin or by survey
+point, moved and turned, drawn in 3D and cut on the plans, clash tested against, its file watched and
+reloaded, unloaded, found again where it moved with the project; DWG and DXF linked as well as
+imported. Not done: copy/monitor, links within a linked model, links on sections, elevations, 3D
+views on sheets and schedules, counted in the daylight as what stands round, or carried into this
+project's IFC export, picking a link on the plan (it is picked in 3D or in Manage Links).
+
+Version compare is done: this project against its last save or another saved project or IFC file,
+or a linked model against the issue its reload replaced - each element matched by its id or IFC
+GlobalId and found added, removed, moved or changed, setting by setting, types and levels too -
+coloured on the plan and in 3D, what was removed drawn from the issue before, listed, gone to and
+written up as a PDF. Not done: comparing two saved files neither of which is open, views, sheets
+and annotations, and geometry beyond the points an element is set out by (a curtain wall's grid,
+a roof's edges, a stair's flights are compared by their settings). The rest of the phase -
+worksharing, a common data environment, a web viewer, permissions - is to come.
 
 ## Phase 4 — Structure & MEP 🔨
 Beams of steel, timber, glulam and concrete and joist layouts are built, measured against
@@ -111,8 +127,9 @@ project's standard - Approved Documents B, E, F, H, J, K, L and M (M4(2) and M4(
 Nationally Described Space Standard and the British Standards they point to, or the IRC and
 the ADA - shown in each element's **Regulations**, room by room, and drawn red in plan.
 Thermal U-values are worked from each build-up's layers (BS EN ISO 6946, ISO 13370). Clash
-detection, the cost plan (5D) and the construction programme (4D) are built (Round 10). Still to
-come: energy/daylight analysis, API/plugins, visual scripting. §9
+detection, the cost plan (5D) and the construction programme (4D) are built (Round 10). The energy
+rating by SAP 10.3, overheating by Approved Document O and daylight and sunlight by BS EN 17037
+(Round 14) are built, the first two written out together as a report to hand on. Still to come: API/plugins, visual scripting. §9
 
 ## Phase 6 — Handover & FM 🔨
 COBie 2.4 is written (Round 6). Still to come: asset register, O&M documents, maintenance,
@@ -141,11 +158,12 @@ looked up first, then it is built, tested and written up in the README.
 | **11** | **People who walk and see** — walking as an adult, a child or a wheelchair user, each with their own eye height and stopped where they would be: a wheelchair user by steps over 15 mm (ADA 303: 1/2 in), slopes steeper than 1:12 and doorways narrower than 700; walking as a person placed in the model, through their eyes, who is left where the walk ends; the area a person sees, shaded on the plan (an isovist on the plan cut at their eye height, glass and open doors seen through); lines of sight; the doors, windows and rooms a person can see; the view out graded by BS EN 17037 (sight angle, outside distance, sky, landscape and ground layers; seated 1.2 m, standing 1.7 m) for each room and each person; a living room's principal window glazed from 850 at most (Approved Document M, M4(2) 2.24). Not done: daylight factor and sunlight exposure (the rest of BS EN 17037), glare, people walking routes by themselves (crowds, evacuation) | ✅ |
 | **12** | **Hardening: large models first** — measured on a block of 225 rooms over three storeys (1,440 walls and 1,440 doors and windows, 2,883 elements in all) and profiled. In a release build, the 3D model now builds in 0.9 s (it took 8 s) and the 3D view refreshes in about 1 s; the plan redraws after an edit in 0.6 s (it took 9-10 s; in a debug build 15-22 s); all six default clash tests run in 0.7 s together (one took 8 s). What made it slow: every wall asking every other wall who it meets, at both ends, again for each neighbour; every door's rules looking at every other door to find the entrance storey; each room traced again for every door beside it; every clash test trying every pair in the building; and the 3D view's edges handed to WPF one point at a time. Then crash protection: whatever goes wrong is logged (a file a day, kept a fortnight) and said in words, with the details to copy, and BIMDesigner carries on rather than closing; an edit that goes wrong part-way is taken back and left out of the undo list, as is an undo or redo that does; an element that cannot be drawn is left out of the plan, section or 3D view and the rest drawn; unsaved work is kept as a recovery copy every five minutes and whenever something goes wrong, thrown away on saving or closing, and offered back at the next start after a crash, power cut or restart. Then IFC files from other programs: 13 real buildings (ArchiCAD's FZK-Haus and institute, Revit's duplex, office, dental clinic and DigitalHub, Tekla, BlenderBIM and others, IFC2x3 and IFC4) and 253 files people sent the IfcOpenShell project as bugs, each opened, built in 3D, drawn on every plan and saved and opened again. What was wrong: a wall's layers were put on the wrong side of its axis when they run the negative way from an offset - how Revit writes every wall - so walls did not meet and rooms did not close, and the export wrote flipped walls the same wrong way; walls clipped to a roof, walls, floors and rooms given as solids of faces, windows that do not say which wall they are in, and Revit's advanced solids were not read; walls stopping at the face of the wall they meet left gaps; open-plan rooms had nothing to part them. Now walls clipped to a roof come in shaped to it, solids come in as walls, floors and rooms where they are, ends are joined to the middle of the wall they meet, windows go in the wall they stand in, clipped shapes are cut, and the new room separators part rooms the file draws with no wall between. Every room of the ArchiCAD buildings is enclosed, with its area; in Revit's office 81 of 99, in the clinic 202 of 269. Not done: curtain walls as curtain walls (they come in as their panels and mullions), stairs and pitched roofs as themselves (as shapes), BCF and IFC4.3. Last, a bug hunt: a house drawn from nothing by clicking and typing as a person does - walls, a partition, doors, windows, rooms, a floor and a roof, copied to the floor above, scheduled, put on sheets, undone and redone twenty times, saved, opened again, printed to PDF, sent out as IFC and read back, and all 75 tools tried - and what got in the way fixed: a room drawn round came apart when a wall of it was moved (the chain's corners are now locked) and, drawn anticlockwise, had its walls' outsides facing in (now turned out as the loop closes); taking a wall by its middle bent it rather than moving it (the bend grip is now beside the wall); the 3D view in a wide window cut off the top and bottom of the building; the first view put on a sheet went in a corner; opening a project kept the last one's section and sheet open; an elevation offered to walk through it, and the 3D view after it looked square-on; the option bar's boxes cut their text short; the title gave no version; changing a type said nothing; and the Roof tool drew a pitched roof with the flat roof's build-up | ✅ |
 | **13** | **Starting work** — a splash while BIMDesigner gets ready, then a home screen: the projects opened or saved before, newest first and the pinned above them, each with a picture of its plan, searchable, and New project, Open a project, Open an IFC file, the example house, or recovering unsaved work. New Project in five steps - the template (England, England M4(3), the US), the project's particulars, the site and ground, the storeys and where it is kept - each checked before the next, the levels made for them. File > Close Project back to the home screen, File > Open Recent | ✅ |
+| **14** | **Daylight and sunlight** — each habitable room's daylight factors over its reference plane, 0.85 m over its floor and 0.3 m in from its walls, worked out by tracing the CIE standard overcast sky through the model from each point of a grid: out through the glass at low-e double glazing's 0.68, round the room off its surfaces at their own colours' reflectance, off the ground and what stands round it, the furniture and the services left out; the factor half the room reaches and the one 95% of it does, against BS EN 17037's minimum, medium and high levels (300/100, 500/300, 750/500 lux) over London's 14,100 lux (Table A.3), and in England the UK annex's 100 lux in a bedroom, 150 in a living room and 200 in a kitchen over half the room (0.7%, 1.1%, 1.4%), as BRE 209 (2022) recommends; each room's hours of sun on a day from 1 February to 21 March, every five minutes, at the middle of each window inside its glass, 1.2 m up or 0.3 m over its sill, above the least altitude Table D.1 lets it count from (the line its values reported for Nicosia, Madrid, Budapest and Amsterdam fall on), graded 1.5, 3 and 4 hours, with one habitable room of a home to have 1.5; a Daylight window and a map of the daylight factor over the plan. Not done: the illuminance method (climate files), glare, sunlight for a grid of points or amenity space, the UK annex's other locations, Table A.3 and D.1 for other cities (London's figure is used for a US project unless the site's is set); BS EN 17037 and BRE 209 not seen at first hand - their figures from published assessments that quote them | BS EN 17037:2018+A1:2021 (A.2, Table A.3 London, Table A.5, D, NA - as assessments and reviews quote them); BRE 209 (2022), Appendix C | ✅ |
 
 Left until those are done: Phase 3's collaboration, the rest of Phase 4's structure and MEP,
-and Phase 6's handover beyond COBie. A DWG brought in is kept in the project; linking it so that
-it follows changes to the file is not done. A rendering is saved as a picture; putting it on a
-sheet, and lights in the model for night scenes, are not done.
+and Phase 6's handover beyond COBie. A DWG can be imported or linked to its file. A rendering is saved as a picture or put on a sheet, with any
+other picture - a photograph, a logo - printed into the PDF and written beside a DWG; lights in
+the model for night scenes are not done.
 
 ## The services: rounds M1 to M8
 

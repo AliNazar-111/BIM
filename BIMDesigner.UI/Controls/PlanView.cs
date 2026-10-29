@@ -6545,6 +6545,7 @@ public partial class PlanView : FrameworkElement
         // between repaints, where nothing it shows has changed.
         // A callout is its part of the plan only: the rest is cropped away.
         if (ActiveCallout is { } callout) dc.PushClip(new RectangleGeometry(CropRect(callout)));
+        DrawDaylight(dc);
         DrawSight(dc);
         DrawModel(dc);
         DrawClearances(dc);
@@ -6629,7 +6630,9 @@ public partial class PlanView : FrameworkElement
         // A roof, floor or ceiling whose outline is open for editing is not drawn: its sketch stands in for it.
         var editing = SketchedElement;
         _renderer.Filter = editing is null ? _shows : element => !ReferenceEquals(element, editing) && _shows(element);
-        _renderer.Style = Document is null ? _ => default : Document.ViewSettings.StyleFor(Document, CurrentView);
+        Func<Core.Elements.Element, ElementStyle> styled = Document is null ? _ => default : Document.ViewSettings.StyleFor(Document, CurrentView);
+        _renderer.Style = Comparison is { } comparing ? element => styled(element).Then(comparing.StyleOf(element)) : styled;
+        _renderer.Comparison = Comparison;
         _renderer.Discipline = ActiveCallout is null ? ActiveDiscipline : Core.Mep.Discipline.Architectural;
         _renderer.Document = Document;
         _renderer.DetailLevel = EffectiveDetailLevel;

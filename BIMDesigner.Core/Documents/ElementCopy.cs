@@ -355,6 +355,11 @@ public static class ElementCopy
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
         CadUnderlay underlay => CarryCommon(Underlay(underlay), underlay),
+        Coordination.ModelLink link => CarryCommon(new Coordination.ModelLink
+        {
+            Path = link.Path, RelativePath = link.RelativePath, Positioning = link.Positioning, Offset = link.Offset, Elevation = link.Elevation, Rotation = link.Rotation,
+            Shown = link.Shown, Halftone = link.Halftone
+        }, link),
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
             Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
@@ -414,7 +419,7 @@ public static class ElementCopy
         var copy = new CadUnderlay
         {
             Source = original.Source, Drawing = original.Drawing, Location = original.Location, Rotation = original.Rotation,
-            Scale = original.Scale, Halftone = original.Halftone
+            Scale = original.Scale, Halftone = original.Halftone, Linked = original.Linked
         };
         copy.HiddenLayers.UnionWith(original.HiddenLayers);
         return copy;

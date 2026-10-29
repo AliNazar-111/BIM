@@ -111,6 +111,9 @@ public sealed class ClashTest
     /// <summary>Whether pipes and ducts are taken with their insulation round them: a pipe whose insulation runs into a beam clashes with it.</summary>
     public bool AllowInsulation { get; set; }
 
+    /// <summary>Whether its second set is taken from the linked models rather than this one: this project's services against the structure's model, say.</summary>
+    public bool AgainstLinks { get; set; }
+
     public DateTime? LastRun { get; set; }
 
     public List<Clash> Results { get; } = new();
@@ -410,7 +413,8 @@ public static class ClashDetective
     /// <summary>The name an element goes by in a clash report: its type and mark.</summary>
     public static string NameOf(BimDocument document, Guid id)
     {
-        if (document.FindElement(id) is not { } element) return "(gone)";
+        if (document.FindElement(id) is not { } element)
+            return ModelLinks.Find(document, id) is var (link, model, _) ? $"{NameOf(model, id)} in {link.Title}" : "(gone)";
         var type = document.FindType<ElementType>(element.TypeId)?.Name;
         var what = type ?? element.Category.ToString();
         return string.IsNullOrWhiteSpace(element.Mark) ? what : $"{what} ({element.Mark})";
@@ -432,20 +436,32 @@ public static class ClashDetective
         var setB = test.SelectionB.ToHashSet();
         var elements = solids.Keys.Select(id => document.FindElement(id)!).ToList();
         var left = elements.Where(element => setA.Contains(element.Category)).ToList();
+        // Against the linked models: their elements of the second set, each its solid where the link puts it.
+        var linked = new Dictionary<Guid, ClashSolid>();
         var right = elements.Where(element => setB.Contains(element.Category)).ToList();
+        if (test.AgainstLinks)
+        {
+            right = new List<Element>();
+            foreach (var (link, model) in ModelLinks.Loaded(document))
+                foreach (var group in ModelLinks.ElementMeshes(document, link).Where(mesh => !mesh.IsEmpty).GroupBy(mesh => model.FindElement(mesh.ElementId) is not null ? mesh.ElementId : mesh.OwnerId))
+                    if (model.FindElement(group.Key) is { } element && setB.Contains(element.Category) && Solidly(element.Category) && linked.TryAdd(group.Key, new ClashSolid(group)))
+                        right.Add(element);
+        }
+
+        ClashSolid SolidOf(Guid id) => solids.TryGetValue(id, out var own) ? own : linked[id];
         var seen = new HashSet<(Guid, Guid)>();
         var reach = (test.Kind == ClashKind.Clearance ? test.Tolerance : Touch) + (test.AllowInsulation ? 2 * Thickest(document) : 0);
 
         // Each tried only against those near it in plan, in the order they would all have been tried in.
-        var near = new ClashGrid(right.Select(element => solids[element.Id]).ToList(), reach);
+        var near = new ClashGrid(right.Select(element => SolidOf(element.Id)).ToList(), reach);
 
         foreach (var a in left)
         foreach (var b in near.Near(solids[a.Id]).Select(index => right[index]))
         {
-            if (a.Id == b.Id || related(a.Id, b.Id) || Joined(document, a, b) || Drilled(document, a, b)) continue;
+            if (a.Id == b.Id || !linked.ContainsKey(b.Id) && (related(a.Id, b.Id) || Joined(document, a, b) || Drilled(document, a, b))) continue;
             var key = a.Id.CompareTo(b.Id) < 0 ? (a.Id, b.Id) : (b.Id, a.Id);
             if (!seen.Add(key)) continue;
-            var (one, other) = (solids[a.Id], solids[b.Id]);
+            var (one, other) = (solids[a.Id], SolidOf(b.Id));
             if (one.Gap(other) > reach) continue;
 
             // A pipe or duct with its insulation round it: what its insulation runs into.

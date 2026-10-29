@@ -22,3 +22,35 @@ public partial class ModelView
         }
     }
 }
+
+/// <summary>A comparison in 3D: each element coloured by how it has changed, what was removed red and faint where it stood, the rest faded.</summary>
+public partial class ModelView
+{
+    private Rendering.ComparisonOverlay? _comparison;
+
+    /// <summary>The comparison shown, or none.</summary>
+    public Rendering.ComparisonOverlay? Comparison
+    {
+        get => _comparison;
+        set
+        {
+            _comparison = value;
+            Rebuild();
+        }
+    }
+
+    private IReadOnlyList<Mesh3D> Compared(IReadOnlyList<Mesh3D> meshes, Rendering.ComparisonOverlay comparing)
+    {
+        if (_document is null) return meshes;
+        foreach (var mesh in meshes)
+        {
+            var style = mesh.SourceId is { } source ? comparing.StyleOfLinked(mesh.OwnerId, source)
+                : _document.FindElement(mesh.OwnerId) is { } element ? comparing.StyleOf(element) : default;
+            if (style.Colour is { } colour) mesh.Colour = colour;
+            if (style.Halftone) mesh.Opacity = Math.Min(mesh.Opacity, 0.25);
+        }
+
+        var removed = comparing.RemovedMeshes(_document);
+        return removed.Count == 0 ? meshes : meshes.Concat(removed).ToList();
+    }
+}

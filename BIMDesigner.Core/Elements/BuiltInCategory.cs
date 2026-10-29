@@ -139,7 +139,10 @@ public enum BuiltInCategory
     ImportedDrawings,
 
     /// <summary>Fire sprinklers: the heads in the ceilings and the valve set their supply comes in by.</summary>
-    Sprinklers
+    Sprinklers,
+
+    /// <summary>Other models linked in: projects and IFC files drawn with this one, read from their own files and reloaded as they change.</summary>
+    LinkedModels
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

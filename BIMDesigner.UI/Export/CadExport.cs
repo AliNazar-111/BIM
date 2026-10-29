@@ -1,9 +1,12 @@
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.IO;
+using ACadSharp.Objects;
 using ACadSharp.Tables;
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
@@ -74,6 +77,18 @@ public static class CadExport
     /// <summary>Writes a drawing to a file: DWG or DXF by its extension.</summary>
     public static void Save(CadDocument drawing, string path)
     {
+        // Its pictures as PNG files beside it, named after it, each image referring to its own by name.
+        if (Pictures.TryGetValue(drawing, out var pictures))
+            for (var i = 0; i < pictures.Count; i++)
+            {
+                var name = $"{Path.GetFileNameWithoutExtension(path)} picture {i + 1}.png";
+                pictures[i].Definition.FileName = name;
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(pictures[i].Bitmap));
+                using var file = File.Create(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".", name));
+                encoder.Save(file);
+            }
+
         if (IsDwg(path)) DwgWriter.Write(path, drawing);
         else DxfWriter.Write(path, drawing, false);
     }
@@ -90,11 +105,17 @@ public static class CadExport
         var writer = new Writer(cad, flipAt, unitsPerPaperMm);
         writer.Draw(drawing, Matrix.Identity, null, 1, otherwise);
         writer.Flush();
+        if (writer.Pictures.Count > 0) Pictures.AddOrUpdate(cad, writer.Pictures);
         return cad;
     }
 
+    /// <summary>The pictures a drawing shows, each with the image definition referring to its file - written beside it when it is saved.</summary>
+    private static readonly ConditionalWeakTable<CadDocument, List<(ImageDefinition Definition, BitmapSource Bitmap)>> Pictures = new();
+
     private sealed class Writer
     {
+        public List<(ImageDefinition Definition, BitmapSource Bitmap)> Pictures { get; } = new();
+
         private readonly CadDocument _cad;
         private readonly double _flipAt;
         private readonly double _unitsPerPaperMm;
@@ -149,7 +170,42 @@ public static class CadExport
                 case GlyphRunDrawing glyphs when glyphs.GlyphRun is not null:
                     DrawText(glyphs, transform, clip, opacity, layer);
                     break;
+
+                case ImageDrawing picture when picture.ImageSource is BitmapSource bitmap && bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0:
+                    Flush();
+                    DrawPicture(picture, bitmap, transform);
+                    break;
             }
+        }
+
+
+        /// <summary>A picture as a raster image on its own layer: its corner, its pixels' size along and up, and the file it is read from.</summary>
+        private void DrawPicture(ImageDrawing picture, BitmapSource bitmap, Matrix transform)
+        {
+            var a = transform.Transform(picture.Rect.TopLeft);
+            var b = transform.Transform(picture.Rect.BottomRight);
+            var corner = Out(new Point(Math.Min(a.X, b.X), Math.Max(a.Y, b.Y)));
+            var (across, up) = (Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
+            var definition = new ImageDefinition($"Picture {Pictures.Count + 1}")
+            {
+                FileName = $"picture {Pictures.Count + 1}.png",
+                Size = new XY(bitmap.PixelWidth, bitmap.PixelHeight),
+                DefaultSize = new XY(1, 1)
+            };
+            var image = new RasterImage(definition)
+            {
+                Layer = LayerFor("G-ANNO-IMAG", Colors.Black).Layer,
+                InsertPoint = new XYZ(corner.X, corner.Y, 0),
+                UVector = new XYZ(across / bitmap.PixelWidth, 0, 0),
+                VVector = new XYZ(0, up / bitmap.PixelHeight, 0),
+                Size = new XY(bitmap.PixelWidth, bitmap.PixelHeight),
+                ShowImage = true,
+
+                // Its whole: the boundary a CAD image is clipped to, corner to corner of its pixels - without one it is no valid image.
+                ClipBoundaryVertices = new List<XY> { new(-0.5, -0.5), new(bitmap.PixelWidth - 0.5, bitmap.PixelHeight - 0.5) }
+            };
+            _cad.Entities.Add(image);
+            Pictures.Add((definition, bitmap));
         }
 
         private static Rect Bounds(Geometry geometry, Matrix transform)

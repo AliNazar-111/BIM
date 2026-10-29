@@ -339,6 +339,7 @@ public sealed partial class PlanRenderer
 
         // Drawings imported to work over: over the floors and rooms, so they show through, and under the walls drawn on them.
         if (!underlay) DrawUnderlays(dc);
+        if (!underlay) DrawLinks(dc);
 
         foreach (var wall in OnActiveLevel<Wall>()) Styled(dc, wall, d => DrawWall(d, wall));
         foreach (var opening in OnActiveLevel<Opening>()) Styled(dc, opening, d => DrawOpening(d, opening));

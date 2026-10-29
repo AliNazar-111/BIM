@@ -66,6 +66,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        StartLinks();
         Cube.Model = Model3D;
 
         // Another tab opens at its first panel, however far the last one was scrolled.
@@ -326,6 +327,8 @@ public partial class MainWindow : Window
         // same bargain a wall drag makes.
         SheetSurface.ViewportMoved += (_, moved) =>
             _history.Record(new MoveViewportCommand(moved.Viewport, moved.From, moved.To));
+        SheetSurface.ImageMoved += (_, moved) =>
+            _history.Record(new SetSheetImageCommand(moved.Image, moved.Before, "Move Image on Sheet"));
         Plan.ViewChanged += (_, _) => RefreshStatus();
         Plan.HintChanged += (_, hint) => StatusHint.Text = hint;
 
@@ -486,6 +489,10 @@ public partial class MainWindow : Window
 
     private void LoadDocument(BimDocument document, string? path, bool seedExample)
     {
+        // What was read for the last project's links forgotten.
+        ForgetLinks();
+        ForgetComparison();
+
         // Roofs on their walls and dormers on their roofs, as any edit would leave them: a file
         // saved before they followed as they do now opens as it would be drawn after one.
         RoofSketch.FollowWalls(document);
@@ -2624,7 +2631,7 @@ public partial class MainWindow : Window
         // can see, so only the sheet's own keys are live.
         if (SheetPanel.Visibility == Visibility.Visible)
         {
-            if (e.Key == Key.Delete && SheetSurface.SelectedViewport is not null)
+            if (e.Key == Key.Delete && (SheetSurface.SelectedViewport is not null || SheetSurface.SelectedImage is not null) && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
             {
                 OnRemoveViewport(this, e);
                 e.Handled = true;
@@ -5057,6 +5064,12 @@ public partial class MainWindow : Window
 
     private void OnRemoveViewport(object sender, RoutedEventArgs e)
     {
+        if (SheetSurface.SelectedImage is not null)
+        {
+            RemoveSheetImage();
+            return;
+        }
+
         if (SheetSurface.Sheet is not { } sheet || SheetSurface.SelectedViewport is not { } viewport) return;
 
         _history.Execute(new RemoveViewportCommand(sheet, viewport));
@@ -5096,6 +5109,10 @@ public partial class MainWindow : Window
 
         RemoveViewportButton.IsEnabled = viewport is not null;
         ViewportScalePicker.IsEnabled = viewport is not null;
+        var image = SheetSurface.SelectedImage;
+        RemoveViewportButton.IsEnabled = viewport is not null || image is not null;
+        SheetImageWidthBox.IsEnabled = image is not null;
+        SheetImageWidthBox.Text = image is null ? string.Empty : image.Width.ToString("0", System.Globalization.CultureInfo.CurrentCulture);
 
         _loadingSheets = true;
         ViewportScalePicker.ItemsSource = ViewScale.Common;

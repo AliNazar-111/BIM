@@ -17,6 +17,7 @@ public static partial class ProjectFile
         {
             Id = test.Id, Name = test.Name, Kind = test.Kind.ToString(), Tolerance = test.Tolerance, IgnoreHosted = test.IgnoreHosted, LastRun = test.LastRun,
             AllowInsulation = test.AllowInsulation ? true : null,
+            AgainstLinks = test.AgainstLinks ? true : null,
             SelectionA = test.SelectionA.Select(category => category.ToString()).ToList(),
             SelectionB = test.SelectionB.Select(category => category.ToString()).ToList(),
             Results = test.Results.Select(clash => new ClashDto
@@ -74,7 +75,8 @@ public static partial class ProjectFile
                 {
                     Id = saved.Id, Name = saved.Name ?? "Clash test", Kind = ParseEnum(saved.Kind, ClashKind.Hard),
                     Tolerance = Math.Clamp(Finite(saved.Tolerance, 10), 0, 10000), IgnoreHosted = saved.IgnoreHosted, LastRun = saved.LastRun,
-                    AllowInsulation = saved.AllowInsulation == true
+                    AllowInsulation = saved.AllowInsulation == true,
+                    AgainstLinks = saved.AgainstLinks == true
                 };
                 test.SelectionA.AddRange(Categories(saved.SelectionA));
                 test.SelectionB.AddRange(Categories(saved.SelectionB));
@@ -154,6 +156,7 @@ internal sealed class ClashTestDto
 
     /// <summary>Whether pipes and ducts are taken with their insulation round them; none in a file from before.</summary>
     public bool? AllowInsulation { get; set; }
+    public bool? AgainstLinks { get; set; }
     public DateTime? LastRun { get; set; }
     public List<string>? SelectionA { get; set; }
     public List<string>? SelectionB { get; set; }

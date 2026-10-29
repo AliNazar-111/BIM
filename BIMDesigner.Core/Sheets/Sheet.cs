@@ -116,6 +116,7 @@ public sealed class Viewport
 public sealed class Sheet : Element
 {
     private readonly List<Viewport> _viewports = new();
+    private readonly List<SheetImage> _images = new();
 
     public override BuiltInCategory Category => BuiltInCategory.Sheets;
 
@@ -149,6 +150,19 @@ public sealed class Sheet : Element
     public BoundingBox2D Bounds => new(0, 0, Width, Height);
 
     public IReadOnlyList<Viewport> Viewports => _viewports;
+
+    /// <summary>The pictures on it: renderings, photographs, logos - drawn over the views, in the order put there.</summary>
+    public IReadOnlyList<SheetImage> Images => _images;
+
+    public void AddImage(SheetImage image) => _images.Add(image);
+
+    public void InsertImage(int index, SheetImage image) => _images.Insert(Math.Clamp(index, 0, _images.Count), image);
+
+    public bool RemoveImage(SheetImage image) => _images.Remove(image);
+
+    public int IndexOfImage(SheetImage image) => _images.IndexOf(image);
+
+    public SheetImage? FindImage(Guid id) => _images.FirstOrDefault(image => image.Id == id);
 
     /// <summary>
     /// Revisions put on the sheet by hand: a change with nothing on a plan to cloud - a title, a
@@ -291,7 +305,7 @@ public sealed class Sheet : Element
     /// drawing set where the second view hides the first is not a drawing set.
     /// </summary>
     public Point2D NextFreePosition(
-        BimDocument document, double width, double height, bool showTitle = true, Viewport? ignore = null)
+        BimDocument document, double width, double height, bool showTitle = true, Viewport? ignore = null, SheetImage? ignoreImage = null)
     {
         const double step = 5;
 
@@ -303,6 +317,7 @@ public sealed class Sheet : Element
         var others = _viewports
             .Where(viewport => !ReferenceEquals(viewport, ignore))
             .Select(viewport => Footprint(document, viewport))
+            .Concat(_images.Where(image => !ReferenceEquals(image, ignoreImage)).Select(image => image.Footprint))
             .ToList();
 
         // The first on an empty sheet goes in the middle of the drawing area, where a drawing is put; those after it fit round it.
@@ -328,6 +343,7 @@ public sealed class Sheet : Element
         _viewports
             .Where(other => !ReferenceEquals(other, viewport))
             .Select(other => Footprint(document, other))
+            .Concat(_images.Select(image => image.Footprint))
             .ToList();
 
     private bool Fits(BimDocument document, Viewport viewport, Point2D centre, List<BoundingBox2D> others)
@@ -363,6 +379,79 @@ public sealed class Sheet : Element
         else if (footprint.MinY < area.MinY) y += area.MinY - footprint.MinY;
         else if (footprint.MaxY > area.MaxY) y -= footprint.MaxY - area.MaxY;
 
+        return new Point2D(x, y);
+    }
+
+
+    /// <summary>Whether a picture is on the drawing area and clear of the views and the other pictures.</summary>
+    public bool IsWellPlaced(BimDocument document, SheetImage image) => FitsImage(image, image.Centre, OthersThan(document, image));
+
+    /// <summary>
+    /// Where a picture being dragged towards <paramref name="desired"/> may go: held inside the drawing area and
+    /// sliding along a view or another picture rather than through it, as a view does.
+    /// </summary>
+    public Point2D ConstrainMove(BimDocument document, SheetImage image, Point2D desired)
+    {
+        var others = OthersThan(document, image);
+        var current = image.Centre;
+        var target = ClampIntoArea(image, desired);
+        if (!FitsImage(image, current, others) || FitsImage(image, target, others)) return target;
+
+        var alongX = ClampIntoArea(image, new Point2D(target.X, current.Y));
+        var alongY = ClampIntoArea(image, new Point2D(current.X, target.Y));
+        return (FitsImage(image, alongX, others), FitsImage(image, alongY, others)) switch
+        {
+            (true, true) => Distance(alongX, desired) <= Distance(alongY, desired) ? alongX : alongY,
+            (true, false) => alongX,
+            (false, true) => alongY,
+            _ => current
+        };
+    }
+
+    /// <summary>Where a picture goes once its size has changed: where it is if it still fits, else back inside the area, else the next free space.</summary>
+    public Point2D PositionAfterResize(BimDocument document, SheetImage image)
+    {
+        var others = OthersThan(document, image);
+        if (FitsImage(image, image.Centre, others)) return image.Centre;
+        var clamped = ClampIntoArea(image, image.Centre);
+        if (FitsImage(image, clamped, others)) return clamped;
+        var free = NextFreePosition(document, image.Width, image.Height, image.ShowTitle, null, image);
+        return new Point2D(free.X, free.Y);
+    }
+
+    private List<BoundingBox2D> OthersThan(BimDocument document, SheetImage image) =>
+        _viewports.Select(viewport => Footprint(document, viewport))
+            .Concat(_images.Where(other => !ReferenceEquals(other, image)).Select(other => other.Footprint))
+            .ToList();
+
+    private static BoundingBox2D FootprintAt(SheetImage image, Point2D centre)
+    {
+        var shift = centre - image.Centre;
+        var footprint = image.Footprint;
+        return new BoundingBox2D(footprint.MinX + shift.X, footprint.MinY + shift.Y, footprint.MaxX + shift.X, footprint.MaxY + shift.Y);
+    }
+
+    private bool FitsImage(SheetImage image, Point2D centre, List<BoundingBox2D> others)
+    {
+        var footprint = FootprintAt(image, centre);
+        var area = DrawingArea;
+        const double tolerance = 1e-6;
+        var inside = footprint.MinX >= area.MinX - tolerance && footprint.MaxX <= area.MaxX + tolerance &&
+                     footprint.MinY >= area.MinY - tolerance && footprint.MaxY <= area.MaxY + tolerance;
+        return inside && !others.Any(other => Overlap(footprint, other));
+    }
+
+    private Point2D ClampIntoArea(SheetImage image, Point2D centre)
+    {
+        var footprint = FootprintAt(image, centre);
+        var area = DrawingArea;
+        var (x, y) = (centre.X, centre.Y);
+        if (footprint.Width > area.Width) x += area.Centre.X - footprint.Centre.X;
+        else if (footprint.MinX < area.MinX) x += area.MinX - footprint.MinX;
+        else if (footprint.MaxX > area.MaxX) x -= footprint.MaxX - area.MaxX;
+        if (footprint.Height > area.Height) y += area.Centre.Y - footprint.Centre.Y;
+        else if (footprint.MinY < area.MinY) y += area.MinY - footprint.MinY;
+        else if (footprint.MaxY > area.MaxY) y -= footprint.MaxY - area.MaxY;
         return new Point2D(x, y);
     }
 

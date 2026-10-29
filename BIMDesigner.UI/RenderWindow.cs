@@ -43,6 +43,7 @@ internal sealed class RenderWindow : System.Windows.Window
     private readonly Button _stop = new() { Content = "Stop", IsEnabled = false };
     private readonly Button _save = new() { Content = "Save PNG...", IsEnabled = false };
     private readonly Button _copy = new() { Content = "Copy", IsEnabled = false };
+    private readonly Button _place = new() { Content = "Place on Sheet", IsEnabled = false, ToolTip = "Put the picture as it stands on the sheet open - or the first sheet, or a new one - to present the scheme beside its drawings" };
     private CancellationTokenSource? _cancel;
     private WriteableBitmap? _bitmap;
     private bool _filling;
@@ -90,6 +91,7 @@ internal sealed class RenderWindow : System.Windows.Window
         _render.Click += (_, _) => Render();
         _stop.Click += (_, _) => _cancel?.Cancel();
         _save.Click += (_, _) => Save();
+        _place.Click += (_, _) => PlaceOnSheet();
         _copy.Click += (_, _) =>
         {
             if (_bitmap is null) return;
@@ -106,7 +108,7 @@ internal sealed class RenderWindow : System.Windows.Window
         DockPanel.SetDock(top, Dock.Top);
 
         var root = new DockPanel();
-        root.Children.Add(DialogLook.Footer(_problem, _render, _stop, _save, _copy, close));
+        root.Children.Add(DialogLook.Footer(_problem, _render, _stop, _save, _copy, _place, close));
         root.Children.Add(top);
         root.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(0x20, 0x22, 0x26)), Margin = new Thickness(12, 4, 12, 8), Child = _image });
         Content = root;
@@ -242,7 +244,7 @@ internal sealed class RenderWindow : System.Windows.Window
                 await Task.Run(() => job.Pass(samples, cancel.Token, Row), cancel.Token);
                 var pixels = job.Bgra();
                 _bitmap.WritePixels(new Int32Rect(0, 0, job.Width, job.Height), pixels, job.Width * 4, 0);
-                (_save.IsEnabled, _copy.IsEnabled) = (true, true);
+                (_save.IsEnabled, _copy.IsEnabled, _place.IsEnabled) = (true, true, true);
                 DialogLook.Say(_problem, $"{scene.TriangleCount:#,0} triangles; {job.Samples} of {total} paths a pixel, {clock.Elapsed.TotalSeconds:0.0} s");
             }
 
@@ -273,6 +275,15 @@ internal sealed class RenderWindow : System.Windows.Window
         };
         if (dialog.ShowDialog(this) != true) return;
         SaveTo(dialog.FileName);
+    }
+
+    /// <summary>The picture as it stands put on a sheet, named for the date and time the sun was set for.</summary>
+    internal void PlaceOnSheet()
+    {
+        if (_bitmap is null) return;
+        var settings = Document.ProjectInformation.Render;
+        var name = $"Rendering, {settings.Date.ToString("d MMMM", System.Globalization.CultureInfo.CurrentCulture)} {settings.Time.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture)}.png";
+        if (_main.PlaceImageOnSheet(MainWindow.Png(_bitmap, int.MaxValue), name) is { } placed) DialogLook.Say(_problem, $"Placed on the sheet as {placed.TitleShown}.");
     }
 
     /// <summary>The picture as it stands written to a PNG file.</summary>

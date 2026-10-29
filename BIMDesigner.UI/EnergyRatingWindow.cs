@@ -40,13 +40,13 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
     private static readonly Brush Met = new SolidColorBrush(Color.FromRgb(0x3E, 0xA8, 0x5C));
 
     // The bands' colours, A to G, as an energy performance certificate draws them.
-    private static readonly Color[] CostColours =
+    internal static readonly Color[] CostColours =
     {
         Color.FromRgb(0x00, 0x80, 0x54), Color.FromRgb(0x19, 0xB4, 0x59), Color.FromRgb(0x8D, 0xCE, 0x46), Color.FromRgb(0xFF, 0xD5, 0x00),
         Color.FromRgb(0xFC, 0xAA, 0x65), Color.FromRgb(0xEF, 0x80, 0x23), Color.FromRgb(0xE9, 0x15, 0x3B)
     };
 
-    private static readonly Color[] ImpactColours =
+    internal static readonly Color[] ImpactColours =
     {
         Color.FromRgb(0x2E, 0x8B, 0xC0), Color.FromRgb(0x4A, 0xA3, 0xD3), Color.FromRgb(0x6D, 0xB7, 0xDD), Color.FromRgb(0x92, 0xC9, 0xE6),
         Color.FromRgb(0xA9, 0xB9, 0xC6), Color.FromRgb(0x8E, 0x98, 0xA3), Color.FromRgb(0x6C, 0x75, 0x7D)
@@ -130,6 +130,8 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
 
         var close = new Button { Content = "Close" };
         close.Click += (_, _) => Close();
+        var report = new Button { Content = "Report...", ToolTip = "Write the rating, the Future Homes Standard and Part O checks, the home as SAP takes it, what was assumed and the worksheets as a PDF report to hand on" };
+        report.Click += (_, _) => SaveReport();
 
         var lists = new Grid { Margin = new Thickness(16, 0, 16, 8) };
         lists.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -143,7 +145,7 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
         DockPanel.SetDock(_ratings, Dock.Top);
         DockPanel.SetDock(options, Dock.Top);
         DockPanel.SetDock(overheating, Dock.Top);
-        root.Children.Add(DialogLook.Footer(_problem, close));
+        root.Children.Add(DialogLook.Footer(_problem, report, close));
         root.Children.Add(_ratings);
         root.Children.Add(options);
         root.Children.Add(overheating);
@@ -156,6 +158,41 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
     }
 
     private void OnHistoryChanged(object? sender, EventArgs e) => Refresh();
+
+    /// <summary>The report written where it is asked to be, as the model now stands.</summary>
+    private void SaveReport()
+    {
+        var document = _main.Document;
+        if (Export.EnergyReport.WhyNot(document) is { } why)
+        {
+            DialogLook.Warn(_problem, why);
+            return;
+        }
+
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save the Energy and Overheating Report",
+            Filter = "PDF document (*.pdf)|*.pdf",
+            FileName = Export.EnergyReport.SuggestedFileName(document)
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        SaveReportTo(dialog.FileName);
+    }
+
+    /// <summary>The report written to a file, and how long it runs said.</summary>
+    internal void SaveReportTo(string path)
+    {
+        try
+        {
+            if (Export.EnergyReport.Build(_main.Document, MainWindow.AppVersion, DateTime.Today) is not { } report) return;
+            Export.EnergyReport.ToPdf(report, path);
+            DialogLook.Say(_problem, $"Saved {System.IO.Path.GetFileName(path)}: {report.PageCount} pages.");
+        }
+        catch (Exception error) when (error is System.IO.IOException or UnauthorizedAccessException)
+        {
+            DialogLook.Warn(_problem, $"The report could not be saved: {error.Message}");
+        }
+    }
 
     /// <summary>A number typed into a box, if it is one and within reason; the box put back if not.</summary>
     private void Number(TextBox box, double least, double most, Action<double> use)
@@ -400,7 +437,7 @@ internal sealed class EnergyRatingWindow : System.Windows.Window
     }
 
     /// <summary>The nearest of the sixteen compass points to a bearing from true north.</summary>
-    private static string Compass(double bearing)
+    internal static string Compass(double bearing)
     {
         var points = new[] { "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW" };
         return points[(int)Math.Round(((bearing % 360) + 360) % 360 / 22.5) % 16];
