@@ -58,7 +58,7 @@ public static class Paper
 public readonly record struct ViewScale(double Denominator)
 {
     /// <summary>The scales that appear on architectural drawings, largest drawing first.</summary>
-    public static readonly double[] Common = { 5, 10, 20, 25, 50, 100, 200, 500, 1000 };
+    public static readonly double[] Common = { 5, 10, 20, 25, 50, 100, 200, 500, 1000, 1250, 2500 };
 
     public static readonly ViewScale OneToOneHundred = new(100);
 

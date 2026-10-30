@@ -324,6 +324,29 @@
         </Setter>
     </Style>
 
+    <!-- The narrow arrow beside a quick-access button that opens its list: undo's history. -->
+    <Style x:Key="QuickDropButton" TargetType="Button">
+        <Setter Property="AutomationProperties.Name" Value="{Binding ToolTip, RelativeSource={RelativeSource Self}}"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="Transparent" CornerRadius="2" Padding="1,3" Margin="-2,0,0,0">
+                        <TextBlock Text="▾" FontSize="10" VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{StaticResource Bg.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.35"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- The strip across the top of each view: its name, and a close button where it has one. -->
     <Style x:Key="ViewTitle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource Bg.Panel}"/>

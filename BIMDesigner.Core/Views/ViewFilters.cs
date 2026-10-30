@@ -221,6 +221,15 @@ public sealed class ViewSettings
     /// </summary>
     public Func<Element, bool> FilterFor(BimDocument document, ViewReference view)
     {
+        // A planning drawing draws only what such a plan shows, of what its view would.
+        var shows = FilterOwn(document, view);
+        return PlanningDrawings.Of(document, view) is var drawing && drawing != PlanningDrawing.None
+            ? element => PlanningDrawings.Shows(drawing, element) && shows(element)
+            : shows;
+    }
+
+    private Func<Element, bool> FilterOwn(BimDocument document, ViewReference view)
+    {
         var walls = WallFilter(document, view);
         var phase = PhaseOf(view);
         var phaseFilter = PhaseFilterOf(view);

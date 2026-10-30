@@ -21,7 +21,19 @@ public sealed class Viewport
     /// </summary>
     public const double TitleBand = 14;
 
+    /// <summary>Paper depth, mm, taken by a note under the title: a map's copyright line.</summary>
+    public const double NoteBand = 5;
+
     public Guid Id { get; init; } = Guid.NewGuid();
+
+    /// <summary>Whether a north point is drawn in its top right corner, pointing to true north.</summary>
+    public bool ShowNorth { get; set; }
+
+    /// <summary>Whether a scale bar is drawn beside its title, so it reads true however it is printed.</summary>
+    public bool ShowScaleBar { get; set; }
+
+    /// <summary>A line printed under its title - an Ordnance Survey map's copyright notice and licence; empty for none.</summary>
+    public string Note { get; set; } = string.Empty;
 
     public ViewReference View { get; set; }
 
@@ -101,7 +113,10 @@ public sealed class Viewport
         Scale = Scale,
         ShowTitle = ShowTitle,
         TitleOverride = TitleOverride,
-        DetailNumber = DetailNumber
+        DetailNumber = DetailNumber,
+        ShowNorth = ShowNorth,
+        ShowScaleBar = ShowScaleBar,
+        Note = Note
     };
 }
 
@@ -213,11 +228,11 @@ public sealed class Sheet : Element
     /// collide are still two views on top of each other.
     /// </summary>
     public static BoundingBox2D Footprint(BimDocument document, Viewport viewport) =>
-        FootprintAt(viewport.PaperBounds(document), viewport.ShowTitle);
+        FootprintAt(viewport.PaperBounds(document), viewport);
 
-    private static BoundingBox2D FootprintAt(BoundingBox2D drawing, bool showTitle) =>
-        showTitle
-            ? new BoundingBox2D(drawing.MinX, drawing.MinY - Viewport.TitleBand, drawing.MaxX, drawing.MaxY)
+    private static BoundingBox2D FootprintAt(BoundingBox2D drawing, Viewport viewport) =>
+        viewport.ShowTitle
+            ? new BoundingBox2D(drawing.MinX, drawing.MinY - Viewport.TitleBand - (viewport.Note.Length > 0 ? Viewport.NoteBand : 0), drawing.MaxX, drawing.MaxY)
             : drawing;
 
     /// <summary>Where a viewport would sit, and what it would take up, with its centre here.</summary>
@@ -229,7 +244,7 @@ public sealed class Sheet : Element
         return FootprintAt(
             new BoundingBox2D(drawing.MinX + shift.X, drawing.MinY + shift.Y,
                               drawing.MaxX + shift.X, drawing.MaxY + shift.Y),
-            viewport.ShowTitle);
+            viewport);
     }
 
     /// <summary>Whether a viewport is on the drawing area and clear of every other view.</summary>

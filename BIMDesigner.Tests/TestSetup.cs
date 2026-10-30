@@ -26,5 +26,6 @@ internal static class TestSetup
         AppLog.Folder = Path.Combine(scratch, "Logs");
         RecoverySession.Folder = Path.Combine(scratch, "Recovery");
         BIMDesigner.Infrastructure.Projects.RecentProjects.Folder = Path.Combine(scratch, "Recent");
+        BIMDesigner.Infrastructure.Projects.ShortcutFile.Folder = Path.Combine(scratch, "Shortcuts");
     }
 }

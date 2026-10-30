@@ -730,7 +730,7 @@ public partial class PlanView : FrameworkElement
         WallShape.Oval => "Click the opposite corner of the oval. Shift makes it round, Esc cancels.",
         WallShape.Ellipse => "Click the opposite corner of the ellipse. Shift makes it round, Esc cancels.",
         WallShape.PartialEllipse => "Click the other end of the axis. Space flips it, Esc cancels.",
-        _ => "Click again to set the end of the wall. Space flips it, Esc cancels."
+        _ => "Click again to set the end of the wall, or type its length. Space flips it, Esc cancels."
     };
 
     /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
@@ -1377,6 +1377,56 @@ public partial class PlanView : FrameworkElement
         HintChanged?.Invoke(this, $"{_selection.Count} selected.");
     }
 
+    /// <summary>
+    /// Select All Instances: everything of the selected elements' types - shown on this storey,
+    /// or in the whole project, every storey. Something with no type takes in all of its kind -
+    /// every room, every gridline - and a group every group of its name. What stands in a group
+    /// goes with its group, so is left out. How many were selected. Public so tests can drive it.
+    /// </summary>
+    public int SelectAllInstances(bool wholeProject)
+    {
+        if (Document is null) return 0;
+        RefreshViewFilter();
+
+        // Picked in a group, a member stands for its group: the group's kind is what is meant.
+        bool Grouped(Element element) => element is not Group && Groups.Of(Document, element) is { } group && !ReferenceEquals(group, EditingGroup);
+        var picked = _selection.Where(element => !Grouped(element)).ToList();
+        if (picked.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Select one of them first, then Select All Instances.");
+            return 0;
+        }
+
+        var types = picked.Where(element => element is not Group && element.TypeId != Guid.Empty).Select(element => element.TypeId).ToHashSet();
+        var kinds = picked.Where(element => element is not Group && element.TypeId == Guid.Empty).Select(element => element.GetType()).ToHashSet();
+        var groups = picked.OfType<Group>().Select(group => group.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        bool Alike(Element element) => element switch
+        {
+            Group group => groups.Contains(group.Name),
+            _ when element.TypeId != Guid.Empty => types.Contains(element.TypeId),
+            _ => kinds.Contains(element.GetType())
+        };
+
+        // Shown here: on this storey and not hidden in it - a door or window by its wall's storey.
+        bool Here(Element element) => IsOnActiveLevel(element) ||
+                                      element is Opening opening && Document.Find<Wall>(opening.HostWallId) is { } wall && IsOnActiveLevel(wall) && _shows(element);
+        var alike = Document.Elements.Where(element => element is not Sheet && Alike(element) && !Grouped(element)).ToList();
+        var chosen = wholeProject ? alike : alike.Where(Here).ToList();
+        var leftInGroups = Document.Elements.Count(element => Alike(element) && Grouped(element) && (wholeProject || Here(element)));
+
+        SelectMany(chosen);
+        var elsewhere = wholeProject ? chosen.Count(element => !Here(element)) : alike.Count - chosen.Count;
+        var named = types.Count + kinds.Count + groups.Count == 1
+            ? picked[0] is Group onlyGroup ? onlyGroup.Name
+            : picked[0].TypeId != Guid.Empty && Document.ElementTypes.FirstOrDefault(type => type.Id == picked[0].TypeId) is { } type ? type.Name
+            : picked[0].Category.ToString()
+            : $"of {types.Count + kinds.Count + groups.Count} kinds";
+        HintChanged?.Invoke(this, $"{chosen.Count} {named} selected{(wholeProject ? " in the whole project" : " on this storey")}"
+                                  + (elsewhere > 0 ? wholeProject ? $" - {elsewhere} of them on other storeys or hidden here" : $" - {elsewhere} more on other storeys or hidden here" : string.Empty)
+                                  + (leftInGroups > 0 ? $"; {leftInGroups} in groups left with their groups" : string.Empty) + ".");
+        return chosen.Count;
+    }
+
     public void DeleteSelected()
     {
         if (Document is null || _selection.Count == 0) return;
@@ -1426,7 +1476,8 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     public bool CancelPendingOperation()
     {
-        var changed = CancelStair()
+        var changed = CloseTypedLength()
+                      | CancelStair()
                       | CancelRamp()
                       | CancelRailing()
                       | CancelBeam()
@@ -1974,6 +2025,9 @@ public partial class PlanView : FrameworkElement
 
         if (Document is null) return;
         var raw = ScreenToModel(Pointer(e));
+
+        // A click where the line ends instead of the length being typed for it.
+        CloseTypedLength();
 
         // While a roof is being sketched, every click belongs to the sketch.
         if (IsSketching)
@@ -5928,7 +5982,7 @@ public partial class PlanView : FrameworkElement
             return;
         }
 
-        if (PickAt(at) is not { } picked) return;
+        if ((PickAt(at) ?? HitTest(ScreenToModel(at))) is not { } picked) return;
 
         if (!_selection.Contains(picked)) Select(picked);
         ShowMenuFor(picked, this);
@@ -6010,6 +6064,14 @@ public partial class PlanView : FrameworkElement
                 items.Add((string.Empty, null));
                 items.Add(("Delete", () => Apply(new DeleteElementCommand(Document, wall))));
                 break;
+        }
+
+        // Everything of its type, here or everywhere.
+        if (picked is not CurtainPanel)
+        {
+            if (items.Count > 0) items.Add((string.Empty, null));
+            items.Add(("Select All Instances: Visible in View", () => SelectAllInstances(wholeProject: false)));
+            items.Add(("Select All Instances: In Entire Project", () => SelectAllInstances(wholeProject: true)));
         }
 
         return items;
@@ -6604,6 +6666,7 @@ public partial class PlanView : FrameworkElement
         DrawOpeningFlipControls(dc);
         DrawGrips(dc);
         DrawPendingWall(dc);
+        DrawTemporaryDimension(dc);
         DrawPendingDimension(dc);
         DrawPendingDimensionTools(dc);
         DrawPendingRevisionTools(dc);

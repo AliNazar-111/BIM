@@ -190,6 +190,7 @@ public sealed class SheetRenderer
                 frame.Y + frame.Height / 2 - warning.Height / 2));
         }
 
+        if (exists && viewport.ShowNorth && !viewport.IsTable) DrawNorthPoint(dc, frame);
         if (viewport.ShowTitle) DrawViewportTitle(dc, viewport, frame);
     }
 
@@ -444,6 +445,86 @@ public sealed class SheetRenderer
         dc.DrawLine(_titleBlockPen,
             new Point(frame.X, rule),
             new Point(left + Math.Max(title.Width, Paper(30)), rule));
+
+        // A scale bar beside the title, so it reads true however it is printed; a note under it.
+        if (viewport.ShowScaleBar && !viewport.IsTable && viewport.Scale.IsValid)
+            DrawScaleBar(dc, viewport.Scale, left + Math.Max(title.Width, Paper(30)) + Paper(8), baseline + Paper(1.5), frame.Right);
+        if (viewport.Note.Length > 0)
+            dc.DrawText(Text(viewport.Note, Paper(2.2), _titleMutedBrush), new Point(frame.X, rule + Paper(1)));
+    }
+
+    /// <summary>
+    /// A scale bar: a round length - 1, 2 or 5 of a power of ten, in metres, or in feet where the
+    /// project is - near 40 mm long on the paper, in black and white segments, its ends and its
+    /// middle figured. Left out where the view is too narrow to take it beside its title.
+    /// </summary>
+    private void DrawScaleBar(DrawingContext dc, ViewScale scale, double left, double top, double right)
+    {
+        var imperial = Core.Units.Imperial;
+        var unit = imperial ? 304.8 : 1000.0;
+        var target = scale.ToModel(40) / unit;
+        var power = Math.Pow(10, Math.Floor(Math.Log10(target)));
+        var leading = target / power >= 5 ? 5 : target / power >= 2 ? 2 : 1;
+        var length = leading * power;
+        var segments = leading == 2 ? 4 : 5;
+        var width = Paper(scale.ToPaper(length * unit));
+        if (left + width + Paper(12) > right) return;
+
+        var height = Paper(1.6);
+        var fill = _titleTextBrush;
+        for (var i = 0; i < segments; i++)
+        {
+            var box = new Rect(left + width * i / segments, top, width / segments, height);
+            dc.DrawRectangle(i % 2 == 0 ? fill : _paperBrush, _titleBlockPen, box);
+        }
+
+        string Figure(double value) => value == 0 ? "0" : imperial ? $"{value:0.##}'" : value < 1 ? $"{value * 1000:0} mm" : $"{value:0.##}";
+        var size = Paper(2.2);
+        foreach (var (at, value) in new[] { (0.0, 0.0), (0.5, length / 2), (1.0, length) })
+        {
+            var figure = Text(at == 1.0 && !imperial ? $"{Figure(value)} m" : Figure(value), size, _titleTextBrush);
+            var x = left + width * at - (at == 0 ? 0 : at == 1.0 ? figure.Width / 2 : figure.Width / 2);
+            dc.DrawText(figure, new Point(Math.Min(x, right - figure.Width), top + height + Paper(0.6)));
+        }
+    }
+
+    /// <summary>
+    /// A north point in the top right corner of a view: an arrow, half black, pointing to true north
+    /// as the project has it turned from up the plan, with N at its head, on a white disc so it
+    /// reads over a map.
+    /// </summary>
+    private void DrawNorthPoint(DrawingContext dc, Rect frame)
+    {
+        if (Document is null) return;
+        var radius = Paper(6);
+        var centre = new Point(frame.Right - radius - Paper(4), frame.Top + radius + Paper(7));
+        var turn = Document.ProjectInformation.TrueNorth * Math.PI / 180;
+        Point Along(double forward, double across) => new(
+            centre.X + forward * Math.Sin(turn) + across * Math.Cos(turn),
+            centre.Y - forward * Math.Cos(turn) + across * Math.Sin(turn));
+
+        dc.DrawEllipse(_paperBrush, _titleBlockPen, centre, radius, radius);
+        var (tip, tail, leftWing, rightWing) = (Along(radius * 0.95, 0), Along(-radius * 0.95, 0), Along(-radius * 0.6, -radius * 0.42), Along(-radius * 0.6, radius * 0.42));
+        StreamGeometry Half(Point wing)
+        {
+            var shape = new StreamGeometry();
+            using (var context = shape.Open())
+            {
+                context.BeginFigure(tip, isFilled: true, isClosed: true);
+                context.LineTo(wing, true, false);
+                context.LineTo(Along(-radius * 0.3, 0), true, false);
+            }
+
+            shape.Freeze();
+            return shape;
+        }
+
+        dc.DrawGeometry(_titleTextBrush, _titleBlockPen, Half(leftWing));
+        dc.DrawGeometry(_paperBrush, _titleBlockPen, Half(rightWing));
+        dc.DrawLine(_titleBlockPen, Along(-radius * 0.3, 0), tail);
+        var north = Text("N", Paper(3.2), _titleTextBrush, bold: true);
+        var head = Along(radius + Paper(2.6), 0);
+        dc.DrawText(north, new Point(head.X - north.Width / 2, head.Y - north.Height / 2));
     }
 
     /// <summary>

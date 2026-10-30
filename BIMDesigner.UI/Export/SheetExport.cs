@@ -24,12 +24,22 @@ public static class SheetExport
     /// A drawing set is a set: issuing it as thirty separate files is how a revision goes out
     /// with two sheets missing.
     /// </summary>
-    public static void ToPdf(BimDocument document, IReadOnlyList<Sheet> sheets, string path)
+    public static void ToPdf(BimDocument document, IReadOnlyList<Sheet> sheets, string path, PdfSigner? signer = null)
     {
         if (sheets.Count == 0) throw new ArgumentException("There are no sheets to export.", nameof(sheets));
 
-        PdfWriter.Write(path, sheets.Select(sheet => Page(document, sheet)).ToList());
+        PdfWriter.Write(path, sheets.Select(sheet => Page(document, sheet)).ToList(), Options(document, sheets, signer));
     }
+
+    /// <summary>
+    /// A set's title and author, and its bookmarks - each sheet by its number and name, as a
+    /// plans examiner goes through a set - signed where a signer is given.
+    /// </summary>
+    public static PdfOptions Options(BimDocument document, IReadOnlyList<Sheet> sheets, PdfSigner? signer = null) => new(
+        Title: string.IsNullOrWhiteSpace(document.ProjectInformation.Name) ? "Drawings" : document.ProjectInformation.Name,
+        Author: sheets.Select(sheet => sheet.DrawnBy).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? Environment.UserName,
+        Bookmarks: sheets.Select(sheet => $"{sheet.Number} - {sheet.Name}").ToList(),
+        Signer: signer);
 
     /// <summary>Draws one sheet at true size, in points, ready to be written or printed.</summary>
     public static PdfPage Page(BimDocument document, Sheet sheet)

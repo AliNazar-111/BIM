@@ -78,6 +78,7 @@ public partial class MainWindow : Window
         DarkThemeToggle.IsChecked = !AppTheme.IsLight;
 
         Plan.CursorMoved += OnCursorMoved;
+        LayoutUpdated += (_, _) => QueueViewTabs();
         Plan.SelectionChanged += (_, _) =>
         {
             RefreshProperties();
@@ -492,6 +493,7 @@ public partial class MainWindow : Window
         // What was read for the last project's links forgotten.
         ForgetLinks();
         ForgetComparison();
+        ForgetViewTabs();
 
         // Roofs on their walls and dormers on their roofs, as any edit would leave them: a file
         // saved before they followed as they do now opens as it would be drawn after one.
@@ -534,6 +536,8 @@ public partial class MainWindow : Window
             RefreshTitle();
             RaiseCoordinationChanged();
             CommandManager.InvalidateRequerySuggested();
+            RefreshHistoryLists();
+            FollowTypes();
 
             // Every edit reaches here, undo and redo included - and the section is a cut
             // through whatever the model is now, not a picture taken when it was drawn.
@@ -552,6 +556,8 @@ public partial class MainWindow : Window
             if (ContextTab.Visibility == Visibility.Visible) RefreshContextTab(bringForward: false);
             RefreshPlanScale();
         };
+        RefreshHistoryLists();
+        _typesSeen = (document.ElementTypes.Count, document.Materials.Count);
 
         Plan.History = _history;
         Plan.Document = document;
@@ -2512,6 +2518,9 @@ public partial class MainWindow : Window
     {
         base.OnPreviewKeyDown(e);
 
+        // A length being typed for the line being drawn takes every key, a space among them.
+        if (Plan.TypingLength) return;
+
         // In a roof sketch, TAB widens a wall pick to the whole chain of joined walls.
         if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.None && Plan.IsSketching &&
             Keyboard.FocusedElement is not (TextBox or ComboBox or ComboBoxItem) && Plan.SketchTab())
@@ -2569,8 +2578,9 @@ public partial class MainWindow : Window
     {
         base.OnKeyDown(e);
 
-        // Let text boxes in the property panel and the schedule grid keep their keystrokes.
-        if (Keyboard.FocusedElement is TextBox) return;
+        // Let text boxes in the property panel and the schedule grid keep their keystrokes - and
+        // the plan a length being typed, its "m" or "ft" no tool's letter.
+        if (Keyboard.FocusedElement is TextBox || Plan.TypingLength) return;
 
         // Esc in a roof sketch stops the line being drawn, then goes back to selecting lines -
         // it never throws the sketch away. That is what Cancel is for.
@@ -2581,37 +2591,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.T)
+        // The keyboard shortcuts, as set in Keyboard Shortcuts: W for the wall, Ctrl+3 for 3D, a
+        // run of letters waiting a moment where it begins a longer one. A drawing tool's waits for
+        // the plan: in 3D or on a sheet it would switch a tool nobody can see.
+        if (e.Key is Key.Escape or Key.Enter) ForgetTypedKeys();
+        else if (TakeShortcut(e))
         {
-            OnToggleSchedules(this, e);
             e.Handled = true;
             return;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.H)
-        {
-            OnToggleSheet(this, e);
-            e.Handled = true;
-            return;
-        }
-
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.P)
-        {
-            OnPrintSheets(this, e);
-            e.Handled = true;
-            return;
-        }
-
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key is Key.D3 or Key.NumPad3)
-        {
-            OnToggle3D(this, e);
-            e.Handled = true;
-            return;
-        }
-
-        // In 3D the drawing tools have nowhere to draw, so their single-letter shortcuts would
-        // switch tools invisibly. Esc closes the view instead; the view handles its own keys.
-        // Tiled, the plan is there beside it and keeps its keys.
+        // In 3D Esc closes the view; the view handles its own keys. Tiled, the plan is there
+        // beside it and keeps its keys.
         if (ModelCoversPlan)
         {
             if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
@@ -2627,8 +2618,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // While a sheet is open the single-letter tool shortcuts would change a tool nobody
-        // can see, so only the sheet's own keys are live.
+        // While a sheet is open only its own keys are live: Delete takes off a view or picture.
         if (SheetPanel.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Delete && (SheetSurface.SelectedViewport is not null || SheetSurface.SelectedImage is not null) && Keyboard.FocusedElement is not System.Windows.Controls.TextBox)
@@ -2637,41 +2627,6 @@ public partial class MainWindow : Window
                 e.Handled = true;
             }
 
-            return;
-        }
-
-        if (Keyboard.Modifiers == ModifierKeys.Control)
-        {
-            switch (e.Key)
-            {
-                case Key.C:
-                    OnCopy(this, e);
-                    e.Handled = true;
-                    return;
-
-                case Key.V:
-                    OnPaste(this, e);
-                    e.Handled = true;
-                    return;
-
-                case Key.A:
-                    OnSelectAll(this, e);
-                    e.Handled = true;
-                    return;
-            }
-        }
-
-        if (Keyboard.Modifiers == ModifierKeys.Shift && e.Key == Key.P)
-        {
-            Plan.PinSelected(false);
-            e.Handled = true;
-            return;
-        }
-
-        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.V)
-        {
-            OnPasteInPlace(this, e);
-            e.Handled = true;
             return;
         }
 
@@ -2690,75 +2645,6 @@ public partial class MainWindow : Window
                 if (Plan.CancelPendingOperation()) break;
                 if (Plan.ActiveTool != PlanTool.Select) BackToModify();
                 else Plan.Select(null);
-                break;
-            case Key.O:
-                OffsetTool.IsChecked = true;
-                break;
-            case Key.L:
-                AlignTool.IsChecked = true;
-                break;
-            case Key.I:
-                MirrorTool.IsChecked = true;
-                break;
-            case Key.Y:
-                ArrayTool.IsChecked = true;
-                break;
-            case Key.Q:
-                RotateTool.IsChecked = true;
-                break;
-            case Key.K:
-                ScaleTool.IsChecked = true;
-                break;
-            case Key.P:
-                Plan.PinSelected(true);
-                break;
-            case Key.F:
-                Plan.ZoomToFit();
-                break;
-            case Key.W:
-                WallTool.IsChecked = true;
-                break;
-            case Key.S:
-                SelectTool.IsChecked = true;
-                break;
-            case Key.D:
-                DoorTool.IsChecked = true;
-                break;
-            case Key.N:
-                WindowTool.IsChecked = true;
-                break;
-            case Key.R:
-                RoomTool.IsChecked = true;
-                break;
-            case Key.G:
-                GridTool.IsChecked = true;
-                break;
-            case Key.C:
-                SectionTool.IsChecked = true;
-                break;
-            case Key.M:
-                DimensionTool.IsChecked = true;
-                break;
-            case Key.A:
-                TagTool.IsChecked = true;
-                break;
-            case Key.E:
-                TextTool.IsChecked = true;
-                break;
-            case Key.F2:
-                FloorTool.IsChecked = true;
-                break;
-            case Key.F3:
-                CeilingTool.IsChecked = true;
-                break;
-            case Key.F4:
-                RoofTool.IsChecked = true;
-                break;
-            case Key.X:
-                SplitTool.IsChecked = true;
-                break;
-            case Key.T:
-                TrimTool.IsChecked = true;
                 break;
         }
     }
@@ -4917,7 +4803,7 @@ public partial class MainWindow : Window
     /// <summary>Opens a sheet, making the sheet view visible if it was not already.</summary>
     private void ShowSheet(Sheet sheet)
     {
-        if (ModelPanel.Visibility == Visibility.Visible) OnClose3D(this, new RoutedEventArgs());
+        if (ModelPanel.Visibility == Visibility.Visible && !ModelFloats) OnClose3D(this, new RoutedEventArgs());
 
         SheetPanel.Visibility = Visibility.Visible;
         SheetMenuItem.IsChecked = true;
@@ -5166,7 +5052,7 @@ public partial class MainWindow : Window
     private void ShowModel(ElevationSide? elevation, View3D view, Walkthrough? walk = null)
     {
         // The sheet and the 3D view both take over the drawing area; only one can.
-        if (SheetPanel.Visibility == Visibility.Visible) OnCloseSheet(this, new RoutedEventArgs());
+        if (SheetPanel.Visibility == Visibility.Visible && !ModelFloats) OnCloseSheet(this, new RoutedEventArgs());
 
         Model3D.StopMoving();
         _shownWalkthrough = walk;
@@ -5481,6 +5367,7 @@ public partial class MainWindow : Window
 
     private void OnClose3D(object sender, RoutedEventArgs e)
     {
+        if (ModelFloats) DockModel();
         ModelPanel.Visibility = Visibility.Collapsed;
         ModelMenuItem.IsChecked = false;
         if (_tiled) SetTiled(false);
@@ -5494,7 +5381,7 @@ public partial class MainWindow : Window
     private bool _tiled;
 
     /// <summary>Whether the 3D view is open over the plan, hiding it.</summary>
-    private bool ModelCoversPlan => ModelPanel.Visibility == Visibility.Visible && !_tiled;
+    private bool ModelCoversPlan => ModelPanel.Visibility == Visibility.Visible && !_tiled && !ModelFloats;
 
     /// <summary>The File button opens its menu under itself, the way the File tab of a ribbon does.</summary>
     private void OnFileButton(object sender, RoutedEventArgs e)
@@ -5524,6 +5411,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void SetTiled(bool tiled)
     {
+        if (tiled && ModelFloats) DockModel();
         _tiled = tiled;
         TileToggle.IsChecked = tiled;
 

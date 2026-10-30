@@ -87,6 +87,10 @@ public sealed partial class PlanRenderer
     private readonly Brush _rampBrush = RenderPens.Fill(Color.FromArgb(0x48, 0xB5, 0xB3, 0xAE));
     private readonly Pen _propertyPen = RenderPens.Chain(Color.FromRgb(0xB0, 0x30, 0x60), 1.4, 12, 3, 2, 3, 2, 3);
     private readonly Pen _setbackPen = RenderPens.Dashed(Color.FromRgb(0xB0, 0x30, 0x60), 0.8, 5, 4);
+
+    /// <summary>A planning drawing's red line round the application site, and blue round other land owned.</summary>
+    private static readonly Brush RedLine = RenderPens.Fill(Color.FromRgb(0xE0, 0x1B, 0x1B));
+    private static readonly Brush BlueLine = RenderPens.Fill(Color.FromRgb(0x1B, 0x4D, 0xE0));
     private readonly Brush _propertyBrush = RenderPens.Fill(Color.FromRgb(0xB0, 0x30, 0x60));
     private readonly Pen _spotPen = RenderPens.Solid(Color.FromRgb(0x20, 0x40, 0x80), 1.1);
     private readonly Brush _spotBrush = RenderPens.Fill(Color.FromRgb(0x20, 0x40, 0x80));
@@ -298,7 +302,7 @@ public sealed partial class PlanRenderer
         // lining storeys up against them is the point of having them. An underlay leaves them
         // to the storey above, which is drawing the same ones.
         if (!underlay)
-            foreach (var grid in Document.All<Grid>()) CadLayers.Draw(dc, grid, d => DrawGrid(d, grid));
+            foreach (var grid in Document.All<Grid>().Where(grid => Filter(grid))) CadLayers.Draw(dc, grid, d => DrawGrid(d, grid));
 
         // Slabs are construction under everything else; rooms are the space above them.
         foreach (var slab in OnActiveLevel<Slab>()) Styled(dc, slab, d => DrawSlab(d, slab));
@@ -2126,8 +2130,23 @@ public sealed partial class PlanRenderer
     private void DrawPropertyLine(DrawingContext dc, PropertyLine line)
     {
         if (line.Boundary.Count < 2) return;
-        var pen = IsSelected(line) ? _selectedPen : _propertyPen;
-        dc.DrawGeometry(null, pen, BuildOutline(line.Boundary));
+
+        // Edged in red round the application site, blue round other land owned - on a planning
+        // drawing that and nothing more: no bearings, no setback.
+        var planning = Document is not null && PlanningDrawings.Of(Document, View) != PlanningDrawing.None;
+        if (line.Planning != PlanningEdge.None)
+        {
+            var edge = new Pen(line.Planning == PlanningEdge.ApplicationSite ? RedLine : BlueLine, Page(planning ? 2.8 : 2.2)) { LineJoin = PenLineJoin.Round };
+            edge.Freeze();
+            dc.DrawGeometry(null, IsSelected(line) ? _selectedPen : edge, BuildOutline(line.Boundary));
+            if (planning) return;
+        }
+        else
+        {
+            dc.DrawGeometry(null, IsSelected(line) ? _selectedPen : _propertyPen, BuildOutline(line.Boundary));
+            if (planning) return;
+        }
+
         var setback = PropertyLines.SetbackLine(line);
         if (setback.Count >= 3) dc.DrawGeometry(null, _setbackPen, BuildOutline(setback));
 

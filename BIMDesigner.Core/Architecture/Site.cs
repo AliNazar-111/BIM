@@ -231,8 +231,15 @@ public sealed class PropertyLine : Element
     /// <summary>How far in from it the building is to be kept, mm; none for no setback.</summary>
     public double Setback { get; set; }
 
+    /// <summary>How it is edged on the planning drawings: red round the application site, blue round other land the applicant owns.</summary>
+    public Views.PlanningEdge Planning { get; set; }
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
+        yield return ParameterValue.BindChoice(PropertyLineParameters.Planning,
+            () => PropertyLineParameters.PlanningEdges[(int)Planning],
+            value => Planning = (Views.PlanningEdge)Math.Max(0, Array.IndexOf(PropertyLineParameters.PlanningEdges, value)),
+            PropertyLineParameters.PlanningEdges);
         yield return ParameterValue.BindValidated(PropertyLineParameters.Setback, () => Setback, (double v) =>
         {
             if (!double.IsFinite(v) || v < 0 || v > 100000) return false;
@@ -258,6 +265,10 @@ public static class PropertyLineParameters
     public static readonly ParameterDefinition Coverage = new("Plot Covered by the Building", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Rule = new("Building Within It", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition SpaceSeparation = new("Space Separation (Approved Document B)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition Planning = new("Planning Edge", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    /// <summary>The planning edges as Properties offers them, in the order of <see cref="Views.PlanningEdge"/>.</summary>
+    public static readonly string[] PlanningEdges = { "None", "Red line - the application site", "Blue line - other land owned" };
 }
 
 /// <summary>Property lines: each side's length and bearing, how much of the plot the building covers, and whether the building is inside it and behind its setback.</summary>
@@ -322,8 +333,20 @@ public static class PropertyLines
     public static double Coverage(BimDocument document, PropertyLine line)
     {
         var area = Polygon2D.Area(line.Boundary);
-        return area <= 1 ? 0 : Math.Min(1, Footprint(document) / area);
+        return area <= 1 || Elsewhere(document, line) ? 0 : Math.Min(1, Footprint(document) / area);
     }
+
+    /// <summary>
+    /// Whether any of the building stands on a plot - a wall of it inside the line. Land beside it,
+    /// the applicant's other land edged in blue, has none of it: not covered, and not stood over.
+    /// </summary>
+    /// <summary>Whether the building is on another plot and none of it on this one: land beside it, not the building's.</summary>
+    public static bool Elsewhere(BimDocument document, PropertyLine line) =>
+        !Holds(document, line) && document.All<PropertyLine>().Any(other => !ReferenceEquals(other, line) && Holds(document, other));
+
+    public static bool Holds(BimDocument document, PropertyLine line) =>
+        line.Boundary.Count >= 3 && document.Walls.Any(wall => wall.Length >= 1 && document.GetWallType(wall) is { Function: not WallFunction.Retaining }
+            && Enumerable.Range(0, Math.Max(1, (int)Math.Ceiling(wall.Length / 500)) + 1).Any(k => Polygon2D.Contains(line.Boundary, wall.LocationCurve.PointAt(wall.Length * k / Math.Max(1, (int)Math.Ceiling(wall.Length / 500))))));
 
     /// <summary>The line inside it the building is kept behind, its setback in from each side - none with no setback.</summary>
     public static IReadOnlyList<Point2D> SetbackLine(PropertyLine line) =>
@@ -334,6 +357,7 @@ public static class PropertyLines
     {
         var problems = new List<string>();
         if (line.Boundary.Count < 3) return problems;
+        if (Elsewhere(document, line)) return problems;
         var (outside, nearest) = (0, double.PositiveInfinity);
         foreach (var wall in document.Walls.Where(wall => wall.Length >= 1 && document.GetWallType(wall) is { Function: not WallFunction.Retaining }))
         {
@@ -359,7 +383,7 @@ public static class PropertyLines
     {
         var problems = Problems(document, line);
         if (problems.Count > 0) return string.Join(" ", problems);
-        return document.Walls.Any() ? line.Setback > 0 ? "Within it, behind its setback" : "Within it" : "No building yet";
+        return !document.Walls.Any() ? "No building yet" : Elsewhere(document, line) ? "No building on it" : line.Setback > 0 ? "Within it, behind its setback" : "Within it";
     }
 }
 

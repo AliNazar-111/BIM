@@ -634,6 +634,27 @@
         <GeometryDrawing Brush="{StaticResource Ink.Line}" Geometry="M15,8 L17,8 L16.6,15 L15.4,15 Z M16,16.4 A1.2,1.2 0 1 1 15.99,16.4 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- Warnings: a warning triangle. -->
+    <DrawingImage x:Key="Icon.Warnings"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Yellow}" Pen="{StaticResource Stroke}" Geometry="M16,4 L29,27 L3,27 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Line}" Geometry="M15,11 L17,11 L16.6,20 L15.4,20 Z M16,21.8 A1.3,1.3 0 1 1 15.99,21.8 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- Keyboard Shortcuts: a keyboard. -->
+    <DrawingImage x:Key="Icon.Keyboard"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M2,9 L30,9 L30,25 L2,25 Z"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Line}" Geometry="M5,12 L8,12 L8,15 L5,15 Z M10,12 L13,12 L13,15 L10,15 Z M15,12 L18,12 L18,15 L15,15 Z M20,12 L23,12 L23,15 L20,15 Z M25,12 L28,12 L28,15 L25,15 Z M5,17 L8,17 L8,20 L5,20 Z M10,17 L13,17 L13,20 L10,20 Z M15,17 L18,17 L18,20 L15,20 Z M20,17 L23,17 L23,20 L20,20 Z M25,17 L28,17 L28,20 L25,20 Z M9,21.5 L23,21.5 L23,23.5 L9,23.5 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
+    <!-- Purge Unused: a bin. -->
+    <DrawingImage x:Key="Icon.Purge"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M8,10 L24,10 L22.5,28 L9.5,28 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M5,7 L27,7 M13,7 L13,4 L19,4 L19,7 M13,14 L13.5,24 M19,14 L18.5,24 M16,14 L16,24"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Materials"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.WallTop}" Pen="{StaticResource Stroke}" Geometry="M3,5 L29,5 L29,27 L3,27 Z"/>

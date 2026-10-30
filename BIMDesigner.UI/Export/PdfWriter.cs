@@ -18,6 +18,19 @@ namespace BIMDesigner.UI.Export;
 public sealed record PdfPage(double WidthPoints, double HeightPoints, Drawing? Content);
 
 /// <summary>
+/// What a PDF carries beside its pages: its title and author, a bookmark for each page - the
+/// drawing number and name a set is navigated by - and a digital signature where one is asked for.
+/// </summary>
+public sealed record PdfOptions(string? Title = null, string? Author = null, IReadOnlyList<string>? Bookmarks = null, PdfSigner? Signer = null);
+
+/// <summary>
+/// Who signs a PDF, and why and where: a certificate with its private key - a digital ID from a
+/// file or from Windows' certificate store - put to the whole document as a detached CMS signature,
+/// which PDF readers check against the bytes they open and say whether anything has changed since.
+/// </summary>
+public sealed record PdfSigner(System.Security.Cryptography.X509Certificates.X509Certificate2 Certificate, string Reason, string Location, string ContactInfo = "");
+
+/// <summary>
 /// Writes a vector PDF from WPF drawings (specification section 6.5).
 ///
 /// This is deliberately a real export rather than a print: a drawing set has to be
@@ -35,19 +48,25 @@ public static class PdfWriter
     public const double PointsPerMillimetre = 72.0 / 25.4;
 
     /// <summary>Writes the pages to a file, each page's drawing deflated.</summary>
-    public static void Write(string path, IReadOnlyList<PdfPage> pages)
+    public static void Write(string path, IReadOnlyList<PdfPage> pages, PdfOptions? options = null)
     {
         if (pages.Count == 0) throw new ArgumentException("A PDF needs at least one page.", nameof(pages));
 
-        using var file = File.Create(path);
-        Write(file, pages, compress: true);
+        // Written whole before the file is touched: a signature is worked out over the finished bytes.
+        using var buffer = new MemoryStream();
+        Write(buffer, pages, compress: true, options);
+        File.WriteAllBytes(path, buffer.ToArray());
     }
+
+    /// <summary>How many bytes are kept for a signature: room for the signer's certificate and its chain.</summary>
+    private const int SignatureRoom = 16384;
 
     /// <summary>
     /// Writes the pages to a stream - each page's drawing deflated where <paramref name="compress"/> is
-    /// asked, five or ten times smaller, as a file is written; left as text otherwise, to be read.
+    /// asked, five or ten times smaller, as a file is written; left as text otherwise, to be read -
+    /// with the title, author, bookmarks and signature the options ask for.
     /// </summary>
-    public static void Write(Stream output, IReadOnlyList<PdfPage> pages, bool compress = false)
+    public static void Write(Stream output, IReadOnlyList<PdfPage> pages, bool compress = false, PdfOptions? options = null)
     {
         var objects = new List<byte[]>();
 
@@ -83,7 +102,17 @@ public static class PdfWriter
             bodies.Add((pageId, contentId, content, page, images));
         }
 
-        objects.Add(Latin1($"<< /Type /Catalog /Pages 2 0 R >>"));
+        // After the pages: the document's information, its bookmarks, and its signature, field and form.
+        var infoId = options?.Title is not null || options?.Author is not null ? nextId++ : 0;
+        var marks = options?.Bookmarks is { } bookmarks ? bookmarks.Take(pages.Count).ToList() : new List<string>();
+        var outlinesId = marks.Count > 0 ? nextId++ : 0;
+        var markIds = marks.Select(_ => nextId++).ToList();
+        var signer = options?.Signer;
+        var (signatureId, widgetId, formId) = signer is null ? (0, 0, 0) : (nextId++, nextId++, nextId++);
+
+        objects.Add(Latin1("<< /Type /Catalog /Pages 2 0 R" +
+                           (outlinesId > 0 ? $" /Outlines {outlinesId} 0 R /PageMode /UseOutlines" : string.Empty) +
+                           (formId > 0 ? $" /AcroForm {formId} 0 R" : string.Empty) + " >>"));
 
         objects.Add(Latin1(
             $"<< /Type /Pages /Count {pages.Count} " +
@@ -95,6 +124,7 @@ public static class PdfWriter
                 $"<< /Type /Page /Parent 2 0 R " +
                 $"/MediaBox [ 0 0 {Number(page.WidthPoints)} {Number(page.HeightPoints)} ] " +
                 $"/Resources << {content.ResourceDictionary(images)} >> " +
+                (widgetId > 0 && pageId == pageIds[0] ? $"/Annots [ {widgetId} 0 R ] " : string.Empty) +
                 $"/Contents {contentId} 0 R >>"));
 
             var stream = Latin1(content.ToString());
@@ -115,7 +145,103 @@ public static class PdfWriter
             _ = pageId;
         }
 
-        WriteDocument(output, objects);
+        if (infoId > 0)
+            objects.Add(Latin1($"<< /Title {TextString(options!.Title ?? string.Empty)} /Author {TextString(options.Author ?? string.Empty)} /Creator {TextString("BIMDesigner")} " +
+                               $"/CreationDate ({DateText(DateTime.Now)}) >>"));
+
+        // A bookmark for each page, in order, each opening its page whole.
+        if (outlinesId > 0)
+        {
+            objects.Add(Latin1($"<< /Type /Outlines /First {markIds[0]} 0 R /Last {markIds[^1]} 0 R /Count {marks.Count} >>"));
+            for (var i = 0; i < marks.Count; i++)
+                objects.Add(Latin1($"<< /Title {TextString(marks[i])} /Parent {outlinesId} 0 R " +
+                                   (i > 0 ? $"/Prev {markIds[i - 1]} 0 R " : string.Empty) +
+                                   (i < marks.Count - 1 ? $"/Next {markIds[i + 1]} 0 R " : string.Empty) +
+                                   $"/Dest [ {pageIds[i]} 0 R /Fit ] >>"));
+        }
+
+        // The signature: its value left as a run of zeros, and where the bytes it covers end, to be filled in once they are written.
+        if (signer is not null)
+        {
+            objects.Add(Latin1("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached " +
+                               $"/ByteRange {ByteRangeHole} /Contents <{new string('0', SignatureRoom * 2)}> " +
+                               $"/M ({DateText(DateTime.Now)}) /Name {TextString(signer.Certificate.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false))} " +
+                               $"/Reason {TextString(signer.Reason)} /Location {TextString(signer.Location)} /ContactInfo {TextString(signer.ContactInfo)} >>"));
+            objects.Add(Latin1($"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature1) /V {signatureId} 0 R /F 132 /Rect [ 0 0 0 0 ] /P {pageIds[0]} 0 R >>"));
+            objects.Add(Latin1($"<< /Fields [ {widgetId} 0 R ] /SigFlags 3 >>"));
+        }
+
+        if (signer is null)
+        {
+            WriteDocument(output, objects, infoId);
+            return;
+        }
+
+        using var unsigned = new MemoryStream();
+        WriteDocument(unsigned, objects, infoId);
+        var signed = Sign(unsigned.ToArray(), signer.Certificate);
+        output.Write(signed, 0, signed.Length);
+    }
+
+    /// <summary>The byte range a signature covers, left to be filled in: the same width as the figures that will go in it.</summary>
+    private const string ByteRangeHole = "[ 0 0000000000 0000000000 0000000000 ]";
+
+    /// <summary>
+    /// A written PDF signed: the bytes either side of the signature's value are what it covers -
+    /// their range filled in where it was left, the same width so nothing after moves - and the
+    /// value a CMS signature of them, SHA-256, with the signer's certificate chain, in hex where
+    /// the zeros were.
+    /// </summary>
+    internal static byte[] Sign(byte[] pdf, System.Security.Cryptography.X509Certificates.X509Certificate2 certificate)
+    {
+        var hole = IndexOf(pdf, Latin1(ByteRangeHole));
+        var value = IndexOf(pdf, Latin1($"/Contents <{new string('0', 32)}"));
+        if (hole < 0 || value < 0) throw new InvalidOperationException("The PDF has no room left for a signature.");
+
+        var start = value + "/Contents ".Length;
+        var end = start + SignatureRoom * 2 + 2;
+        var range = $"[ 0 {start:D10} {end:D10} {pdf.Length - end:D10} ]";
+        Latin1(range).CopyTo(pdf, hole);
+
+        var covered = new byte[start + pdf.Length - end];
+        Buffer.BlockCopy(pdf, 0, covered, 0, start);
+        Buffer.BlockCopy(pdf, end, covered, start, pdf.Length - end);
+
+        var cms = new System.Security.Cryptography.Pkcs.SignedCms(new System.Security.Cryptography.Pkcs.ContentInfo(covered), detached: true);
+        var signer = new System.Security.Cryptography.Pkcs.CmsSigner(System.Security.Cryptography.Pkcs.SubjectIdentifierType.IssuerAndSerialNumber, certificate)
+        {
+            DigestAlgorithm = new System.Security.Cryptography.Oid("2.16.840.1.101.3.4.2.1"),
+            IncludeOption = System.Security.Cryptography.X509Certificates.X509IncludeOption.WholeChain
+        };
+        signer.SignedAttributes.Add(new System.Security.Cryptography.Pkcs.Pkcs9SigningTime(DateTime.UtcNow));
+        cms.ComputeSignature(signer, silent: true);
+        var signature = Convert.ToHexString(cms.Encode());
+        if (signature.Length > SignatureRoom * 2) throw new InvalidOperationException("The signature, with its certificates, is larger than the room kept for it.");
+
+        Latin1(signature).CopyTo(pdf, start + 1);
+        return pdf;
+    }
+
+    private static int IndexOf(byte[] haystack, byte[] needle)
+    {
+        for (var i = 0; i <= haystack.Length - needle.Length; i++)
+        {
+            var j = 0;
+            while (j < needle.Length && haystack[i + j] == needle[j]) j++;
+            if (j == needle.Length) return i;
+        }
+
+        return -1;
+    }
+
+    /// <summary>Text as a PDF string in any language: UTF-16, marked so, in hex.</summary>
+    public static string TextString(string text) => $"<FEFF{Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(text))}>";
+
+    /// <summary>A moment as PDF writes dates: D:YYYYMMDDHHmmSS and its offset from UTC.</summary>
+    private static string DateText(DateTime when)
+    {
+        var offset = TimeZoneInfo.Local.GetUtcOffset(when);
+        return $"D:{when:yyyyMMddHHmmss}{(offset < TimeSpan.Zero ? "-" : "+")}{Math.Abs(offset.Hours):00}'{Math.Abs(offset.Minutes):00}'";
     }
 
 
@@ -127,7 +253,7 @@ public static class PdfWriter
         Latin1("\nendstream"));
 
     /// <summary>Lays the objects out with a cross-reference table, which is what makes it a PDF.</summary>
-    private static void WriteDocument(Stream output, List<byte[]> objects)
+    private static void WriteDocument(Stream output, List<byte[]> objects, int infoId = 0)
     {
         var offsets = new long[objects.Count + 1];
         var position = 0L;
@@ -162,7 +288,7 @@ public static class PdfWriter
             table.Append(CultureInfo.InvariantCulture, $"{offsets[i]:D10} 00000 n \n");
 
         table.Append(CultureInfo.InvariantCulture,
-            $"trailer\n<< /Size {objects.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+            $"trailer\n<< /Size {objects.Count + 1} /Root 1 0 R{(infoId > 0 ? $" /Info {infoId} 0 R" : string.Empty)} >>\nstartxref\n{xref}\n%%EOF\n");
 
         Emit(Latin1(table.ToString()));
     }

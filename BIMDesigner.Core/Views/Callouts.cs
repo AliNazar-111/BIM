@@ -25,6 +25,9 @@ public sealed class Callout : Element
     /// <summary>The box, in the view it is drawn on: plan millimetres, or along a section and up it.</summary>
     public BoundingBox2D Region { get; set; }
 
+    /// <summary>Which planning drawing it is, if one: drawing only what such a plan shows, and no box on the plan it is cut from.</summary>
+    public PlanningDrawing Planning { get; set; }
+
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
         yield return ParameterValue.Bind(CalloutParameters.Name, () => Name, value => { if (!string.IsNullOrWhiteSpace(value)) Name = value.Trim(); });
@@ -74,9 +77,9 @@ public static class Callouts
         return null;
     }
 
-    /// <summary>The callouts drawn on a view.</summary>
+    /// <summary>The callouts drawn on a view - not a planning drawing, cut from the plan with no box on it.</summary>
     public static IEnumerable<Callout> On(BimDocument document, ViewReference view) =>
-        document.All<Callout>().Where(callout => callout.Parent == view);
+        document.All<Callout>().Where(callout => callout.Parent == view && callout.Planning == PlanningDrawing.None);
 
     /// <summary>
     /// A callout drawn on a view round a box: named, its view at the scale callouts of its kind are

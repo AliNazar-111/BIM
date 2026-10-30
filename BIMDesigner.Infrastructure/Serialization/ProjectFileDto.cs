@@ -90,6 +90,9 @@ internal sealed class ProjectFileDto
     /// <summary>The elements pinned where they are.</summary>
     public List<Guid> PinnedIds { get; set; } = new();
 
+    /// <summary>The library's types and materials purged from the project, by kind and name, not to be brought back as it opens; null for none.</summary>
+    public List<string>? PurgedLibrary { get; set; }
+
     /// <summary>Every element's phases where they are not the default - built new, never demolished - whatever kind it is.</summary>
     public List<ElementPhaseDto> ElementPhases { get; set; } = new();
 
@@ -238,6 +241,7 @@ internal sealed class CalloutDto
     public double MinY { get; set; }
     public double MaxX { get; set; }
     public double MaxY { get; set; }
+    public string? Planning { get; set; }
     public string Comments { get; set; } = string.Empty;
 }
 
@@ -493,6 +497,11 @@ internal sealed class ViewportDto
 
     /// <summary>Its number on the sheet; missing from older files, where the views are numbered as they come.</summary>
     public string? DetailNumber { get; set; }
+
+    /// <summary>A north point, a scale bar and a note under the title: a planning drawing's, or any view's.</summary>
+    public bool ShowNorth { get; set; }
+    public bool ShowScaleBar { get; set; }
+    public string? Note { get; set; }
 }
 
 /// <summary>
@@ -1304,6 +1313,7 @@ internal sealed class ProjectInformationDto
     public double TrueNorth { get; set; }
 
     /// <summary>Where the model's origin is in the coordinates of the IFC it came from, mm east and north; none in older files.</summary>
+    public string? PlanningMapNote { get; set; }
     public double SurveyOffsetX { get; set; }
     public double SurveyOffsetY { get; set; }
 
@@ -2293,6 +2303,7 @@ internal sealed class PropertyLineDto
     public Guid LevelId { get; set; }
     public List<double>? Boundary { get; set; }
     public double Setback { get; set; }
+    public string? Planning { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }

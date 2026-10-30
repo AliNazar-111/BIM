@@ -96,6 +96,12 @@ public sealed class ProjectInformation
     /// <summary>How far true north is turned from up the plan, degrees clockwise: 0 where up the plan is north.</summary>
     public double TrueNorth { get; set; }
 
+    /// <summary>
+    /// The line the planning drawings' mapping is credited with, under the location plan: an Ordnance
+    /// Survey map's copyright notice and licence number, as its reseller gives it.
+    /// </summary>
+    public string PlanningMapNote { get; set; } = string.Empty;
+
     /// <summary>Where a US house's heating and cooling ducts run, their insulation (R, h·ft²·°F/Btu) and whether sealed to 5% of the fan's flow - none outside what is conditioned to start.</summary>
     public Mep.DuctRun DuctRun { get; set; } = Mep.DuctRun.ConditionedSpace;
 
@@ -360,6 +366,28 @@ public sealed class BimDocument
 
     public bool RemoveType(ElementType type) => _types.Remove(type.Id);
 
+    /// <summary>The project's types made these, in this order: how an undo puts back what was taken out, each where it was in the lists.</summary>
+    public void ReplaceTypes(IEnumerable<ElementType> types)
+    {
+        var ordered = types.ToList();
+        _types.Clear();
+        foreach (var type in ordered) _types[type.Id] = type;
+    }
+
+    /// <summary>The project's materials made these, in this order.</summary>
+    public void ReplaceMaterials(IEnumerable<Material> materials)
+    {
+        var ordered = materials.ToList();
+        _materials.Clear();
+        foreach (var material in ordered) _materials[material.Id] = material;
+    }
+
+    /// <summary>
+    /// The library's types and materials purged from the project, by kind and name: those the
+    /// library does not bring back as the project opens, as it does what a project has never had.
+    /// </summary>
+    public HashSet<string> PurgedLibrary { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The elements built from a type - what editing it changes, and what stops it being deleted.</summary>
     public IEnumerable<Element> ElementsOfType(ElementType type) => Elements.Where(element => element.TypeId == type.Id);
 
@@ -423,7 +451,7 @@ public sealed class BimDocument
         var curtainTypes = _types.Values.OfType<CurtainWallType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var chimneyTypes = _types.Values.OfType<ChimneyType>().Select(type => type.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var type in template.ElementTypes.Where(type => type switch
+        foreach (var type in template.ElementTypes.Where(type => !PurgedLibrary.Contains(Purging.KeyOf(type)) && type switch
                  {
                      // A curtain wall type framed in mullion types comes by name, as they do.
                      CurtainWallType curtain => !hasCurtain || curtain.InteriorVertical is not null && !curtainTypes.Contains(curtain.Name),
@@ -490,7 +518,7 @@ public sealed class BimDocument
 
         // Finishes to paint with: a project made before Paint gains them, by name.
         foreach (var finish in FinishMaterials())
-            if (!_materials.Values.Any(own => string.Equals(own.Name, finish.Name, StringComparison.OrdinalIgnoreCase)))
+            if (!PurgedLibrary.Contains(Purging.KeyOf(finish)) && !_materials.Values.Any(own => string.Equals(own.Name, finish.Name, StringComparison.OrdinalIgnoreCase)))
                 AddMaterial(finish);
     }
 

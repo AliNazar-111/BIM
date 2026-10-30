@@ -342,7 +342,9 @@
                 <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Save}" Command="Save" ToolTip="Save (Ctrl+S)"/>
                 <Rectangle Width="1" Margin="5,3" Fill="{StaticResource Line}"/>
                 <Button x:Name="QuickUndo" Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Undo}" Command="Undo" ToolTip="Undo (Ctrl+Z)"/>
+                <Button x:Name="QuickUndoList" Style="{StaticResource QuickDropButton}" Click="OnUndoList" ToolTip="Undo several steps, picked from the history"/>
                 <Button x:Name="QuickRedo" Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Redo}" Command="Redo" ToolTip="Redo (Ctrl+Y)"/>
+                <Button x:Name="QuickRedoList" Style="{StaticResource QuickDropButton}" Click="OnRedoList" ToolTip="Redo several steps, picked from what was undone"/>
                 <Rectangle Width="1" Margin="5,3" Fill="{StaticResource Line}"/>
                 <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Print}" Click="OnPrintSheets" ToolTip="Print (Ctrl+P)"/>
                 <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Dimension}" Click="OnQuickDimension" ToolTip="Dimension (M)"/>
@@ -351,6 +353,8 @@
                 <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.View3D}" Click="OnToggle3D" ToolTip="3D view (Ctrl+3)"/>
                 <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Section}" Click="OnQuickSection" ToolTip="Section (C)"/>
                 <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Tile}" Click="OnQuickTile" ToolTip="Tile the plan and the 3D view side by side"/>
+                <Rectangle Width="1" Margin="5,3" Fill="{StaticResource Line}"/>
+                <Button Style="{StaticResource QuickButton}" Tag="{StaticResource Icon.Keyboard}" Click="OnKeyboardShortcuts" ToolTip="Keyboard shortcuts: your own keys for any command on the ribbon"/>
             </StackPanel>
         </Border>
 
@@ -407,10 +411,14 @@
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Pdf}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
                         <MenuItem Header="Export _Drawing Set to PDF..." Click="OnExportDrawingSetPdf"/>
+                        <MenuItem Header="Export _Signed Drawing Set..." Click="OnExportSignedSet"
+                                  ToolTip="The drawing set as one PDF, bookmarked by sheet, signed with your digital ID - as permit portals ask"/>
                         <MenuItem Header="_Print..." Click="OnPrintSheets" InputGestureText="Ctrl+P">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Print}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
                         <Separator/>
+                        <MenuItem Header="_Keyboard Shortcuts..." Click="OnKeyboardShortcuts"
+                                  ToolTip="Set your own keys for any command on the ribbon - a run of letters, or a key with Ctrl, Alt or Shift - kept for you whatever project is open"/>
                         <MenuItem Header="Open .bimx Files with This Copy" Click="OnRegisterFileTypes"
                                   ToolTip="Double-clicking a project file opens it in this copy of BIMDesigner - for a copy run where it was built; the installer does this for everyone"/>
                         <Separator/>
@@ -769,6 +777,12 @@
                                              Content="Spot&#10;Elevation" Checked="OnToolChanged"
                                              ToolTip="Spot elevation: click where to read a height - the floor, ramp, pad or ground there - written beside it: FFL +0.000, GL -0.450. It reads afresh when what is under it changes"/>
                             </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Planning" Style="{StaticResource RibbonPanel}">
+                            <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Sheet}"
+                                    Content="Planning&#10;Drawings" Click="OnPlanningDrawings"
+                                    ToolTip="The location plan and block plan a planning application goes in with - the site edged in red, other land owned in blue, over the map at 1:1250 and 1:500, a north point and scale bar on each - made on sheets of their own, and checked"/>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Massing" Style="{StaticResource RibbonPanel}">
@@ -1145,6 +1159,10 @@
                                 <StackPanel>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Plan}" Content="View Filters" Click="OnShowViewFilters"
                                             ToolTip="Pick things out by their parameters, and hide, colour or fade them in the view shown"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Warnings}" Content="Warnings" Click="OnWarnings"
+                                            ToolTip="Everything wrong with the model in one list: walls drawn over one another, the same thing twice in one place, rooms nothing encloses, marks used twice - and every building regulation and services rule it falls short of. Pick one to go to it"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Purge}" Content="Purge Unused" Click="OnPurgeUnused"
+                                            ToolTip="Take out the types and materials nothing in the project uses - one step to undo"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -2535,7 +2553,19 @@
                 The views. The plan, with the section under it and a sheet over it, fills the
                 first column; the 3D view either covers it or, tiled, takes a column of its own.
             -->
-            <Grid x:Name="ViewArea" Grid.Column="2">
+            <!-- The views open, each a tab over them: one picked is brought in front, one closed put away. -->
+            <DockPanel Grid.Column="2">
+            <Border x:Name="ViewTabStrip" DockPanel.Dock="Top" Background="{StaticResource Bg.Window}"
+                    BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Close Inactive" Padding="10,2" Margin="6,3,8,3" FontSize="11"
+                            Click="OnCloseInactiveViews" ToolTip="Close the tabs of the views not in sight"/>
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="ViewTabs" Orientation="Horizontal"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+            <Grid x:Name="ViewArea">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="200"/>
                     <ColumnDefinition x:Name="TileSplitterColumn" Width="0"/>
@@ -2789,6 +2819,8 @@
                                 </ScrollViewer>
 
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <Button x:Name="FloatModelButton" Content="Own Window" Padding="12,5" Margin="0,0,8,0" Click="OnFloatModel"
+                                            ToolTip="The 3D view in a window of its own - to put on a second screen, or make as big as the screen - while the plan has this one; Dock puts it back"/>
                                     <Button Content="Close" Padding="12,5" Click="OnClose3D"/>
                                 </StackPanel>
                             </Grid>
@@ -2870,6 +2902,7 @@
                     </DockPanel>
                 </Border>
             </Grid>
+            </DockPanel>
         </Grid>
 
 

@@ -339,12 +339,12 @@ public static class ElementCopy
         {
             HeightOffset = pad.HeightOffset, Fall = pad.Fall, FallDirection = pad.FallDirection, Batter = pad.Batter, Surface = pad.Surface, MaterialId = pad.MaterialId
         }, pad.Boundary), pad),
-        PropertyLine line => CarryCommon(Outline(new PropertyLine { Setback = line.Setback }, line.Boundary), line),
+        PropertyLine line => CarryCommon(Outline(new PropertyLine { Setback = line.Setback, Planning = line.Planning }, line.Boundary), line),
         Mass mass => CarryCommon(CloneMass(mass), mass),
         Group group => CarryCommon(CloneGroup(group), group),
         View3D view => CarryCommon(CloneView(view), view),
         Walkthrough walk => CarryCommon(CloneWalkthrough(walk), walk),
-        Callout callout => CarryCommon(new Callout { Name = callout.Name, Parent = callout.Parent, Region = callout.Region }, callout),
+        Callout callout => CarryCommon(new Callout { Name = callout.Name, Parent = callout.Parent, Region = callout.Region, Planning = callout.Planning }, callout),
         ViewTemplate template => CarryCommon(CloneTemplate(template), template),
         InteriorElevationMarker marker => CarryCommon(new InteriorElevationMarker
         {

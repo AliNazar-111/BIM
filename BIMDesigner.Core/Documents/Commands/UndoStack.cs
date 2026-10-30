@@ -30,6 +30,27 @@ public sealed class UndoStack
 
     public string? RedoName => CanRedo ? _undone[^1].Name : null;
 
+    /// <summary>The steps there are to undo, by name, the latest first: the history as a list to go back through.</summary>
+    public IReadOnlyList<string> UndoNames => Enumerable.Range(1, _done.Count).Select(back => _done[^back].Name).ToList();
+
+    /// <summary>The steps undone there are to redo, by name, the next first.</summary>
+    public IReadOnlyList<string> RedoNames => Enumerable.Range(1, _undone.Count).Select(back => _undone[^back].Name).ToList();
+
+    /// <summary>
+    /// Several steps undone at once, the latest first - back to a point in the history picked
+    /// from its list. One that will not undo stops there, those before it undone, and is told.
+    /// </summary>
+    public void Undo(int steps)
+    {
+        for (var step = 0; step < steps && CanUndo; step++) Undo();
+    }
+
+    /// <summary>Several steps redone at once, the next first.</summary>
+    public void Redo(int steps)
+    {
+        for (var step = 0; step < steps && CanRedo; step++) Redo();
+    }
+
     /// <summary>True when the document has changes that are not in the saved file.</summary>
     public bool IsModified => _done.Count != _cleanDepth;
 

@@ -97,6 +97,7 @@ public static partial class ProjectFile
                 DailyRange = document.ProjectInformation.DailyRange,
                 Latitude = document.ProjectInformation.Latitude,
                 TrueNorth = document.ProjectInformation.TrueNorth,
+                PlanningMapNote = document.ProjectInformation.PlanningMapNote.Length == 0 ? null : document.ProjectInformation.PlanningMapNote,
                 SurveyOffsetX = document.ProjectInformation.SurveyOffset.X,
                 SurveyOffsetY = document.ProjectInformation.SurveyOffset.Y,
                 DuctRun = document.ProjectInformation.DuctRun.ToString(),
@@ -383,7 +384,8 @@ public static partial class ProjectFile
             dto.PropertyLines.Add(new PropertyLineDto
             {
                 Id = line.Id, LevelId = line.LevelId, Boundary = line.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
-                Setback = line.Setback, Mark = line.Mark, Comments = line.Comments
+                Setback = line.Setback, Mark = line.Mark, Comments = line.Comments,
+                Planning = line.Planning == PlanningEdge.None ? null : line.Planning.ToString()
             });
 
         foreach (var spot in document.All<SpotElevation>())
@@ -830,6 +832,7 @@ public static partial class ProjectFile
                 Id = callout.Id, LevelId = callout.LevelId, Name = callout.Name,
                 ParentKind = callout.Parent.Kind.ToString(), ParentId = callout.Parent.TargetId, ParentIndex = callout.Parent.Index,
                 MinX = callout.Region.MinX, MinY = callout.Region.MinY, MaxX = callout.Region.MaxX, MaxY = callout.Region.MaxY,
+                Planning = callout.Planning == PlanningDrawing.None ? null : callout.Planning.ToString(),
                 Comments = callout.Comments
             });
 
@@ -919,7 +922,10 @@ public static partial class ProjectFile
                     Scale = viewport.Scale.Denominator,
                     ShowTitle = viewport.ShowTitle,
                     TitleOverride = viewport.TitleOverride,
-                    DetailNumber = viewport.DetailNumber
+                    DetailNumber = viewport.DetailNumber,
+                    ShowNorth = viewport.ShowNorth,
+                    ShowScaleBar = viewport.ShowScaleBar,
+                    Note = viewport.Note.Length == 0 ? null : viewport.Note
                 }).ToList(),
                 Images = sheet.Images.Count == 0 ? null : sheet.Images.Select(image => new SheetImageDto
                 {
@@ -1401,6 +1407,7 @@ public static partial class ProjectFile
 
         // What is pinned, by its id: one list for every kind of element.
         dto.PinnedIds.AddRange(document.Elements.Where(element => element.Pinned).Select(element => element.Id));
+        dto.PurgedLibrary = document.PurgedLibrary.Count == 0 ? null : document.PurgedLibrary.Order(StringComparer.OrdinalIgnoreCase).ToList();
         WriteRound6(document, dto);
         WriteCoordination(document, dto);
 
@@ -1719,6 +1726,7 @@ public static partial class ProjectFile
         document.ProjectInformation.DailyRange = dto.Project.DailyRange is { } range && double.IsFinite(range) && range is >= 0 and <= 60 ? range : 20;
         document.ProjectInformation.Latitude = dto.Project.Latitude is { } latitude && double.IsFinite(latitude) && latitude is >= 0 and <= 70 ? latitude : 40;
         document.ProjectInformation.TrueNorth = double.IsFinite(dto.Project.TrueNorth) ? (dto.Project.TrueNorth % 360 + 360) % 360 : 0;
+        document.ProjectInformation.PlanningMapNote = dto.Project.PlanningMapNote ?? string.Empty;
         if (double.IsFinite(dto.Project.SurveyOffsetX) && double.IsFinite(dto.Project.SurveyOffsetY))
             document.ProjectInformation.SurveyOffset = new Vector2D(dto.Project.SurveyOffsetX, dto.Project.SurveyOffsetY);
         document.ProjectInformation.DuctRun = ParseEnum(dto.Project.DuctRun, DuctRun.ConditionedSpace);
@@ -2752,7 +2760,8 @@ public static partial class ProjectFile
             if (outline.Count < 3) continue;
             var line = new PropertyLine
             {
-                Id = saved.Id, LevelId = saved.LevelId, Setback = Within(saved.Setback, 0, 100000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Id = saved.Id, LevelId = saved.LevelId, Setback = Within(saved.Setback, 0, 100000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty,
+                Planning = ParseEnum(saved.Planning, PlanningEdge.None)
             };
             line.SetBoundary(outline);
             document.Add(line);
@@ -3348,7 +3357,8 @@ public static partial class ProjectFile
             {
                 Id = saved.Id, LevelId = saved.LevelId, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Callout" : saved.Name,
                 Parent = new ViewReference(ParseEnum(saved.ParentKind, ViewKind.FloorPlan), saved.ParentId, string.Empty) { Index = saved.ParentIndex },
-                Region = new BoundingBox2D(saved.MinX, saved.MinY, saved.MaxX, saved.MaxY), Comments = saved.Comments ?? string.Empty
+                Region = new BoundingBox2D(saved.MinX, saved.MinY, saved.MaxX, saved.MaxY), Comments = saved.Comments ?? string.Empty,
+                Planning = ParseEnum(saved.Planning, PlanningDrawing.None)
             });
 
         foreach (var saved in dto.Walkthroughs.Where(saved => document.FindLevel(saved.LevelId) is not null))
@@ -3462,7 +3472,10 @@ public static partial class ProjectFile
                     Scale = new ViewScale(dtoViewport.Scale > 0 ? dtoViewport.Scale : 100),
                     ShowTitle = dtoViewport.ShowTitle,
                     TitleOverride = dtoViewport.TitleOverride,
-                    DetailNumber = dtoViewport.DetailNumber ?? string.Empty
+                    DetailNumber = dtoViewport.DetailNumber ?? string.Empty,
+                    ShowNorth = dtoViewport.ShowNorth,
+                    ShowScaleBar = dtoViewport.ShowScaleBar,
+                    Note = dtoViewport.Note ?? string.Empty
                 });
             }
 
@@ -3529,6 +3542,9 @@ public static partial class ProjectFile
             document.Add(group);
         }
 
+        // What was purged stays out: the library brings back only what the project has never had.
+        foreach (var purged in dto.PurgedLibrary ?? new List<string>())
+            if (!string.IsNullOrWhiteSpace(purged)) document.PurgedLibrary.Add(purged);
         document.EnsureDefaultTypes();
 
         var pinned = dto.PinnedIds.ToHashSet();
