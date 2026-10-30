@@ -522,6 +522,15 @@ public partial class MainWindow : Window
 
         _history = new UndoStack();
         WatchForWorkToKeep();
+
+        // Locked dimensions kept after every edit - what follows moved with it, or the edit refused and said why.
+        _history.Hold = command => Core.Annotation.DimensionLocks.Hold(_document, command);
+        _history.Refused += (_, why) =>
+        {
+            Plan.RefreshModel();
+            RefreshProperties();
+            StatusHint.Text = why;
+        };
         _history.Changed += (_, _) =>
         {
             // Roof edges picked off walls go wherever their walls now are - after a move, a
@@ -713,7 +722,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -747,6 +756,8 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Pad) ShowPadOptions();
         MassOptions.Visibility = tool == PlanTool.Mass ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Mass) ShowMassOptions();
+        DetailOptions.Visibility = tool is PlanTool.DetailLine or PlanTool.FilledRegion ? Visibility.Visible : Visibility.Collapsed;
+        if (tool is PlanTool.DetailLine or PlanTool.FilledRegion) ShowDetailOptions(tool);
         PropertyLineOptions.Visibility = tool == PlanTool.PropertyLine ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.PropertyLine) ShowPropertyLineOptions();
         JoistOptions.Visibility = tool == PlanTool.Joists ? Visibility.Visible : Visibility.Collapsed;
@@ -2305,6 +2316,14 @@ public partial class MainWindow : Window
         if (Plan.ActiveCallout is { } open && !_document.Elements.Contains(open)) Plan.ActiveCallout = null;
         if (Section.Callout is { } detail && !_document.Elements.Contains(detail)) Section.Callout = null;
 
+        // A drafting view undone or deleted away while open: back to the first storey.
+        if (_document.FindLevel(Plan.ActiveLevelId) is null && !Plan.Drafting && _document.Levels.FirstOrDefault() is { } storey)
+        {
+            Plan.ActiveLevelId = storey.Id;
+            LevelPicker.SelectedItem = storey;
+            Plan.ZoomToFit();
+        }
+
         Plan.RefreshModel();
         ShowDetailLevel();
         RefreshProperties();
@@ -2324,7 +2343,7 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, DetailLineTool, FilledRegionTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
         StructuralColumnTool, WallFootingTool, PadFootingTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
@@ -2394,6 +2413,8 @@ public partial class MainWindow : Window
             : WindowTool.IsChecked == true ? PlanTool.Window
             : RoomTool.IsChecked == true ? PlanTool.Room
             : RoomSeparatorTool.IsChecked == true ? PlanTool.RoomSeparator
+            : DetailLineTool.IsChecked == true ? PlanTool.DetailLine
+            : FilledRegionTool.IsChecked == true ? PlanTool.FilledRegion
             : ComponentTool.IsChecked == true ? PlanTool.Component
             : ColumnTool.IsChecked == true ? PlanTool.Column
             : FloorTool.IsChecked == true ? PlanTool.Floor
@@ -2463,6 +2484,14 @@ public partial class MainWindow : Window
             : JoinRoofTool.IsChecked == true ? PlanTool.JoinRoof
             : WallOpeningTool.IsChecked == true ? PlanTool.WallOpening
             : PlanTool.Select);
+
+        // A drafting view holds 2D detail only: a tool that builds the model has nothing to build on there.
+        if (Plan.Drafting && !DraftsIn(Plan.ActiveTool))
+        {
+            SelectTool.IsChecked = true;
+            StatusHint.Text = "A drafting view holds 2D detail only: draw it with Detail Line, Filled Region, Text and Dimension. Open a floor plan to build.";
+            return;
+        }
 
         ShowOptionsForActiveTool();
     }
@@ -2806,7 +2835,10 @@ public partial class MainWindow : Window
         if (_loadingOptions || Plan is null) return;
         if (LevelPicker.SelectedItem is not Core.Datums.Level level) return;
 
+        // Out of a drafting view, the storey is framed whole, not left at the detail's zoom.
+        var drafting = Plan.Drafting;
         Plan.ActiveLevelId = level.Id;
+        if (drafting) Plan.ZoomToFit();
         ShowDetailLevel();
         RefreshNewWallTopChoices();
         OnNewWallHeightChanged(this, new RoutedEventArgs());
@@ -3966,6 +3998,8 @@ public partial class MainWindow : Window
             ViewKind.Section => ("Section", "Icon.Section"),
             ViewKind.Elevation => ("Elevation", "Icon.InteriorElevation"),
             ViewKind.Callout => ("Callout", "Icon.Callout"),
+            ViewKind.Drafting => ("Drafting View", "Icon.Drafting"),
+            _ when AreaPlans.Of(view) is not null => ("Area Plan", "Icon.Plan"),
             _ => ("Floor Plan", "Icon.Plan")
         };
         var name = view.Kind == ViewKind.FloorPlan ? levelName : view.TitleIn(_document);
@@ -3982,10 +4016,31 @@ public partial class MainWindow : Window
         _loadingOptions = false;
 
         EditTypeButton.IsEnabled = false;
+
+        // A drafting view's own: its name to change, where it is placed, its scale - no template or phase, it shows no model.
+        if (Plan.ActiveDrafting is { } drafting && view.Kind == ViewKind.Drafting)
+        {
+            InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)drafting.GetInstanceParameters(_document).Append(DraftingScale(view)).ToList() });
+            TypeSection.Visibility = Visibility.Collapsed;
+            StructureSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         var own = threeD ? ModelViewParameters() : plan ? PlanViewParameters(levelName) : OtherViewParameters(view);
+        if (AreaPlans.Of(view) is { } scheme) own = AreaPlanParameters(view, scheme).Concat(own).ToList();
         InstanceParameterList.ItemsSource = BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)own.Concat(PhasingParameters(view)).ToList() });
         TypeSection.Visibility = Visibility.Collapsed;
         StructureSection.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>A drafting view's scale, from 1:1 up - a detail is drawn large.</summary>
+    private ParameterValue DraftingScale(ViewReference view)
+    {
+        var scales = ViewScale.Detail.Select(d => new ViewScale(d).ToString()).ToList();
+        return ParameterValue.BindChoiceCommand(ViewScaleParameter,
+            () => new ViewScale(_document.ViewSettings.ScaleOf(view)).ToString(),
+            text => new SetViewScaleCommand(_document, view, ViewScale.Detail[scales.IndexOf(text)]),
+            scales);
     }
 
     /// <summary>A section's, elevation's or detail callout's own properties: its name, the template governing it, its scale.</summary>
@@ -4503,8 +4558,11 @@ public partial class MainWindow : Window
     {
         PlanTitle.Text = Plan.ActiveCallout is { } open
             ? $"Callout: {open.Name}"
+            : Plan.ActiveDrafting is { } drafting
+                ? $"Drafting View: {drafting.Name}"
             : _document.FindLevel(Plan.ActiveLevelId) is { } shown
-                ? Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural ? $"Floor Plan: {shown.Name}" : $"{Core.Mep.ServicesPlans.Title(Plan.ActiveDiscipline)}: {shown.Name}"
+                ? Plan.ActiveAreaScheme is { } scheme ? $"Area Plan ({AreaPlans.Title(_document, scheme)}): {shown.Name}"
+                : Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural ? $"Floor Plan: {shown.Name}" : $"{Core.Mep.ServicesPlans.Title(Plan.ActiveDiscipline)}: {shown.Name}"
                 : "Floor Plan";
         RefreshPlanScale();
 
@@ -4526,7 +4584,7 @@ public partial class MainWindow : Window
                 .Select(group => $"{group.Count()} {(group.Count() == 1 ? CategoryTitle(group.Key).TrimEnd('s') : CategoryTitle(group.Key)).ToLowerInvariant()}")
                 .ToList();
 
-            var isActive = level.Id == Plan.ActiveLevelId && Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural;
+            var isActive = level.Id == Plan.ActiveLevelId && Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural && Plan.ActiveAreaScheme is null;
 
             var item = new TreeViewItem
             {
@@ -4651,7 +4709,9 @@ public partial class MainWindow : Window
 
         project.Items.Add(plans);
         project.Items.Add(ServicesPlansItem());
+        project.Items.Add(AreaPlansItem());
         project.Items.Add(elevations);
+        if (DraftingViewsItem() is { } draftingViews) project.Items.Add(draftingViews);
 
         // The {3D} view, the cameras' and those saved by name; and the walkthroughs.
         var views3D = new TreeViewItem { Header = "3D Views", IsExpanded = true };
@@ -4881,8 +4941,17 @@ public partial class MainWindow : Window
             if (Callouts.Reference(callout).ExistsIn(_document))
                 options.Add(new SheetViewOption($"{callout.Name} ({callout.Parent.TitleIn(_document)})", Callouts.Reference(callout)));
 
+        foreach (var drafting in _document.All<Core.Annotation.DraftingView>().OrderBy(view => view.Name, StringComparer.OrdinalIgnoreCase))
+            options.Add(new SheetViewOption($"Drafting: {drafting.Name}", Core.Annotation.Detailing.Reference(drafting)));
+
+        options.AddRange(AreaPlanOptions());
+
         foreach (var schedule in _document.Schedules.OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase))
             options.Add(new SheetViewOption($"Schedule: {schedule.Name}", ViewReference.Schedule(schedule)));
+
+        // The colour legend of each view whose rooms are coloured.
+        foreach (var (coloured, _) in _document.ViewSettings.ColourSchemes.Where(scheme => scheme.View.ExistsIn(_document)).OrderBy(scheme => scheme.View.TitleIn(_document), StringComparer.OrdinalIgnoreCase))
+            options.Add(new SheetViewOption(RoomColours.Title(_document, RoomColours.LegendOf(coloured)), RoomColours.LegendOf(coloured)));
 
         options.Add(new SheetViewOption("Keynote Legend (by sheet)", ViewReference.KeynoteLegend(bySheet: true)));
         options.Add(new SheetViewOption("Keynote Legend (whole project)", ViewReference.KeynoteLegend(bySheet: false)));
@@ -4920,7 +4989,7 @@ public partial class MainWindow : Window
         }
 
         // The drawing is laid out beside whatever is already on the sheet rather than on top of it.
-        var extent = ViewExtent.Of(_document, option.View).OrAtLeast(1000);
+        var extent = ViewExtent.Of(_document, option.View).OrAtLeast(ViewExtent.Least(option.View));
 
         var availableWidth = sheet.Width - TitleBlock.Width(sheet) - TitleBlock.Margin * 3;
 
@@ -4934,7 +5003,7 @@ public partial class MainWindow : Window
             : ViewScale.FittingInto(extent.Width, extent.Height, availableWidth, availableHeight);
 
         // A schedule, or a legend, carries its own title, in the table.
-        var viewport = new Viewport { View = option.View, Scale = scale, ShowTitle = option.View.Kind is not (ViewKind.Schedule or ViewKind.KeynoteLegend) };
+        var viewport = new Viewport { View = option.View, Scale = scale, ShowTitle = option.View.Kind is not (ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule) };
         var size = viewport.PaperBounds(_document);
         viewport.Centre = sheet.NextFreePosition(_document, size.Width, size.Height);
 
@@ -5001,10 +5070,11 @@ public partial class MainWindow : Window
         SheetImageWidthBox.Text = image is null ? string.Empty : image.Width.ToString("0", System.Globalization.CultureInfo.CurrentCulture);
 
         _loadingSheets = true;
-        ViewportScalePicker.ItemsSource = ViewScale.Common;
+        var scales = viewport?.View.Kind == ViewKind.Drafting ? ViewScale.Detail : ViewScale.Common;
+        ViewportScalePicker.ItemsSource = scales;
         ViewportScalePicker.SelectedItem = viewport is null
             ? null
-            : ViewScale.Common.Cast<double?>()
+            : scales.Cast<double?>()
                   .FirstOrDefault(value => Math.Abs(value!.Value - viewport.Scale.Denominator) < 1e-9);
         _loadingSheets = false;
     }
@@ -5566,10 +5636,36 @@ public partial class MainWindow : Window
     private void RefreshPlanScale()
     {
         _loadingOptions = true;
-        PlanScalePicker.ItemsSource ??= ViewScale.Common.Select(d => new ViewScale(d)).ToList();
+        // A drafting view goes to full size; a plan does not.
+        var scales = Plan.Drafting ? ViewScale.Detail : ViewScale.Common;
+        if (PlanScalePicker.ItemsSource is not IReadOnlyCollection<ViewScale> listed || listed.Count != scales.Length)
+            PlanScalePicker.ItemsSource = scales.Select(d => new ViewScale(d)).ToList();
         var scale = _document.ViewSettings.ScaleOf(Plan.CurrentView);
         PlanScalePicker.SelectedItem = ((IEnumerable<ViewScale>)PlanScalePicker.ItemsSource).FirstOrDefault(s => s.Denominator == scale);
+        PlanRoomColourPicker.ItemsSource ??= Enum.GetValues<RoomColourBy>().Select(RoomColourSaid).ToList();
+        PlanRoomColourPicker.SelectedItem = RoomColourSaid(_document.ViewSettings.ColourByOf(Plan.CurrentView));
         _loadingOptions = false;
+
+        // A drafting view has no storey below, fittings, rooms or ground to show.
+        var model = Plan.Drafting ? Visibility.Collapsed : Visibility.Visible;
+        PlanUnderlayToggle.Visibility = PlanClearancesToggle.Visibility = PlanRoomColourPicker.Visibility = PlanGroundPicker.Visibility = model;
+    }
+
+    /// <summary>A colour scheme as the view control bar offers it.</summary>
+    private static string RoomColourSaid(RoomColourBy by) => by == RoomColourBy.None ? "Rooms: plain" : $"Rooms by {RoomColours.Name(by).ToLowerInvariant()}";
+
+    /// <summary>The view's rooms coloured by what is picked - one step to undo.</summary>
+    private void OnPlanRoomColourChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || PlanRoomColourPicker.SelectedItem is not string said) return;
+        var by = Enum.GetValues<RoomColourBy>().FirstOrDefault(each => RoomColourSaid(each) == said);
+        if (_document.ViewSettings.ColourByOf(Plan.CurrentView) == by) return;
+        _history.Execute(RoomColours.Set(_document, Plan.CurrentView, by));
+        Plan.RefreshModel();
+        RefreshSheetViewOptions();
+        StatusHint.Text = by == RoomColourBy.None
+            ? "The rooms plain again."
+            : $"Rooms coloured by {RoomColours.Name(by).ToLowerInvariant()}: {string.Join(", ", RoomColours.Legend(_document, Plan.CurrentView).Select(entry => entry.Value).Take(6))}{(RoomColours.Legend(_document, Plan.CurrentView).Count > 6 ? " ..." : string.Empty)}. Put its legend on a sheet from Place.";
     }
 
     private void OnPlanScaleChanged(object sender, SelectionChangedEventArgs e)
@@ -5583,7 +5679,7 @@ public partial class MainWindow : Window
         }
 
         _history.Execute(new SetViewScaleCommand(_document, Plan.CurrentView, scale.Denominator));
-        StatusHint.Text = $"This plan is drawn at {scale}: it goes on a sheet at that scale when it fits.";
+        StatusHint.Text = $"This {(Plan.Drafting ? "detail" : "plan")} is drawn at {scale}: it goes on a sheet at that scale when it fits.";
     }
 
     private void OnPlanDetailChanged(object sender, SelectionChangedEventArgs e)
@@ -6399,8 +6495,8 @@ public partial class MainWindow : Window
         RefreshNewWallTopChoices();
         var levels = _document.Levels.ToList();
 
-        // The storey being drawn may have been deleted out from under the plan.
-        if (levels.All(level => level.Id != Plan.ActiveLevelId) && levels.Count > 0)
+        // The storey being drawn may have been deleted out from under the plan - but a drafting view is no storey.
+        if (levels.All(level => level.Id != Plan.ActiveLevelId) && !Plan.Drafting && levels.Count > 0)
             Plan.ActiveLevelId = levels[0].Id;
 
         _loadingOptions = true;

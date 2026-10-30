@@ -54,6 +54,7 @@ public static class ElementTransforms
         Railing => true,
         Beam => true,
         RoomSeparator => true,
+        Annotation.DetailLine or Annotation.FilledRegion => true,
         CadUnderlay => true,
         Mep.Pipe => true,
         Mep.Duct => true,
@@ -172,6 +173,14 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (separator.Start + delta, separator.End + delta);
+                break;
+
+            case Annotation.DetailLine detail:
+                (detail.Start, detail.End) = (detail.Start + delta, detail.End + delta);
+                break;
+
+            case Annotation.FilledRegion region:
+                region.SetBoundary(region.Boundary.Select(point => point + delta).ToList());
                 break;
 
             case CadUnderlay underlay:
@@ -427,6 +436,14 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (Reflect(separator.Start), Reflect(separator.End));
+                break;
+
+            case Annotation.DetailLine detail:
+                (detail.Start, detail.End) = (Reflect(detail.Start), Reflect(detail.End));
+                break;
+
+            case Annotation.FilledRegion region:
+                region.SetBoundary(region.Boundary.Select(Reflect).ToList());
                 break;
 
             case Mep.Pipe pipe:
@@ -724,6 +741,14 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (map(separator.Start), map(separator.End));
+                break;
+
+            case Annotation.DetailLine detail:
+                (detail.Start, detail.End) = (map(detail.Start), map(detail.End));
+                break;
+
+            case Annotation.FilledRegion region:
+                region.SetBoundary(region.Boundary.Select(map).ToList());
                 break;
 
             // An imported drawing turns about where it is turned, and grows as it is scaled.

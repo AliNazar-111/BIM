@@ -106,7 +106,7 @@ public static class Groups
     }
 
     private static bool IsAnnotation(Element element) => element.Category is BuiltInCategory.Dimensions or BuiltInCategory.Tags or BuiltInCategory.TextNotes
-        or BuiltInCategory.Sections or BuiltInCategory.Sheets or BuiltInCategory.KeynoteTags or BuiltInCategory.RevisionClouds;
+        or BuiltInCategory.Sections or BuiltInCategory.Sheets or BuiltInCategory.KeynoteTags or BuiltInCategory.RevisionClouds or BuiltInCategory.DetailLines or BuiltInCategory.FilledRegions;
 
     /// <summary>A group made of what is picked, as one step; null - and why - where nothing can go in one.</summary>
     public static Group? Make(BimDocument document, IEnumerable<Element> picked, Guid levelId, out string? why)

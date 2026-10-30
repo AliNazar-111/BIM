@@ -60,6 +60,9 @@ public readonly record struct ViewScale(double Denominator)
     /// <summary>The scales that appear on architectural drawings, largest drawing first.</summary>
     public static readonly double[] Common = { 5, 10, 20, 25, 50, 100, 200, 500, 1000, 1250, 2500 };
 
+    /// <summary>A drafted detail's scales: full size and half size too - a sill, a flashing - then the common ones.</summary>
+    public static readonly double[] Detail = new double[] { 1, 2 }.Concat(Common).ToArray();
+
     public static readonly ViewScale OneToOneHundred = new(100);
 
     public bool IsValid => Denominator > 0;

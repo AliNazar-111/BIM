@@ -58,6 +58,16 @@ public sealed class UndoStack
     public event EventHandler? Changed;
 
     /// <summary>
+    /// What keeps the model's locked dimensions after each edit: called with the edit applied, it
+    /// gives back what it moved after it - recorded with the edit as one step - or why it cannot,
+    /// and the edit is taken back and not recorded.
+    /// </summary>
+    public Func<IUndoableCommand, (IUndoableCommand? Follow, string? Refused)>? Hold { get; set; }
+
+    /// <summary>Raised when an edit is taken back because what is locked could not be kept: why.</summary>
+    public event EventHandler<string>? Refused;
+
+    /// <summary>
     /// Applies a change and records it. One that goes wrong part-way is taken back as far as it
     /// will go and not recorded - the model is not left half changed with nothing to undo - and
     /// what went wrong is passed on, to be told.
@@ -96,6 +106,18 @@ public sealed class UndoStack
     public void Record(IUndoableCommand command)
     {
         if (_isReplaying) return;
+
+        if (Hold?.Invoke(command) is var (follow, refused))
+        {
+            if (refused is not null)
+            {
+                TakeBack(command.Undo);
+                Refused?.Invoke(this, refused);
+                return;
+            }
+
+            if (follow is not null) command = new CompositeCommand(command.Name, new[] { command, follow });
+        }
 
         _done.Add(command);
 

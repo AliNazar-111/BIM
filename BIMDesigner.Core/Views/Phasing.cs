@@ -88,7 +88,7 @@ public static class Phasing
     public static bool IsAnnotation(BuiltInCategory category) => category is BuiltInCategory.Dimensions or BuiltInCategory.Tags
         or BuiltInCategory.TextNotes or BuiltInCategory.Sections or BuiltInCategory.Grids or BuiltInCategory.Sheets or BuiltInCategory.Views
         or BuiltInCategory.Elevations or BuiltInCategory.Callouts or BuiltInCategory.ViewTemplates or BuiltInCategory.RevisionClouds
-        or BuiltInCategory.KeynoteTags or BuiltInCategory.SpotElevations or BuiltInCategory.PropertyLines;
+        or BuiltInCategory.KeynoteTags or BuiltInCategory.SpotElevations or BuiltInCategory.PropertyLines or BuiltInCategory.DetailLines or BuiltInCategory.FilledRegions;
 
     /// <summary>
     /// An element's status in a phase - null where it is not there: not yet built, or gone

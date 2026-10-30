@@ -225,6 +225,18 @@ public sealed class Dimension : Element
     /// </summary>
     public string Override { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether it is locked: what it measures kept this far apart, whatever moves - one end moved,
+    /// what the other is on follows it. Only a single dimension with both ends on something.
+    /// </summary>
+    public bool Locked { get; set; }
+
+    /// <summary>The length it was locked at, mm.</summary>
+    public double LockedLength { get; set; }
+
+    /// <summary>Whether it can be locked, or its value typed: one dimension, not a string, with both ends on something.</summary>
+    public bool Drivable(BimDocument document) => Between.Count == 0 && IsAssociative(document);
+
     public Point2D StartPoint(BimDocument document) => Ends(document).From;
 
     public Point2D EndPoint(BimDocument document) => Ends(document).To;
@@ -303,7 +315,14 @@ public sealed class Dimension : Element
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
-        yield return ParameterValue.ReadOnly(DimensionParameters.Value, () => Measure(document));
+        // Its value typed moves what one end is on; locked, it is kept, and says so.
+        if (Drivable(document) && !Locked)
+            yield return ParameterValue.BindCommand<double>(DimensionParameters.Value, () => Measure(document),
+                (double value, out string? message) => DimensionLocks.Drive(document, this, value, out message));
+        else yield return ParameterValue.ReadOnly(DimensionParameters.Value, () => Measure(document));
+        if (Drivable(document))
+            yield return ParameterValue.BindFlagCommand(DimensionParameters.Locked, () => Locked,
+                (bool value, out string? message) => DimensionLocks.Lock(document, this, value, out message));
         if (Between.Count > 0)
             yield return ParameterValue.ReadOnly(DimensionParameters.Segments, () => string.Join(" + ", Segments(document).Select(DimensionTypes.Of(document, this).Format)));
         yield return ParameterValue.ReadOnly(DimensionParameters.Associative, () => IsAssociative(document));
@@ -323,6 +342,9 @@ public static class DimensionParameters
 
     public static readonly ParameterDefinition Associative =
         new("Follows Model", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Locked =
+        new("Locked", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
 
     public static readonly ParameterDefinition Offset =
         new("Line Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);

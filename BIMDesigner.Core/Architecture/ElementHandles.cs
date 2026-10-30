@@ -35,7 +35,7 @@ public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
     public static bool Has(Element element) =>
-        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
+        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Annotation.DetailLine or Annotation.FilledRegion or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -103,6 +103,18 @@ public static class ElementHandles
             case PropertyLine line:
                 Outline(handles, line.Boundary, _ => document.FindLevel(line.LevelId)?.Elevation ?? 0);
                 break;
+
+            case Annotation.FilledRegion region:
+                Outline(handles, region.Boundary, _ => document.FindLevel(region.LevelId)?.Elevation ?? 0);
+                break;
+
+            case Annotation.DetailLine detail:
+            {
+                var level = document.FindLevel(detail.LevelId)?.Elevation ?? 0;
+                handles.Add(new ElementHandle("start", detail.Start, level, false, HandleShape.End));
+                handles.Add(new ElementHandle("end", detail.End, level, false, HandleShape.End));
+                break;
+            }
 
             // A plan callout's box: its corners, to crop it larger or smaller.
             case Callout { Parent.Kind: ViewKind.FloorPlan } callout:
@@ -260,6 +272,24 @@ public static class ElementHandles
             {
                 line.SetBoundary(Moved(line.Boundary, kind, index, to, out _));
                 return ($"{Units.SquareMetres(Polygon2D.Area(line.Boundary), "0.0")}. {PropertyLines.Verdict(document, line)}.", Following(line.Boundary, to, handle.Key));
+            }
+
+            case Annotation.FilledRegion region:
+            {
+                region.SetBoundary(Moved(region.Boundary, kind, index, to, out _));
+                return ($"{Units.SquareMetres(Polygon2D.Area(region.Boundary), "0.00")}.", Following(region.Boundary, to, handle.Key));
+            }
+
+            case Annotation.DetailLine detail:
+            {
+                switch (handle.Key)
+                {
+                    case "start": detail.Start = to; break;
+                    case "end": detail.End = to; break;
+                    default: return (string.Empty, handle.Key);
+                }
+
+                return ($"{Units.Metres(detail.Length, "0.000")}.", handle.Key);
             }
 
             case Callout callout when kind == "corner" && index is >= 0 and < 4:
@@ -455,6 +485,10 @@ public static class ElementHandles
                 line.SetBoundary(Merged(line.Boundary, closed: true, least: 3));
                 break;
 
+            case Annotation.FilledRegion region:
+                region.SetBoundary(Merged(region.Boundary, closed: true, least: 3));
+                break;
+
             case BeamSystem system:
                 system.SetBoundary(Merged(system.Boundary, closed: true, least: 3));
                 break;
@@ -496,6 +530,8 @@ public static class ElementHandles
         Railing => key.StartsWith("insert", StringComparison.Ordinal) ? "Add Railing Corner" : key.StartsWith("bend", StringComparison.Ordinal) ? "Bend Railing" : "Move Railing Corner",
         Beam => key.StartsWith("raise", StringComparison.Ordinal) ? "Slope Beam" : "Move Beam End",
         RoomSeparator => "Move Room Separator End",
+        Annotation.DetailLine => "Move Detail Line End",
+        Annotation.FilledRegion => "Reshape Filled Region",
         Toposurface => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Ground Point" : "Move Ground Point",
         GroundRegion => "Reshape Region",
         SitePad => "Reshape Pad",
@@ -519,6 +555,8 @@ public static class ElementHandles
         Railing railing => (railing.Path.ToList(), railing.Closed, railing.Bulges.ToList()),
         Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
         RoomSeparator separator => (separator.Start, separator.End),
+        Annotation.DetailLine detail => (detail.Start, detail.End),
+        Annotation.FilledRegion region => region.Boundary.ToList(),
         Toposurface ground => ground.Points.ToList(),
         GroundRegion region => region.Boundary.ToList(),
         SitePad pad => pad.Boundary.ToList(),
@@ -543,6 +581,12 @@ public static class ElementHandles
                 break;
             case (RoomSeparator separator, ValueTuple<Point2D, Point2D> state):
                 (separator.Start, separator.End) = state;
+                break;
+            case (Annotation.DetailLine detail, ValueTuple<Point2D, Point2D> state):
+                (detail.Start, detail.End) = state;
+                break;
+            case (Annotation.FilledRegion region, List<Point2D> outline):
+                region.SetBoundary(outline);
                 break;
             case (Toposurface ground, List<Point3D> points):
                 ground.SetPoints(points);

@@ -28,6 +28,19 @@ public sealed class ViewSettings
     private readonly Dictionary<ViewReference, PhaseFilter> _phaseFilters = new();
     private readonly Dictionary<ViewReference, List<FilterOverride>> _filters = new();
     private readonly Dictionary<ViewReference, Dictionary<Guid, Guid>> _options = new();
+    private readonly Dictionary<ViewReference, RoomColourBy> _colourBy = new();
+
+    /// <summary>What a view's rooms are coloured by: nothing, unless set.</summary>
+    public RoomColourBy ColourByOf(ViewReference view) => _colourBy.TryGetValue(view, out var by) ? by : RoomColourBy.None;
+
+    public void SetColourBy(ViewReference view, RoomColourBy by)
+    {
+        if (by == RoomColourBy.None) _colourBy.Remove(view);
+        else _colourBy[view] = by;
+    }
+
+    /// <summary>The views whose rooms are coloured, and by what: what is saved.</summary>
+    public IEnumerable<(ViewReference View, RoomColourBy By)> ColourSchemes => _colourBy.Select(entry => (entry.Key, entry.Value));
 
     /// <summary>The phase a view shows the building in: new construction, unless set.</summary>
     public DesignPhase PhaseOf(ViewReference view) => _phases.TryGetValue(view, out var phase) ? phase : DesignPhase.New;

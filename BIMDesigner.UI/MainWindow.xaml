@@ -968,6 +968,30 @@
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
+                        <HeaderedContentControl Header="Detail" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <StackPanel>
+                                    <RadioButton x:Name="DetailLineTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.DetailLine}"
+                                                 Content="Detail Line" Checked="OnToolChanged"
+                                                 ToolTip="Lines drawn in this view and nowhere else - a detail's linework, or a mark on a plan: thin, medium, wide, hidden, centre or overhead"/>
+                                    <RadioButton x:Name="FilledRegionTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.FilledRegion}"
+                                                 Content="Filled Region" Checked="OnToolChanged"
+                                                 ToolTip="Fill an outline clicked round with a pattern - solid, or hatched - in this view and nowhere else"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Drafting}"
+                                            Content="Drafting View" Click="OnNewDraftingView"
+                                            ToolTip="A new drafting view: a sheet of 2D detail of its own, at 1:5 to start - a standard detail, a junction drawn larger - drawn with detail lines, filled regions, text and dimensions, and placed on a sheet as any view is"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Areas" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="AreaPlanButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.AreaPlan}"
+                                        Content="Area Plan" Click="OnAreaPlanMenu"
+                                        ToolTip="Area Plan: this storey measured as surveyors measure it - Gross External, Gross Internal or Net Internal Area by the RICS Code of Measuring Practice; in a US project the gross area and the finished area by ANSI Z765. Its area, what is left out and why, and a schedule of every storey to put on a sheet"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
                         <HeaderedContentControl Header="Tag" Style="{StaticResource RibbonPanel}">
                             <RadioButton x:Name="TagTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Tag}"
                                          Content="Tag" Checked="OnToolChanged" ToolTip="Label an element with one of its parameters (A)"/>
@@ -2057,6 +2081,14 @@
                              ToolTip="How big a tapered top is beside its footprint: 0 to a point, 0.5 half as big"/>
                 </StackPanel>
 
+                <StackPanel x:Name="DetailOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock x:Name="DetailOptionsLabel" Text="Line style" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="DetailStylePicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnDetailOptionChanged"
+                              ToolTip="How the line is drawn: its weight on the paper, or dashed as hidden, chained as a centre line, or long-dashed as overhead"/>
+                    <ComboBox x:Name="FillPatternPicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnDetailOptionChanged"
+                              ToolTip="What the region is filled with: solid, or hatched the same distance apart on the paper whatever the scale"/>
+                </StackPanel>
+
                 <StackPanel x:Name="PropertyLineOptions" Orientation="Horizontal" Visibility="Collapsed">
                     <TextBlock Text="Property line" VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="Setback" VerticalAlignment="Center" Margin="6,0,6,0"/>
@@ -2608,6 +2640,9 @@
                                 <ToggleButton x:Name="PlanClearancesToggle" Style="{StaticResource ViewControlToggle}"
                                               Content="Clearances" Click="OnPlanClearancesToggled"
                                               ToolTip="Show the clear space fittings need - red where something is in it"/>
+                                <ComboBox x:Name="PlanRoomColourPicker" Style="{StaticResource OptionCombo}" MinWidth="130" Margin="6,0,0,0"
+                                          SelectionChanged="OnPlanRoomColourChanged"
+                                          ToolTip="Colour the rooms of this view by what they are - name, department, occupancy - or by size, each the same colour on every storey; their legend can be put on a sheet from Place"/>
                                 <ComboBox x:Name="PlanGroundPicker" Style="{StaticResource OptionCombo}" MinWidth="120" Margin="6,0,0,0"
                                           SelectionChanged="OnPlanGroundColouringChanged"
                                           ToolTip="Colour the ground: by slope - level, gently sloping, as steep as a ramp, too steep to mow, steeper than earth stands - by height, or by what is cut and filled against the ground as it was"/>

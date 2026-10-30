@@ -259,7 +259,7 @@ public static class ClashDetective
         BuiltInCategory.Rooms or BuiltInCategory.Grids or BuiltInCategory.Dimensions or BuiltInCategory.Tags or BuiltInCategory.TextNotes or
         BuiltInCategory.Sections or BuiltInCategory.Sheets or BuiltInCategory.Profiles or BuiltInCategory.Views or BuiltInCategory.Elevations or
         BuiltInCategory.Callouts or BuiltInCategory.ViewTemplates or BuiltInCategory.RevisionClouds or BuiltInCategory.KeynoteTags or
-        BuiltInCategory.SpotElevations or BuiltInCategory.PropertyLines or BuiltInCategory.Masses or BuiltInCategory.Topography or
+        BuiltInCategory.SpotElevations or BuiltInCategory.PropertyLines or BuiltInCategory.DetailLines or BuiltInCategory.FilledRegions or BuiltInCategory.Masses or BuiltInCategory.Topography or
         BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings or BuiltInCategory.Entourage or BuiltInCategory.RoomSeparationLines or
         BuiltInCategory.PipingSystems or BuiltInCategory.DuctSystems or BuiltInCategory.ElectricalCircuits);
 

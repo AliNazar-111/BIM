@@ -104,6 +104,8 @@ public static class CadLayers
             BuiltInCategory.Tags or BuiltInCategory.TextNotes or BuiltInCategory.KeynoteTags => "A-ANNO-TEXT",
             BuiltInCategory.Sections or BuiltInCategory.Elevations or BuiltInCategory.Callouts or BuiltInCategory.Views or BuiltInCategory.ModelGroups => "A-ANNO-SYMB",
             BuiltInCategory.RevisionClouds => "A-ANNO-REVS",
+            BuiltInCategory.DetailLines => "A-DETL",
+            BuiltInCategory.FilledRegions => "A-DETL-PATT",
             _ => "A-GENM"
         }
     };

@@ -25,9 +25,29 @@ public partial class PlanView
         get => _discipline;
         set
         {
-            if (_discipline == value) return;
+            // Any of the storey's own plans is not one of its area plans.
+            var area = _areaScheme is not null;
+            _areaScheme = null;
+            if (_discipline == value && !area) return;
             _discipline = value;
             if (value != Discipline.Architectural) _activeCallout = null;
+            ViewChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+        }
+    }
+
+    private AreaScheme? _areaScheme;
+
+    /// <summary>The scheme the storey is measured in where this is one of its area plans; null on its own plans.</summary>
+    public AreaScheme? ActiveAreaScheme
+    {
+        get => _areaScheme;
+        set
+        {
+            if (_areaScheme == value && _discipline == Discipline.Architectural) return;
+            _discipline = Discipline.Architectural;
+            _areaScheme = value;
+            if (value is not null) _activeCallout = null;
             ViewChanged?.Invoke(this, EventArgs.Empty);
             InvalidateVisual();
         }

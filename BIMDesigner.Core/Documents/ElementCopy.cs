@@ -354,6 +354,9 @@ public static class ElementCopy
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
+        Annotation.DetailLine detail => CarryCommon(new Annotation.DetailLine { Start = detail.Start, End = detail.End, Style = detail.Style }, detail),
+        Annotation.FilledRegion region => CarryCommon(Outline(new Annotation.FilledRegion { Pattern = region.Pattern, Outlined = region.Outlined }, region.Boundary), region),
+        Annotation.DraftingView drafting => CarryCommon(new Annotation.DraftingView { Name = drafting.Name }, drafting),
         CadUnderlay underlay => CarryCommon(Underlay(underlay), underlay),
         Coordination.ModelLink link => CarryCommon(new Coordination.ModelLink
         {
@@ -543,6 +546,7 @@ public static class ElementCopy
             case SitePad pad: pad.SetBoundary(outline); break;
             case PropertyLine line: line.SetBoundary(outline); break;
             case BeamSystem system: system.SetBoundary(outline); break;
+            case Annotation.FilledRegion filled: filled.SetBoundary(outline); break;
         }
 
         return copy;
@@ -599,7 +603,8 @@ public static class ElementCopy
     {
         var copy = new Dimension
         {
-            Start = CloneReference(original.Start), End = CloneReference(original.End), Offset = original.Offset, Override = original.Override
+            Start = CloneReference(original.Start), End = CloneReference(original.End), Offset = original.Offset, Override = original.Override,
+            Locked = original.Locked, LockedLength = original.LockedLength
         };
         copy.Between.AddRange(original.Between.Select(CloneReference));
         return copy;

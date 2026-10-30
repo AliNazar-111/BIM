@@ -142,7 +142,13 @@ public enum BuiltInCategory
     Sprinklers,
 
     /// <summary>Other models linked in: projects and IFC files drawn with this one, read from their own files and reloaded as they change.</summary>
-    LinkedModels
+    LinkedModels,
+
+    /// <summary>Lines drawn in a view and nowhere else: the linework of a detail, or a note drawn over a plan.</summary>
+    DetailLines,
+
+    /// <summary>Areas filled with a pattern in a view: the cut materials of a detail, a zone hatched on a plan.</summary>
+    FilledRegions
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

@@ -86,11 +86,15 @@ public partial class MainWindow
 
     private ViewTab? PlanTab()
     {
+        if (Plan.ActiveDrafting is { } drafting)
+            return new ViewTab($"drafting:{drafting.Id}", PlanTitle.Text, ViewTabKind.Plan, () => OpenDrafting(drafting), () => _document.Elements.Contains(drafting), () => { });
         var level = _document.FindLevel(Plan.ActiveLevelId);
         var discipline = Plan.ActiveDiscipline;
         if (Plan.ActiveCallout is { } callout)
             return new ViewTab($"callout:{callout.Id}", PlanTitle.Text, ViewTabKind.Plan, () => ShowCallout(callout), () => _document.Elements.Contains(callout), () => { });
         if (level is null) return null;
+        if (Plan.ActiveAreaScheme is { } scheme)
+            return new ViewTab($"area:{level.Id}:{scheme}", PlanTitle.Text, ViewTabKind.Plan, () => ShowAreaPlan(level, scheme), () => _document.Levels.Contains(level), () => { });
         return new ViewTab($"plan:{level.Id}:{discipline}", PlanTitle.Text, ViewTabKind.Plan, () => ShowServicesPlan(level, discipline), () => _document.Levels.Contains(level), () => { });
     }
 

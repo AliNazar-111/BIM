@@ -49,9 +49,10 @@ public partial class PlanView
             PlanTool.Section when _pendingWallStart is { } from => new DrawnLine(from, _cursorModel, point => { PlaceSectionPoint(point); return true; }),
             PlanTool.Beam when _beamStart is { } from => new DrawnLine(from, _beamHover ?? _cursorModel, ClickBeam),
             PlanTool.RoomSeparator when _separatorStart is { } from => new DrawnLine(from, _separatorHover ?? _cursorModel, ClickRoomSeparator),
+            PlanTool.DetailLine when _detailStart is { } from => new DrawnLine(from, _detailHover ?? _cursorModel, ClickDetailLine),
             PlanTool.Railing when !PickingEdges && !RailingArc && _railingArcEnd is null && _railingPoints.Count > 0 =>
                 new DrawnLine(_railingPoints[^1], _cursorModel, ClickRailing),
-            PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine when _outlinePoints.Count > 0 =>
+            PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.FilledRegion when _outlinePoints.Count > 0 =>
                 new DrawnLine(_outlinePoints[^1], _outlineHover ?? _cursorModel, ClickOutline),
             PlanTool.Mass when ActiveMassFootprint == MassFootprint.Outline && _outlinePoints.Count > 0 =>
                 new DrawnLine(_outlinePoints[^1], _outlineHover ?? _cursorModel, ClickOutline),

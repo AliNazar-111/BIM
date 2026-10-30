@@ -37,6 +37,29 @@ public sealed partial class PlanRenderer
             ? new[] { dimension.Override }
             : dimension.Segments(Document).Select(type.Format).ToArray();
         DrawLinear(dc, type, stations, offset, pen, brush, labels);
+
+        // Locked: a closed padlock on its line, a quarter of the way along - on screen only, as the wall lengths are.
+        if (dimension.Locked && ShowWallLabels)
+            DrawPadlock(dc, ModelToScreen(stations[0] + offset + (stations[^1] - stations[0]) * 0.25), brush);
+    }
+
+    private void DrawPadlock(DrawingContext dc, Point at, Brush brush)
+    {
+        var (width, height, shackle) = (Paper(2.4), Paper(1.9), Paper(0.75));
+        var body = new Rect(at.X - width / 2, at.Y - height / 2 + shackle / 2, width, height);
+        dc.DrawRectangle(_labelBackdrop, null, new Rect(body.X - Paper(0.6), body.Y - shackle * 2, body.Width + Paper(1.2), body.Height + shackle * 2 + Paper(0.6)));
+        var pen = new Pen(brush, Math.Max(1, Paper(0.3)));
+        var arc = new StreamGeometry();
+        using (var context = arc.Open())
+        {
+            context.BeginFigure(new Point(at.X - shackle, body.Y), false, false);
+            context.LineTo(new Point(at.X - shackle, body.Y - shackle * 0.6), true, false);
+            context.ArcTo(new Point(at.X + shackle, body.Y - shackle * 0.6), new Size(shackle, shackle), 0, false, SweepDirection.Clockwise, true, false);
+            context.LineTo(new Point(at.X + shackle, body.Y), true, false);
+        }
+
+        dc.DrawGeometry(null, pen, arc);
+        dc.DrawRectangle(brush, null, body);
     }
 
     /// <summary>The dimension being drawn, in the style it will have.</summary>

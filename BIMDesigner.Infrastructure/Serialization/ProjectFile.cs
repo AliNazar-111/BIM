@@ -463,6 +463,18 @@ public static partial class ProjectFile
                 PhaseCreated = separator.PhaseCreated.ToString(), Mark = separator.Mark, Comments = separator.Comments
             });
 
+        dto.ColourSchemes = document.ViewSettings.ColourSchemes.Select(scheme => new ColourSchemeDto { Kind = scheme.View.Kind.ToString(), TargetId = scheme.View.TargetId, Index = scheme.View.Index, By = scheme.By.ToString() }).ToList();
+        dto.DraftingViews = document.All<DraftingView>().Select(view => new DraftingViewDto { Id = view.Id, Name = view.Name, Comments = view.Comments }).ToList();
+        dto.DetailLines = document.All<DetailLine>().Select(line => new DetailLineDto
+        {
+            Id = line.Id, LevelId = line.LevelId, StartX = line.Start.X, StartY = line.Start.Y, EndX = line.End.X, EndY = line.End.Y, Style = line.Style.ToString(), Comments = line.Comments
+        }).ToList();
+        dto.FilledRegions = document.All<FilledRegion>().Select(region => new FilledRegionDto
+        {
+            Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+            Pattern = region.Pattern.ToString(), Outlined = region.Outlined, Comments = region.Comments
+        }).ToList();
+
         foreach (var railing in document.All<Railing>())
             dto.Railings.Add(new RailingDto
             {
@@ -760,6 +772,8 @@ public static partial class ProjectFile
                 Between = dimension.Between.Count > 0 ? dimension.Between.Select(WriteEnd).ToList() : null,
                 Offset = dimension.Offset,
                 Override = dimension.Override,
+                Locked = dimension.Locked ? true : null,
+                LockedLength = dimension.Locked ? dimension.LockedLength : null,
                 Comments = dimension.Comments,
                 Workset = dimension.Workset
             });
@@ -2831,6 +2845,28 @@ public static partial class ProjectFile
             });
         }
 
+        // Drafting views, then what is drawn in them and on the plans: a line with no length, or a region of fewer than three corners, is nothing.
+        foreach (var saved in dto.ColourSchemes ?? new List<ColourSchemeDto>())
+            document.ViewSettings.SetColourBy(new ViewReference(ParseEnum(saved.Kind, ViewKind.FloorPlan), saved.TargetId, string.Empty) { Index = saved.Index }, ParseEnum(saved.By, RoomColourBy.None));
+        foreach (var saved in dto.DraftingViews ?? new List<DraftingViewDto>())
+            document.Add(new DraftingView { Id = saved.Id, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Drafting View" : saved.Name, Comments = saved.Comments ?? string.Empty });
+        bool Drawn(Guid on) => document.FindLevel(on) is not null || document.FindElement(on) is DraftingView;
+        foreach (var saved in (dto.DetailLines ?? new List<DetailLineDto>()).Where(saved => Drawn(saved.LevelId) && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY }.All(double.IsFinite)))
+        {
+            var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
+            if (start.DistanceTo(end) < 0.01) continue;
+            document.Add(new DetailLine { Id = saved.Id, LevelId = saved.LevelId, Start = start, End = end, Style = ParseEnum(saved.Style, DetailLineStyle.Medium), Comments = saved.Comments ?? string.Empty });
+        }
+
+        foreach (var saved in (dto.FilledRegions ?? new List<FilledRegionDto>()).Where(saved => Drawn(saved.LevelId)))
+        {
+            var outline = Outline(saved.Boundary);
+            if (outline.Count < 3) continue;
+            var region = new FilledRegion { Id = saved.Id, LevelId = saved.LevelId, Pattern = ParseEnum(saved.Pattern, FillPattern.Diagonal), Outlined = saved.Outlined, Comments = saved.Comments ?? string.Empty };
+            region.SetBoundary(outline);
+            document.Add(region);
+        }
+
         // A railing along its path; one with fewer than two points left is nothing.
         foreach (var saved in dto.Railings.Where(saved => document.FindLevel(saved.LevelId) is not null))
         {
@@ -3252,6 +3288,8 @@ public static partial class ProjectFile
                 End = ReadEnd(dimension.End),
                 Offset = dimension.Offset,
                 Override = dimension.Override,
+                Locked = dimension.Locked == true && dimension.LockedLength is > 0,
+                LockedLength = dimension.LockedLength ?? 0,
                 Comments = dimension.Comments,
                 Workset = dimension.Workset
             };

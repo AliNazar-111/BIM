@@ -35,6 +35,12 @@ public enum PlanTool
     Room,
     RoomSeparator,
 
+    /// <summary>Draws lines in the view and nowhere else: a detail's linework, or a mark on a plan.</summary>
+    DetailLine,
+
+    /// <summary>Fills an outline clicked round with a pattern, in the view and nowhere else.</summary>
+    FilledRegion,
+
     /// <summary>Clicks fittings on and off the system being edited.</summary>
     EditSystem,
 
@@ -234,7 +240,7 @@ public enum SweepEditMode
 public partial class PlanView : FrameworkElement
 {
     private const double MinPixelsPerMm = 0.002;   // ~500 m across a 1000 px viewport
-    private const double MaxPixelsPerMm = 2.0;     // ~50 cm across a 1000 px viewport
+    private const double MaxPixelsPerMm = 8.0;     // ~12 cm across a 1000 px viewport: close enough to draw a detail
     private const double MinGridPixelSpacing = 8.0;
 
     /// <summary>Screen-space radius for grabbing a grip, and for snapping to an endpoint.</summary>
@@ -477,7 +483,7 @@ public partial class PlanView : FrameworkElement
     /// something would be baffling.
     /// </summary>
     private bool IsOnActiveLevel(Element element) =>
-        element is Grid ||
+        element is Grid && !Drafting ||
         ((element.LevelId == ActiveLevelId ||
           // A shaft is on every plan it passes up through, and a downpipe on every one it passes down through.
           (element is ShaftOpening shaft && Document is not null && Shafts.ShownOn(Document, shaft, ActiveLevelId)) ||
@@ -734,7 +740,10 @@ public partial class PlanView : FrameworkElement
     };
 
     /// <summary>What a view is known as for its settings: this plan is the active level's.</summary>
-    public ViewReference CurrentView => ActiveCallout is { } callout ? Callouts.Reference(callout) : BIMDesigner.Core.Mep.ServicesPlans.Plan(ActiveLevelId, ActiveDiscipline);
+    public ViewReference CurrentView => ActiveCallout is { } callout ? Callouts.Reference(callout)
+        : ActiveDrafting is { } drafting ? Detailing.Reference(drafting)
+        : ActiveAreaScheme is { } scheme ? AreaPlans.View(ActiveLevelId, scheme)
+        : BIMDesigner.Core.Mep.ServicesPlans.Plan(ActiveLevelId, ActiveDiscipline);
 
     /// <summary>
     /// The spacebar: flips the wall being drawn, or failing that every selected wall.
@@ -1290,6 +1299,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
         PlanTool.RoomSeparator => "Click where the room separator starts, then where it ends: rooms are bounded by it where there is no wall - the next starts where it ended. Esc to stop.",
+        PlanTool.DetailLine => "Click where the detail line starts, then where it ends - or type its length: the next starts where it ended. Esc to stop.",
+        PlanTool.FilledRegion => "Click the corners of the region to fill, then its first again or double-click. Esc to stop.",
         PlanTool.Pipe => "Click a fitting's connector, the end of a pipe or a point along one - or anywhere - where the pipe starts; then where it goes. It runs level at the height on the option bar and rises or drops to the fitting or pipe it ends at.",
         PlanTool.Duct => "Click a spigot - a heat recovery unit's, a valve's, an outside terminal's - the end of a duct or a point along one, or anywhere, where the duct starts; then where it goes. It runs level at the height on the option bar and rises or drops to the spigot or duct it ends at.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
@@ -1482,6 +1493,7 @@ public partial class PlanView : FrameworkElement
                       | CancelRailing()
                       | CancelBeam()
                       | CancelRoomSeparator()
+                      | CancelDetailLine()
                       | CancelPipe()
                       | CancelDuct()
                       | CancelGround()
@@ -1557,6 +1569,17 @@ public partial class PlanView : FrameworkElement
 
     public void ZoomToFit()
     {
+        // A drafting view round what is drawn in it, at a detail's size; empty, a sheet's width at 1:5.
+        if (Document is not null && ActiveDrafting is { } drafting && ActualWidth > 0 && ActualHeight > 0)
+        {
+            var drawn = ViewExtent.Of(Document, Detailing.Reference(drafting));
+            if (drawn.IsEmpty) drawn = new BoundingBox2D(-500, -350, 500, 350);
+            PixelsPerMm = Clamp(Math.Min(ActualWidth / Math.Max(drawn.Width + 100, 200), ActualHeight / Math.Max(drawn.Height + 100, 200)));
+            ViewCentre = drawn.Centre;
+            RaiseViewChanged();
+            return;
+        }
+
         var points = Document is null ? new List<Point2D>() : ActiveCallout is { } callout
             ? new List<Point2D> { new(callout.Region.MinX, callout.Region.MinY), new(callout.Region.MaxX, callout.Region.MaxY) }
             : ExtentPoints(Document).ToList();
@@ -1680,9 +1703,10 @@ public partial class PlanView : FrameworkElement
         ViewCentre.X + (screen.X - ActualWidth / 2) / PixelsPerMm,
         ViewCentre.Y - (screen.Y - ActualHeight / 2) / PixelsPerMm);
 
+    /// <summary>A point on the drawing grid: the project's step on a plan, a millimetre in a drafting view - a detail is drawn finer.</summary>
     private Point2D SnapToGrid(Point2D model) => new(
-        Units.SnapToGrid(model.X, SnapStepMm),
-        Units.SnapToGrid(model.Y, SnapStepMm));
+        Units.SnapToGrid(model.X, Drafting ? 1 : SnapStepMm),
+        Units.SnapToGrid(model.Y, Drafting ? 1 : SnapStepMm));
 
     /// <summary>
     /// Snaps to a wall end or a gridline crossing in preference to the drawing grid.
@@ -1718,7 +1742,17 @@ public partial class PlanView : FrameworkElement
             Consider(wall.End);
         }
 
-        foreach (var crossing in Grids.Intersections(Document)) Consider(crossing);
+        if (!Drafting) foreach (var crossing in Grids.Intersections(Document)) Consider(crossing);
+
+        // Detail lines' ends and filled regions' corners: a detail is drawn line to line.
+        foreach (var detail in OnActiveLevel<DetailLine>().Where(detail => !ReferenceEquals(detail, _snapIgnore)))
+        {
+            Consider(detail.Start);
+            Consider(detail.End);
+        }
+
+        foreach (var filled in OnActiveLevel<FilledRegion>().Where(filled => !ReferenceEquals(filled, _snapIgnore)))
+            foreach (var corner in filled.Boundary) Consider(corner);
 
         // The corners of floors, balconies, terraces and roofs on this level and the one above - a
         // stair set out under a balcony's edge - railings' corners, beams' ends, columns, stairs' heads.
@@ -1903,13 +1937,18 @@ public partial class PlanView : FrameworkElement
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             RoomSeparatorHover(_cursorModel);
         }
+        else if (ActiveTool == PlanTool.DetailLine)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            DetailHover(_cursorModel);
+        }
         else if (ActiveTool == PlanTool.Terrain)
         {
             _cursorModel = SnapToGrid(raw);
             _cursorIsSnapped = false;
             GroundHover(_cursorModel);
         }
-        else if (ActiveTool is PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine || ActiveTool == PlanTool.Mass)
+        else if (ActiveTool is PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.FilledRegion || ActiveTool == PlanTool.Mass)
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             OutlineHover(_cursorModel);
@@ -2375,7 +2414,11 @@ public partial class PlanView : FrameworkElement
                 ClickGround(SnapToGrid(raw));
                 return;
 
-            case PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine:
+            case PlanTool.DetailLine:
+                ClickDetailLine(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.FilledRegion:
                 if (e.ClickCount == 2 && FinishOutline()) return;
                 ClickOutline(SnapPoint(raw, null, out _));
                 return;
@@ -2942,7 +2985,8 @@ public partial class PlanView : FrameworkElement
             return false;
         }
 
-        if (continuing && _nudgeRun is not null)
+        // A run of nudges grows one step - but with a dimension locked, each is its own, so what follows it follows each.
+        if (continuing && _nudgeRun is not null && !Document.All<Dimension>().Any(dimension => dimension.Locked))
         {
             _nudgeRun.Grow(step);
         }
@@ -6401,6 +6445,12 @@ public partial class PlanView : FrameworkElement
         foreach (var note in OnActiveLevel<TextNote>())
             if (note.Position.DistanceTo(model) <= labelPick) yield return note;
 
+        // Detail lines by their line, filled regions by their edge - inside one, only once nothing else is there.
+        foreach (var detail in OnActiveLevel<DetailLine>())
+            if (DistanceToSegment(model, detail.Start, detail.End) <= 6 / PixelsPerMm) yield return detail;
+        foreach (var filled in OnActiveLevel<FilledRegion>())
+            if (Enumerable.Range(0, filled.Boundary.Count).Any(i => DistanceToSegment(model, filled.Boundary[i], filled.Boundary[(i + 1) % filled.Boundary.Count]) <= 6 / PixelsPerMm)) yield return filled;
+
         foreach (var dimension in OnActiveLevel<Dimension>())
         {
             var (from, to) = dimension.GetDimensionLine(Document);
@@ -6525,6 +6575,8 @@ public partial class PlanView : FrameworkElement
         foreach (var pad in PadsAt(model)) yield return pad;
         foreach (var region in RegionsAt(model)) yield return region;
         foreach (var ground in GroundsAt(model)) yield return ground;
+        foreach (var filled in OnActiveLevel<FilledRegion>().Reverse())
+            if (Polygon2D.Contains(filled.Boundary, model)) yield return filled;
     }
 
     /// <summary>Picks the wall whose body the point falls in, nearest first.</summary>
@@ -6639,6 +6691,7 @@ public partial class PlanView : FrameworkElement
         DrawRailingPreview(dc);
         DrawBeamPreview(dc);
         DrawRoomSeparatorPreview(dc);
+        DrawDetailLinePreview(dc);
         DrawSystems(dc);
         DrawPipePreview(dc);
         DrawDuctPreview(dc);

@@ -65,18 +65,28 @@ public static class Dwellings
         if (bedrooms == 0 || bedspaces == 0) return null;
 
         var storeys = rooms.Select(entry => entry.Room.LevelId).Distinct().Count();
-        var area = rooms.Sum(entry => entry.Boundary.Area) / 1e6;
-        var storage = rooms
-            .Where(entry => new[] { "store", "storage", "cupboard", "airing" }.Any(word => entry.Room.Name.Contains(word, StringComparison.OrdinalIgnoreCase)))
-            .Sum(entry => entry.Boundary.Area) / 1e6;
-        var said = $"{bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}, {bedspaces} bedspace{(bedspaces == 1 ? string.Empty : "s")}, {storeys} storey{(storeys == 1 ? string.Empty : "s")}: rooms {Units.OfSquareMetres(area, "0.0")}";
+        static bool Storage(Room room) => new[] { "store", "storage", "cupboard", "airing" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+        var storage = rooms.Where(entry => Storage(entry.Room)).Sum(entry => entry.Boundary.Area) / 1e6;
+
+        // Its gross internal area as the standard measures it (note 10): to the inside faces of the
+        // walls round it, the partitions, stairs and voids over them in it - and floor under 1.5 m
+        // of headroom left out, unless it is only storage. Where its walls close round nothing yet, its rooms.
+        var gross = document.Levels.Sum(level => Views.AreaPlans.Measure(document, level.Id, Views.AreaScheme.GrossInternal).Area) / 1e6;
+        var low = rooms.Where(entry => !Storage(entry.Room))
+            .Select(entry => RoomHeadroom.Measure(document, entry.Room))
+            .Sum(space => space is { UnderRoof: true } ? space.Area - space.AreaCounted : 0) / 1e6;
+        var measured = gross > 0;
+        var area = measured ? gross - low : rooms.Sum(entry => entry.Boundary.Area) / 1e6;
+        var said = $"{bedrooms} bedroom{(bedrooms == 1 ? string.Empty : "s")}, {bedspaces} bedspace{(bedspaces == 1 ? string.Empty : "s")}, {storeys} storey{(storeys == 1 ? string.Empty : "s")}: {(measured ? "gross internal area" : "rooms")} {Units.OfSquareMetres(area, "0.0")}";
 
         // A one-bedroom flat for one with a shower room, not a bath: 37 m².
         var showerRoom = bedrooms == 1 && bedspaces == 1 && storeys == 1
             && !document.All<Component>().Any(piece => document.FindType<ComponentType>(piece.TypeId)?.Form == ComponentForm.Bath);
         var wanting = new List<string>();
         if ((showerRoom ? 37 : AreaAsked(bedrooms, bedspaces, storeys)) is { } asked && area < asked - 0.05)
-            wanting.Add($"the Nationally Described Space Standard asks {Units.OfSquareMetres(asked, "0")} of gross internal area, which takes in the walls between the rooms - short if they do not make up the {Units.OfSquareMetres(asked - area, "0.0")}");
+            wanting.Add(measured
+                ? $"the Nationally Described Space Standard asks {Units.OfSquareMetres(asked, "0")} of gross internal area - {Units.OfSquareMetres(asked - area, "0.0")} short"
+                : $"the Nationally Described Space Standard asks {Units.OfSquareMetres(asked, "0")} of gross internal area, which takes in the walls between the rooms - short if they do not make up the {Units.OfSquareMetres(asked - area, "0.0")}");
         var stored = StorageAsked(bedrooms, bedspaces);
         if (storage < stored - 0.05)
             wanting.Add($"built-in storage {Units.OfSquareMetres(storage, "0.0")} in rooms called a store or cupboard - it asks {Units.OfSquareMetres(stored, "0.0")}");

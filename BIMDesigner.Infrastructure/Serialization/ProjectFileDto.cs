@@ -73,6 +73,13 @@ internal sealed class ProjectFileDto
     public List<DuctDto>? Ducts { get; set; }
     public List<RoomSeparatorDto> RoomSeparators { get; set; } = new();
 
+    /// <summary>Drafting views, and the detail lines and filled regions drawn in them and on plans; null in files from before them.</summary>
+    /// <summary>What each view's rooms are coloured by, where they are; null for none.</summary>
+    public List<ColourSchemeDto>? ColourSchemes { get; set; }
+    public List<DraftingViewDto>? DraftingViews { get; set; }
+    public List<DetailLineDto>? DetailLines { get; set; }
+    public List<FilledRegionDto>? FilledRegions { get; set; }
+
     /// <summary>Drawings imported from DWG or DXF files to work over. Missing from older files.</summary>
     public List<CadUnderlayDto>? CadUnderlays { get; set; }
 
@@ -716,6 +723,10 @@ internal sealed class DimensionDto
 
     public double Offset { get; set; } = 600;
     public string Override { get; set; } = string.Empty;
+
+    /// <summary>Whether it is locked, and the length it is kept at; missing where it is not.</summary>
+    public bool? Locked { get; set; }
+    public double? LockedLength { get; set; }
 
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
@@ -2753,4 +2764,43 @@ internal sealed class RoofOpeningDto
     public List<double> Points { get; set; } = new();
     public List<Guid?>? ArcIds { get; set; }
     public bool Square { get; set; }
+}
+
+internal sealed class DraftingViewDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Drafting View";
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class DetailLineDto
+{
+    public Guid Id { get; set; }
+
+    /// <summary>The storey whose plan it is drawn on, or the drafting view it is drawn in.</summary>
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public string? Style { get; set; }
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class FilledRegionDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double>? Boundary { get; set; }
+    public string? Pattern { get; set; }
+    public bool Outlined { get; set; } = true;
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class ColourSchemeDto
+{
+    public string Kind { get; set; } = "FloorPlan";
+    public Guid TargetId { get; set; }
+    public int Index { get; set; }
+    public string By { get; set; } = "Name";
 }

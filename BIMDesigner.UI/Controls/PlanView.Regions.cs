@@ -41,7 +41,7 @@ public partial class PlanView
     /// </summary>
     public bool ClickOutline(Point2D at)
     {
-        if (Document is null || Document.FindLevel(ActiveLevelId) is null) return false;
+        if (Document is null || Document.FindLevel(ActiveLevelId) is null && !Drafting) return false;
 
         var path = ActiveTool == PlanTool.Region && DrawingPath;
         if (!path && _outlinePoints.Count >= 3 && (at - _outlinePoints[0]).Length * PixelsPerMm < 8) return FinishOutline();
@@ -70,6 +70,13 @@ public partial class PlanView
         var outline = path ? GroundRegions.Band(_outlinePoints, Math.Max(300, ActivePathWidth)).ToList() : _outlinePoints.ToList();
         var pathLine = _outlinePoints.ToList();
         _outlinePoints.Clear();
+        if (ActiveTool == PlanTool.FilledRegion)
+        {
+            MakeFilledRegion(outline);
+            InvalidateVisual();
+            return true;
+        }
+
         if (Polygon2D.Area(outline) < 10000)
         {
             HintChanged?.Invoke(this, "Too small to lay: draw it larger.");
@@ -136,7 +143,7 @@ public partial class PlanView
     /// <summary>The outline or path being drawn, on to the cursor.</summary>
     private void DrawOutlinePreview(DrawingContext dc)
     {
-        if (ActiveTool is not (PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.Mass)) return;
+        if (ActiveTool is not (PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.Mass or PlanTool.FilledRegion)) return;
         if (ActiveTool == PlanTool.Mass && ActiveMassFootprint != MassFootprint.Outline) return;
 
         var points = _outlineHover is { } next ? _outlinePoints.Append(next).ToList() : _outlinePoints.ToList();

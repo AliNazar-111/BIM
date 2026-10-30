@@ -269,7 +269,7 @@ public class FurnitureTests
         Assert.Null(Dwellings.Verdict(document));
         Put(document, "Bed - King 1500 x 2000", 1700, 1100);
         var verdict = Dwellings.Verdict(document)!;
-        Assert.StartsWith("1 bedroom, 2 bedspaces, 1 storey: rooms 10.9 m² - ", verdict);
+        Assert.StartsWith("1 bedroom, 2 bedspaces, 1 storey: gross internal area 10.9 m² - ", verdict);
         Assert.Contains("asks 50 m²", verdict);
         Assert.Contains("it asks 1.5 m²", verdict);
 
@@ -282,7 +282,7 @@ public class FurnitureTests
         for (var i = 0; i < 4; i++)
             flat.Add(new Wall { Start = corners[i], End = corners[(i + 1) % 4], TypeId = wallType.Id, LevelId = flat.Levels[0].Id, UnconnectedHeight = 2400 });
         flat.Add(new Room { LevelId = flat.Levels[0].Id, Location = new Point2D(9600, 750), Name = "Store", Number = "2" });
-        Assert.Equal("1 bedroom, 2 bedspaces, 1 storey: rooms 57.8 m² - big enough", Dwellings.Verdict(flat));
+        Assert.Equal("1 bedroom, 2 bedspaces, 1 storey: gross internal area 57.8 m² - big enough", Dwellings.Verdict(flat));
 
         flat.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
         Assert.Null(Dwellings.Verdict(flat));

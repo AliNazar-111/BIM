@@ -302,7 +302,7 @@ public sealed partial class PlanRenderer
         // lining storeys up against them is the point of having them. An underlay leaves them
         // to the storey above, which is drawing the same ones.
         if (!underlay)
-            foreach (var grid in Document.All<Grid>().Where(grid => Filter(grid))) CadLayers.Draw(dc, grid, d => DrawGrid(d, grid));
+            foreach (var grid in Document.All<Grid>().Where(grid => !Drafting && Filter(grid))) CadLayers.Draw(dc, grid, d => DrawGrid(d, grid));
 
         // Slabs are construction under everything else; rooms are the space above them.
         foreach (var slab in OnActiveLevel<Slab>()) Styled(dc, slab, d => DrawSlab(d, slab));
@@ -398,6 +398,13 @@ public sealed partial class PlanRenderer
 
         if (underlay) return;
 
+        // An area plan's measure, over the plan.
+        if (AreaShown is { } scheme) DrawAreas(dc, scheme);
+
+        // Drawn in the view and nowhere else: its filled regions, then its lines over them.
+        foreach (var region in OnActiveLevel<FilledRegion>()) CadLayers.Draw(dc, region, d => DrawFilledRegion(d, region));
+        foreach (var detail in OnActiveLevel<DetailLine>()) CadLayers.Draw(dc, detail, d => DrawDetailLine(d, detail));
+
         // The property line round it all, and the heights read off it.
         // Each kept on what it was drawn for, so a DWG puts it on its layer.
         foreach (var line in OnActiveLevel<PropertyLine>()) CadLayers.Draw(dc, line, d => DrawPropertyLine(d, line));
@@ -405,7 +412,9 @@ public sealed partial class PlanRenderer
 
         if (ShowWallLabels)
             foreach (var wall in OnActiveLevel<Wall>()) DrawWallLabel(dc, wall);
-        foreach (var room in OnActiveLevel<Room>()) CadLayers.Draw(dc, room, d => DrawRoomTag(d, room), CadLayers.RoomTags);
+        // An area plan says the storey's areas, not the rooms'.
+        if (AreaShown is null)
+            foreach (var room in OnActiveLevel<Room>()) CadLayers.Draw(dc, room, d => DrawRoomTag(d, room), CadLayers.RoomTags);
 
         foreach (var dimension in OnActiveLevel<Dimension>()) CadLayers.Draw(dc, dimension, d => DrawStyledDimension(d, dimension));
         foreach (var angular in OnActiveLevel<AngularDimension>()) CadLayers.Draw(dc, angular, d => DrawAngularDimension(d, angular));
@@ -1683,8 +1692,11 @@ public sealed partial class PlanRenderer
 
         var isSelected = IsSelected(room);
 
+        // Coloured by what it is, where the view colours its rooms.
+        var scheme = !isSelected && RoomColours.ColourOf(Document, View, room) is { } colour ? Brush(Color.FromArgb(0xD0, colour.R, colour.G, colour.B)) : null;
+
         dc.DrawGeometry(
-            isSelected ? _roomSelectedBrush : _roomBrush,
+            scheme ?? (isSelected ? _roomSelectedBrush : _roomBrush),
             isSelected ? _selectedPen : null,
             BuildOutline(boundary.Polygon));
 

@@ -166,6 +166,47 @@ public static class RoomBoundary
     }
 
     /// <summary>
+    /// The loop some of a storey's walls make round a point, on its faces toward the point - for
+    /// measuring a storey to its outside walls rather than by its rooms: only the walls given,
+    /// each side moved off its centreline as far as asked. Anticlockwise round an inside; clockwise,
+    /// the point outside them all, round the outside of the building. Null where they make none.
+    /// </summary>
+    public static (IReadOnlyList<Point2D> Polygon, bool Outside, IReadOnlyList<Wall> Walls)? Loop(
+        BimDocument document, Guid levelId, Point2D seed, Func<Wall, bool> bounding, Func<Wall, double> toFace)
+    {
+        // A wall left hanging - a garden wall off a corner, a nib - closes nothing round and is not walked round.
+        var segments = Pruned(SplitAtCrossings(document.Walls
+            .Where(wall => wall.LevelId == levelId && wall.Length > NodeTolerance && bounding(wall))
+            .SelectMany(Pieces).ToList()));
+        if (segments.Count == 0) return null;
+
+        var start = FindEdgeFacing(segments, seed);
+        if (start is null) return null;
+
+        var loop = WalkFace(segments, start);
+        if (loop is null || loop.Count < 3) return null;
+
+        var outside = Polygon2D.SignedArea(loop.Select(edge => edge.From).ToList()) <= 0;
+        var polygon = InsetToWallFaces(document, loop, toFace);
+        return polygon.Count < 3 ? null : (polygon, outside, loop.Select(edge => edge.Segment.Wall).OfType<Wall>().Distinct().ToList());
+    }
+
+    /// <summary>The segments with every one left hanging taken away, and those it then leaves hanging, until each end meets another.</summary>
+    private static List<Segment> Pruned(List<Segment> segments)
+    {
+        for (var removed = true; removed;)
+        {
+            var ends = segments.SelectMany(segment => new[] { Key(segment.Start), Key(segment.End) })
+                .GroupBy(key => key).ToDictionary(group => group.Key, group => group.Count());
+            var kept = segments.Where(segment => ends[Key(segment.Start)] > 1 && ends[Key(segment.End)] > 1).ToList();
+            removed = kept.Count < segments.Count;
+            segments = kept;
+        }
+
+        return segments;
+    }
+
+    /// <summary>
     /// The room-bounding columns standing wholly inside a room's outline. One straddling the
     /// outline is in a wall, and that wall has already shaped the room; counting it as well
     /// would take the same floor away twice.
@@ -430,14 +471,15 @@ public static class RoomBoundary
     /// A room measured to wall centrelines would count half of every wall as floor area,
     /// which is not what anyone builds, sells or heats.
     /// </summary>
-    private static List<Point2D> InsetToWallFaces(BimDocument document, List<HalfEdge> loop)
+    private static List<Point2D> InsetToWallFaces(BimDocument document, List<HalfEdge> loop, Func<Wall, double>? toFace = null)
     {
         var lines = new List<Line2D>(loop.Count);
 
         foreach (var edge in loop)
         {
-            var type = edge.Segment.Wall is { } wall ? document.GetWallType(wall) : null;
-            var half = (type?.Width ?? 0) / 2;
+            var half = edge.Segment.Wall is not { } wall ? 0
+                : toFace is not null ? toFace(wall)
+                : (document.GetWallType(wall)?.Width ?? 0) / 2;
 
             // The interior is on the left of the walk, so the inward face is the left one.
             var inward = edge.Direction.PerpendicularLeft() * half;

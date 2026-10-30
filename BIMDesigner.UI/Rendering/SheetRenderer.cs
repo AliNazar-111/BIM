@@ -198,7 +198,7 @@ public sealed class SheetRenderer
     {
         if (Document is null) return;
 
-        var extent = ViewExtent.Of(Document, viewport.View).OrAtLeast(1000);
+        var extent = ViewExtent.Of(Document, viewport.View).OrAtLeast(ViewExtent.Least(viewport.View));
         var scale = viewport.Scale;
 
         // View coordinates to paper: the extent's bottom-left corner sits on the viewport's
@@ -278,6 +278,23 @@ public sealed class SheetRenderer
 
                 break;
 
+            // A drafting view: its own lines, regions and notes, at its own scale.
+            case ViewKind.Drafting:
+                _plan.Document = Document;
+                _plan.ActiveLevelId = viewport.View.TargetId;
+                _plan.Filter = Document.ViewSettings.FilterFor(Document, viewport.View);
+                _plan.Style = Document.ViewSettings.StyleFor(Document, viewport.View);
+                _plan.Discipline = Core.Mep.Discipline.Architectural;
+                _plan.DetailLevel = DetailLevel.Fine;
+                _plan.ShowWallLabels = false;
+                _plan.View = viewport.View;
+                _plan.SetSelection(null);
+                _plan.PixelsPerDip = PixelsPerDip;
+                _plan.PixelsPerPaperMm = PixelsPerPaperMm;
+                _plan.SetTransform(point => ViewToScreen(point.X, point.Y), pixelsPerModelMm);
+                _plan.DrawContent(dc);
+                break;
+
             // A 3D view as it was left, or an elevation: the model projected into lines and painted faces.
             case ViewKind.Model3D or ViewKind.Elevation:
                 _projection.PixelsPerDip = PixelsPerDip;
@@ -287,7 +304,7 @@ public sealed class SheetRenderer
                 break;
 
             // A schedule, or a keynote legend: its table as it now reports, the size its text is.
-            case ViewKind.Schedule or ViewKind.KeynoteLegend when viewport.Table(Document) is { } table:
+            case ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule when viewport.Table(Document) is { } table:
                 DrawTable(dc, table, bounds);
                 break;
         }

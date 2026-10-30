@@ -23,7 +23,16 @@ public enum ViewKind
     Callout,
 
     /// <summary>A keynote legend: the keys tagged, and what they say - in the whole project, or (Index 1) in the views on its sheet.</summary>
-    KeynoteLegend
+    KeynoteLegend,
+
+    /// <summary>A drafting view: 2D detail drawn in a view of its own, at its own scale.</summary>
+    Drafting,
+
+    /// <summary>A plan's colour legend: each colour its rooms are coloured with, what it stands for, how many rooms and how much floor.</summary>
+    ColourLegend,
+
+    /// <summary>An area schedule: each storey's area in a scheme (Index), what is left out of it, and the total.</summary>
+    AreaSchedule
 }
 
 /// <summary>
@@ -51,6 +60,9 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
     public static ViewReference FloorPlan(Guid levelId) => new(ViewKind.FloorPlan, levelId, string.Empty);
 
     public static ViewReference Section(Guid markerId) => new(ViewKind.Section, markerId, string.Empty);
+
+    /// <summary>A drafting view, by its id.</summary>
+    public static ViewReference Drafting(Guid viewId) => new(ViewKind.Drafting, viewId, string.Empty);
 
     /// <summary>A schedule of the project's, by its id - and its name, for files that knew it only by that.</summary>
     public static ViewReference Schedule(Schedules.ScheduleDefinition schedule) => new(ViewKind.Schedule, schedule.Id, schedule.Name);
@@ -89,7 +101,9 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                 ? Index is >= 0 and <= 3
                 : document.FindElement(targetId) is InteriorElevationMarker marker && marker.Looks(Index),
             ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout && callout.Parent.Kind != ViewKind.Callout && callout.Parent.ExistsIn(document),
-            ViewKind.KeynoteLegend => true,
+            ViewKind.Drafting => document.FindElement(targetId) is Annotation.DraftingView,
+            ViewKind.ColourLegend => Views.RoomColours.ViewOf(this).ExistsIn(document),
+            ViewKind.KeynoteLegend or ViewKind.AreaSchedule => true,
             _ => false
         };
     }
@@ -101,9 +115,9 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
 
         return Kind switch
         {
-            ViewKind.FloorPlan => document.FindLevel(targetId) is { } level
-                ? $"{level.Name} {Mep.ServicesPlans.Title(Mep.ServicesPlans.Of(this))}"
-                : "Plan - missing level",
+            ViewKind.FloorPlan => document.FindLevel(targetId) is not { } level ? "Plan - missing level"
+                : Views.AreaPlans.Of(this) is { } scheme ? $"{level.Name} - {Views.AreaPlans.Title(document, scheme)}"
+                : $"{level.Name} {Mep.ServicesPlans.Title(Mep.ServicesPlans.Of(this))}",
 
             ViewKind.Section => document.All<SectionMarker>()
                 .FirstOrDefault(s => s.Id == targetId) is { } marker
@@ -119,6 +133,9 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
                     : "Elevation - missing marker",
             ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout ? callout.Name : "Callout - missing",
             ViewKind.KeynoteLegend => Index == 1 ? "Keynote Legend (by sheet)" : "Keynote Legend",
+            ViewKind.Drafting => document.FindElement(targetId) is Annotation.DraftingView drafting ? drafting.Name : "Drafting view - missing",
+            ViewKind.ColourLegend => Views.RoomColours.Title(document, this),
+            ViewKind.AreaSchedule => Views.AreaPlans.ScheduleTitle(document, this),
             _ => "View"
         };
     }
@@ -136,6 +153,9 @@ public static class ViewExtent
     /// <summary>Breathing space around the drawing, in model millimetres before scaling.</summary>
     public const double Margin = 800;
 
+    /// <summary>The least a view is drawn as, each way, mm: a metre of a building; a tenth of that of a drafting view's detail.</summary>
+    public static double Least(ViewReference view) => view.Kind == ViewKind.Drafting ? 100 : 1000;
+
     public static BoundingBox2D Of(BimDocument document, ViewReference reference) => reference.Kind switch
     {
         ViewKind.FloorPlan => OfFloorPlan(document, reference.TargetId),
@@ -144,6 +164,9 @@ public static class ViewExtent
 
         // A callout is cropped to its box: the box is its extent.
         ViewKind.Callout => document.FindElement(reference.TargetId) is Callout callout ? callout.Region : BoundingBox2D.Empty,
+
+        // A drafting view is as big as what is drawn in it.
+        ViewKind.Drafting => OfDrafting(document, reference.TargetId),
         _ => BoundingBox2D.Empty
     };
 
@@ -196,6 +219,23 @@ public static class ViewExtent
             }
 
         return box.IsEmpty ? box : box.Expand(Margin);
+    }
+
+    /// <summary>A drafting view's extent: round its lines, regions and notes, a little margin beyond.</summary>
+    private static BoundingBox2D OfDrafting(BimDocument document, Guid viewId)
+    {
+        var box = BoundingBox2D.Empty;
+        foreach (var element in document.Elements.Where(element => element.LevelId == viewId))
+            box = element switch
+            {
+                Annotation.DetailLine line => box.Include(line.Start).Include(line.End),
+                Annotation.FilledRegion region => box.Include(BoundingBox2D.Around(region.Boundary)),
+                Annotation.TextNote note => box.Include(note.Position),
+                Annotation.Dimension dimension => box.Include(dimension.StartPoint(document)).Include(dimension.EndPoint(document)),
+                _ => box
+            };
+
+        return box.IsEmpty ? box : box.Expand(50);
     }
 
     private static BoundingBox2D OfSection(BimDocument document, Guid markerId)

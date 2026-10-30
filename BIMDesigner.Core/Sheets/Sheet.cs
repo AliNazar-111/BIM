@@ -75,7 +75,7 @@ public sealed class Viewport
                 Centre.X - table.Width / 2, Centre.Y - table.Height / 2,
                 Centre.X + table.Width / 2, Centre.Y + table.Height / 2);
 
-        var content = ViewExtent.Of(document, View).OrAtLeast(1000);
+        var content = ViewExtent.Of(document, View).OrAtLeast(ViewExtent.Least(View));
 
         var halfWidth = Scale.ToPaper(content.Width) / 2;
         var halfHeight = Scale.ToPaper(content.Height) / 2;
@@ -90,11 +90,13 @@ public sealed class Viewport
     {
         ViewKind.Schedule when View.ScheduleIn(document) is { } schedule => Schedules.ScheduleTable.Of(document, schedule),
         ViewKind.KeynoteLegend => Annotation.Keynotes.LegendFor(document, this),
+        ViewKind.ColourLegend => Views.RoomColours.Table(document, View),
+        ViewKind.AreaSchedule => Views.AreaPlans.Table(document, View),
         _ => null
     };
 
     /// <summary>Whether it is a table - a schedule or a legend - rather than a drawing at a scale.</summary>
-    public bool IsTable => View.Kind is ViewKind.Schedule or ViewKind.KeynoteLegend;
+    public bool IsTable => View.Kind is ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule;
 
     /// <summary>Whether a point on the paper falls inside this viewport.</summary>
     public bool Contains(BimDocument document, Point2D paperPoint)
