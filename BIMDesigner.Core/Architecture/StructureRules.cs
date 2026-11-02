@@ -349,6 +349,9 @@ public static class StructureRules
     {
         WallFooting strip => StripProblems(document, strip, standard),
         PadFooting pad => PadProblems(document, pad, standard),
+        RaftFoundation raft => RaftProblems(document, raft, standard),
+        GroundBeam beam => GroundBeamProblems(document, beam, standard),
+        Pile pile => PileProblems(document, pile, standard),
         Column { Structural: true } column => ColumnProblems(document, column, standard),
         _ => Array.Empty<(string, string)>()
     };
@@ -373,7 +376,7 @@ public static class StructureRules
                     ? ($"it is {type.Width:0} wide under a wall {thickness:0} thick.", "Approved Document A (2E2a, Diagram 23) has a strip footing project past its wall each side, central under it.")
                     : ($"it is {type.Width:0} wide, carrying {load:0.0} kN/m on {Describe(project.Ground)} (type {AdaType(project.Ground)}).",
                         $"Approved Document A (2E3, Table 10) asks a strip footing there to be {width:0} wide at the least."));
-            if (type.Thickness < Math.Max(150, projection) - 0.5)
+            if (type.Thickness < Math.Max(150, footing.Reinforced ? 0 : projection) - 0.5)
                 problems.Add(($"it is {type.Thickness:0} thick, standing {Math.Max(0, projection):0} out past its wall.",
                     "Approved Document A (2E2c) asks a strip footing to be 150 thick at the least, and no thinner than it projects past its wall."));
             if (Math.Abs(footing.Eccentricity) > 5)
@@ -451,7 +454,7 @@ public static class StructureRules
             else if (pad.ColumnId is not null && Table10Pressure(project.Ground) is { } allowed && load / area > allowed + 0.05)
                 problems.Add(($"it carries {load:0.0} kN on {Units.OfSquareMetres(area, "0.00")} - {load / area:0} kN/m² on {Describe(project.Ground)}.",
                     $"Approved Document A gives no table for pads: it is checked at the pressure its Table 10 bears strip footings at on this ground, {allowed:0} kN/m² - a pad {Math.Sqrt(load / allowed) * 1000:0} square at the least."));
-            if (type.Thickness < Math.Max(150, projection) - 0.5)
+            if (type.Thickness < Math.Max(150, pad.Reinforced ? 0 : projection) - 0.5)
                 problems.Add(($"it is {type.Thickness:0} thick, standing {Math.Max(0, projection):0} out past its pier.",
                     "Approved Document A (2E2c) asks plain concrete footings to be 150 thick at the least, and no thinner than they project."));
             var down = AdaDepth(project.Ground, project.ClayShrinkage);
@@ -551,6 +554,147 @@ public static class StructureRules
         return problems;
     }
 
+    // ---- rafts, ground beams and piles ------------------------------------------------------
+
+    /// <summary>
+    /// The least tension steel BS EN 1992-1-1 9.2.1.1 asks of a beam or slab (9.3.1.1), as a share
+    /// of its width times its effective depth: 0.26 fctm / fyk, and 0.0013 at the least - for RC28/35,
+    /// as BS 8500 has reinforced foundations made (fctm 2.77 MPa), and B500 steel. In the US, ACI
+    /// 318-19 9.6.1.2's for a beam - 3 √f'c / fy and 200 / fy, f'c 3,000 psi and Grade 60 - and 0.0018
+    /// of the whole section for a slab (8.6.1.1).
+    /// </summary>
+    public const double UkLeastSteel = 0.26 * 2.77 / 500, UsBeamLeastSteel = 200.0 / 60000, UsSlabLeastSteel = 0.0018;
+
+    /// <summary>The steel a spec gives per metre width, mm²/m: a fabric's main wires, or bars at centres.</summary>
+    private static double PerMetre(BarSpec spec) => spec.FabricArea is { } fabric ? fabric.Main : spec.Spacing is { } spacing ? spec.BarArea * 1000 / spacing : 0;
+
+    private static IReadOnlyList<(string Said, string Rule)> RaftProblems(BimDocument document, RaftFoundation raft, ClearanceStandard standard)
+    {
+        var problems = new List<(string, string)>();
+        if (raft.Outline.Count < 3) return problems;
+        var project = document.ProjectInformation;
+        var below = Rafts.EdgeBelowGround(document, raft);
+        var top = BarSpec.Parse(raft.TopReinforcement);
+        var bottom = BarSpec.Parse(raft.BottomReinforcement);
+
+        if (!standard.IsUs())
+        {
+            if (top is null && bottom is null)
+                problems.Add(("it holds no steel in its slab.", "A raft spans between the walls standing on it, and a slab doing that is reinforced, at the least as BS EN 1992-1-1 (9.3.1.1, 9.2.1.1) asks."));
+            foreach (var (face, spec, cover) in new[] { ("top", top, Reinforcement.CoverTop), ("bottom", bottom, Reinforcement.CoverOnBlinding) })
+            {
+                if (spec is null) continue;
+                var depth = raft.Thickness - cover - spec.Diameter * 1.5;
+                var least = Math.Max(UkLeastSteel, 0.0013) * 1000 * depth;
+                if (PerMetre(spec) < least - 0.5)
+                    problems.Add(($"its {face} steel, {spec}, is {PerMetre(spec):0} mm²/m in a slab {raft.Thickness:0} thick.",
+                        $"BS EN 1992-1-1 (9.3.1.1, 9.2.1.1) asks {least:0} mm²/m at the least there - 0.26 fctm/fyk of its effective depth, {depth:0}."));
+            }
+
+            if (raft.EdgeDepth > raft.Thickness && raft.EdgeWidth < raft.EdgeDepth - raft.Thickness - 0.5 && BarSpec.Parse(raft.EdgeLinks) is null)
+                problems.Add(($"its edge is thickened {raft.EdgeDepth - raft.Thickness:0} below the slab, {raft.EdgeWidth:0} wide, with no links.", "A thickening deeper than it is wide is a beam, linked as BS EN 1992-1-1 (9.2.2) asks."));
+            if (below < 450 - 0.5)
+                problems.Add(($"its edge is {below:0} below the ground.", "Its edge is to be out of the frost: 0.45 m down at the least, as Approved Document A (2E4) takes a footing's underside."));
+            return problems;
+        }
+
+        if (raft.Thickness < 88.9 - 0.5)
+            problems.Add(($"its slab is {Inches(raft.Thickness)} thick.", "The IRC (R506.1) asks a concrete floor on the ground to be 3.5 in thick at the least."));
+        if (raft.EdgeDepth > raft.Thickness && raft.EdgeWidth < 305 - 0.5)
+            problems.Add(($"its turned-down edge is {Inches(raft.EdgeWidth)} wide.", "The IRC (R403.1.1) asks a footing 12 in wide at the least."));
+        if (top is not null || bottom is not null)
+        {
+            var given = (top is null ? 0 : PerMetre(top)) + (bottom is null ? 0 : PerMetre(bottom));
+            var least = UsSlabLeastSteel * 1000 * raft.Thickness;
+            if (given < least - 0.5)
+                problems.Add(($"its slab's steel each way is {given / 2116.7:0.000} in²/ft in all, {Inches(raft.Thickness)} thick.",
+                    $"ACI 318-19 (8.6.1.1, 13.3.4) asks a mat {least / 2116.7:0.000} in²/ft each way at the least - 0.0018 of its section with Grade 60 bars."));
+        }
+
+        AddIrcDepth(problems, below, project);
+        return problems;
+    }
+
+    private static IReadOnlyList<(string Said, string Rule)> GroundBeamProblems(BimDocument document, GroundBeam beam, ClearanceStandard standard)
+    {
+        var problems = new List<(string, string)>();
+        if (document.Find<Wall>(beam.WallId) is not { } wall || Piles.Outline(document, beam) is not { } outline) return problems;
+        var us = standard.IsUs();
+        var cover = Reinforcement.CoverAgainstGround;
+        var links = BarSpec.Parse(beam.Links);
+        var bottom = BarSpec.Parse(beam.BottomBars);
+        var top = BarSpec.Parse(beam.TopBars);
+        var depth = beam.Depth - cover - (links?.Diameter ?? 0) - (bottom?.Diameter ?? 16) / 2;
+        string Area(double mm2) => us ? $"{mm2 / 645.16:0.00} in²" : $"{mm2:0} mm²";
+
+        // A pile under each end - its own, or one a wall it meets stands on - and the spans between.
+        var direction = wall.Direction;
+        var stations = document.All<Pile>()
+            .Select(pile => Piles.Position(document, pile))
+            .Where(at => Line2D.DistanceFromSegment(at, wall.Start, wall.End) < beam.Width)
+            .Select(at => (at - wall.Start).Dot(direction))
+            .OrderBy(along => along).ToList();
+        foreach (var (end, along) in new[] { ("start", 0.0), ("end", wall.Length) })
+            if (!stations.Any(station => Math.Abs(station - along) < beam.Width))
+                problems.Add(($"its {end} stands on no pile.", "A ground beam spans from pile to pile: one under each end, where the walls meet."));
+
+        var span = stations.Count < 2 ? wall.Length : stations.Zip(stations.Skip(1), (a, b) => b - a).Max();
+        if (bottom is { Count: { } count } && depth > 0)
+        {
+            var given = count * bottom.BarArea;
+            var least = (us ? UsBeamLeastSteel : Math.Max(UkLeastSteel, 0.0013)) * beam.Width * depth;
+            if (given < least - 0.5)
+                problems.Add(($"its bottom bars, {bottom}, are {Area(given)}.", us
+                    ? $"ACI 318-19 (9.6.1.2) asks a beam {Area(least)} at the least - 200/fy of its width times its effective depth."
+                    : $"BS EN 1992-1-1 (9.2.1.1) asks a beam {Area(least)} at the least - 0.26 fctm/fyk of its width times its effective depth, {depth:0}."));
+
+            // A rough check, to start from: the wall and beam over the longest span, continuous over the piles.
+            var load = Loads.OnWall(document, wall) + beam.Width * beam.Depth / 1e6 * 24;
+            var demand = 1.4 * load * Math.Pow(span / 1000, 2) / 10;
+            var capacity = 0.87 * (us ? 414 : 500) * given * 0.9 * depth / 1e6;
+            if (capacity < demand)
+                problems.Add(($"over its longest span, {Units.Metres(span, "0.00")}, its bottom bars carry {capacity:0} kNm, and the wall on it asks {demand:0}.",
+                    "Its bars or depth are too small, or its piles too far apart - a rough check, at 1.4 times its load and wL²/10, for its engineer to design it from."));
+        }
+        else if (bottom is null)
+            problems.Add(("it has no bottom bars.", "A ground beam spans between its piles, its bottom in tension: it is reinforced."));
+
+        if (top is null)
+            problems.Add(("it has no top bars.", "A ground beam is continuous over its piles, its top in tension over them: it is reinforced there too."));
+
+        if (links is { Spacing: { } spacing } && depth > 0)
+        {
+            var most = us ? Math.Min(depth / 2, 609.6) : 0.75 * depth;
+            if (spacing > most + 0.5)
+                problems.Add(($"its links are {(us ? Inches(spacing) : $"{spacing:0}")} apart.", us
+                    ? $"ACI 318-19 (9.7.6.2.2) puts a beam's stirrups no more than d/2 apart - {Inches(most)} - and 24 in."
+                    : $"BS EN 1992-1-1 (9.2.2(6)) puts a beam's links no more than 0.75d apart - {most:0}."));
+        }
+        else if (links is null)
+            problems.Add(("it has no links.", us ? "ACI 318-19 (9.6.3.1) asks a beam for its least shear steel." : "BS EN 1992-1-1 (9.2.2(5)) asks a beam for its least shear reinforcement."));
+
+        var asked = Piles.HeaveVoid(document.ProjectInformation);
+        if (!us && beam.Void < asked - 0.5)
+            problems.Add(($"the void under it is {beam.Void:0}, in a clay of {document.ProjectInformation.ClayShrinkage.ToString().ToLowerInvariant()} shrinkage.",
+                $"NHBC Standards (4.2.10) ask {asked:0} under a ground beam there, or a compressible board as thick, so the clay can swell without lifting it."));
+        return problems;
+    }
+
+    private static IReadOnlyList<(string Said, string Rule)> PileProblems(BimDocument document, Pile pile, ClearanceStandard standard)
+    {
+        var problems = new List<(string, string)>();
+        var us = standard.IsUs();
+        string Size(double mm) => us ? Inches(mm) : $"{mm:0}";
+        if (BarSpec.Parse(pile.Bars) is { } bars && pile.Diameter / 2 - Reinforcement.CoverAgainstGround - bars.Diameter < 0)
+            problems.Add(($"it is {Size(pile.Diameter)} across, its bars {bars}.", $"Its cage does not fit inside the {Size(Reinforcement.CoverAgainstGround)} of cover concrete cast against the ground asks."));
+        if (us && pile.Diameter < 304.8 - 0.5)
+            problems.Add(($"it is {Inches(pile.Diameter)} across.", "The IBC (1810.3.5.2.2) asks a cast-in-place pile 12 in across at the least."));
+        if (Piles.Capacity(document, pile) is { } capacity && Piles.Load(document, pile) is var load && capacity < load)
+            problems.Add(($"it carries {Units.Kilonewtons(load, "0")} and is good for {Units.Kilonewtons(capacity, "0")}.",
+                $"Make it longer or wider: by the alpha method in {Describe(document.ProjectInformation.Ground)} - 0.5 cu down its shaft and 9 cu under its toe, over 2.5 - {Units.FormatLength(Piles.LengthFor(document, load, pile.Diameter) ?? pile.Length)} long would do."));
+        return problems;
+    }
+
     /// <summary>What a footing or structural column comes to as its rules see it.</summary>
     public static string Verdict(BimDocument document, Element element)
     {
@@ -570,6 +714,13 @@ public static class StructureRules
                 return $"Meets the IRC's {TableName(ConstructionOf(document, wall))} for {Stories(document, wall)} story {EnumText(FoundationOf(document, wall))}";
             case PadFooting pad:
                 return pad.ColumnId is null ? "Carries no column" : $"Carries {Units.Kilonewtons(PadLoad(document, pad), "0.0")} - big, thick and deep enough";
+            case RaftFoundation raft:
+                return $"A raft of {Units.OfSquareMetres(Polygon2D.Area(raft.Outline) / 1e6, "0.0")}, its edge {Units.FormatLength(Rafts.EdgeBelowGround(document, raft))} down - reinforced and as deep as the rules ask"
+                       + (project.ClayShrinkage == ClayShrinkage.None || standard.IsUs() ? string.Empty : "; in a shrinkable clay a raft is its engineer's to design (NHBC Standards 4.2)");
+            case GroundBeam beam:
+                return $"On {Piles.On(document, beam).Count} pile{(Piles.On(document, beam).Count == 1 ? "" : "s")} of its own - reinforced, linked and over a void enough for the rules";
+            case Pile pile:
+                return Piles.CapacitySaid(document, pile);
             case Column column:
                 return $"Carries {Units.Kilonewtons(Loads.OnColumn(document, column), "0.0")} - meets the rules";
             default:
@@ -581,7 +732,7 @@ public static class StructureRules
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard)
     {
         var found = new List<BlockedClearance>();
-        foreach (var element in document.Elements.Where(element => element is WallFooting or PadFooting or Column { Structural: true }))
+        foreach (var element in document.Elements.Where(element => Footings.IsFoundation(element) || element is Column { Structural: true }))
         {
             var level = element is Column ? element.LevelId : Footings.LevelOf(document, element);
             if (level != levelId) continue;
@@ -591,7 +742,7 @@ public static class StructureRules
                 _ => Footings.Footprint(document, element)
             };
             if (outline is not { Count: >= 3 }) continue;
-            var name = document.FindType<ElementType>(element.TypeId)?.Name ?? (element is Column ? "A column" : "A footing");
+            var name = document.FindType<ElementType>(element.TypeId)?.Name ?? (element is Column ? "A column" : Footings.MemberName(document, element));
             foreach (var (said, rule) in Problems(document, element, standard))
                 found.Add(new BlockedClearance(new ClearanceZone(element, element is Column ? "the column" : "the footing", outline, rule), string.Empty, name, said));
         }

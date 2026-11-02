@@ -49,6 +49,12 @@ public sealed class ProjectInformation
     public double GroundSnowLoad { get; set; } = 20;
 
     /// <summary>
+    /// The snow zone a UK site is in on the National Annex's map (NA to BS EN 1991-1-3 Figure NA.1),
+    /// 1 to 5: what its ground snow load is worked from with its altitude (Equation NA.1).
+    /// </summary>
+    public double SnowZone { get; set; } = 1;
+
+    /// <summary>
     /// The water's static pressure where it comes in, psi - a US house's, from its water supplier:
     /// what IRC Table P2903.7 sizes its pipes by. 40 to start, the least P2903.3 lets a supply have.
     /// </summary>
@@ -195,6 +201,9 @@ public sealed class BimDocument
     public T? Find<T>(Guid? id) where T : class => id is { } value ? Find<T>(value) : null;
 
     public ProjectInformation ProjectInformation { get; } = new();
+
+    /// <summary>Whether, and how, the project is shared through a central model: its worksets, and the one new elements go on.</summary>
+    public Worksharing Worksharing { get; } = new();
 
     /// <summary>What each view leaves out. Views not listed show everything.</summary>
     public Views.ViewSettings ViewSettings { get; } = new();

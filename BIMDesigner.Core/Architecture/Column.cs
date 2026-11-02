@@ -555,6 +555,7 @@ public sealed class Column : Element
         {
             yield return ParameterValue.ReadOnly(ColumnParameters.Load, () => Math.Round(Loads.OnColumn(document, this), 1));
             yield return ParameterValue.ReadOnly(ColumnParameters.Regulations, () => StructureRules.Verdict(document, this));
+            yield return AnalyticalParameters.Said(document, this);
         }
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;

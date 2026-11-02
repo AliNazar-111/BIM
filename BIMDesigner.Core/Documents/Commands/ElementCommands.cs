@@ -14,6 +14,10 @@ public sealed class AddElementCommand : IUndoableCommand
         _document = document;
         _element = element;
         Name = name;
+
+        // Shared, what is made goes on the workset being worked on - gridlines on the levels and grids'.
+        if (document.Worksharing.Enabled)
+            element.Workset = element is Datums.Grid && document.Worksharing.Find(Worksharing.LevelsAndGrids) is not null ? Worksharing.LevelsAndGrids : document.Worksharing.Active;
     }
 
     public string Name { get; }

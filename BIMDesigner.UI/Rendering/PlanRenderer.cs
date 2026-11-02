@@ -338,7 +338,7 @@ public sealed partial class PlanRenderer
 
         // Footings are under the floor: drawn hidden, dashed, under the walls standing on them.
         if (Document is not null)
-            foreach (var footing in Document.Elements.Where(element => element is WallFooting or PadFooting && Footings.LevelOf(Document, element) == ActiveLevelId))
+            foreach (var footing in Document.Elements.Where(element => Footings.IsFoundation(element) && Footings.LevelOf(Document, element) == ActiveLevelId))
                 Styled(dc, footing, d => DrawFooting(d, footing));
 
         // Drawings imported to work over: over the floors and rooms, so they show through, and under the walls drawn on them.
@@ -1734,6 +1734,11 @@ public sealed partial class PlanRenderer
             dc.DrawGeometry(null, pen, BuildOutline(outline));
         if (footing is PadFooting pad && Kept($"pier {footing.Id}", () => Footings.PierOutline(Document, pad)) is { Count: >= 3 } pier)
             dc.DrawGeometry(null, pen, BuildOutline(pier));
+
+        // A raft's thickened edge, its inside line; and where it is thickened under the walls inside it.
+        if (footing is RaftFoundation { Outline.Count: >= 3 } raft && raft.EdgeDepth > raft.Thickness + 1)
+            foreach (var line in Kept($"raft {footing.Id}", () => Rafts.Thickenings(Document, raft).Prepend(SlabEdgeRuns.Inset(raft.Outline, closed: true, raft.EdgeWidth)).ToList()))
+                if (line.Count >= 3) dc.DrawGeometry(null, pen, BuildOutline(line));
     }
 
     private void DrawColumn(DrawingContext dc, Column column)

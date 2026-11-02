@@ -350,8 +350,15 @@ public partial class ScheduleEditorWindow : System.Windows.Window
         totals.Click += (_, _) => _working.ShowTotals = totals.IsChecked == true;
         var itemize = new CheckBox { Content = "Itemize every instance - untick to count those alike in one row", IsChecked = _working.Itemize, Margin = new Thickness(0, 6, 0, 0) };
         itemize.Click += (_, _) => _working.Itemize = itemize.IsChecked == true;
+        var links = new CheckBox
+        {
+            Content = "Include elements in links - each row saying which linked model it is from", IsChecked = _working.IncludeLinks, Margin = new Thickness(0, 6, 0, 0),
+            ToolTip = "The linked models' elements of this kind as rows too, read from their own files: add the Linked Model field to see which each is from. They cannot be typed into here"
+        };
+        links.Click += (_, _) => _working.IncludeLinks = links.IsChecked == true;
         SortingDetails.Children.Add(totals);
         SortingDetails.Children.Add(itemize);
+        SortingDetails.Children.Add(links);
 
         SortingDetails.Children.Add(Label("Totalled", top: 14));
         SortingDetails.Children.Add(new TextBlock { Text = "A total only means something for a quantity: untick the fields whose sum is not one - heights, widths, a gradient.", TextWrapping = TextWrapping.Wrap, Opacity = 0.75, Margin = new Thickness(0, 0, 0, 6) });

@@ -579,7 +579,7 @@ public static class AreaPlans
     }
 
     /// <summary>A table of rows under its headings, its group headings across it, wide enough for the code it is measured by under it.</summary>
-    private static ScheduleTable Build(string title, IReadOnlyList<string> headings, List<(ScheduleLineKind Kind, IReadOnlyList<string> Cells)> rows, IReadOnlyList<bool> numeric, string code)
+    internal static ScheduleTable Build(string title, IReadOnlyList<string> headings, List<(ScheduleLineKind Kind, IReadOnlyList<string> Cells)> rows, IReadOnlyList<bool> numeric, string code)
     {
         rows.Add((ScheduleLineKind.GroupHeading, new[] { code }));
         var table = ScheduleTable.Of(title, headings, rows.Where(row => row.Kind != ScheduleLineKind.GroupHeading).Select(row => row.Cells));

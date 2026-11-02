@@ -50,6 +50,16 @@ public sealed class IfcExportOptions
     public string AuthorFamilyName { get; init; } = string.Empty;
 
     public string Organisation { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Where the model's origin goes, in place of its survey point: east, north and up, mm, and turned
+    /// about it, degrees - a linked model written to a file of its own, put where its link puts it on
+    /// the project it is linked into, so the two overlay when read together. Null for its own.
+    /// </summary>
+    public (double X, double Y, double Z, double Rotation)? Origin { get; init; }
+
+    /// <summary>Whether the analytical model goes out with the building - its members, plates, supports, load cases and combinations - as the structural analysis view has it.</summary>
+    public bool Analytical { get; init; }
 }
 
 /// <summary>
@@ -106,7 +116,7 @@ public static partial class IfcExport
         // gets treated with suspicion - so the view definition is stated rather than left
         // blank, and the originating system is us rather than whatever process is running.
         model.Header.FileDescription.Description.Clear();
-        model.Header.FileDescription.Description.Add("ViewDefinition [CoordinationView]");
+        model.Header.FileDescription.Description.Add(options.Analytical ? "ViewDefinition [CoordinationView, StructuralAnalysisView]" : "ViewDefinition [CoordinationView]");
 
         model.Header.FileName.Name = document.ProjectInformation.Name;
         model.Header.FileName.OriginatingSystem = $"{options.ApplicationName} {options.ApplicationVersion}";
@@ -117,7 +127,7 @@ public static partial class IfcExport
 
         using (var transaction = model.BeginTransaction("Export"))
         {
-            new Exporter(model, document).Run();
+            new Exporter(model, document) { Origin = options.Origin, Analytical = options.Analytical }.Run();
             transaction.Commit();
         }
 
@@ -171,6 +181,9 @@ public static partial class IfcExport
         private IfcGeometricRepresentationContext _context = null!;
         private IfcLocalPlacement _origin = null!;
 
+        /// <summary>Where the origin goes instead of the survey point; null for that.</summary>
+        public (double X, double Y, double Z, double Rotation)? Origin { get; init; }
+
         public Exporter(IfcStore model, BimDocument document)
         {
             _model = model;
@@ -206,7 +219,7 @@ public static partial class IfcExport
             foreach (var railing in _document.All<Railing>()) ExportRailing(railing);
             foreach (var beam in _document.All<Beam>()) ExportBeam(beam);
             foreach (var column in _document.All<Column>()) ExportColumn(column);
-            foreach (var footing in _document.Elements.Where(element => element is WallFooting or PadFooting).ToList()) ExportFooting(footing);
+            foreach (var footing in _document.Elements.Where(Footings.IsFoundation).ToList()) ExportFooting(footing);
             foreach (var ground in _document.All<Toposurface>()) ExportGround(ground);
             foreach (var system in _document.All<BeamSystem>()) ExportBeamSystem(system);
             foreach (var component in _document.All<Component>()) ExportComponent(component);
@@ -218,6 +231,7 @@ public static partial class IfcExport
             ExportClassifications();
             ExportProgramme();
             ExportSystems(building);
+            if (Analytical) ExportAnalytical(building);
         }
 
         /// <summary>
@@ -438,6 +452,7 @@ public static partial class IfcExport
                 assignment.Units.Add(SiUnit(IfcUnitEnum.PLANEANGLEUNIT, IfcSIUnitName.RADIAN));
                 assignment.Units.Add(SiUnit(IfcUnitEnum.THERMODYNAMICTEMPERATUREUNIT, IfcSIUnitName.DEGREE_CELSIUS));
                 assignment.Units.Add(SiUnit(IfcUnitEnum.POWERUNIT, IfcSIUnitName.WATT));
+                if (Analytical) AnalyticalUnits(assignment);
             });
 
             _context = New<IfcGeometricRepresentationContext>(context =>
@@ -451,7 +466,14 @@ public static partial class IfcExport
 
             // Everything is placed from here: the origin, or - for a model brought in from a national grid - back where it was set out.
             var survey = _document.ProjectInformation.SurveyOffset;
-            _origin = New<IfcLocalPlacement>(placement => placement.RelativePlacement = Placement(Point3D(survey.X, survey.Y, 0)));
+            _origin = Origin is var (x, y, z, rotation)
+                ? New<IfcLocalPlacement>(placement => placement.RelativePlacement = New<IfcAxis2Placement3D>(axis =>
+                {
+                    axis.Location = Point3D(x, y, z);
+                    axis.Axis = Direction(0, 0, 1);
+                    axis.RefDirection = Direction(Math.Cos(rotation * Math.PI / 180), Math.Sin(rotation * Math.PI / 180), 0);
+                }))
+                : New<IfcLocalPlacement>(placement => placement.RelativePlacement = Placement(Point3D(survey.X, survey.Y, 0)));
 
             var information = _document.ProjectInformation;
 
@@ -2031,13 +2053,22 @@ public static partial class IfcExport
         }
 
         /// <summary>
-        /// A footing as an IfcFooting - a strip or a pad - its concrete its body; the wall or pier
-        /// standing on it, its own IfcWall or IfcColumn, from the footing's id turned over.
+        /// A foundation: a strip or pad as an IfcFooting, a ground beam as an IfcFooting FOOTING_BEAM, a
+        /// raft as an IfcSlab BASESLAB, a pile as a bored, cast in place IfcPile - its concrete its body,
+        /// every run of a stepped strip in it, and its bars written down; the wall or pier standing on it,
+        /// its own IfcWall or IfcColumn, from the footing's id turned over.
         /// </summary>
         private void ExportFooting(Element footing)
         {
-            var meshes = Footings.Meshes(_document, footing);
-            if (meshes.Count == 0) return;
+            var meshes = footing switch
+            {
+                RaftFoundation raft => Rafts.Meshes(_document, raft),
+                GroundBeam or Pile => Piles.Meshes(_document, footing),
+                _ => Footings.Meshes(_document, footing)
+            };
+            var body = footing is Pile ? meshes.ToList() : meshes.Where(mesh => mesh.Kind != MeshKind.Wall).ToList();
+            var stems = footing is Pile ? new List<Mesh3D>() : meshes.Where(mesh => mesh.Kind == MeshKind.Wall).ToList();
+            if (body.Count == 0) return;
 
             var type = _document.FindType<FootingType>(footing.TypeId);
             var levelId = Footings.LevelOf(_document, footing);
@@ -2049,33 +2080,64 @@ public static partial class IfcExport
                 placement.RelativePlacement = Placement(Point3D(0, 0, 0));
             });
 
-            var product = New<Xbim.Ifc4.StructuralElementsDomain.IfcFooting>(f =>
+            var name = Footings.MemberName(_document, footing);
+            IfcProduct product = footing switch
             {
-                f.GlobalId = footing.Id.ToIfc();
-                f.Name = type?.Name ?? "Footing";
-                f.Tag = footing.Mark;
-                f.PredefinedType = footing is PadFooting ? IfcFootingTypeEnum.PAD_FOOTING : IfcFootingTypeEnum.STRIP_FOOTING;
-                f.ObjectPlacement = OnStorey();
-                f.Representation = TessellatedBody(new[] { meshes[0] }, storeyElevation);
-            });
+                RaftFoundation => New<IfcSlab>(slab =>
+                {
+                    slab.GlobalId = footing.Id.ToIfc();
+                    slab.Name = name;
+                    slab.Tag = footing.Mark;
+                    slab.PredefinedType = IfcSlabTypeEnum.BASESLAB;
+                    slab.ObjectPlacement = OnStorey();
+                    slab.Representation = TessellatedBody(body, storeyElevation);
+                }),
+                Pile => New<Xbim.Ifc4.StructuralElementsDomain.IfcPile>(pile =>
+                {
+                    pile.GlobalId = footing.Id.ToIfc();
+                    pile.Name = name;
+                    pile.Tag = footing.Mark;
+                    pile.PredefinedType = IfcPileTypeEnum.BORED;
+                    pile.ConstructionType = IfcPileConstructionEnum.CAST_IN_PLACE;
+                    pile.ObjectPlacement = OnStorey();
+                    pile.Representation = TessellatedBody(body, storeyElevation);
+                }),
+                _ => New<Xbim.Ifc4.StructuralElementsDomain.IfcFooting>(f =>
+                {
+                    f.GlobalId = footing.Id.ToIfc();
+                    f.Name = type?.Name ?? name;
+                    f.Tag = footing.Mark;
+                    f.PredefinedType = footing switch
+                    {
+                        PadFooting => IfcFootingTypeEnum.PAD_FOOTING,
+                        GroundBeam => IfcFootingTypeEnum.FOOTING_BEAM,
+                        _ => IfcFootingTypeEnum.STRIP_FOOTING
+                    };
+                    f.ObjectPlacement = OnStorey();
+                    f.Representation = TessellatedBody(body, storeyElevation);
+                })
+            };
             Contain(footing, product);
-            WriteSet(product, "Pset_FootingCommon", new Dictionary<string, IfcValue?>
+            WriteSet(product, footing switch { RaftFoundation => "Pset_SlabCommon", Pile => "Pset_PileCommon", _ => "Pset_FootingCommon" }, new Dictionary<string, IfcValue?>
             {
                 ["Reference"] = type is null ? null : new IfcIdentifier(type.Name),
                 ["LoadBearing"] = new IfcBoolean(true)
             });
             WriteSet(product, "Footing", new Dictionary<string, IfcValue?>
             {
-                ["DepthBelowGround"] = new IfcLengthMeasure(Math.Round(footing switch
+                ["DepthBelowGround"] = footing switch
                 {
-                    WallFooting strip => Footings.DepthBelowGround(_document, strip) ?? 0,
-                    PadFooting pad => Footings.DepthBelowGround(_document, pad) ?? 0,
-                    _ => 0
-                })),
+                    WallFooting strip => new IfcLengthMeasure(Math.Round(Footings.DepthBelowGround(_document, strip) ?? 0)),
+                    PadFooting pad => new IfcLengthMeasure(Math.Round(Footings.DepthBelowGround(_document, pad) ?? 0)),
+                    RaftFoundation raft => new IfcLengthMeasure(Math.Round(Rafts.EdgeBelowGround(_document, raft))),
+                    _ => null
+                },
+                ["Reinforcement"] = Reinforcement.Said(footing) is { Length: > 0 } bars ? new IfcText(bars) : null,
+                ["Capacity"] = footing is Pile carried ? new IfcText(Piles.CapacitySaid(_document, carried)) : null,
                 ["Regulations"] = new IfcText(StructureRules.Verdict(_document, footing))
             });
 
-            if (meshes.Count < 2) return;
+            if (stems.Count == 0) return;
             var bytes = footing.Id.ToByteArray();
             bytes[15] ^= 0xFF;
             var stemId = new Guid(bytes);
@@ -2086,7 +2148,7 @@ public static partial class IfcExport
                     c.Name = "Pier";
                     c.PredefinedType = IfcColumnTypeEnum.COLUMN;
                     c.ObjectPlacement = OnStorey();
-                    c.Representation = TessellatedBody(new[] { meshes[1] }, storeyElevation);
+                    c.Representation = TessellatedBody(stems, storeyElevation);
                 })
                 : New<IfcWall>(w =>
                 {
@@ -2094,7 +2156,7 @@ public static partial class IfcExport
                     w.Name = "Foundation Wall";
                     w.PredefinedType = IfcWallTypeEnum.SOLIDWALL;
                     w.ObjectPlacement = OnStorey();
-                    w.Representation = TessellatedBody(new[] { meshes[1] }, storeyElevation);
+                    w.Representation = TessellatedBody(stems, storeyElevation);
                 });
             Contain(footing, stem);
         }

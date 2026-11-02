@@ -44,6 +44,7 @@ public static class Warnings
         using var kept = ModelCache.Begin(document);
         var found = new List<Warning>();
         found.AddRange(ModelProblems(document));
+        found.AddRange(Analytical(document));
         found.AddRange(Regulations(document));
         found.AddRange(MepSystems.Problems(document)
             .Select(problem => new Warning(WarningKind.Services, Heading(problem.Element), problem.Text, new[] { problem.Element })));
@@ -55,6 +56,17 @@ public static class Warnings
 
     private static string NameOf(BimDocument document, Element element) => Coordination.Comparisons.NameOf(document, element);
 
+    /// <summary>Where the analytical model is not joined up or held, and where the loads find nothing to bear on.</summary>
+    private static IEnumerable<Warning> Analytical(BimDocument document)
+    {
+        var model = AnalyticalModel.Of(document);
+        if (model.Members.Count == 0 && model.Panels.Count == 0) yield break;
+        var loading = StructuralLoading.Of(document, model);
+        foreach (var problem in model.Problems.Concat(loading.Problems))
+            yield return new Warning(WarningKind.Model, "Analytical model",
+                problem.Elements.Count == 0 ? problem.Said : $"{NameOf(document, problem.Elements[0])}: {problem.Said}", problem.Elements);
+    }
+
     // ---- the model --------------------------------------------------------------------
 
     /// <summary>The model drawn wrong.</summary>
@@ -64,6 +76,11 @@ public static class Warnings
         foreach (var warning in OverlappingWalls(document)) yield return warning;
         foreach (var warning in RoomProblems(document)) yield return warning;
         foreach (var warning in AreaProblems(document)) yield return warning;
+
+        // Levels and gridlines following a linked model's whose originals have changed.
+        foreach (var finding in Coordination.CopyMonitor.Review(document))
+            yield return new Warning(WarningKind.Model, "Linked levels and grids changed", finding.Said + " Coordination Review moves it to match, accepts it, or stops following it.",
+                finding.Datum is Element element ? new[] { element } : Array.Empty<Element>());
         foreach (var warning in DuplicateMarks(document)) yield return warning;
 
         foreach (var opening in document.All<Opening>().Where(opening => document.Find<Wall>(opening.HostWallId) is null))

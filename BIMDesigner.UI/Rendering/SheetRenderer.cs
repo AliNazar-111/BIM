@@ -304,7 +304,7 @@ public sealed class SheetRenderer
                 break;
 
             // A schedule, or a keynote legend: its table as it now reports, the size its text is.
-            case ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule when viewport.Table(Document) is { } table:
+            case ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule or ViewKind.BarSchedule when viewport.Table(Document) is { } table:
                 DrawTable(dc, table, bounds);
                 break;
         }

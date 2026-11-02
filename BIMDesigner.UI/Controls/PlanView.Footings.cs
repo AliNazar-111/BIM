@@ -47,7 +47,7 @@ public partial class PlanView
         var footing = Footings.Fit(Document, wall, Document.FindType<FootingType>(ActiveWallFootingTypeId));
         Apply(new AddElementCommand(Document, footing, "Wall Foundation"));
         Select(footing);
-        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(footing.TypeId)?.Name ?? "A footing"} under the wall, {Core.Units.FormatMm(Footings.DepthBelowGround(Document, footing) ?? footing.Depth)} below the ground. {StructureRules.Verdict(Document, footing)}.");
+        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(footing.TypeId)?.Name ?? "A footing"} under the wall, {Core.Units.FormatMm(Footings.DepthBelowGround(Document, footing) ?? footing.Depth)} below the ground. {StructureRules.Verdict(Document, footing).TrimEnd('.')}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -85,7 +85,68 @@ public partial class PlanView
 
         Apply(new AddElementCommand(Document, pad, "Isolated Foundation"));
         Select(pad);
-        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(pad.TypeId)?.Name ?? "A pad"}, {Core.Units.FormatMm(Footings.DepthBelowGround(Document, pad) ?? pad.Depth)} below the ground. {StructureRules.Verdict(Document, pad)}.");
+        HintChanged?.Invoke(this, $"{Document.FindType<FootingType>(pad.TypeId)?.Name ?? "A pad"}, {Core.Units.FormatMm(Footings.DepthBelowGround(Document, pad) ?? pad.Depth)} below the ground. {StructureRules.Verdict(Document, pad).TrimEnd('.')}.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>A click with the Raft tool: a raft under the building clicked inside, to the outside of its walls. Public so it can be driven from tests.</summary>
+    public bool PlaceRaftAt(Point2D raw)
+    {
+        if (Document is null) return false;
+        if (Document.All<RaftFoundation>().Any(raft => Footings.LevelOf(Document, raft) == ActiveLevelId && Polygon2D.Contains(raft.Outline, raw)))
+        {
+            HintChanged?.Invoke(this, "There is a raft under that already.");
+            return false;
+        }
+
+        if (Rafts.Under(Document, ActiveLevelId, raw) is not { } raft)
+        {
+            HintChanged?.Invoke(this, "Click inside the building: its outside walls are what the raft is drawn round.");
+            return false;
+        }
+
+        Apply(new AddElementCommand(Document, raft, "Raft Foundation"));
+        Select(raft);
+        HintChanged?.Invoke(this, $"A raft of {Core.Units.OfSquareMetres(Polygon2D.Area(raft.Outline) / 1e6, "0.0")}, {Core.Units.FormatMm(raft.Thickness)} thick, its edge {Core.Units.FormatMm(Rafts.EdgeBelowGround(Document, raft))} below the ground. {StructureRules.Verdict(Document, raft).TrimEnd('.')}.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>A click with the Piles tool: a ground beam on piles under the wall clicked, or a pile on its own where there is none. Public so it can be driven from tests.</summary>
+    public bool PlacePilesAt(Point2D raw)
+    {
+        if (Document is null) return false;
+        var (diameter, least) = (Piles.UsualDiameter(Document), Piles.LeastLength(Document));
+        if (HitTestWall(raw) is not { } wall)
+        {
+            var single = Piles.Single(Document, ActiveLevelId, SnapPoint(raw, null, out _), diameter, least);
+            Apply(new AddElementCommand(Document, single, "Pile"));
+            Select(single);
+            HintChanged?.Invoke(this, $"A pile on its own, {Core.Units.FormatMm(single.Diameter)} across and {Core.Units.FormatMm(single.Length)} long. {Piles.CapacitySaid(Document, single).TrimEnd('.')}.");
+            ModelChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+            return true;
+        }
+
+        if (wall.IsCurved)
+        {
+            HintChanged?.Invoke(this, "A ground beam goes under a straight wall; a curved one is not piled here yet.");
+            return false;
+        }
+
+        if (Piles.Under(Document, wall) is not null || Footings.Under(Document, wall) is not null)
+        {
+            HintChanged?.Invoke(this, "That wall has a foundation under it already.");
+            return false;
+        }
+
+        var (beam, piles) = Piles.Fit(Document, wall, diameter, least);
+        Apply(new AddElementsCommand(Document, piles.Cast<Element>().Prepend(beam).ToList(), "Ground Beam and Piles"));
+        Select(beam);
+        HintChanged?.Invoke(this, $"A ground beam under the wall on {piles.Count} new pile{(piles.Count == 1 ? "" : "s")}, the longest {Core.Units.FormatMm(piles.Count == 0 ? 0 : piles.Max(pile => pile.Length))}. {StructureRules.Verdict(Document, beam).TrimEnd('.')}.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
         return true;
@@ -123,7 +184,7 @@ public partial class PlanView
     private IEnumerable<Element> FootingsAt(Point2D model)
     {
         if (Document is null) yield break;
-        foreach (var footing in Document.Elements.Where(element => element is WallFooting or PadFooting))
+        foreach (var footing in Document.Elements.Where(Footings.IsFoundation))
             if (Footings.LevelOf(Document, footing) == ActiveLevelId && Footings.Footprint(Document, footing) is { Count: >= 3 } outline && Polygon2D.Contains(outline, model))
                 yield return footing;
     }

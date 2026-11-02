@@ -43,8 +43,17 @@ public sealed class ModelLink : Element
     /// <summary>Whether it is drawn; unloaded, it is still linked, ready to show again.</summary>
     public bool Shown { get; set; } = true;
 
-    /// <summary>Whether it is drawn faded on the plans, so this model stands out over it.</summary>
+    /// <summary>Whether it is drawn faded - on the plans, and in sections and elevations - so this model stands out over it.</summary>
     public bool Halftone { get; set; } = true;
+
+    /// <summary>
+    /// Whether it comes with this project into one that links this project in - an attachment - or
+    /// stays this project's own - an overlay, as a link starts.
+    /// </summary>
+    public bool Attachment { get; set; }
+
+    /// <summary>Whether exporting this project to IFC writes it to a file of its own beside it, put where it is put here.</summary>
+    public bool ExportToIfc { get; set; } = true;
 
     /// <summary>What it is called: its file's name.</summary>
     public string Title => string.IsNullOrWhiteSpace(Path) ? "Linked model" : System.IO.Path.GetFileName(Path);
@@ -68,6 +77,10 @@ public sealed class ModelLink : Element
         });
         yield return ParameterValue.Bind(ModelLinkParameters.Shown, () => Shown, v => Shown = v);
         yield return ParameterValue.Bind(ModelLinkParameters.Halftone, () => Halftone, v => Halftone = v);
+        yield return ParameterValue.BindChoice(ModelLinkParameters.ReferenceType, () => Attachment ? "Attachment" : "Overlay",
+            v => Attachment = v == "Attachment", new[] { "Overlay", "Attachment" });
+        yield return ParameterValue.Bind(ModelLinkParameters.ExportToIfc, () => ExportToIfc, v => ExportToIfc = v);
+        yield return ParameterValue.ReadOnly(ModelLinkParameters.Nested, () => ModelLinks.NestedSaid(this));
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
 }
@@ -82,7 +95,10 @@ public static class ModelLinkParameters
     public static readonly ParameterDefinition Elevation = new("Offset Up", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Rotation = new("Rotation", ParameterDataType.Angle, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition Shown = new("Loaded", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
-    public static readonly ParameterDefinition Halftone = new("Halftone in Plan", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    public static readonly ParameterDefinition Halftone = new("Halftone", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    public static readonly ParameterDefinition ReferenceType = new("Reference Type", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Other);
+    public static readonly ParameterDefinition ExportToIfc = new("Export with IFC", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Other);
+    public static readonly ParameterDefinition Nested = new("Its Own Links", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Other);
 }
 
 /// <summary>A linked model as read: its document, when its file was last written and when it was read; or why it could not be.</summary>
@@ -95,6 +111,9 @@ public sealed class LinkedModel
     public DateTime FileTime { get; init; }
 
     public DateTime ReadAt { get; init; }
+
+    /// <summary>The file it was read from: where its link says, or found beside the model it is linked into.</summary>
+    public string? File { get; init; }
 
     /// <summary>The issue read before this one, where its file had been written again since: what a reload is compared with.</summary>
     public BimDocument? Previous { get; init; }
@@ -140,8 +159,11 @@ public static class ModelLinks
         return null;
     }
 
-    /// <summary>A link's model, read the first time it is asked for; null where it is not shown.</summary>
-    public static LinkedModel? Of(ModelLink link)
+    /// <summary>
+    /// A link's model, read the first time it is asked for; null where it is not shown. A link inside a
+    /// linked model is found beside that model's file, from the folder given, where not where it was.
+    /// </summary>
+    public static LinkedModel? Of(ModelLink link, string? folder = null)
     {
         if (!link.Shown) return null;
         lock (Gate)
@@ -149,26 +171,28 @@ public static class ModelLinks
             if (Read.TryGetValue(link.Id, out var known)) return known;
         }
 
-        return Load(link);
+        return Load(link, folder);
     }
 
-    /// <summary>The model read again from its file.</summary>
-    public static LinkedModel Load(ModelLink link)
+    /// <summary>The model read again from its file - and the links inside it forgotten, to be read again with it.</summary>
+    public static LinkedModel Load(ModelLink link, string? folder = null)
     {
         LinkedModel model;
-        if (!File.Exists(link.Path)) model = new LinkedModel { Error = $"{link.Title} is not where it was: {link.Path}", ReadAt = DateTime.Now };
+        var path = FileOf(link, folder) ?? link.Path;
+        if (!File.Exists(path)) model = new LinkedModel { Error = $"{link.Title} is not where it was: {link.Path}", ReadAt = DateTime.Now };
         else if (Reader is null) model = new LinkedModel { Error = "Nothing to read it with", ReadAt = DateTime.Now };
         else
         {
             try
             {
-                var time = File.GetLastWriteTimeUtc(link.Path);
+                var time = File.GetLastWriteTimeUtc(path);
                 LinkedModel? known;
                 lock (Gate) Read.TryGetValue(link.Id, out known);
 
                 // The issue it was: kept to compare with, where the file has been written since - or, read again as it was, the one before that.
                 var (previous, previousTime) = known is { Document: { } was } && known.FileTime != time ? (was, known.FileTime) : (known?.Previous, known?.PreviousTime ?? default);
-                model = new LinkedModel { Document = Reader(link.Path), FileTime = time, ReadAt = DateTime.Now, Previous = previous, PreviousTime = previousTime };
+                model = new LinkedModel { Document = Reader(path), FileTime = time, ReadAt = DateTime.Now, Previous = previous, PreviousTime = previousTime, File = path };
+                foreach (var nested in model.Document.All<ModelLink>()) Forget(nested);
             }
             catch (Exception error) when (error is not OutOfMemoryException)
             {
@@ -216,6 +240,18 @@ public static class ModelLinks
         return point => new Point3D(point.X * cos - point.Y * sin + dx, point.X * sin + point.Y * cos + dy, point.Z + dz);
     }
 
+    /// <summary>
+    /// Where a linked model's origin falls in the world this project is set out in - east and north on
+    /// its survey grid, up, and how far it is turned - so a file of its own written there overlays this
+    /// project's.
+    /// </summary>
+    public static (double X, double Y, double Z, double Rotation) OriginIn(BimDocument host, ModelLink link, BimDocument linked)
+    {
+        var origin = Placement(host, link, linked)(new Point3D(0, 0, 0));
+        var survey = host.ProjectInformation.SurveyOffset;
+        return (survey.X + origin.X, survey.Y + origin.Y, origin.Z, link.Rotation);
+    }
+
     /// <summary>The links shown, with their models read.</summary>
     public static IEnumerable<(ModelLink Link, BimDocument Linked)> Loaded(BimDocument host)
     {
@@ -227,9 +263,44 @@ public static class ModelLinks
     {
         LinkedModel? model;
         lock (Gate) Read.TryGetValue(link.Id, out model);
-        if (model is null) return ModelMeshBuilder.Build(linked);
+        if (model is null) return WithNested(linked, model?.File ?? link.Path, 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         lock (model)
-            return model.Built ??= ModelMeshBuilder.Build(linked);
+            return model.Built ??= WithNested(linked, model.File ?? link.Path, 0, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The most links within links followed: a link of a link of a link.</summary>
+    public const int MostNesting = 3;
+
+    /// <summary>
+    /// A linked model's meshes in its own coordinates, with those of the links attached inside it - an
+    /// attachment comes with the model it is in; an overlay stays that model's own - each where its link
+    /// puts it there, found beside the model's file where not where it was; never round a loop.
+    /// </summary>
+    private static IReadOnlyList<Mesh3D> WithNested(BimDocument linked, string file, int depth, HashSet<string> above)
+    {
+        var meshes = ModelMeshBuilder.Build(linked).ToList();
+        above = new HashSet<string>(above, StringComparer.OrdinalIgnoreCase) { System.IO.Path.GetFullPath(file) };
+        if (depth >= MostNesting) return meshes;
+
+        var folder = System.IO.Path.GetDirectoryName(file);
+        foreach (var nested in linked.All<ModelLink>().Where(each => each.Attachment && each.Shown))
+        {
+            if (FileOf(nested, folder) is not { } found || above.Contains(System.IO.Path.GetFullPath(found))) continue;
+            if (Of(nested, folder) is not { Document: { } inner }) continue;
+            var place = Placement(linked, nested, inner);
+            meshes.AddRange(WithNested(inner, found, depth + 1, above).Select(mesh => mesh.Mapped(place)));
+        }
+
+        return meshes;
+    }
+
+    /// <summary>The links inside a linked model, as its Properties say them: each, and whether it comes with it.</summary>
+    public static string NestedSaid(ModelLink link)
+    {
+        if (Of(link) is not { Document: { } linked }) return "-";
+        var nested = linked.All<ModelLink>().ToList();
+        return nested.Count == 0 ? "None"
+            : string.Join(", ", nested.Select(each => $"{each.Title} ({(each.Attachment ? each.Shown ? "attached, drawn here" : "attached, unloaded there" : "overlay, its own")})"));
     }
 
     /// <summary>A link's meshes where it puts them, each the link's - picked in 3D as the link, on this project's lowest storey.</summary>
@@ -240,6 +311,30 @@ public static class ModelLinks
         var level = host.Levels.OrderBy(each => each.Elevation).FirstOrDefault()?.Id ?? Guid.Empty;
         return Built(link, linked).Select(mesh => mesh.Mapped(place, link.Id, link.Id, level, mesh.ElementId)).ToList();
     }
+
+    /// <summary>
+    /// A view's own meshes with the shown links' added where they put them - in a section, an
+    /// elevation, a 3D view on a sheet, the daylight's surroundings - each the link's, so picking it
+    /// picks the link; faded halfway to white where the link is halftone and a drawing is wanted.
+    /// </summary>
+    public static IReadOnlyList<Mesh3D> WithLinks(BimDocument host, IReadOnlyList<Mesh3D> meshes, Func<Element, bool>? shows = null, bool fade = true)
+    {
+        var links = host.All<ModelLink>().Where(link => link.Shown && (shows?.Invoke(link) ?? true)).ToList();
+        if (links.Count == 0) return meshes;
+
+        var all = meshes.ToList();
+        foreach (var link in links)
+            foreach (var mesh in Meshes(host, link))
+            {
+                if (fade && link.Halftone) mesh.Colour = Faded(mesh.Colour);
+                all.Add(mesh);
+            }
+
+        return all;
+    }
+
+    private static Materials.ColourRgb Faded(Materials.ColourRgb colour) =>
+        new((byte)((colour.R + 255) / 2), (byte)((colour.G + 255) / 2), (byte)((colour.B + 255) / 2));
 
     /// <summary>A link's meshes where it puts them, each its own element's - to clash test, with the elements they are.</summary>
     public static IReadOnlyList<Mesh3D> ElementMeshes(BimDocument host, ModelLink link)
@@ -295,7 +390,27 @@ public static class ModelLinks
     public static (ModelLink Link, BimDocument Linked, Element Element)? Find(BimDocument host, Guid id)
     {
         foreach (var (link, linked) in Loaded(host))
+        {
             if (linked.FindElement(id) is { } element) return (link, linked, element);
+
+            // In a link attached inside it: found as the outer link's, read from the inner's model.
+            if (Nested(linked, Of(link)?.File ?? link.Path, 0).FirstOrDefault(entry => entry.Linked.FindElement(id) is not null) is { Linked: { } inner })
+                return (link, inner, inner.FindElement(id)!);
+        }
+
         return null;
+    }
+
+    /// <summary>The models attached inside a linked one, as far down as they are followed.</summary>
+    private static IEnumerable<(ModelLink Link, BimDocument Linked)> Nested(BimDocument linked, string file, int depth)
+    {
+        if (depth >= MostNesting) yield break;
+        var folder = System.IO.Path.GetDirectoryName(file);
+        foreach (var nested in linked.All<ModelLink>().Where(each => each.Attachment && each.Shown))
+        {
+            if (Of(nested, folder) is not { Document: { } inner } model) continue;
+            yield return (nested, inner);
+            foreach (var deeper in Nested(inner, model.File ?? nested.Path, depth + 1)) yield return deeper;
+        }
     }
 }

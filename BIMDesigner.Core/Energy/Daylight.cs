@@ -212,9 +212,10 @@ public static class Daylight
         return nearest;
     }
 
-    /// <summary>The model as daylight sees it: what is built, without the furniture and the services; and the ground.</summary>
+    /// <summary>The model as daylight sees it: what is built, without the furniture and the services, the linked models standing round it, and the ground.</summary>
     public static RenderScene SceneOf(BimDocument document) =>
-        RenderScene.Build(ModelMeshBuilder.Build(document, element => element is not (Component or Pipe or Duct)), SurfacePatterns.ByName(document), ground: true);
+        RenderScene.Build(Coordination.ModelLinks.WithLinks(document, ModelMeshBuilder.Build(document, element => element is not (Component or Pipe or Duct)), fade: false),
+            SurfacePatterns.ByName(document), ground: true);
 
     /// <summary>
     /// The daylight factor at a point of the model, %: the light the CIE overcast sky gives it, upward over a level

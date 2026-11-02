@@ -32,7 +32,10 @@ public enum ViewKind
     ColourLegend,
 
     /// <summary>An area schedule: each storey's area in a scheme (Index), what is left out of it, and the total.</summary>
-    AreaSchedule
+    AreaSchedule,
+
+    /// <summary>The bar schedule of the foundations' steel: each member's bars by mark, shape and length, their mass by size, and the fabric.</summary>
+    BarSchedule
 }
 
 /// <summary>
@@ -103,7 +106,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
             ViewKind.Callout => document.FindElement(targetId) is Views.Callout callout && callout.Parent.Kind != ViewKind.Callout && callout.Parent.ExistsIn(document),
             ViewKind.Drafting => document.FindElement(targetId) is Annotation.DraftingView,
             ViewKind.ColourLegend => Views.RoomColours.ViewOf(this).ExistsIn(document),
-            ViewKind.KeynoteLegend or ViewKind.AreaSchedule => true,
+            ViewKind.KeynoteLegend or ViewKind.AreaSchedule or ViewKind.BarSchedule => true,
             _ => false
         };
     }
@@ -136,6 +139,7 @@ public readonly record struct ViewReference(ViewKind Kind, Guid TargetId, string
             ViewKind.Drafting => document.FindElement(targetId) is Annotation.DraftingView drafting ? drafting.Name : "Drafting view - missing",
             ViewKind.ColourLegend => Views.RoomColours.Title(document, this),
             ViewKind.AreaSchedule => Views.AreaPlans.ScheduleTitle(document, this),
+            ViewKind.BarSchedule => Architecture.Reinforcement.Title(document),
             _ => "View"
         };
     }

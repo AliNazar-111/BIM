@@ -200,7 +200,7 @@ public static class Sight
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var type = document.FindType<ComponentType>(person.TypeId);
         var walker = type is null ? Walker.For(WalkerKind.Adult, us) : Walker.Of(type, us);
-        meshes ??= ModelMeshBuilder.Build(document, element => element.Id != person.Id);
+        meshes ??= Coordination.ModelLinks.WithLinks(document, ModelMeshBuilder.Build(document, element => element.Id != person.Id), fade: false);
         var feet = type is null ? document.FindLevel(person.LevelId)?.Elevation ?? 0 : ComponentHosting.BaseElevation(document, person, type);
         var eye = feet + walker.EyeHeight;
         var area = VisibleArea(SliceAt(meshes, eye), person.Location);
@@ -311,9 +311,10 @@ public static class ViewOut
         if (panes.Count == 0) return new ViewOutResult(0, 0, false, false, false, 0, ViewLevel.None);
 
         // Asked alone, only what could be in the way is built; in a schedule of rooms, the whole model once for all of them.
+        // The linked models with it: the building next door is in the way of the view as much as this one.
         meshes ??= alone
-            ? ModelMeshBuilder.Build(document, element => InSight(document, element, at, panes))
-            : ModelCache.Of(document)!.Keep("model meshes", document, null, null, () => ModelMeshBuilder.Build(document));
+            ? Coordination.ModelLinks.WithLinks(document, ModelMeshBuilder.Build(document, element => InSight(document, element, at, panes)), fade: false)
+            : ModelCache.Of(document)!.Keep("model meshes", document, null, null, () => Coordination.ModelLinks.WithLinks(document, ModelMeshBuilder.Build(document), fade: false));
         var bounds = meshes.Select(mesh => mesh.Bounds()).ToList();
         var floor = Architecture.FloorSurfaces.FloorUnder(document, levelId, at) is { } slab ? slab.GetTopElevation(document) : document.FindLevel(levelId)?.Elevation ?? 0;
         var eyeZ = floor + eyeHeight;

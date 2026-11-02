@@ -367,11 +367,14 @@ public partial class ModelView : Border
             if (_view.Style == VisualStyle.Realistic && Textured(mesh) is { } textured)
                 (geometry, material) = (textured.Geometry, TexturedMaterial(mesh, textured.Texture));
 
+            // Behind the analytical model, the building faint.
+            if (_analytical is not null) material = Ghost(mesh);
+
             var model = new GeometryModel3D(geometry, material) { BackMaterial = material };
             _meshOf[model] = mesh;
 
             // In wireframe every face is clear, kept only to be clicked on: the edges are all there is.
-            var seeThrough = mesh.Opacity < 1 || _view.Style is VisualStyle.XRay or VisualStyle.Wireframe;
+            var seeThrough = _analytical is not null || mesh.Opacity < 1 || _view.Style is VisualStyle.XRay or VisualStyle.Wireframe;
             (seeThrough ? clear : solid).Children.Add(model);
         }
 
@@ -384,6 +387,7 @@ public partial class ModelView : Border
         root.Children.Add(_previewGroup);
         root.Children.Add(_edgeGroup);
         root.Children.Add(clear);
+        if (_analytical is not null) root.Children.Add(AnalyticalScene());
 
         _scene.Content = root;
 
@@ -406,7 +410,8 @@ public partial class ModelView : Border
         _selectedEdges = null;
         _edgeDistance = _distance;
 
-        if (!ShowsEdges) return;
+        AddAnalyticalEdges();
+        if (!ShowsEdges || _analytical is not null) return;
 
         // Scaled with distance so the lines stay about a pixel wide however far out you are.
         // Fixed world thickness would be hairline across a site and a fence post up close.

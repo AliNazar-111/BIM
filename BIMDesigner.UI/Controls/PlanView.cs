@@ -133,6 +133,12 @@ public enum PlanTool
     /// <summary>Puts a pad footing under each structural column clicked, or on its own.</summary>
     PadFooting,
 
+    /// <summary>Puts a raft under the building clicked inside, to the outside of its walls.</summary>
+    Raft,
+
+    /// <summary>Puts a ground beam on piles under each wall clicked, or a pile on its own.</summary>
+    Piles,
+
     /// <summary>Runs a slab edge - a thickened edge, an edge beam, a kerb - along floor edges picked one after another.</summary>
     SlabEdge,
 
@@ -1265,6 +1271,8 @@ public partial class PlanView : FrameworkElement
         PlanTool.Column => "Click where the column should stand. Space turns it a quarter turn.",
         PlanTool.StructuralColumn => "Click where the structural column stands - or select gridlines and use At Grids. Space turns it a quarter turn.",
         PlanTool.WallFooting => "Click a wall: a strip footing goes under it, as wide and as deep as the rules ask, the masonry on it up to the wall.",
+        PlanTool.Raft => "Click inside the building: a raft goes under it to the outside of its walls and a little beyond, thickened round its edge and under the walls inside.",
+        PlanTool.Piles => "Click a wall: a ground beam goes under it on piles at its ends and no more than 3 m apart, each as long as its load asks in the clay - or click anywhere for a pile on its own.",
         PlanTool.PadFooting => "Click a structural column: a pad goes under it, sized for the load it brings down and as deep as the rules ask - or click anywhere for a pad on its own.",
         PlanTool.Floor => "Pick the walls round the floor, or click inside a room for all of it; draw holes inside. Finish ✓ makes the floor.",
         PlanTool.Ceiling => "Pick the walls round the ceiling, or click inside a room for all of it; draw holes inside. Finish ✓ makes the ceiling.",
@@ -2252,6 +2260,14 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.PadFooting:
                 PlacePadFootingAt(raw);
+                return;
+
+            case PlanTool.Raft:
+                PlaceRaftAt(raw);
+                return;
+
+            case PlanTool.Piles:
+                PlacePilesAt(raw);
                 return;
 
             case PlanTool.Floor:
@@ -6419,7 +6435,7 @@ public partial class PlanView : FrameworkElement
                 ring = slab.Boundary;
                 break;
 
-            case WallFooting or PadFooting:
+            case WallFooting or PadFooting or RaftFoundation or GroundBeam or Pile:
                 if (Footings.Footprint(Document, element) is { Count: >= 3 } footingOutline)
                     DrawModelPolyline(dc, _hoverPen, footingOutline.Append(footingOutline[0]).ToList());
                 return;
@@ -6665,6 +6681,9 @@ public partial class PlanView : FrameworkElement
         foreach (var ground in GroundsAt(model)) yield return ground;
         foreach (var filled in OnActiveLevel<FilledRegion>().Reverse())
             if (Polygon2D.Contains(filled.Boundary, model)) yield return filled;
+
+        // A linked model, by the lines it is cut in on this plan - under everything of this project.
+        foreach (var link in LinksAt(model)) yield return link;
     }
 
     /// <summary>Picks the wall whose body the point falls in, nearest first.</summary>
@@ -6750,6 +6769,7 @@ public partial class PlanView : FrameworkElement
         DrawDaylight(dc);
         DrawSight(dc);
         DrawModel(dc);
+        DrawAnalytical(dc);
         DrawClearances(dc);
         if (ActiveCallout is not null)
         {

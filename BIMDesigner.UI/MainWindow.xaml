@@ -399,6 +399,10 @@
                         </MenuItem>
                         <MenuItem Header="Export IFC _2x3..." Click="OnExportIfc2x3"
                                   ToolTip="The model as IFC2x3 Coordination View 2.0, for software that does not yet read IFC4"/>
+                        <MenuItem Header="Export IFC with _Analytical Model..." Click="OnExportIfcAnalytical"
+                                  ToolTip="The model as IFC4 with its analytical model, supports, load cases and combinations - the structural analysis view"/>
+                        <MenuItem Header="Export _SAF (Structural Analysis)..." Click="OnExportSaf"
+                                  ToolTip="The analytical model and its loads as SAF, the Structural Analysis Format: an .xlsx analysis programs read"/>
                         <MenuItem Header="Export _COBie..." Click="OnExportCobie"
                                   ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
                         <MenuItem Header="Export _gbXML..." Click="OnExportGbXml"
@@ -604,6 +608,32 @@
                                 <RadioButton x:Name="WallFootingTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.WallFooting}"
                                              Content="Wall" Checked="OnToolChanged"
                                              ToolTip="Wall Foundation: click a wall and a strip footing goes under it with the masonry up to it - as wide as Approved Document A's Table 10 or the IRC's Table R403.1 asks for the load and the ground, and as deep as frost, clay or the frost line asks. The ground is in the plan's Properties"/>
+                                <RadioButton x:Name="RaftTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Raft}"
+                                             Content="Raft" Checked="OnToolChanged"
+                                             ToolTip="Raft Foundation: click inside the building and a reinforced raft goes under it, to the outside of its walls and 150 beyond - its slab 200 thick on fabric top and bottom, thickened round its edge and under the load-bearing walls inside, its edge as deep as frost asks. In the US a 4 in slab with a turned-down edge"/>
+                                <RadioButton x:Name="PilesTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.Piles}"
+                                             Content="Piles" Checked="OnToolChanged"
+                                             ToolTip="Piles and Ground Beam: click a wall and a reinforced ground beam goes under it on bored piles at its ends and no more than 3 m apart, each as long as its share of the load asks in a clay - over a void against the clay swelling - or click anywhere for a pile on its own"/>
+                                <Button x:Name="BarScheduleButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.BarSchedule}"
+                                        Content="Bar Schedule" Click="OnBarSchedule"
+                                        ToolTip="Bar Schedule: the steel in the reinforced footings, rafts, ground beams and piles - each bar mark by member, its size, how many, how long and its shape code as BS 8666 schedules it (a bar list in the US), each size's mass, and the fabric. Put it on a sheet from Place"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Analytical" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton x:Name="AnalyticalToggle" Style="{StaticResource RibbonToggle}" Tag="{StaticResource Icon.Analytical}"
+                                              Content="Analytical Model" Click="OnAnalyticalToggled"
+                                              ToolTip="The structure as an analysis program takes it, over the plan and in 3D: each structural column and beam a line, each bearing wall and concrete floor a plate, joined at nodes where they meet, held where the foundations are - and what is not joined up, in Warnings"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Loads}"
+                                        Content="Loads" Click="OnAnalyticalLoads"
+                                        ToolTip="Loads: the load cases on the analytical model - its own weight, the rest of what is built, what is put on its floors and roofs, snow, the wind four ways - by BS EN 1991 or ASCE 7-16, the combinations BS EN 1990 or ASCE 7-16 sets, and what is not joined up; written out from here for an analysis program"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Export}" Content="SAF" Click="OnExportSaf"
+                                            ToolTip="The analytical model and its loads as SAF, the Structural Analysis Format: an .xlsx analysis programs read"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Export}" Content="IFC Analysis" Click="OnExportIfcAnalytical"
+                                            ToolTip="The model as IFC4 with its analytical model, supports, load cases and combinations - the structural analysis view"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -1220,6 +1250,12 @@
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Link}" Content="Manage Links" Click="OnManageLinks"
                                             ToolTip="The models and drawings linked in: how each stands, to reload from its file or another, unload, or take out"/>
                                 </StackPanel>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Level}" Content="Copy/Monitor" Click="OnCopyMonitor"
+                                            ToolTip="Copy the picked linked model's levels and gridlines into this project - or pair them with this project's own where they already stand - each to follow its original"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Warnings}" Content="Coordination Review" Click="OnCoordinationReview"
+                                            ToolTip="What has changed in the levels and gridlines following a linked model's: move each to match, accept it, or stop following it"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -1290,6 +1326,51 @@
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CostPlan}"
                                         Content="Cost Plan" Click="OnCostPlan"
                                         ToolTip="The model measured and costed at its types' rates, set out by NRM1 in England or UniFormat II in the US, with preliminaries, overheads and profit, fees, risk and inflation - and its spend over the programme"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem x:Name="CollaborateTab" Header="Collaborate" Style="{StaticResource RibbonTab}">
+                    <StackPanel Orientation="Horizontal">
+                        <HeaderedContentControl Header="Manage Collaboration" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="WorksharingButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Central}"
+                                        Content="Worksharing" Click="OnWorksharing"
+                                        ToolTip="Share this project through a central model: saved where the team can reach it, each person working in a local copy of their own, borrowing what they change"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Worksets}" Content="Worksets" Click="OnWorksets"
+                                            ToolTip="The worksets the elements are divided into: made, renamed, made yours, shown or hidden in this view, and the one new elements go on"/>
+                                    <StackPanel Orientation="Horizontal" Margin="4,2,0,0">
+                                        <TextBlock Text="Active" VerticalAlignment="Center" Margin="0,0,6,0" Opacity="0.8"/>
+                                        <ComboBox x:Name="ActiveWorksetPicker" Style="{StaticResource OptionCombo}" MinWidth="130" SelectionChanged="OnActiveWorksetChanged"
+                                                  ToolTip="The workset new elements go on"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Synchronize" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Synchronize}"
+                                        Content="Synchronize" Click="OnSynchronize"
+                                        ToolTip="Synchronize with Central: what you have changed sent to the central model, everyone else's brought back, and what you borrowed let go"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Synchronize}" Content="Reload Latest" Click="OnReloadLatest"
+                                            ToolTip="Everyone else's changes brought back from the central model, your own kept and not sent"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Worksets}" Content="Relinquish All Mine" Click="OnRelinquish"
+                                            ToolTip="Let go of everything you have borrowed or made yours, without synchronising - where you have changed none of it since"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Issues}" Content="Editing Requests" Click="OnEditingRequests"
+                                            ToolTip="Ask whoever has what you want to change for it; grant or deny what others ask of you"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Display" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Margin="4,6,4,0">
+                                <TextBlock Text="Worksharing display" Opacity="0.8" Margin="0,0,0,4"/>
+                                <ComboBox x:Name="WorksharingDisplayPicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnWorksharingDisplayChanged"
+                                          ToolTip="Colour every view by who has each element - yours green, others' each their colour - or by the workset it is on"/>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>

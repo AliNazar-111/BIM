@@ -524,7 +524,7 @@ public sealed class Roof : Slab
         SlopingArea(document) * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
     protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document) =>
-        Extrusion is null ? FootprintParameters(document) : ExtrusionParameters(document);
+        (Extrusion is null ? FootprintParameters(document) : ExtrusionParameters(document)).Append(AnalyticalParameters.Said(document, this));
 
     /// <summary>
     /// A roof by extrusion's own settings - Revit's Extrusion Start and End - and what it

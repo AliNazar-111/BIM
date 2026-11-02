@@ -40,6 +40,38 @@ public sealed class ViewSettings
         else _colourBy[view] = by;
     }
 
+    // Each view's worksets shown or hidden against their default, by name.
+    private readonly Dictionary<ViewReference, Dictionary<string, bool>> _worksetShown = new();
+
+    /// <summary>Whether a view shows a workset where it has been told: null where it goes by the workset's default.</summary>
+    public bool? WorksetShownIn(ViewReference view, string workset) =>
+        _worksetShown.TryGetValue(view, out var shown) && shown.TryGetValue(workset, out var value) ? value : null;
+
+    public void SetWorksetShown(ViewReference view, string workset, bool? shown)
+    {
+        if (!_worksetShown.TryGetValue(view, out var set)) _worksetShown[view] = set = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (shown is { } value) set[workset] = value;
+        else set.Remove(workset);
+        if (set.Count == 0) _worksetShown.Remove(view);
+    }
+
+    /// <summary>Every view's worksets shown or hidden, for saving.</summary>
+    public IEnumerable<(ViewReference View, string Workset, bool Shown)> WorksetVisibility =>
+        _worksetShown.SelectMany(entry => entry.Value.Select(pair => (entry.Key, pair.Key, pair.Value)));
+
+    /// <summary>The worksets a view hides: those it is told to, and those hidden by default it is not told to show.</summary>
+    public IReadOnlySet<string> HiddenWorksets(BimDocument document, ViewReference view) =>
+        document.Worksharing.Enabled
+            ? document.Worksharing.Worksets.Where(workset => !(WorksetShownIn(view, workset.Name) ?? workset.VisibleByDefault))
+                .Select(workset => workset.Name).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>();
+
+    /// <summary>
+    /// How elements are drawn while worksharing is shown - each coloured by who has it or which workset
+    /// it is on - over every view; null where it is not. Set while the project is open, not saved.
+    /// </summary>
+    public Func<Element, ElementStyle?>? Display { get; set; }
+
     /// <summary>The views whose rooms are coloured, and by what: what is saved.</summary>
     public IEnumerable<(ViewReference View, RoomColourBy By)> ColourSchemes => _colourBy.Select(entry => (entry.Key, entry.Value));
 
@@ -263,6 +295,7 @@ public sealed class ViewSettings
     private Func<Element, bool> FilterOwn(BimDocument document, ViewReference view)
     {
         var walls = WallFilter(document, view);
+        var worksets = HiddenWorksets(document, view);
         var phase = PhaseOf(view);
         var phaseFilter = PhaseFilterOf(view);
 
@@ -276,7 +309,7 @@ public sealed class ViewSettings
             foreach (var option in set.Options) shownOf[option.Id] = shown;
         }
 
-        if (walls is null && hiding.Count == 0 && shownOf.Count == 0 && phase == DesignPhase.New && phaseFilter is not (PhaseFilter.ShowPrevious or PhaseFilter.ShowPreviousAndDemolition)
+        if (walls is null && worksets.Count == 0 && hiding.Count == 0 && shownOf.Count == 0 && phase == DesignPhase.New && phaseFilter is not (PhaseFilter.ShowPrevious or PhaseFilter.ShowPreviousAndDemolition)
             && !document.Elements.Any(element => element.PhaseCreated != DesignPhase.New || element.PhaseDemolished is not null))
             return _ => true;
 
@@ -284,6 +317,7 @@ public sealed class ViewSettings
         bool Shows(Element element)
         {
             if (walls is not null && !walls(element)) return false;
+            if (worksets.Count > 0 && worksets.Contains(element.Workset)) return false;
             if (!Phasing.IsAnnotation(element.Category))
             {
                 if (Phasing.StatusIn(element, phase) is not { } status || Phasing.Display(phaseFilter, status) == PhaseDisplay.NotDisplayed) return false;
@@ -331,6 +365,7 @@ public sealed class ViewSettings
                 style = style.Then(Phasing.Override(status));
             foreach (var (filter, use) in styling)
                 if (filter!.Picks(document, element)) style = style.Then(new ElementStyle(use.Halftone, use.Colour));
+            if (Display?.Invoke(element) is { } shown) style = style.Then(shown);
             return style;
         };
     }

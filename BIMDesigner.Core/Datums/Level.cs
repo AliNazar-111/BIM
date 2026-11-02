@@ -48,6 +48,9 @@ public sealed class Level
     /// </summary>
     public Guid? StandsOn { get; set; }
 
+    /// <summary>The level of a linked model this one was copied from or paired with, and where it stood when last agreed; null for one of its own.</summary>
+    public DatumMonitor? Monitor { get; set; }
+
     /// <summary>Where the top of a slab is, given by the project the level is in.</summary>
     internal Func<Guid, double?>? FloorTop { get; set; }
 
@@ -61,3 +64,10 @@ public sealed class Level
 
     public override string ToString() => Name;
 }
+
+/// <summary>
+/// What a level or gridline copied from a linked model, or paired with one there, keeps of its
+/// original: the link it is in and which it is, its name, and where it stood in this project when
+/// last agreed - a level's elevation, a gridline's ends - to tell when it moves.
+/// </summary>
+public sealed record DatumMonitor(Guid LinkId, Guid SourceId, string SourceName, double Elevation, Geometry.Point2D Start, Geometry.Point2D End);

@@ -149,6 +149,7 @@ public partial class MainWindow
         {
             if (undo) _history.Undo(count);
             else _history.Redo(count);
+            _workshare?.Rebaseline();
         }
         finally
         {

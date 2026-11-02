@@ -209,9 +209,22 @@ public static class SectionProjection
             foreach (var slabEdge in document.All<SlabEdge>().Where(slabEdge => shows(slabEdge)))
                 if (SlabEdgeRuns.Mesh(document, slabEdge) is { } mesh) AddCut(marker, new[] { mesh }, pieces);
 
-            // Footings, the walls and piers on them, cut where the line crosses them.
-            foreach (var footing in document.Elements.Where(e => e is WallFooting or PadFooting).Where(e => shows(e)))
-                AddCut(marker, Footings.Meshes(document, footing), pieces);
+            // The linked models, cut where the line crosses them - each piece its link's, faded where the link is halftone.
+            var linked = Coordination.ModelLinks.WithLinks(document, Array.Empty<Mesh3D>(), shows)
+                .Where(mesh => mesh.Bounds() is var (low, high) && Near(marker, new Point2D((low.X + high.X) / 2, (low.Y + high.Y) / 2), Math.Max(high.X - low.X, high.Y - low.Y) + 500)).ToList();
+            if (linked.Count > 0) AddCut(marker, linked, pieces);
+
+            // Footings, rafts, ground beams and piles, the walls and piers on them, cut where the line crosses them - and the bars in them.
+            foreach (var footing in document.Elements.Where(Footings.IsFoundation).Where(e => shows(e)))
+            {
+                AddCut(marker, footing switch
+                {
+                    RaftFoundation raft => Rafts.Meshes(document, raft),
+                    GroundBeam or Pile => Piles.Meshes(document, footing),
+                    _ => Footings.Meshes(document, footing)
+                }, pieces);
+                AddCut(marker, Reinforcement.Rods(document, footing), pieces);
+            }
 
             // Roof windows the cut goes through: the frame each side, the pane between.
             foreach (var window in document.All<RoofWindow>().Where(window => shows(window)))

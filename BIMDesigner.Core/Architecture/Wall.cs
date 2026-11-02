@@ -753,6 +753,7 @@ public sealed class Wall : Element
             () => EnumText.Humanise(StructuralUsage),
             v => { if (EnumText.TryParse<StructuralUsage>(v, out var u)) StructuralUsage = u; },
             EnumText.Choices<StructuralUsage>());
+        if (StructuralUsage != StructuralUsage.NonBearing) yield return AnalyticalParameters.Said(document, this);
 
         // A curtain wall over a drop: whether its glass low down, its empty bays and its doors are guarded.
         if (document.IsCurtainWall(this))

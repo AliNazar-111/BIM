@@ -92,11 +92,12 @@ public sealed class Viewport
         ViewKind.KeynoteLegend => Annotation.Keynotes.LegendFor(document, this),
         ViewKind.ColourLegend => Views.RoomColours.Table(document, View),
         ViewKind.AreaSchedule => Views.AreaPlans.Table(document, View),
+        ViewKind.BarSchedule => Architecture.Reinforcement.Table(document),
         _ => null
     };
 
     /// <summary>Whether it is a table - a schedule or a legend - rather than a drawing at a scale.</summary>
-    public bool IsTable => View.Kind is ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule;
+    public bool IsTable => View.Kind is ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule or ViewKind.BarSchedule;
 
     /// <summary>Whether a point on the paper falls inside this viewport.</summary>
     public bool Contains(BimDocument document, Point2D paperPoint)

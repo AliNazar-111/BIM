@@ -137,6 +137,9 @@ public sealed class Floor : Slab
     /// </summary>
     public double? SpanDirection { get; set; }
 
+    /// <summary>How it goes into the analytical model: by its build-up - a plate where its structure is concrete, spanning one way where it is not - or as set.</summary>
+    public FloorAnalysis AnalyseAs { get; set; }
+
     protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document)
     {
         yield return ParameterValue.BindValidated(SlabParameters.SpanDirection,
@@ -155,6 +158,11 @@ public sealed class Floor : Slab
                 SpanDirection = Floors.Normalised(degrees);
                 return true;
             });
+        yield return ParameterValue.BindChoice(AnalyticalParameters.AnalyseAs,
+            () => EnumText.Humanise(AnalyseAs),
+            v => { if (EnumText.TryParse<FloorAnalysis>(v, out var analysis)) AnalyseAs = analysis; },
+            EnumText.Choices<FloorAnalysis>());
+        yield return AnalyticalParameters.Said(document, this);
     }
 }
 

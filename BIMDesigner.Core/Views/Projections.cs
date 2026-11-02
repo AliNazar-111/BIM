@@ -115,7 +115,8 @@ public static class Projections
     /// <summary>A 3D view as it was left: its camera - fitted round the model if it has none yet - style, section box and what it shows.</summary>
     public static ProjectedDrawing ThreeD(BimDocument document, View3D view, ViewReference reference)
     {
-        var meshes = ModelMeshBuilder.Build(document, document.ViewSettings.FilterFor(document, reference)).Where(view.Shows).ToList();
+        var filter = document.ViewSettings.FilterFor(document, reference);
+        var meshes = Coordination.ModelLinks.WithLinks(document, ModelMeshBuilder.Build(document, filter), filter).Where(view.Shows).ToList();
         IReadOnlyList<Mesh3D> shown = view.ActiveBox is { } box ? SectionBoxes.Clip(meshes, box) : meshes;
         var camera = (view.Camera ?? Fitted(shown)) with { Perspective = view.Perspective };
 
@@ -142,11 +143,15 @@ public static class Projections
     /// <summary>An elevation of one side of the building: straight on, in hidden line, with the levels across it.</summary>
     public static ProjectedDrawing Exterior(BimDocument document, ElevationSide side, ViewReference reference)
     {
-        var meshes = ModelMeshBuilder.Build(document, document.ViewSettings.FilterFor(document, reference));
+        // The linked models with it - the building next door seen beside this one - and looked at from beyond them all.
+        var filter = document.ViewSettings.FilterFor(document, reference);
+        var meshes = Coordination.ModelLinks.WithLinks(document, ModelMeshBuilder.Build(document, filter), filter);
         var outward = Elevations.Outward(side);
         var extents = Elevations.Extents(document);
         var middle = extents is { } e ? new Point2D((e.Min.X + e.Max.X) / 2, (e.Min.Y + e.Max.Y) / 2) : new Point2D(0, 0);
         var reach = extents is { } f ? f.Min.DistanceTo(f.Max) + 10000 : 10000;
+        if (ModelMeshBuilder.Bounds(meshes) is { } all)
+            reach = Math.Max(reach, new[] { all.Min, all.Max, new Point3D(all.Min.X, all.Max.Y, 0), new Point3D(all.Max.X, all.Min.Y, 0) }.Max(corner => middle.DistanceTo(new Point2D(corner.X, corner.Y))) + 10000);
         var eye = Point3D.On(middle + outward * reach, 0);
         var camera = new Camera3D(eye, Point3D.On(middle, 0), Perspective: false);
 

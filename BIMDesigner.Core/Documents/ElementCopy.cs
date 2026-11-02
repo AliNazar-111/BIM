@@ -196,9 +196,15 @@ public static class ElementCopy
             Structural = column.Structural
         }, column),
 
-        WallFooting strip => CarryCommon(new WallFooting { WallId = strip.WallId, Depth = strip.Depth, Eccentricity = strip.Eccentricity }, strip),
+        WallFooting strip => CarryCommon(new WallFooting { WallId = strip.WallId, Depth = strip.Depth, Eccentricity = strip.Eccentricity, Stepped = strip.Stepped, Reinforced = strip.Reinforced, Bars = strip.Bars, Fixity = strip.Fixity }, strip),
 
-        PadFooting pad => CarryCommon(new PadFooting { ColumnId = pad.ColumnId, Location = pad.Location, Rotation = pad.Rotation, Depth = pad.Depth }, pad),
+        PadFooting pad => CarryCommon(new PadFooting { ColumnId = pad.ColumnId, Location = pad.Location, Rotation = pad.Rotation, Depth = pad.Depth, Reinforced = pad.Reinforced, Bars = pad.Bars, Fixity = pad.Fixity }, pad),
+
+        RaftFoundation raft => CarryCommon(Rafts.Copy(raft), raft),
+
+        GroundBeam beam => CarryCommon(new GroundBeam { WallId = beam.WallId, Width = beam.Width, Depth = beam.Depth, TopDepth = beam.TopDepth, Void = beam.Void, TopBars = beam.TopBars, BottomBars = beam.BottomBars, Links = beam.Links }, beam),
+
+        Pile pile => CarryCommon(new Pile { Location = pile.Location, Along = pile.Along, Diameter = pile.Diameter, Length = pile.Length, BeamId = pile.BeamId, TopDepth = pile.TopDepth, Bars = pile.Bars, CageLength = pile.CageLength, Fixity = pile.Fixity }, pile),
 
         Component component => CarryCommon(new Component
         {
@@ -367,7 +373,7 @@ public static class ElementCopy
         Coordination.ModelLink link => CarryCommon(new Coordination.ModelLink
         {
             Path = link.Path, RelativePath = link.RelativePath, Positioning = link.Positioning, Offset = link.Offset, Elevation = link.Elevation, Rotation = link.Rotation,
-            Shown = link.Shown, Halftone = link.Halftone
+            Shown = link.Shown, Halftone = link.Halftone, Attachment = link.Attachment, ExportToIfc = link.ExportToIfc
         }, link),
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
@@ -388,7 +394,7 @@ public static class ElementCopy
         Beam beam => CarryCommon(new Beam
         {
             Start = beam.Start, End = beam.End, StartOffset = beam.StartOffset, EndOffset = beam.EndOffset,
-            Justification = beam.Justification, Usage = beam.Usage
+            Justification = beam.Justification, Usage = beam.Usage, StartRelease = beam.StartRelease, EndRelease = beam.EndRelease
         }, beam),
         Railing railing => CarryCommon(Path(new Railing
         {
@@ -468,7 +474,7 @@ public static class ElementCopy
         copy.HeightOffset = original.HeightOffset;
         copy.SetBoundary(original.Boundary);
         copy.SetHoles(original.Holes);
-        if (copy is Floor copiedFloor && original is Floor floor) copiedFloor.SpanDirection = floor.SpanDirection;
+        if (copy is Floor copiedFloor && original is Floor floor) (copiedFloor.SpanDirection, copiedFloor.AnalyseAs) = (floor.SpanDirection, floor.AnalyseAs);
 
         // A copied roof is the same roof: the edges that slope carry over, or the copy would
         // come out flat.
@@ -748,6 +754,14 @@ public static class ElementCopy
 
             case PadFooting { ColumnId: { } carried } pad when replacements.TryGetValue(carried, out var footingColumn):
                 pad.ColumnId = footingColumn;
+                break;
+
+            case GroundBeam beam when replacements.TryGetValue(beam.WallId, out var beamWall):
+                beam.WallId = beamWall;
+                break;
+
+            case Pile { BeamId: { } carriedBeam } pile when replacements.TryGetValue(carriedBeam, out var pileBeam):
+                pile.BeamId = pileBeam;
                 break;
 
             case KeynoteTag keynote when replacements.TryGetValue(keynote.TargetId, out var noted):

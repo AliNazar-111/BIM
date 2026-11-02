@@ -217,6 +217,11 @@ public sealed class Beam : Element
 
     public BeamUsage Usage { get; set; } = BeamUsage.Beam;
 
+    /// <summary>How each end is held where it meets what carries it, in the analytical model: pinned - a simple connection - unless it is set fixed.</summary>
+    public MemberRelease StartRelease { get; set; }
+
+    public MemberRelease EndRelease { get; set; }
+
     public double Length => Start.DistanceTo(End);
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
@@ -241,6 +246,9 @@ public sealed class Beam : Element
         yield return ParameterValue.ReadOnly(BeamParameters.Mass, () => Math.Round(Beams.TypeOf(document, this).MassPerMetre * Length / 1000, 1));
         yield return ParameterValue.ReadOnly(BeamParameters.Volume, () => Beams.TypeOf(document, this).SectionArea * Length);
         yield return ParameterValue.ReadOnly(BeamParameters.Rule, () => Beams.Verdict(document, this));
+        yield return AnalyticalParameters.Release(AnalyticalParameters.StartRelease, () => StartRelease, v => StartRelease = v);
+        yield return AnalyticalParameters.Release(AnalyticalParameters.EndRelease, () => EndRelease, v => EndRelease = v);
+        yield return AnalyticalParameters.Said(document, this);
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }

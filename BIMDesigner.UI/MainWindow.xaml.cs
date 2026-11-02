@@ -490,6 +490,9 @@ public partial class MainWindow : Window
 
     private void LoadDocument(BimDocument document, string? path, bool seedExample)
     {
+        // A central model opened makes a local copy to work in; a local copy is taken up as shared.
+        (document, path, var sharedSaid) = Shared(document, path);
+
         // What was read for the last project's links forgotten.
         ForgetLinks();
         ForgetComparison();
@@ -524,7 +527,15 @@ public partial class MainWindow : Window
         WatchForWorkToKeep();
 
         // Locked dimensions kept after every edit - what follows moved with it, or the edit refused and said why.
-        _history.Hold = command => Core.Annotation.DimensionLocks.Hold(_document, command);
+        // And, shared, what each edit changes borrowed - or the edit refused, and who has it said.
+        _history.Hold = command =>
+        {
+            var held = Core.Annotation.DimensionLocks.Hold(_document, command);
+            if (held.Refused is not null || _workshare is null) return held;
+            if (BorrowForEdit() is not { } theirs) return held;
+            held.Follow?.Undo();
+            return (null, theirs);
+        };
         _history.Refused += (_, why) =>
         {
             Plan.RefreshModel();
@@ -543,6 +554,7 @@ public partial class MainWindow : Window
 
             Projections.Forget(_document);
             RefreshTitle();
+            if (ShowsAnalytical) ShowAnalytical();
             RaiseCoordinationChanged();
             CommandManager.InvalidateRequerySuggested();
             RefreshHistoryLists();
@@ -600,6 +612,10 @@ public partial class MainWindow : Window
         RefreshProperties();
         RefreshTitle();
         Remember();
+
+        // Shared: the Collaborate tab as it now is, and what opening it did said.
+        RefreshCollaborate();
+        if (sharedSaid is not null) Dispatcher.BeginInvoke(DispatcherPriority.Background, () => StatusHint.Text = sharedSaid);
 
         // Fitting needs the canvas's real size. Right after a load the window may not have
         // laid out yet - especially on the first show, where it is still being resized to
@@ -948,6 +964,11 @@ public partial class MainWindow : Window
 
     /// <summary>Roof panel: an eave under every eave of each selected roof.</summary>
     private void OnAddEavesAllRound(object sender, RoutedEventArgs e) => AddRoofEdgesAllRound(RoofEdgeKind.Eave);
+
+    private BarScheduleWindow? _barScheduleWindow;
+
+    /// <summary>Foundation panel: the bar schedule of the foundations' steel, opened or brought forward.</summary>
+    private void OnBarSchedule(object sender, RoutedEventArgs e) => Open(ref _barScheduleWindow, () => new BarScheduleWindow(this), this).Refresh();
 
     /// <summary>Foundation panel: footings under the selected walls and structural columns that have none.</summary>
     private void OnAddFootings(object sender, RoutedEventArgs e)
@@ -2251,6 +2272,7 @@ public partial class MainWindow : Window
         }
 
         _history.Undo();
+        _workshare?.Rebaseline();
         AfterHistoryChange();
     }
 
@@ -2263,6 +2285,7 @@ public partial class MainWindow : Window
         }
 
         _history.Redo();
+        _workshare?.Rebaseline();
         AfterHistoryChange();
     }
 
@@ -2347,7 +2370,7 @@ public partial class MainWindow : Window
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, DetailLineTool, FilledRegionTool, RepeatingDetailTool, AreaBoundaryTool, AreaTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
-        StructuralColumnTool, WallFootingTool, PadFootingTool,
+        StructuralColumnTool, WallFootingTool, PadFootingTool, RaftTool, PilesTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, AlignTool, OffsetTool, MirrorTool, ArrayTool,
         RotateTool, ScaleTool, PaintTool, SplitFaceTool,
@@ -2439,6 +2462,8 @@ public partial class MainWindow : Window
             : StructuralColumnTool.IsChecked == true ? PlanTool.StructuralColumn
             : WallFootingTool.IsChecked == true ? PlanTool.WallFooting
             : PadFootingTool.IsChecked == true ? PlanTool.PadFooting
+            : RaftTool.IsChecked == true ? PlanTool.Raft
+            : PilesTool.IsChecked == true ? PlanTool.Piles
             : EaveTool.IsChecked == true ? PlanTool.Eave
             : RoofWindowTool.IsChecked == true ? PlanTool.RoofWindow
             : ShaftTool.IsChecked == true ? PlanTool.Shaft
@@ -4085,6 +4110,7 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition ClayShrinkageParameter = new("Clay Shrinkage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition FrostDepthParameter = new("Frost Line (US, 0 = none)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition GroundSnowParameter = new("Ground Snow Load (US, psf)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SnowZoneParameter = new("Snow Zone (UK, NA to BS EN 1991-1-3 Figure NA.1)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>The water's static pressure where it comes in, that the IRC sizes a US house's pipes by (Table P2903.7).</summary>
     private static readonly ParameterDefinition WaterPressureParameter = new("Water Pressure (US, psi)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4168,6 +4194,7 @@ public partial class MainWindow : Window
 
     private static readonly HashSet<ParameterDefinition> EnglishOnlyParameters = new()
     {
+        SnowZoneParameter,
         WaterOptionalParameter, ClayShrinkageParameter, HeatingLocationParameter, DwellingSizeParameter
     };
 
@@ -4257,6 +4284,11 @@ public partial class MainWindow : Window
             {
                 _document.ProjectInformation.GroundSnowLoad = Math.Max(0, snow);
                 Plan.RefreshModel();
+            }),
+            ParameterValue.Bind(SnowZoneParameter, () => _document.ProjectInformation.SnowZone, zone =>
+            {
+                _document.ProjectInformation.SnowZone = Math.Clamp(Math.Round(zone * 2) / 2, 1, 5);
+                if (ShowsAnalytical) ShowAnalytical();
             }),
             ParameterValue.Bind(WaterPressureParameter, () => _document.ProjectInformation.WaterPressure, pressure =>
             {
@@ -4429,6 +4461,8 @@ public partial class MainWindow : Window
         Column { Structural: true } => "Icon.StructuralColumn",
         WallFooting => "Icon.WallFooting",
         PadFooting => "Icon.PadFooting",
+        RaftFoundation => "Icon.Raft",
+        GroundBeam or Pile => "Icon.Piles",
         Eave => "Icon.Eave",
         RoofWindow => "Icon.RoofWindow",
         ShaftOpening => "Icon.Shaft",
@@ -4951,6 +4985,10 @@ public partial class MainWindow : Window
 
         options.AddRange(AreaPlanOptions());
 
+        // The foundations' bar schedule, once any of them holds steel.
+        if (Core.Architecture.Reinforcement.Schedule(_document).Count > 0 || Core.Architecture.Reinforcement.FabricOf(_document).Count > 0)
+            options.Add(new SheetViewOption(Core.Architecture.Reinforcement.Title(_document), Core.Architecture.Reinforcement.View()));
+
         foreach (var schedule in _document.Schedules.OrderBy(schedule => schedule.Name, StringComparer.OrdinalIgnoreCase))
             options.Add(new SheetViewOption($"Schedule: {schedule.Name}", ViewReference.Schedule(schedule)));
 
@@ -5008,7 +5046,7 @@ public partial class MainWindow : Window
             : ViewScale.FittingInto(extent.Width, extent.Height, availableWidth, availableHeight);
 
         // A schedule, or a legend, carries its own title, in the table.
-        var viewport = new Viewport { View = option.View, Scale = scale, ShowTitle = option.View.Kind is not (ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule) };
+        var viewport = new Viewport { View = option.View, Scale = scale, ShowTitle = option.View.Kind is not (ViewKind.Schedule or ViewKind.KeynoteLegend or ViewKind.ColourLegend or ViewKind.AreaSchedule or ViewKind.BarSchedule) };
         var size = viewport.PaperBounds(_document);
         viewport.Centre = sheet.NextFreePosition(_document, size.Width, size.Height);
 
@@ -6615,9 +6653,41 @@ public partial class MainWindow : Window
             $"{_document.Openings.Count()} openings, " +
             $"{_document.Levels.Count} storeys";
 
-        StatusHint.Text = $"Exported IFC4: {counts}.";
+        // The linked models each to a file of its own beside it, put where they are put here.
+        var linked = ExportLinkedIfc(dialog.FileName);
+        StatusHint.Text = $"Exported IFC4: {counts}." + (linked.Count > 0 ? $" The linked models beside it, placed to overlay it: {string.Join(", ", linked)}." : string.Empty);
 
         OfferToOpen(dialog.FileName);
+    }
+
+    /// <summary>
+    /// Each linked model shown and set to go with an IFC export written beside this project's file, as
+    /// "(file) - (link).ifc", its origin where its link puts it, so read together the files overlay as
+    /// they do here. The names written; internal so tests and the harness can export.
+    /// </summary>
+    internal IReadOnlyList<string> ExportLinkedIfc(string hostFile)
+    {
+        var written = new List<string>();
+        var folder = Path.GetDirectoryName(hostFile) ?? string.Empty;
+        foreach (var (link, linked) in Core.Coordination.ModelLinks.Loaded(_document).Where(entry => entry.Link.ExportToIfc).ToList())
+        {
+            var file = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(hostFile)} - {Path.GetFileNameWithoutExtension(link.Path)}.ifc");
+            try
+            {
+                IfcExport.Save(linked, file, new IfcExportOptions
+                {
+                    ApplicationVersion = AppVersion, AuthorGivenName = Environment.UserName, Organisation = _document.ProjectInformation.Client,
+                    Origin = Core.Coordination.ModelLinks.OriginIn(_document, link, linked)
+                });
+                written.Add(Path.GetFileName(file));
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                written.Add($"{link.Title} not written: {exception.Message}");
+            }
+        }
+
+        return written;
     }
 
     private void OnExportSheetPdf(object sender, RoutedEventArgs e)
@@ -7278,6 +7348,14 @@ public partial class MainWindow : Window
         if (_syncingScheduleSelection) return;
         if (ScheduleGrid.SelectedItem is not ScheduleRowView row) return;
         if (ReferenceEquals(Plan.SelectedElement, row.Element)) return;
+
+        // A linked model's element is not this project's to pick: its link is.
+        if (row.Link is { } link)
+        {
+            Plan.Select(link);
+            StatusHint.Text = $"In {link.Title}: read from its own file - change it there.";
+            return;
+        }
 
         Plan.Select(row.Element);
     }

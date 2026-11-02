@@ -66,6 +66,8 @@ public static class ModelMeshBuilder
 
         // Footings under the walls and columns, with the walls and piers on them.
         Each(document.Elements.Where(e => e is WallFooting or PadFooting), footing => meshes.AddRange(Footings.Meshes(document, footing)));
+        Each(document.All<RaftFoundation>(), raft => meshes.AddRange(Rafts.Meshes(document, raft)));
+        Each(document.Elements.Where(e => e is GroundBeam or Pile), member => meshes.AddRange(Piles.Meshes(document, member)));
 
         Each(document.All<Component>(), component => AddComponent(document, component, meshes));
 

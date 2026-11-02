@@ -48,6 +48,9 @@ public sealed class ScheduleRowView : INotifyPropertyChanged
 
     public Element Element => _row.Element;
 
+    /// <summary>The linked model the row is from; null for this project's own.</summary>
+    public BIMDesigner.Core.Coordination.ModelLink? Link => _row.Link;
+
     /// <summary>Each cell's background by its field: what conditional formatting colours it, or nothing.</summary>
     public CellColours Colours { get; private set; }
 

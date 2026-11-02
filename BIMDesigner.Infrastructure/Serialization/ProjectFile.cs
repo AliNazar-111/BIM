@@ -84,6 +84,7 @@ public static partial class ProjectFile
                 ClayShrinkage = document.ProjectInformation.ClayShrinkage.ToString(),
                 FrostDepth = document.ProjectInformation.FrostDepth,
                 GroundSnowLoad = document.ProjectInformation.GroundSnowLoad,
+                SnowZone = document.ProjectInformation.SnowZone,
                 WaterPressure = document.ProjectInformation.WaterPressure,
                 WindPressure = document.ProjectInformation.WindPressure,
                 BasicWindSpeed = document.ProjectInformation.BasicWindSpeed,
@@ -110,7 +111,7 @@ public static partial class ProjectFile
         };
 
         foreach (var level in document.Levels)
-            dto.Levels.Add(new LevelDto { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn });
+            dto.Levels.Add(new LevelDto { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn, Monitor = MonitorDto.Of(level.Monitor) });
 
         foreach (var material in document.Materials)
             dto.Materials.Add(new MaterialDto
@@ -443,6 +444,7 @@ public static partial class ProjectFile
             {
                 Id = beam.Id, TypeId = beam.TypeId, LevelId = beam.LevelId, StartX = beam.Start.X, StartY = beam.Start.Y, EndX = beam.End.X, EndY = beam.End.Y,
                 StartOffset = beam.StartOffset, EndOffset = beam.EndOffset, Justification = beam.Justification.ToString(), Usage = beam.Usage.ToString(),
+                StartRelease = beam.StartRelease == MemberRelease.Pinned ? null : beam.StartRelease.ToString(), EndRelease = beam.EndRelease == MemberRelease.Pinned ? null : beam.EndRelease.ToString(),
                 Mark = beam.Mark, Comments = beam.Comments
             });
 
@@ -453,7 +455,7 @@ public static partial class ProjectFile
             (dto.ModelLinks ??= new List<ModelLinkDto>()).Add(new ModelLinkDto
             {
                 Id = link.Id, Path = link.Path, RelativePath = link.RelativePath, Positioning = link.Positioning.ToString(), X = link.Offset.X, Y = link.Offset.Y,
-                Elevation = link.Elevation, Rotation = link.Rotation, Shown = link.Shown, Halftone = link.Halftone, Mark = link.Mark, Comments = link.Comments
+                Elevation = link.Elevation, Rotation = link.Rotation, Shown = link.Shown, Halftone = link.Halftone, Attachment = link.Attachment ? true : null, ExportToIfc = link.ExportToIfc ? null : false, Mark = link.Mark, Comments = link.Comments
             });
 
         foreach (var separator in document.All<RoomSeparator>())
@@ -465,6 +467,17 @@ public static partial class ProjectFile
 
         dto.ColourSchemes = document.ViewSettings.ColourSchemes.Select(scheme => new ColourSchemeDto { Kind = scheme.View.Kind.ToString(), TargetId = scheme.View.TargetId, Index = scheme.View.Index, By = scheme.By.ToString() }).ToList();
         dto.ColourPicks = document.ViewSettings.ColourPicks.Select(pick => new ColourPickDto { By = pick.By.ToString(), Value = pick.Value, Colour = pick.Colour.ToString() }).ToList();
+        if (document.Worksharing.Enabled || document.Worksharing.Worksets.Count > 0)
+            dto.Worksharing = new WorksharingDto
+            {
+                Central = document.Worksharing.CentralPath, IsCentral = document.Worksharing.IsCentral, BaseVersion = document.Worksharing.BaseVersion,
+                Active = document.Worksharing.Active,
+                Worksets = document.Worksharing.Worksets.Select(workset => new WorksetDto { Name = workset.Name, Kind = workset.Kind.ToString(), VisibleByDefault = workset.VisibleByDefault }).ToList(),
+                Shown = document.ViewSettings.WorksetVisibility.Select(entry => new WorksetShownDto
+                {
+                    Kind = entry.View.Kind.ToString(), TargetId = entry.View.TargetId, Index = entry.View.Index, ScheduleName = entry.View.ScheduleName, Workset = entry.Workset, Shown = entry.Shown
+                }).ToList()
+            };
         dto.DraftingViews = document.All<DraftingView>().Select(view => new DraftingViewDto { Id = view.Id, Name = view.Name, Comments = view.Comments }).ToList();
         dto.FillPatterns = document.FillPatterns.Select(pattern => new FillPatternDto
         {
@@ -919,7 +932,7 @@ public static partial class ProjectFile
             Id = schedule.Id, Name = schedule.Name, Category = schedule.Category.ToString(), Fields = schedule.Fields.ToList(),
             Filters = schedule.Filters.Select(filter => new ScheduleFilterDto { Field = filter.Field, Comparison = filter.Comparison.ToString(), Value = filter.Value }).ToList(),
             SortBy = schedule.SortBy, SortDescending = schedule.SortDescending, GroupBy = schedule.GroupBy, ShowTotals = schedule.ShowTotals,
-            Itemize = schedule.Itemize, NotTotalled = schedule.NotTotalled.OrderBy(field => field, StringComparer.Ordinal).ToList(),
+            Itemize = schedule.Itemize, IncludeLinks = schedule.IncludeLinks ? true : null, NotTotalled = schedule.NotTotalled.OrderBy(field => field, StringComparer.Ordinal).ToList(),
             Calculated = schedule.Calculated.Select(calculated => new CalculatedFieldDto
             {
                 Name = calculated.Name, Kind = calculated.Kind.ToString(), Formula = calculated.Formula, PercentageOf = calculated.PercentageOf, ByGroup = calculated.ByGroup
@@ -1024,6 +1037,7 @@ public static partial class ProjectFile
                 EndY = grid.End.Y,
                 BubbleAtStart = grid.BubbleAtStart,
                 BubbleAtEnd = grid.BubbleAtEnd,
+                Monitor = MonitorDto.Of(grid.Monitor),
                 Comments = grid.Comments,
                 Workset = grid.Workset
             });
@@ -1067,6 +1081,7 @@ public static partial class ProjectFile
                 Boundary = slab.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 Holes = slab.Holes.Count > 0 ? slab.Holes.Select(hole => hole.SelectMany(point => new[] { point.X, point.Y }).ToList()).ToList() : null,
                 SpanDirection = (slab as Floor)?.SpanDirection,
+                AnalyseAs = slab is Floor { AnalyseAs: not FloorAnalysis.Automatic } analysed ? analysed.AnalyseAs.ToString() : null,
                 RoofEdges = slab is Roof roof
                     ? roof.Edges.Select(edge => new RoofEdgeDto
                     {
@@ -1219,14 +1234,37 @@ public static partial class ProjectFile
             dto.WallFootings.Add(new WallFootingDto
             {
                 Id = footing.Id, TypeId = footing.TypeId, LevelId = footing.LevelId, WallId = footing.WallId, Depth = footing.Depth,
-                Eccentricity = footing.Eccentricity, Mark = footing.Mark, Comments = footing.Comments
+                Eccentricity = footing.Eccentricity, Stepped = footing.Stepped ? null : false, Bars = footing.Reinforced ? footing.Bars : null, Fixity = footing.Fixity == SupportFixity.Pinned ? null : footing.Fixity.ToString(), Mark = footing.Mark, Comments = footing.Comments
             });
 
         foreach (var pad in document.All<PadFooting>())
             dto.PadFootings.Add(new PadFootingDto
             {
                 Id = pad.Id, TypeId = pad.TypeId, LevelId = pad.LevelId, ColumnId = pad.ColumnId, X = pad.Location.X, Y = pad.Location.Y,
-                Rotation = pad.Rotation, Depth = pad.Depth, Mark = pad.Mark, Comments = pad.Comments
+                Rotation = pad.Rotation, Depth = pad.Depth, Bars = pad.Reinforced ? pad.Bars : null, Fixity = pad.Fixity == SupportFixity.Pinned ? null : pad.Fixity.ToString(), Mark = pad.Mark, Comments = pad.Comments
+            });
+
+        foreach (var raft in document.All<RaftFoundation>())
+            (dto.Rafts ??= new()).Add(new RaftDto
+            {
+                Id = raft.Id, LevelId = raft.LevelId, Outline = raft.Outline.SelectMany(point => new[] { point.X, point.Y }).ToList(),
+                Thickness = raft.Thickness, EdgeWidth = raft.EdgeWidth, EdgeDepth = raft.EdgeDepth, TopDepth = raft.TopDepth, ThickenUnderWalls = raft.ThickenUnderWalls,
+                TopReinforcement = raft.TopReinforcement, BottomReinforcement = raft.BottomReinforcement, EdgeBars = raft.EdgeBars, EdgeLinks = raft.EdgeLinks,
+                Mark = raft.Mark, Comments = raft.Comments
+            });
+
+        foreach (var beam in document.All<GroundBeam>())
+            (dto.GroundBeams ??= new()).Add(new GroundBeamDto
+            {
+                Id = beam.Id, LevelId = beam.LevelId, WallId = beam.WallId, Width = beam.Width, Depth = beam.Depth, TopDepth = beam.TopDepth, Void = beam.Void,
+                TopBars = beam.TopBars, BottomBars = beam.BottomBars, Links = beam.Links, Mark = beam.Mark, Comments = beam.Comments
+            });
+
+        foreach (var pile in document.All<Pile>())
+            (dto.Piles ??= new()).Add(new PileDto
+            {
+                Id = pile.Id, LevelId = pile.LevelId, BeamId = pile.BeamId, X = pile.Location.X, Y = pile.Location.Y, Along = pile.Along, Diameter = pile.Diameter,
+                Length = pile.Length, TopDepth = pile.TopDepth, Bars = pile.Bars, CageLength = pile.CageLength, Fixity = pile.Fixity == SupportFixity.Pinned ? null : pile.Fixity.ToString(), Mark = pile.Mark, Comments = pile.Comments
             });
 
         foreach (var type in document.TypesOf<ComponentType>())
@@ -1748,6 +1786,7 @@ public static partial class ProjectFile
         document.ProjectInformation.ClayShrinkage = ParseEnum(dto.Project.ClayShrinkage, ClayShrinkage.None);
         document.ProjectInformation.FrostDepth = double.IsFinite(dto.Project.FrostDepth) && dto.Project.FrostDepth > 0 ? dto.Project.FrostDepth : 0;
         document.ProjectInformation.GroundSnowLoad = double.IsFinite(dto.Project.GroundSnowLoad) && dto.Project.GroundSnowLoad >= 0 ? dto.Project.GroundSnowLoad : 20;
+        document.ProjectInformation.SnowZone = double.IsFinite(dto.Project.SnowZone) && dto.Project.SnowZone is >= 1 and <= 5 ? dto.Project.SnowZone : 1;
         document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
         document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;
@@ -1774,7 +1813,7 @@ public static partial class ProjectFile
 
         // A level standing on a floor is at its top; the height saved with it is where it was then.
         foreach (var level in dto.Levels)
-            document.AddLevel(new Level { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn });
+            document.AddLevel(new Level { Id = level.Id, Name = level.Name, Elevation = level.Elevation, StandsOn = level.StandsOn, Monitor = level.Monitor?.ToMonitor() });
 
         foreach (var material in dto.Materials)
         {
@@ -2443,6 +2482,7 @@ public static partial class ProjectFile
             if (slab.Holes is { } sketchedHoles)
                 element.SetHoles(sketchedHoles.Select(hole => Enumerable.Range(0, hole.Count / 2).Select(i => new Point2D(hole[2 * i], hole[2 * i + 1]))));
             if (element is Floor spanned && slab.SpanDirection is { } span && double.IsFinite(span)) spanned.SpanDirection = Floors.Normalised(span);
+            if (element is Floor analysed && slab.AnalyseAs is { } analysis) analysed.AnalyseAs = ParseEnum(analysis, FloorAnalysis.Automatic);
 
             // The edges come after the outline, since it is the outline that says how many
             // there are. A roof from a file that predates pitched roofs has none, and reads
@@ -2835,6 +2875,7 @@ public static partial class ProjectFile
                 Id = saved.Id, TypeId = saved.TypeId, LevelId = saved.LevelId, Start = start, End = end,
                 StartOffset = double.IsFinite(saved.StartOffset) ? saved.StartOffset : 0, EndOffset = double.IsFinite(saved.EndOffset) ? saved.EndOffset : 0,
                 Justification = ParseEnum(saved.Justification, BeamJustification.Top), Usage = ParseEnum(saved.Usage, BeamUsage.Beam),
+                StartRelease = ParseEnum(saved.StartRelease, MemberRelease.Pinned), EndRelease = ParseEnum(saved.EndRelease, MemberRelease.Pinned),
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
         }
@@ -2851,7 +2892,8 @@ public static partial class ProjectFile
                 Positioning = ParseEnum(saved.Positioning, BIMDesigner.Core.Coordination.LinkPositioning.OriginToOrigin),
                 Offset = new Point2D(double.IsFinite(saved.X) ? saved.X : 0, double.IsFinite(saved.Y) ? saved.Y : 0) - new Point2D(0, 0),
                 Elevation = double.IsFinite(saved.Elevation) ? saved.Elevation : 0, Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0,
-                Shown = saved.Shown, Halftone = saved.Halftone, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Shown = saved.Shown, Halftone = saved.Halftone, Attachment = saved.Attachment == true, ExportToIfc = saved.ExportToIfc != false,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
 
         // A room separator between its ends; one with no length is nothing.
@@ -2870,6 +2912,21 @@ public static partial class ProjectFile
         // Drafting views, then what is drawn in them and on the plans: a line with no length, or a region of fewer than three corners, is nothing.
         foreach (var saved in dto.ColourSchemes ?? new List<ColourSchemeDto>())
             document.ViewSettings.SetColourBy(new ViewReference(ParseEnum(saved.Kind, ViewKind.FloorPlan), saved.TargetId, string.Empty) { Index = saved.Index }, ParseEnum(saved.By, RoomColourBy.None));
+        if (dto.Worksharing is { } shared)
+        {
+            document.Worksharing.CentralPath = shared.Central ?? string.Empty;
+            document.Worksharing.IsCentral = shared.IsCentral;
+            document.Worksharing.BaseVersion = shared.BaseVersion;
+            foreach (var workset in shared.Worksets ?? new List<WorksetDto>())
+                if (!string.IsNullOrWhiteSpace(workset.Name) && document.Worksharing.Find(workset.Name) is null)
+                    document.Worksharing.Worksets.Add(new WorksetInfo { Name = workset.Name, Kind = ParseEnum(workset.Kind, WorksetKind.User), VisibleByDefault = workset.VisibleByDefault });
+            if (document.Worksharing.Worksets.Count > 0) document.Worksharing.Start();
+            document.Worksharing.Active = document.Worksharing.Find(shared.Active ?? string.Empty)?.Name ?? Worksharing.DefaultWorkset;
+            foreach (var shown in shared.Shown ?? new List<WorksetShownDto>())
+                if (!string.IsNullOrWhiteSpace(shown.Workset))
+                    document.ViewSettings.SetWorksetShown(new ViewReference(ParseEnum(shown.Kind, ViewKind.FloorPlan), shown.TargetId, shown.ScheduleName ?? string.Empty) { Index = shown.Index }, shown.Workset, shown.Shown);
+        }
+
         foreach (var saved in dto.ColourPicks ?? new List<ColourPickDto>())
             if (ColourRgb.TryParse(saved.Colour, out var picked) && !string.IsNullOrWhiteSpace(saved.Value))
                 document.ViewSettings.PickColour(ParseEnum(saved.By, RoomColourBy.Name), saved.Value, picked);
@@ -3110,6 +3167,9 @@ public static partial class ProjectFile
                 Id = footing.Id, TypeId = footing.TypeId, LevelId = footing.LevelId, WallId = footing.WallId,
                 Depth = double.IsFinite(footing.Depth) && footing.Depth > 0 ? footing.Depth : 1000,
                 Eccentricity = double.IsFinite(footing.Eccentricity) ? footing.Eccentricity : 0,
+                Stepped = footing.Stepped != false,
+                Reinforced = footing.Bars is not null, Bars = footing.Bars ?? "3 H12",
+                Fixity = ParseEnum(footing.Fixity, SupportFixity.Pinned),
                 Mark = footing.Mark ?? string.Empty, Comments = footing.Comments ?? string.Empty
             });
         foreach (var pad in dto.PadFootings ?? new List<PadFootingDto>())
@@ -3121,9 +3181,13 @@ public static partial class ProjectFile
                 Id = pad.Id, TypeId = pad.TypeId, LevelId = pad.LevelId, ColumnId = carried,
                 Location = new Point2D(double.IsFinite(pad.X) ? pad.X : 0, double.IsFinite(pad.Y) ? pad.Y : 0),
                 Rotation = double.IsFinite(pad.Rotation) ? pad.Rotation : 0, Depth = double.IsFinite(pad.Depth) && pad.Depth > 0 ? pad.Depth : 1000,
+                Reinforced = pad.Bars is not null, Bars = pad.Bars ?? "H12 @ 200",
+                Fixity = ParseEnum(pad.Fixity, SupportFixity.Pinned),
                 Mark = pad.Mark ?? string.Empty, Comments = pad.Comments ?? string.Empty
             });
         }
+
+        ReadDeepFoundations(dto, document);
 
         foreach (var type in dto.ComponentTypes)
             document.AddType(new ComponentType(
@@ -3333,6 +3397,7 @@ public static partial class ProjectFile
                 End = new Point2D(grid.EndX, grid.EndY),
                 BubbleAtStart = grid.BubbleAtStart,
                 BubbleAtEnd = grid.BubbleAtEnd,
+                Monitor = grid.Monitor?.ToMonitor(),
                 Comments = grid.Comments,
                 Workset = grid.Workset
             });
@@ -3524,7 +3589,7 @@ public static partial class ProjectFile
                 {
                     Id = saved.Id == Guid.Empty ? Guid.NewGuid() : saved.Id,
                     SortBy = saved.SortBy, SortDescending = saved.SortDescending, GroupBy = saved.GroupBy, ShowTotals = saved.ShowTotals,
-                    Itemize = saved.Itemize, ShowFormatsOnSheets = saved.ShowFormatsOnSheets
+                    Itemize = saved.Itemize, ShowFormatsOnSheets = saved.ShowFormatsOnSheets, IncludeLinks = saved.IncludeLinks == true
                 };
                 schedule.Filters.AddRange((saved.Filters ?? new List<ScheduleFilterDto>()).Select(filter =>
                     new ScheduleFilter(filter.Field ?? string.Empty, ParseEnum(filter.Comparison, ScheduleOperator.Equals), filter.Value ?? string.Empty)));
@@ -3877,6 +3942,50 @@ public static partial class ProjectFile
 
         if (rings.Count == 0) return null;
         return new ColumnProfile(rings[0], rings.Skip(1).Cast<IReadOnlyList<Point2D>>().ToList());
+    }
+
+    /// <summary>Rafts, ground beams whose walls are there, and piles - those under a beam that is gone left where they stood.</summary>
+    private static void ReadDeepFoundations(ProjectFileDto dto, BimDocument document)
+    {
+        foreach (var saved in dto.Rafts ?? new List<RaftDto>())
+        {
+            var outline = saved.Outline ?? new List<double>();
+            var points = Enumerable.Range(0, outline.Count / 2).Select(i => new Point2D(outline[2 * i], outline[2 * i + 1]))
+                .Where(point => double.IsFinite(point.X) && double.IsFinite(point.Y)).ToList();
+            if (points.Count < 3) continue;
+            var thickness = Within(saved.Thickness, 75, 1500, 200);
+            var raft = new RaftFoundation
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Thickness = thickness, EdgeWidth = Within(saved.EdgeWidth, 100, 3000, 450),
+                EdgeDepth = Within(saved.EdgeDepth, thickness, 5000, Math.Max(thickness, 600)), TopDepth = Within(saved.TopDepth, -2000, 5000, 0),
+                ThickenUnderWalls = saved.ThickenUnderWalls, TopReinforcement = saved.TopReinforcement ?? string.Empty,
+                BottomReinforcement = saved.BottomReinforcement ?? string.Empty, EdgeBars = saved.EdgeBars ?? string.Empty, EdgeLinks = saved.EdgeLinks ?? string.Empty,
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            };
+            raft.SetOutline(points);
+            document.Add(raft);
+        }
+
+        foreach (var saved in (dto.GroundBeams ?? new List<GroundBeamDto>()).Where(beam => document.Walls.Any(wall => wall.Id == beam.WallId)))
+            document.Add(new GroundBeam
+            {
+                Id = saved.Id, LevelId = saved.LevelId, WallId = saved.WallId, Width = Within(saved.Width, 150, 3000, 450), Depth = Within(saved.Depth, 150, 3000, 600),
+                TopDepth = Within(saved.TopDepth, -1000, 5000, 150), Void = Within(saved.Void, 0, 500, 0), TopBars = saved.TopBars ?? string.Empty,
+                BottomBars = saved.BottomBars ?? string.Empty, Links = saved.Links ?? string.Empty, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+
+        foreach (var saved in dto.Piles ?? new List<PileDto>())
+        {
+            var beam = saved.BeamId is { } id && document.FindElement(id) is GroundBeam ? id : (Guid?)null;
+            document.Add(new Pile
+            {
+                Id = saved.Id, LevelId = saved.LevelId, BeamId = beam, Location = new Point2D(double.IsFinite(saved.X) ? saved.X : 0, double.IsFinite(saved.Y) ? saved.Y : 0),
+                Along = double.IsFinite(saved.Along) ? Math.Max(0, saved.Along) : 0, Diameter = Within(saved.Diameter, 100, 2500, 300), Length = Within(saved.Length, 500, 60000, 3000),
+                TopDepth = Within(saved.TopDepth, -1000, 5000, 750), Bars = saved.Bars ?? string.Empty, CageLength = Within(saved.CageLength, 0, 60000, 2000),
+                Fixity = ParseEnum(saved.Fixity, SupportFixity.Pinned),
+                Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+        }
     }
 
     /// <summary>A saved dimension, or a workable one where the file had none or nonsense.</summary>

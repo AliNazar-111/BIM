@@ -63,5 +63,8 @@ public enum ParameterGroup
     Extents,
 
     /// <summary>Where a camera stands and looks.</summary>
-    Camera
+    Camera,
+
+    /// <summary>The steel in concrete: bars, fabric, links.</summary>
+    Structural
 }

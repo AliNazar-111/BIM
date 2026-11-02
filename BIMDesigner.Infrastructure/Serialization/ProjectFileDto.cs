@@ -79,6 +79,9 @@ internal sealed class ProjectFileDto
 
     /// <summary>The colours picked by hand for what rooms are coloured by; null for none.</summary>
     public List<ColourPickDto>? ColourPicks { get; set; }
+
+    /// <summary>How the project is shared through a central model, and its worksets; null for one never shared.</summary>
+    public WorksharingDto? Worksharing { get; set; }
     public List<DraftingViewDto>? DraftingViews { get; set; }
     public List<DetailLineDto>? DetailLines { get; set; }
     public List<FilledRegionDto>? FilledRegions { get; set; }
@@ -165,6 +168,9 @@ internal sealed class ProjectFileDto
     public List<FootingTypeDto> FootingTypes { get; set; } = new();
     public List<WallFootingDto> WallFootings { get; set; } = new();
     public List<PadFootingDto> PadFootings { get; set; } = new();
+    public List<RaftDto>? Rafts { get; set; }
+    public List<GroundBeamDto>? GroundBeams { get; set; }
+    public List<PileDto>? Piles { get; set; }
 
     public List<SlabTypeDto> SlabTypes { get; set; } = new();
 
@@ -647,6 +653,9 @@ internal sealed class ScheduleDto
     public string? GroupBy { get; set; }
     public bool ShowTotals { get; set; } = true;
     public bool Itemize { get; set; } = true;
+
+    /// <summary>Whether the linked models' elements are rows too; missing where not.</summary>
+    public bool? IncludeLinks { get; set; }
     public List<string> NotTotalled { get; set; } = new();
     public List<CalculatedFieldDto> Calculated { get; set; } = new();
     public List<ConditionalFormatDto> Formats { get; set; } = new();
@@ -797,6 +806,9 @@ internal sealed class GridDto
     public bool BubbleAtStart { get; set; } = true;
     public bool BubbleAtEnd { get; set; } = true;
 
+    /// <summary>The linked model's gridline it follows; missing for one of its own.</summary>
+    public MonitorDto? Monitor { get; set; }
+
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
 }
@@ -879,6 +891,9 @@ internal sealed class SlabDto
 
     /// <summary>A floor's span direction, degrees; null where none is given.</summary>
     public double? SpanDirection { get; set; }
+
+    /// <summary>How a floor goes into the analytical model; missing where by its build-up.</summary>
+    public string? AnalyseAs { get; set; }
 
     public double RoofFasciaDepth { get; set; } = 150;
     public bool RoofHighLevelVents { get; set; }
@@ -1317,6 +1332,9 @@ internal sealed class ProjectInformationDto
     public double FrostDepth { get; set; }
     public double GroundSnowLoad { get; set; } = 20;
 
+    /// <summary>A UK site's snow zone, 1 to 5; 1 in older files.</summary>
+    public double SnowZone { get; set; } = 1;
+
     /// <summary>A US house's water pressure where it comes in, psi; 40 in older files.</summary>
     public double WaterPressure { get; set; } = 40;
 
@@ -1386,6 +1404,15 @@ internal sealed class WallFootingDto
     public Guid WallId { get; set; }
     public double Depth { get; set; } = 1000;
     public double Eccentricity { get; set; }
+
+    /// <summary>Whether it steps up the ground; missing where it does, as a footing starts.</summary>
+    public bool? Stepped { get; set; }
+
+    /// <summary>Its bars, where it is reinforced; missing for mass concrete.</summary>
+    public string? Bars { get; set; }
+
+    /// <summary>How it holds the wall in the analytical model; missing where pinned.</summary>
+    public string? Fixity { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }
@@ -1401,6 +1428,67 @@ internal sealed class PadFootingDto
     public double Y { get; set; }
     public double Rotation { get; set; }
     public double Depth { get; set; } = 1000;
+
+    /// <summary>Its bars, where it is reinforced; missing for mass concrete.</summary>
+    public string? Bars { get; set; }
+
+    /// <summary>How it holds the column in the analytical model; missing where pinned.</summary>
+    public string? Fixity { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+/// <summary>A raft: its outline, flattened x, y, its slab and thickenings and the steel in them.</summary>
+internal sealed class RaftDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public List<double> Outline { get; set; } = new();
+    public double Thickness { get; set; } = 200;
+    public double EdgeWidth { get; set; } = 450;
+    public double EdgeDepth { get; set; } = 600;
+    public double TopDepth { get; set; }
+    public bool ThickenUnderWalls { get; set; } = true;
+    public string? TopReinforcement { get; set; }
+    public string? BottomReinforcement { get; set; }
+    public string? EdgeBars { get; set; }
+    public string? EdgeLinks { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+/// <summary>A ground beam under a wall: its size, the void under it and its bars.</summary>
+internal sealed class GroundBeamDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid WallId { get; set; }
+    public double Width { get; set; } = 450;
+    public double Depth { get; set; } = 600;
+    public double TopDepth { get; set; } = 150;
+    public double Void { get; set; }
+    public string? TopBars { get; set; }
+    public string? BottomBars { get; set; }
+    public string? Links { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+/// <summary>A pile: where it stands - along its beam's wall, or on its own - its size and its cage.</summary>
+internal sealed class PileDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public Guid? BeamId { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Along { get; set; }
+    public double Diameter { get; set; } = 300;
+    public double Length { get; set; } = 3000;
+    public double TopDepth { get; set; } = 750;
+    public string? Bars { get; set; }
+    public double CageLength { get; set; } = 2000;
+    public string? Fixity { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }
@@ -1413,6 +1501,33 @@ internal sealed class LevelDto
 
     /// <summary>The floor whose top the level is at, where its storey is built on the one below.</summary>
     public Guid? StandsOn { get; set; }
+
+    /// <summary>The linked model's level it follows; missing for one of its own.</summary>
+    public MonitorDto? Monitor { get; set; }
+}
+
+/// <summary>A level or gridline following one in a linked model: which, its name, and where it stood when last agreed.</summary>
+internal sealed class MonitorDto
+{
+    public Guid LinkId { get; set; }
+    public Guid SourceId { get; set; }
+    public string SourceName { get; set; } = string.Empty;
+    public double Elevation { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+
+    public static MonitorDto? Of(BIMDesigner.Core.Datums.DatumMonitor? monitor) => monitor is null ? null : new MonitorDto
+    {
+        LinkId = monitor.LinkId, SourceId = monitor.SourceId, SourceName = monitor.SourceName, Elevation = monitor.Elevation,
+        StartX = monitor.Start.X, StartY = monitor.Start.Y, EndX = monitor.End.X, EndY = monitor.End.Y
+    };
+
+    public BIMDesigner.Core.Datums.DatumMonitor? ToMonitor() =>
+        new[] { Elevation, StartX, StartY, EndX, EndY }.All(double.IsFinite)
+            ? new(LinkId, SourceId, SourceName ?? string.Empty, Elevation, new BIMDesigner.Core.Geometry.Point2D(StartX, StartY), new BIMDesigner.Core.Geometry.Point2D(EndX, EndY))
+            : null;
 }
 
 internal sealed class MaterialDto
@@ -2512,6 +2627,10 @@ internal sealed class ModelLinkDto
     public double Rotation { get; set; }
     public bool Shown { get; set; } = true;
     public bool Halftone { get; set; } = true;
+
+    /// <summary>Whether it comes with the project into one that links it in, and whether an IFC export writes it beside; missing for an overlay, written.</summary>
+    public bool? Attachment { get; set; }
+    public bool? ExportToIfc { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }
@@ -2585,6 +2704,10 @@ internal sealed class BeamDto
     public double EndOffset { get; set; }
     public string Justification { get; set; } = "Top";
     public string Usage { get; set; } = "Beam";
+
+    /// <summary>How its ends are held in the analytical model; missing where pinned.</summary>
+    public string? StartRelease { get; set; }
+    public string? EndRelease { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }
@@ -2868,6 +2991,35 @@ internal sealed class FillPatternDto
     public string? Description { get; set; }
     public bool Model { get; set; }
     public List<List<double>>? Lines { get; set; }
+}
+
+internal sealed class WorksharingDto
+{
+    /// <summary>The central model's file.</summary>
+    public string? Central { get; set; }
+    public bool IsCentral { get; set; }
+    public int BaseVersion { get; set; }
+    public string? Active { get; set; }
+    public List<WorksetDto>? Worksets { get; set; }
+    public List<WorksetShownDto>? Shown { get; set; }
+}
+
+internal sealed class WorksetDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Kind { get; set; }
+    public bool VisibleByDefault { get; set; } = true;
+}
+
+/// <summary>A workset shown or hidden in one view, against its default.</summary>
+internal sealed class WorksetShownDto
+{
+    public string Kind { get; set; } = "FloorPlan";
+    public Guid TargetId { get; set; }
+    public int Index { get; set; }
+    public string? ScheduleName { get; set; }
+    public string Workset { get; set; } = string.Empty;
+    public bool Shown { get; set; }
 }
 
 internal sealed class ColourPickDto

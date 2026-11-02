@@ -57,6 +57,7 @@ public static class ElementTransforms
         Annotation.DetailLine or Annotation.FilledRegion => true,
         AreaBoundary or Area or Annotation.RepeatingDetail => true,
         CadUnderlay => true,
+        Coordination.ModelLink => true,
         Mep.Pipe => true,
         Mep.Duct => true,
 
@@ -68,6 +69,8 @@ public static class ElementTransforms
         InteriorElevationMarker => true,
         Callout { Parent.Kind: ViewKind.FloorPlan } => true,
         PadFooting { ColumnId: null } => true,
+        Pile { BeamId: null } => true,
+        RaftFoundation => true,
         IHostedElement => false,
         Group => true,
         Wall or PolygonWall or Slab or Room or Column or Grid or SectionMarker or Dimension or Tag or TextNote => true,
@@ -200,6 +203,11 @@ public static class ElementTransforms
                 underlay.Location += delta;
                 break;
 
+            // A linked model is moved by its offset: where its own origin falls on this project.
+            case Coordination.ModelLink link:
+                link.Offset += delta;
+                break;
+
             case Mep.Pipe pipe:
                 (pipe.Start, pipe.End) = (pipe.Start + delta, pipe.End + delta);
                 break;
@@ -257,6 +265,14 @@ public static class ElementTransforms
 
             case PadFooting pad:
                 pad.Location += delta;
+                break;
+
+            case Pile pile:
+                pile.Location += delta;
+                break;
+
+            case RaftFoundation raft:
+                raft.SetOutline(raft.Outline.Select(point => point + delta).ToList());
                 break;
 
             case Grid grid:
@@ -379,6 +395,14 @@ public static class ElementTransforms
 
             case PadFooting pad:
                 pad.Location = Reflect(pad.Location);
+                break;
+
+            case Pile pile:
+                pile.Location = Reflect(pile.Location);
+                break;
+
+            case RaftFoundation raft:
+                raft.SetOutline(raft.Outline.Select(Reflect).ToList());
                 break;
 
             case RoofWindow roofWindow:
@@ -719,6 +743,14 @@ public static class ElementTransforms
             case PadFooting pad:
                 pad.Location = map(pad.Location);
                 pad.Rotation += degrees;
+                break;
+
+            case Pile pile:
+                pile.Location = map(pile.Location);
+                break;
+
+            case RaftFoundation raft:
+                raft.SetOutline(raft.Outline.Select(map).ToList());
                 break;
 
             case Component component:

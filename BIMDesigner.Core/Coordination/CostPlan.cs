@@ -11,7 +11,10 @@ public enum CostUnit
     Item,
     Length,
     Area,
-    Volume
+    Volume,
+
+    /// <summary>Steel in concrete, by the kilogram.</summary>
+    Mass
 }
 
 /// <summary>One element costed: its cost element, how much of it there is, its rate and what it comes to.</summary>
@@ -86,6 +89,8 @@ public static class CostPlanning
             BuiltInCategory.Fascias or BuiltInCategory.Gutters or BuiltInCategory.RoofSoffits or BuiltInCategory.Eaves or
             BuiltInCategory.SlabEdges or BuiltInCategory.Downpipes or BuiltInCategory.Ducts or BuiltInCategory.Pipes => CostUnit.Length,
         BuiltInCategory.StructuralFoundations when element is WallFooting => CostUnit.Length,
+        BuiltInCategory.StructuralFoundations when element is RaftFoundation or GroundBeam => CostUnit.Volume,
+        BuiltInCategory.StructuralFoundations when element is Pile => CostUnit.Length,
         _ => CostUnit.Item
     };
 
@@ -95,6 +100,7 @@ public static class CostPlanning
         CostUnit.Length => "m",
         CostUnit.Area => "m²",
         CostUnit.Volume => "m³",
+        CostUnit.Mass => "kg",
         _ => "nr"
     };
 
@@ -132,6 +138,7 @@ public static class CostPlanning
         CostUnit.Length => measured / 1000,
         CostUnit.Area => measured / 1e6,
         CostUnit.Volume => measured / 1e9,
+        CostUnit.Mass => measured,
         _ => measured
     };
 
@@ -307,9 +314,19 @@ public static class CostPlanning
             var type = document.FindType<ElementType>(element.TypeId);
             var unit = UnitOf(element);
             var quantity = InUnits(Measure(document, element, unit), unit);
-            var rate = type?.Cost ?? 0;
+            var rate = type?.Cost ?? Reinforcement.ConcreteRate(element, us);
             var (code, title) = us ? UniFormat(document, element) : Nrm1(document, element);
             lines.Add(new CostLine(element, type, code, title, quantity, unit, rate, (decimal)quantity * rate));
+        }
+
+        // The steel in each foundation, by the kilogram, with it.
+        foreach (var member in document.Elements.Where(element => Footings.IsFoundation(element) && Costed(element)))
+        {
+            var kilograms = Math.Round(Reinforcement.Mass(Reinforcement.LinesOf(document, member, () => string.Empty)) + Reinforcement.FabricMass(document, member), 1);
+            if (kilograms <= 0) continue;
+            var (code, title) = us ? UniFormat(document, member) : Nrm1(document, member);
+            var rate = Reinforcement.SteelRate(us);
+            lines.Add(new CostLine(member, null, code, title, kilograms, CostUnit.Mass, rate, (decimal)kilograms * rate));
         }
 
         // Each pipe's clips and each duct's hangers, with the pipe or duct.

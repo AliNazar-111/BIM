@@ -72,7 +72,10 @@ public abstract class Element
             v => PhaseDemolished = EnumText.TryParse<DesignPhase>(v, out var p) ? p : null,
             new[] { "None" }.Concat(EnumText.Choices<DesignPhase>()).ToArray());
 
-        yield return ParameterValue.ReadOnly(CommonParameters.Workset, () => Workset);
+        // Shared, an element is put on a workset - which borrows it, as any change does; unshared, it is only said.
+        if (document.Worksharing.Enabled)
+            yield return ParameterValue.BindChoice(CommonParameters.Workset, () => Workset, v => Workset = v, Documents.Worksets.Choices(document));
+        else yield return ParameterValue.ReadOnly(CommonParameters.Workset, () => Workset);
         if (DesignOptionId is not null || document.DesignOptionSets.Count > 0)
             yield return ParameterValue.ReadOnly(CommonParameters.DesignOption, () => Views.DesignOptions.Describe(document, DesignOptionId));
 

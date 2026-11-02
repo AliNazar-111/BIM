@@ -32,6 +32,7 @@ public partial class MainWindow
     {
         ModelLinks.Reader = LinkFiles.Read;
         _linkWatch.Tick += (_, _) => WatchLinks();
+        _linkWatch.Tick += (_, _) => WatchCentral();
         _linkWatch.Start();
     }
 
@@ -115,6 +116,58 @@ public partial class MainWindow
 
         Relinked();
         SayLinkChanges(link);
+
+        // The levels and gridlines following it, where its originals have moved.
+        var changed = CopyMonitor.Review(_document).Count(finding => finding.Link?.Id == link.Id);
+        if (changed > 0)
+        {
+            StatusHint.Text += $" {changed} change{(changed == 1 ? string.Empty : "s")} to the levels and gridlines followed from it - Coordination Review.";
+            _reviewWindow?.Refresh();
+        }
+    }
+
+    private CoordinationReviewWindow? _reviewWindow;
+
+    private void OnCopyMonitor(object sender, RoutedEventArgs e) => CopyMonitorFrom(null);
+
+    private void OnCoordinationReview(object sender, RoutedEventArgs e) => OpenCoordinationReview();
+
+    /// <summary>
+    /// A linked model's levels and gridlines copied in, or paired with this project's own where they
+    /// already stand, each to follow its original: the link given, the one picked, or the only one.
+    /// One step to undo; internal so tests and the harness can copy.
+    /// </summary>
+    internal void CopyMonitorFrom(ModelLink? link)
+    {
+        var links = _document.All<ModelLink>().Where(each => each.Shown).ToList();
+        link ??= Plan.SelectedElements.OfType<ModelLink>().FirstOrDefault() ?? _linksWindow?.Picked as ModelLink ?? (links.Count == 1 ? links[0] : null);
+        if (link is null)
+        {
+            StatusHint.Text = links.Count == 0
+                ? "Link a model first - Manage → Link Model - to copy its levels and gridlines."
+                : "Pick the linked model to copy from - on the plan, in 3D or in Manage Links - then Copy/Monitor.";
+            return;
+        }
+
+        var (command, said) = CopyMonitor.Copy(_document, link);
+        if (command is not null)
+        {
+            _history.Execute(command);
+            AfterHistoryChange();
+        }
+
+        StatusHint.Text = said;
+    }
+
+    /// <summary>After an answer in the Coordination Review: the storeys, the plan and the rest follow.</summary>
+    internal void AfterCoordination() => AfterHistoryChange();
+
+    /// <summary>The Coordination Review, opened or brought forward: what has changed in the levels and gridlines followed.</summary>
+    internal CoordinationReviewWindow OpenCoordinationReview()
+    {
+        var window = Open(ref _reviewWindow, () => new CoordinationReviewWindow(this), this);
+        window.Refresh();
+        return window;
     }
 
     /// <summary>A linked model pointed at another file - the same model moved, or its next issue - and read from it.</summary>
@@ -155,6 +208,7 @@ public partial class MainWindow
     /// <summary>The links drawn again as they now are.</summary>
     internal void Relinked()
     {
+        Core.Views.Projections.Forget(_document);
         Model3D.Rebuild();
         Plan.RefreshModel();
         _linksWindow?.Refresh();

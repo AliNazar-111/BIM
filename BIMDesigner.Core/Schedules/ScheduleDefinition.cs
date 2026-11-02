@@ -82,6 +82,15 @@ public sealed class ScheduleDefinition
     /// </summary>
     public bool Itemize { get; set; } = true;
 
+    /// <summary>
+    /// Whether the elements of the linked models are rows too, each saying which link it is in under
+    /// <see cref="LinkField"/> - read from their own files, so not to be typed into here.
+    /// </summary>
+    public bool IncludeLinks { get; set; }
+
+    /// <summary>A field every schedule including its links can show: the linked model a row is from, blank for this project's own.</summary>
+    public const string LinkField = "Linked Model";
+
     /// <summary>A field every schedule can show: how many elements a row stands for.</summary>
     public const string CountField = "Count";
 
@@ -119,7 +128,7 @@ public sealed class ScheduleDefinition
         var copy = new ScheduleDefinition(name, Category, Fields.ToArray())
         {
             SortBy = SortBy, SortDescending = SortDescending, GroupBy = GroupBy, ShowTotals = ShowTotals,
-            Itemize = Itemize, ShowFormatsOnSheets = ShowFormatsOnSheets
+            Itemize = Itemize, ShowFormatsOnSheets = ShowFormatsOnSheets, IncludeLinks = IncludeLinks
         };
         copy.Filters.AddRange(Filters.Select(filter => new ScheduleFilter(filter.Field, filter.Comparison, filter.Value)));
         foreach (var field in NotTotalled) copy.NotTotalled.Add(field);
@@ -131,8 +140,8 @@ public sealed class ScheduleDefinition
     /// <summary>Everything this definition says, made the same as another's - for undoing an edit to it.</summary>
     public void CopyFrom(ScheduleDefinition other)
     {
-        (Name, Category, SortBy, SortDescending, GroupBy, ShowTotals, Itemize, ShowFormatsOnSheets) =
-            (other.Name, other.Category, other.SortBy, other.SortDescending, other.GroupBy, other.ShowTotals, other.Itemize, other.ShowFormatsOnSheets);
+        (Name, Category, SortBy, SortDescending, GroupBy, ShowTotals, Itemize, ShowFormatsOnSheets, IncludeLinks) =
+            (other.Name, other.Category, other.SortBy, other.SortDescending, other.GroupBy, other.ShowTotals, other.Itemize, other.ShowFormatsOnSheets, other.IncludeLinks);
         Fields.Clear();
         Fields.AddRange(other.Fields);
         Filters.Clear();

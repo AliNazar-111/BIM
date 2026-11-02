@@ -45,7 +45,10 @@ public sealed class ScheduleRow
 {
     public required Element Element { get; init; }
 
-    public required IReadOnlyDictionary<string, ParameterValue> Cells { get; init; }
+    public required IReadOnlyDictionary<string, ParameterValue> Cells { get; set; }
+
+    /// <summary>The linked model a row is from; null for this project's own. Its cells are read only.</summary>
+    public Coordination.ModelLink? Link { get; init; }
 
     public ParameterValue? this[string field] =>
         Cells.TryGetValue(field, out var parameter) ? parameter : null;
@@ -125,6 +128,27 @@ public static class Schedule
             })
             .Where(row => read.All(filter => Passes(row, filter)))
             .ToList();
+
+        // The linked models' elements too, where asked: each row saying its link, and none of it to be typed into.
+        if (definition.IncludeLinks)
+        {
+            var own = ParameterValue.ReadOnly(LinkParameter, () => string.Empty);
+            foreach (var row in rows) row.Cells = new Dictionary<string, ParameterValue>(row.Cells, StringComparer.OrdinalIgnoreCase) { [ScheduleDefinition.LinkField] = own };
+            foreach (var (link, linked) in Coordination.ModelLinks.Loaded(document))
+            {
+                using var linkedCache = ModelCache.Begin(linked);
+                rows.AddRange(linked.Elements
+                    .Where(element => element.Category == definition.Category)
+                    .Select(element =>
+                    {
+                        var cells = Counted(ParametersOf(linked, element), 1, Coordination.CostPlanning.CostOf(linked, element))
+                            .ToDictionary(cell => cell.Key, cell => ParameterValue.ReadOnly(cell.Value.Definition, () => cell.Value.Value), StringComparer.OrdinalIgnoreCase);
+                        cells[ScheduleDefinition.LinkField] = ParameterValue.ReadOnly(LinkParameter, () => link.Title);
+                        return new ScheduleRow { Element = element, Cells = cells, Link = link };
+                    })
+                    .Where(row => read.All(filter => Passes(row, filter))));
+            }
+        }
 
         // Not itemised: those alike in every field but the counted ones made one row, counted.
         if (!definition.Itemize) rows = Combined(rows, definition);
@@ -264,10 +288,26 @@ public static class Schedule
             foreach (var name in ParametersOf(document, element).Keys) names.Add(name);
         }
 
+        // What the linked models' elements report too, and which link a row is from.
+        foreach (var (_, linked) in Coordination.ModelLinks.Loaded(document))
+        {
+            var linkedTypes = new HashSet<Guid>();
+            foreach (var element in linked.Elements.Where(element => element.Category == category))
+            {
+                if (element.TypeId != Guid.Empty && !linkedTypes.Add(element.TypeId)) continue;
+                foreach (var name in ParametersOf(linked, element).Keys) names.Add(name);
+            }
+
+            names.Add(ScheduleDefinition.LinkField);
+        }
+
         names.Add(ScheduleDefinition.CountField);
         names.Add(ScheduleDefinition.TotalCostField);
         return names.ToList();
     }
+
+    private static readonly ParameterDefinition LinkParameter =
+        new(ScheduleDefinition.LinkField, ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 
     private static readonly ParameterDefinition CountDefinition =
         new(ScheduleDefinition.CountField, ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Other);

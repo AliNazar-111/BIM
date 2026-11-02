@@ -30,6 +30,9 @@ public sealed class Grid : Element
 
     public bool BubbleAtEnd { get; set; } = true;
 
+    /// <summary>The gridline of a linked model this one was copied from or paired with, and where it stood when last agreed; null for one of its own.</summary>
+    public DatumMonitor? Monitor { get; set; }
+
     public double Length => Start.DistanceTo(End);
 
     public Vector2D Direction => (End - Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -49,6 +52,8 @@ public sealed class Grid : Element
         yield return ParameterValue.ReadOnly(GridParameters.Length, () => Length);
         yield return ParameterValue.Bind(GridParameters.BubbleAtStart, () => BubbleAtStart, v => BubbleAtStart = v);
         yield return ParameterValue.Bind(GridParameters.BubbleAtEnd, () => BubbleAtEnd, v => BubbleAtEnd = v);
+        if (Monitor is not null)
+            yield return ParameterValue.ReadOnly(GridParameters.Monitors, () => Coordination.CopyMonitor.Said(document, Monitor));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }
@@ -58,6 +63,9 @@ public sealed class Grid : Element
 
 public static class GridParameters
 {
+    public static readonly ParameterDefinition Monitors =
+        new("Monitors", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
     public static readonly ParameterDefinition Name =
         new("Name", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
 
