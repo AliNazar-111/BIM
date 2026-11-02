@@ -5,6 +5,7 @@ using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Parameters;
 using BIMDesigner.Core.Sheets;
 using BIMDesigner.Core.Views;
+using BIMDesigner.UI.Controls;
 
 namespace BIMDesigner.UI;
 
@@ -97,7 +98,40 @@ public partial class MainWindow
                 yield return new SheetViewOption($"{AreaPlans.Short(_document, scheme)} Area Plan: {level.Name}", AreaPlans.View(level.Id, scheme));
             if (measured.Count > 0)
                 yield return new SheetViewOption(AreaPlans.ScheduleTitle(_document, AreaPlans.Schedule(scheme)), AreaPlans.Schedule(scheme));
+            if (measured.Count > 0 && scheme == AreaScheme.Rentable)
+                yield return new SheetViewOption(AreaPlans.ScheduleTitle(_document, AreaPlans.IpmsSchedule()), AreaPlans.IpmsSchedule());
         }
+    }
+
+    /// <summary>
+    /// The area tools' option bar: for the Area tool on a rentable area plan, what the next area is
+    /// used for; for the Area Boundary tool, whether walls are picked rather than lines drawn.
+    /// </summary>
+    private void ShowAreaOptions(PlanTool tool)
+    {
+        _loadingOptions = true;
+        var area = tool == PlanTool.Area;
+        AreaUseLabel.Visibility = AreaUsePicker.Visibility = area ? Visibility.Visible : Visibility.Collapsed;
+        AreaPickWallsBox.Visibility = area ? Visibility.Collapsed : Visibility.Visible;
+        AreaPickWallsBox.IsChecked = Plan.AreaBoundariesOnWalls;
+        AreaUsePicker.ItemsSource ??= Enum.GetValues<AreaUse>().Where(use => use != AreaUse.None).Select(Areas.Name).ToList();
+        AreaUsePicker.SelectedItem = Areas.Name(Plan.ActiveAreaUse);
+        _loadingOptions = false;
+    }
+
+    private void OnAreaPickWallsChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        Plan.AreaBoundariesOnWalls = AreaPickWallsBox.IsChecked == true;
+        StatusHint.Text = Plan.AreaBoundariesOnWalls
+            ? "Click walls: a boundary goes along the middle of each."
+            : "Click where the area boundary starts, then where it ends.";
+    }
+
+    private void OnAreaUseChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null || AreaUsePicker.SelectedItem is not string use) return;
+        Plan.ActiveAreaUse = Enum.GetValues<AreaUse>().FirstOrDefault(each => Areas.Name(each) == use);
     }
 
     private static readonly ParameterDefinition AreaParameter = new("Area", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);

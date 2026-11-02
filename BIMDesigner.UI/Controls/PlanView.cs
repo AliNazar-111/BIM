@@ -41,6 +41,15 @@ public enum PlanTool
     /// <summary>Fills an outline clicked round with a pattern, in the view and nowhere else.</summary>
     FilledRegion,
 
+    /// <summary>Draws a detail over and over along a line - brick courses, insulation, timbers - in the view and nowhere else.</summary>
+    RepeatingDetail,
+
+    /// <summary>Draws lines splitting an area plan into areas, on that plan only.</summary>
+    AreaBoundary,
+
+    /// <summary>Places an area in a space an area plan's boundaries close round.</summary>
+    Area,
+
     /// <summary>Clicks fittings on and off the system being edited.</summary>
     EditSystem,
 
@@ -1301,6 +1310,9 @@ public partial class PlanView : FrameworkElement
         PlanTool.RoomSeparator => "Click where the room separator starts, then where it ends: rooms are bounded by it where there is no wall - the next starts where it ended. Esc to stop.",
         PlanTool.DetailLine => "Click where the detail line starts, then where it ends - or type its length: the next starts where it ended. Esc to stop.",
         PlanTool.FilledRegion => "Click the corners of the region to fill, then its first again or double-click. Esc to stop.",
+        PlanTool.RepeatingDetail => "Click where the repeating detail starts, then where it ends - or type its length: the detail on the option bar is drawn along it, to its left, at its true size. Esc to stop.",
+        PlanTool.AreaBoundary => "On an area plan, click where the area boundary starts, then where it ends - or type its length: the next starts where it ended. Areas are measured within the boundaries and the storey's outline. Esc to stop.",
+        PlanTool.Area => "On an area plan, click in each space its area boundaries close round to place an area there: it is named and numbered on, and measured as the plan measures the storey.",
         PlanTool.Pipe => "Click a fitting's connector, the end of a pipe or a point along one - or anywhere - where the pipe starts; then where it goes. It runs level at the height on the option bar and rises or drops to the fitting or pipe it ends at.",
         PlanTool.Duct => "Click a spigot - a heat recovery unit's, a valve's, an outside terminal's - the end of a duct or a point along one, or anywhere, where the duct starts; then where it goes. It runs level at the height on the option bar and rises or drops to the spigot or duct it ends at.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
@@ -1494,6 +1506,8 @@ public partial class PlanView : FrameworkElement
                       | CancelBeam()
                       | CancelRoomSeparator()
                       | CancelDetailLine()
+                      | CancelAreaBoundary()
+                      | CancelRepeatingDetail()
                       | CancelPipe()
                       | CancelDuct()
                       | CancelGround()
@@ -1754,6 +1768,20 @@ public partial class PlanView : FrameworkElement
         foreach (var filled in OnActiveLevel<FilledRegion>().Where(filled => !ReferenceEquals(filled, _snapIgnore)))
             foreach (var corner in filled.Boundary) Consider(corner);
 
+        // Repeating details' ends, to run one on from another.
+        foreach (var repeating in OnActiveLevel<RepeatingDetail>().Where(repeating => !ReferenceEquals(repeating, _snapIgnore)))
+        {
+            Consider(repeating.Start);
+            Consider(repeating.End);
+        }
+
+        // Area boundaries' ends, on the area plan they split.
+        foreach (var boundary in AreaBoundariesShown.Where(boundary => !ReferenceEquals(boundary, _snapIgnore)))
+        {
+            Consider(boundary.Start);
+            Consider(boundary.End);
+        }
+
         // The corners of floors, balconies, terraces and roofs on this level and the one above - a
         // stair set out under a balcony's edge - railings' corners, beams' ends, columns, stairs' heads.
         // A terrace that is the roof of the storey below, or a balcony set down, is at this level's height whatever level it is on.
@@ -1941,6 +1969,16 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             DetailHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.RepeatingDetail)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            RepeatingHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.AreaBoundary)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            AreaBoundaryHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.Terrain)
         {
@@ -2418,6 +2456,18 @@ public partial class PlanView : FrameworkElement
                 ClickDetailLine(SnapPoint(raw, null, out _));
                 return;
 
+            case PlanTool.RepeatingDetail:
+                ClickRepeatingDetail(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.AreaBoundary:
+                ClickAreaBoundary(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.Area:
+                PlaceAreaAt(raw);
+                return;
+
             case PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.FilledRegion:
                 if (e.ClickCount == 2 && FinishOutline()) return;
                 ClickOutline(SnapPoint(raw, null, out _));
@@ -2873,7 +2923,7 @@ public partial class PlanView : FrameworkElement
             var corner = grip == GripKind.Start ? wall.Start : wall.End;
             if (WallJointLock.IsLocked(Document, wall.LevelId, corner))
                 foreach (var (other, atStart) in WallCorners.At(Document, wall.LevelId, corner).Where(e => !ReferenceEquals(e.Wall, wall)))
-                    _followers.Add((other, atStart, other.Start, other.End));
+                    _followers.Add((other, atStart, other.Start, other.End, new WallFollower(other, atStart)));
         }
 
         CaptureMouse();
@@ -2888,16 +2938,27 @@ public partial class PlanView : FrameworkElement
     /// hundreds of one-pixel nudges.
     /// </summary>
     /// <summary>The wall ends at locked corners that follow a drag, and where their walls were before it.</summary>
-    private readonly List<(Wall Wall, bool AtStart, Point2D Start, Point2D End)> _followers = new();
+    private readonly List<(Wall Wall, bool AtStart, Point2D Start, Point2D End, WallFollower Follows)> _followers = new();
 
     private void MoveFollowersTo(Point2D corner)
     {
-        foreach (var (follower, atStart, _, _) in _followers)
+        foreach (var (follower, atStart, _, _, _) in _followers)
         {
             if (atStart) follower.Start = corner;
             else follower.End = corner;
         }
     }
+
+    /// <summary>Whether a move this far would leave a following wall with no length, or turned back on itself.</summary>
+    private bool FollowerCollapses(Vector2D total) => _followers.GroupBy(f => f.Wall).Any(group =>
+    {
+        var (start, end) = (group.First().Start, group.First().End);
+        var (newStart, newEnd) = (start, end);
+        foreach (var (_, atStart, _, _, follows) in group)
+            if (atStart) newStart += follows.For(total);
+            else newEnd += follows.For(total);
+        return (newEnd - newStart).Dot((end - start).NormalisedOrDefault(Vector2D.UnitX)) <= WallJoins.JoinTolerance;
+    });
 
     /// <summary>The following walls' moves, to record with the drag that caused them.</summary>
     private IEnumerable<IUndoableCommand> FollowerMoves() =>
@@ -2924,11 +2985,12 @@ public partial class PlanView : FrameworkElement
         if (Document is not null) _moveSet.AddRange(Downpipes.Following(Document, _moveSet));
         if (Document is not null) _moveSet.AddRange(RoofDrainage.Following(Document, _moveSet));
 
-        // At the locked corners of what moves, the walls staying put stretch to keep meeting it.
+        // At the locked corners of what moves, and where walls are teed into its sides, the walls
+        // staying put stretch to keep meeting it.
         _followers.Clear();
         if (Document is not null)
-            foreach (var (follower, atStart) in WallJointLock.Followers(Document, _moveSet.OfType<Wall>().ToList()))
-                _followers.Add((follower, atStart, follower.Start, follower.End));
+            foreach (var follower in WallJointLock.Following(Document, _moveSet.OfType<Wall>().ToList()))
+                _followers.Add((follower.Wall, follower.AtStart, follower.Wall.Start, follower.Wall.End, follower));
     }
 
     private void BeginMoveDrag(Point2D raw)
@@ -2986,17 +3048,29 @@ public partial class PlanView : FrameworkElement
         }
 
         // A run of nudges grows one step - but with a dimension locked, each is its own, so what follows it follows each.
-        if (continuing && _nudgeRun is not null && !Document.All<Dimension>().Any(dimension => dimension.Locked))
+        const string Collapsing = "A wall meeting it would be left with no length: it goes no further.";
+        if (continuing && _nudgeRun is not null && !Document.All<Dimension>().Any(dimension => dimension.Locked || dimension.Equal))
         {
+            if (_nudgeRun.Collapses(_nudgeRun.Delta + step))
+            {
+                HintChanged?.Invoke(this, Collapsing);
+                return false;
+            }
+
             _nudgeRun.Grow(step);
         }
         else
         {
             CollectMoveSet();
-            _nudgeRun = new NudgeElementsCommand(
-                _moveSet, _followers.Select(f => (f.Wall, f.AtStart)), step, Document);
+            var run = new NudgeElementsCommand(_moveSet, _followers.Select(f => f.Follows), step, Document);
+            if (run.IsEmpty) return false;
+            if (run.Collapses(step))
+            {
+                HintChanged?.Invoke(this, Collapsing);
+                return false;
+            }
 
-            if (_nudgeRun.IsEmpty) return false;
+            _nudgeRun = run;
 
             History?.Execute(_nudgeRun);
         }
@@ -3032,14 +3106,21 @@ public partial class PlanView : FrameworkElement
 
             if (step.X == 0 && step.Y == 0) return;
 
+            // A wall meeting what moves is not pushed back past its own other end.
+            if (FollowerCollapses(_dragTotal + step))
+            {
+                HintChanged?.Invoke(this, "A wall meeting it would be left with no length: it stops here.");
+                return;
+            }
+
             foreach (var element in _moveSet)
                 if (ElementTransforms.CanMove(element))
                     ElementTransforms.Move(element, step);
 
-            foreach (var (follower, atStart, _, _) in _followers)
+            foreach (var (follower, atStart, _, _, follows) in _followers)
             {
-                if (atStart) follower.Start += step;
-                else follower.End += step;
+                if (atStart) follower.Start += follows.For(step);
+                else follower.End += follows.For(step);
             }
 
             _dragLastPoint = target;
@@ -3157,7 +3238,7 @@ public partial class PlanView : FrameworkElement
             if (Document is not null && RoofWindows.Misplaced(Document, _moveSet) is { } misplaced)
             {
                 foreach (var element in _moveSet.Where(ElementTransforms.CanMove)) ElementTransforms.Move(element, -_dragTotal);
-                foreach (var (follower, _, start, end) in _followers) (follower.Start, follower.End) = (start, end);
+                foreach (var (follower, _, start, end, _) in _followers) (follower.Start, follower.End) = (start, end);
 
                 _dragTotal = default;
                 HintChanged?.Invoke(this, misplaced);
@@ -3245,7 +3326,7 @@ public partial class PlanView : FrameworkElement
         {
             wall.Start = _dragOriginalStart;
             wall.End = _dragOriginalEnd;
-            foreach (var (follower, _, start, end) in _followers) (follower.Start, follower.End) = (start, end);
+            foreach (var (follower, _, start, end, _) in _followers) (follower.Start, follower.End) = (start, end);
             HintChanged?.Invoke(this, "A wall cannot have zero length.");
             InvalidateVisual();
             return;
@@ -6451,6 +6532,13 @@ public partial class PlanView : FrameworkElement
         foreach (var filled in OnActiveLevel<FilledRegion>())
             if (Enumerable.Range(0, filled.Boundary.Count).Any(i => DistanceToSegment(model, filled.Boundary[i], filled.Boundary[(i + 1) % filled.Boundary.Count]) <= 6 / PixelsPerMm)) yield return filled;
 
+        // Repeating details by their line, or anywhere over what they draw.
+        foreach (var repeating in OnActiveLevel<RepeatingDetail>())
+            if (DistanceToSegment(model, repeating.Start, repeating.End) <= 6 / PixelsPerMm || OverRepeating(repeating, model)) yield return repeating;
+
+        // On an area plan, its boundaries and areas.
+        foreach (var element in AreasAt(model)) yield return element;
+
         foreach (var dimension in OnActiveLevel<Dimension>())
         {
             var (from, to) = dimension.GetDimensionLine(Document);
@@ -6692,6 +6780,8 @@ public partial class PlanView : FrameworkElement
         DrawBeamPreview(dc);
         DrawRoomSeparatorPreview(dc);
         DrawDetailLinePreview(dc);
+        DrawAreaBoundaryPreview(dc);
+        DrawRepeatingPreview(dc);
         DrawSystems(dc);
         DrawPipePreview(dc);
         DrawDuctPreview(dc);

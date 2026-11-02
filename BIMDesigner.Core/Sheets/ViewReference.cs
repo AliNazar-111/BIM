@@ -229,6 +229,7 @@ public static class ViewExtent
             box = element switch
             {
                 Annotation.DetailLine line => box.Include(line.Start).Include(line.End),
+                Annotation.RepeatingDetail repeating => box.Include(BoundingBox2D.Around(Annotation.Detailing.Strokes(repeating).SelectMany(stroke => stroke).DefaultIfEmpty(repeating.Start))),
                 Annotation.FilledRegion region => box.Include(BoundingBox2D.Around(region.Boundary)),
                 Annotation.TextNote note => box.Include(note.Position),
                 Annotation.Dimension dimension => box.Include(dimension.StartPoint(document)).Include(dimension.EndPoint(document)),

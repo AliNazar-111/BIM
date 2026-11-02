@@ -355,7 +355,13 @@ public static class ElementCopy
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
         Annotation.DetailLine detail => CarryCommon(new Annotation.DetailLine { Start = detail.Start, End = detail.End, Style = detail.Style }, detail),
-        Annotation.FilledRegion region => CarryCommon(Outline(new Annotation.FilledRegion { Pattern = region.Pattern, Outlined = region.Outlined }, region.Boundary), region),
+        Annotation.RepeatingDetail repeating => CarryCommon(new Annotation.RepeatingDetail
+        {
+            Start = repeating.Start, End = repeating.End, Kind = repeating.Kind, Width = repeating.Width, Unit = repeating.Unit, Spacing = repeating.Spacing, Flipped = repeating.Flipped
+        }, repeating),
+        AreaBoundary boundary => CarryCommon(new AreaBoundary { Start = boundary.Start, End = boundary.End, Scheme = boundary.Scheme }, boundary),
+        Area area => CarryCommon(new Area { Location = area.Location, Name = area.Name, Number = area.Number, Scheme = area.Scheme, Use = area.Use }, area),
+        Annotation.FilledRegion region => CarryCommon(Outline(new Annotation.FilledRegion { Pattern = region.Pattern, CustomPatternId = region.CustomPatternId, Outlined = region.Outlined }, region.Boundary), region),
         Annotation.DraftingView drafting => CarryCommon(new Annotation.DraftingView { Name = drafting.Name }, drafting),
         CadUnderlay underlay => CarryCommon(Underlay(underlay), underlay),
         Coordination.ModelLink link => CarryCommon(new Coordination.ModelLink
@@ -604,7 +610,8 @@ public static class ElementCopy
         var copy = new Dimension
         {
             Start = CloneReference(original.Start), End = CloneReference(original.End), Offset = original.Offset, Override = original.Override,
-            Locked = original.Locked, LockedLength = original.LockedLength
+            Locked = original.Locked, LockedLength = original.LockedLength,
+            Equal = original.Equal, EqualityDisplay = original.EqualityDisplay
         };
         copy.Between.AddRange(original.Between.Select(CloneReference));
         return copy;

@@ -1,5 +1,6 @@
 using System.Windows.Media;
 using BIMDesigner.Core.Annotation;
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Geometry;
 
@@ -21,6 +22,9 @@ public partial class PlanView
 
     /// <summary>The pattern the Filled Region tool fills with.</summary>
     public FillPattern ActiveFillPattern { get; set; } = FillPattern.Diagonal;
+
+    /// <summary>A pattern of the project's own the Filled Region tool fills with instead, where one is picked.</summary>
+    public Guid? ActiveCustomPatternId { get; set; }
 
     /// <summary>The drafting view open in the plan, if one is: what is drawn goes into it.</summary>
     public DraftingView? ActiveDrafting => Document?.FindElement(ActiveLevelId) as DraftingView;
@@ -86,11 +90,92 @@ public partial class PlanView
             return false;
         }
 
-        var region = new FilledRegion { LevelId = ActiveLevelId, Pattern = ActiveFillPattern };
+        var region = new FilledRegion { LevelId = ActiveLevelId, Pattern = ActiveFillPattern, CustomPatternId = FillPatterns.Find(Document, ActiveCustomPatternId)?.Id };
         region.SetBoundary(outline);
         Apply(new AddElementCommand(Document, region, "Filled Region"));
-        HintChanged?.Invoke(this, $"{Detailing.Name(region.Pattern)} region, {Core.Units.SquareMetres(Polygon2D.Area(region.Boundary), "0.000")}. Draw another; Esc to stop.");
+        HintChanged?.Invoke(this, $"{FillPatterns.Find(Document, region.CustomPatternId)?.Name ?? Detailing.Name(region.Pattern)} region, {Core.Units.SquareMetres(Polygon2D.Area(region.Boundary), "0.000")}. Draw another; Esc to stop.");
         ModelChanged?.Invoke(this, EventArgs.Empty);
         return true;
+    }
+}
+
+/// <summary>
+/// Repeating details: click where one starts and where it ends - or type its length - and the
+/// detail picked on the option bar is drawn along it at its true size; the next starts there.
+/// </summary>
+public partial class PlanView
+{
+    private Point2D? _repeatingStart;
+    private Point2D? _repeatingHover;
+
+    /// <summary>What the Repeating Detail tool draws.</summary>
+    public RepeatingKind ActiveRepeatingKind { get; set; } = RepeatingKind.Brick;
+
+    private void RepeatingHover(Point2D at)
+    {
+        _repeatingHover = at;
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// A click with the Repeating Detail tool: where it starts, then where it ends - and the next
+    /// starts there. Public so it can be driven from tests.
+    /// </summary>
+    public bool ClickRepeatingDetail(Point2D at)
+    {
+        if (Document is null) return false;
+
+        if (_repeatingStart is not { } start)
+        {
+            _repeatingStart = at;
+            HintChanged?.Invoke(this, $"{Detailing.Name(ActiveRepeatingKind)}: now click where they end, or type the length - drawn to the left of the line. Esc to stop.");
+            InvalidateVisual();
+            return true;
+        }
+
+        if ((at - start).Length < 0.5) return false;
+
+        var (width, unit, spacing) = Detailing.Defaults(ActiveRepeatingKind, Document.ProjectInformation.ClearanceStandard.IsUs());
+        var detail = new RepeatingDetail { LevelId = ActiveLevelId, Start = start, End = at, Kind = ActiveRepeatingKind, Width = width, Unit = unit, Spacing = spacing };
+        Apply(new AddElementCommand(Document, detail, "Repeating Detail"));
+        _repeatingStart = at;
+        HintChanged?.Invoke(this, $"{Detailing.Name(detail.Kind)}, {Detailing.Pieces(detail)} along {Core.Units.FormatLength(detail.Length)}. Click where the next ends; Esc to stop. Flip it, or change its sizes, in Properties.");
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+        return true;
+    }
+
+    private bool CancelRepeatingDetail()
+    {
+        if (_repeatingStart is null) return false;
+        _repeatingStart = null;
+        InvalidateVisual();
+        return true;
+    }
+
+    /// <summary>The repeating detail the next click would draw, from where it starts to the cursor.</summary>
+    private void DrawRepeatingPreview(DrawingContext dc)
+    {
+        if (ActiveTool != PlanTool.RepeatingDetail || Document is null || _repeatingStart is not { } start || _repeatingHover is not { } hover || (hover - start).Length < 0.5) return;
+        var (width, unit, spacing) = Detailing.Defaults(ActiveRepeatingKind, Document.ProjectInformation.ClearanceStandard.IsUs());
+        var preview = new RepeatingDetail { Start = start, End = hover, Kind = ActiveRepeatingKind, Width = width, Unit = unit, Spacing = spacing };
+        dc.DrawLine(SketchPreviewPen, ModelToScreen(start), ModelToScreen(hover));
+        foreach (var stroke in Detailing.Strokes(preview))
+            for (var i = 0; i + 1 < stroke.Count; i++)
+                dc.DrawLine(SketchPreviewPen, ModelToScreen(stroke[i]), ModelToScreen(stroke[i + 1]));
+    }
+}
+
+public partial class PlanView
+{
+    /// <summary>Whether a point is over the band a repeating detail is drawn in: along its line, and within its width on its side.</summary>
+    private static bool OverRepeating(RepeatingDetail detail, Point2D point)
+    {
+        var length = detail.Length;
+        if (length < 1) return false;
+        var along = (detail.End - detail.Start) / length;
+        var across = along.PerpendicularLeft() * (detail.Flipped ? -1 : 1);
+        var (a, c) = ((point - detail.Start).Dot(along), (point - detail.Start).Dot(across));
+        return a >= 0 && a <= length && c >= 0 && c <= detail.Width;
     }
 }

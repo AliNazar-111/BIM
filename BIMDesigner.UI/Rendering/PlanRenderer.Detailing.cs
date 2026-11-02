@@ -54,7 +54,14 @@ public sealed partial class PlanRenderer
         var ink = _ink.WallOutline;
         var outline = BuildOutline(region.Boundary);
 
-        switch (region.Pattern)
+        // A pattern of the project's own: a drafting one sized on the paper, a model one in the building.
+        if (Document is not null && FillPatterns.Find(Document, region.CustomPatternId) is { } custom)
+        {
+            var pen = DetailPen(DetailLineStyle.Thin, ink);
+            foreach (var (from, to) in FillPatterns.Hatch(region.Boundary, custom, custom.Model ? 1 : OnPaperAsModel(1), OnPaperAsModel(0.3)))
+                dc.DrawLine(pen, ModelToScreen(from), ModelToScreen(to));
+        }
+        else switch (region.Pattern)
         {
             case FillPattern.SolidBlack:
                 dc.DrawGeometry(Brush(ink), null, outline);
@@ -80,5 +87,27 @@ public sealed partial class PlanRenderer
         var brush = new SolidColorBrush(colour);
         brush.Freeze();
         return brush;
+    }
+}
+
+public sealed partial class PlanRenderer
+{
+    /// <summary>A repeating detail's strokes, thin, in the ink the building is drawn in.</summary>
+    private void DrawRepeatingDetail(DrawingContext dc, RepeatingDetail detail)
+    {
+        var pen = IsSelected(detail) ? _selectedPen : DetailPen(DetailLineStyle.Thin, _ink.WallOutline);
+        foreach (var stroke in Detailing.Strokes(detail))
+        {
+            if (stroke.Count < 2) continue;
+            var geometry = new StreamGeometry();
+            using (var context = geometry.Open())
+            {
+                context.BeginFigure(ModelToScreen(stroke[0]), false, false);
+                context.PolyLineTo(stroke.Skip(1).Select(ModelToScreen).ToList(), true, true);
+            }
+
+            geometry.Freeze();
+            dc.DrawGeometry(null, pen, geometry);
+        }
     }
 }

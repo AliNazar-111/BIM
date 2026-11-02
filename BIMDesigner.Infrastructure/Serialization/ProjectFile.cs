@@ -464,15 +464,35 @@ public static partial class ProjectFile
             });
 
         dto.ColourSchemes = document.ViewSettings.ColourSchemes.Select(scheme => new ColourSchemeDto { Kind = scheme.View.Kind.ToString(), TargetId = scheme.View.TargetId, Index = scheme.View.Index, By = scheme.By.ToString() }).ToList();
+        dto.ColourPicks = document.ViewSettings.ColourPicks.Select(pick => new ColourPickDto { By = pick.By.ToString(), Value = pick.Value, Colour = pick.Colour.ToString() }).ToList();
         dto.DraftingViews = document.All<DraftingView>().Select(view => new DraftingViewDto { Id = view.Id, Name = view.Name, Comments = view.Comments }).ToList();
+        dto.FillPatterns = document.FillPatterns.Select(pattern => new FillPatternDto
+        {
+            Id = pattern.Id, Name = pattern.Name, Description = pattern.Description, Model = pattern.Model,
+            Lines = pattern.Lines.Select(line => new[] { line.Angle, line.OriginX, line.OriginY, line.Shift, line.Spacing }.Concat(line.Dashes).ToList()).ToList()
+        }).ToList();
         dto.DetailLines = document.All<DetailLine>().Select(line => new DetailLineDto
         {
             Id = line.Id, LevelId = line.LevelId, StartX = line.Start.X, StartY = line.Start.Y, EndX = line.End.X, EndY = line.End.Y, Style = line.Style.ToString(), Comments = line.Comments
         }).ToList();
+        dto.RepeatingDetails = document.All<RepeatingDetail>().Select(detail => new RepeatingDetailDto
+        {
+            Id = detail.Id, LevelId = detail.LevelId, StartX = detail.Start.X, StartY = detail.Start.Y, EndX = detail.End.X, EndY = detail.End.Y,
+            Kind = detail.Kind.ToString(), Width = detail.Width, Unit = detail.Unit, Spacing = detail.Spacing, Flipped = detail.Flipped, Comments = detail.Comments
+        }).ToList();
+        dto.AreaBoundaries = document.All<AreaBoundary>().Select(line => new AreaBoundaryDto
+        {
+            Id = line.Id, LevelId = line.LevelId, Scheme = line.Scheme.ToString(), StartX = line.Start.X, StartY = line.Start.Y, EndX = line.End.X, EndY = line.End.Y, Comments = line.Comments
+        }).ToList();
+        dto.Areas = document.All<Area>().Select(area => new AreaDto
+        {
+            Id = area.Id, LevelId = area.LevelId, Scheme = area.Scheme.ToString(), X = area.Location.X, Y = area.Location.Y,
+            Name = area.Name, Number = area.Number, Use = area.Use.ToString(), Comments = area.Comments
+        }).ToList();
         dto.FilledRegions = document.All<FilledRegion>().Select(region => new FilledRegionDto
         {
             Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
-            Pattern = region.Pattern.ToString(), Outlined = region.Outlined, Comments = region.Comments
+            Pattern = region.Pattern.ToString(), CustomPattern = region.CustomPatternId, Outlined = region.Outlined, Comments = region.Comments
         }).ToList();
 
         foreach (var railing in document.All<Railing>())
@@ -774,6 +794,8 @@ public static partial class ProjectFile
                 Override = dimension.Override,
                 Locked = dimension.Locked ? true : null,
                 LockedLength = dimension.Locked ? dimension.LockedLength : null,
+                Equal = dimension.Equal ? true : null,
+                EqualityDisplay = dimension.Equal ? dimension.EqualityDisplay.ToString() : null,
                 Comments = dimension.Comments,
                 Workset = dimension.Workset
             });
@@ -2848,8 +2870,19 @@ public static partial class ProjectFile
         // Drafting views, then what is drawn in them and on the plans: a line with no length, or a region of fewer than three corners, is nothing.
         foreach (var saved in dto.ColourSchemes ?? new List<ColourSchemeDto>())
             document.ViewSettings.SetColourBy(new ViewReference(ParseEnum(saved.Kind, ViewKind.FloorPlan), saved.TargetId, string.Empty) { Index = saved.Index }, ParseEnum(saved.By, RoomColourBy.None));
+        foreach (var saved in dto.ColourPicks ?? new List<ColourPickDto>())
+            if (ColourRgb.TryParse(saved.Colour, out var picked) && !string.IsNullOrWhiteSpace(saved.Value))
+                document.ViewSettings.PickColour(ParseEnum(saved.By, RoomColourBy.Name), saved.Value, picked);
         foreach (var saved in dto.DraftingViews ?? new List<DraftingViewDto>())
             document.Add(new DraftingView { Id = saved.Id, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Drafting View" : saved.Name, Comments = saved.Comments ?? string.Empty });
+        foreach (var saved in dto.FillPatterns ?? new List<FillPatternDto>())
+        {
+            var pattern = new CustomFillPattern { Id = saved.Id, Name = string.IsNullOrWhiteSpace(saved.Name) ? "Pattern" : saved.Name, Description = saved.Description ?? string.Empty, Model = saved.Model };
+            foreach (var values in (saved.Lines ?? new List<List<double>>()).Where(values => values.Count >= 5 && values.All(double.IsFinite) && Math.Abs(values[4]) > 1e-6))
+                pattern.Lines.Add(new PatternLine(values[0], values[1], values[2], values[3], values[4], values.Skip(5).ToList()));
+            if (pattern.Lines.Count > 0) document.FillPatterns.Add(pattern);
+        }
+
         bool Drawn(Guid on) => document.FindLevel(on) is not null || document.FindElement(on) is DraftingView;
         foreach (var saved in (dto.DetailLines ?? new List<DetailLineDto>()).Where(saved => Drawn(saved.LevelId) && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY }.All(double.IsFinite)))
         {
@@ -2858,11 +2891,38 @@ public static partial class ProjectFile
             document.Add(new DetailLine { Id = saved.Id, LevelId = saved.LevelId, Start = start, End = end, Style = ParseEnum(saved.Style, DetailLineStyle.Medium), Comments = saved.Comments ?? string.Empty });
         }
 
+        foreach (var saved in (dto.RepeatingDetails ?? new List<RepeatingDetailDto>()).Where(saved => Drawn(saved.LevelId)
+                     && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY, saved.Width, saved.Unit, saved.Spacing }.All(double.IsFinite) && saved.Width > 0 && saved.Spacing > 0))
+        {
+            var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
+            if (start.DistanceTo(end) < 0.01) continue;
+            document.Add(new RepeatingDetail
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Start = start, End = end, Kind = ParseEnum(saved.Kind, RepeatingKind.Brick),
+                Width = saved.Width, Unit = Math.Clamp(saved.Unit, 1, saved.Spacing), Spacing = saved.Spacing, Flipped = saved.Flipped, Comments = saved.Comments ?? string.Empty
+            });
+        }
+
+        // Area boundaries and areas, on a storey that is still there.
+        foreach (var saved in (dto.AreaBoundaries ?? new List<AreaBoundaryDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY }.All(double.IsFinite)))
+        {
+            var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
+            if (start.DistanceTo(end) < 0.01) continue;
+            document.Add(new AreaBoundary { Id = saved.Id, LevelId = saved.LevelId, Scheme = ParseEnum(saved.Scheme, AreaScheme.GrossInternal), Start = start, End = end, Comments = saved.Comments ?? string.Empty });
+        }
+
+        foreach (var saved in (dto.Areas ?? new List<AreaDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
+            document.Add(new Area
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Scheme = ParseEnum(saved.Scheme, AreaScheme.GrossInternal), Location = new Point2D(saved.X, saved.Y),
+                Name = string.IsNullOrWhiteSpace(saved.Name) ? "Area" : saved.Name, Number = saved.Number ?? string.Empty, Use = ParseEnum(saved.Use, AreaUse.None), Comments = saved.Comments ?? string.Empty
+            });
+
         foreach (var saved in (dto.FilledRegions ?? new List<FilledRegionDto>()).Where(saved => Drawn(saved.LevelId)))
         {
             var outline = Outline(saved.Boundary);
             if (outline.Count < 3) continue;
-            var region = new FilledRegion { Id = saved.Id, LevelId = saved.LevelId, Pattern = ParseEnum(saved.Pattern, FillPattern.Diagonal), Outlined = saved.Outlined, Comments = saved.Comments ?? string.Empty };
+            var region = new FilledRegion { Id = saved.Id, LevelId = saved.LevelId, Pattern = ParseEnum(saved.Pattern, FillPattern.Diagonal), CustomPatternId = saved.CustomPattern is { } custom && document.FillPatterns.Any(each => each.Id == custom) ? custom : null, Outlined = saved.Outlined, Comments = saved.Comments ?? string.Empty };
             region.SetBoundary(outline);
             document.Add(region);
         }
@@ -3290,6 +3350,8 @@ public static partial class ProjectFile
                 Override = dimension.Override,
                 Locked = dimension.Locked == true && dimension.LockedLength is > 0,
                 LockedLength = dimension.LockedLength ?? 0,
+                Equal = dimension.Equal == true && dimension.Between is { Count: > 0 },
+                EqualityDisplay = Enum.TryParse<EqualityDisplay>(dimension.EqualityDisplay, out var display) ? display : EqualityDisplay.Text,
                 Comments = dimension.Comments,
                 Workset = dimension.Workset
             };

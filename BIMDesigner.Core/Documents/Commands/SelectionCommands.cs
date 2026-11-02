@@ -239,24 +239,48 @@ public sealed class MoveElementsCommand : IUndoableCommand
 /// time. So a run is a single command that keeps adding to its own step: one Undo puts the
 /// element back where it stood when the key went down.
 ///
-/// A wall left behind at a locked corner stretches rather than travels: only the end that
-/// meets what is moving follows it, which is what keeps the corner a corner.
+/// A wall left behind at a locked corner, or teed into the side of one moving, stretches rather
+/// than travels: only the end that meets what is moving follows it, which is what keeps the
+/// corner a corner and the tee a tee. The doors and windows in it stay where they stand.
 /// </summary>
 public sealed class NudgeElementsCommand : IUndoableCommand
 {
     private readonly List<Element> _elements;
-    private readonly List<(Wall Wall, bool AtStart)> _stretched;
+    private readonly List<WallFollower> _stretched;
     private Vector2D _delta;
+
+    // Where each stretched wall stood, and the openings in it where they stood in the building.
+    private readonly List<(Wall Wall, Point2D Start, Point2D End, List<(Element Hosted, double Along, Point2D At, double Width)> Hosted)> _kept = new();
+    private Vector2D _applied;
 
     public NudgeElementsCommand(
         IEnumerable<Element> elements,
         IEnumerable<(Wall Wall, bool AtStart)> stretched,
         Vector2D delta,
         BimDocument? document = null)
+        : this(elements, stretched.Select(end => new WallFollower(end.Wall, end.AtStart)), delta, document)
+    {
+    }
+
+    public NudgeElementsCommand(
+        IEnumerable<Element> elements,
+        IEnumerable<WallFollower> stretched,
+        Vector2D delta,
+        BimDocument? document = null)
     {
         _elements = elements.Where(ElementTransforms.CanMove).ToList();
         _stretched = stretched.ToList();
         _delta = delta;
+
+        foreach (var wall in _stretched.Select(f => f.Wall).Distinct())
+        {
+            var hosted = new List<(Element, double, Point2D, double)>();
+            if (document is not null && !wall.IsElliptical && !wall.IsSpline)
+                foreach (var element in document.Elements)
+                    if (MoveWallCommand.HostedIn(document, wall, element) is var (along, width))
+                        hosted.Add((element, along, wall.LocationCurve.PointAt(along), width));
+            _kept.Add((wall, wall.Start, wall.End, hosted));
+        }
 
         // Columns set out on a moved grid go with it. They are worked out before the first
         // step is applied, so they are the columns on the grid where it stands now, not the
@@ -291,14 +315,44 @@ public sealed class NudgeElementsCommand : IUndoableCommand
 
     public void Undo() => Apply(-_delta);
 
+    /// <summary>
+    /// Whether moving this far would leave a stretched wall with no length, or turned back on
+    /// itself - its end pushed past the other.
+    /// </summary>
+    public bool Collapses(Vector2D delta) => _kept.Any(kept =>
+    {
+        var start = kept.Start + Shift(kept.Wall, true, delta);
+        var end = kept.End + Shift(kept.Wall, false, delta);
+        return (end - start).Dot((kept.End - kept.Start).NormalisedOrDefault(Vector2D.UnitX)) <= WallJoins.JoinTolerance;
+    });
+
+    private Vector2D Shift(Wall wall, bool atStart, Vector2D delta) =>
+        _stretched.FirstOrDefault(f => ReferenceEquals(f.Wall, wall) && f.AtStart == atStart)?.For(delta) ?? default;
+
     private void Apply(Vector2D step)
     {
         foreach (var element in _elements) ElementTransforms.Move(element, step);
 
-        foreach (var (wall, atStart) in _stretched)
+        foreach (var follower in _stretched)
         {
-            if (atStart) wall.Start += step;
-            else wall.End += step;
+            if (follower.AtStart) follower.Wall.Start += follower.For(step);
+            else follower.Wall.End += follower.For(step);
+        }
+
+        _applied += step;
+
+        // A wall stretched keeps its openings where they stand; one carried whole takes them with it.
+        foreach (var (wall, start, end, hosted) in _kept)
+        {
+            var whole = ((wall.Start - start) - (wall.End - end)).Length < 1e-6;
+            var curve = wall.LocationCurve;
+            foreach (var (element, along, at, width) in hosted)
+            {
+                var moved = _applied.Length < 1e-9 || whole ? along : curve.Locate(at).Along;
+                if (!whole && _applied.Length >= 1e-9)
+                    moved = width < curve.Length ? Math.Clamp(moved, width / 2, curve.Length - width / 2) : curve.Length / 2;
+                MoveWallCommand.PlaceHosted(element, Math.Max(0, moved));
+            }
         }
     }
 }

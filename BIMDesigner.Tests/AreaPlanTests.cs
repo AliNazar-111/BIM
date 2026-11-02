@@ -131,7 +131,7 @@ public class AreaPlanTests
     {
         var document = BimDocument.CreateDefault();
         document.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
-        Assert.Equal(new[] { AreaScheme.GrossExternal, AreaScheme.Finished }, AreaPlans.Schemes(document));
+        Assert.Equal(new[] { AreaScheme.GrossExternal, AreaScheme.Finished, AreaScheme.Rentable }, AreaPlans.Schemes(document));
 
         var level = document.Levels[0].Id;
         var outside = Type(document, "Exterior - Brick on Block");

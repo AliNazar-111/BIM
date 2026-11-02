@@ -50,6 +50,8 @@ public partial class PlanView
             PlanTool.Beam when _beamStart is { } from => new DrawnLine(from, _beamHover ?? _cursorModel, ClickBeam),
             PlanTool.RoomSeparator when _separatorStart is { } from => new DrawnLine(from, _separatorHover ?? _cursorModel, ClickRoomSeparator),
             PlanTool.DetailLine when _detailStart is { } from => new DrawnLine(from, _detailHover ?? _cursorModel, ClickDetailLine),
+            PlanTool.RepeatingDetail when _repeatingStart is { } from => new DrawnLine(from, _repeatingHover ?? _cursorModel, ClickRepeatingDetail),
+            PlanTool.AreaBoundary when _areaBoundaryStart is { } from => new DrawnLine(from, _areaBoundaryHover ?? _cursorModel, ClickAreaBoundary),
             PlanTool.Railing when !PickingEdges && !RailingArc && _railingArcEnd is null && _railingPoints.Count > 0 =>
                 new DrawnLine(_railingPoints[^1], _cursorModel, ClickRailing),
             PlanTool.Region or PlanTool.Joists or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.FilledRegion when _outlinePoints.Count > 0 =>

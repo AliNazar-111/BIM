@@ -63,6 +63,7 @@ public static class Warnings
         foreach (var warning in Duplicates(document)) yield return warning;
         foreach (var warning in OverlappingWalls(document)) yield return warning;
         foreach (var warning in RoomProblems(document)) yield return warning;
+        foreach (var warning in AreaProblems(document)) yield return warning;
         foreach (var warning in DuplicateMarks(document)) yield return warning;
 
         foreach (var opening in document.All<Opening>().Where(opening => document.Find<Wall>(opening.HostWallId) is null))
@@ -184,6 +185,20 @@ public static class Warnings
                     $"{string.Join(", ", all.Select(RoomsOf.Label))} on {LevelName(document, room)} are in the same enclosed space: its area is counted {all.Count} times. Delete all but one, or divide the space with a wall or a room separator.",
                     all);
             }
+        }
+    }
+
+    /// <summary>An area drawn by hand that nothing closes round, or that shares its space with another.</summary>
+    private static IEnumerable<Warning> AreaProblems(BimDocument document)
+    {
+        foreach (var area in document.All<Views.Area>())
+        {
+            var shape = Views.Areas.Shape(document, area);
+            var plan = $"the {Views.AreaPlans.Short(document, area.Scheme)} area plan of {LevelName(document, area)}";
+            if (shape.Polygon is null)
+                yield return new Warning(WarningKind.Model, "Areas not enclosed", $"{Views.Areas.Said(area)} on {plan}: {shape.Why}", new Element[] { area });
+            else if (shape.Shared is { } shared)
+                yield return new Warning(WarningKind.Model, "Areas in the same space", $"{Views.Areas.Said(area)} on {plan}: {shared}", new Element[] { area });
         }
     }
 

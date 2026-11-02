@@ -50,14 +50,7 @@ public sealed class MoveWallCommand : IUndoableCommand
 
         foreach (var element in document.Elements)
         {
-            (double Along, double Width)? at = element switch
-            {
-                Opening opening when opening.HostWallId == _wall.Id =>
-                    (opening.DistanceAlongWall, opening.WidthOf(document.FindType<OpeningType>(opening.TypeId))),
-                WallOpening cut when cut.HostWallId == _wall.Id => (cut.DistanceAlongWall, cut.Width),
-                _ => null
-            };
-            if (at is not var (along, width)) continue;
+            if (HostedIn(document, _wall, element) is not var (along, width)) continue;
 
             var length = after.Length;
             var moved = after.Locate(before.PointAt(along)).Along;
@@ -69,14 +62,25 @@ public sealed class MoveWallCommand : IUndoableCommand
         return this;
     }
 
+    /// <summary>Where along a wall a door, window or opening in it stands, and how wide it is; null for anything else.</summary>
+    internal static (double Along, double Width)? HostedIn(BimDocument document, Wall wall, Element element) => element switch
+    {
+        Opening opening when opening.HostWallId == wall.Id =>
+            (opening.DistanceAlongWall, opening.WidthOf(document.FindType<OpeningType>(opening.TypeId))),
+        WallOpening cut when cut.HostWallId == wall.Id => (cut.DistanceAlongWall, cut.Width),
+        _ => null
+    };
+
+    /// <summary>Puts a door, window or opening this far along its wall.</summary>
+    internal static void PlaceHosted(Element hosted, double along)
+    {
+        if (hosted is Opening opening) opening.DistanceAlongWall = along;
+        else if (hosted is WallOpening cut) cut.DistanceAlongWall = along;
+    }
+
     private void Place(bool after)
     {
-        foreach (var (hosted, before, moved) in _hosted)
-        {
-            var along = Math.Max(0, after ? moved : before);
-            if (hosted is Opening opening) opening.DistanceAlongWall = along;
-            else if (hosted is WallOpening cut) cut.DistanceAlongWall = along;
-        }
+        foreach (var (hosted, before, moved) in _hosted) PlaceHosted(hosted, Math.Max(0, after ? moved : before));
     }
 
     public void Redo()

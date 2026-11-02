@@ -289,6 +289,39 @@ public class RoomColourTests
     }
 
     [Fact]
+    public void AColourPickedByHandIsThatValuesOnEveryStoreyAndInTheLegendAndIsKept()
+    {
+        var document = Offices();
+        var ground = ViewReference.FloorPlan(document.Levels[0].Id);
+        var first = ViewReference.FloorPlan(document.Levels[1].Id);
+        document.ViewSettings.SetColourBy(ground, RoomColourBy.Department);
+        document.ViewSettings.SetColourBy(first, RoomColourBy.Department);
+        Room Store(int level) => document.All<Room>().Single(room => room.LevelId == document.Levels[level].Id && room.Name == "Store");
+        var scheme = RoomColours.ColourOf(document, ground, Store(0));
+
+        // Picked in any case, it is that department's colour on both storeys and in the legend's swatch.
+        var history = new UndoStack();
+        var orange = Core.Materials.ColourRgb.FromHex("FF8800");
+        history.Execute(RoomColours.Pick(document, RoomColourBy.Department, "facilities", orange));
+        Assert.Equal(orange, RoomColours.ColourOf(document, ground, Store(0)));
+        Assert.Equal(orange, RoomColours.ColourOf(document, first, Store(1)));
+        Assert.True(RoomColours.Picked(document, RoomColourBy.Department, "Facilities"));
+        Assert.Equal(orange, RoomColours.Table(document, RoomColours.LegendOf(ground)).Lines.First(line => line.Cells.Count > 1 && line.Cells[1] == "Facilities").Backgrounds[0]);
+
+        // Only for what it was picked for: by name the store keeps the scheme's own.
+        Assert.False(RoomColours.Picked(document, RoomColourBy.Name, "Facilities"));
+
+        var reopened = ProjectFile.FromJson(ProjectFile.ToJson(document));
+        Assert.Equal(orange, reopened.ViewSettings.ColourPicked(RoomColourBy.Department, "Facilities"));
+
+        history.Undo();
+        Assert.Equal(scheme, RoomColours.ColourOf(document, ground, Store(0)));
+        history.Redo();
+        history.Execute(RoomColours.Pick(document, RoomColourBy.Department, "Facilities", null));
+        Assert.Equal(scheme, RoomColours.ColourOf(document, ground, Store(0)));
+    }
+
+    [Fact]
     public void ALegendOnASheetShowsASwatchBesideEachValue()
     {
         var document = Offices();

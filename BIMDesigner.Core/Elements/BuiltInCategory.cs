@@ -148,7 +148,16 @@ public enum BuiltInCategory
     DetailLines,
 
     /// <summary>Areas filled with a pattern in a view: the cut materials of a detail, a zone hatched on a plan.</summary>
-    FilledRegions
+    FilledRegions,
+
+    /// <summary>Lines splitting an area plan by hand into areas: a tenancy's edge, a zone's.</summary>
+    AreaBoundaries,
+
+    /// <summary>The areas an area plan is split into, each named and measured where it is placed.</summary>
+    Areas,
+
+    /// <summary>Details drawn in a view and nowhere else, over and over along a line: brick courses, insulation, timbers.</summary>
+    DetailComponents
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

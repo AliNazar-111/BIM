@@ -33,10 +33,7 @@ public sealed partial class PlanRenderer
         var pen = IsSelected(dimension) ? _selectedPen : attached ? _dimensionPen : _looseDimensionPen;
         var brush = attached ? _dimensionTextBrush : _looseDimensionBrush;
 
-        var labels = !string.IsNullOrWhiteSpace(dimension.Override)
-            ? new[] { dimension.Override }
-            : dimension.Segments(Document).Select(type.Format).ToArray();
-        DrawLinear(dc, type, stations, offset, pen, brush, labels);
+        DrawLinear(dc, type, stations, offset, pen, brush, dimension.Labels(Document));
 
         // Locked: a closed padlock on its line, a quarter of the way along - on screen only, as the wall lengths are.
         if (dimension.Locked && ShowWallLabels)

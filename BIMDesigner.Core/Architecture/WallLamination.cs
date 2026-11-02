@@ -308,4 +308,80 @@ public static class WallJointLock
 
         return followers;
     }
+
+    /// <summary>
+    /// Every wall end that follows when these walls move: the ends at their locked corners, which
+    /// go the whole way, and the walls teed into their sides, which stretch to go on meeting them.
+    /// </summary>
+    public static IReadOnlyList<WallFollower> Following(BimDocument document, IReadOnlyCollection<Wall> moving)
+    {
+        var following = Followers(document, moving).Select(end => new WallFollower(end.Wall, end.AtStart)).ToList();
+        foreach (var teed in Teed(document, moving))
+            if (!following.Any(f => ReferenceEquals(f.Wall, teed.Wall) && f.AtStart == teed.AtStart)) following.Add(teed);
+
+        return following;
+    }
+
+    /// <summary>
+    /// The walls teed into the sides of these: an end of each on one's line or either face, short
+    /// of its ends, that does not move with them. A straight wall into a straight one stretches
+    /// along its own line as far as it takes to meet it again; into a curved one, or curved
+    /// itself, its end goes the whole way, which keeps it on the curve. A pinned wall stays where
+    /// it is, and so does an end set to join nothing.
+    /// </summary>
+    public static IReadOnlyList<WallFollower> Teed(BimDocument document, IReadOnlyCollection<Wall> moving)
+    {
+        var teed = new List<WallFollower>();
+        foreach (var host in moving)
+        {
+            if (document.GetWallType(host) is not { } type || host.Length <= WallJoins.JoinTolerance) continue;
+            var curve = host.LocationCurve;
+            var half = type.Width / 2;
+            var near = ModelCache.Bounds(host).Expand(half + WallJoins.JoinTolerance + 1);
+
+            foreach (var wall in document.Walls)
+            {
+                if (wall.LevelId != host.LevelId || wall.Pinned || moving.Contains(wall)) continue;
+
+                foreach (var atStart in new[] { true, false })
+                {
+                    var end = atStart ? wall.Start : wall.End;
+                    if (end.X < near.MinX || end.X > near.MaxX || end.Y < near.MinY || end.Y > near.MaxY) continue;
+                    if ((atStart ? wall.StartJoin : wall.EndJoin) == WallJoinKind.Disallow) continue;
+                    if (WallJoins.TouchesAt(host, end) || teed.Any(f => ReferenceEquals(f.Wall, wall) && f.AtStart == atStart)) continue;
+
+                    var (along, across) = host.Locate(type.Structure, end);
+                    if (along <= WallJoins.JoinTolerance || along >= host.Length - WallJoins.JoinTolerance) continue;
+                    var onIt = curve.DistanceTo(end) <= WallJoins.JoinTolerance ||
+                               Math.Abs(across) <= WallJoins.JoinTolerance ||
+                               Math.Abs(Math.Abs(across) - half) <= WallJoins.JoinTolerance;
+                    if (!onIt) continue;
+
+                    // Running along it, it is not teed into it but beside it.
+                    var own = (atStart ? wall.Start - wall.End : wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
+                    var square = host.TangentAt(along).PerpendicularLeft();
+                    var meets = own.Dot(square);
+                    if (Math.Abs(meets) < 0.05) continue;
+
+                    teed.Add(host.IsCurved || wall.IsCurved
+                        ? new WallFollower(wall, atStart)
+                        : new WallFollower(wall, atStart, own, square / meets));
+                }
+            }
+        }
+
+        return teed;
+    }
+}
+
+/// <summary>
+/// A wall end that follows a move of what it meets. At a locked corner it goes the whole way;
+/// teed into a straight wall's side it slides along its own line, so the wall stays straight and
+/// at its angle and only its length changes: <see cref="Along"/> is the way it slides, and
+/// <see cref="Across"/> how far for a step, the step's share square to the wall it meets.
+/// </summary>
+public sealed record WallFollower(Wall Wall, bool AtStart, Vector2D? Along = null, Vector2D Across = default)
+{
+    /// <summary>How far this end goes when what it meets moves by a step.</summary>
+    public Vector2D For(Vector2D step) => Along is { } along ? along * step.Dot(Across) : step;
 }

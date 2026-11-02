@@ -22,7 +22,14 @@ public enum AreaScheme
     NetInternal = 3,
 
     /// <summary>A US home's finished area by ANSI Z765-2021: to the outside faces, finished and tall enough, above grade and below it apart.</summary>
-    Finished = 4
+    Finished = 4,
+
+    /// <summary>
+    /// Office space let by its rentable area: each storey measured to the inside faces of its outside
+    /// walls - BOMA 2017's boundary area, IPMS 2 - and split by hand into areas of each use, from which
+    /// each occupant's rentable area is worked by ANSI/BOMA Z65.1-2017 and the component areas by IPMS.
+    /// </summary>
+    Rentable = 5
 }
 
 /// <summary>What a part of a storey's measure does to its area: taken out, put in, or in it and said separately.</summary>
@@ -79,8 +86,8 @@ public static class AreaPlans
 
     /// <summary>The schemes a project is measured in: GEA, GIA and NIA; in the US the gross and the finished area.</summary>
     public static IReadOnlyList<AreaScheme> Schemes(BimDocument document) => document.ProjectInformation.ClearanceStandard.IsUs()
-        ? new[] { AreaScheme.GrossExternal, AreaScheme.Finished }
-        : new[] { AreaScheme.GrossExternal, AreaScheme.GrossInternal, AreaScheme.NetInternal };
+        ? new[] { AreaScheme.GrossExternal, AreaScheme.Finished, AreaScheme.Rentable }
+        : new[] { AreaScheme.GrossExternal, AreaScheme.GrossInternal, AreaScheme.NetInternal, AreaScheme.Rentable };
 
     public static string Title(BimDocument document, AreaScheme scheme) => scheme switch
     {
@@ -88,6 +95,7 @@ public static class AreaPlans
         AreaScheme.GrossExternal => "Gross External Area (GEA)",
         AreaScheme.GrossInternal => "Gross Internal Area (GIA)",
         AreaScheme.NetInternal => "Net Internal Area (NIA)",
+        AreaScheme.Rentable => "Rentable Area (BOMA 2017, IPMS)",
         _ => "Finished Area (ANSI Z765)"
     };
 
@@ -97,13 +105,17 @@ public static class AreaPlans
         AreaScheme.GrossExternal => "GEA",
         AreaScheme.GrossInternal => "GIA",
         AreaScheme.NetInternal => "NIA",
+        AreaScheme.Rentable => "Boundary",
         _ => "Finished"
     };
 
     /// <summary>The code a scheme measures by, which the RICS asks be said beside any area given.</summary>
-    public static string Code(AreaScheme scheme) => scheme == AreaScheme.Finished
-        ? "Measured by ANSI Z765-2021, to the outside finished surfaces; reported to the nearest square foot."
-        : "Measured by the RICS Code of Measuring Practice, 6th edition.";
+    public static string Code(AreaScheme scheme) => scheme switch
+    {
+        AreaScheme.Finished => "Measured by ANSI Z765-2021, to the outside finished surfaces; reported to the nearest square foot.",
+        AreaScheme.Rentable => "Rentable area by ANSI/BOMA Z65.1-2017 (Office), Methods A and B; component areas by IPMS: All Buildings (2023).",
+        _ => "Measured by the RICS Code of Measuring Practice, 6th edition."
+    };
 
     /// <summary>An area as its scheme says it: m² to a tenth, a US home's finished area to the whole square foot.</summary>
     public static string Said(AreaScheme scheme, double area) => scheme == AreaScheme.Finished || Units.Imperial
@@ -151,6 +163,20 @@ public static class AreaPlans
             ? cache.Keep($"area {scheme}", document, levelId, null, () => Measured(document, levelId, scheme))
             : Measured(document, levelId, scheme);
 
+    /// <summary>
+    /// What areas drawn by hand on a storey's plan are closed by, besides their area boundaries: each
+    /// building on it, to the outside faces of its walls for a gross external or finished area, to
+    /// their inside faces for the rest.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<Point2D>> Frame(BimDocument document, Guid levelId, AreaScheme scheme)
+    {
+        if (document.FindLevel(levelId) is not { } level) return Array.Empty<IReadOnlyList<Point2D>>();
+        var shape = Shape(document, level);
+        var gross = scheme is AreaScheme.GrossExternal or AreaScheme.Finished;
+        var buildings = scheme == AreaScheme.Rentable ? shape.Buildings.Concat(shape.DetachedStores) : shape.Buildings;
+        return buildings.Select(building => gross ? building.Gross : building.Inner).ToList();
+    }
+
     private static AreaMeasure Measured(BimDocument document, Guid levelId, AreaScheme scheme)
     {
         if (document.FindLevel(levelId) is not { } level) return new AreaMeasure(scheme, levelId, Array.Empty<IReadOnlyList<Point2D>>(), Array.Empty<AreaPart>(), 0, false, null);
@@ -161,13 +187,16 @@ public static class AreaPlans
         var outlines = new List<IReadOnlyList<Point2D>>();
         double area;
 
-        var inside = scheme == AreaScheme.GrossInternal;
+        var inside = scheme is AreaScheme.GrossInternal or AreaScheme.Rentable;
         IReadOnlyList<Point2D> Of(Outline outline) => inside ? outline.Inner : outline.Gross;
         var none = Array.Empty<(Point2D, Point2D)>();
 
         outlines.AddRange(shape.Buildings.Select(Of));
+
+        // Offices let by area have no garden stores: a building standing apart is measured as one.
+        if (scheme == AreaScheme.Rentable) outlines.AddRange(shape.DetachedStores.Select(Of));
         area = outlines.Sum(Polygon2D.Area);
-        foreach (var store in shape.DetachedStores)
+        foreach (var store in scheme == AreaScheme.Rentable ? new List<Outline>() : shape.DetachedStores)
             parts.Add(new AreaPart(AreaPartKind.Excluded,
                 scheme == AreaScheme.Finished ? "an outbuilding, not the house"
                 : inside ? "a home's garden store, greenhouse or fuel store (GIA 2.22)"
@@ -179,7 +208,7 @@ public static class AreaPlans
         }
 
         // A garden store built onto the house: in its gross external area (GEA 1.10), not its gross internal (GIA 2.22).
-        if (inside)
+        if (scheme == AreaScheme.GrossInternal)
             foreach (var store in shape.StoreRooms)
             {
                 parts.Add(new AreaPart(AreaPartKind.Excluded, $"{store.Room.Name}: a home's garden store, greenhouse or fuel store (GIA 2.22) - its walls left in", Polygon2D.Area(store.Polygon), store.Polygon, none) { Label = "Garden store" });
@@ -192,6 +221,7 @@ public static class AreaPlans
             var said = scheme switch
             {
                 AreaScheme.GrossInternal => "a void over the storey below, measured at its base (GIA 2.3, 2.21)",
+                AreaScheme.Rentable => "a void over the storey below, its floor counted at its base only (IPMS E.2.2)",
                 AreaScheme.GrossExternal when !document.ProjectInformation.ClearanceStandard.IsUs() => "a void over the storey below, measured at its base (GEA 1.4, 1.19)",
                 _ => "an opening to the floor below"
             };
@@ -230,7 +260,7 @@ public static class AreaPlans
             // Floor under 1.5 m of headroom is in a gross area, and said beside it (GEA 1.12, GIA 2.14).
             foreach (var (room, _) in rooms)
                 if (RoomHeadroom.Measure(document, room) is { UnderRoof: true } space && space.Area - space.AreaCounted > 1e4)
-                    parts.Add(new AreaPart(AreaPartKind.Stated, $"{room.Name}: under 1.5 m of headroom{(scheme == AreaScheme.GrossInternal ? " (GIA 2.14)" : scheme == AreaScheme.GrossExternal && !document.ProjectInformation.ClearanceStandard.IsUs() ? " (GEA 1.12)" : string.Empty)}",
+                    parts.Add(new AreaPart(AreaPartKind.Stated, $"{room.Name}: under 1.5 m of headroom{(scheme == AreaScheme.Rentable ? ", a limited use area (IPMS D.3)" : scheme == AreaScheme.GrossInternal ? " (GIA 2.14)" :scheme == AreaScheme.GrossExternal && !document.ProjectInformation.ClearanceStandard.IsUs() ? " (GEA 1.12)" : string.Empty)}",
                         space.Area - space.AreaCounted, null, RoomHeadroom.Contour(document, room, CountedHeadroom)));
         }
 
@@ -483,9 +513,13 @@ public static class AreaPlans
 
     /// <summary>The scheme a schedule is of.</summary>
     public static AreaScheme SchemeOfSchedule(ViewReference schedule) =>
-        Enum.IsDefined(typeof(AreaScheme), schedule.Index) ? (AreaScheme)schedule.Index : AreaScheme.GrossInternal;
+        schedule.Index == IpmsIndex ? AreaScheme.Rentable
+        : Enum.IsDefined(typeof(AreaScheme), schedule.Index) ? (AreaScheme)schedule.Index : AreaScheme.GrossInternal;
 
-    public static string ScheduleTitle(BimDocument document, ViewReference schedule) => $"Area Schedule - {Title(document, SchemeOfSchedule(schedule))}";
+    public static string ScheduleTitle(BimDocument document, ViewReference schedule) =>
+        IsIpms(schedule) ? "Component Areas - IPMS"
+        : SchemeOfSchedule(schedule) == AreaScheme.Rentable ? "Rentable Areas - BOMA 2017 Office"
+        : $"Area Schedule - {Title(document, SchemeOfSchedule(schedule))}";
 
     /// <summary>Every storey measured in a scheme, lowest first: those with anything measured on them.</summary>
     public static IReadOnlyList<(Level Level, AreaMeasure Measure)> Storeys(BimDocument document, AreaScheme scheme) =>
@@ -509,10 +543,23 @@ public static class AreaPlans
     public static ScheduleTable Table(BimDocument document, ViewReference schedule)
     {
         var scheme = SchemeOfSchedule(schedule);
+        if (scheme == AreaScheme.Rentable) return IsIpms(schedule) ? IpmsTable(document, schedule) : RentableTable(document, schedule);
+
         var storeys = Storeys(document, scheme);
         var rows = new List<(ScheduleLineKind Kind, IReadOnlyList<string> Cells)>();
         void Total(string name, IEnumerable<AreaMeasure> measures, ScheduleLineKind kind) =>
             rows.Add((kind, new[] { name, Said(scheme, measures.Sum(measure => measure.Area)), string.Empty }));
+
+        // Each storey, and the areas it is split into by hand under it.
+        void Storey(Level level, AreaMeasure measure)
+        {
+            rows.Add((ScheduleLineKind.Row, new[] { level.Name, Said(scheme, measure.Area), Notes(measure) }));
+            foreach (var area in Areas.On(document, level.Id, scheme).OrderBy(area => area.Number, StringComparer.OrdinalIgnoreCase))
+            {
+                var shape = Areas.Shape(document, area);
+                rows.Add((ScheduleLineKind.Row, new[] { $"   {Areas.Said(area)}", shape.Polygon is null ? "-" : Said(scheme, shape.Area), shape.Why ?? shape.Shared ?? string.Empty }));
+            }
+        }
 
         if (scheme == AreaScheme.Finished)
         {
@@ -521,25 +568,115 @@ public static class AreaPlans
                 var these = storeys.Where(entry => entry.Measure.BelowGrade == below).ToList();
                 if (these.Count == 0) continue;
                 rows.Add((ScheduleLineKind.GroupHeading, new[] { heading }));
-                rows.AddRange(these.Select(entry => (ScheduleLineKind.Row, (IReadOnlyList<string>)new[] { entry.Level.Name, Said(scheme, entry.Measure.Area), Notes(entry.Measure) })));
+                foreach (var (level, measure) in these) Storey(level, measure);
                 Total($"{heading}, finished", these.Select(entry => entry.Measure), ScheduleLineKind.Subtotal);
             }
         }
-        else rows.AddRange(storeys.Select(entry => (ScheduleLineKind.Row, (IReadOnlyList<string>)new[] { entry.Level.Name, Said(scheme, entry.Measure.Area), Notes(entry.Measure) })));
+        else foreach (var (level, measure) in storeys) Storey(level, measure);
 
         Total("Total", storeys.Select(entry => entry.Measure), ScheduleLineKind.Total);
-        rows.Add((ScheduleLineKind.GroupHeading, new[] { Code(scheme) }));
+        return Build(ScheduleTitle(document, schedule), new[] { "Storey", "Area", "Left out and stated" }, rows, new[] { false, true, false }, Code(scheme));
+    }
 
-        var headings = new[] { "Storey", "Area", "Left out and stated" };
-        var table = ScheduleTable.Of(ScheduleTitle(document, schedule), headings, rows.Where(row => row.Kind != ScheduleLineKind.GroupHeading).Select(row => row.Cells));
+    /// <summary>A table of rows under its headings, its group headings across it, wide enough for the code it is measured by under it.</summary>
+    private static ScheduleTable Build(string title, IReadOnlyList<string> headings, List<(ScheduleLineKind Kind, IReadOnlyList<string> Cells)> rows, IReadOnlyList<bool> numeric, string code)
+    {
+        rows.Add((ScheduleLineKind.GroupHeading, new[] { code }));
+        var table = ScheduleTable.Of(title, headings, rows.Where(row => row.Kind != ScheduleLineKind.GroupHeading).Select(row => row.Cells));
         var none = headings.Select(_ => (ColourRgb?)null).ToList();
         var lines = new List<ScheduleTableLine> { table.Lines[0], table.Lines[1] };
         lines.AddRange(rows.Select(row => new ScheduleTableLine(row.Kind, row.Cells, none, ScheduleTable.TextSize * (row.Kind == ScheduleLineKind.GroupHeading ? 2.2 : 2))));
 
-        // Wide enough for the code it is measured by, across it.
         var widths = table.ColumnWidths.ToList();
-        var code = ScheduleTable.TextWidth(Code(scheme), ScheduleTable.TextSize) + ScheduleTable.Padding * 2;
-        if (widths.Sum() < code) widths[^1] += code - widths.Sum();
-        return new ScheduleTable { Title = table.Title, ColumnWidths = widths, Numeric = new[] { false, true, false }, Lines = lines };
+        var across = rows.Where(row => row.Kind == ScheduleLineKind.GroupHeading)
+            .Max(row => ScheduleTable.TextWidth(row.Cells[0], ScheduleTable.TextSize)) + ScheduleTable.Padding * 2;
+        if (widths.Sum() < across) widths[^1] += across - widths.Sum();
+        return new ScheduleTable { Title = table.Title, ColumnWidths = widths, Numeric = numeric.ToArray(), Lines = lines };
+    }
+
+    /// <summary>The IPMS component area schedule's index, set apart from the schemes' own.</summary>
+    private const int IpmsIndex = 50;
+
+    /// <summary>The schedule of IPMS figures and component areas, storey by storey.</summary>
+    public static ViewReference IpmsSchedule() => new(ViewKind.AreaSchedule, Guid.Empty, string.Empty) { Index = IpmsIndex };
+
+    public static bool IsIpms(ViewReference schedule) => schedule.Kind == ViewKind.AreaSchedule && schedule.Index == IpmsIndex;
+
+    private static string Ratio(double? ratio) => ratio is { } value ? value.ToString("0.0000") : "-";
+
+    /// <summary>
+    /// BOMA 2017 storey by storey - boundary area, what is left out, the floor rentable area, what is
+    /// usable, the building's service and the floor's, the floor allocation ratio - and each occupant
+    /// under its storey with its rentable area and load factor by Method A and by Method B.
+    /// </summary>
+    private static ScheduleTable RentableTable(BimDocument document, ViewReference schedule)
+    {
+        string Area(double value) => Said(AreaScheme.Rentable, value);
+        var floors = RentableAreas.Floors(document);
+        var shares = RentableAreas.Shares(document);
+        var rows = new List<(ScheduleLineKind Kind, IReadOnlyList<string> Cells)>();
+        var blank = string.Empty;
+
+        foreach (var floor in floors)
+        {
+            rows.Add((ScheduleLineKind.Row, new[]
+            {
+                floor.Level.Name, Area(floor.Boundary), Area(floor.Penetrations + floor.Exclusions), Area(floor.FloorRentable), Area(floor.Usable),
+                Area(floor.BuildingService), Area(floor.FloorService), Ratio(floor.AllocationRatio), blank, blank, blank, blank
+            }));
+            foreach (var share in shares.Where(share => share.Level == floor.Level))
+                rows.Add((ScheduleLineKind.Row, new[]
+                {
+                    $"   {Areas.Said(share.Area)}", blank, blank, blank, Area(share.Occupant), blank, blank, blank,
+                    Area(share.RentableA), Ratio(share.LoadFactorA), Area(share.RentableB), Ratio(share.LoadFactorB)
+                }));
+        }
+
+        rows.Add((ScheduleLineKind.Total, new[]
+        {
+            "Total", Area(floors.Sum(floor => floor.Boundary)), Area(floors.Sum(floor => floor.Penetrations + floor.Exclusions)), Area(floors.Sum(floor => floor.FloorRentable)),
+            Area(floors.Sum(floor => floor.Usable)), Area(floors.Sum(floor => floor.BuildingService)), Area(floors.Sum(floor => floor.FloorService)), blank,
+            Area(shares.Sum(share => share.RentableA)), blank, Area(shares.Sum(share => share.RentableB)), blank
+        }));
+        rows.Add((ScheduleLineKind.GroupHeading, new[]
+        {
+            shares.Count == 0
+                ? "No occupant areas yet: place areas on the rentable area plan and set their use to Office or Retail."
+                : $"Method A building allocation ratio {Ratio(RentableAreas.BuildingRatio(document))}; Method B load factor {Ratio(RentableAreas.LoadFactorB(document))}. A building is let by one method."
+        }));
+
+        return Build(ScheduleTitle(document, schedule), new[]
+        {
+            "Storey / occupant", "Boundary", "Excluded", "Floor rentable", "Usable", "Bldg service", "Floor service", "Floor ratio",
+            "Rentable (A)", "Load (A)", "Rentable (B)", "Load (B)"
+        }, rows, new[] { false, true, true, true, true, true, true, true, true, true, true, true }, Code(AreaScheme.Rentable));
+    }
+
+    /// <summary>IPMS storey by storey: IPMS 1 and 2, the exclusive areas (IPMS 3.2) and each component area A to H, with each exclusive area under its storey.</summary>
+    private static ScheduleTable IpmsTable(BimDocument document, ViewReference schedule)
+    {
+        string Area(double value) => Said(AreaScheme.Rentable, value);
+        var floors = RentableAreas.Ipms(document);
+        var rows = new List<(ScheduleLineKind Kind, IReadOnlyList<string> Cells)>();
+        const string letters = "ABCDEFGH";
+
+        foreach (var floor in floors)
+        {
+            rows.Add((ScheduleLineKind.Row, new[] { floor.Level.Name, Area(floor.Ipms1), Area(floor.Ipms2), Area(floor.Exclusive) }
+                .Concat(letters.Select(letter => Area(floor.Components[letter]))).ToList()));
+            foreach (var area in Areas.On(document, floor.Level.Id, AreaScheme.Rentable)
+                         .Where(area => (Areas.Occupant(area.Use) || area.Use == AreaUse.TenantStorage) && Areas.Shape(document, area) is { Polygon: not null, Shared: null })
+                         .OrderBy(area => area.Number, StringComparer.OrdinalIgnoreCase))
+                rows.Add((ScheduleLineKind.Row, new[] { $"   {Areas.Said(area)}", string.Empty, string.Empty, Area(Areas.Shape(document, area).Area) }
+                    .Concat(letters.Select(_ => string.Empty)).ToList()));
+        }
+
+        rows.Add((ScheduleLineKind.Total, new[] { "Total", Area(floors.Sum(floor => floor.Ipms1)), Area(floors.Sum(floor => floor.Ipms2)), Area(floors.Sum(floor => floor.Exclusive)) }
+            .Concat(letters.Select(letter => Area(floors.Sum(floor => floor.Components[letter])))).ToList()));
+        rows.Add((ScheduleLineKind.GroupHeading, new[] { "A walls and columns (IPMS 1 less IPMS 2), B vertical penetrations, C technical, D sanitary, E circulation, F primary, G secondary, H other - their sum is IPMS 1." }));
+        rows.Add((ScheduleLineKind.GroupHeading, new[] { "IPMS 1 is taken as the gross external area and IPMS 2 as the boundary area to the inside faces of the outside walls." }));
+
+        return Build(ScheduleTitle(document, schedule), new[] { "Storey / area", "IPMS 1", "IPMS 2", "IPMS 3.2" }.Concat(letters.Select(letter => letter.ToString())).ToList(),
+            rows, Enumerable.Range(0, 12).Select(i => i > 0).ToList(), "Measured by IPMS: All Buildings (IPMSC, 2023), level by level.");
     }
 }

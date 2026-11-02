@@ -2,6 +2,7 @@ using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
 using BIMDesigner.Core.Elements;
+using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
 using BIMDesigner.Core.Sheets;
 
@@ -41,6 +42,24 @@ public sealed class ViewSettings
 
     /// <summary>The views whose rooms are coloured, and by what: what is saved.</summary>
     public IEnumerable<(ViewReference View, RoomColourBy By)> ColourSchemes => _colourBy.Select(entry => (entry.Key, entry.Value));
+
+    // The colours picked by hand for what rooms are coloured by, kept by the value whatever its case.
+    private readonly Dictionary<string, (RoomColourBy By, string Value, ColourRgb Colour)> _colourPicks = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string PickKey(RoomColourBy by, string value) => $"{by}|{value.Trim()}";
+
+    /// <summary>The colour picked by hand for a value of a scheme, or null where it is the scheme's own.</summary>
+    public ColourRgb? ColourPicked(RoomColourBy by, string value) => _colourPicks.TryGetValue(PickKey(by, value), out var pick) ? pick.Colour : null;
+
+    /// <summary>A value's colour picked by hand, or given back to the scheme with null.</summary>
+    public void PickColour(RoomColourBy by, string value, ColourRgb? colour)
+    {
+        if (colour is { } picked) _colourPicks[PickKey(by, value)] = (by, value.Trim(), picked);
+        else _colourPicks.Remove(PickKey(by, value));
+    }
+
+    /// <summary>Every colour picked by hand: what is saved.</summary>
+    public IEnumerable<(RoomColourBy By, string Value, ColourRgb Colour)> ColourPicks => _colourPicks.Values;
 
     /// <summary>The phase a view shows the building in: new construction, unless set.</summary>
     public DesignPhase PhaseOf(ViewReference view) => _phases.TryGetValue(view, out var phase) ? phase : DesignPhase.New;

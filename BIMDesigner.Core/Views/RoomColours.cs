@@ -88,15 +88,26 @@ public static class RoomColours
     }
 
     /// <summary>
-    /// Each value's colour: by its place among every room's in the project, so one department is
-    /// the same colour on every storey.
+    /// Each value's colour: the one picked for it by hand, or else by its place among every room's
+    /// in the project - so one department is the same colour on every storey.
     /// </summary>
     public static IReadOnlyDictionary<string, ColourRgb> Colours(BimDocument document, RoomColourBy by)
     {
         var values = Ordered(document.All<Room>().Select(room => ValueOf(document, room, by)), by).ToList();
         var colours = new Dictionary<string, ColourRgb>(StringComparer.CurrentCultureIgnoreCase);
-        for (var i = 0; i < values.Count; i++) colours[values[i]] = Palette[i % Palette.Length];
+        for (var i = 0; i < values.Count; i++) colours[values[i]] = document.ViewSettings.ColourPicked(by, values[i]) ?? Palette[i % Palette.Length];
         return colours;
+    }
+
+    /// <summary>Whether a value's colour was picked by hand rather than given by the scheme.</summary>
+    public static bool Picked(BimDocument document, RoomColourBy by, string value) => document.ViewSettings.ColourPicked(by, value) is not null;
+
+    /// <summary>A value's colour picked by hand - on every view coloured by it - or given back to the scheme with null. One step to undo.</summary>
+    public static IUndoableCommand Pick(BimDocument document, RoomColourBy by, string value, ColourRgb? colour)
+    {
+        var before = document.ViewSettings.ColourPicked(by, value);
+        return new DelegateCommand(colour is null ? "Room Colour Automatic" : "Room Colour",
+            () => document.ViewSettings.PickColour(by, value, colour), () => document.ViewSettings.PickColour(by, value, before));
     }
 
     /// <summary>A room's colour on a view, or null where the view colours none.</summary>

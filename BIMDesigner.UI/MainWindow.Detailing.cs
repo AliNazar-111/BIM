@@ -13,7 +13,7 @@ namespace BIMDesigner.UI;
 public partial class MainWindow
 {
     /// <summary>The tools a drafting view can be drawn with: nothing that builds the model.</summary>
-    private static bool DraftsIn(PlanTool tool) => tool is PlanTool.Select or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.Text
+    private static bool DraftsIn(PlanTool tool) => tool is PlanTool.Select or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.Text
         or PlanTool.Dimension or PlanTool.AngularDimension or PlanTool.RadialDimension or PlanTool.RevisionCloud or PlanTool.Mirror or PlanTool.Array
         or PlanTool.Rotate or PlanTool.Scale or PlanTool.Offset or PlanTool.Split or PlanTool.Trim;
 
@@ -22,13 +22,17 @@ public partial class MainWindow
     {
         _loadingOptions = true;
         var line = tool == PlanTool.DetailLine;
-        DetailOptionsLabel.Text = line ? "Line style" : "Fill pattern";
+        var repeating = tool == PlanTool.RepeatingDetail;
+        DetailOptionsLabel.Text = line ? "Line style" : repeating ? "Detail" : "Fill pattern";
         DetailStylePicker.Visibility = line ? Visibility.Visible : Visibility.Collapsed;
-        FillPatternPicker.Visibility = line ? Visibility.Collapsed : Visibility.Visible;
+        FillPatternPicker.Visibility = !line && !repeating ? Visibility.Visible : Visibility.Collapsed;
+        RepeatingKindPicker.Visibility = repeating ? Visibility.Visible : Visibility.Collapsed;
+        RepeatingKindPicker.ItemsSource ??= Detailing.RepeatingKinds;
+        RepeatingKindPicker.SelectedItem = Detailing.Name(Plan.ActiveRepeatingKind);
         DetailStylePicker.ItemsSource ??= Detailing.LineStyles;
-        FillPatternPicker.ItemsSource ??= Detailing.Patterns;
+        FillPatternPicker.ItemsSource = Detailing.Patterns.Concat(_document.FillPatterns.Select(pattern => pattern.Name)).ToList();
         DetailStylePicker.SelectedItem = Detailing.Name(Plan.ActiveDetailLineStyle);
-        FillPatternPicker.SelectedItem = Detailing.Name(Plan.ActiveFillPattern);
+        FillPatternPicker.SelectedItem = FillPatterns.Find(_document, Plan.ActiveCustomPatternId)?.Name ?? Detailing.Name(Plan.ActiveFillPattern);
         _loadingOptions = false;
     }
 
@@ -37,11 +41,37 @@ public partial class MainWindow
         if (_loadingOptions || Plan is null) return;
         if (DetailStylePicker.SelectedItem is string style)
             Plan.ActiveDetailLineStyle = Enum.GetValues<DetailLineStyle>().FirstOrDefault(each => Detailing.Name(each) == style);
+        if (RepeatingKindPicker.SelectedItem is string kind)
+            Plan.ActiveRepeatingKind = Enum.GetValues<RepeatingKind>().FirstOrDefault(each => Detailing.Name(each) == kind);
         if (FillPatternPicker.SelectedItem is string pattern)
-            Plan.ActiveFillPattern = Enum.GetValues<FillPattern>().FirstOrDefault(each => Detailing.Name(each) == pattern);
+        {
+            Plan.ActiveCustomPatternId = _document.FillPatterns.FirstOrDefault(each => each.Name == pattern)?.Id;
+            if (Plan.ActiveCustomPatternId is null) Plan.ActiveFillPattern = Enum.GetValues<FillPattern>().FirstOrDefault(each => Detailing.Name(each) == pattern);
+        }
     }
 
     private void OnNewDraftingView(object sender, RoutedEventArgs e) => NewDraftingView();
+
+    private FillPatternsWindow? _fillPatternsWindow;
+
+    private void OnFillPatterns(object sender, RoutedEventArgs e) => OpenFillPatterns();
+
+    /// <summary>The Fill Patterns window, opened or brought forward.</summary>
+    internal FillPatternsWindow OpenFillPatterns()
+    {
+        var window = Open(ref _fillPatternsWindow, () => new FillPatternsWindow(this), this);
+        window.Refresh();
+        return window;
+    }
+
+    /// <summary>After the project's patterns change: the region tool's list, Properties and the plan follow.</summary>
+    internal void AfterFillPatterns()
+    {
+        if (FillPatterns.Find(_document, Plan.ActiveCustomPatternId) is null) Plan.ActiveCustomPatternId = null;
+        if (Plan.ActiveTool == PlanTool.FilledRegion) ShowDetailOptions(PlanTool.FilledRegion);
+        RefreshProperties();
+        Plan.RefreshModel();
+    }
 
     /// <summary>A drafting view made and opened, to draw a detail in. Internal so the harness and tests can make one.</summary>
     internal DraftingView NewDraftingView(string? name = null)

@@ -35,7 +35,7 @@ public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
     public static bool Has(Element element) =>
-        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Annotation.DetailLine or Annotation.FilledRegion or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
+        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Annotation.DetailLine or Annotation.RepeatingDetail or AreaBoundary or Annotation.FilledRegion or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -113,6 +113,22 @@ public static class ElementHandles
                 var level = document.FindLevel(detail.LevelId)?.Elevation ?? 0;
                 handles.Add(new ElementHandle("start", detail.Start, level, false, HandleShape.End));
                 handles.Add(new ElementHandle("end", detail.End, level, false, HandleShape.End));
+                break;
+            }
+
+            case Annotation.RepeatingDetail repeating:
+            {
+                var level = document.FindLevel(repeating.LevelId)?.Elevation ?? 0;
+                handles.Add(new ElementHandle("start", repeating.Start, level, false, HandleShape.End));
+                handles.Add(new ElementHandle("end", repeating.End, level, false, HandleShape.End));
+                break;
+            }
+
+            case AreaBoundary boundary:
+            {
+                var level = document.FindLevel(boundary.LevelId)?.Elevation ?? 0;
+                handles.Add(new ElementHandle("start", boundary.Start, level, false, HandleShape.End));
+                handles.Add(new ElementHandle("end", boundary.End, level, false, HandleShape.End));
                 break;
             }
 
@@ -290,6 +306,30 @@ public static class ElementHandles
                 }
 
                 return ($"{Units.Metres(detail.Length, "0.000")}.", handle.Key);
+            }
+
+            case Annotation.RepeatingDetail repeating:
+            {
+                switch (handle.Key)
+                {
+                    case "start": repeating.Start = to; break;
+                    case "end": repeating.End = to; break;
+                    default: return (string.Empty, handle.Key);
+                }
+
+                return ($"{Units.Metres(repeating.Length, "0.000")}, {Annotation.Detailing.Pieces(repeating)} pieces.", handle.Key);
+            }
+
+            case AreaBoundary boundary:
+            {
+                switch (handle.Key)
+                {
+                    case "start": boundary.Start = to; break;
+                    case "end": boundary.End = to; break;
+                    default: return (string.Empty, handle.Key);
+                }
+
+                return ($"{Units.Metres(boundary.Length, "0.000")}.", handle.Key);
             }
 
             case Callout callout when kind == "corner" && index is >= 0 and < 4:
@@ -531,6 +571,8 @@ public static class ElementHandles
         Beam => key.StartsWith("raise", StringComparison.Ordinal) ? "Slope Beam" : "Move Beam End",
         RoomSeparator => "Move Room Separator End",
         Annotation.DetailLine => "Move Detail Line End",
+        AreaBoundary => "Move Area Boundary End",
+        Annotation.RepeatingDetail => "Move Repeating Detail End",
         Annotation.FilledRegion => "Reshape Filled Region",
         Toposurface => key.StartsWith("raise", StringComparison.Ordinal) ? "Raise Ground Point" : "Move Ground Point",
         GroundRegion => "Reshape Region",
@@ -556,6 +598,8 @@ public static class ElementHandles
         Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
         RoomSeparator separator => (separator.Start, separator.End),
         Annotation.DetailLine detail => (detail.Start, detail.End),
+        AreaBoundary boundary => (boundary.Start, boundary.End),
+        Annotation.RepeatingDetail repeating => (repeating.Start, repeating.End),
         Annotation.FilledRegion region => region.Boundary.ToList(),
         Toposurface ground => ground.Points.ToList(),
         GroundRegion region => region.Boundary.ToList(),
@@ -584,6 +628,12 @@ public static class ElementHandles
                 break;
             case (Annotation.DetailLine detail, ValueTuple<Point2D, Point2D> state):
                 (detail.Start, detail.End) = state;
+                break;
+            case (Annotation.RepeatingDetail repeating, ValueTuple<Point2D, Point2D> state):
+                (repeating.Start, repeating.End) = state;
+                break;
+            case (AreaBoundary boundary, ValueTuple<Point2D, Point2D> state):
+                (boundary.Start, boundary.End) = state;
                 break;
             case (Annotation.FilledRegion region, List<Point2D> outline):
                 region.SetBoundary(outline);

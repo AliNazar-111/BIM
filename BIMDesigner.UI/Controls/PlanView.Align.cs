@@ -117,8 +117,14 @@ public partial class PlanView
         // Walls joined to a wall moved go on meeting it, as when it is dragged.
         Select(moving);
         CollectMoveSet();
-        var command = new NudgeElementsCommand(_moveSet, _followers.Select(follower => (follower.Wall, follower.AtStart)), shift, Document);
+        var command = new NudgeElementsCommand(_moveSet, _followers.Select(follower => follower.Follows), shift, Document);
         if (command.IsEmpty) return false;
+        if (command.Collapses(shift))
+        {
+            HintChanged?.Invoke(this, "A wall meeting it would be left with no length: not aligned.");
+            return false;
+        }
+
         History?.Execute(command);
 
         HintChanged?.Invoke(this, $"Aligned: moved {Units.FormatLength(shift.Length)}. Click another to bring onto the same line, or Esc to pick a new one.");

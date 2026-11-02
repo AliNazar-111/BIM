@@ -238,6 +238,9 @@ public sealed class BimDocument
     /// <summary>The project's keynotes: the keys keynote tags carry, and what they say.</summary>
     public Annotation.KeynoteTable Keynotes { get; } = new();
 
+    /// <summary>The fill patterns of the project's own - made in it or read from a .pat file - that filled regions can be filled with.</summary>
+    public List<Annotation.CustomFillPattern> FillPatterns { get; } = new();
+
     /// <summary>The clash tests run on the model, each with what it found and how each clash stands.</summary>
     public List<Coordination.ClashTest> ClashTests { get; } = new();
 

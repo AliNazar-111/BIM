@@ -722,7 +722,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.AreaBoundary or PlanTool.Area or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -756,8 +756,10 @@ public partial class MainWindow : Window
         if (tool == PlanTool.Pad) ShowPadOptions();
         MassOptions.Visibility = tool == PlanTool.Mass ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Mass) ShowMassOptions();
-        DetailOptions.Visibility = tool is PlanTool.DetailLine or PlanTool.FilledRegion ? Visibility.Visible : Visibility.Collapsed;
-        if (tool is PlanTool.DetailLine or PlanTool.FilledRegion) ShowDetailOptions(tool);
+        DetailOptions.Visibility = tool is PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail ? Visibility.Visible : Visibility.Collapsed;
+        if (tool is PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail) ShowDetailOptions(tool);
+        AreaOptions.Visibility = (tool == PlanTool.Area && Plan.ActiveAreaScheme == AreaScheme.Rentable) || tool == PlanTool.AreaBoundary ? Visibility.Visible : Visibility.Collapsed;
+        if (tool is PlanTool.Area or PlanTool.AreaBoundary) ShowAreaOptions(tool);
         PropertyLineOptions.Visibility = tool == PlanTool.PropertyLine ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.PropertyLine) ShowPropertyLineOptions();
         JoistOptions.Visibility = tool == PlanTool.Joists ? Visibility.Visible : Visibility.Collapsed;
@@ -2343,7 +2345,7 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, DetailLineTool, FilledRegionTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, DetailLineTool, FilledRegionTool, RepeatingDetailTool, AreaBoundaryTool, AreaTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
         StructuralColumnTool, WallFootingTool, PadFootingTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
@@ -2415,6 +2417,9 @@ public partial class MainWindow : Window
             : RoomSeparatorTool.IsChecked == true ? PlanTool.RoomSeparator
             : DetailLineTool.IsChecked == true ? PlanTool.DetailLine
             : FilledRegionTool.IsChecked == true ? PlanTool.FilledRegion
+            : RepeatingDetailTool.IsChecked == true ? PlanTool.RepeatingDetail
+            : AreaBoundaryTool.IsChecked == true ? PlanTool.AreaBoundary
+            : AreaTool.IsChecked == true ? PlanTool.Area
             : ComponentTool.IsChecked == true ? PlanTool.Component
             : ColumnTool.IsChecked == true ? PlanTool.Column
             : FloorTool.IsChecked == true ? PlanTool.Floor
@@ -3921,7 +3926,7 @@ public partial class MainWindow : Window
         SelectedTypeName.Text = element is Group shownGroup && elements.Count == 1 ? shownGroup.Name : typeIds.Count > 1 ? "Multiple Types" : type?.Name ?? CategoryTitle(category);
 
         // "Doors" -> "door", so the hint reads naturally for whatever is selected.
-        var noun = CategoryTitle(category).TrimEnd('s').ToLowerInvariant();
+        var noun = Singular(CategoryTitle(category)).ToLowerInvariant();
         TypeHint.Text = $"Shared by every {noun} of this type: editing one changes them all.";
 
         // Only types of the same category can be swapped in: a door cannot become a wall.
@@ -4581,7 +4586,7 @@ public partial class MainWindow : Window
                 .Where(element => element.LevelId == level.Id)
                 .GroupBy(element => element.Category)
                 .OrderBy(group => group.Key.ToString())
-                .Select(group => $"{group.Count()} {(group.Count() == 1 ? CategoryTitle(group.Key).TrimEnd('s') : CategoryTitle(group.Key)).ToLowerInvariant()}")
+                .Select(group => $"{group.Count()} {(group.Count() == 1 ? Singular(CategoryTitle(group.Key)) : CategoryTitle(group.Key)).ToLowerInvariant()}")
                 .ToList();
 
             var isActive = level.Id == Plan.ActiveLevelId && Plan.ActiveDiscipline == Core.Mep.Discipline.Architectural && Plan.ActiveAreaScheme is null;
@@ -5649,6 +5654,7 @@ public partial class MainWindow : Window
         // A drafting view has no storey below, fittings, rooms or ground to show.
         var model = Plan.Drafting ? Visibility.Collapsed : Visibility.Visible;
         PlanUnderlayToggle.Visibility = PlanClearancesToggle.Visibility = PlanRoomColourPicker.Visibility = PlanGroundPicker.Visibility = model;
+        PlanRoomColoursButton.Visibility = !Plan.Drafting && _document.ViewSettings.ColourByOf(Plan.CurrentView) != RoomColourBy.None ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>A colour scheme as the view control bar offers it.</summary>
@@ -5663,9 +5669,31 @@ public partial class MainWindow : Window
         _history.Execute(RoomColours.Set(_document, Plan.CurrentView, by));
         Plan.RefreshModel();
         RefreshSheetViewOptions();
+        PlanRoomColoursButton.Visibility = by != RoomColourBy.None ? Visibility.Visible : Visibility.Collapsed;
+        _roomColoursWindow?.Refresh();
         StatusHint.Text = by == RoomColourBy.None
             ? "The rooms plain again."
             : $"Rooms coloured by {RoomColours.Name(by).ToLowerInvariant()}: {string.Join(", ", RoomColours.Legend(_document, Plan.CurrentView).Select(entry => entry.Value).Take(6))}{(RoomColours.Legend(_document, Plan.CurrentView).Count > 6 ? " ..." : string.Empty)}. Put its legend on a sheet from Place.";
+    }
+
+    private RoomColoursWindow? _roomColoursWindow;
+
+    private void OnPlanRoomColours(object sender, RoutedEventArgs e) => OpenRoomColours();
+
+    /// <summary>The Room Colours window, opened or brought forward, on the plan open.</summary>
+    internal RoomColoursWindow OpenRoomColours()
+    {
+        var window = Open(ref _roomColoursWindow, () => new RoomColoursWindow(this), this);
+        window.Refresh();
+        return window;
+    }
+
+    /// <summary>After a room colour is picked or given back: the plan, and any sheet with its legend, drawn again.</summary>
+    internal void AfterRoomColours()
+    {
+        Plan.RefreshModel();
+        RefreshSheetViewOptions();
+        if (SheetPanel.Visibility == Visibility.Visible) SheetSurface.Refresh();
     }
 
     private void OnPlanScaleChanged(object sender, SelectionChangedEventArgs e)

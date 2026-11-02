@@ -55,6 +55,7 @@ public static class ElementTransforms
         Beam => true,
         RoomSeparator => true,
         Annotation.DetailLine or Annotation.FilledRegion => true,
+        AreaBoundary or Area or Annotation.RepeatingDetail => true,
         CadUnderlay => true,
         Mep.Pipe => true,
         Mep.Duct => true,
@@ -177,6 +178,18 @@ public static class ElementTransforms
 
             case Annotation.DetailLine detail:
                 (detail.Start, detail.End) = (detail.Start + delta, detail.End + delta);
+                break;
+
+            case AreaBoundary boundary:
+                (boundary.Start, boundary.End) = (boundary.Start + delta, boundary.End + delta);
+                break;
+
+            case Annotation.RepeatingDetail repeating:
+                (repeating.Start, repeating.End) = (repeating.Start + delta, repeating.End + delta);
+                break;
+
+            case Area area:
+                area.Location += delta;
                 break;
 
             case Annotation.FilledRegion region:
@@ -440,6 +453,19 @@ public static class ElementTransforms
 
             case Annotation.DetailLine detail:
                 (detail.Start, detail.End) = (Reflect(detail.Start), Reflect(detail.End));
+                break;
+
+            case AreaBoundary boundary:
+                (boundary.Start, boundary.End) = (Reflect(boundary.Start), Reflect(boundary.End));
+                break;
+
+            // Mirrored, it is drawn on the other side of its line, as the mirror image is.
+            case Annotation.RepeatingDetail repeating:
+                (repeating.Start, repeating.End, repeating.Flipped) = (Reflect(repeating.Start), Reflect(repeating.End), !repeating.Flipped);
+                break;
+
+            case Area area:
+                area.Location = Reflect(area.Location);
                 break;
 
             case Annotation.FilledRegion region:
@@ -745,6 +771,18 @@ public static class ElementTransforms
 
             case Annotation.DetailLine detail:
                 (detail.Start, detail.End) = (map(detail.Start), map(detail.End));
+                break;
+
+            case AreaBoundary boundary:
+                (boundary.Start, boundary.End) = (map(boundary.Start), map(boundary.End));
+                break;
+
+            case Annotation.RepeatingDetail repeating:
+                (repeating.Start, repeating.End) = (map(repeating.Start), map(repeating.End));
+                break;
+
+            case Area area:
+                area.Location = map(area.Location);
                 break;
 
             case Annotation.FilledRegion region:

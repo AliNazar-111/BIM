@@ -981,6 +981,14 @@
                                             Content="Drafting View" Click="OnNewDraftingView"
                                             ToolTip="A new drafting view: a sheet of 2D detail of its own, at 1:5 to start - a standard detail, a junction drawn larger - drawn with detail lines, filled regions, text and dimensions, and placed on a sheet as any view is"/>
                                 </StackPanel>
+                                <StackPanel>
+                                    <RadioButton x:Name="RepeatingDetailTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.RepeatingDetail}"
+                                                 Content="Repeating Detail" Checked="OnToolChanged"
+                                                 ToolTip="A detail drawn over and over along a line - brick or block courses, batt or rigid insulation, timber - at its true size, in this view and nowhere else"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.FillPatterns}"
+                                            Content="Fill Patterns" Click="OnFillPatterns"
+                                            ToolTip="Fill patterns of the project's own: make a simple one, or read the patterns in a .pat file - and write them to one"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -988,7 +996,15 @@
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="AreaPlanButton" Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.AreaPlan}"
                                         Content="Area Plan" Click="OnAreaPlanMenu"
-                                        ToolTip="Area Plan: this storey measured as surveyors measure it - Gross External, Gross Internal or Net Internal Area by the RICS Code of Measuring Practice; in a US project the gross area and the finished area by ANSI Z765. Its area, what is left out and why, and a schedule of every storey to put on a sheet"/>
+                                        ToolTip="Area Plan: this storey measured as surveyors measure it - Gross External, Gross Internal or Net Internal Area by the RICS Code of Measuring Practice; in a US project the gross area and the finished area by ANSI Z765; or office space let by its rentable area, by BOMA 2017 and IPMS. Its area, what is left out and why, and a schedule of every storey to put on a sheet"/>
+                                <StackPanel>
+                                    <RadioButton x:Name="AreaBoundaryTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.AreaBoundary}"
+                                                 Content="Area Boundary" Checked="OnToolChanged"
+                                                 ToolTip="On an area plan, lines that split the storey into areas - a tenancy's edge, a zone's: areas are measured within them and the storey's outline"/>
+                                    <RadioButton x:Name="AreaTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Area}"
+                                                 Content="Area" Checked="OnToolChanged"
+                                                 ToolTip="On an area plan, an area placed in a space its boundaries close round: named and numbered, measured as the plan measures the storey - on a rentable plan put to a use, from which its rentable area is worked"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -2086,7 +2102,17 @@
                     <ComboBox x:Name="DetailStylePicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnDetailOptionChanged"
                               ToolTip="How the line is drawn: its weight on the paper, or dashed as hidden, chained as a centre line, or long-dashed as overhead"/>
                     <ComboBox x:Name="FillPatternPicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnDetailOptionChanged"
-                              ToolTip="What the region is filled with: solid, or hatched the same distance apart on the paper whatever the scale"/>
+                              ToolTip="What the region is filled with: solid, or hatched the same distance apart on the paper whatever the scale - or one of the project's own patterns, from Fill Patterns"/>
+                    <ComboBox x:Name="RepeatingKindPicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnDetailOptionChanged"
+                              ToolTip="What is drawn along the line, at its true size: brick or block courses, batt or rigid insulation, or timbers at their centres"/>
+                </StackPanel>
+
+                <StackPanel x:Name="AreaOptions" Orientation="Horizontal" Visibility="Collapsed">
+                    <CheckBox x:Name="AreaPickWallsBox" Content="Pick Walls" VerticalAlignment="Center" Margin="0,0,12,0" Click="OnAreaPickWallsChanged"
+                              ToolTip="Click walls to put a boundary along the middle of each - where a wall between two occupants is measured to - rather than drawing one"/>
+                    <TextBlock x:Name="AreaUseLabel" Text="Use" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="AreaUsePicker" Style="{StaticResource OptionCombo}" MinWidth="150" SelectionChanged="OnAreaUseChanged"
+                              ToolTip="What the area is used for: an occupant's office or shop, tenant storage, an amenity, the lobby, plant, toilets, a corridor, a stair, lift or shaft, or parking - its BOMA 2017 category and IPMS component area follow from it"/>
                 </StackPanel>
 
                 <StackPanel x:Name="PropertyLineOptions" Orientation="Horizontal" Visibility="Collapsed">
@@ -2643,6 +2669,8 @@
                                 <ComboBox x:Name="PlanRoomColourPicker" Style="{StaticResource OptionCombo}" MinWidth="130" Margin="6,0,0,0"
                                           SelectionChanged="OnPlanRoomColourChanged"
                                           ToolTip="Colour the rooms of this view by what they are - name, department, occupancy - or by size, each the same colour on every storey; their legend can be put on a sheet from Place"/>
+                                <Button x:Name="PlanRoomColoursButton" Style="{StaticResource ViewControlButton}" Content="Colours..." Click="OnPlanRoomColours"
+                                        ToolTip="Pick the colour of each name, department, occupancy or size band the rooms are coloured by - the same on every view, and in the legend"/>
                                 <ComboBox x:Name="PlanGroundPicker" Style="{StaticResource OptionCombo}" MinWidth="120" Margin="6,0,0,0"
                                           SelectionChanged="OnPlanGroundColouringChanged"
                                           ToolTip="Colour the ground: by slope - level, gently sloping, as steep as a ramp, too steep to mow, steeper than earth stands - by height, or by what is cut and filled against the ground as it was"/>

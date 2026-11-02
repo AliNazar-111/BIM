@@ -403,6 +403,7 @@ public sealed partial class PlanRenderer
 
         // Drawn in the view and nowhere else: its filled regions, then its lines over them.
         foreach (var region in OnActiveLevel<FilledRegion>()) CadLayers.Draw(dc, region, d => DrawFilledRegion(d, region));
+        foreach (var repeating in OnActiveLevel<RepeatingDetail>()) CadLayers.Draw(dc, repeating, d => DrawRepeatingDetail(d, repeating));
         foreach (var detail in OnActiveLevel<DetailLine>()) CadLayers.Draw(dc, detail, d => DrawDetailLine(d, detail));
 
         // The property line round it all, and the heights read off it.

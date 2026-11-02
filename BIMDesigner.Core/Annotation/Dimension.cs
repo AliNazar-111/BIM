@@ -39,6 +39,19 @@ public enum DimensionAnchor
 }
 
 /// <summary>Which line of a wall a dimension measures to when a wall is clicked: Revit's "Prefer" on the options bar.</summary>
+/// <summary>What the stretches of an equal (EQ) string read.</summary>
+public enum EqualityDisplay
+{
+    /// <summary>EQ on each.</summary>
+    Text,
+
+    /// <summary>Each its own value, as any string.</summary>
+    Value,
+
+    /// <summary>One over all of them: how many, at what, and the whole.</summary>
+    Formula
+}
+
 public enum DimensionPreference
 {
     WallCentrelines,
@@ -234,6 +247,35 @@ public sealed class Dimension : Element
     /// <summary>The length it was locked at, mm.</summary>
     public double LockedLength { get; set; }
 
+    /// <summary>
+    /// Whether a string's stretches are held equal (EQ): what it measures to between its ends set
+    /// out evenly between them, and kept so as they move - one end moved, the rest spaced again.
+    /// </summary>
+    public bool Equal { get; set; }
+
+    /// <summary>What an equal string reads: EQ on each stretch, each stretch's value, or all of them as one.</summary>
+    public EqualityDisplay EqualityDisplay { get; set; } = EqualityDisplay.Text;
+
+    /// <summary>
+    /// What it reads: the text put in its place, or EQ on each stretch of an equal string (or
+    /// "4 @ 900 = 3600" over all of it), or each stretch's value.
+    /// </summary>
+    public IReadOnlyList<string> Labels(BimDocument document)
+    {
+        if (!string.IsNullOrWhiteSpace(Override)) return new[] { Override };
+
+        var type = DimensionTypes.Of(document, this);
+        var segments = Segments(document);
+        if (!Equal || segments.Count < 2) return segments.Select(type.Format).ToList();
+
+        return EqualityDisplay switch
+        {
+            EqualityDisplay.Text => segments.Select(_ => "EQ").ToList(),
+            EqualityDisplay.Formula => new[] { $"{segments.Count} @ {type.Format(segments.Average())} = {type.Format(segments.Sum())}" },
+            _ => segments.Select(type.Format).ToList()
+        };
+    }
+
     /// <summary>Whether it can be locked, or its value typed: one dimension, not a string, with both ends on something.</summary>
     public bool Drivable(BimDocument document) => Between.Count == 0 && IsAssociative(document);
 
@@ -294,16 +336,21 @@ public sealed class Dimension : Element
 
         var along = (to - from).NormalisedOrDefault(Vector2D.UnitX);
         var stations = new List<Point2D> { from, to };
-        foreach (var reference in Between)
-        {
-            // To a line square to the string, where it crosses it; otherwise where the point falls on it.
-            var at = reference.Line(document) is { } line && Math.Abs(line.Direction.Cross(along)) > 0.01
-                ? line.Point + line.Direction * ((from - line.Point).Cross(along) / line.Direction.Cross(along))
-                : reference.Resolve(document);
-            stations.Add(from + along * (at - from).Dot(along));
-        }
+        foreach (var reference in Between) stations.Add(StationOf(document, reference, from, along));
 
         return stations.OrderBy(point => (point - from).Dot(along)).ToList();
+    }
+
+    /// <summary>
+    /// Where a reference falls on a string running from a point one way: to a line square to the
+    /// string, where it crosses it; otherwise where the point falls on it.
+    /// </summary>
+    public static Point2D StationOf(BimDocument document, DimensionReference reference, Point2D from, Vector2D along)
+    {
+        var at = reference.Line(document) is { } line && Math.Abs(line.Direction.Cross(along)) > 0.01
+            ? line.Point + line.Direction * ((from - line.Point).Cross(along) / line.Direction.Cross(along))
+            : reference.Resolve(document);
+        return from + along * (at - from).Dot(along);
     }
 
     /// <summary>Each stretch of a string, end to end, in millimetres - one for a single dimension.</summary>
@@ -323,6 +370,14 @@ public sealed class Dimension : Element
         if (Drivable(document))
             yield return ParameterValue.BindFlagCommand(DimensionParameters.Locked, () => Locked,
                 (bool value, out string? message) => DimensionLocks.Lock(document, this, value, out message));
+        if (Between.Count > 0)
+        {
+            yield return ParameterValue.BindFlagCommand(DimensionParameters.Equal, () => Equal,
+                (bool value, out string? message) => DimensionLocks.Equalise(document, this, value, out message));
+            if (Equal)
+                yield return ParameterValue.BindChoice(DimensionParameters.EqualityDisplay, () => EnumText.Humanise(EqualityDisplay),
+                    v => { if (EnumText.TryParse<EqualityDisplay>(v, out var display)) EqualityDisplay = display; }, EnumText.Choices<EqualityDisplay>());
+        }
         if (Between.Count > 0)
             yield return ParameterValue.ReadOnly(DimensionParameters.Segments, () => string.Join(" + ", Segments(document).Select(DimensionTypes.Of(document, this).Format)));
         yield return ParameterValue.ReadOnly(DimensionParameters.Associative, () => IsAssociative(document));
@@ -345,6 +400,12 @@ public static class DimensionParameters
 
     public static readonly ParameterDefinition Locked =
         new("Locked", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition Equal =
+        new("Equal (EQ)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+
+    public static readonly ParameterDefinition EqualityDisplay =
+        new("Equality Display", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     public static readonly ParameterDefinition Offset =
         new("Line Offset", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Constraints);

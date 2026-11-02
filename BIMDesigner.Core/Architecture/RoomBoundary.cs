@@ -191,6 +191,22 @@ public static class RoomBoundary
         return polygon.Count < 3 ? null : (polygon, outside, loop.Select(edge => edge.Segment.Wall).OfType<Wall>().Distinct().ToList());
     }
 
+    /// <summary>
+    /// The space plain lines close round a point - area boundaries and the outline they split, say -
+    /// anticlockwise; null where they close round nothing, or the point is outside them all.
+    /// </summary>
+    public static IReadOnlyList<Point2D>? Face(IEnumerable<(Point2D From, Point2D To)> lines, Point2D seed)
+    {
+        var segments = Pruned(SplitAtCrossings(lines
+            .Where(line => line.From.DistanceTo(line.To) > NodeTolerance)
+            .Select(line => new Segment(null, line.From, line.To)).ToList()));
+        if (segments.Count == 0 || FindEdgeFacing(segments, seed) is not { } start) return null;
+        if (WalkFace(segments, start) is not { Count: >= 3 } loop) return null;
+
+        var polygon = loop.Select(edge => edge.From).ToList();
+        return Polygon2D.SignedArea(polygon) > 0 ? polygon : null;
+    }
+
     /// <summary>The segments with every one left hanging taken away, and those it then leaves hanging, until each end meets another.</summary>
     private static List<Segment> Pruned(List<Segment> segments)
     {

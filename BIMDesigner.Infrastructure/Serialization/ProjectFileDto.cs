@@ -76,9 +76,22 @@ internal sealed class ProjectFileDto
     /// <summary>Drafting views, and the detail lines and filled regions drawn in them and on plans; null in files from before them.</summary>
     /// <summary>What each view's rooms are coloured by, where they are; null for none.</summary>
     public List<ColourSchemeDto>? ColourSchemes { get; set; }
+
+    /// <summary>The colours picked by hand for what rooms are coloured by; null for none.</summary>
+    public List<ColourPickDto>? ColourPicks { get; set; }
     public List<DraftingViewDto>? DraftingViews { get; set; }
     public List<DetailLineDto>? DetailLines { get; set; }
     public List<FilledRegionDto>? FilledRegions { get; set; }
+
+    /// <summary>The project's own fill patterns; null in files from before them.</summary>
+    public List<FillPatternDto>? FillPatterns { get; set; }
+
+    /// <summary>Details repeated along a line, in the views they are drawn in; null in files from before them.</summary>
+    public List<RepeatingDetailDto>? RepeatingDetails { get; set; }
+
+    /// <summary>Area plans split by hand: their area boundaries and areas; null in files from before them.</summary>
+    public List<AreaBoundaryDto>? AreaBoundaries { get; set; }
+    public List<AreaDto>? Areas { get; set; }
 
     /// <summary>Drawings imported from DWG or DXF files to work over. Missing from older files.</summary>
     public List<CadUnderlayDto>? CadUnderlays { get; set; }
@@ -727,6 +740,10 @@ internal sealed class DimensionDto
     /// <summary>Whether it is locked, and the length it is kept at; missing where it is not.</summary>
     public bool? Locked { get; set; }
     public double? LockedLength { get; set; }
+
+    /// <summary>Whether a string is held equal (EQ), and what it reads; missing where it is not.</summary>
+    public bool? Equal { get; set; }
+    public string? EqualityDisplay { get; set; }
 
     public string Comments { get; set; } = string.Empty;
     public string Workset { get; set; } = "Workset1";
@@ -2787,14 +2804,77 @@ internal sealed class DetailLineDto
     public string Comments { get; set; } = string.Empty;
 }
 
+internal sealed class RepeatingDetailDto
+{
+    public Guid Id { get; set; }
+
+    /// <summary>The storey whose plan it is drawn on, or the drafting view it is drawn in.</summary>
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public string? Kind { get; set; }
+    public double Width { get; set; }
+    public double Unit { get; set; }
+    public double Spacing { get; set; }
+    public bool Flipped { get; set; }
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class AreaBoundaryDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Scheme { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public string Comments { get; set; } = string.Empty;
+}
+
+internal sealed class AreaDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Scheme { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public string? Name { get; set; }
+    public string? Number { get; set; }
+    public string? Use { get; set; }
+    public string Comments { get; set; } = string.Empty;
+}
+
 internal sealed class FilledRegionDto
 {
     public Guid Id { get; set; }
     public Guid LevelId { get; set; }
     public List<double>? Boundary { get; set; }
     public string? Pattern { get; set; }
+
+    /// <summary>The project's own pattern it is filled with instead; missing for one of the program's.</summary>
+    public Guid? CustomPattern { get; set; }
     public bool Outlined { get; set; } = true;
     public string Comments { get; set; } = string.Empty;
+}
+
+/// <summary>A fill pattern of the project's own: each line family as its .pat line's numbers - angle, origin, shift, spacing, dashes - in mm.</summary>
+internal sealed class FillPatternDto
+{
+    public Guid Id { get; set; }
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+    public bool Model { get; set; }
+    public List<List<double>>? Lines { get; set; }
+}
+
+internal sealed class ColourPickDto
+{
+    public string By { get; set; } = "Name";
+    public string Value { get; set; } = string.Empty;
+    public string Colour { get; set; } = "#FFFFFF";
 }
 
 internal sealed class ColourSchemeDto
