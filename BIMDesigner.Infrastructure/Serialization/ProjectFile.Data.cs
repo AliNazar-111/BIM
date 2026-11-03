@@ -31,6 +31,26 @@ public static partial class ProjectFile
             .Select(element => new ElementWorksetDto { ElementId = element.Id, Workset = element.Workset }).ToList();
         if (worksets.Count > 0) dto.ElementWorksets = worksets;
 
+        static string? Day(DateOnly? day) => day?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var assets = document.Elements.Where(element => !element.Asset.IsEmpty).Select(element => new ElementAssetDto
+        {
+            ElementId = element.Id, SerialNumber = NullIfEmpty(element.Asset.SerialNumber), BarCode = NullIfEmpty(element.Asset.BarCode),
+            InstalledOn = Day(element.Asset.InstalledOn), WarrantyStart = Day(element.Asset.WarrantyStart)
+        }).ToList();
+        if (assets.Count > 0) dto.ElementAssets = assets;
+
+        var handover = document.Handover;
+        var ids = document.Elements.Select(element => element.Id).ToHashSet();
+        if (handover.HandedOver is not null || handover.Let || handover.Flats || handover.Done.Count > 0)
+            dto.Handover = new HandoverDto
+            {
+                HandedOver = Day(handover.HandedOver), Let = handover.Let, Flats = handover.Flats,
+                Done = handover.Done.Where(record => ids.Contains(record.ElementId)).Select(record => new MaintenanceRecordDto
+                {
+                    Id = record.Id, ElementId = record.ElementId, TaskId = record.TaskId, On = Day(record.On)!, By = NullIfEmpty(record.By), Notes = NullIfEmpty(record.Notes)
+                }).ToList()
+            };
+
         dto.ParameterFilters = document.ParameterFilters.Select(filter => new ParameterFilterDto
         {
             Id = filter.Id, Name = filter.Name, MatchAny = filter.MatchAny,
@@ -115,6 +135,24 @@ public static partial class ProjectFile
         foreach (var saved in dto.ElementWorksets ?? new List<ElementWorksetDto>())
             if (document.FindElement(saved.ElementId) is { } element && !string.IsNullOrWhiteSpace(saved.Workset))
                 element.Workset = saved.Workset;
+
+        static DateOnly? Day(string? text) =>
+            DateOnly.TryParseExact(text, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var day) ? day : null;
+        foreach (var saved in dto.ElementAssets ?? new List<ElementAssetDto>())
+            if (document.FindElement(saved.ElementId) is { } element)
+                element.Asset = new BIMDesigner.Core.Handover.AssetRecord(saved.SerialNumber ?? string.Empty, saved.BarCode ?? string.Empty, Day(saved.InstalledOn), Day(saved.WarrantyStart));
+
+        if (dto.Handover is { } handover)
+        {
+            document.Handover.HandedOver = Day(handover.HandedOver);
+            document.Handover.Let = handover.Let;
+            document.Handover.Flats = handover.Flats;
+            document.Handover.Done.Clear();
+            foreach (var record in handover.Done ?? new List<MaintenanceRecordDto>())
+                if (Day(record.On) is { } on && document.FindElement(record.ElementId) is not null && !string.IsNullOrWhiteSpace(record.TaskId))
+                    document.Handover.Done.Add(new BIMDesigner.Core.Handover.MaintenanceRecord(record.Id == Guid.Empty ? Guid.NewGuid() : record.Id, record.ElementId,
+                        record.TaskId, on, record.By ?? string.Empty, record.Notes ?? string.Empty));
+        }
 
         static IEnumerable<BuiltInCategory> Categories(IEnumerable<string>? names) =>
             (names ?? Enumerable.Empty<string>()).Select(name => Enum.TryParse<BuiltInCategory>(name, out var category) ? category : (BuiltInCategory?)null)

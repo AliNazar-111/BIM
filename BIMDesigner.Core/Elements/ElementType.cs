@@ -43,6 +43,21 @@ public abstract class ElementType
     /// <summary>Its code in the project's classification - Uniclass 2015 to start with: what IFC and COBie carry.</summary>
     public string ClassificationCode { get; set; } = string.Empty;
 
+    /// <summary>The maker's model number or name, as the handover and COBie carry it.</summary>
+    public string ModelNumber { get; set; } = string.Empty;
+
+    /// <summary>How long its maker guarantees its parts, years; none at 0.</summary>
+    public double PartsWarranty { get; set; }
+
+    /// <summary>How long its labour is guaranteed, years; none at 0.</summary>
+    public double LabourWarranty { get; set; }
+
+    /// <summary>Who gives the warranty: an email, as COBie names a contact.</summary>
+    public string WarrantyGuarantor { get; set; } = string.Empty;
+
+    /// <summary>How long it lasts before it is replaced, years; at 0, the standard figure for its kind.</summary>
+    public double ExpectedLife { get; set; }
+
     /// <summary>The values of the project's parameters on its types, by the parameter's id.</summary>
     public Dictionary<Guid, object?> ParameterValues { get; } = new();
 
@@ -62,6 +77,7 @@ public abstract class ElementType
         yield return ParameterValue.ReadOnly(CommonTypeParameters.ClassificationTitle, () => document.Classification.Find(ClassificationCode)?.Title ?? string.Empty);
 
         foreach (var parameter in ProjectParameters.For(document, Category, ParameterBinding.Type, ParameterValues)) yield return parameter;
+        foreach (var parameter in Handover.AssetParameters.Of(this)) yield return parameter;
     }
 
     /// <summary>
@@ -85,6 +101,11 @@ public abstract class ElementType
         Description = other.Description;
         Cost = other.Cost;
         ClassificationCode = other.ClassificationCode;
+        ModelNumber = other.ModelNumber;
+        PartsWarranty = other.PartsWarranty;
+        LabourWarranty = other.LabourWarranty;
+        WarrantyGuarantor = other.WarrantyGuarantor;
+        ExpectedLife = other.ExpectedLife;
         ParameterValues.Clear();
         foreach (var (id, value) in other.ParameterValues) ParameterValues[id] = value;
     }

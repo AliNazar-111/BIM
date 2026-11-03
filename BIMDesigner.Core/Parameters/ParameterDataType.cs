@@ -66,5 +66,8 @@ public enum ParameterGroup
     Camera,
 
     /// <summary>The steel in concrete: bars, fabric, links.</summary>
-    Structural
+    Structural,
+
+    /// <summary>What a handover records of an asset: its serial number, its dates, its model, warranty and life.</summary>
+    Handover
 }

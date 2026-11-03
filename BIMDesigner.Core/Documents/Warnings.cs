@@ -45,6 +45,7 @@ public static class Warnings
         var found = new List<Warning>();
         found.AddRange(ModelProblems(document));
         found.AddRange(Analytical(document));
+        found.AddRange(Maintenance(document));
         found.AddRange(Regulations(document));
         found.AddRange(MepSystems.Problems(document)
             .Select(problem => new Warning(WarningKind.Services, Heading(problem.Element), problem.Text, new[] { problem.Element })));
@@ -65,6 +66,17 @@ public static class Warnings
         foreach (var problem in model.Problems.Concat(loading.Problems))
             yield return new Warning(WarningKind.Model, "Analytical model",
                 problem.Elements.Count == 0 ? problem.Said : $"{NameOf(document, problem.Elements[0])}: {problem.Said}", problem.Elements);
+    }
+
+    /// <summary>Once the home is handed over, the maintenance that has fallen due and not been recorded as done.</summary>
+    private static IEnumerable<Warning> Maintenance(BimDocument document)
+    {
+        if (document.Handover.HandedOver is null) yield break;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        foreach (var due in Handover.MaintenancePlan.Overdue(document, today))
+            yield return new Warning(WarningKind.Model, "Maintenance overdue",
+                $"{due.Asset.Tag} {due.Asset.Name}: {(due.Task.Name.Length > 1 && char.IsUpper(due.Task.Name[1]) ? due.Task.Name : char.ToLowerInvariant(due.Task.Name[0]) + due.Task.Name[1..])} was due on {Handover.MaintenancePlan.Said(due.Next!.Value)} ({due.Task.Often}, by {due.Task.By}).",
+                new[] { due.Asset.Element });
     }
 
     // ---- the model --------------------------------------------------------------------

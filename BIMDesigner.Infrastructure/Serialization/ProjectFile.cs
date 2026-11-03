@@ -186,7 +186,9 @@ public static partial class ProjectFile
             {
                 Id = type.Id, TypeMark = NullIfEmpty(type.TypeMark), AssemblyCode = NullIfEmpty(type.AssemblyCode), Keynote = NullIfEmpty(type.Keynote),
                 Manufacturer = NullIfEmpty(type.Manufacturer), Url = NullIfEmpty(type.Url), Description = NullIfEmpty(type.Description), Cost = type.Cost,
-                ClassificationCode = NullIfEmpty(type.ClassificationCode)
+                ClassificationCode = NullIfEmpty(type.ClassificationCode), ModelNumber = NullIfEmpty(type.ModelNumber),
+                PartsWarranty = type.PartsWarranty > 0 ? type.PartsWarranty : null, LabourWarranty = type.LabourWarranty > 0 ? type.LabourWarranty : null,
+                WarrantyGuarantor = NullIfEmpty(type.WarrantyGuarantor), ExpectedLife = type.ExpectedLife > 0 ? type.ExpectedLife : null
             });
 
         foreach (var fascia in document.TypesOf<FasciaType>())
@@ -3687,6 +3689,11 @@ public static partial class ProjectFile
             if (identity.Description is { } description) type.Description = description;
             type.Cost = identity.Cost;
             if (identity.ClassificationCode is { } classification) type.ClassificationCode = classification;
+            if (identity.ModelNumber is { } model) type.ModelNumber = model;
+            if (identity.PartsWarranty is { } parts && double.IsFinite(parts)) type.PartsWarranty = Math.Clamp(parts, 0, 50);
+            if (identity.LabourWarranty is { } labour && double.IsFinite(labour)) type.LabourWarranty = Math.Clamp(labour, 0, 50);
+            if (identity.WarrantyGuarantor is { } guarantor) type.WarrantyGuarantor = guarantor;
+            if (identity.ExpectedLife is { } life && double.IsFinite(life)) type.ExpectedLife = Math.Clamp(life, 0, 200);
         }
 
         ReadRound6(dto, document);

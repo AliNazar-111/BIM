@@ -405,6 +405,10 @@
                                   ToolTip="The analytical model and its loads as SAF, the Structural Analysis Format: an .xlsx analysis programs read"/>
                         <MenuItem Header="Export _COBie..." Click="OnExportCobie"
                                   ToolTip="The building handed over as a COBie spreadsheet: floors, spaces, and what is kept up in them"/>
+                        <MenuItem Header="Operation and _Maintenance Manual..." Click="OnOmManual"
+                                  ToolTip="The operation and maintenance manual as a PDF, with the Home User Guide, the asset register and the maintenance plan"/>
+                        <MenuItem Header="Home _User Guide..." Click="OnHomeUserGuide"
+                                  ToolTip="The Home User Guide as a PDF: heating, ventilation, electricity made on site, staying cool"/>
                         <MenuItem Header="Export _gbXML..." Click="OnExportGbXml"
                                   ToolTip="The building for energy analysis - OpenStudio and EnergyPlus, IES VE, DesignBuilder: each room a space, its walls, floors and roofs at their centre lines with their constructions and U-values, its windows and doors"/>
                         <MenuItem Header="Export Plan to D_WG or DXF..." Click="OnExportPlanCad"
@@ -1326,6 +1330,22 @@
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.CostPlan}"
                                         Content="Cost Plan" Click="OnCostPlan"
                                         ToolTip="The model measured and costed at its types' rates, set out by NRM1 in England or UniFormat II in the US, with preliminaries, overheads and profit, fees, risk and inflation - and its spend over the programme"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl Header="Handover" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Handover}"
+                                        Content="Assets" Click="OnHandover"
+                                        ToolTip="The asset register and the maintenance plan: what is kept up in the home, where it is, its maker, model, serial number and dates, each task that keeps it up - how often, by whom, and the law, standard or maker it rests on - and the work recorded as done"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pdf}" Content="O&amp;M Manual" Click="OnOmManual"
+                                            ToolTip="The operation and maintenance manual as a PDF, as Approved Document L Section 9 asks: the Home User Guide, each service - what it is, what it is for, where it is on a floor plan, how to work and keep it up - the register, the plan and labels for the equipment"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Pdf}" Content="Home User Guide" Click="OnHomeUserGuide"
+                                            ToolTip="The Home User Guide as a PDF: heating and hot water, ventilation, electricity made on site and staying cool in hot weather (Approved Document L 9.3, Approved Document O 4.3)"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Keynote}" Content="Tag Assets" Click="OnTagAssets"
+                                            ToolTip="Write each asset's tag - BLR-01, SA-03 - into its mark where it has none, so the drawings, the labels and the register say the same"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
                     </StackPanel>

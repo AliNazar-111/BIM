@@ -122,6 +122,12 @@ internal sealed class ProjectFileDto
     /// <summary>Each element's workset where it is not the first - for every kind, its own record carrying one or not; none in a file from before.</summary>
     public List<ElementWorksetDto>? ElementWorksets { get; set; }
 
+    /// <summary>What the handover records of each asset that has anything recorded; none in a file from before.</summary>
+    public List<ElementAssetDto>? ElementAssets { get; set; }
+
+    /// <summary>The handover and the maintenance done since; none in a file from before, or where nothing is set.</summary>
+    public HandoverDto? Handover { get; set; }
+
     /// <summary>The view filters, the design option sets and which elements are in an option.</summary>
     public List<ParameterFilterDto> ParameterFilters { get; set; } = new();
     public List<DesignOptionSetDto> DesignOptionSets { get; set; } = new();
@@ -699,6 +705,40 @@ internal sealed class TypeIdentityDto
     public string? Description { get; set; }
     public decimal Cost { get; set; }
     public string? ClassificationCode { get; set; }
+    public string? ModelNumber { get; set; }
+    public double? PartsWarranty { get; set; }
+    public double? LabourWarranty { get; set; }
+    public string? WarrantyGuarantor { get; set; }
+    public double? ExpectedLife { get; set; }
+}
+
+/// <summary>What the handover records of an asset: its serial number, bar code and dates (yyyy-MM-dd).</summary>
+internal sealed class ElementAssetDto
+{
+    public Guid ElementId { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? BarCode { get; set; }
+    public string? InstalledOn { get; set; }
+    public string? WarrantyStart { get; set; }
+}
+
+/// <summary>The handover: the day it was handed over, whether it is let or flats, and the work done since.</summary>
+internal sealed class HandoverDto
+{
+    public string? HandedOver { get; set; }
+    public bool Let { get; set; }
+    public bool Flats { get; set; }
+    public List<MaintenanceRecordDto> Done { get; set; } = new();
+}
+
+internal sealed class MaintenanceRecordDto
+{
+    public Guid Id { get; set; }
+    public Guid ElementId { get; set; }
+    public string TaskId { get; set; } = string.Empty;
+    public string On { get; set; } = string.Empty;
+    public string? By { get; set; }
+    public string? Notes { get; set; }
 }
 
 /// <summary>An angular dimension: its two lines and a point its arc passes through.</summary>

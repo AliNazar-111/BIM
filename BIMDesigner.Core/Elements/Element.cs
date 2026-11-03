@@ -49,6 +49,9 @@ public abstract class Element
     /// <summary>The values of the project's parameters on it, by the parameter's id.</summary>
     public Dictionary<Guid, object?> ParameterValues { get; } = new();
 
+    /// <summary>What a handover records of it as an asset - its serial number, bar code, dates - kept to it alone: a copy is another asset.</summary>
+    public Handover.AssetRecord Asset { get; set; } = Handover.AssetRecord.Empty;
+
     /// <summary>
     /// The parameters belonging to this placed element, as opposed to its type.
     /// The document is passed in so elements can resolve their level, materials and type.
@@ -80,6 +83,7 @@ public abstract class Element
             yield return ParameterValue.ReadOnly(CommonParameters.DesignOption, () => Views.DesignOptions.Describe(document, DesignOptionId));
 
         foreach (var parameter in ProjectParameters.For(document, Category, ParameterBinding.Instance, ParameterValues)) yield return parameter;
+        foreach (var parameter in Handover.AssetParameters.Of(document, this)) yield return parameter;
     }
 }
 

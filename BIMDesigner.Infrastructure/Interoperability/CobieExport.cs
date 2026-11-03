@@ -147,6 +147,10 @@ public static class CobieExport
             ">WarrantyGuarantorLabor", "*WarrantyDurationLabor", "*WarrantyDurationUnit", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier",
             "ReplacementCost", "ExpectedLife", "DurationUnit", "WarrantyDescription", "NominalLength", "NominalWidth", "NominalHeight", "ModelReference",
             "Shape", "Size", "Color", "Finish", "Grade", "Material", "Constituents", "Features", "AccessibilityPerformance", "CodePerformance", "SustainabilityPerformance");
+        // What the handover knows of each asset: its tag, its life, its tasks.
+        var register = Core.Handover.Assets.Of(document).ToDictionary(asset => asset.Element.Id);
+        string Email(string text) => text.Contains('@') ? text.Trim() : None;
+        object Years(double years) => years > 0 ? years : None;
         foreach (var type in types)
         {
             var (length, width, height) = type switch
@@ -155,12 +159,17 @@ public static class CobieExport
                 ComponentType fitting => (fitting.Depth, fitting.Width, fitting.Height),
                 _ => ((object)None, (object)None, (object)None)
             };
-            var manufacturer = type.Manufacturer.Contains('@') ? type.Manufacturer.Trim() : None;
             var fire = type switch { OpeningType opening => opening.FireRating, _ => string.Empty };
+            var asset = assets.Where(element => element.TypeId == type.Id).Select(element => register.GetValueOrDefault(element.Id)).FirstOrDefault(found => found is not null);
+            var life = asset is null ? null : Core.Handover.Assets.LifeOf(document, asset).Years;
+            var guarantor = Email(type.WarrantyGuarantor);
             typeSheet.Add(typeNames[type.Id], by, on, Category(type.ClassificationCode), Text(string.IsNullOrWhiteSpace(type.Description) ? type.Name : type.Description),
-                IsMovable(type) ? "Movable" : "Fixed", manufacturer, None, None, None, None, None, "year",
-                System, IfcClass(type) + "Type", Id(type.Id), type.Cost > 0 ? (object)(double)type.Cost : None, None, "year", None,
-                length, width, height, Text(type.Url), None, None, None, None, None, None, None, None, None, Text(fire), None);
+                IsMovable(type) ? "Movable" : "Fixed", Email(type.Manufacturer), Text(type.ModelNumber),
+                guarantor != None ? guarantor : Email(type.Manufacturer), Years(type.PartsWarranty),
+                guarantor != None ? guarantor : Email(type.Manufacturer), Years(type.LabourWarranty), "year",
+                System, IfcClass(type) + "Type", Id(type.Id), type.Cost > 0 ? (object)(double)type.Cost : None, life is { } lasts ? lasts : None, "year",
+                type.PartsWarranty > 0 || type.LabourWarranty > 0 ? $"Parts {type.PartsWarranty:0.#} years, labour {type.LabourWarranty:0.#} years" : None,
+                length, width, height, Text(type.ModelNumber), None, None, None, None, None, None, None, None, None, Text(fire), None);
         }
 
         sheets.Add(typeSheet);
@@ -178,8 +187,13 @@ public static class CobieExport
             var spaces = rooms.Select((entry, i) => (entry, i))
                 .Where(pair => pair.entry.Room.LevelId == element.LevelId && Touches(pair.entry.Boundary.Polygon, at, element is Opening ? 400 : 0))
                 .Select(pair => roomNames[pair.i]).ToList();
+            var asset = register.GetValueOrDefault(element.Id);
+            string Day(DateOnly? day) => day is { } on ? $"{on.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}T00:00:00" : None;
             component.Add(names[element.Id], by, on, None, type is null ? None : typeNames[type.Id], spaces.Count == 0 ? None : string.Join(",", spaces),
-                Text(type?.Name), System, IfcClass(type), Id(element.Id), None, None, None, Text(element.Mark), None, None);
+                Text(type?.Name), System, IfcClass(type), Id(element.Id), Text(element.Asset.SerialNumber),
+                asset is null ? Day(element.Asset.InstalledOn) : Day(Core.Handover.Assets.InstalledOn(document, asset)),
+                Day(element.Asset.WarrantyStart ?? (asset is null ? element.Asset.InstalledOn : Core.Handover.Assets.InstalledOn(document, asset))),
+                Text(asset?.Tag ?? element.Mark), Text(element.Asset.BarCode), Text(asset?.Tag));
             coordinates.Add((names[element.Id], at, rotation));
         }
 
@@ -236,9 +250,34 @@ public static class CobieExport
 
         sheets.Add(connection);
         sheets.Add(Sheet("Spare", ">TypeName", "*Suppliers", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "*Description", "SetNumber", "PartNumber"));
-        sheets.Add(Sheet("Resource", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "*Description"));
-        sheets.Add(Sheet("Job", "*Status", ">TypeName", "*Description", "*Duration", "*DurationUnit", "*Start", "*TaskStartUnit", "*Frequency", "*FrequencyUnit",
-            "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "TaskNumber", "Priors", "ResourceNames"));
+        // Jobs: each task that keeps a type's assets up, as the maintenance plan has it - once for the type, as COBie keeps them;
+        // the trades and people who do them, as resources.
+        var resource = Sheet("Resource", "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "*Description");
+        var job = Sheet("Job", "*Status", ">TypeName", "*Description", "*Duration", "*DurationUnit", "*Start", "*TaskStartUnit", "*Frequency", "*FrequencyUnit",
+            "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "TaskNumber", "Priors", "ResourceNames");
+        var resources = new List<string>();
+        static string Unit(Core.Handover.Interval every) => every.Unit.ToString().ToLowerInvariant();
+        foreach (var type in types)
+        {
+            var asset = assets.Where(element => element.TypeId == type.Id).Select(element => register.GetValueOrDefault(element.Id)).FirstOrDefault(found => found is not null);
+            if (asset is null) continue;
+            var number = 0;
+            foreach (var task in Core.Handover.MaintenanceLibrary.For(document, asset))
+            {
+                var who = char.ToUpperInvariant(task.By[0]) + task.By[1..];
+                if (!resources.Contains(who)) resources.Add(who);
+                job.Add(task.Name, by, on, task.Category == Core.Handover.MaintenanceCategory.SafetyCheck ? "Safety" : task.Category.ToString(), "Not Yet Started", typeNames[type.Id],
+                    Text($"{task.Description} {(task.Every is null ? char.ToUpperInvariant(task.When[0]) + task.When[1..] + "." : string.Empty)} Source: {task.Source}."),
+                    task.Hours, "hour", task.Every is { } first ? first.Count : None, task.Every is { } start ? Unit(start) : None,
+                    task.Every is { } often ? often.Count : None, task.Every is { } unit ? Unit(unit) : None,
+                    System, "IfcTask", None, (++number).ToString(CultureInfo.InvariantCulture), None, who);
+            }
+        }
+
+        foreach (var who in resources)
+            resource.Add(who, by, on, "Labor", System, "IfcLaborResource", None, who);
+        sheets.Add(resource);
+        sheets.Add(job);
         sheets.Add(Sheet("Impact", "*ImpactType", "*ImpactStage", "*SheetName", "*RowName", "*Value", "*ImpactUnit", "LeadInTime", "Duration", "LeadOutTime",
             "#ExternalSystem", "#ExternalObject", "#ExternalIdentifier", "Description"));
         sheets.Add(Sheet("Document", "*ApprovalBy", "*Stage", "*SheetName", "*RowName", "*Directory", "*File", "#ExternalSystem", "#ExternalObject",
@@ -250,7 +289,7 @@ public static class CobieExport
         {
             foreach (var parameter in parameters)
             {
-                if (parameter.Name is "Type Name" or "Mark" or "Classification" or "Classification Title") continue;
+                if (parameter.Name is "Type Name" or "Mark" or "Classification" or "Classification Title" || parameter.Group == ParameterGroup.Handover) continue;
                 var value = parameter.DisplayValue;
                 if (string.IsNullOrWhiteSpace(value) || value == ParameterFormatter.NoValue) continue;
                 attribute.Add(parameter.Name, by, on, "Submitted", sheetName, row, value, None, System, "IfcPropertySingleValue", set, None,

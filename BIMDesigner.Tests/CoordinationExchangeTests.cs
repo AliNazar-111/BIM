@@ -123,8 +123,9 @@ public class CoordinationExchangeTests
         ConstructionPlanning.Generate(document, new DateOnly(2026, 11, 2));
         using var model = IfcExport.Build(document);
 
-        var plan = Assert.Single(model.Instances.OfType<IfcWorkSchedule>());
-        var tasks = model.Instances.OfType<IfcTask>().ToList();
+        // The construction programme - not the maintenance plan the handover writes beside it.
+        var plan = Assert.Single(model.Instances.OfType<IfcWorkSchedule>(), schedule => schedule.Name == "Construction programme");
+        var tasks = model.Instances.OfType<IfcTask>().Where(task => task.PredefinedType != Xbim.Ifc4.Interfaces.IfcTaskTypeEnum.MAINTENANCE).ToList();
         Assert.Equal(document.Construction.Tasks.Count, tasks.Count);
         Assert.Equal(document.Construction.Tasks.Sum(task => task.Predecessors.Count), model.Instances.OfType<IfcRelSequence>().Count());
         Assert.Contains(model.Instances.OfType<IfcRelAssignsToControl>(), relation => relation.RelatingControl == plan && relation.RelatedObjects.Count == tasks.Count);

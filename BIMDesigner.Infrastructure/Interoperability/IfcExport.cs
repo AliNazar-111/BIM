@@ -230,6 +230,7 @@ public static partial class IfcExport
             ExportGrids();
             ExportClassifications();
             ExportProgramme();
+            ExportHandover();
             ExportSystems(building);
             if (Analytical) ExportAnalytical(building);
         }

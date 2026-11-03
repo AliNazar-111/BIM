@@ -262,6 +262,9 @@ public sealed class BimDocument
     /// <summary>The additions the cost plan carries on its building works (5D).</summary>
     public Coordination.CostSettings CostSettings { get; } = new();
 
+    /// <summary>The handover: the day the home was handed over, whether it is let or a building of flats, and the maintenance done since.</summary>
+    public Handover.HandoverSettings Handover { get; } = new();
+
     public ObservableCollection<Level> Levels => _levels;
 
     public IReadOnlyCollection<Material> Materials => _materials.Values;
