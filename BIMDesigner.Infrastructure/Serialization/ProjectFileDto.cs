@@ -1613,6 +1613,11 @@ internal sealed class MaterialDto
     public double JointWidth { get; set; }
     public string? JointColour { get; set; }
     public double Reflectance { get; set; }
+
+    /// <summary>As masonry: its declared strength, its mortar and a clay unit's water absorption - none in older files, then what its name says.</summary>
+    public double UnitStrength { get; set; }
+    public string? Mortar { get; set; }
+    public double WaterAbsorption { get; set; }
 }
 
 internal sealed class MaterialLayerDto

@@ -339,6 +339,14 @@ public static class Footings
         return Box(column.Location - along * (depth / 2 + PierMargin), column.Location + along * (depth / 2 + PierMargin), column.Across, width / 2 + PierMargin);
     }
 
+    /// <summary>The pier on a pad, mm: across its width and along its length.</summary>
+    public static (double Across, double Along)? PierSize(BimDocument document, PadFooting pad)
+    {
+        if (pad.ColumnId is not { } id || document.FindElement(id) is not Column column || document.FindType<ColumnType>(column.TypeId) is not { } type) return null;
+        var (width, depth) = type.Profile.Extent;
+        return (width + 2 * PierMargin, depth + 2 * PierMargin);
+    }
+
     /// <summary>The level elevation a footing hangs below: its wall's base level, or a pad's own level.</summary>
     private static double LevelOf(BimDocument document, Element element, Guid levelId) => document.FindLevel(levelId)?.Elevation ?? 0;
 
@@ -654,7 +662,7 @@ public static class Footings
             if (StructureRules.Problems(document, footing, document.ProjectInformation.ClearanceStandard).Count == 0) return footing;
         }
 
-        if (types.LastOrDefault() is { } widest)
+        if (Largest(types) is { } widest)
         {
             footing.TypeId = widest.Id;
             footing.Depth = DepthFor(document, footing, widest);
@@ -678,7 +686,7 @@ public static class Footings
             if (StructureRules.Problems(document, pad, document.ProjectInformation.ClearanceStandard).Count == 0) return pad;
         }
 
-        if (types.LastOrDefault() is { } biggest)
+        if (Largest(types) is { } biggest)
         {
             pad.TypeId = biggest.Id;
             pad.Depth = DepthFor(document, pad, biggest);
@@ -700,6 +708,10 @@ public static class Footings
             .ThenBy(type => type.Thickness)
             .ToList();
     }
+
+    /// <summary>What to fall back on when no type passes: the largest there is, whatever units it was made in - the candidates run the project's own first, so the last of them is not it.</summary>
+    private static FootingType? Largest(IReadOnlyList<FootingType> types) =>
+        types.OrderBy(type => type.Width * (type.Kind == FootingKind.Pad ? type.Length : 1)).ThenBy(type => type.Thickness).LastOrDefault();
 
     /// <summary>The level a footing is drawn on: its wall's, its column's, or its own.</summary>
     /// <summary>Whether an element is a foundation: a strip or pad footing, a raft, a ground beam or a pile.</summary>

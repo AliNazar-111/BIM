@@ -130,6 +130,9 @@ public static partial class ProjectFile
                 UnitLength = material.UnitLength,
                 UnitHeight = material.UnitHeight,
                 JointWidth = material.JointWidth,
+                UnitStrength = material.UnitStrength,
+                Mortar = material.Mortar == MortarClass.M4 ? null : material.Mortar.ToString(),
+                WaterAbsorption = material.WaterAbsorption,
                 JointColour = material.JointColour.ToString(),
                 Reflectance = material.Reflectance
             });
@@ -1848,6 +1851,9 @@ public static partial class ProjectFile
                 read.UnitLength = Finite(material.UnitLength, 0, 100000);
                 read.UnitHeight = Finite(material.UnitHeight, 0, 100000);
                 read.JointWidth = Finite(material.JointWidth, 0, 1000);
+                read.UnitStrength = Finite(material.UnitStrength, 0, 110);
+                read.Mortar = ParseEnum(material.Mortar, MortarClass.M4);
+                read.WaterAbsorption = Finite(material.WaterAbsorption, 0, 100);
                 read.JointColour = ParseColour(material.JointColour, new ColourRgb(0xC8, 0xC2, 0xB4));
                 read.Reflectance = Finite(material.Reflectance, 0, 1);
             }

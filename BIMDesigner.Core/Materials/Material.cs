@@ -56,6 +56,17 @@ public sealed class Material
     /// <summary>W/mK.</summary>
     public double ThermalConductivity { get; set; }
 
+    // --- Masonry ----------------------------------------------------------------
+
+    /// <summary>A masonry unit's declared compressive strength, N/mm²; none where what its name says is taken.</summary>
+    public double UnitStrength { get; set; }
+
+    /// <summary>The mortar it is laid in.</summary>
+    public MortarClass Mortar { get; set; } = MortarClass.M4;
+
+    /// <summary>A clay unit's water absorption, percent; none where 7% to 12% is taken.</summary>
+    public double WaterAbsorption { get; set; }
+
     // --- Graphical --------------------------------------------------------------
 
     /// <summary>Colour of the surface seen in elevation and 3D.</summary>
@@ -104,6 +115,15 @@ public sealed class Material
         set => (SurfaceColour, Pattern, UnitLength, UnitHeight, JointWidth, JointColour, Reflectance) =
             (value.Colour, value.Pattern, value.UnitLength, value.UnitHeight, value.JointWidth, value.JointColour, value.Reflectance);
     }
+}
+
+/// <summary>The strength class of a general purpose mortar, BS EN 998-2: its number N/mm².</summary>
+public enum MortarClass
+{
+    M2,
+    M4,
+    M6,
+    M12
 }
 
 /// <summary>What a material's face is laid as, so it can be drawn so.</summary>

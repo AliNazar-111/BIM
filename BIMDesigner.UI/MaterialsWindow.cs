@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BIMDesigner.Core;
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Materials;
 using BIMDesigner.Core.Parameters;
 using BIMDesigner.Core.Rendering;
@@ -16,7 +17,7 @@ namespace BIMDesigner.UI;
 /// The project's materials: each one's name, its colour in elevation and 3D and where it is cut, and
 /// its face - the pattern it is laid in, its unit and joint, its joint's colour, how it reflects -
 /// shown at its true size as a 1.2 m square; each change one step to undo. A new material starts from
-/// what its name says it is; a copy from the one it is copied from.
+/// what its name says it is; a copy from the one it is copied from. A masonry unit has its strength, mortar and water absorption too.
 /// </summary>
 internal sealed class MaterialsWindow : System.Windows.Window
 {
@@ -35,6 +36,10 @@ internal sealed class MaterialsWindow : System.Windows.Window
     private readonly TextBox _joint = new() { Width = 80 };
     private readonly TextBox _jointColour = new() { Width = 92 };
     private readonly TextBox _reflectance = new() { Width = 80 };
+    private readonly TextBox _strength = new() { Width = 80 };
+    private readonly ComboBox _mortar = new() { Width = 80, ItemsSource = Enum.GetValues<MortarClass>().Select(mortar => mortar.ToString()).ToList() };
+    private readonly TextBox _absorption = new() { Width = 80 };
+    private readonly TextBlock _masonrySaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
     private readonly Border _surfaceSwatch = Swatch(), _cutSwatch = Swatch(), _jointSwatch = Swatch();
     private readonly Rectangle _preview = new() { Width = PreviewPx, Height = PreviewPx, Stroke = Brushes.Gray, StrokeThickness = 1 };
     private readonly TextBlock _lengthLabel = new() { VerticalAlignment = VerticalAlignment.Center }, _heightLabel = new() { VerticalAlignment = VerticalAlignment.Center }, _jointLabel = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -44,7 +49,7 @@ internal sealed class MaterialsWindow : System.Windows.Window
     public MaterialsWindow(MainWindow main)
     {
         _main = main;
-        DialogLook.Apply(this, "Materials", 1040, 600);
+        DialogLook.Apply(this, "Materials", 1040, 680);
         MinWidth = 640;
         MinHeight = 460;
 
@@ -93,10 +98,13 @@ internal sealed class MaterialsWindow : System.Windows.Window
         Row(_jointLabel, _joint);
         Row(Label("Joint colour"), WithSwatch(_jointColour, _jointSwatch), "Mortar, grout, or the shadow between boards and slates");
         Row(Label("Reflectance"), _reflectance, "How much it reflects as a mirror, square on, 0 to 1: matt brick 0, glossy tiles 0.08, polished metal 0.25 and up - more at a glancing angle");
+        Row(Label("Unit strength, N/mm²"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _strength, _masonrySaid } }, "A masonry unit's declared compressive strength: 3.6 or 7.3 for a block, 20 and up for a brick");
+        Row(Label("Mortar"), _mortar, "The mortar it is laid in: what its strength in compression, bending and shear are worked from");
+        Row(Label("Water absorption, %"), _absorption, "A clay unit's: under 7%, 7% to 12% or over 12% set its bending strength (Table NA.6)");
         var caption = new TextBlock { Text = $"A {Units.FormatLength(PreviewMm)} square of it", Opacity = 0.7, Margin = new Thickness(0, 4, 0, 0) };
         var preview = new StackPanel { Margin = new Thickness(6, 12, 16, 8), Children = { _preview, caption } };
 
-        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance })
+        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _strength, _absorption })
         {
             box.LostFocus += (_, _) => Commit();
             box.KeyDown += (_, args) =>
@@ -108,6 +116,7 @@ internal sealed class MaterialsWindow : System.Windows.Window
         }
 
         _pattern.SelectionChanged += (_, _) => ChangePattern();
+        _mortar.SelectionChanged += (_, _) => Commit();
 
         var make = new Button { Content = "New" };
         make.Click += (_, _) => Add(null);
@@ -125,7 +134,7 @@ internal sealed class MaterialsWindow : System.Windows.Window
 
         var root = new DockPanel();
         root.Children.Add(DialogLook.Footer(_problem, make, copy, close));
-        root.Children.Add(DialogLook.Intro("Each material's colours and its face: the pattern it is laid in at its true size, drawn in the 3D view's Realistic style and in a rendering."));
+        root.Children.Add(DialogLook.Intro("Each material's colours and its face: the pattern it is laid in at its true size, drawn in the 3D view's Realistic style and in a rendering. A masonry unit has its strength and mortar here too."));
         root.Children.Add(body);
         Content = root;
 
@@ -175,6 +184,14 @@ internal sealed class MaterialsWindow : System.Windows.Window
         _filling = true;
         foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance }) box.IsEnabled = material is not null;
         _pattern.IsEnabled = material is not null;
+        var masonry = material is not null && AnalyticalModel.MaterialOf(_main.Document, material).Kind == AnalyticalMaterialKind.Masonry;
+        _strength.IsEnabled = _mortar.IsEnabled = masonry;
+        var unit = masonry ? MasonryDesign.UnitOf(material!) : null;
+        _absorption.IsEnabled = unit?.Clay == true;
+        _strength.Text = unit is null ? string.Empty : unit.Fb.ToString("0.#", CultureInfo.CurrentCulture);
+        _mortar.SelectedIndex = unit is null ? -1 : (int)unit.Mortar;
+        _absorption.Text = unit?.Clay == true ? unit.Absorption.ToString("0.#", CultureInfo.CurrentCulture) : string.Empty;
+        _masonrySaid.Text = unit is null ? string.Empty : $"fk {MasonryDesign.Characteristic(unit).ToString("0.0", CultureInfo.CurrentCulture)} N/mm²{(material!.UnitStrength > 0 ? string.Empty : ", as its name has it")}";
         if (material is not null)
         {
             var finish = material.Finish;
@@ -248,6 +265,16 @@ internal sealed class MaterialsWindow : System.Windows.Window
         if (Units.TryParseLength(_joint.Text, out var gap) && gap is >= 0 and <= 1000) finish = finish with { JointWidth = gap };
         if (double.TryParse(_reflectance.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var reflectance) && reflectance is >= 0 and <= 1)
             finish = finish with { Reflectance = reflectance };
+
+        if (_strength.IsEnabled)
+        {
+            var named = MasonryDesign.UnitOf(material.Name);
+            if (double.TryParse(_strength.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var strength) && strength is > 0 and <= 110)
+                look = look with { UnitStrength = Math.Abs(strength - named.Fb) < 1e-9 ? 0 : strength };
+            if (_mortar.SelectedIndex >= 0) look = look with { Mortar = (MortarClass)_mortar.SelectedIndex };
+            if (_absorption.IsEnabled && double.TryParse(_absorption.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var absorption) && absorption is > 0 and <= 100)
+                look = look with { WaterAbsorption = Math.Abs(absorption - named.Absorption) < 1e-9 ? 0 : absorption };
+        }
 
         Apply(material, look with { Finish = finish });
         ShowSelected();

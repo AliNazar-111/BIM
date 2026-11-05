@@ -58,7 +58,10 @@ public enum AnalyticalPanelKind
     Raft,
 
     /// <summary>A concrete floor cast on the ground.</summary>
-    GroundSlab
+    GroundSlab,
+
+    /// <summary>A timber floor or a roof holding the wall tops it is strapped to: stiff in its plane, nothing else. In the analysis only.</summary>
+    Diaphragm
 }
 
 /// <summary>A direction in the building, its length 1.</summary>
@@ -245,6 +248,14 @@ public sealed class AnalyticalSupport
     public bool IsLine => Panel is not null;
 }
 
+/// <summary>
+/// A wall that bears nothing but stiffens one it tees into, as BS EN 1996-1-1 5.5.1.2(4) lets it: masonry or concrete, at least a
+/// fifth of the clear height long and 0.3 of the wall's effective thickness thick, standing on the ground or a concrete
+/// floor. Not a plate of the structure and not handed on: in the analysis a line of support up the wall it meets,
+/// as stiff as it is as a cantilever from its foot.
+/// </summary>
+public sealed record AnalyticalStiffener(Element Cross, Element Host, Point2D At, Direction3D Way, double Bottom, double Top, double Stiffness);
+
 /// <summary>Something the analytical model is not joined up at, and what it is about.</summary>
 public sealed record AnalyticalProblem(string Said, IReadOnlyList<Element> Elements);
 
@@ -302,6 +313,12 @@ public sealed class AnalyticalModel
     public IEnumerable<AnalyticalSection> Sections => Members.Select(member => member.Section).Distinct();
 
     /// <summary>Whether it is held at all: a support, or a plate on the ground.</summary>
+    /// <summary>Timber floors and roofs as diaphragms: not plates of the structure, and not handed on, but in its analysis.</summary>
+    public List<AnalyticalPanel> Diaphragms { get; } = new();
+
+    /// <summary>Cross walls that bear nothing but stiffen the walls they meet: in its analysis, not handed on.</summary>
+    public List<AnalyticalStiffener> Stiffeners { get; } = new();
+
     public bool IsHeld => Supports.Count > 0 || Panels.Any(panel => panel.Subgrade is not null);
 
     /// <summary>The members and panels an element of the model is in the analytical model as.</summary>
@@ -378,8 +395,8 @@ public sealed class AnalyticalModel
     /// timber, block or brick, concrete - or failing that by how dense it is: in England S355
     /// (BS EN 1993-1-1 3.2.6: E 210 GPa, G 81 GPa), C30/37 (BS EN 1992-1-1 Table 3.1: Ecm 33 GPa),
     /// C24 (BS EN 338 Table 1: E0,mean 11 GPa, Gmean 0.69 GPa), GL24h (BS EN 14080 Table 5:
-    /// E0,mean 11.5 GPa, Gmean 0.65 GPa) and masonry at E = 1000 fk (BS EN 1996-1-1 3.7.2) with fk
-    /// taken as 5 N/mm²; in the US A992 (AISC 360-16: E 29,000 ksi, G 11,200 ksi), 4,000 psi
+    /// E0,mean 11.5 GPa, Gmean 0.65 GPa) and masonry at E = 1000 fk (BS EN 1996-1-1 3.7.2), its fk from
+    /// the unit and mortar set on it; in the US A992 (AISC 360-16: E 29,000 ksi, G 11,200 ksi), 4,000 psi
     /// concrete (ACI 318-19 19.2.2.1: Ec = 57,000√f'c), Douglas fir-larch No. 2 (NDS Supplement
     /// Table 4A: E 1,600,000 psi), 24F-1.8E glulam and masonry at Em = 900 f'm, 700 f'm for brick
     /// (TMS 402-16 4.2.2), with f'm taken as 1,500 psi. Its density is its own.
@@ -403,6 +420,7 @@ public sealed class AnalyticalModel
         var brick = lower.Contains("brick");
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         const double psi = 0.00689476;
+        var masonry = MasonryDesign.Characteristic(material is null ? MasonryDesign.UnitOf(string.Empty) : MasonryDesign.UnitOf(material));
 
         var (quality, e, g, nu, alpha, usual, said) = (sorted, us) switch
         {
@@ -414,13 +432,20 @@ public sealed class AnalyticalModel
             (AnalyticalMaterialKind.Timber, false) => ("C24", 11000.0, 690.0, double.NaN, double.NaN, 420.0, "BS EN 338 Table 1"),
             (AnalyticalMaterialKind.Timber, true) when glulam => ("24F-1.8E", 1800000 * psi, double.NaN, double.NaN, double.NaN, 500.0, "NDS Supplement Table 5A"),
             (AnalyticalMaterialKind.Timber, true) => ("DF-L No. 2", 1600000 * psi, double.NaN, double.NaN, double.NaN, 500.0, "NDS Supplement Table 4A"),
-            (AnalyticalMaterialKind.Masonry, false) => ("Masonry fk 5", 5000.0, double.NaN, double.NaN, double.NaN, 2000.0, "BS EN 1996-1-1 3.7.2, fk taken as 5 N/mm²"),
+            (AnalyticalMaterialKind.Masonry, false) => ($"Masonry fk {masonry:0.0}", 1000 * masonry, double.NaN, double.NaN, double.NaN, 2000.0, "BS EN 1996-1-1 3.7.2, E = 1000 fk, KE by the UK National Annex"),
             (AnalyticalMaterialKind.Masonry, true) => ($"Masonry f'm 1500", (brick ? 700 : 900) * 1500 * psi, double.NaN, double.NaN, double.NaN, 2000.0, $"TMS 402-16 4.2.2, f'm taken as 1,500 psi"),
             _ => ("Other", 10000.0, double.NaN, double.NaN, double.NaN, 1000.0, "taken as 10 GPa")
         };
 
         var used = density > 0 ? density : usual;
         return new AnalyticalMaterial(name.Length > 0 ? name : quality, sorted, quality, used, Math.Round(e, 0), Math.Round(g, 0), nu, alpha, said);
+    }
+
+    /// <summary>Whether a wall's structure is concrete, its thickest structural layer's.</summary>
+    public static bool IsConcreteWall(BimDocument document, Wall wall)
+    {
+        var core = document.GetWallType(wall)?.Structure.Layers.Where(layer => layer.Function == LayerFunction.Structure).OrderByDescending(layer => layer.Thickness).FirstOrDefault();
+        return core is not null && MaterialOf(document, document.FindMaterial(core.MaterialId)).Kind == AnalyticalMaterialKind.Concrete;
     }
 
     /// <summary>A beam material's grade.</summary>
@@ -576,7 +601,9 @@ public sealed class AnalyticalModel
             Columns();
             Beams();
             Plates();
+            Stiffeners();
             WallPanels();
+            Diaphragms();
             GroundBeams();
             Connect();
             Supports();
@@ -839,7 +866,9 @@ public sealed class AnalyticalModel
             {
                 var type = Architecture.Beams.TypeOf(_document, beam);
                 var material = MaterialOf(_document, type.Material, _document.FindMaterial(type.MaterialId));
-                var member = new AnalyticalMember(element, joist ? AnalyticalMemberKind.Joist : AnalyticalMemberKind.Beam, SectionOf(type, material), beam.Justification switch
+                // A beam drawn as a joist is one, as much as one of a layout: held along its top, sharing its load.
+                var isJoist = joist || beam.Usage == BeamUsage.Joist;
+                var member = new AnalyticalMember(element, isJoist ? AnalyticalMemberKind.Joist : AnalyticalMemberKind.Beam, SectionOf(type, material), beam.Justification switch
                 {
                     BeamJustification.Centre => "Centre",
                     BeamJustification.Bottom => "Bottom",
@@ -880,11 +909,12 @@ public sealed class AnalyticalModel
                         return Point3D.On(foot, line);
                     }
 
-                    // Bearing on a wall: to its plane, on its top where it is near it.
+                    // Bearing on a wall: to its plane, down onto its top where it stands just over it. Never up to it: a wall going on past a beam, up to a roof, holds it where it
+                    // is, and lifted to the top it would part from all that is framed to it at its own height.
                     if (WallUnder(at, height) is { } under)
                     {
                         var top = under.Frame.TopAt(under.Along);
-                        return Point3D.On(under.Frame.At(under.Along), Math.Abs(height - top) <= 600 ? top : height);
+                        return Point3D.On(under.Frame.At(under.Along), height > top && height - top <= 600 ? top : height);
                     }
 
                     return Point3D.On(at, height);
@@ -896,7 +926,7 @@ public sealed class AnalyticalModel
                 member.Nodes.Add(Node(start));
                 member.Nodes.Add(Node(end));
                 _model.Members.Add(member);
-                _named.Add((member, joist ? "J" : "B"));
+                _named.Add((member, isJoist ? "J" : "B"));
             }
         }
 
@@ -965,9 +995,9 @@ public sealed class AnalyticalModel
         /// A floor's outline with its corners taken to the planes of the bearing walls it is on - where
         /// two meet, to where they cross; by one, onto it - so its edges are where those walls are.
         /// </summary>
-        private IReadOnlyList<Point2D> Snapped(IReadOnlyList<Point2D> outline, double height, bool onTheirBase, double margin)
+        private IReadOnlyList<Point2D> Snapped(IReadOnlyList<Point2D> outline, double height, bool onTheirBase, double margin, IReadOnlyList<WallFrame>? walls = null)
         {
-            var bearing = _walls.Where(frame => Math.Abs((onTheirBase ? frame.Base : frame.Top) - height) <= 600).ToList();
+            var bearing = walls ?? _walls.Where(frame => Math.Abs((onTheirBase ? frame.Base : frame.Top) - height) <= 600).ToList();
             var moved = outline.Select(corner =>
             {
                 var near = bearing
@@ -986,6 +1016,123 @@ public sealed class AnalyticalModel
             }).ToList();
             return Simplified(moved);
         }
+
+        /// <summary>
+        /// Each wall that bears nothing but meets a bearing wall as a stiffening wall (5.5.1.2(4)): each end that does splits that wall
+        /// there, and holds it, sharing its stiffness as a cantilever from its foot - bending and shear, its modulus and G 0.4 E -
+        /// between the walls it joins. Stud partitions have no such stiffness and do not count (5.5.1.2(6)).
+        /// </summary>
+        private void Stiffeners()
+        {
+            var floors = PlateSlabs().Select(entry => entry.Height).ToList();
+            foreach (var wall in _document.Walls)
+            {
+                if (wall.StructuralUsage != StructuralUsage.NonBearing || _document.IsCurtainWall(wall) || wall.IsCurved || wall.Length < 1) continue;
+                if (_document.FindType<StackedWallType>(wall.TypeId) is not null || _document.GetWallType(wall) is not { } type) continue;
+                var core = type.Structure.Layers.Where(layer => layer.Function == LayerFunction.Structure).ToList();
+                var thickest = core.OrderByDescending(layer => layer.Thickness).FirstOrDefault();
+                if (thickest is null) continue;
+                var material = MaterialOf(_document, _document.FindMaterial(thickest.MaterialId));
+                if (material.Kind is not (AnalyticalMaterialKind.Masonry or AnalyticalMaterialKind.Concrete)) continue;
+
+                var (bottom, top) = (wall.GetBaseElevation(_document), wall.GetTopElevation(_document));
+                var height = top - bottom;
+                var thickness = core.Sum(layer => layer.Thickness);
+                if (height <= 1 || wall.Length < height / 5) continue;
+                if (Math.Abs(bottom - Lowest) >= 1 && !floors.Any(floor => Math.Abs(floor - bottom) <= 300)) continue;
+
+                var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
+                var meets = new List<(WallFrame Frame, double Along, Point2D At)>();
+                foreach (var end in new[] { wall.Start, wall.End })
+                {
+                    var reach = type.Structure.TotalWidth / 2 + 50;
+                    var frame = _walls.FirstOrDefault(each => Math.Abs(each.Way.Cross(way)) > 0.7 && each.Off(end) <= each.Width / 2 + reach && each.Along(end) >= each.From - 1 && each.Along(end) <= each.To + 1
+                                                              && each.Top > bottom + 1 && each.Base < top - 1 && thickness >= 0.3 * each.Thickness);
+                    if (frame is null) continue;
+                    var along = Math.Clamp(frame.Along(end), frame.From, frame.To);
+                    meets.Add((frame, along, frame.At(along)));
+                }
+
+                if (meets.Count == 0) continue;
+                var second = thickness * Math.Pow(wall.Length, 3) / 12;
+                var flexibility = Math.Pow(height, 3) / (3 * material.Modulus * second) + height / (0.4 * material.Modulus * 5.0 / 6 * thickness * wall.Length);
+                foreach (var (frame, along, at) in meets)
+                {
+                    frame.Splits.Add(along);
+                    _model.Stiffeners.Add(new AnalyticalStiffener(wall, frame.Wall, at, new Direction3D(way.X, way.Y, 0), Math.Max(bottom, frame.Base), Math.Min(top, frame.Top), 1 / flexibility / meets.Count));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Each timber floor over a storey and each roof that is not a plate as a diaphragm across the tops of the walls
+        /// under it, as they are strapped to it (Approved Document A 2C33 to 2C36; BS EN 1996-1-1 5.5.1.2(2)): a roof at
+        /// the eaves. Boarding, stiff in its plane and with next to no bending in it; it weighs nothing here, its weight being on the walls.
+        /// </summary>
+        private void Diaphragms()
+        {
+            var made = new List<(double Height, Polygon Area)>();
+            foreach (var slab in _document.All<Slab>().Where(slab => slab is Floor or Roof && slab.Boundary.Count >= 3 && !IsPlate(_document, slab)))
+            {
+                if (slab is Floor && Math.Abs((_document.FindLevel(slab.LevelId)?.Elevation ?? 0) - Lowest) < 1) continue;
+
+                // The walls it rests on: under a floor those whose tops are at it, under a roof the highest within it.
+                var outline = slab.Boundary.ToList();
+                if (Polygon2D.SignedArea(outline) < 0) outline.Reverse();
+                var within = _walls.Where(frame => frame.To - frame.From >= 1 && Near(outline, frame.At((frame.From + frame.To) / 2), frame.Width + 1200)).ToList();
+                if (slab is Floor)
+                {
+                    var level = slab.GetTopElevation(_document);
+                    within = within.Where(frame => Math.Abs(frame.Top - level) <= 600).ToList();
+                }
+                else if (within.Count > 0)
+                {
+                    var highest = within.Max(frame => frame.Top);
+                    within = within.Where(frame => frame.Top >= highest - 600).ToList();
+                }
+
+                if (within.Count == 0) continue;
+
+                // At the lowest top of their ends - a hip or gable cuts a wall's top lower there - so its corners are on the walls.
+                var plates = _model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && within.Any(frame => frame.Wall == panel.Element)).ToList();
+                if (plates.Count == 0) continue;
+                var height = plates.Min(EndTop);
+                var corners = Snapped(outline, height, false, 1200, within);
+                if (corners.Count < 3 || Math.Abs(Polygon2D.SignedArea(corners)) < 1e5) continue;
+                if (made.Any(other => Math.Abs(other.Height - height) < 50 && Polygon2D.Contains(other.Area.Corners, Polygon2D.Centroid(corners, corners[0])))) continue;
+                if (_model.Panels.Any(panel => panel.Kind is AnalyticalPanelKind.Floor or AnalyticalPanelKind.Roof && Math.Abs(panel.Origin.Z - height) < 50 && Polygon2D.Contains(panel.FlatOutline, Polygon2D.Centroid(corners, corners[0])))) continue;
+                made.Add((height, new Polygon(corners)));
+
+                var panel = new AnalyticalPanel(slab, AnalyticalPanelKind.Diaphragm, Boarding, 18, "Top", new Point3D(0, 0, height), new Direction3D(1, 0, 0), new Direction3D(0, 1, 0));
+                foreach (var corner in corners) panel.Outline.Add(Node(Point3D.On(corner, height)));
+                _model.Diaphragms.Add(panel);
+
+                // A node at the end of each wall under it, for its edges to break at: a wall split by a cross wall shares them piece by piece.
+                foreach (var wall in plates)
+                {
+                    var flat = wall.FlatOutline;
+                    foreach (var along in new[] { flat.Min(point => point.X), flat.Max(point => point.X) })
+                        Node(new Point3D(wall.Origin.X + wall.U.X * along, wall.Origin.Y + wall.U.Y * along, height));
+                }
+            }
+        }
+
+        /// <summary>How high a wall's plate stands at the lower of its two ends.</summary>
+        private static double EndTop(AnalyticalPanel wall)
+        {
+            var flat = wall.FlatOutline;
+            var (start, end) = (flat.Min(point => point.X), flat.Max(point => point.X));
+            return Math.Min(flat.Where(point => Math.Abs(point.X - start) < 1).Max(point => point.Y), flat.Where(point => Math.Abs(point.X - end) < 1).Max(point => point.Y));
+        }
+
+        /// <summary>A diaphragm's corners, kept to see that no other covers the same ground.</summary>
+        private sealed record Polygon(IReadOnlyList<Point2D> Corners);
+
+        /// <summary>The boarding of a timber floor or roof as a diaphragm: 18 mm at E 3 GPa, about what chipboard or plywood sheathing has in its plane.</summary>
+        private static readonly AnalyticalMaterial Boarding = new("Boarding", AnalyticalMaterialKind.Timber, "Boarding", 0, 3000, 1150, 0.3, double.NaN, "taken for a floor or roof strapped to its walls");
+
+        private static bool Near(IReadOnlyList<Point2D> outline, Point2D at, double reach) =>
+            Polygon2D.Contains(outline, at) || Enumerable.Range(0, outline.Count).Any(i => Line2D.DistanceFromSegment(at, outline[i], outline[(i + 1) % outline.Count]) <= reach);
 
         private void GroundBeams()
         {
@@ -1014,7 +1161,7 @@ public sealed class AnalyticalModel
         /// <summary>Each node that falls on another's edge put into its outline, and each inside it into it; each on a member's line, into it.</summary>
         private void Connect()
         {
-            foreach (var panel in _model.Panels)
+            foreach (var panel in _model.Panels.Concat(_model.Diaphragms))
             {
                 var flat = panel.FlatOutline;
                 var openings = panel.Openings.Select(opening => (IReadOnlyList<Point2D>)opening.Select(panel.Flat).ToList()).ToList();

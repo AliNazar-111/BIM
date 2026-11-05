@@ -85,6 +85,7 @@ public sealed class StructuralAnalysis
     private readonly List<(AnalyticalPanel Panel, int Shell)> _panelShells = new();
     private readonly List<(AnalyticalSupport Support, IReadOnlyList<int> Nodes)> _supportNodes = new();
     private readonly List<(AnalyticalPanel Panel, IReadOnlyList<(int Node, double Area)> Nodes)> _groundNodes = new();
+    private readonly HashSet<int> _crossNodes = new();
     private readonly Dictionary<LoadCase, double[]> _internal = new();
 
     private StructuralAnalysis(AnalyticalModel model, StructuralLoading loading, double meshSize)
@@ -104,6 +105,12 @@ public sealed class StructuralAnalysis
 
     /// <summary>The mesh node at a node of the model.</summary>
     public int NodeOf(AnalyticalNode node) => _nodeOf[node];
+
+    /// <summary>A load case as forces on the nodes, N and N mm, six to a node.</summary>
+    public double[] LoadOf(LoadCase loadCase) => _loads[loadCase];
+
+    /// <summary>What a load case puts along a beam of the mesh, in its axes, where it does.</summary>
+    public double[]? LoadAlong(LoadCase loadCase, int beam) => _beamLoads.GetValueOrDefault((loadCase, beam));
 
     // ---- the mesh ---------------------------------------------------------------------------
 
@@ -168,7 +175,7 @@ public sealed class StructuralAnalysis
         }
 
         // Plates: meshed in their own plane.
-        foreach (var panel in Model.Panels) Mesh(panel);
+        foreach (var panel in Model.Panels.Concat(Model.Diaphragms)) Mesh(panel);
 
         // Supports.
         foreach (var support in Model.Supports)
@@ -203,8 +210,28 @@ public sealed class StructuralAnalysis
             _groundNodes.Add((panel, areas.Select(entry => (entry.Key, entry.Value)).ToList()));
         }
 
+        // Cross walls: a line of support up the wall each meets, the way it runs, its stiffness shared along it.
+        foreach (var cross in Model.Stiffeners)
+        {
+            var nodes = Enumerable.Range(0, Solver.NodeCount).Where(n =>
+            {
+                var at = Solver.NodeAt(n);
+                return Math.Abs(at.X - cross.At.X) <= 2 && Math.Abs(at.Y - cross.At.Y) <= 2 && at.Z >= cross.Bottom - 2 && at.Z <= cross.Top + 2;
+            }).ToList();
+            foreach (var n in nodes)
+            {
+                Solver.AddSpring(n, 0, cross.Stiffness / nodes.Count * cross.Way.X * cross.Way.X);
+                Solver.AddSpring(n, 1, cross.Stiffness / nodes.Count * cross.Way.Y * cross.Way.Y);
+                _crossNodes.Add(n);
+            }
+        }
+
+        if (Model.Stiffeners.Count > 0)
+            Notes.Add($"{Model.Stiffeners.Count} meeting{(Model.Stiffeners.Count == 1 ? "" : "s")} of a cross wall that bears nothing with a wall it stiffens (BS EN 1996-1-1 5.5.1.2(4)): a line of support up the wall, taken as tied to it, as stiff as the cross wall is as a cantilever from its foot. The cross wall's own strength is not checked.");
         if (_groundNodes.Count > 0)
             Notes.Add("The ground under a raft or slab as springs at each node, its stiffness times the node's share of the area; held sideways by springs a tenth as stiff, for its friction.");
+        if (Model.Diaphragms.Count > 0)
+            Notes.Add($"{Model.Diaphragms.Count} timber floor{(Model.Diaphragms.Count == 1 ? " or roof as a thin diaphragm" : "s and roofs as thin diaphragms")} across the wall tops: 18 mm at 3 GPa, taken as strapped to the walls, weighing nothing here as their weight is already on the walls. They hold the tops and carry the wind to the walls that run its way.");
         if (Model.Members.Any(member => member.Kind == AnalyticalMemberKind.GroundBeam) && Model.Panels.Any(panel => panel.Kind == AnalyticalPanelKind.Wall))
             Notes.Add("A wall on a ground beam is a plate joined to it along its foot, so the two act as one composite deep beam - the masonry arching over the piles, " +
                       "the beam its tie - and the beam's moments are a fraction of wL²/8. Until the masonry has hardened the beam carries it alone; " +
@@ -266,7 +293,7 @@ public sealed class StructuralAnalysis
         bool Inside(Point3D at) => InPlane(at) && On(panel.Flat(at));
 
         // The lines other plates' edges and members run along in it: kept as edges, so they share its nodes.
-        foreach (var other in Model.Panels.Where(other => !ReferenceEquals(other, panel)))
+        foreach (var other in Model.Panels.Concat(Model.Diaphragms).Where(other => !ReferenceEquals(other, panel)))
             foreach (var (from, to) in other.Edges)
                 if (Inside(from.At) && Inside(to.At) && Inside(Mid(from.At, to.At))) Line(from.At, to.At);
         foreach (var member in Model.Members)
@@ -282,6 +309,10 @@ public sealed class StructuralAnalysis
         var maxY = outline.Max(p => p.Y);
         var fixedPoints = points.Select(point => point.Flat).ToList();
         var edges = constraints.Select(c => (points[c.Item1].Flat, points[c.Item2].Flat)).ToList();
+
+        // A diaphragm is meshed from its edges alone: nothing stands on its middle, and it has no bending to hold points there up. Where joists run through it, it is what
+        // ties them in its own plane; it must not hold them up, boards having no such span: a thousandth of a plate's bending, so its nodes stay sound and it carries nothing that way.
+        if (panel.Kind != AnalyticalPanelKind.Diaphragm)
         for (var x = minX + MeshSize; x < maxX - MeshSize / 3; x += MeshSize)
         for (var y = minY + MeshSize; y < maxY - MeshSize / 3; y += MeshSize)
         {
@@ -301,7 +332,7 @@ public sealed class StructuralAnalysis
             if (Math.Abs(Polygon2D.SignedArea(new[] { pa, pb, pc })) < 1) continue;
             var nodes = new[] { Node(points[a].At), Node(points[b].At), Node(points[c].At) };
             if (nodes.Distinct().Count() < 3) continue;
-            var shell = Solver.AddShell(new StructuralSolver.Shell(nodes[0], nodes[1], nodes[2], panel.Material.Modulus, PoissonOf(panel.Material), panel.Thickness));
+            var shell = Solver.AddShell(new StructuralSolver.Shell(nodes[0], nodes[1], nodes[2], panel.Material.Modulus, PoissonOf(panel.Material), panel.Thickness, panel.Kind == AnalyticalPanelKind.Diaphragm ? 1e-3 : 1));
             _panelShells.Add((panel, shell));
             shells++;
         }
@@ -503,29 +534,45 @@ public sealed class StructuralAnalysis
         return new MemberResult(member, axial / 1000, vy / 1000, vz / 1000, torsion / 1e6, my / 1e6, mz / 1e6, deflection, span, limit, limitSaid);
     }
 
-    /// <summary>A member's greatest deflection from the straight line between the ends of the span it is in, mm, and that span's length.</summary>
+    /// <summary>
+    /// A member's greatest deflection from the straight line between the ends of the span it is in, mm, and that span's length. A span runs between what holds the member up: not every
+    /// node on it, or a beam with joists landing on it would be measured between its joists, and read as not bending at all.
+    /// </summary>
     public (double Deflection, double Span) DeflectionOf(AnalyticalMember member, object loading)
     {
         var u = DisplacementsOf(loading);
         V3 Moved(int node) => new(u[node * 6], u[node * 6 + 1], u[node * 6 + 2]);
+        var ends = Enumerable.Range(0, member.Nodes.Count).Where(i => i == 0 || i == member.Nodes.Count - 1 || HoldsUp(member, member.Nodes[i])).ToList();
         var worst = (Deflection: 0.0, Span: 0.0);
-        for (var span = 0; span + 1 < member.Nodes.Count; span++)
+        for (var span = 0; span + 1 < ends.Count; span++)
         {
-            var (a, b) = (member.Nodes[span], member.Nodes[span + 1]);
+            var (a, b) = (member.Nodes[ends[span]], member.Nodes[ends[span + 1]]);
             var length = AnalyticalModel.Distance(a.At, b.At);
             if (length < 1) continue;
             var (ua, ub) = (Moved(_nodeOf[a]), Moved(_nodeOf[b]));
             var axis = (V3.Of(b.At) - V3.Of(a.At)).Unit;
-            foreach (var point in Divide(a.At, b.At))
-            {
-                var t = AnalyticalModel.Distance(a.At, point) / length;
-                var relative = Moved(Node(point)) - (ua * (1 - t) + ub * t);
-                var across = relative - axis * relative.Dot(axis);
-                if (across.Length > worst.Deflection) worst = (across.Length, length);
-            }
+            for (var stretch = ends[span]; stretch < ends[span + 1]; stretch++)
+                foreach (var point in Divide(member.Nodes[stretch].At, member.Nodes[stretch + 1].At))
+                {
+                    var t = AnalyticalModel.Distance(a.At, point) / length;
+                    var relative = Moved(Node(point)) - (ua * (1 - t) + ub * t);
+                    var across = relative - axis * relative.Dot(axis);
+                    if (across.Length > worst.Deflection) worst = (across.Length, length);
+                }
         }
 
-        return worst.Span > 0 ? worst : (0, member.Length);
+        return worst.Span > 0 ? worst : (0, ends.Count > 2 ? AnalyticalModel.Distance(member.Nodes[ends[0]].At, member.Nodes[ends[1]].At) : member.Length);
+    }
+
+    /// <summary>
+    /// Whether a node along a member holds it up: a support, a column, a wall going down from it, or a member it crosses. Something ending on it there is what it carries.
+    /// </summary>
+    private bool HoldsUp(AnalyticalMember member, AnalyticalNode node)
+    {
+        if (Model.Supports.Any(support => ReferenceEquals(support.Node, node))) return true;
+        if (Model.Panels.Any(panel => panel.Kind == AnalyticalPanelKind.Wall && (panel.Outline.Contains(node) || panel.Inside.Contains(node)) && panel.Outline.Min(each => each.At.Z) < node.At.Z - 100)) return true;
+        return Model.Members.Any(other => !ReferenceEquals(other, member) && other.Nodes.Contains(node)
+            && (other.Kind == AnalyticalMemberKind.Column || (!ReferenceEquals(other.Start, node) && !ReferenceEquals(other.End, node))));
     }
 
     /// <summary>A support's reactions under a combination or a case, kN and kNm: the forces at its nodes the structure cannot carry itself.</summary>
@@ -585,8 +632,27 @@ public sealed class StructuralAnalysis
             total += new V3(r.Fx, r.Fy, r.Fz);
         }
 
-        return total;
+        return total + CrossWallsOf(loading);
     }
+
+    /// <summary>What the cross walls push back with under a combination or a case, kN in each direction.</summary>
+    public V3 CrossWallsOf(object loading)
+    {
+        if (_crossNodes.Count == 0) return new V3(0, 0, 0);
+        var u = DisplacementsOf(loading);
+        var r = new double[3];
+        foreach (var (node, freedom, stiffness) in Solver.Springs)
+            if (_crossNodes.Contains(node) && !_groundNodes.Any(entry => entry.Nodes.Any(n => n.Node == node)))
+                r[freedom] -= stiffness * u[node * 6 + freedom];
+        return new V3(r[0] / 1000, r[1] / 1000, r[2] / 1000);
+    }
+
+    /// <summary>
+    /// What turns a triangle's moments, by the solver's sign, into a plate's, sagging positive - the side away from its normal in tension. A plate's
+    /// normal is up for a floor; the solver's moments are positive the other way, and a triangle's axes follow the order of its corners.
+    /// </summary>
+    public static double SaggingSign(V3 triangleNormal, AnalyticalPanel panel) =>
+        triangleNormal.Dot(new V3(panel.Normal.X, panel.Normal.Y, panel.Normal.Z)) >= 0 ? -1 : 1;
 
     /// <summary>A plate under a combination or a case: its greatest movement, mm, and its greatest and least moments across each of its ways, kNm per m.</summary>
     public PanelResult PanelOf(AnalyticalPanel panel, object loading)
@@ -602,8 +668,9 @@ public sealed class StructuralAnalysis
         {
             var shell = Solver.Shells[s];
             var m = Solver.ShellMoments(shell, u);
-            var (x, y, _) = Solver.Axes(shell);
-            double Along(V3 e) => m[0] * Math.Pow(e.Dot(x), 2) + m[1] * Math.Pow(e.Dot(y), 2) + 2 * m[2] * e.Dot(x) * e.Dot(y);
+            var (x, y, z) = Solver.Axes(shell);
+            var sagging = SaggingSign(z, panel);
+            double Along(V3 e) => sagging * (m[0] * Math.Pow(e.Dot(x), 2) + m[1] * Math.Pow(e.Dot(y), 2) + 2 * m[2] * e.Dot(x) * e.Dot(y));
             var (alongU, alongV) = (Along(pu), Along(pv));
             mu = Math.Max(mu, alongU);
             mv = Math.Max(mv, alongV);
@@ -729,7 +796,7 @@ public sealed class StructuralAnalysis
     public (double Sagging, double Hogging) BendingOf(AnalyticalMember member)
     {
         double sagging = 0, hogging = 0;
-        foreach (var combination in Loading.Combinations.Where(combination => combination.State == LimitState.Ultimate))
+        foreach (var combination in Loading.Combinations.Where(combination => combination.Factored))
         foreach (var (beam, _, _, _) in BeamsOf(member))
         {
             var f = BeamForces(beam, combination);
@@ -793,29 +860,10 @@ public sealed class StructuralAnalysis
         Math.Max(0, depth) * width * (us ? StructureRules.UsBeamLeastSteel : Math.Max(StructureRules.UkLeastSteel, 0.0013));
 
     /// <summary>The tension steel a rectangular section needs for a moment by BS EN 1992-1-1, mm² - its least where it is more - or why it cannot.</summary>
-    public static (double Needed, string? Problem) Eurocode(double moment, double width, double depth)
-    {
-        const double fck = 28, fyk = 500;
-        if (depth <= 0) return (0, "no depth left inside the cover");
-        var least = Least(false, width, depth);
-        var m = moment * 1e6;
-        var k = m / (width * depth * depth * fck);
-        if (k > 0.167) return (least, $"K is {k:0.000}, over K' 0.167 - it would need compression steel; make it deeper");
-        var z = Math.Min(0.95 * depth, depth * (0.5 + Math.Sqrt(0.25 - k / 1.134)));
-        return (Math.Max(least, m / (0.87 * fyk * z)), null);
-    }
+    public static (double Needed, string? Problem) Eurocode(double moment, double width, double depth) =>
+        ConcreteDesign.Eurocode(moment, width, depth, 28, Least(false, width, depth));
 
     /// <summary>The tension steel a rectangular section needs for a moment by ACI 318-19, mm² - its least where it is more - or why it cannot.</summary>
-    public static (double Needed, string? Problem) Aci(double moment, double width, double depth)
-    {
-        const double psi = 0.00689476, fc = 3000 * psi, fy = 60000 * psi, phi = 0.9, beta1 = 0.85;
-        if (depth <= 0) return (0, "no depth left inside the cover");
-        var least = Least(true, width, depth);
-        var m = moment * 1e6;
-        var discriminant = depth * depth - 2 * m / (phi * 0.85 * fc * width);
-        if (discriminant < 0) return (least, "the section cannot carry it, whatever its bars; make it deeper or wider");
-        var a = depth - Math.Sqrt(discriminant);
-        if (a / beta1 / depth > 0.375) return (Math.Max(least, 0.85 * fc * width * a / fy), $"c/d is {a / beta1 / depth:0.00}, over 0.375 - not tension-controlled; make it deeper");
-        return (Math.Max(least, 0.85 * fc * width * a / fy), null);
-    }
+    public static (double Needed, string? Problem) Aci(double moment, double width, double depth) =>
+        ConcreteDesign.Aci(moment, width, depth, 3000 * 0.00689476, Least(true, width, depth));
 }

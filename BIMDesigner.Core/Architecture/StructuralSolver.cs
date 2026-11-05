@@ -27,7 +27,7 @@ public sealed class StructuralSolver
     public sealed record Beam(int I, int J, double E, double G, double A, double Iy, double Iz, double J0, Vector3 LocalY, bool PinnedI, bool PinnedJ);
 
     /// <summary>A flat shell triangle: its three nodes, its material and thickness.</summary>
-    public sealed record Shell(int I, int J, int K, double E, double Poisson, double Thickness);
+    public sealed record Shell(int I, int J, int K, double E, double Poisson, double Thickness, double Bending = 1);
 
     /// <summary>A plain three dimensional vector.</summary>
     public readonly record struct Vector3(double X, double Y, double Z)
@@ -60,12 +60,14 @@ public sealed class StructuralSolver
 
     public int AddBeam(Beam beam)
     {
+        _lines = null;
         _beams.Add(beam);
         return _beams.Count - 1;
     }
 
     public int AddShell(Shell shell)
     {
+        _shapes = null;
         _shells.Add(shell);
         return _shells.Count - 1;
     }
@@ -281,7 +283,7 @@ public sealed class StructuralSolver
             k[mapMembrane[r], mapMembrane[c]] += membrane[r, c];
 
         // Across it: the discrete Kirchhoff triangle, by the three mid-side points.
-        var db = e * t * t * t / (12 * (1 - nu * nu));
+        var db = shell.Bending * e * t * t * t / (12 * (1 - nu * nu));
         var dBending = new[,] { { db, db * nu, 0 }, { db * nu, db, 0 }, { 0, 0, db * (1 - nu) / 2 } };
         var bending = new double[9, 9];
         foreach (var (xi, eta) in new[] { (0.5, 0.0), (0.5, 0.5), (0.0, 0.5) })
@@ -443,8 +445,20 @@ public sealed class StructuralSolver
     /// </summary>
     public Solution Solve(IReadOnlyList<double[]> loads)
     {
+        var factored = Factorise();
+        return new Solution(loads.Select(factored.Solve).ToList(), factored.Problems, factored.Unstable);
+    }
+
+    /// <summary>
+    /// The structure's stiffness assembled and factorised, kept to put loads through - each element's
+    /// stiffness taken at its share of what it is, where a share is given: a cracked section's, say.
+    /// </summary>
+    public Factored Factorise(IReadOnlyList<double>? beamShares = null, IReadOnlyList<double>? shellShares = null)
+    {
         var problems = new List<string>();
         var n = _nodes.Count;
+        var beams = _beams.Select((beam, i) => beamShares is null ? beam : beam with { E = beam.E * beamShares[i], G = beam.G * beamShares[i] }).ToList();
+        var shells = _shells.Select((shell, i) => shellShares is null ? shell : shell with { E = shell.E * shellShares[i] }).ToList();
 
         // Which nodes each element joins, for the ordering.
         var neighbours = Enumerable.Range(0, n).Select(_ => new HashSet<int>()).ToArray();
@@ -469,13 +483,13 @@ public sealed class StructuralSolver
 
         // The elements' stiffnesses in the building's axes, and where each lands.
         var elements = new List<(int[] Dofs, double[,] K)>();
-        foreach (var beam in _beams)
+        foreach (var beam in beams)
         {
             var (k, _, _) = BeamGlobal(beam);
             elements.Add((Dofs(beam.I, beam.J), k));
         }
 
-        foreach (var shell in _shells)
+        foreach (var shell in shells)
         {
             var (k, _, _) = ShellGlobal(shell);
             elements.Add((Dofs(shell.I, shell.J, shell.K), k));
@@ -563,11 +577,37 @@ public sealed class StructuralSolver
         if (unstable.Count > 0)
             problems.Add($"The structure is free to move at {unstable.Select(u => u.Item1).Distinct().Count()} node{(unstable.Select(u => u.Item1).Distinct().Count() == 1 ? "" : "s")}: nothing holds it there - those movements are held at nothing to go on.");
 
-        var displacements = new List<double[]>();
-        foreach (var load in loads)
+        return new Factored(a, address, equation, count, n * 6, beams, shells, problems, unstable);
+    }
+
+    /// <summary>A structure's stiffness factorised: what its elements were taken at, what was wrong, and any load put through it.</summary>
+    public sealed class Factored
+    {
+        private readonly double[] _a;
+        private readonly long[] _address;
+        private readonly int[] _equation;
+        private readonly int _count, _freedoms;
+
+        internal Factored(double[] a, long[] address, int[] equation, int count, int freedoms, IReadOnlyList<Beam> beams, IReadOnlyList<Shell> shells, IReadOnlyList<string> problems, IReadOnlyList<(int, int)> unstable)
         {
+            (_a, _address, _equation, _count, _freedoms) = (a, address, equation, count, freedoms);
+            (Beams, Shells, Problems, Unstable) = (beams, shells, problems, unstable);
+        }
+
+        public IReadOnlyList<Beam> Beams { get; }
+
+        public IReadOnlyList<Shell> Shells { get; }
+
+        public IReadOnlyList<string> Problems { get; }
+
+        public IReadOnlyList<(int Node, int Freedom)> Unstable { get; }
+
+        /// <summary>A load - six forces to a node - as the movement of every node.</summary>
+        public double[] Solve(double[] load)
+        {
+            var (a, address, equation, count) = (_a, _address, _equation, _count);
             var v = new double[count];
-            for (var d = 0; d < n * 6; d++)
+            for (var d = 0; d < _freedoms; d++)
                 if (equation[d] >= 0) v[equation[d]] += load[d];
 
             // Forward, scale, back.
@@ -588,14 +628,166 @@ public sealed class StructuralSolver
                 for (var m = 1; m <= height; m++) v[col - m] -= a[kn + m] * v[col];
             }
 
-            var u = new double[n * 6];
-            for (var d = 0; d < n * 6; d++)
+            var u = new double[_freedoms];
+            for (var d = 0; d < _freedoms; d++)
                 if (equation[d] >= 0) u[d] = v[equation[d]];
-            displacements.Add(u);
+            return u;
+        }
+    }
+
+    // ---- geometric stiffness -----------------------------------------------------------------
+
+    /// <summary>
+    /// What a structure's elements are stressed by under a load, tension positive: each beam's axial force, N,
+    /// and each shell's membrane forces, N per mm - what its stiffness rises or falls by as it moves.
+    /// </summary>
+    public sealed record Prestress(double[] Axial, double[] Nx, double[] Ny, double[] Nxy)
+    {
+        /// <summary>Stresses added up, each by its factor: a combination's, from its cases'.</summary>
+        public static Prestress Sum(IEnumerable<(Prestress Stress, double Factor)> terms)
+        {
+            var list = terms.ToList();
+            var (beams, shells) = (list[0].Stress.Axial.Length, list[0].Stress.Nx.Length);
+            var sum = new Prestress(new double[beams], new double[shells], new double[shells], new double[shells]);
+            foreach (var (stress, factor) in list)
+            {
+                for (var i = 0; i < beams; i++) sum.Axial[i] += factor * stress.Axial[i];
+                for (var i = 0; i < shells; i++)
+                {
+                    sum.Nx[i] += factor * stress.Nx[i];
+                    sum.Ny[i] += factor * stress.Ny[i];
+                    sum.Nxy[i] += factor * stress.Nxy[i];
+                }
+            }
+
+            return sum;
+        }
+    }
+
+    /// <summary>A shell's axes and the gradients of its three corners' shape functions in them.</summary>
+    private sealed record ShellShape(Vector3 X, Vector3 Y, double[] B, double[] C, double Area);
+
+    private ShellShape[]? _shapes;
+    private (Vector3 X, double Length)[]? _lines;
+
+    /// <summary>Each shell's shape and each beam's line, worked once: they do not change as a structure's loads do.</summary>
+    private ShellShape[] Shapes => _shapes ??= _shells.Select(ShapeOf).ToArray();
+
+    private (Vector3 X, double Length)[] Lines => _lines ??= _beams.Select(beam => Axes(beam) is var (x, _, _, length) ? (x, length) : default).ToArray();
+
+    private ShellShape ShapeOf(Shell shell)
+    {
+        var (x, y, _) = Axes(shell);
+        var origin = Vector3.Of(_nodes[shell.I]);
+        var p = new[] { shell.I, shell.J, shell.K }.Select(node => Vector3.Of(_nodes[node]) - origin).Select(v => (X: v.Dot(x), Y: v.Dot(y))).ToArray();
+        var twice = (p[1].X - p[0].X) * (p[2].Y - p[0].Y) - (p[2].X - p[0].X) * (p[1].Y - p[0].Y);
+        var (b, c) = (new double[3], new double[3]);
+        for (var i = 0; i < 3; i++)
+        {
+            var (j, k) = ((i + 1) % 3, (i + 2) % 3);
+            b[i] = (p[j].Y - p[k].Y) / twice;
+            c[i] = (p[k].X - p[j].X) / twice;
         }
 
-        return new Solution(displacements, problems, unstable);
+        return new ShellShape(x, y, b, c, Math.Abs(twice) / 2);
     }
+
+    private static Vector3 Moved(double[] u, int node) => new(u[node * 6], u[node * 6 + 1], u[node * 6 + 2]);
+
+    /// <summary>What a movement stresses the elements by, at the stiffnesses they were factorised at.</summary>
+    public Prestress PrestressOf(Factored factored, double[] u)
+    {
+        var (beams, shells) = (factored.Beams, factored.Shells);
+        var axial = new double[beams.Count];
+        for (var i = 0; i < beams.Count; i++)
+        {
+            var beam = beams[i];
+            var (x, length) = Lines[i];
+            axial[i] = beam.E * beam.A / length * (Moved(u, beam.J) - Moved(u, beam.I)).Dot(x);
+        }
+
+        var (nx, ny, nxy) = (new double[shells.Count], new double[shells.Count], new double[shells.Count]);
+        for (var i = 0; i < shells.Count; i++)
+        {
+            var shell = shells[i];
+            var shape = Shapes[i];
+            double ex = 0, ey = 0, gamma = 0;
+            var corners = new[] { shell.I, shell.J, shell.K };
+            for (var c = 0; c < 3; c++)
+            {
+                var moved = Moved(u, corners[c]);
+                var (ux, uy) = (moved.Dot(shape.X), moved.Dot(shape.Y));
+                ex += shape.B[c] * ux;
+                ey += shape.C[c] * uy;
+                gamma += shape.C[c] * ux + shape.B[c] * uy;
+            }
+
+            var d = shell.E * shell.Thickness / (1 - shell.Poisson * shell.Poisson);
+            nx[i] = d * (ex + shell.Poisson * ey);
+            ny[i] = d * (ey + shell.Poisson * ex);
+            nxy[i] = d * (1 - shell.Poisson) / 2 * gamma;
+        }
+
+        return new Prestress(axial, nx, ny, nxy);
+    }
+
+    /// <summary>
+    /// Kg u: the forces a stressed structure puts on its nodes through a movement, N. A beam as a string, N/L
+    /// across it; a shell by the gradients of its membrane forces, the same for each way a corner moves.
+    /// Compression makes them push the way it has moved: what P-delta is.
+    /// </summary>
+    public double[] GeometricForces(Prestress stress, double[] u)
+    {
+        var f = new double[u.Length];
+        var (lines, shapes) = (Lines, Shapes);
+        for (var i = 0; i < _beams.Count; i++)
+        {
+            var n = stress.Axial[i];
+            if (n == 0) continue;
+            var beam = _beams[i];
+            var (x, length) = lines[i];
+            var (dx, dy, dz) = (u[beam.J * 6] - u[beam.I * 6], u[beam.J * 6 + 1] - u[beam.I * 6 + 1], u[beam.J * 6 + 2] - u[beam.I * 6 + 2]);
+            var along = dx * x.X + dy * x.Y + dz * x.Z;
+            var share = n / length;
+            var (ax, ay, az) = ((dx - x.X * along) * share, (dy - x.Y * along) * share, (dz - x.Z * along) * share);
+            f[beam.I * 6] -= ax;
+            f[beam.I * 6 + 1] -= ay;
+            f[beam.I * 6 + 2] -= az;
+            f[beam.J * 6] += ax;
+            f[beam.J * 6 + 1] += ay;
+            f[beam.J * 6 + 2] += az;
+        }
+
+        Span<int> corners = stackalloc int[3];
+        for (var s = 0; s < _shells.Count; s++)
+        {
+            var (nx, ny, nxy) = (stress.Nx[s], stress.Ny[s], stress.Nxy[s]);
+            if (nx == 0 && ny == 0 && nxy == 0) continue;
+            var shell = _shells[s];
+            var shape = shapes[s];
+            (corners[0], corners[1], corners[2]) = (shell.I * 6, shell.J * 6, shell.K * 6);
+            for (var i = 0; i < 3; i++)
+            for (var j = 0; j < 3; j++)
+            {
+                var c = shape.Area * (nx * shape.B[i] * shape.B[j] + ny * shape.C[i] * shape.C[j] + nxy * (shape.B[i] * shape.C[j] + shape.C[i] * shape.B[j]));
+                f[corners[i]] += c * u[corners[j]];
+                f[corners[i] + 1] += c * u[corners[j] + 1];
+                f[corners[i] + 2] += c * u[corners[j] + 2];
+            }
+        }
+
+        return f;
+    }
+
+    /// <summary>A beam's local stiffness times the rotation into its axes: what turns the movements at its ends into its end forces, twelve by twelve.</summary>
+    public (double[,] Matrix, int[] Dofs) BeamForceMatrix(Beam beam)
+    {
+        var (_, t, length) = BeamGlobal(beam);
+        return (Multiply(BeamLocal(beam, length), t), Dofs(beam.I, beam.J));
+    }
+
+    /// <summary>What a beam's loads along it come to at its ends, as a pinned end has them: what is taken off K d for its end forces.</summary>
+    public double[] CondensedLoad(Beam beam, double[] localLoad) => CondenseLoad(beam, Axes(beam).Length, localLoad);
 
     private static int[] Dofs(params int[] nodes) => nodes.SelectMany(node => Enumerable.Range(0, 6).Select(f => node * 6 + f)).ToArray();
 
@@ -663,12 +855,30 @@ public sealed class StructuralSolver
             l[i] += t[i, j] * global[j];
         int[] mapBending = { 2, 3, 4, 8, 9, 10, 14, 15, 16 };
         var b = DktB(local, 1.0 / 3, 1.0 / 3);
-        var db = shell.E * Math.Pow(shell.Thickness, 3) / (12 * (1 - shell.Poisson * shell.Poisson));
+        var db = shell.Bending * shell.E * Math.Pow(shell.Thickness, 3) / (12 * (1 - shell.Poisson * shell.Poisson));
         var kappa = new double[3];
         for (var r = 0; r < 3; r++)
         for (var c = 0; c < 9; c++)
             kappa[r] += b[r, c] * l[mapBending[c]];
         return new[] { db * (kappa[0] + shell.Poisson * kappa[1]), db * (shell.Poisson * kappa[0] + kappa[1]), db * (1 - shell.Poisson) / 2 * kappa[2] };
+    }
+
+    /// <summary>The force a shell puts on each of its three corners, N, in the building's axes. They add up to nothing: the loads it carries are held at the nodes.</summary>
+    public Vector3[] ShellCornerForces(Shell shell, double[] displacements)
+    {
+        var (k, _, _) = ShellGlobal(shell);
+        var dofs = Dofs(shell.I, shell.J, shell.K);
+        var forces = new Vector3[3];
+        for (var corner = 0; corner < 3; corner++)
+        {
+            var f = new double[3];
+            for (var axis = 0; axis < 3; axis++)
+            for (var c = 0; c < 18; c++)
+                f[axis] += k[corner * 6 + axis, c] * displacements[dofs[c]];
+            forces[corner] = new Vector3(f[0], f[1], f[2]);
+        }
+
+        return forces;
     }
 
     /// <summary>The forces every element puts on its nodes, in the building's axes, and every spring: K d, six to a node - what the reactions are read from.</summary>

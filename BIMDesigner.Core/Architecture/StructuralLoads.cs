@@ -31,6 +31,9 @@ public enum LimitState
 /// <summary>A combination of load cases, each by its factor, and the expression of the standard it is.</summary>
 public sealed record LoadCombination(string Name, string Description, LimitState State, IReadOnlyList<(LoadCase Case, double Factor)> Terms)
 {
+    /// <summary>Whether it is a factored combination to check strength under - not ASCE 7's allowable stress combinations of 2.4.1, kept for working in that way.</summary>
+    public bool Factored => State == LimitState.Ultimate && !Name.StartsWith("ASD", StringComparison.Ordinal);
+
     /// <summary>Its terms said: "1.35 G1 + 1.35 G2 + 1.5 Q1".</summary>
     public string Said => string.Join(" + ", Terms.Select(term => $"{term.Factor:0.###} {term.Case.Name}"));
 }
@@ -353,6 +356,7 @@ public sealed class StructuralLoading
                 var (partition, partitionDead, why) = Partitions(floor);
                 var weight = Loads.Weight(_document, type.Structure) + partitionDead;
                 var spread = Spread(floor, height, out var carried);
+                JoistsLeftOut(floor, height);
                 if (spread.Count == 0)
                 {
                     // On the ground, onto nothing: it is carried by the ground under it.
@@ -420,6 +424,18 @@ public sealed class StructuralLoading
             }
 
             return spread;
+        }
+
+        /// <summary>
+        /// Joists run the way a floor spans carry none of it, and their checks then read as if all were well. It is said, and left as it is: which way a floor spans is for whoever draws it.
+        /// </summary>
+        private void JoistsLeftOut(Slab floor, double height)
+        {
+            var way = SpanOf(floor);
+            var idle = _model.Members.Where(member => member.Kind == AnalyticalMemberKind.Joist && Math.Abs(member.Start.At.Z - height) < 600 && floor.Contains(new Point2D((member.Start.At.X + member.End.At.X) / 2, (member.Start.At.Y + member.End.At.Y) / 2))
+                && Math.Abs(((member.End.At.X - member.Start.At.X) * way.X + (member.End.At.Y - member.Start.At.Y) * way.Y) / Math.Max(1, member.Length)) > 0.7).ToList();
+            if (idle.Count > 0)
+                _loading.Problems.Add(new AnalyticalProblem($"It spans the way {idle.Count} of the joists under it run, so they carry none of it: set its span direction across them.", new Element[] { floor }));
         }
 
         /// <summary>The way a floor spans: as drawn, or across its short way.</summary>
