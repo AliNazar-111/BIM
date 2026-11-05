@@ -454,6 +454,52 @@ public static class RoofJoin
     }
 
     /// <summary>
+    /// Joins a roof by extrusion to another roof - a gabled or barrel roof running into the main
+    /// roof: its end nearer a point - the end clicked - carried on across until its whole profile is
+    /// buried under the other roof's top, a little further so the trim meets it rather than the
+    /// end, and the two joined, so it is trimmed where it runs in and meets it in valleys. Null,
+    /// with why, where it never meets it.
+    /// </summary>
+    public static IUndoableCommand? JoinExtrusion(BimDocument document, Roof roof, Point2D near, Roof target, out string? problem)
+    {
+        problem = null;
+        if (ReferenceEquals(roof, target) || roof.Extrusion is not { } extrusion)
+        {
+            problem = "Pick a roof by extrusion, then the roof it should run into.";
+            return null;
+        }
+
+        // The end nearer the click, carried on away from the other.
+        var middle = (extrusion.Points.First().X + extrusion.Points.Last().X) / 2;
+        var atEnd = extrusion.At(middle, extrusion.End).DistanceTo(near) <= extrusion.At(middle, extrusion.Start).DistanceTo(near);
+        var thickness = document.FindType<SlabType>(roof.TypeId)?.Thickness ?? 0;
+        var bottom = roof.BaseElevation(document);
+
+        bool Buried(double across) => extrusion.Points.All(point =>
+        {
+            var at = extrusion.At(point.X, across);
+            return target.Contains(at) && bottom + point.Y + thickness < target.TopAt(document, at) - 1;
+        });
+
+        for (var reach = 0.0; reach <= 40000; reach += 100)
+        {
+            var across = atEnd ? extrusion.End + reach : extrusion.Start - reach;
+            if (!Buried(across)) continue;
+
+            var carried = atEnd ? extrusion.With(end: across + 100) : extrusion.With(start: across - 100);
+            var was = extrusion;
+            return new CompositeCommand("Join Roof", new IUndoableCommand[]
+            {
+                new Views.DelegateCommand("Join Roof", () => roof.SetExtrusion(carried), () => roof.SetExtrusion(was)),
+                new SetRoofJoinCommand(roof, target.Id)
+            });
+        }
+
+        problem = "That roof never runs into the other going on from that end: it stays above it. Pick the end facing the roof it should run into, or lower it.";
+        return null;
+    }
+
+    /// <summary>
     /// A roof's outline with one edge carried back, outward, until the roof along it is buried
     /// in another roof - and a little further, so the trim, not the edge, is what meets it. Null
     /// when it never is.

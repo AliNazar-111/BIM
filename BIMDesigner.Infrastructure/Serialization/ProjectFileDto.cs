@@ -666,6 +666,18 @@ internal sealed class ScheduleDto
     public List<CalculatedFieldDto> Calculated { get; set; } = new();
     public List<ConditionalFormatDto> Formats { get; set; } = new();
     public bool ShowFormatsOnSheets { get; set; }
+
+    /// <summary>A key schedule's key name and its keys; missing for a schedule of elements.</summary>
+    public string? KeyName { get; set; }
+    public List<ScheduleKeyDto>? Keys { get; set; }
+}
+
+/// <summary>One key of a key schedule: its name and the value it gives each field.</summary>
+internal sealed class ScheduleKeyDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public Dictionary<string, string> Values { get; set; } = new();
 }
 
 internal sealed class ScheduleFilterDto
@@ -943,6 +955,10 @@ internal sealed class SlabDto
     public string? RoofSolarOvershading { get; set; }
     public double RoofDrainageFall { get; set; } = 40;
 
+    /// <summary>For a flat roof, its shape edited: points raised as x, y, rise, and split lines as x1, y1, x2, y2; none where not.</summary>
+    public List<double[]>? RoofShapePoints { get; set; }
+    public List<double[]>? RoofSplitLines { get; set; }
+
     /// <summary>For a roof, the slope arrows drawn in its sketch.</summary>
     public List<RoofArrowDto> RoofArrows { get; set; } = new();
 
@@ -998,6 +1014,10 @@ internal sealed class RoofEdgeDto
 
     /// <summary>The wall the edge was picked from, which it follows; null for a drawn edge.</summary>
     public Guid? WallId { get; set; }
+
+    /// <summary>The gridline a locked edge follows, and how far to its left; missing where none.</summary>
+    public Guid? GridId { get; set; }
+    public double? GridOffset { get; set; }
 
     public bool OnLeftOfWall { get; set; }
     public double Overhang { get; set; }
@@ -1321,6 +1341,9 @@ internal sealed class RenderDto
     public int Width { get; set; } = 1600;
     public int Height { get; set; } = 900;
     public double Exposure { get; set; }
+
+    /// <summary>Whether the model's lights are on: Auto, On or Off; missing for Auto.</summary>
+    public string? Lights { get; set; }
 }
 
 internal sealed class DaylightDto

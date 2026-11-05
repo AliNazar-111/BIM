@@ -29,6 +29,7 @@ internal sealed class RenderWindow : System.Windows.Window
     private readonly DatePicker _date = new() { Width = 120, SelectedDateFormat = DatePickerFormat.Short };
     private readonly TextBox _time = new() { Width = 64 };
     private readonly ComboBox _sky = new() { Width = 100, ItemsSource = new[] { "Clear sky", "Overcast" } };
+    private readonly ComboBox _lights = new() { Width = 110, ItemsSource = new[] { "Auto", "On", "Off" } };
     private readonly ComboBox _quality = new() { Width = 100, ItemsSource = Enum.GetValues<RenderQuality>().Select(quality => EnumText.Humanise(quality)).ToList() };
     private readonly ComboBox _size = new() { Width = 110, ItemsSource = Sizes.Select(size => $"{size.Width} x {size.Height}").ToList() };
     private readonly TextBox _exposure = new() { Width = 44 };
@@ -59,6 +60,7 @@ internal sealed class RenderWindow : System.Windows.Window
         Pair(when, "Date", _date, "The day the sun is worked out for");
         Pair(when, "Time", _time, "The time on the clocks there, 24-hour: 14:30");
         Pair(when, "Sky", _sky, "A clear sky with the sun and its shadows, or an overcast one without");
+        Pair(when, "Lights", _lights, "The lights in the model - each fitting at its lumens, ceiling lights shining down: on at dusk and after (Auto), always, or never");
         when.Children.Add(_sun);
 
         var where = Bar("Place:");
@@ -74,6 +76,7 @@ internal sealed class RenderWindow : System.Windows.Window
 
         _date.SelectedDateChanged += (_, _) => Change(settings => { if (_date.SelectedDate is { } date) settings.Date = DateOnly.FromDateTime(date); });
         _sky.SelectionChanged += (_, _) => Change(settings => settings.Sky = (RenderSky)Math.Max(0, _sky.SelectedIndex));
+        _lights.SelectionChanged += (_, _) => Change(settings => settings.Lights = (RenderLights)Math.Max(0, _lights.SelectedIndex));
         _quality.SelectionChanged += (_, _) => Change(settings => settings.Quality = (RenderQuality)Math.Max(0, _quality.SelectedIndex));
         _size.SelectionChanged += (_, _) => Change(settings => { if (_size.SelectedIndex >= 0) (settings.Width, settings.Height) = Sizes[_size.SelectedIndex]; });
         _summer.SelectionChanged += (_, _) => Change(settings => settings.Summer = (SummerTime)Math.Max(0, _summer.SelectedIndex));
@@ -151,6 +154,7 @@ internal sealed class RenderWindow : System.Windows.Window
         _date.SelectedDate = settings.Date.ToDateTime(TimeOnly.MinValue);
         _time.Text = settings.Time.ToString("HH:mm", CultureInfo.InvariantCulture);
         _sky.SelectedIndex = (int)settings.Sky;
+        _lights.SelectedIndex = (int)settings.Lights;
         _quality.SelectedIndex = (int)settings.Quality;
         var size = Array.IndexOf(Sizes, (settings.Width, settings.Height));
         _size.SelectedIndex = size;
@@ -224,7 +228,8 @@ internal sealed class RenderWindow : System.Windows.Window
         DialogLook.Say(_problem, $"Gathering {meshes.Count:#,0} pieces of the model...");
         try
         {
-            var scene = await Task.Run(() => RenderScene.Build(meshes, materials, ground), cancel.Token);
+            var glowing = light.Lamps.Select(lamp => lamp.ElementId).ToHashSet();
+            var scene = await Task.Run(() => RenderScene.Build(meshes, materials, ground, glowing), cancel.Token);
             var job = new RenderJob(scene, camera, light, settings.Width, settings.Height, settings.Exposure);
             _bitmap = new WriteableBitmap(job.Width, job.Height, 96, 96, PixelFormats.Bgra32, null);
             _image.Source = _bitmap;

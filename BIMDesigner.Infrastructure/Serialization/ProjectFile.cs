@@ -943,7 +943,9 @@ public static partial class ProjectFile
             {
                 Field = format.Field, Test = format.Test.ToString(), Value = format.Value, Value2 = format.Value2, Background = format.Background.ToString()
             }).ToList(),
-            ShowFormatsOnSheets = schedule.ShowFormatsOnSheets
+            ShowFormatsOnSheets = schedule.ShowFormatsOnSheets,
+            KeyName = schedule.IsKeySchedule ? schedule.KeyName : null,
+            Keys = schedule.IsKeySchedule ? schedule.Keys.Select(key => new ScheduleKeyDto { Id = key.Id, Name = key.Name, Values = new Dictionary<string, string>(key.Values) }).ToList() : null
         }).ToList();
 
         foreach (var sheet in document.All<Sheet>())
@@ -1092,6 +1094,8 @@ public static partial class ProjectFile
                         SlopeDegrees = edge.SlopeDegrees,
                         PlateOffset = edge.PlateOffset,
                         WallId = edge.WallId,
+                        GridId = edge.GridId,
+                        GridOffset = edge.GridId is null ? null : edge.GridOffset,
                         OnLeftOfWall = edge.OnLeftOfWall,
                         Overhang = edge.Overhang,
                         ExtendToCore = edge.ExtendToCore,
@@ -1124,6 +1128,8 @@ public static partial class ProjectFile
                 RoofSolarPeakPower = slab is Roof { SolarPeakPower: > 0 } solar ? solar.SolarPeakPower : null,
                 RoofSolarOvershading = slab is Roof { SolarPeakPower: > 0, SolarOvershading: not PvOvershading.NoneOrVeryLittle } shaded ? shaded.SolarOvershading.ToString() : null,
                 RoofDrainageFall = slab is Roof drained ? drained.DrainageFall : RoofDrainage.DesignFall,
+                RoofShapePoints = slab is Roof { ShapePoints.Count: > 0 } shaped ? shaped.ShapePoints.Select(point => new[] { point.At.X, point.At.Y, point.Rise }).ToList() : null,
+                RoofSplitLines = slab is Roof { SplitLines.Count: > 0 } split ? split.SplitLines.Select(line => new[] { line.From.X, line.From.Y, line.To.X, line.To.Y }).ToList() : null,
                 RoofExtrusion = slab is Roof { Extrusion: { } extrusion }
                     ? new RoofExtrusionDto
                     {
@@ -1706,7 +1712,8 @@ public static partial class ProjectFile
         Date = settings.Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
         Time = settings.Time.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
         Latitude = settings.Latitude, Longitude = settings.Longitude, UtcOffset = settings.UtcOffset, Summer = settings.Summer?.ToString(),
-        Sky = settings.Sky.ToString(), Quality = settings.Quality.ToString(), Width = settings.Width, Height = settings.Height, Exposure = settings.Exposure
+        Sky = settings.Sky.ToString(), Quality = settings.Quality.ToString(), Width = settings.Width, Height = settings.Height, Exposure = settings.Exposure,
+        Lights = settings.Lights == RenderLights.Auto ? null : settings.Lights.ToString()
     };
 
     private static void ReadRender(RenderDto saved, RenderSettings settings)
@@ -1719,6 +1726,7 @@ public static partial class ProjectFile
         settings.UtcOffset = saved.UtcOffset is { } offset && double.IsFinite(offset) ? Math.Clamp(offset, -12, 14) : null;
         settings.Summer = saved.Summer is null ? null : ParseEnum(saved.Summer, SummerTime.None);
         settings.Sky = ParseEnum(saved.Sky, RenderSky.Clear);
+        settings.Lights = ParseEnum(saved.Lights, RenderLights.Auto);
         settings.Quality = ParseEnum(saved.Quality, RenderQuality.Medium);
         settings.Width = Math.Clamp(saved.Width, 64, 8192);
         settings.Height = Math.Clamp(saved.Height, 64, 8192);
@@ -2522,6 +2530,10 @@ public static partial class ProjectFile
                 pitched.SolarPeakPower = slab.RoofSolarPeakPower is > 0 and <= 1000 ? slab.RoofSolarPeakPower.Value : 0;
                 pitched.SolarOvershading = ParseEnum(slab.RoofSolarOvershading, PvOvershading.NoneOrVeryLittle);
                 pitched.DrainageFall = double.IsFinite(slab.RoofDrainageFall) && slab.RoofDrainageFall >= 10 ? slab.RoofDrainageFall : RoofDrainage.DesignFall;
+                foreach (var point in slab.RoofShapePoints ?? new List<double[]>())
+                    if (point is { Length: 3 } && point.All(double.IsFinite)) pitched.ShapePoints.Add(new RoofShapePoint(new Point2D(point[0], point[1]), point[2]));
+                foreach (var line in slab.RoofSplitLines ?? new List<double[]>())
+                    if (line is { Length: 4 } && line.All(double.IsFinite)) pitched.SplitLines.Add(new RoofSplitLine(new Point2D(line[0], line[1]), new Point2D(line[2], line[3])));
                 if (slab.RoofExtrusion is { } extruded)
                 {
                     var profile = new List<Point2D>();
@@ -2550,6 +2562,8 @@ public static partial class ProjectFile
                         SlopeDegrees = edge.SlopeDegrees,
                         PlateOffset = edge.PlateOffset,
                         WallId = edge.WallId,
+                        GridId = edge.GridId,
+                        GridOffset = edge.GridOffset ?? 0,
                         OnLeftOfWall = edge.OnLeftOfWall,
                         Overhang = edge.Overhang,
                         ExtendToCore = edge.ExtendToCore,
@@ -3591,8 +3605,17 @@ public static partial class ProjectFile
                 {
                     Id = saved.Id == Guid.Empty ? Guid.NewGuid() : saved.Id,
                     SortBy = saved.SortBy, SortDescending = saved.SortDescending, GroupBy = saved.GroupBy, ShowTotals = saved.ShowTotals,
-                    Itemize = saved.Itemize, ShowFormatsOnSheets = saved.ShowFormatsOnSheets, IncludeLinks = saved.IncludeLinks == true
+                    Itemize = saved.Itemize, ShowFormatsOnSheets = saved.ShowFormatsOnSheets, IncludeLinks = saved.IncludeLinks == true,
+                    KeyName = string.IsNullOrWhiteSpace(saved.KeyName) ? null : saved.KeyName
                 };
+                foreach (var key in saved.Keys ?? new List<ScheduleKeyDto>())
+                {
+                    if (string.IsNullOrWhiteSpace(key.Name) || schedule.Keys.Any(other => other.Name == key.Name)) continue;
+                    var kept = new ScheduleKey(schedule, key.Name) { Id = key.Id == Guid.Empty ? Guid.NewGuid() : key.Id };
+                    foreach (var (field, value) in key.Values ?? new Dictionary<string, string>()) kept.Values[field] = value ?? string.Empty;
+                    schedule.Keys.Add(kept);
+                }
+
                 schedule.Filters.AddRange((saved.Filters ?? new List<ScheduleFilterDto>()).Select(filter =>
                     new ScheduleFilter(filter.Field ?? string.Empty, ParseEnum(filter.Comparison, ScheduleOperator.Equals), filter.Value ?? string.Empty)));
                 foreach (var field in saved.NotTotalled ?? new List<string>()) schedule.NotTotalled.Add(field);

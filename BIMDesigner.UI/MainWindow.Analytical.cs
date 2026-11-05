@@ -37,6 +37,44 @@ public partial class MainWindow
 
     private void OnAnalyticalLoads(object sender, RoutedEventArgs e) => Open(ref _analyticalWindow, () => new AnalyticalModelWindow(this), this).Refresh();
 
+    private AnalysisWindow? _analysisWindow;
+
+    /// <summary>The structure analysed here, and its results shown - the analytical model turned on to see its deflected shape over.</summary>
+    internal void OnAnalyse(object sender, RoutedEventArgs e)
+    {
+        var model = AnalyticalModel.Of(_document);
+        if (model.Members.Count == 0 && model.Panels.Count == 0)
+        {
+            MessageBox.Show(this, "There is nothing to analyse yet: draw structural columns and beams, or set walls' Structural Usage to Bearing.", "Analyse",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            var started = DateTime.Now;
+            var analysis = StructuralAnalysis.Run(_document, model, StructuralLoading.Of(_document, model));
+            if (AnalyticalToggle.IsChecked != true)
+            {
+                AnalyticalToggle.IsChecked = true;
+                ShowAnalytical();
+            }
+
+            if (_analysisWindow is { IsLoaded: true } open) open.Show(analysis);
+            else Open(ref _analysisWindow, () => new AnalysisWindow(this, analysis), this);
+            StatusHint.Text = $"Analysed in {(DateTime.Now - started).TotalSeconds:0.0} s: {analysis.Solver.NodeCount} nodes, {analysis.Solver.Beams.Count} beams, {analysis.Solver.Shells.Count} triangles" +
+                              (analysis.Problems.Count > 0 ? $" - {analysis.Problems[0]}" : ".");
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+    }
+
+    /// <summary>The analysed structure's deflected shape in 3D, or none.</summary>
+    internal void ShowDeflected((StructuralAnalysis Analysis, object Loading, double Scale)? deflected) => Model3D.Deflected = deflected;
+
     /// <summary>The name an exported file is offered under: the project's, made safe for a file.</summary>
     private string ExportName(string suffix, string extension)
     {

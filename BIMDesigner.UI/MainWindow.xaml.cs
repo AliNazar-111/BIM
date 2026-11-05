@@ -737,7 +737,7 @@ public partial class MainWindow : Window
             or PlanTool.Offset or PlanTool.Mirror or PlanTool.Array or PlanTool.Rotate or PlanTool.Scale or PlanTool.SplitGap
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
-            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
+            or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.RoofShape or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
             or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.AreaBoundary or PlanTool.Area or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
@@ -773,6 +773,7 @@ public partial class MainWindow : Window
         MassOptions.Visibility = tool == PlanTool.Mass ? Visibility.Visible : Visibility.Collapsed;
         if (tool == PlanTool.Mass) ShowMassOptions();
         DetailOptions.Visibility = tool is PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail ? Visibility.Visible : Visibility.Collapsed;
+        RoofShapeOptions.Visibility = tool == PlanTool.RoofShape ? Visibility.Visible : Visibility.Collapsed;
         if (tool is PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail) ShowDetailOptions(tool);
         AreaOptions.Visibility = (tool == PlanTool.Area && Plan.ActiveAreaScheme == AreaScheme.Rentable) || tool == PlanTool.AreaBoundary ? Visibility.Visible : Visibility.Collapsed;
         if (tool is PlanTool.Area or PlanTool.AreaBoundary) ShowAreaOptions(tool);
@@ -1081,6 +1082,8 @@ public partial class MainWindow : Window
             RoofSketchMirror.IsChecked = Plan.SketchTool == RoofSketchTool.Mirror;
             RoofSketchAlign.IsChecked = Plan.SketchTool == RoofSketchTool.Align;
             RoofSketchFillet.IsChecked = Plan.SketchTool == RoofSketchTool.Fillet;
+            RoofSketchTangentArc.IsChecked = Plan.SketchTool == RoofSketchTool.TangentArc;
+            RoofSketchCentreArc.IsChecked = Plan.SketchTool == RoofSketchTool.CentreArc;
 
             if (SketchToolButton().IsChecked != true)
             {
@@ -1156,11 +1159,19 @@ public partial class MainWindow : Window
         {
             RoofSketchTool.Move => Plan.SketchMoveCopy,
             RoofSketchTool.Mirror => Plan.SketchMirrorCopy,
+            RoofSketchTool.PickLines => Plan.SketchLock,
             _ => Plan.SketchOffsetCopy
         };
+
+        // With Pick Lines on a roof, the box locks a picked line to the wall or gridline it was picked from.
+        RoofOffsetCopyBox.Content = Plan.SketchTool == RoofSketchTool.PickLines ? "Lock" : "Copy";
+        RoofOffsetCopyBox.ToolTip = Plan.SketchTool == RoofSketchTool.PickLines
+            ? "Keep the line on the wall face or gridline it is picked from, wherever that is moved"
+            : null;
         RoofOffsetLabel.Visibility = RoofOffsetBox.Visibility =
             Plan.SketchTool is RoofSketchTool.PickLines or RoofSketchTool.Offset or RoofSketchTool.Fillet ? Visibility.Visible : Visibility.Collapsed;
-        RoofOffsetCopyBox.Visibility = Plan.SketchTool is RoofSketchTool.Offset or RoofSketchTool.Move or RoofSketchTool.Mirror ? Visibility.Visible : Visibility.Collapsed;
+        RoofOffsetCopyBox.Visibility = Plan.SketchTool is RoofSketchTool.Offset or RoofSketchTool.Move or RoofSketchTool.Mirror
+                                       || Plan.SketchTool == RoofSketchTool.PickLines && roofSketch ? Visibility.Visible : Visibility.Collapsed;
 
         // How Align Eaves brings an eave to height.
         RoofAlignPicker.ItemsSource ??= new[] { "Adjust Height", "Adjust Overhang" };
@@ -2046,6 +2057,7 @@ public partial class MainWindow : Window
         {
             case RoofSketchTool.Move: Plan.SketchMoveCopy = copy; break;
             case RoofSketchTool.Mirror: Plan.SketchMirrorCopy = copy; break;
+            case RoofSketchTool.PickLines: Plan.SketchLock = copy; break;
             default: Plan.SketchOffsetCopy = copy; break;
         }
 
@@ -3966,7 +3978,7 @@ public partial class MainWindow : Window
         _loadingOptions = false;
 
         InstanceParameterList.ItemsSource = BuildGroupedRows(
-            elements.Select(e => (IReadOnlyList<ParameterValue>)e.GetInstanceParameters(_document).ToList()).ToList());
+            elements.Select(e => (IReadOnlyList<ParameterValue>)KeyLocked(e, e.GetInstanceParameters(_document)).ToList()).ToList());
 
         // Type parameters when the selection shares one type; several types have no one set of them.
         var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.AllTypeParameters(_document).ToList() });
@@ -7102,6 +7114,7 @@ public partial class MainWindow : Window
     private void RefreshSchedule()
     {
         if (SchedulePanel.Visibility != Visibility.Visible) return;
+        ShowKeyButtons(SchedulePicker.SelectedItem as ScheduleDefinition);
         if (SchedulePicker.SelectedItem is not ScheduleDefinition definition) return;
 
         var result = Core.Schedules.Schedule.Run(_document, definition);
@@ -7253,6 +7266,12 @@ public partial class MainWindow : Window
         var taken = _document.Schedules.Select(other => other.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var name = Enumerable.Range(2, 998).Select(i => $"{schedule.Name} {i}").First(candidate => !taken.Contains(candidate));
         var copy = schedule.Copy(name);
+        if (copy.IsKeySchedule)
+        {
+            var keys = _document.Schedules.Select(other => other.KeyName).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+            copy.KeyName = Enumerable.Range(2, 998).Select(i => $"{schedule.KeyName} {i}").First(candidate => !keys.Contains(candidate));
+        }
+
         _history.Execute(ScheduleCommands.Add(_document, copy, $"Duplicate {schedule.Name}"));
         SchedulesChanged(copy);
         StatusHint.Text = $"{name}: a copy of {schedule.Name}, to change apart from it.";
@@ -7348,6 +7367,9 @@ public partial class MainWindow : Window
         if (_syncingScheduleSelection) return;
         if (ScheduleGrid.SelectedItem is not ScheduleRowView row) return;
         if (ReferenceEquals(Plan.SelectedElement, row.Element)) return;
+
+        // A key is not in the building: its row is typed into here.
+        if (row.Element is ScheduleKey) return;
 
         // A linked model's element is not this project's to pick: its link is.
         if (row.Link is { } link)

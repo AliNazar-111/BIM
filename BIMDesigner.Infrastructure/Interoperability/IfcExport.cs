@@ -2067,6 +2067,7 @@ public static partial class IfcExport
                 GroundBeam or Pile => Piles.Meshes(_document, footing),
                 _ => Footings.Meshes(_document, footing)
             };
+            meshes = meshes.Where(mesh => mesh.Description != Piles.VoidFormer).ToList();
             var body = footing is Pile ? meshes.ToList() : meshes.Where(mesh => mesh.Kind != MeshKind.Wall).ToList();
             var stems = footing is Pile ? new List<Mesh3D>() : meshes.Where(mesh => mesh.Kind == MeshKind.Wall).ToList();
             if (body.Count == 0) return;
@@ -2119,6 +2120,7 @@ public static partial class IfcExport
                 })
             };
             Contain(footing, product);
+            ExportBars(footing, product, storeyElevation, OnStorey);
             WriteSet(product, footing switch { RaftFoundation => "Pset_SlabCommon", Pile => "Pset_PileCommon", _ => "Pset_FootingCommon" }, new Dictionary<string, IfcValue?>
             {
                 ["Reference"] = type is null ? null : new IfcIdentifier(type.Name),
@@ -2135,6 +2137,7 @@ public static partial class IfcExport
                 },
                 ["Reinforcement"] = Reinforcement.Said(footing) is { Length: > 0 } bars ? new IfcText(bars) : null,
                 ["Capacity"] = footing is Pile carried ? new IfcText(Piles.CapacitySaid(_document, carried)) : null,
+                ["HeaveVoid"] = footing is GroundBeam { Void: > 0 } voided ? new IfcLengthMeasure(voided.Void) : null,
                 ["Regulations"] = new IfcText(StructureRules.Verdict(_document, footing))
             });
 
@@ -2160,6 +2163,59 @@ public static partial class IfcExport
                     w.Representation = TessellatedBody(stems, storeyElevation);
                 });
             Contain(footing, stem);
+        }
+
+        /// <summary>
+        /// A member's bars as IfcReinforcingBar, each a circle of its diameter swept along its
+        /// centreline - a link round its four corners and closed - as parts of the member they lie in.
+        /// </summary>
+        private void ExportBars(Element member, IfcProduct host, double storeyElevation, Func<IfcObjectPlacement> placement)
+        {
+            var bars = Reinforcement.Bars(_document, member);
+            if (bars.Count == 0) return;
+            var grade = _document.ProjectInformation.ClearanceStandard.IsUs() ? "ASTM A615 Grade 60" : "B500B";
+            var parts = new List<IfcObjectDefinition>();
+            for (var index = 0; index < bars.Count; index++)
+            {
+                var (bar, number) = (bars[index], index);
+                var points = bar.Link ? bar.Points.Append(bar.Points[0]).ToList() : bar.Points.ToList();
+                var length = points.Zip(points.Skip(1), (a, b) => Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y) + (b.Z - a.Z) * (b.Z - a.Z))).Sum();
+                var line = New<IfcPolyline>(polyline =>
+                {
+                    foreach (var point in points) polyline.Points.Add(Point3D(point.X, point.Y, point.Z - storeyElevation));
+                });
+                var representation = New<IfcShapeRepresentation>(r =>
+                {
+                    r.ContextOfItems = _context;
+                    r.RepresentationIdentifier = "Body";
+                    r.RepresentationType = "AdvancedSweptSolid";
+                    r.Items.Add(New<IfcSweptDiskSolid>(disk =>
+                    {
+                        disk.Directrix = line;
+                        disk.Radius = bar.Diameter / 2;
+                    }));
+                });
+                parts.Add(New<Xbim.Ifc4.StructuralElementsDomain.IfcReinforcingBar>(rebar =>
+                {
+                    rebar.GlobalId = IfcGloballyUniqueId.ConvertToBase64(Derived(member.Id, "bar", number));
+                    rebar.Name = bar.Size;
+                    rebar.Tag = member.Mark;
+                    rebar.ObjectPlacement = placement();
+                    rebar.Representation = New<IfcProductDefinitionShape>(shape => shape.Representations.Add(representation));
+                    rebar.SteelGrade = grade;
+                    rebar.NominalDiameter = bar.Diameter;
+                    rebar.CrossSectionArea = Math.PI * bar.Diameter * bar.Diameter / 4 / 1e6;
+                    rebar.BarLength = Math.Round(length);
+                    rebar.PredefinedType = bar.Link ? IfcReinforcingBarTypeEnum.LIGATURE : IfcReinforcingBarTypeEnum.MAIN;
+                    rebar.BarSurface = IfcReinforcingBarSurfaceEnum.TEXTURED;
+                }));
+            }
+
+            New<IfcRelAggregates>(relation =>
+            {
+                relation.RelatingObject = host;
+                relation.RelatedObjects.AddRange(parts);
+            });
         }
 
         private void ExportBeam(Beam beam)

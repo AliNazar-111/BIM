@@ -475,6 +475,12 @@ public sealed class Roof : Slab
     /// </summary>
     public Guid? JoinedTo { get; set; }
 
+    /// <summary>A flat roof's points raised or lowered by shape editing - its corners and points added inside it.</summary>
+    public List<RoofShapePoint> ShapePoints { get; } = new();
+
+    /// <summary>A flat roof's split lines: the ridges and valleys its shaped faces meet along.</summary>
+    public List<RoofSplitLine> SplitLines { get; } = new();
+
     /// <summary>
     /// The dormers this roof is opened for - Revit's Dormer Opening: under each dormer's roof,
     /// between the walls carrying it, this roof is cut away so the room runs on up into the
@@ -518,6 +524,14 @@ public sealed class Roof : Slab
 
         foreach (var arrow in _arrows)
             (arrow.Tail, arrow.Head) = (map(arrow.Tail), map(arrow.Head));
+
+        // Its shape's points and split lines go with it.
+        var points = ShapePoints.Select(point => point with { At = map(point.At) }).ToList();
+        ShapePoints.Clear();
+        ShapePoints.AddRange(points);
+        var lines = SplitLines.Select(line => new RoofSplitLine(map(line.From), map(line.To))).ToList();
+        SplitLines.Clear();
+        SplitLines.AddRange(lines);
     }
 
     public override double GetVolume(BimDocument document) =>
@@ -610,7 +624,17 @@ public sealed class Roof : Slab
                 return true;
             });
 
-            if (RoofDrainage.Drains(document, this))
+            if (RoofShapeEditing.Shaped(this) && RoofDrainage.CanDrain(document, this))
+            {
+                var raised = ShapePoints.Count(point => Math.Abs(point.Rise) > 1e-6);
+                yield return ParameterValue.ReadOnly(RoofParameters.ShapeEdited, () =>
+                    $"{raised} point{(raised == 1 ? "" : "s")} raised, {SplitLines.Count} split line{(SplitLines.Count == 1 ? "" : "s")}");
+                yield return ParameterValue.ReadOnly(RoofParameters.ThickestTaper, () =>
+                    (document.FindType<SlabType>(TypeId) is { } type && RoofDrainage.TaperedLayer(type.Structure) is var layer and >= 0
+                        ? type.Structure.Layers[layer].Thickness
+                        : 0) + RoofShapeEditing.Vertices(this).Max(point => point.Rise));
+            }
+            else if (RoofDrainage.Drains(document, this))
             {
                 yield return ParameterValue.ReadOnly(RoofParameters.ValleyFall, () => $"1 in {RoofDrainage.ValleyFall(this):0}");
                 yield return ParameterValue.ReadOnly(RoofParameters.FallCheck, () => RoofDrainage.FallCheck(document, this));
@@ -849,6 +873,9 @@ public static class RoofParameters
 
     public static readonly ParameterDefinition Drains =
         new("Roof Drains", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition ShapeEdited =
+        new("Shape Edited", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition ThickestTaper =
         new("Thickest Tapered Insulation", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);

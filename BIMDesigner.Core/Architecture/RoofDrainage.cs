@@ -79,7 +79,7 @@ public sealed class RoofDrain : Element, IHostedElement
 /// One face of a flat roof's falls: where it is in plan, the drain it runs to, the way down it,
 /// and how far its top rises above the drain's - a plane, rise = A x + B y + C.
 /// </summary>
-public sealed record DrainageRegion(IReadOnlyList<Point2D> Outline, RoofDrain Drain, Vector2D Downhill, double A, double B, double C)
+public sealed record DrainageRegion(IReadOnlyList<Point2D> Outline, RoofDrain? Drain, Vector2D Downhill, double A, double B, double C)
 {
     public double Rise(Point2D point) => A * point.X + B * point.Y + C;
 }
@@ -123,6 +123,10 @@ public static class RoofDrainage
     public static bool Drains(BimDocument document, Roof roof) =>
         CanDrain(document, roof) && On(document, roof).Any();
 
+    /// <summary>Whether a flat roof has falls: to its drains, or shaped by hand - its points raised.</summary>
+    public static bool Falls(BimDocument document, Roof roof) =>
+        CanDrain(document, roof) && (RoofShapeEditing.Shaped(roof) || On(document, roof).Any());
+
     /// <summary>Whether a roof can take drains: one drawn by footprint, and flat.</summary>
     public static bool CanDrain(BimDocument document, Roof roof) =>
         !roof.IsExtrusion && roof.Boundary.Count >= 3 && roof.Surface(document).IsFlat;
@@ -156,6 +160,7 @@ public static class RoofDrainage
     /// </summary>
     public static double Rise(BimDocument document, Roof roof, Point2D at)
     {
+        if (CanDrain(document, roof) && RoofShapeEditing.Shaped(roof)) return RoofShapeEditing.RiseAt(roof, at);
         if (!Drains(document, roof)) return 0;
 
         var ways = Ways(roof);
@@ -166,6 +171,9 @@ public static class RoofDrainage
     /// <summary>The faces of a flat roof's falls, each falling to one drain in one direction.</summary>
     public static IReadOnlyList<DrainageRegion> Regions(BimDocument document, Roof roof)
     {
+        // Shaped by hand, its faces are its own: no drain sets them.
+        if (CanDrain(document, roof) && RoofShapeEditing.Shaped(roof))
+            return RoofShapeEditing.Faces(roof).Select(face => new DrainageRegion(face.Outline, null, face.Downhill, face.A, face.B, face.C)).ToList();
         if (!Drains(document, roof)) return Array.Empty<DrainageRegion>();
 
         var drains = On(document, roof).ToList();
@@ -283,7 +291,7 @@ public static class RoofDrainage
     /// </summary>
     public static IReadOnlyList<RoofPiece> Taper(BimDocument document, Roof roof, IReadOnlyList<RoofPiece> pieces)
     {
-        if (!Drains(document, roof) || document.FindType<SlabType>(roof.TypeId) is not { } type) return pieces;
+        if (!Falls(document, roof) || document.FindType<SlabType>(roof.TypeId) is not { } type) return pieces;
 
         var tapered = TaperedLayer(type.Structure);
         if (tapered < 0) return pieces;

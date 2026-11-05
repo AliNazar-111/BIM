@@ -25,6 +25,9 @@ internal sealed class SceneMaterial
 
     /// <summary>Ground cover - grass, gravel, planting - lighter and darker across the ground, so its pattern's repeat is lost.</summary>
     public bool Varies;
+
+    /// <summary>The light it gives off itself: a lit lamp's shade.</summary>
+    public Vector3 Emission;
 }
 
 /// <summary>
@@ -66,7 +69,7 @@ public sealed class RenderScene
     /// with the ground under it when <paramref name="ground"/> - ten kilometres of grass a little
     /// below the project's zero, or below the lowest of its own ground.
     /// </summary>
-    public static RenderScene Build(IReadOnlyList<Mesh3D> meshes, IReadOnlyDictionary<string, Material> materials, bool ground)
+    public static RenderScene Build(IReadOnlyList<Mesh3D> meshes, IReadOnlyDictionary<string, Material> materials, bool ground, IReadOnlySet<Guid>? glowing = null)
     {
         var scene = new RenderScene();
         var (min, max) = (new Point3D(double.MaxValue, double.MaxValue, double.MaxValue), new Point3D(double.MinValue, double.MinValue, double.MinValue));
@@ -86,11 +89,11 @@ public sealed class RenderScene
         var smoothOf = new List<int>();
         var smooth = new List<Vector3>();
         var sceneMaterials = new List<SceneMaterial>();
-        var byLook = new Dictionary<(SurfaceFinish, bool, float), int>();
+        var byLook = new Dictionary<(SurfaceFinish, bool, float, bool), int>();
 
-        int MaterialFor(SurfaceFinish finish, bool glass, float opacity)
+        int MaterialFor(SurfaceFinish finish, bool glass, float opacity, bool glows = false)
         {
-            var key = (finish, glass, opacity);
+            var key = (finish, glass, opacity, glows);
             if (byLook.TryGetValue(key, out var index)) return index;
             var albedo = Linear(finish.Colour);
             sceneMaterials.Add(new SceneMaterial
@@ -101,7 +104,8 @@ public sealed class RenderScene
                 Glass = glass,
                 Opacity = glass ? 1 : opacity,
                 Relief = Relief(finish.Pattern),
-                Varies = finish.Pattern is SurfacePattern.Grass or SurfacePattern.Gravel or SurfacePattern.Planting
+                Varies = finish.Pattern is SurfacePattern.Grass or SurfacePattern.Gravel or SurfacePattern.Planting,
+                Emission = glows ? new Vector3(0.25f, 0.2f, 0.15f) : Vector3.Zero
             });
             return byLook[key] = sceneMaterials.Count - 1;
         }
@@ -131,7 +135,7 @@ public sealed class RenderScene
         foreach (var mesh in meshes)
         {
             var glass = mesh.Kind == MeshKind.Glazing && mesh.Opacity < 0.99;
-            var material = MaterialFor(SurfacePatterns.Of(mesh, materials), glass, (float)mesh.Opacity);
+            var material = MaterialFor(SurfacePatterns.Of(mesh, materials), glass, (float)mesh.Opacity, glowing?.Contains(mesh.ElementId) == true);
             var positions = mesh.Positions;
             var meshNormals = mesh.Normals is { } list && list.Count == positions.Count ? list : null;
             if (mesh.Kind == MeshKind.Terrain && positions.Count > 0) lowestGround = Math.Min(lowestGround ?? double.MaxValue, positions.Min(point => point.Z));
@@ -409,18 +413,20 @@ public sealed class RenderScene
     /// How much light gets along a ray to the sun: all of it with nothing in the way, a share through
     /// glass and anything faded, none through anything solid.
     /// </summary>
-    internal float Transmission(Vector3 origin, Vector3 direction)
+    internal float Transmission(Vector3 origin, Vector3 direction, float distance = float.MaxValue)
     {
         var through = 1f;
         for (var step = 0; step < 8; step++)
         {
-            if (!Intersect(origin, direction, float.MaxValue, out var hit)) return through;
+            if (!Intersect(origin, direction, distance, out var hit)) return through;
             var material = Materials[MaterialOf[hit.Triangle]];
             if (material.Glass) through *= 0.85f;
             else if (material.Opacity < 1) through *= 1 - material.Opacity;
             else return 0;
             if (through < 0.01f) return 0;
             origin += direction * (hit.T + 1e-4f);
+            distance -= hit.T + 1e-4f;
+            if (distance <= 0) return through;
         }
 
         return through;

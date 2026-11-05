@@ -1372,7 +1372,7 @@ public sealed partial class PlanRenderer
     /// </summary>
     private void DrawFalls(DrawingContext dc, Roof roof)
     {
-        if (Document is null || !RoofDrainage.Drains(Document, roof)) return;
+        if (Document is null || !RoofDrainage.Falls(Document, roof)) return;
 
         var boundary = roof.Boundary;
         bool OnBoundary(Point2D a, Point2D b)
@@ -1394,7 +1394,7 @@ public sealed partial class PlanRenderer
             // Down the face, from its middle toward the drain.
             var middle = Polygon2D.Centroid(outline, outline[0]);
             var length = Math.Min(600, Math.Sqrt(Polygon2D.Area(outline)) / 3);
-            if (length < 100) continue;
+            if (length < 100 || region.Downhill.Length < 0.5) continue;
             var tip = middle + region.Downhill * (length / 2);
             dc.DrawLine(_roofLinePen, ModelToScreen(middle - region.Downhill * (length / 2)), ModelToScreen(tip));
             DrawArrow(dc, _roofLinePen, tip, region.Downhill, length / 4);

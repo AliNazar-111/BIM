@@ -58,8 +58,9 @@ public static class RoomHeadroom
             .Where(slab => slab.Boundary.Count >= 3 && Overlaps(bounds, Bounds(slab.Boundary)))
             .Where(slab => slab switch
             {
-                // A flat roof the room stands on - one doing a floor's job - is under it, not over it.
-                Roof roof => !roof.IsExtrusion && (roof.Surface(document).IsFlat
+                // A flat roof the room stands on - one doing a floor's job - is under it, not over it. A roof by
+                // extrusion - a gable, a barrel vault - bounds the room under it as one drawn by footprint does.
+                Roof roof => (!roof.IsExtrusion && roof.Surface(document).IsFlat
                     ? roof.GetBottomElevation(document) > floor + 1
                     : roof.RidgeElevation(document) > floor + 1),
                 _ => slab.GetBottomElevation(document) > floor + 1

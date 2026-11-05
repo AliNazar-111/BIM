@@ -5,12 +5,43 @@ using BIMDesigner.Core.Views;
 namespace BIMDesigner.Core.Rendering;
 
 /// <summary>
+/// A light in the model a rendering is lit by: where it gives its light from, mm, whether it gives it
+/// downward - a ceiling light, as Lambert has it - or all round, and how much, lumens.
+/// </summary>
+public sealed record RenderLamp(Guid ElementId, Geometry.Point3D At, bool Downward, float Lumens);
+
+/// <summary>
 /// The light a rendering is lit by: the sun's way, colour and strength - reddened and weakened by
-/// the air it comes through low in the sky - and the sky's, clear or overcast, dimming through
-/// twilight.
+/// the air it comes through low in the sky - the sky's, clear or overcast, dimming through twilight
+/// into the night, and the model's own lights once it is dusk.
 /// </summary>
 public sealed record RenderLight(Vector3 SunDirection, Vector3 SunColour, float SunStrength, RenderSky Sky, float SkyStrength)
 {
+    /// <summary>The model's lights, where they are on; none by day unless asked for.</summary>
+    public IReadOnlyList<RenderLamp> Lamps { get; init; } = Array.Empty<RenderLamp>();
+
+    /// <summary>How much brighter the picture is made than the light is: the eye at home in the dark.</summary>
+    public float Adaptation { get; init; } = 1;
+
+    /// <summary>
+    /// The model's lights: each fitting that gives light - its photometry's lumens, its maker's, or its watts
+    /// at its efficacy - a ceiling light giving it downward from just under it, a wall light all round from
+    /// just under its middle.
+    /// </summary>
+    public static IReadOnlyList<RenderLamp> LampsOf(BimDocument document) =>
+        document.All<Architecture.Component>()
+            .Select(light => (Light: light, Type: document.FindType<Architecture.ComponentType>(light.TypeId)))
+            .Where(entry => entry.Type is { Kind: Elements.BuiltInCategory.LightingFixtures } && Mep.Lighting.LumensOf(entry.Type) > 0)
+            .Select(entry =>
+            {
+                var (light, type) = (entry.Light, entry.Type!);
+                var bottom = Architecture.ComponentHosting.BaseElevation(document, light, type);
+                var wall = type.Form == Architecture.ComponentForm.WallLight;
+                var height = wall ? bottom + type.Height / 2 - 40 : bottom - 40;
+                return new RenderLamp(light.Id, Geometry.Point3D.On(light.Location, height), !wall, (float)Mep.Lighting.LumensOf(type));
+            })
+            .ToList();
+
     /// <summary>The light at the date, time and place set, the plan turned from true north as the project has it.</summary>
     public static RenderLight For(BimDocument document, RenderSettings settings)
     {
@@ -18,15 +49,22 @@ public sealed record RenderLight(Vector3 SunDirection, Vector3 SunColour, float 
         var (x, y, z) = SunPosition.Direction(altitude, azimuth, document.ProjectInformation.TrueNorth);
         var direction = Vector3.Normalize(new Vector3((float)x, (float)y, (float)z));
 
-        // Twilight: the sky dims from 10° above the horizon to 6° below it.
-        var sky = (float)Math.Clamp((altitude + 6) / 16, 0.04, 1);
-        if (settings.Sky == RenderSky.Overcast || altitude <= 0) return new RenderLight(direction, Vector3.Zero, 0, settings.Sky, sky);
+        // Twilight: the sky dims from 10° above the horizon to it, then a tenth for every 2.4° the sun is
+        // below it - a thousandth of the day's at 6° down, the end of civil twilight - to a starlit night's.
+        var sky = altitude >= 0 ? (float)Math.Min(1, (altitude + 6) / 16) : (float)Math.Max(1e-5, 0.375 * Math.Pow(10, altitude / 2.4));
+
+        // The lights on at dusk and after, or as asked; the eye at home in the dark as it falls, keeping the
+        // sky as bright as at sunset, up to ten stops - as a night interior is photographed.
+        var on = settings.Lights == RenderLights.On || settings.Lights == RenderLights.Auto && altitude < 3;
+        var lamps = on ? LampsOf(document) : Array.Empty<RenderLamp>();
+        var adaptation = altitude < 0 ? (float)Math.Clamp(0.375 / sky, 1, 1024) : 1f;
+        if (settings.Sky == RenderSky.Overcast || altitude <= 0) return new RenderLight(direction, Vector3.Zero, 0, settings.Sky, sky) { Lamps = lamps, Adaptation = adaptation };
 
         // Kasten and Young's air mass; each colour lost to it at its own rate, blue the most.
         var mass = 1 / (Math.Sin(altitude * Math.PI / 180) + 0.50572 * Math.Pow(altitude + 6.07995, -1.6364));
         var colour = new Vector3((float)Math.Exp(-0.04 * (mass - 1)), (float)Math.Exp(-0.09 * (mass - 1)), (float)Math.Exp(-0.20 * (mass - 1)));
         var strength = (float)(3.2 * Math.Clamp(altitude / 2, 0, 1));
-        return new RenderLight(direction, colour, strength, settings.Sky, sky);
+        return new RenderLight(direction, colour, strength, settings.Sky, sky) { Lamps = lamps, Adaptation = adaptation };
     }
 }
 
@@ -44,6 +82,15 @@ public sealed class RenderJob
     private readonly bool _perspective;
     private readonly float _halfWidth;
     private readonly float _exposure;
+
+    /// <summary>The lamps, in the scene's metres: where each is, whether it shines down, and its strength - its candelas, in the sun's units.</summary>
+    private readonly (Vector3 At, bool Downward, float Strength)[] _lamps;
+
+    /// <summary>A warm white, about 3000 K, as bright as white.</summary>
+    private static readonly Vector3 LampColour = new(1.27f, 0.95f, 0.66f);
+
+    /// <summary>The sun's strength, 3.2, is about 100,000 lux: what a lux is in the sun's units.</summary>
+    private const float PerLux = 3.2f / 100000;
     private int _passes;
 
     public RenderJob(RenderScene scene, Camera3D camera, RenderLight light, int width, int height, double exposure)
@@ -55,7 +102,10 @@ public sealed class RenderJob
         (_look, _right, _up) = (Of(camera.Look), Of(camera.Right), Of(camera.Up));
         _perspective = camera.Perspective;
         _halfWidth = camera.Perspective ? (float)Math.Tan(camera.FieldOfView / 2 * Math.PI / 180) : (float)(camera.Width / 2 / 1000);
-        _exposure = (float)(0.6 * Math.Pow(2, exposure));
+        _exposure = (float)(0.6 * Math.Pow(2, exposure)) * light.Adaptation;
+
+        // A ceiling light's candelas straight down, its lumens over pi, Lambert's; one all round, its lumens over four pi.
+        _lamps = light.Lamps.Select(lamp => (scene.ToScene(lamp.At), lamp.Downward, lamp.Lumens / (lamp.Downward ? MathF.PI : 4 * MathF.PI) * PerLux)).ToArray();
     }
 
     public int Width { get; }
@@ -157,6 +207,9 @@ public sealed class RenderJob
 
             var material = _scene.Materials[_scene.MaterialOf[hit.Triangle]];
             var point = origin + direction * hit.T;
+
+            // A light seen: its shade glowing.
+            if (bounces == 0 && material.Emission != Vector3.Zero) light += throughput * material.Emission;
             var face = _scene.Normal[hit.Triangle];
             var normal = _scene.NormalAt(hit);
             var facing = Vector3.Dot(face, direction) < 0;
@@ -235,6 +288,28 @@ public sealed class RenderJob
                 {
                     var through = _scene.Transmission(point + geometric * Epsilon, _light.SunDirection);
                     if (through > 0) light += throughput * albedo * _light.SunColour * (_light.SunStrength * sun * through / MathF.PI);
+                }
+            }
+
+            // The lamps on it: two of them a bounce, chosen at random, each standing for its share.
+            if (_lamps.Length > 0)
+            {
+                var picks = Math.Min(2, _lamps.Length);
+                for (var k = 0; k < picks; k++)
+                {
+                    var (at, downward, strength) = _lamps[Math.Min(_lamps.Length - 1, (int)(random.Next() * _lamps.Length))];
+                    var to = at - point;
+                    var distance = to.Length();
+                    if (distance < 1e-3f) continue;
+                    var way = to / distance;
+                    var onFace = Vector3.Dot(shading, way);
+                    if (onFace <= 0 || Vector3.Dot(geometric, way) <= 0) continue;
+
+                    // A ceiling light shines on what is under it: the more straight under, the more.
+                    var intensity = downward ? strength * Math.Max(0, way.Z) : strength;
+                    if (intensity <= 0) continue;
+                    var through = _scene.Transmission(point + geometric * Epsilon, way, distance - 2 * Epsilon);
+                    if (through > 0) light += throughput * albedo * LampColour * (intensity * onFace * through / (distance * distance) / MathF.PI * _lamps.Length / picks);
                 }
             }
 

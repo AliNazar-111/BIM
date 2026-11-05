@@ -288,7 +288,7 @@ sketch's slope symbols only show while editing the sketch.
 | --- | --- | --- |
 | **Sketch mode** (enter, draw, Finish ✓ / Cancel ✗, validation) | ✅ | Roof tool opens a sketch with its own tab; Finish checks it (open ends, crossings, extra loops) and marks the lines at fault in red; Cancel leaves nothing; sketch undo; Esc stops a line; switching tools asks first |
 | **Pick Walls** (outer face / core, overhang, follows the wall) | ✅ | Side of the wall from the cursor; overhang; Extend to wall core; TAB picks the whole chain; corners close themselves; edges follow their walls after any change, undo included. Straight walls only for now |
-| **Draw boundary lines** (line, rectangle, polygon, circle, arcs, fillet, pick lines, offset, chain) | ✅ | Line (chained, Shift for level/plumb, snaps to sketch ends), Rectangle, Polygon, Circle, Arc (start, end, through a point), Fillet Arc to a radius, Pick Lines (floor, ceiling and roof edges, wall faces, grid lines) with Offset. Not yet: tangent arcs, Lock on picked lines |
+| **Draw boundary lines** (line, rectangle, polygon, circle, arcs, fillet, pick lines, offset, chain) | ✅ | Line (chained, Shift for level/plumb, snaps to sketch ends), Rectangle, Polygon, Circle, Arc (start, end, through a point), Fillet Arc to a radius, Pick Lines (floor, ceiling and roof edges, wall faces, grid lines) with Offset. Tangent Arc (from the end of a line, arc after arc) and Centre-Ends Arc (round 24); Lock with Pick Lines, a line picked off a wall's face or a gridline following it (round 24) |
 | Edit sketch lines (trim/extend, split, move, align, mirror) | 🟡 | Select, delete, Split (arcs split into arcs), Offset (move or copy; neighbours follow; arcs offset round their centre), Trim/Extend to Corner, corners dragged with the lines meeting there, Move, Mirror (copying, as Revit does to start with) and Align. All of it in floor and ceiling sketches too |
 | Inner loops = openings | ✅ | A rectangle, polygon, circle or any closed loop drawn inside the outline is a hole cut straight down through the roof - skylight, chimney, light well; its lines stop sloping, it reopens with Edit Footprint (circles as circles), and 3D, section, plan, sloping area and IFC all take it out. A loop outside the outline is refused |
 | **Edit Footprint** to reopen a roof | ✅ | Ribbon button or double-click; the roof is hidden while its sketch is open; Finish is one undoable step |
@@ -304,7 +304,7 @@ sketch's slope symbols only show while editing the sketch.
 | Maximum Ridge Height | ✅ | Shown as ridge height above base |
 | Slope (roof-wide) | ✅ | |
 | Thickness, Volume, Area | ✅ | Volume and area use the sloping surface |
-| Room Bounding | ⬜ | Roofs don't bound rooms' upper limits |
+| Room Bounding | ✅ | A room's volume, headroom and counted area are measured under the roof over it - a sloping one, and since round 24 one by extrusion too |
 | Type: Structure / Edit Assembly | ✅ | Shared with floors and walls |
 | Type: coarse fill, identity, analytical | 🟡 | Most slab type fields exist; roof-specific analytical fields not checked |
 | Conical roof from a sloping arc | ✅ | A sloping circle is a cone, a sloping arc part of one: built from pieces of at most 10°, drawn without a line down every join and shaded smooth in 3D. Not yet: Number of Full Segments |
@@ -333,7 +333,7 @@ sketch's slope symbols only show while editing the sketch.
 | Soffit types | ✅ | By ventilation - solid, vented, centre vented, hollow - and by material: uPVC, aluminium, timber, fibre cement, steel. **Board** and **Free Air Area (mm²/m)** type properties; changing the board brings its typical air with it, and a solid or hollow one takes none. Each soffit reports its free air area along its length. 3D shows the slots, the vented band or the plank joints; IFC carries the board and air in a Soffit property set. Added by name to older projects, reusing their materials of the same name |
 | Fascia, Gutter | ✅ | Picked edge by edge (consecutive picks one element, Esc to start another) or all round a selected roof in one click. Run at the roof's top outer edge, level along eaves and up and over verges; mitred at hips and ridges, butted where an eave meets a verge. A fascia is as deep as the roof's edge unless its type says otherwise; a gutter hangs off the fascia's face. Horizontal and vertical offsets; follows the roof by edge identity through sketch edits; 3D, plan, section, IFC, schedules. On a roof joined into another - a dormer's - they, and soffits, stop once they are inside the other roof, 25 mm clear of its underside, rather than running on through it into the room. Not yet: user-drawn profiles, angle |
 | Soffit | ✅ | Under the eaves that overhang their walls, from the roof's edge back to the wall face, level at the bottom of the fascia; mitred at hips, square at verges. Picked by eave or all round in one click; follows the roof. Not yet: sketched soffits, sloped soffits under verges |
-| Shape editing (flat roofs: points, split lines, supports) | ⬜ | |
+| Shape editing (flat roofs: points, split lines, supports) | ✅ | Round 24: a flat roof selected → Shape Editing - a corner, a point on an edge or inside raised or lowered to the rise on the options bar, Ctrl+click two places for a split line, Reset Shape; the top the flat triangles through the points, the insulation tapered to them, the deck flat. Supports (points held at the deck) not done |
 | Plan display of ridges, hips, valleys | ✅ | |
 | Section through pitched roof | ✅ | |
 | IFC `IfcRoof` | ✅ | |
@@ -369,7 +369,7 @@ and openings later.
 *Done when:* a roof can be drawn with lines in a sketch, finished, reopened, changed and
 finished again, and Cancel leaves nothing behind.
 
-### R2 — Pick Walls and the draw tools ✅ (fillet and tangent arcs, and dragging line ends, still to come)
+### R2 — Pick Walls and the draw tools ✅ (fillet, tangent and centre-ends arcs and dragging line ends done since)
 
 - **Pick Walls**: hover a wall to preview the line on its outer face (or inner face, from the
   cursor's side), click to add. **Tab** takes the whole chain of joined walls. Options bar:
@@ -476,10 +476,11 @@ What was built, and where it differs from Revit:
   the walls the roof covers; the profile and base change as one undo step. Moving, mirroring,
   copying, saving, section, 3D, attached walls and quantities all carry the extrusion; IFC
   exports it as `IfcRoof` with `GAMBREL_ROOF`, `BARREL_ROOF` and so on, one slab per face.
-- Not done: openings by the Vertical tool (with R8), joining an extruded roof to another roof
+- Joined to another roof (round 24): Join Roof, a click on the extruded roof by the end that faces the other, then the other - carried on until its profile is buried in it, trimmed where it meets it.
+- Not done: openings by the Vertical tool (with R8)
   (R8), arcs drawn by three points or a centre (only bent from a line).
 
-### R8 — Joins, openings, dormers 🟡 (Join/Unjoin Roof, Dormer Opening, openings drawn in the outline and a one-click Dormer tool done; By Face openings to come)
+### R8 — Joins, openings, dormers ✅ (Join/Unjoin Roof - footprint and extrusion roofs - Dormer Opening, openings drawn in the outline, By Face openings and a one-click Dormer tool)
 
 - **Join/Unjoin Roof**: extend a roof's edge to meet another roof's face or a wall.
 - **Openings**: Vertical and By Face, as sketches.
@@ -492,13 +493,13 @@ What was built, and where it differs from Revit:
 - Soffit as a sketched element (Pick Roof Edges + Pick Walls), with its own type and
   properties.
 
-### R10 — The rest ⬜
+### R10 — The rest 🟡
 
-- Shape editing of flat roofs (points, split lines, supports, reset) for drainage falls.
-- Conical roofs from slope-defining arcs, and faceting by segment count.
-- Sloped glazing (curtain roof).
-- Roof by face (needs masses).
-- Room bounding by roofs.
+- Shape editing of flat roofs (points, split lines, reset) for drainage falls ✅ (round 24; supports not done).
+- Conical roofs from slope-defining arcs ✅ (the Circle and Arc tools), and faceting by segment count.
+- Sloped glazing (curtain roof) ⬜.
+- Roof by face (needs masses) ✅ (round 2).
+- Room bounding by roofs ✅ (by extrusion too since round 24).
 
 ---
 

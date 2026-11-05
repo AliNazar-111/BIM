@@ -29,6 +29,21 @@ public partial class ModelView
         }
     }
 
+    private (StructuralAnalysis Analysis, object Loading, double Scale)? _deflected;
+
+    /// <summary>The analysed structure's deflected shape under a combination or a case, its movements made so many times bigger to be seen; or none.</summary>
+    public (StructuralAnalysis Analysis, object Loading, double Scale)? Deflected
+    {
+        get => _deflected;
+        set
+        {
+            _deflected = value;
+            Compose();
+        }
+    }
+
+    private static readonly Color DeflectedColour = Color.FromRgb(0xD6, 0x33, 0x6C);
+
     private static readonly Color MemberColour = Color.FromRgb(0xE8, 0x59, 0x0C);
     private static readonly Color SupportColour = Color.FromRgb(0x2B, 0x8A, 0x3E);
 
@@ -140,5 +155,31 @@ public partial class ModelView
             var colour = PanelColour(kind);
             AddEdgeModel(edges, Color.FromRgb((byte)(colour.R * 0.7), (byte)(colour.G * 0.7), (byte)(colour.B * 0.7)));
         }
+
+        // The deflected shape: every beam and every triangle's edge through its nodes as they move, made bigger.
+        if (_deflected is not var (analysis, loading, scale)) return;
+        var u = analysis.DisplacementsOf(loading);
+        CorePoint3D Moved(int node)
+        {
+            var at = analysis.Solver.NodeAt(node);
+            return new CorePoint3D(at.X + u[node * 6] * scale, at.Y + u[node * 6 + 1] * scale, at.Z + u[node * 6 + 2] * scale);
+        }
+
+        // Each plate's edges - those only one of its triangles has - bold; the mesh inside it faint.
+        var shape = new EdgeMesh();
+        var mesh = new EdgeMesh();
+        foreach (var beam in analysis.Solver.Beams) shape.Add(ToUnits(Moved(beam.I)), ToUnits(Moved(beam.J)), half * 2.4);
+        foreach (var panel in analysis.Model.Panels)
+        {
+            var sides = analysis.ShellsOf(panel).Select(s => analysis.Solver.Shells[s])
+                .SelectMany(s => new[] { (s.I, s.J), (s.J, s.K), (s.K, s.I) })
+                .Select(side => side.Item1 < side.Item2 ? side : (side.Item2, side.Item1))
+                .GroupBy(side => side).ToList();
+            foreach (var side in sides)
+                (side.Count() == 1 ? shape : mesh).Add(ToUnits(Moved(side.Key.Item1)), ToUnits(Moved(side.Key.Item2)), side.Count() == 1 ? half * 1.8 : half * 0.5);
+        }
+
+        AddEdgeModel(mesh, Color.FromRgb(0xC9, 0x8A, 0xA6));
+        AddEdgeModel(shape, DeflectedColour);
     }
 }

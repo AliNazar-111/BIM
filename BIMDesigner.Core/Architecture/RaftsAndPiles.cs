@@ -297,7 +297,13 @@ public static class Piles
         _ => 0
     };
 
-    /// <summary>The solids of a ground beam - with the masonry on it - or a pile.</summary>
+    /// <summary>
+    /// What fills the heave void under a ground beam as it is cast: a compressible former of its
+    /// depth, which the clay crushes as it swells rather than lifting the beam.
+    /// </summary>
+    public const string VoidFormer = "Void Former";
+
+    /// <summary>The solids of a ground beam - with its void former under it and the masonry on it - or a pile.</summary>
     public static IReadOnlyList<Mesh3D> Meshes(BimDocument document, Element element)
     {
         var concrete = document.Materials.FirstOrDefault(material => material.Name.Contains("Concrete", StringComparison.OrdinalIgnoreCase));
@@ -311,6 +317,13 @@ public static class Piles
                 var body = new Mesh3D(beam.Id, beam.LevelId, MeshKind.Floor, colour, concrete?.Name ?? "Ground Beam");
                 body.AddExtrusion(outline, bottom, top);
                 meshes.Add(body);
+                if (beam.Void > 0)
+                {
+                    var former = new Mesh3D(beam.Id, beam.LevelId, MeshKind.Floor, ColourRgb.FromHex("E4E0D4"), VoidFormer);
+                    former.AddExtrusion(outline, bottom - beam.Void, bottom);
+                    meshes.Add(former);
+                }
+
                 if (document.Find<Wall>(beam.WallId) is { } wall && document.GetWallType(wall) is { } wallType && wall.GetBaseElevation(document) > top + 1)
                 {
                     var across = wall.Direction.PerpendicularLeft() * (wallType.Structure.TotalWidth / 2);

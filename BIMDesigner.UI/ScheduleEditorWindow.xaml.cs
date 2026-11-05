@@ -58,6 +58,9 @@ public partial class ScheduleEditorWindow : System.Windows.Window
         CategoryPicker.ItemsSource = EnumText.Choices<BuiltInCategory>();
         CategoryPicker.SelectedItem = EnumText.Humanise(working.Category);
         FormatsOnSheetsBox.IsChecked = working.ShowFormatsOnSheets;
+        KeyBox.IsChecked = working.IsKeySchedule;
+        KeyNameBox.Text = working.KeyName ?? string.Empty;
+        KeyNameBox.IsEnabled = working.IsKeySchedule;
         _loading = false;
         RefreshAll();
     }
@@ -77,7 +80,40 @@ public partial class ScheduleEditorWindow : System.Windows.Window
             .OrderBy(field => field, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private IReadOnlyList<string> Available => FieldsFor(_document, _working.Category);
+    /// <summary>What a key schedule can give its elements, its key's name first; else what a schedule of the category can show.</summary>
+    private IReadOnlyList<string> Available => _working.IsKeySchedule
+        ? new[] { ScheduleDefinition.KeyNameField }.Concat(KeySchedules.KeyableFields(_document, _working.Category)).ToList()
+        : FieldsFor(_document, _working.Category);
+
+    /// <summary>A schedule made a key schedule, or back: a key schedule's rows are its keys, its first field their names.</summary>
+    private void OnKeyToggled(object sender, RoutedEventArgs e)
+    {
+        if (KeyBox.IsChecked == true)
+        {
+            var named = KeyNameBox.Text.Trim();
+            _working.KeyName = named.Length > 0 ? named : $"{EnumText.Humanise(_working.Category).TrimEnd('s')} Style";
+            KeyNameBox.Text = _working.KeyName;
+            var keyable = Available.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _working.Fields.RemoveAll(field => !keyable.Contains(field));
+            _working.Fields.Remove(ScheduleDefinition.KeyNameField);
+            _working.Fields.Insert(0, ScheduleDefinition.KeyNameField);
+            _working.Calculated.Clear();
+        }
+        else
+        {
+            _working.KeyName = null;
+            _working.Fields.Remove(ScheduleDefinition.KeyNameField);
+        }
+
+        KeyNameBox.IsEnabled = _working.IsKeySchedule;
+        RefreshAll();
+    }
+
+    private void OnKeyNameChanged(object sender, RoutedEventArgs e)
+    {
+        var name = KeyNameBox.Text.Trim();
+        if (_working.IsKeySchedule && name.Length > 0) _working.KeyName = name;
+    }
 
     /// <summary>What a formula may use: the fields there are, and the values worked out before it.</summary>
     private IReadOnlyList<string> FormulaFields(CalculatedField calculated) =>
@@ -447,6 +483,15 @@ public partial class ScheduleEditorWindow : System.Windows.Window
         if (_document.Schedules.Any(other => other.Id != _working.Id && other.Name.Equals(_working.Name, StringComparison.OrdinalIgnoreCase)))
             return $"There is a schedule called {_working.Name} already.";
         if (_working.Fields.Count == 0) return "A schedule needs a field at least.";
+        if (_working.IsKeySchedule)
+        {
+            if (_document.Schedules.Any(other => other.Id != _working.Id && other.IsKeySchedule && other.KeyName!.Equals(_working.KeyName, StringComparison.OrdinalIgnoreCase)))
+                return $"Another key schedule's key is called {_working.KeyName} already.";
+            if (FieldsFor(_document, _working.Category).Any(field => field.Equals(_working.KeyName, StringComparison.OrdinalIgnoreCase))
+                && !_document.Schedules.Any(other => other.Id == _working.Id && other.KeyName == _working.KeyName))
+                return $"The elements have a {_working.KeyName} of their own: call the key something else.";
+            if (_working.Fields.Count < 2) return "A key schedule needs a field for its keys to give, as well as their names.";
+        }
 
         foreach (var calculated in _working.Calculated)
         {
@@ -466,6 +511,7 @@ public partial class ScheduleEditorWindow : System.Windows.Window
     private void OnOk(object sender, RoutedEventArgs e)
     {
         OnNameChanged(sender, e);
+        OnKeyNameChanged(sender, e);
         if (Problems() is { } problem)
         {
             Problem.Text = problem;

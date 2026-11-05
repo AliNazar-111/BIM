@@ -109,6 +109,9 @@ public enum PlanTool
     /// <summary>Cuts the selected roof away under a dormer, between its walls.</summary>
     DormerOpening,
 
+    /// <summary>Raises a flat roof's corners and points, adds points and split lines: its falls by hand.</summary>
+    RoofShape,
+
     /// <summary>Clicks a whole dormer onto a roof's slope: walls, roof, join and opening.</summary>
     Dormer,
 
@@ -1293,6 +1296,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.JoinGeometry => "Click a wall, then a parallel wall beside it (up to 150 mm away) to join them, or two joined walls to unjoin them.",
         PlanTool.JoinRoof => "Click the edge of the roof to join - a dormer's back edge - then the roof it runs into. Click a joined roof's edge to unjoin it.",
         PlanTool.DormerOpening => "Click the dormer's roof: the selected roof is cut away under it, between its walls.",
+        PlanTool.RoofShape => "Click a corner or a point to raise it to the rise on the options bar; inside the roof to add a point; Ctrl+click two points for a split line.",
         PlanTool.Dormer => "Click on a roof's slope where the dormer's front wall should be. Shape and size are on the options bar.",
         PlanTool.Fascia => "Click a roof's edges one after another: the fascia runs along them all, round the corners. Esc finishes it.",
         PlanTool.Gutter => "Click a roof's eaves one after another: the gutter hangs along them all. Esc finishes it.",
@@ -2344,6 +2348,10 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.DormerOpening:
                 DormerOpeningAt(raw);
+                return;
+
+            case PlanTool.RoofShape:
+                RoofShapeAt(raw);
                 return;
 
             case PlanTool.Dormer:
@@ -6781,6 +6789,7 @@ public partial class PlanView : FrameworkElement
         // walls belong to the editor rather than to the drawing, so none of them may ever
         // reach a sheet - which is exactly why the renderer does not know about them.
         DrawRoofSketch(dc);
+        DrawRoofShape(dc);
         DrawExtrusionPreview(dc);
         DrawDormerPreview(dc);
         DrawRoofEdgePick(dc);

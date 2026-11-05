@@ -15,6 +15,9 @@ public partial class PlanView
     /// <summary>The roof, and the edge of it, clicked first by Join Roof.</summary>
     private (Roof Roof, int Edge)? _roofJoinFirst;
 
+    /// <summary>Where a roof by extrusion was clicked first by Join Roof: the end nearer it is the one carried on.</summary>
+    private Point2D _roofJoinAt;
+
     /// <summary>The roof Dormer Opening is cutting, while it waits for the dormer to be clicked.</summary>
     private Roof? _dormerHost;
 
@@ -63,6 +66,24 @@ public partial class PlanView
 
         if (_roofJoinFirst is not var (first, edge))
         {
+            // A roof by extrusion is picked anywhere on it: its end nearer the click is carried on.
+            if (RoofEdgeAt(raw) is null && OnActiveLevel<Roof>().FirstOrDefault(each => each.IsExtrusion && each.Contains(raw)) is { } extruded)
+            {
+                if (extruded.JoinedTo is not null)
+                {
+                    Apply(new SetRoofJoinCommand(extruded, null));
+                    HintChanged?.Invoke(this, "Unjoined: the roof stands on its own again, as far as it was carried.");
+                    ModelChanged?.Invoke(this, EventArgs.Empty);
+                    InvalidateVisual();
+                    return true;
+                }
+
+                (_roofJoinFirst, _roofJoinAt) = ((extruded, -1), raw);
+                HintChanged?.Invoke(this, "Now click the roof its nearer end should run into.");
+                InvalidateVisual();
+                return true;
+            }
+
             if (RoofEdgeAt(raw) is not var (roof, picked))
             {
                 HintChanged?.Invoke(this, "Click an edge of the roof to join - the back edge of a dormer's roof, the one facing the roof it runs into.");
@@ -92,7 +113,7 @@ public partial class PlanView
 
         _roofJoinFirst = null;
 
-        if (RoofJoin.Join(Document, first, edge, target, out var problem) is not { } command)
+        if ((first.IsExtrusion ? RoofJoin.JoinExtrusion(Document, first, _roofJoinAt, target, out var problem) : RoofJoin.Join(Document, first, edge, target, out problem)) is not { } command)
         {
             HintChanged?.Invoke(this, problem!);
             InvalidateVisual();

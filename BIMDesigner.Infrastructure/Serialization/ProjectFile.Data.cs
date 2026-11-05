@@ -98,7 +98,8 @@ public static partial class ProjectFile
         }).ToList();
 
         // Only values of parameters the project still has: one deleted takes its values with it.
-        var known = document.ProjectParameters.Select(parameter => parameter.Id).ToHashSet();
+        // And which key each element has in each key schedule, kept as a value under the schedule's id.
+        var known = document.ProjectParameters.Select(parameter => parameter.Id).Concat(document.Schedules.Where(schedule => schedule.IsKeySchedule).Select(schedule => schedule.Id)).ToHashSet();
         var owners = document.Elements.Select(element => (element.Id, element.ParameterValues))
             .Concat(document.ElementTypes.OrderBy(type => type.Id).Select(type => (type.Id, type.ParameterValues)));
         foreach (var (owner, values) in owners)

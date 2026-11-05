@@ -494,6 +494,8 @@ public static class ElementCopy
             copied.SolarOvershading = roof.SolarOvershading;
             copied.DrainageFall = roof.DrainageFall;
             copied.SetSlopeArrows(roof.SlopeArrows.Select(arrow => arrow.Copy()));
+            copied.ShapePoints.AddRange(roof.ShapePoints);
+            copied.SplitLines.AddRange(roof.SplitLines);
             copied.SetExtrusion(roof.Extrusion);
             copied.SetEdges(roof.Edges.Select(edge => edge.Copy()));
         }

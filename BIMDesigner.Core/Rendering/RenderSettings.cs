@@ -13,6 +13,17 @@ public enum RenderSky
     Overcast
 }
 
+/// <summary>Whether the model's lights are on in a rendering: once the sun is down, always, or never.</summary>
+public enum RenderLights
+{
+    /// <summary>On once the sun is within 3° of the horizon or below it: dusk and night.</summary>
+    Auto,
+
+    On,
+
+    Off
+}
+
 /// <summary>How many paths each pixel is worked out from: more, smoother and slower.</summary>
 public enum RenderQuality
 {
@@ -56,6 +67,9 @@ public sealed class RenderSettings
     /// <summary>Brighter or darker than the rendering would make it, in stops.</summary>
     public double Exposure { get; set; }
 
+    /// <summary>Whether the lights in the model are on.</summary>
+    public RenderLights Lights { get; set; }
+
     /// <summary>The paths a pixel is worked out from at a quality.</summary>
     public static int Samples(RenderQuality quality) => quality switch
     {
@@ -85,17 +99,17 @@ public sealed class RenderSettings
     public RenderSettings Copy() => new()
     {
         Date = Date, Time = Time, Latitude = Latitude, Longitude = Longitude, UtcOffset = UtcOffset, Summer = Summer,
-        Sky = Sky, Quality = Quality, Width = Width, Height = Height, Exposure = Exposure
+        Sky = Sky, Quality = Quality, Width = Width, Height = Height, Exposure = Exposure, Lights = Lights
     };
 
     public bool SameAs(RenderSettings other) =>
         Date == other.Date && Time == other.Time && Latitude == other.Latitude && Longitude == other.Longitude && UtcOffset == other.UtcOffset &&
-        Summer == other.Summer && Sky == other.Sky && Quality == other.Quality && Width == other.Width && Height == other.Height && Exposure.Equals(other.Exposure);
+        Summer == other.Summer && Sky == other.Sky && Quality == other.Quality && Width == other.Width && Height == other.Height && Exposure.Equals(other.Exposure) && Lights == other.Lights;
 
     public void CopyFrom(RenderSettings other)
     {
         (Date, Time, Latitude, Longitude, UtcOffset, Summer) = (other.Date, other.Time, other.Latitude, other.Longitude, other.UtcOffset, other.Summer);
-        (Sky, Quality, Width, Height, Exposure) = (other.Sky, other.Quality, other.Width, other.Height, other.Exposure);
+        (Sky, Quality, Width, Height, Exposure, Lights) = (other.Sky, other.Quality, other.Width, other.Height, other.Exposure, other.Lights);
     }
 }
 

@@ -84,6 +84,7 @@ public abstract class Element
 
         foreach (var parameter in ProjectParameters.For(document, Category, ParameterBinding.Instance, ParameterValues)) yield return parameter;
         foreach (var parameter in Handover.AssetParameters.Of(document, this)) yield return parameter;
+        foreach (var parameter in Schedules.KeySchedules.Parameters(document, this)) yield return parameter;
     }
 }
 

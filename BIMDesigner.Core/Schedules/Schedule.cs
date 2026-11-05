@@ -118,7 +118,11 @@ public static class Schedule
         var read = definition.Filters.Where(filter => definition.CalculatedNamed(filter.Field) is null).ToList();
         var worked = definition.Filters.Except(read).ToList();
 
-        var rows = document.Elements
+        // A key schedule's rows are its keys, each standing for the elements given it.
+        var rows = definition.IsKeySchedule
+            ? definition.Keys.Select(key => new ScheduleRow { Element = key, Cells = Counted(ParametersOf(document, key), document.Elements.Count(element => KeySchedules.KeyOf(element, definition) == key), 0) })
+                .Where(row => read.All(filter => Passes(row, filter))).ToList()
+            : document.Elements
             .Where(element => element.Category == definition.Category)
             .Select(element =>
             {

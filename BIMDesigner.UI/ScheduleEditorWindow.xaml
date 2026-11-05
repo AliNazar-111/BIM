@@ -21,11 +21,20 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="220"/>
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <TextBlock Text="Name" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="SemiBold"/>
                 <TextBox x:Name="NameBox" Grid.Column="1" LostFocus="OnNameChanged"/>
                 <TextBlock Grid.Column="3" Text="Category" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="SemiBold"/>
                 <ComboBox x:Name="CategoryPicker" Grid.Column="4" SelectionChanged="OnCategoryChanged"
                           ToolTip="What the schedule lists. Changing it keeps only the fields the new category has"/>
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="5" Orientation="Horizontal" Margin="0,10,0,0">
+                    <CheckBox x:Name="KeyBox" Content="A key schedule, its key called" VerticalAlignment="Center" Margin="0,0,8,0" Click="OnKeyToggled"
+                              ToolTip="A schedule of keys - a room style, a hardware set - each giving its fields to every element it is set on, rather than a list of the elements"/>
+                    <TextBox x:Name="KeyNameBox" Width="200" LostFocus="OnKeyNameChanged" IsEnabled="False"/>
+                </StackPanel>
             </Grid>
         </Border>
 

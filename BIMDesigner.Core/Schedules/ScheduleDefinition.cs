@@ -91,6 +91,20 @@ public sealed class ScheduleDefinition
     /// <summary>A field every schedule including its links can show: the linked model a row is from, blank for this project's own.</summary>
     public const string LinkField = "Linked Model";
 
+    /// <summary>
+    /// What a key schedule calls its key - "Room Style" - and every element of its category then has as
+    /// a parameter; null for a schedule of elements.
+    /// </summary>
+    public string? KeyName { get; set; }
+
+    /// <summary>A key schedule's keys: its rows.</summary>
+    public List<ScheduleKey> Keys { get; } = new();
+
+    public bool IsKeySchedule => !string.IsNullOrWhiteSpace(KeyName);
+
+    /// <summary>A key schedule's first field: each key's name.</summary>
+    public const string KeyNameField = "Key Name";
+
     /// <summary>A field every schedule can show: how many elements a row stands for.</summary>
     public const string CountField = "Count";
 
@@ -128,8 +142,9 @@ public sealed class ScheduleDefinition
         var copy = new ScheduleDefinition(name, Category, Fields.ToArray())
         {
             SortBy = SortBy, SortDescending = SortDescending, GroupBy = GroupBy, ShowTotals = ShowTotals,
-            Itemize = Itemize, ShowFormatsOnSheets = ShowFormatsOnSheets, IncludeLinks = IncludeLinks
+            Itemize = Itemize, ShowFormatsOnSheets = ShowFormatsOnSheets, IncludeLinks = IncludeLinks, KeyName = KeyName
         };
+        copy.Keys.AddRange(Keys.Select(key => key.CopyFor(copy)));
         copy.Filters.AddRange(Filters.Select(filter => new ScheduleFilter(filter.Field, filter.Comparison, filter.Value)));
         foreach (var field in NotTotalled) copy.NotTotalled.Add(field);
         copy.Calculated.AddRange(Calculated.Select(calculated => calculated.Copy()));
@@ -152,6 +167,9 @@ public sealed class ScheduleDefinition
         Calculated.AddRange(other.Calculated.Select(calculated => calculated.Copy()));
         Formats.Clear();
         Formats.AddRange(other.Formats.Select(format => format.Copy()));
+        KeyName = other.KeyName;
+        Keys.Clear();
+        Keys.AddRange(other.Keys.Select(key => key.CopyFor(this)));
     }
 
     /// <summary>Marks fields as not worth totalling, and returns the definition for chaining.</summary>

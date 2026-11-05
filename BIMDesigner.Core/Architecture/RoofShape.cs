@@ -42,6 +42,15 @@ public sealed class RoofEdge
     /// </summary>
     public Guid? WallId { get; set; }
 
+    /// <summary>
+    /// The gridline this edge was picked from with Lock on, or null: like a wall, the edge follows it
+    /// wherever it is moved, at <see cref="GridOffset"/> to its left.
+    /// </summary>
+    public Guid? GridId { get; set; }
+
+    /// <summary>How far to the left of its gridline, as the grid runs, a locked edge stands, mm; to its right where less than none.</summary>
+    public double GridOffset { get; set; }
+
     /// <summary>Which face of its wall the edge was picked on: the one to the left of the wall's drawn direction, or the right.</summary>
     public bool OnLeftOfWall { get; set; }
 
@@ -80,6 +89,8 @@ public sealed class RoofEdge
         SlopeDegrees = SlopeDegrees,
         PlateOffset = PlateOffset,
         WallId = WallId,
+        GridId = GridId,
+        GridOffset = GridOffset,
         OnLeftOfWall = OnLeftOfWall,
         Overhang = Overhang,
         ExtendToCore = ExtendToCore,

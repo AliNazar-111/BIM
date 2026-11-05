@@ -59,7 +59,13 @@ public enum RoofSketchTool
     Align,
 
     /// <summary>Click two lines and the corner between them is rounded off with an arc.</summary>
-    Fillet
+    Fillet,
+
+    /// <summary>From the end of a line, an arc leaving it the way it runs, to a point clicked: chained on, arc after arc.</summary>
+    TangentArc,
+
+    /// <summary>The centre, then where the arc starts - its radius - then where it ends, the short way round.</summary>
+    CentreArc
 }
 
 /// <summary>What a sketch makes when it is finished: a roof, a floor or a ceiling.</summary>
@@ -257,6 +263,7 @@ public partial class PlanView
             _sketchTool = value;
             _sketchStart = null;
             _sketchArcEnd = null;
+            _sketchTangentWay = null;
             _trimFirst = null;
             _alignReference = null;
             _sketchPreview.Clear();
@@ -813,6 +820,12 @@ public partial class PlanView
 
             case RoofSketchTool.Arc:
                 return DrawArcTo(SketchSnap(raw));
+
+            case RoofSketchTool.TangentArc:
+                return DrawTangentArcTo(SketchSnap(raw));
+
+            case RoofSketchTool.CentreArc:
+                return DrawCentreArcTo(SketchSnap(raw));
 
             case RoofSketchTool.PickLines:
                 return PickLinesAt(raw);
@@ -1523,6 +1536,8 @@ public partial class PlanView
             "On a flat roof one arrow makes it fall one way; two from the ends of a split eave to its middle make a dormer.",
         RoofSketchTool.Split => "Split: click a line where it should divide - an eave split in three leaves its middle for a dormer.",
         RoofSketchTool.Arc => "Arc: click its start, its end, then a point it passes through. A sloping arc rises as part of a cone.",
+        RoofSketchTool.TangentArc => "Tangent Arc: click the end of a line, then where the arc ends - it leaves the line the way the line runs; click on for more, Esc to stop.",
+        RoofSketchTool.CentreArc => "Centre-Ends Arc: click the centre, where the arc starts, then toward where it ends - the short way round.",
         RoofSketchTool.Circle => "Circle: click the centre, then a point on it. A sloping circle makes a cone - a turret roof.",
         RoofSketchTool.PickLines =>
             "Pick Lines: click the edge of a floor, ceiling or roof, a wall's face or a grid line to take it as a roof line. " +
@@ -1547,6 +1562,8 @@ public partial class PlanView
         RoofSketchTool.Rectangle => "Rectangle: click two opposite corners. Drawn inside a closed outline, it is a hole through it.",
         RoofSketchTool.Polygon => $"Polygon: click the centre, then a corner ({PolygonSides} sides).",
         RoofSketchTool.Arc => "Arc: click its start, its end, then a point it passes through.",
+        RoofSketchTool.TangentArc => "Tangent Arc: click the end of a line, then where the arc ends; on from there arc after arc, Esc to stop.",
+        RoofSketchTool.CentreArc => "Centre-Ends Arc: click the centre, where the arc starts, then toward where it ends.",
         RoofSketchTool.Circle => "Circle: click the centre, then a point on it. Inside a closed outline, it is a round hole.",
         RoofSketchTool.PickLines => $"Pick Lines: click the edge of a floor, ceiling or roof, a wall's face or a grid line to take it as a {SketchNoun} line.",
         RoofSketchTool.Offset => "Offset: type the distance on the options bar, then click a line on the side it should move toward.",
@@ -1601,7 +1618,19 @@ public partial class PlanView
         {
             var to = SketchSnap(_sketchCursor);
 
-            if (_sketchTool == RoofSketchTool.Arc)
+            if (_sketchTool == RoofSketchTool.TangentArc && _sketchTangentWay is { } way)
+            {
+                DrawSketchCurve(dc, SketchPreviewPen, RoofSketch.Facets(from, to, TangentBulge(from, way, to)));
+            }
+            else if (_sketchTool == RoofSketchTool.CentreArc)
+            {
+                // The radius while the start is chosen; then the arc round to the cursor.
+                if (_sketchArcEnd is { } start && CentreBulge(from, start, to) is var (bulge, end))
+                    DrawSketchCurve(dc, SketchPreviewPen, RoofSketch.Facets(start, end, bulge));
+                else
+                    dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
+            }
+            else if (_sketchTool == RoofSketchTool.Arc)
             {
                 // The chord while the second end is chosen; then the arc through the cursor.
                 if (_sketchArcEnd is { } end)

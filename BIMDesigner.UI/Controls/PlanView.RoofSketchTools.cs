@@ -71,6 +71,111 @@ public partial class PlanView
         return true;
     }
 
+    /// <summary>The way a tangent arc leaves its start: the line it chains on from, as that line runs there.</summary>
+    private Vector2D? _sketchTangentWay;
+
+    /// <summary>
+    /// The bulge of an arc that leaves its start running one way and ends at a point: it turns
+    /// through twice the angle between that way and the chord, so a quarter of it is half that angle.
+    /// </summary>
+    public static double TangentBulge(Point2D from, Vector2D way, Point2D to)
+    {
+        var chord = to - from;
+        var angle = Math.Atan2(way.X * chord.Y - way.Y * chord.X, way.X * chord.X + way.Y * chord.Y);
+        return Math.Clamp(Math.Tan(angle / 2), -MaxBulge, MaxBulge);
+    }
+
+    /// <summary>
+    /// Tangent Arc: the first click on the end of a line already drawn - the arc leaves it the way
+    /// it runs - the next where the arc ends; then on from there, arc after arc, each tangent to the
+    /// last, until Esc.
+    /// </summary>
+    private bool DrawTangentArcTo(Point2D point)
+    {
+        if (_sketch is null) return false;
+
+        if (_sketchStart is not { } from || _sketchTangentWay is not { } way)
+        {
+            // The end of a line, and the way the line runs on out of it.
+            var reach = 12 / PixelsPerMm;
+            foreach (var line in _sketch)
+            {
+                var curve = line.Curve;
+                if (line.End.DistanceTo(point) <= reach)
+                {
+                    (_sketchStart, _sketchTangentWay) = (line.End, curve.TangentAt(curve.Length));
+                    break;
+                }
+
+                if (line.Start.DistanceTo(point) <= reach)
+                {
+                    (_sketchStart, _sketchTangentWay) = (line.Start, -curve.TangentAt(0));
+                    break;
+                }
+            }
+
+            HintChanged?.Invoke(this, _sketchStart is null
+                ? "Tangent Arc starts at the end of a line already drawn: click one."
+                : "Click where the arc ends - it leaves the line the way the line runs.");
+            InvalidateVisual();
+            return _sketchStart is not null;
+        }
+
+        if (from.DistanceTo(point) <= RoofSketch.JoinTolerance) return false;
+        var bulge = TangentBulge(from, way, point);
+        Remember();
+        var arc = new RoofSketchLine(from, point, NewDrawnEdge(), Math.Abs(bulge) < WallCurve.StraightBulge ? 0 : bulge);
+        _sketch.Add(arc);
+
+        // On from its end, tangent to it - until the chain comes back to where it began.
+        var closedChain = _sketch.Count(line => line.Start.DistanceTo(point) <= RoofSketch.JoinTolerance || line.End.DistanceTo(point) <= RoofSketch.JoinTolerance) > 1;
+        (_sketchStart, _sketchTangentWay) = closedChain ? ((Point2D?)null, (Vector2D?)null) : (point, arc.Curve.TangentAt(arc.Curve.Length));
+        AfterSketchEdit(RoofSketch.Check(_sketch).IsValid ? $"The outline closes. Finish ✓ to make the {SketchNoun}." : "Arc added. Click where the next ends, or Esc to stop.");
+        return true;
+    }
+
+    /// <summary>The bulge of an arc round a centre from one point to another - the short way round - and where it ends, on the circle.</summary>
+    public static (double Bulge, Point2D End) CentreBulge(Point2D centre, Point2D start, Point2D toward)
+    {
+        var radius = centre.DistanceTo(start);
+        var (a, b) = (start - centre, toward - centre);
+        var end = centre + b.NormalisedOrDefault(a.NormalisedOrDefault(Vector2D.UnitX)) * radius;
+        var angle = Math.Atan2(a.X * b.Y - a.Y * b.X, a.X * b.X + a.Y * b.Y);
+        return (Math.Clamp(Math.Tan(angle / 4), -MaxBulge, MaxBulge), end);
+    }
+
+    /// <summary>Centre-Ends Arc: the centre, then where the arc starts - its radius - then which way it ends, the short way round.</summary>
+    private bool DrawCentreArcTo(Point2D point)
+    {
+        if (_sketch is null) return false;
+
+        if (_sketchStart is not { } centre)
+        {
+            _sketchStart = point;
+            HintChanged?.Invoke(this, "Click where the arc starts - its distance from the centre is its radius.");
+            InvalidateVisual();
+            return true;
+        }
+
+        if (_sketchArcEnd is not { } start)
+        {
+            if (centre.DistanceTo(point) <= RoofSketch.JoinTolerance) return false;
+            _sketchArcEnd = point;
+            HintChanged?.Invoke(this, "Click toward where it ends: it goes the short way round.");
+            InvalidateVisual();
+            return true;
+        }
+
+        var (bulge, end) = CentreBulge(centre, start, point);
+        if (Math.Abs(bulge) < WallCurve.StraightBulge || end.DistanceTo(start) <= RoofSketch.JoinTolerance) return false;
+        Remember();
+        _sketch.Add(new RoofSketchLine(start, end, NewDrawnEdge(), bulge));
+        _sketchStart = null;
+        _sketchArcEnd = null;
+        AfterSketchEdit(RoofSketch.Check(_sketch).IsValid ? $"The outline closes. Finish ✓ to make the {SketchNoun}." : "Arc added.");
+        return true;
+    }
+
     /// <summary>The bulge of the arc between two ends through a point - kept short of a whole circle.</summary>
     private static double ArcBulge(Point2D from, Point2D to, Point2D through) =>
         Math.Clamp(WallCurve.BulgeThrough(from, to, through), -MaxBulge, MaxBulge);
@@ -82,14 +187,18 @@ public partial class PlanView
     /// floor, ceiling or other roof, a wall's face, a grid line - set off by the offset toward
     /// the cursor. Null when nothing is near.
     /// </summary>
-    private (Point2D Start, Point2D End)? PickLineAt(Point2D raw)
+    private (Point2D Start, Point2D End)? PickLineAt(Point2D raw) => PickedAt(raw) is { } picked ? (picked.Start, picked.End) : null;
+
+    /// <summary>What Pick Lines would take here, and the wall or gridline it is taken from - what a locked line follows.</summary>
+    private (Point2D Start, Point2D End, Wall? Wall, Grid? Grid)? PickedAt(Point2D raw)
     {
         if (Document is null) return null;
 
         var reach = 10 / PixelsPerMm;
         (Point2D Start, Point2D End)? best = null;
+        (Wall? Wall, Grid? Grid) from = (null, null);
 
-        void Consider(Point2D a, Point2D b)
+        void Consider(Point2D a, Point2D b, Wall? wall = null, Grid? grid = null)
         {
             if (a.DistanceTo(b) <= RoofSketch.JoinTolerance) return;
 
@@ -98,6 +207,7 @@ public partial class PlanView
 
             reach = distance;
             best = (a, b);
+            from = (wall, grid);
         }
 
         foreach (var slab in OnActiveLevel<Slab>())
@@ -114,27 +224,27 @@ public partial class PlanView
 
             var half = type.Structure.TotalWidth / 2;
             foreach (var face in new[] { half, -half })
-                Consider(wall.PointAt(type.Structure, 0, face), wall.PointAt(type.Structure, wall.Length, face));
+                Consider(wall.PointAt(type.Structure, 0, face), wall.PointAt(type.Structure, wall.Length, face), wall: wall);
         }
 
         foreach (var grid in OnActiveLevel<Grid>())
-            Consider(grid.Start, grid.End);
+            Consider(grid.Start, grid.End, grid: grid);
 
         if (best is not var (start, end)) return null;
-        if (Math.Abs(SketchOffset) < 1e-9) return best;
+        if (Math.Abs(SketchOffset) < 1e-9) return (start, end, from.Wall, from.Grid);
 
         // Set off toward the side the cursor is on.
         var across = (end - start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
         var side = (raw - start).Dot(across) >= 0 ? 1 : -1;
         var shift = across * (side * SketchOffset);
-        return (start + shift, end + shift);
+        return (start + shift, end + shift, from.Wall, from.Grid);
     }
 
     private bool PickLinesAt(Point2D raw)
     {
         if (_sketch is null) return false;
 
-        if (PickLineAt(raw) is not var (start, end))
+        if (PickedAt(raw) is not var (start, end, wall, grid))
         {
             HintChanged?.Invoke(this, "No line there. Hover the edge of a floor or roof, a wall's face or a grid line.");
             return false;
@@ -142,6 +252,7 @@ public partial class PlanView
 
         Remember();
         var line = new RoofSketchLine(start, end, NewDrawnEdge());
+        if (SketchLock && _sketchTarget == SketchTarget.Roof) Lock(line, wall, grid);
         _sketch.Add(line);
         RoofSketch.CloseCorners(_sketch, line, CornerReach());
 
@@ -149,6 +260,38 @@ public partial class PlanView
             ? "The outline closes. Finish ✓ to make the roof."
             : "Line picked. Pick the next one; corners close by themselves.");
         return true;
+    }
+
+    /// <summary>With Lock: a roof line picked off a wall's face follows the wall, one picked off a gridline the grid, as each is moved.</summary>
+    public bool SketchLock { get; set; }
+
+    /// <summary>
+    /// A picked line locked to what it was picked from: on a wall, as a line picked by Pick Walls is,
+    /// at the distance it stands from the wall's middle; on a gridline, at its offset to the grid's left.
+    /// A floor's or roof's edge is not locked to: its line stays where it was picked.
+    /// </summary>
+    private void Lock(RoofSketchLine line, Wall? wall, Grid? grid)
+    {
+        if (Document is null) return;
+        if (wall is not null && Document.GetWallType(wall) is { } type)
+        {
+            var structure = type.Structure;
+            var origin = wall.PointAt(structure, 0, 0);
+            var unit = (wall.PointAt(structure, 0, 1) - origin).NormalisedOrDefault(Vector2D.UnitX);
+            var across = (line.Start - origin).Dot(unit);
+            var half = structure.TotalWidth / 2;
+            var toExterior = across >= 0;
+            line.Edge.WallId = wall.Id;
+            line.Edge.OnLeftOfWall = toExterior == !wall.Flipped;
+            line.Edge.Overhang = toExterior ? across - half : -half - across;
+            line.Edge.ExtendToCore = false;
+        }
+        else if (grid is not null)
+        {
+            var left = (grid.End - grid.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+            line.Edge.GridId = grid.Id;
+            line.Edge.GridOffset = (line.Start - grid.Start).Dot(left);
+        }
     }
 
     // ---- offset -------------------------------------------------------------------------

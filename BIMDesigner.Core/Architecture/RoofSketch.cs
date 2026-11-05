@@ -632,10 +632,18 @@ public static class RoofSketch
         return changed;
     }
 
+    /// <summary>A gridline set off to its left by an offset, running the way the edge it fixes runs.</summary>
+    private static (Point2D From, Point2D To) Along(Datums.Grid grid, double offset, (Point2D From, Point2D To) drawn)
+    {
+        var left = (grid.End - grid.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * offset;
+        var (from, to) = (grid.Start + left, grid.End + left);
+        return (drawn.To - drawn.From).Dot(to - from) >= 0 ? (from, to) : (to, from);
+    }
+
     private static bool Follow(BimDocument document, Roof roof)
     {
         var count = roof.Boundary.Count;
-        if (count < 3 || roof.Edges.Count != count || roof.Edges.All(edge => edge.WallId is null)) return false;
+        if (count < 3 || roof.Edges.Count != count || roof.Edges.All(edge => edge.WallId is null && edge.GridId is null)) return false;
 
         // Each edge's line: from its wall where it has one still standing, or where it is.
         var lines = new (Point2D From, Point2D To)[count];
@@ -649,7 +657,9 @@ public static class RoofSketch
                        document.Find<Wall>(id) is { } wall &&
                        LineOnWall(document, wall, edge.OnLeftOfWall, edge.Overhang, edge.ExtendToCore) is { } placed
                 ? placed
-                : drawn;
+                : edge.GridId is { } gridId && document.Find<Datums.Grid>(gridId) is { } grid && grid.Start.DistanceTo(grid.End) > 1
+                    ? Along(grid, edge.GridOffset, drawn)
+                    : drawn;
         }
 
         // Each corner is where the lines either side of it cross; where they run parallel the

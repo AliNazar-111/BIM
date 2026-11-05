@@ -231,6 +231,13 @@
         <GeometryDrawing Brush="{StaticResource Ink.Green}" Pen="{StaticResource Stroke}" Geometry="M18,11 L28,11 L28,4 L18,4 Z M20,6.5 L26,6.5 M20,8.5 L24,8.5"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Analyse"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M4,9 L28,9 M6,9 L6,26 M26,9 L26,26"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M4,9 Q16,19 28,9"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Green}" Pen="{StaticResource Stroke}" Geometry="M6,26 L3.5,30 L8.5,30 Z M26,26 L23.5,30 L28.5,30 Z"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.PadFooting"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Blue}" Pen="{StaticResource Stroke}" Geometry="M14,3 L18,3 L18,16 L14,16 Z"/>

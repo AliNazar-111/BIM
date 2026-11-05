@@ -352,12 +352,31 @@ public static class Reinforcement
     public const double CoverTop = 40;
 
     /// <summary>
+    /// A bar's centreline where it lies in a member, mm in the project: two points for a straight bar,
+    /// a link's four corners round it closed. What IFC sweeps a bar's circle along.
+    /// </summary>
+    public sealed record BarPath(IReadOnlyList<Point3D> Points, double Diameter, string Size, bool Link);
+
+    /// <summary>The bars being laid in a member: their solids and each one's centreline.</summary>
+    private sealed class Cage(Mesh3D mesh)
+    {
+        public Mesh3D Mesh { get; } = mesh;
+        public List<BarPath> Paths { get; } = new();
+    }
+
+    /// <summary>
     /// A member's bars as thin solids where they lie in it, each its bar's diameter square: what a
     /// section cuts to show a bar across it as a dot and one along it as a line.
     /// </summary>
-    public static IReadOnlyList<Mesh3D> Rods(BimDocument document, Element element)
+    public static IReadOnlyList<Mesh3D> Rods(BimDocument document, Element element) =>
+        Lay(document, element).Mesh is { TriangleCount: > 0 } steel ? new[] { steel } : Array.Empty<Mesh3D>();
+
+    /// <summary>A member's bars one by one, each its centreline, size and whether it is a link.</summary>
+    public static IReadOnlyList<BarPath> Bars(BimDocument document, Element element) => Lay(document, element).Paths;
+
+    private static Cage Lay(BimDocument document, Element element)
     {
-        var steel = new Mesh3D(element.Id, element.LevelId, MeshKind.Beam, ColourRgb.FromHex("2B2B2B"), "Reinforcement");
+        var steel = new Cage(new Mesh3D(element.Id, element.LevelId, MeshKind.Beam, ColourRgb.FromHex("2B2B2B"), "Reinforcement"));
         var cover = CoverAgainstGround;
         switch (element)
         {
@@ -376,7 +395,7 @@ public static class Reinforcement
                 var (bottom, top) = Piles.Heights(document, beam);
                 if (BarSpec.Parse(beam.TopBars) is { Count: not null } topBars) Grid(steel, outline, topBars, top - cover - topBars.Diameter / 2, cover);
                 if (BarSpec.Parse(beam.BottomBars) is { Count: not null } bottomBars) Grid(steel, outline, bottomBars, bottom + cover + bottomBars.Diameter / 2, cover);
-                if (BarSpec.Parse(beam.Links) is { Spacing: { } spacing } links) Links(steel, outline, links.Diameter, spacing, bottom, top, cover);
+                if (BarSpec.Parse(beam.Links) is { Spacing: { } spacing } links) Links(steel, outline, links, spacing, bottom, top, cover);
                 break;
             }
 
@@ -389,7 +408,7 @@ public static class Reinforcement
                 for (var i = 0; i < count; i++)
                 {
                     var angle = 2 * Math.PI * i / count;
-                    Post(steel, centre + new Vector2D(Math.Cos(angle), Math.Sin(angle)) * radius, head - Math.Min(pile.CageLength, pile.Length - cover), head, bars.Diameter);
+                    Post(steel, centre + new Vector2D(Math.Cos(angle), Math.Sin(angle)) * radius, head - Math.Min(pile.CageLength, pile.Length - cover), head, bars);
                 }
 
                 break;
@@ -399,9 +418,9 @@ public static class Reinforcement
             {
                 var top = Rafts.Top(document, raft);
                 if (BarSpec.Parse(raft.TopReinforcement) is { Spacing: { } topPitch } topFace)
-                    Mesh(steel, SlabEdgeRuns.Inset(raft.Outline, closed: true, cover), topFace.Diameter, topPitch, top - CoverTop - topFace.Diameter / 2);
+                    Mesh(steel, SlabEdgeRuns.Inset(raft.Outline, closed: true, cover), topFace, topPitch, top - CoverTop - topFace.Diameter / 2);
                 if (BarSpec.Parse(raft.BottomReinforcement) is { Spacing: { } bottomPitch } bottomFace)
-                    Mesh(steel, SlabEdgeRuns.Inset(raft.Outline, closed: true, cover), bottomFace.Diameter, bottomPitch, top - raft.Thickness + CoverOnBlinding + bottomFace.Diameter / 2);
+                    Mesh(steel, SlabEdgeRuns.Inset(raft.Outline, closed: true, cover), bottomFace, bottomPitch, top - raft.Thickness + CoverOnBlinding + bottomFace.Diameter / 2);
                 if (raft.EdgeDepth > raft.Thickness + 1 && BarSpec.Parse(raft.EdgeBars) is { Count: { } count } edge)
                 {
                     var z = top - raft.EdgeDepth + cover + edge.Diameter / 2;
@@ -409,7 +428,7 @@ public static class Reinforcement
                     {
                         var inset = count == 1 ? raft.EdgeWidth / 2 : cover + edge.Diameter / 2 + i * (raft.EdgeWidth - 2 * cover - edge.Diameter) / (count - 1);
                         var ring = SlabEdgeRuns.Inset(raft.Outline, closed: true, inset);
-                        for (var j = 0; j < ring.Count; j++) Rod(steel, ring[j], ring[(j + 1) % ring.Count], z, edge.Diameter);
+                        for (var j = 0; j < ring.Count; j++) Rod(steel, ring[j], ring[(j + 1) % ring.Count], z, edge);
                     }
 
                     foreach (var strip in Rafts.Thickenings(document, raft))
@@ -422,7 +441,7 @@ public static class Reinforcement
                     for (var j = 0; j < raft.Outline.Count; j++)
                     {
                         var k = (j + 1) % raft.Outline.Count;
-                        Links(steel, new[] { raft.Outline[j], raft.Outline[k], inner[k], inner[j] }, links.Diameter, spacing, top - raft.EdgeDepth, top, cover);
+                        Links(steel, new[] { raft.Outline[j], raft.Outline[k], inner[k], inner[j] }, links, spacing, top - raft.EdgeDepth, top, cover);
                     }
                 }
 
@@ -430,31 +449,34 @@ public static class Reinforcement
             }
         }
 
-        return steel.TriangleCount > 0 ? new[] { steel } : Array.Empty<Mesh3D>();
+        return steel;
     }
 
-    /// <summary>A horizontal bar from one point to another at a height.</summary>
-    private static void Rod(Mesh3D mesh, Point2D from, Point2D to, double z, double diameter)
+    /// <summary>A horizontal bar from one point to another at a height; part of a link when not alone.</summary>
+    private static void Rod(Cage cage, Point2D from, Point2D to, double z, BarSpec bars, bool alone = true)
     {
-        var length = from.DistanceTo(to);
+        var (length, diameter) = (from.DistanceTo(to), bars.Diameter);
         if (length < diameter) return;
         var side = (to - from).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * (diameter / 2);
-        mesh.AddExtrusion(new[] { from - side, to - side, to + side, from + side }, z - diameter / 2, z + diameter / 2);
+        cage.Mesh.AddExtrusion(new[] { from - side, to - side, to + side, from + side }, z - diameter / 2, z + diameter / 2);
+        if (alone) cage.Paths.Add(new BarPath(new[] { new Point3D(from.X, from.Y, z), new Point3D(to.X, to.Y, z) }, diameter, bars.Size, Link: false));
     }
 
-    /// <summary>An upright bar at a point, from one height to another.</summary>
-    private static void Post(Mesh3D mesh, Point2D at, double bottom, double top, double diameter)
+    /// <summary>An upright bar at a point, from one height to another; part of a link when not alone.</summary>
+    private static void Post(Cage cage, Point2D at, double bottom, double top, BarSpec bars, bool alone = true)
     {
+        var diameter = bars.Diameter;
         if (top - bottom < diameter) return;
         var h = diameter / 2;
-        mesh.AddExtrusion(new[] { at + new Vector2D(-h, -h), at + new Vector2D(h, -h), at + new Vector2D(h, h), at + new Vector2D(-h, h) }, bottom, top);
+        cage.Mesh.AddExtrusion(new[] { at + new Vector2D(-h, -h), at + new Vector2D(h, -h), at + new Vector2D(h, h), at + new Vector2D(-h, h) }, bottom, top);
+        if (alone) cage.Paths.Add(new BarPath(new[] { new Point3D(at.X, at.Y, bottom), new Point3D(at.X, at.Y, top) }, diameter, bars.Size, Link: false));
     }
 
     /// <summary>
     /// Bars in a long box - two corners at its start, two at its end - at a height: so many along it
     /// spread across it, or at centres along it and across it; at centres each way under a pad.
     /// </summary>
-    private static void Grid(Mesh3D mesh, IReadOnlyList<Point2D> box, BarSpec bars, double z, double cover, bool bothWays = false)
+    private static void Grid(Cage cage, IReadOnlyList<Point2D> box, BarSpec bars, double z, double cover, bool bothWays = false)
     {
         if (box.Count < 4) return;
         var (a, b, d) = (box[0], box[1], box[3]);
@@ -471,47 +493,53 @@ public static class Reinforcement
 
         var lengthwise = bars.Count is { } n ? Spread(width, n) : AtCentres(width, bars.Spacing ?? width);
         foreach (var offset in lengthwise)
-            Rod(mesh, a + across * offset + along * cover, b + across * offset - along * cover, z, bars.Diameter);
+            Rod(cage, a + across * offset + along * cover, b + across * offset - along * cover, z, bars);
         if (bars.Count is not null && !bothWays) return;
 
         // The bars across lie on those along it.
         var crosswise = bars.Count is { } m ? Spread(length, m) : AtCentres(length, bars.Spacing ?? length);
         foreach (var offset in crosswise)
-            Rod(mesh, a + along * offset + across * cover, d + along * offset - across * cover, z + bars.Diameter, bars.Diameter);
+            Rod(cage, a + along * offset + across * cover, d + along * offset - across * cover, z + bars.Diameter, bars);
     }
 
     /// <summary>Closed links round a long box at centres along it, from its underside to its top, each the cover in from its faces.</summary>
-    private static void Links(Mesh3D mesh, IReadOnlyList<Point2D> box, double diameter, double spacing, double bottom, double top, double cover)
+    private static void Links(Cage cage, IReadOnlyList<Point2D> box, BarSpec links, double spacing, double bottom, double top, double cover)
     {
+        var diameter = links.Diameter;
         var (a, b, d) = (box[0], box[1], box[3]);
         var (length, width) = (a.DistanceTo(b), a.DistanceTo(d));
         if (length < 2 * cover || width < 2 * cover + diameter || top - bottom < 2 * cover + diameter) return;
         var along = (b - a) / length;
         var across = (d - a) / width;
         var r = diameter / 2;
+        var (low, high) = (bottom + cover + r, top - cover - r);
         for (var i = 0; i < AcrossAt(length, spacing, cover); i++)
         {
             var at = a + along * (cover + i * spacing);
             var (near, far) = (at + across * (cover + r), at + across * (width - cover - r));
-            Post(mesh, near, bottom + cover, top - cover, diameter);
-            Post(mesh, far, bottom + cover, top - cover, diameter);
-            Rod(mesh, near, far, bottom + cover + r, diameter);
-            Rod(mesh, near, far, top - cover - r, diameter);
+            Post(cage, near, bottom + cover, top - cover, links, alone: false);
+            Post(cage, far, bottom + cover, top - cover, links, alone: false);
+            Rod(cage, near, far, low, links, alone: false);
+            Rod(cage, near, far, high, links, alone: false);
+            cage.Paths.Add(new BarPath(new[]
+            {
+                new Point3D(near.X, near.Y, low), new Point3D(far.X, far.Y, low), new Point3D(far.X, far.Y, high), new Point3D(near.X, near.Y, high)
+            }, diameter, links.Size, Link: true));
         }
     }
 
     /// <summary>Bars at centres each way over an outline, at a height, those across lying on those along, each cut to the outline.</summary>
-    private static void Mesh(Mesh3D mesh, IReadOnlyList<Point2D> outline, double diameter, double pitch, double z)
+    private static void Mesh(Cage cage, IReadOnlyList<Point2D> outline, BarSpec bars, double pitch, double z)
     {
         if (outline.Count < 3) return;
         var (minX, maxX) = (outline.Min(point => point.X), outline.Max(point => point.X));
         var (minY, maxY) = (outline.Min(point => point.Y), outline.Max(point => point.Y));
         for (var y = minY + pitch / 2; y < maxY; y += pitch)
             foreach (var (from, to) in Spans(outline, new Point2D(minX - 1, y), Vector2D.UnitX))
-                Rod(mesh, from, to, z, diameter);
+                Rod(cage, from, to, z, bars);
         for (var x = minX + pitch / 2; x < maxX; x += pitch)
             foreach (var (from, to) in Spans(outline, new Point2D(x, minY - 1), Vector2D.UnitY))
-                Rod(mesh, from, to, z + diameter, diameter);
+                Rod(cage, from, to, z + bars.Diameter, bars);
     }
 
     /// <summary>Where a line from a point along a direction lies inside an outline: the stretches between its crossings of the edges.</summary>
