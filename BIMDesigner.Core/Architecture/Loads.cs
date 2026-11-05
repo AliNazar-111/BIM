@@ -238,12 +238,14 @@ public static class Loads
 
         foreach (var slab in document.All<Slab>().Where(slab => slab is Floor or Roof))
         {
-            if (slab.Boundary.Count < 3 || !slab.Contains(column.Location)) continue;
+            if (slab.Boundary.Count < 3 || !(slab.Contains(column.Location) || Enumerable.Range(0, slab.Boundary.Count).Any(i => Line2D.DistanceFromSegment(column.Location, slab.Boundary[i], slab.Boundary[(i + 1) % slab.Boundary.Count]) <= 200))) continue;
             if (document.FindType<SlabType>(slab.TypeId) is not { } slabType) continue;
             var under = slab is Roof roof ? roof.UndersideAt(document, column.Location) : slab.GetBottomElevation(document);
-            if (Math.Abs(under - top) > 600) continue;
 
-            double Half(Vector2D way) => Reach(document, slab, column.Location, way, top, column: column) / 2;
+            // At its top, or any it runs up past: a column through two storeys carries the floor between them as well.
+            if (under > top + 600 || under < column.GetBaseElevation(document) + 600) continue;
+
+            double Half(Vector2D way) => Reach(document, slab, column.Location, way, Math.Abs(under - top) <= 600 ? top : slab.GetTopElevation(document), column: column) / 2;
             var area = (Half(across) + Half(-across)) * (Half(along) + Half(-along)) / 1e6;
             if (area <= 0) continue;
 

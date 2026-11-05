@@ -323,7 +323,7 @@ public sealed class StructuralAnalysis
             points.Add((p, At(p)));
         }
 
-        var shells = 0;
+        var (shells, meshed) = (0, 0.0);
         foreach (var (a, b, c) in Triangulation.Of(points.Select(point => point.Flat).ToList(), constraints))
         {
             var (pa, pb, pc) = (points[a].Flat, points[b].Flat, points[c].Flat);
@@ -335,7 +335,12 @@ public sealed class StructuralAnalysis
             var shell = Solver.AddShell(new StructuralSolver.Shell(nodes[0], nodes[1], nodes[2], panel.Material.Modulus, PoissonOf(panel.Material), panel.Thickness, panel.Kind == AnalyticalPanelKind.Diaphragm ? 1e-3 : 1));
             _panelShells.Add((panel, shell));
             shells++;
+            meshed += Math.Abs(Polygon2D.SignedArea(new[] { pa, pb, pc }));
         }
+
+        // Every load by area goes on these triangles, so they had better come to the plate: they are the one thing a load balance cannot catch.
+        if (panel.Area > 1 && Math.Abs(meshed / panel.Area - 1) > 0.02)
+            Problems.Add($"{panel.Name} could not be meshed: its triangles come to {meshed / 1e6:0.0} m² of its {panel.Area / 1e6:0.0} m², and all that is worked out from it is wrong.");
 
         if (shells == 0) Problems.Add($"{panel.Name} could not be meshed: it has no area left once its openings are cut out.");
     }

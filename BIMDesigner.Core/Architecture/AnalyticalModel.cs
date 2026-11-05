@@ -800,6 +800,23 @@ public sealed class AnalyticalModel
             return null;
         }
 
+        /// <summary>The wall standing along a beam, if one does: running its way within its own width, its foot at the beam's height, over the beam's middle.</summary>
+        private WallFrame? WallOn(Point3D start, Point3D end)
+        {
+            var (a, b) = (new Point2D(start.X, start.Y), new Point2D(end.X, end.Y));
+            var way = (b - a).NormalisedOrDefault(Vector2D.UnitX);
+            var middle = a.MidpointTo(b);
+            foreach (var frame in _walls)
+            {
+                if (Math.Abs(way.Cross(frame.Way)) > 0.05 || frame.Off(middle) > frame.Width / 2 + 150) continue;
+                if (Math.Abs(frame.Base - (start.Z + end.Z) / 2) > 600) continue;
+                var along = frame.Along(middle);
+                if (along > frame.From && along < frame.To) return frame;
+            }
+
+            return null;
+        }
+
         // ---- columns and beams ------------------------------------------------
 
         private void Columns()
@@ -922,6 +939,14 @@ public sealed class AnalyticalModel
 
                 var start = End(beam.Start, beam.End, Architecture.Beams.Line(_document, beam, 0));
                 var end = End(beam.End, beam.Start, Architecture.Beams.Line(_document, beam, 1));
+
+                // Carrying a wall that stands along it: on that wall's line and at its foot. A wall's line is its structure's, a little off the one drawn, and a beam left beside it would meet it nowhere.
+                if (WallOn(start, end) is { } carried)
+                {
+                    start = Point3D.On(carried.At(carried.Along(new Point2D(start.X, start.Y))), carried.Base);
+                    end = Point3D.On(carried.At(carried.Along(new Point2D(end.X, end.Y))), carried.Base);
+                }
+
                 if (Distance(start, end) < 1) continue;
                 member.Nodes.Add(Node(start));
                 member.Nodes.Add(Node(end));
@@ -1161,6 +1186,19 @@ public sealed class AnalyticalModel
         /// <summary>Each node that falls on another's edge put into its outline, and each inside it into it; each on a member's line, into it.</summary>
         private void Connect()
         {
+            // A column run up through a floor is joined to it there, though nothing of either ends at the other: without a node the floor would hang on nothing, and the column be one long length.
+            foreach (var column in _model.Members.Where(member => member.Kind == AnalyticalMemberKind.Column).ToList())
+                foreach (var plate in _model.Panels.Concat(_model.Diaphragms).Where(panel => panel.Kind != AnalyticalPanelKind.Wall))
+                {
+                    var (a, b) = (column.Start.At, column.End.At);
+                    var (fromA, fromB) = (Dot(Minus(a, plate.Origin), plate.Normal), Dot(Minus(b, plate.Origin), plate.Normal));
+                    if (Math.Abs(fromA) <= NodeTolerance || Math.Abs(fromB) <= NodeTolerance || fromA * fromB > 0) continue;
+                    var t = fromA / (fromA - fromB);
+                    var crossing = new Point3D(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, a.Z + (b.Z - a.Z) * t);
+                    var flat = plate.Flat(crossing);
+                    if (Polygon2D.Contains(plate.FlatOutline, flat) && !plate.Openings.Any(opening => Polygon2D.Contains(opening.Select(plate.Flat).ToList(), flat))) Node(crossing);
+                }
+
             foreach (var panel in _model.Panels.Concat(_model.Diaphragms))
             {
                 var flat = panel.FlatOutline;

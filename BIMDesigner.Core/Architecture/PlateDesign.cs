@@ -350,9 +350,10 @@ public static class PlateDesign
             var at = panel.Flat(node.At);
             var (c1, c2) = Sides(column.Section);
             var edges = Enumerable.Range(0, outline.Count).Count(i => Line2D.DistanceFromSegment(at, outline[i], outline[(i + 1) % outline.Count]) <= Math.Max(c1, c2) / 2 + 2 * d2);
-            var stations = second.StationsOf(column);
-            var (combination, forces) = stations.MaxBy(station => -station.Forces.N);
-            var force = Math.Max(0, -forces.N);
+            // A slab on beams does not punch: it is carried along them, and a column they frame into takes it from them.
+            if (analysis.Model.Members.Any(member => member.Kind == AnalyticalMemberKind.Beam && member.Nodes.Contains(node))) continue;
+            var (combination, force) = second.PlateForceOn(panel, node).MaxBy(entry => entry.Force);
+            if (force < 0.5) continue;
             var punched = us ? PunchingAci(force, c1, c2, d2, edges, fck) : PunchingEurocode(force, c1, c2, d2, share, edges, fck, h);
             foreach (var check in punched)
             {

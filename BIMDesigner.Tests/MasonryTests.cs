@@ -106,13 +106,25 @@ public class MasonryTests
         var bending = checks.Single(check => check.Name == "Bending up its height");
         Assert.Equal((fxk1 / 2.7 + Math.Min(100 / t, 0.2 * fd)) * t * t / 6 / 1000, bending.Capacity, 6);
 
-        // Shear: fvk = 0.15 + 0.4 σd, no more than 0.065 fb, over 2.5.
-        var shear = checks.Single(check => check.Name == "Shear in its plane");
-        Assert.Equal(Math.Min(0.15 + 0.4 * 100 / t, 0.065 * 7.3) / 2.5 * t, shear.Capacity, 6);
+        // Shear is the wall's: all of it against fvd t lc, fvk = 0.15 + 0.4 σd, no more than 0.065 fb, over 2.5, on the length in compression.
+        var shear = MasonryDesign.WholeShear(Block, t, new[] { new WallStretch(true, -100, 5, 0, 0, 0, 0, 1000), new WallStretch(true, -100, 5, 0, 0, 0, 0, 1000), new WallStretch(true, 50, 5, 0, 0, 0, 0, 1000) });
+        Assert.Equal(15, shear.Demand, 6);
+        Assert.Equal(Math.Min(0.15 + 0.4 * 100 / t, 0.065 * 7.3) / 2.5 * t * 2000 / 1000, shear.Capacity, 6);
 
         // A second leaf adds its own bending strength, though no load.
         var outer = MasonryDesign.Checks(Block, t, Brick, 100, 2800, 155, end).Single(check => check.Name == "Bending up its height");
         Assert.Equal(bending.Capacity + 0.4 / 2.7 * 100 * 100 / 6 / 1000, outer.Capacity, 6);
+    }
+
+    [Fact]
+    public void PastHalfADeepEccentricityTheLoadIsTakenOnAStressBlock()
+    {
+        // A rigid joint would put the load off the wall altogether: Annex C(4) and (5) take it on 0.1 t at the face instead, so what it can carry is 0.1 t fd and not nothing.
+        var (t, fd) = (140.0, MasonryDesign.Characteristic(Block) / 3.0);
+        var foot = MasonryDesign.Checks(Block, t, null, 0, 2800, 140, new WallStretch(true, -10, 0, 0, 0, 5000)).Single(check => check.Name == "Load at its top or foot");
+        Assert.Equal(0.1 * t * fd, foot.Capacity, 3);
+        var middle = MasonryDesign.Checks(Block, t, null, 0, 2800, 140, new WallStretch(false, -10, 0, 0, 0, 5000)).Single(check => check.Name == "Load at mid height");
+        Assert.True(middle.Capacity > 0);
     }
 
     /// <summary>The 10 by 8 m cavity-walled house with its roof, on strip footings.</summary>

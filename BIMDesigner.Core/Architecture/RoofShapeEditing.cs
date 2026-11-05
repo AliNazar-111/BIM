@@ -268,11 +268,33 @@ public static class Triangulation
     private static int[] Anticlockwise(IReadOnlyList<Point2D> all, int a, int b, int c) =>
         (all[b] - all[a]).Cross(all[c] - all[a]) >= 0 ? new[] { a, b, c } : new[] { a, c, b };
 
+    /// <summary>
+    /// Whether p is inside the circle through a triangle's corners. It must answer exactly: a regular grid is full of points exactly on one another's circles, and if rounding answers for those, neighbouring
+    /// triangles disagree, the hole a point opens is no longer one star-shaped piece, and what fills it overlaps - a mesh with several times its plate's area and every load by area with it.
+    /// Floating point where it is plainly safe, exact integers where it is not; a point on the circle is not in it, the same for every triangle.
+    /// </summary>
     private static bool InCircle(Point2D a, Point2D b, Point2D c, Point2D p)
     {
         if ((b - a).Cross(c - a) < 0) (b, c) = (c, b);
         double ax = a.X - p.X, ay = a.Y - p.Y, bx = b.X - p.X, by = b.Y - p.Y, cx = c.X - p.X, cy = c.Y - p.Y;
-        return (ax * ax + ay * ay) * (bx * cy - cx * by) - (bx * bx + by * by) * (ax * cy - cx * ay) + (cx * cx + cy * cy) * (ax * by - bx * ay) > 1e-9;
+        var (la, lb, lc) = (ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy);
+        var (ab, bc, ca) = (bx * cy - cx * by, cx * ay - ax * cy, ax * by - bx * ay);
+        var determinant = la * ab + lb * bc + lc * ca;
+        var size = la * (Math.Abs(bx * cy) + Math.Abs(cx * by)) + lb * (Math.Abs(cx * ay) + Math.Abs(ax * cy)) + lc * (Math.Abs(ax * by) + Math.Abs(bx * ay));
+        if (Math.Abs(determinant) > 1e-14 * size) return determinant > 0;
+        return ExactInCircle(a, b, c, p) > 0;
+    }
+
+    /// <summary>The sign of the same determinant in integers: a coordinate to a millionth of a millimetre is far finer than any drawing, and they do not round.</summary>
+    private static int ExactInCircle(Point2D a, Point2D b, Point2D c, Point2D p)
+    {
+        const double scale = 1e6;
+        static System.Numerics.BigInteger Whole(double value) => new(Math.Round(value * scale));
+        var (px, py) = (Whole(p.X), Whole(p.Y));
+        var (ax, ay, bx, by, cx, cy) = (Whole(a.X) - px, Whole(a.Y) - py, Whole(b.X) - px, Whole(b.Y) - py, Whole(c.X) - px, Whole(c.Y) - py);
+        var determinant = (ax * ax + ay * ay) * (bx * cy - cx * by) + (bx * bx + by * by) * (cx * ay - ax * cy) + (cx * cx + cy * cy) * (ax * by - bx * ay);
+        var turn = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        return determinant.Sign * (turn.Sign < 0 ? -1 : 1);
     }
 
     private static bool Crosses(Point2D a, Point2D b, Point2D c, Point2D d)

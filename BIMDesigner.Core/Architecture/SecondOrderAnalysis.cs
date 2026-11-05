@@ -381,6 +381,21 @@ public sealed class SecondOrderAnalysis
     }
 
     /// <summary>
+    /// What a plate itself puts on a node under each combination each way it leans, kN: the punching force at a column. Not the column's force, which has the storeys over it and all
+    /// that reaches it by beams, none of which comes through the slab.
+    /// </summary>
+    public IReadOnlyList<(LoadCombination Combination, double Force)> PlateForceOn(AnalyticalPanel panel, AnalyticalNode node)
+    {
+        var solver = Analysis.Solver;
+        var at = Analysis.NodeOf(node);
+        var shells = Analysis.ShellsOf(panel).Where(s => solver.Shells[s].I == at || solver.Shells[s].J == at || solver.Shells[s].K == at).ToList();
+        var normal = new StructuralSolver.Vector3(panel.Normal.X, panel.Normal.Y, panel.Normal.Z);
+        var corners = shells.Select(s => Array.IndexOf(new[] { solver.Shells[s].I, solver.Shells[s].J, solver.Shells[s].K }, at)).ToList();
+        return ByCombination(shells.Count, moved => shells.Select(s => solver.ShellCornerForces(_factored.Shells[s], moved).Select(force => force.Dot(normal)).ToArray()).ToArray())
+            .Select(entry => (entry.Combination, Math.Abs(Enumerable.Range(0, shells.Count).Sum(t => entry.Figures[t][corners[t]])) / 1000)).ToList();
+    }
+
+    /// <summary>
     /// Where a plate is held, on the plate: the nodes it shares with walls going down from it, with beams in it and with columns under
     /// it, which are marked. A wall standing on it loads it, and does not hold it.
     /// </summary>
@@ -563,7 +578,7 @@ public sealed class SecondOrderAnalysis
         {
             var more = extra is null ? null : InWall(null, extra);
             var bands = new List<WallStretch>();
-            foreach (var ((_, band), members) in cells)
+            foreach (var ((stretch, band), members) in cells)
             {
                 double vertical = 0, shear = 0, momentUp = 0, momentAlong = 0, gravity = 0, total = 0;
                 foreach (var i in members)
@@ -592,7 +607,7 @@ public sealed class SecondOrderAnalysis
                 }
 
                 if (total < 5e4) continue;
-                bands.Add(new WallStretch(band != 1, vertical / total, shear / total, momentUp / total, momentAlong / total, gravity / total));
+                bands.Add(new WallStretch(band != 1, vertical / total, shear / total, momentUp / total, momentAlong / total, gravity / total, band, total / (band == 1 ? height * 3 / 5 : height / 5), stretch));
             }
 
             results.Add((variant, bands));

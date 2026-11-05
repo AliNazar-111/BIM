@@ -144,7 +144,8 @@ public static class MasonryDesign
 
         if (compression > 0)
         {
-            var eccentric = Math.Max(Math.Abs(band.GravityMoment) / compression + initial, 0.05 * t);
+            // A rigid joint overstates what a floor can put on a wall; past 0.45 t the load is taken on a stress block at its face no deeper than 0.1 t (Annex C(4) and (5), for any calculation, 5.5.1.1).
+            var eccentric = Math.Min(Math.Max(Math.Abs(band.GravityMoment) / compression + initial, 0.05 * t), 0.45 * t);
             if (band.End)
                 yield return new StrengthCheck("Load at its top or foot", compression, PhiEnd(eccentric, t) * t * fd, "kN/m", "6.1.2.2", $"Φi {PhiEnd(eccentric, t):0.00}, e {eccentric:0.0} mm");
             else
@@ -159,9 +160,46 @@ public static class MasonryDesign
         yield return new StrengthCheck("Bending up its height", Math.Abs(band.MomentVertical) / 1000, (apparent * zLoaded + outerK1 / GammaFlexure * zOuter) / 1000, "kNm/m", "6.3.1", $"fxk1 {fxk1:0.00}");
         yield return new StrengthCheck("Bending along its length", Math.Abs(band.MomentHorizontal) / 1000, (fxk2 / GammaFlexure * zLoaded + outerK2 / GammaFlexure * zOuter) / 1000, "kNm/m", "6.3.1", $"fxk2 {fxk2:0.00}");
 
-        // Shear in its own plane: (3.5), limited to 0.065 fb (NA.2.5).
-        var fvk = Math.Min(InitialShear(loaded) + 0.4 * stress, 0.065 * loaded.Fb);
-        yield return new StrengthCheck("Shear in its plane", Math.Abs(band.Shear), fvk / GammaShear * t, "kN/m", "6.2, 3.6.2", $"fvk {fvk:0.00}");
+    }
+
+    /// <summary>
+    /// A wall's moments as they stand once a joint has cracked. Past 0.45 t at its top or foot the rigid joint the plates make is gone (Annex C(4)), and what it was putting on the middle of the wall
+    /// with it: there the eccentricity is no more than the average of its ends', as each now stands, a wall bending between them. The moment it was bending with goes too, and what the wind puts on it stays.
+    /// </summary>
+    public static IEnumerable<WallStretch> Relieved(IReadOnlyList<WallStretch> bands, double t)
+    {
+        foreach (var stretch in bands.GroupBy(band => band.Stretch))
+        {
+            var ends = stretch.Where(band => band.End && band.Vertical < 0).ToList();
+            double Off(WallStretch band) => Math.Abs(band.GravityMoment) / -band.Vertical;
+            var cracked = ends.Any(band => Off(band) > 0.45 * t);
+            var most = cracked ? ends.Average(band => Math.Min(Off(band), 0.45 * t)) : double.PositiveInfinity;
+            foreach (var band in stretch)
+            {
+                if (!cracked || band.Vertical >= 0)
+                {
+                    yield return band;
+                    continue;
+                }
+
+                var left = Math.Sign(band.GravityMoment) * Math.Min(Math.Abs(band.GravityMoment), (band.End ? 0.45 * t : most) * -band.Vertical);
+                yield return band with { GravityMoment = left, MomentVertical = band.MomentVertical - band.GravityMoment + left };
+            }
+        }
+    }
+
+    /// <summary>
+    /// A wall's shear in its own plane by BS EN 1996-1-1 6.2: all of it at a level against VRd = fvd t lc, lc the length in compression, openings left out, and fvd from the average stress over
+    /// that length (3.5), no more than 0.065 fb (NA.2.5). It is the wall that carries it, not a metre of it beside a window, where a plate's shear peaks.
+    /// </summary>
+    public static StrengthCheck WholeShear(MasonryUnit unit, double t, IEnumerable<WallStretch> level)
+    {
+        var stretches = level.ToList();
+        var compressed = stretches.Where(stretch => stretch.Vertical < 0).ToList();
+        var length = compressed.Sum(stretch => stretch.Length);
+        var stress = length > 0 ? compressed.Sum(stretch => -stretch.Vertical * stretch.Length) / (length * t) : 0;
+        var fvk = Math.Min(InitialShear(unit) + 0.4 * stress, 0.065 * unit.Fb);
+        return new StrengthCheck("Shear in its plane", Math.Abs(stretches.Sum(stretch => stretch.Shear * stretch.Length)) / 1000, fvk / GammaShear * t * length / 1000, "kN", "6.2, 3.6.2", $"fvk {fvk:0.00}, {length / 1000:0.0} m in compression");
     }
 
     /// <summary>Every bearing wall's checks, a wall not of masonry, or in a US project, said not to be.</summary>
@@ -276,7 +314,8 @@ public static class MasonryDesign
         var hef = held ? Rho(concrete ? 0.75 : 1.0, height, length, t, edges) * height : 2 * height;
 
         var bands = second.WallStretches(panel, height);
-        var checks = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, entry.Bands.SelectMany(band => Checks(unit, t, outer, outerT, hef, tef, band))))).ToList();
+        var checks = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Relieved(entry.Bands, t).SelectMany(band => Checks(unit, t, outer, outerT, hef, tef, band))
+            .Concat(entry.Bands.GroupBy(band => band.Level).Select(level => WholeShear(unit, t, level)))))).ToList();
         checks.Insert(0, new StrengthCheck("Slenderness", hef / tef, 27, "hef/tef", "5.5.1.4", held ? $"ρ {hef / height:0.00}, {edges} edge{(edges == 1 ? "" : "s")} stiffened" : "nothing holds its top: it stands as a cantilever, at twice its height", string.Empty));
         var grade = $"{unit.Name} {unit.Fb:0.0} in {unit.Mortar}, fk {Characteristic(unit):0.0}{(outer is null ? "" : $", with a {outer.Name.ToLowerInvariant()} leaf of {outerT:0}")}";
         return new WallCheck(panel, grade, "BS EN 1996-1-1 and its UK National Annex", checks, hef, tef,
@@ -285,4 +324,4 @@ public static class MasonryDesign
 }
 
 /// <summary>A stretch of wall about a metre long and a band of its height: its average forces in its plane, N per mm, compression negative, and moments, N mm per mm, up it and along it, with what is left of the moment up it without the wind.</summary>
-public readonly record struct WallStretch(bool End, double Vertical, double Shear, double MomentVertical, double MomentHorizontal, double GravityMoment);
+public readonly record struct WallStretch(bool End, double Vertical, double Shear, double MomentVertical, double MomentHorizontal, double GravityMoment, int Level = 0, double Length = 1000, int Stretch = 0);

@@ -255,6 +255,7 @@ public static class JointDesign
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var joints = new List<JointCheck>();
         joints.AddRange(Landings(document, second, us));
+        joints.AddRange(UnderWalls(second, us));
         joints.AddRange(BaseOf(document, second, us));
         foreach (var panel in second.Analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Masonry))
         {
@@ -402,10 +403,64 @@ public static class JointDesign
             if (onTop) return new JointCheck(name, "Beam on a post", Array.Empty<StrengthCheck>(), $"a cap plate for {down:0.0} kN", "A beam on a post's cap plate is not worked out: its web bearing and the plate are for whoever details it.");
             var thick = other.Kind == AnalyticalMemberKind.Column ? support.Tf : support.Tw;
             var (checks, wants) = us ? EndPlateAisc(down, beam, thick) : EndPlateEurocode(down, beam, thick);
-            return new JointCheck(name, "Steel end plate", checks.Select(check => check with { Under = combination.Name }).ToList(), wants, "Tying forces, block tearing and the supporting member's own local checks are not worked out.");
+            var fixedEnd = ReferenceEquals(node, member.Start) ? member.StartRelease == MemberRelease.Fixed : member.EndRelease == MemberRelease.Fixed;
+            var limits = "Tying forces, block tearing and the supporting member's own local checks are not worked out.";
+            if (fixedEnd) limits = $"It is modelled fixed, and this plate is for shear alone: the moment at it wants a joint of its own, not worked out here. {limits}";
+            return new JointCheck(name, "Steel end plate", checks.Select(check => check with { Under = combination.Name }).ToList(), wants, limits);
         }
 
         return new JointCheck(name, "Not worked out", Array.Empty<StrengthCheck>(), string.Empty, $"A {mine.ToString().ToLowerInvariant()} member on a {theirs.ToString().ToLowerInvariant()} one is not worked out here.");
+    }
+
+    /// <summary>
+    /// A beam a wall stands on, by statics. In the plates a wall over a beam is a deep beam, spanning between its returns with the beam for its tie, and the beam reads next to nothing; but that
+    /// wants tension along its foot that masonry does not have. So it is also put to carry all that wall brings down, as a load along it, nothing taken for arching, by the same checks as any member,
+    /// held along its top by the wall. Worst of the ultimate combinations, with what the analysis finds in it besides.
+    /// </summary>
+    private static IEnumerable<JointCheck> UnderWalls(SecondOrderAnalysis second, bool us)
+    {
+        var analysis = second.Analysis;
+        var model = analysis.Model;
+        foreach (var member in model.Members.Where(member => member.Kind == AnalyticalMemberKind.Beam))
+        {
+            var height = member.Start.At.Z;
+            var middle = new Point3D((member.Start.At.X + member.End.At.X) / 2, (member.Start.At.Y + member.End.At.Y) / 2, height);
+            var wall = model.Panels.FirstOrDefault(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Masonry && AlongWall(member, panel)
+                && Math.Abs(panel.Outline.Min(node => node.At.Z) - height) <= 5
+                && Math.Abs(AnalyticalModel.Dot(AnalyticalModel.Minus(middle, panel.Origin), panel.Normal)) <= 5
+                && panel.Flat(middle).X > panel.FlatOutline.Min(p => p.X) && panel.Flat(middle).X < panel.FlatOutline.Max(p => p.X));
+            if (wall is null) continue;
+
+            var flat = wall.FlatOutline;
+            var long_ = (flat.Max(p => p.X) - flat.Min(p => p.X)) / 1000;
+            var span = member.Length / 1000;
+            var factored = analysis.Loading.Combinations.Where(combination => combination.Factored).ToList();
+            if (factored.Count == 0) continue;
+            double On(LoadCombination combination) => combination.Terms.Sum(term => term.Factor * (
+                (term.Case.Nature == LoadNature.SelfWeight ? wall.SelfWeight * wall.Area / 1e6 : 0)
+                + analysis.Loading.SurfaceLoads.Where(load => ReferenceEquals(load.Panel, wall) && load.Case == term.Case).Sum(load => -load.Force.Z) * wall.Area / 1e6
+                + analysis.Loading.LineLoads.Where(load => ReferenceEquals(load.Panel, wall) && load.Case == term.Case).Sum(load => -load.Force.Z * (load.End - load.Start) / 1000)));
+            var worst = factored.MaxBy(On)!;
+            var line = On(worst) / long_;
+            var inMember = analysis.MemberOf(member, worst);
+            var forces = new MemberForces(0, 0, line * span / 2 + Math.Abs(inMember.ShearZ), 0, line * span * span / 8 + Math.Abs(inMember.MomentY), 0, false);
+            var lengths = new MemberLengths(member.Length, member.Length, 0, 0);
+            IEnumerable<StrengthCheck>? checks = null;
+            if (member.Section.Material.Kind == AnalyticalMaterialKind.Steel && SteelSection.Of(member.Section) is { } steel)
+                checks = us ? SteelDesign.Aisc(steel, lengths, forces, 1) : SteelDesign.Eurocode(steel, lengths, forces);
+            else if (member.Section.Material.Kind == AnalyticalMaterialKind.Timber && member.Section.Dimensions.Count >= 2)
+            {
+                var glulam = member.Section.Material.Quality.StartsWith("GL", StringComparison.Ordinal) || member.Section.Material.Quality.StartsWith("24F", StringComparison.Ordinal);
+                var (depth, width) = (member.Section.Dimensions[0], member.Section.Dimensions[1]);
+                checks = us ? TimberDesign.Nds(depth, width, glulam, false, false, lengths, member.Length, forces, TimberDesign.TimeEffect(worst))
+                    : TimberDesign.Eurocode(glulam ? TimberDesign.Gl24h : TimberDesign.C24, depth, width, false, lengths, forces, TimberDesign.Kmod(worst));
+            }
+
+            var said = $"{line:0.0} kN/m of {wall.Name} on {span:0.00} m";
+            yield return new JointCheck($"{member.Name} under {wall.Name}", "Beam under a wall", (checks ?? Array.Empty<StrengthCheck>()).Select(check => check with { Under = worst.Name, Note = said }).ToList(),
+                $"to carry {line:0.0} kN/m of the wall on it, with nothing for arching",
+                checks is null ? "A concrete beam under a wall is not worked out this way." : "By statics, the wall a load on it: masonry has no tension to make a deep beam of itself with the beam for its tie, whatever the plates say.");
+        }
     }
 
     /// <summary>Each steel column's base plate.</summary>
