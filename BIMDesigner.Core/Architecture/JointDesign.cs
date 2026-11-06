@@ -158,6 +158,54 @@ public static class JointDesign
     }
 
     /// <summary>
+    /// What a rolled beam's web carries bearing on something by BS EN 1993-1-5 section 6, kN, in S355: fyw Leff tw / γM1, γM1 1.0. Leff is χF ly, χF 0.5 / λF and no more than 1, λF √(ly tw fyw / Fcr),
+    /// Fcr 0.9 kF E tw³ / hw. Away from an end, type (a), kF 6 + 2 (hw/a)², ly ss + 2 tf (1 + √(m1 + m2)); at an end with nothing past the bearing, type (c), kF 2 + 6 ss/hw and no more than 6, ly the lesser of (6.12) and (6.13);
+    /// m1 bf / tw and m2 0.02 (hw/tf)², none under λF 0.5. <paramref name="stiff"/> is the length of stiff bearing, <paramref name="panel"/> the distance between stiffeners, here the span.
+    /// </summary>
+    public static double WebBearingEurocode(SteelSection beam, double stiff, double panel, bool atEnd)
+    {
+        const double fy = 355, e = 210000;
+        var hw = beam.H - 2 * beam.Tf;
+        var kf = atEnd ? Math.Min(6, 2 + 6 * stiff / hw) : 6 + 2 * Math.Pow(hw / panel, 2);
+        var critical = 0.9 * kf * e * Math.Pow(beam.Tw, 3) / hw;
+        var m1 = beam.B / beam.Tw;
+        double Stiff(double m2)
+        {
+            if (!atEnd) return stiff + 2 * beam.Tf * (1 + Math.Sqrt(m1 + m2));
+            var end = Math.Min(kf * e * beam.Tw * beam.Tw / (2 * fy * hw), stiff);
+            return Math.Min(end + beam.Tf * Math.Sqrt(m1 / 2 + Math.Pow(end / beam.Tf, 2) + m2), end + beam.Tf * Math.Sqrt(m1 + m2));
+        }
+
+        var length = Stiff(0.02 * Math.Pow(hw / beam.Tf, 2));
+        var slender = Math.Sqrt(length * beam.Tw * fy / critical);
+        if (slender <= 0.5)
+        {
+            length = Stiff(0);
+            slender = Math.Sqrt(length * beam.Tw * fy / critical);
+        }
+
+        return fy * Math.Min(1, 0.5 / slender) * length * beam.Tw / 1000;
+    }
+
+    /// <summary>
+    /// What a rolled beam's web carries bearing on something by AISC 360-16, kN, in A992: the lesser of local yielding (J10.2), φ 1.0, Fy tw (5k + lb), or 2.5k at an end, and crippling (J10.3), φ 0.75, 0.80 tw² (1 + 3 (lb/d)(tw/tf)^1.5) √(E Fy tf/tw),
+    /// at an end 0.40 of the same form, and past lb/d 0.2 with (4 lb/d - 0.2) for 3 lb/d.
+    /// </summary>
+    public static double WebBearingAisc(SteelSection beam, double bearing, bool atEnd)
+    {
+        const double e = 200000;
+        var fy = 50000 * Psi;
+        var k = beam.Tf + beam.Root;
+        var yielding = fy * beam.Tw * ((atEnd ? 2.5 : 5) * k + bearing);
+        var ratio = bearing / beam.H;
+        var form = !atEnd ? 0.80 * (1 + 3 * ratio * Math.Pow(beam.Tw / beam.Tf, 1.5))
+            : ratio <= 0.2 ? 0.40 * (1 + 3 * ratio * Math.Pow(beam.Tw / beam.Tf, 1.5))
+            : 0.40 * (1 + (4 * ratio - 0.2) * Math.Pow(beam.Tw / beam.Tf, 1.5));
+        var crippling = 0.75 * form * beam.Tw * beam.Tw * Math.Sqrt(e * fy * beam.Tf / beam.Tw);
+        return Math.Min(yielding, crippling) / 1000;
+    }
+
+    /// <summary>
     /// A steel beam's end as a partial depth end plate by BS EN 1993-1-8: 150 wide and 10 thick in S275, M20 8.8 bolts at 90 gauge and 70 pitch, 40 from the plate's ends, as few rows as carry it, deep at least 0.6 of the beam (P358 as quoted,
     /// which takes each bolt at 0.8 for the tension a simple joint's small moment puts in it); the beam's web at 0.9 of the plate's depth and the plate at 1/1.27 of it, as P358 has them; 6 mm fillets each side of the web. What it bolts to is so thick.
     /// </summary>
@@ -257,6 +305,8 @@ public static class JointDesign
         joints.AddRange(Landings(document, second, us));
         joints.AddRange(UnderWalls(second, us));
         joints.AddRange(BaseOf(document, second, us));
+        foreach (var panel in second.Analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Timber && TimberWallDesign.FrameOf(document, panel, us) is not null))
+            joints.AddRange(Headers(document, second, panel, us));
         foreach (var panel in second.Analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Masonry))
         {
             joints.AddRange(Lintels(document, second, panel, us));
@@ -356,6 +406,13 @@ public static class JointDesign
             }
         }
 
+        if (member.Section.Material.Kind == AnalyticalMaterialKind.Steel && !IsJoist(member) && SteelSection.Of(member.Section) is { } steel)
+        {
+            var atEnd = ReferenceEquals(node, member.Start) || ReferenceEquals(node, member.End);
+            var carries = us ? WebBearingAisc(steel, wall.Thickness, atEnd) : WebBearingEurocode(steel, wall.Thickness, member.Length, atEnd);
+            checks.Add(new StrengthCheck("Beam's web on the wall", down, carries, "kN", us ? "AISC J10.2, J10.3" : "EN 1993-1-5 6", $"{wall.Thickness:0} mm of stiff bearing", combination.Name));
+        }
+
         if (member.Section.Material.Kind == AnalyticalMaterialKind.Timber)
         {
             var (check, wanted, under) = TimberEnd(member, node, landings, Math.Min(wall.Thickness, 100), us);
@@ -400,7 +457,17 @@ public static class JointDesign
 
         if (mine == AnalyticalMaterialKind.Steel && theirs == AnalyticalMaterialKind.Steel && SteelSection.Of(member.Section) is { } beam && SteelSection.Of(other.Section) is { } support)
         {
-            if (onTop) return new JointCheck(name, "Beam on a post", Array.Empty<StrengthCheck>(), $"a cap plate for {down:0.0} kN", "A beam on a post's cap plate is not worked out: its web bearing and the plate are for whoever details it.");
+            if (onTop)
+            {
+                const double plate = 15;
+                var atEnd = ReferenceEquals(node, member.Start) || ReferenceEquals(node, member.End);
+                var stiff = Math.Min(support.H, support.B) + 2 * plate;
+                var carries = us ? WebBearingAisc(beam, stiff, atEnd) : WebBearingEurocode(beam, stiff, member.Length, atEnd);
+                var web = new StrengthCheck("Beam's web on the post", down, carries, "kN", us ? "AISC J10.2, J10.3" : "EN 1993-1-5 6", $"{stiff:0} mm of stiff bearing through a {plate:0} plate, {(atEnd ? "at its end" : "along it")}", combination.Name);
+                var wanted = $"a cap plate {Math.Max(support.B, beam.B) + 50:0} by {support.H + 50:0} by {plate:0} for {down:0.0} kN{(web.Ratio > 1 ? ", and web stiffeners over the post" : string.Empty)}";
+                return new JointCheck(name, "Beam on a post", new[] { web }, wanted, "The plate's own bending and its fixings are for whoever details it. A web carrying moment there as well wants 7.2 of EN 1993-1-5, not worked out.");
+            }
+
             var thick = other.Kind == AnalyticalMemberKind.Column ? support.Tf : support.Tw;
             var (checks, wants) = us ? EndPlateAisc(down, beam, thick) : EndPlateEurocode(down, beam, thick);
             var fixedEnd = ReferenceEquals(node, member.Start) ? member.StartRelease == MemberRelease.Fixed : member.EndRelease == MemberRelease.Fixed;
@@ -455,12 +522,28 @@ public static class JointDesign
                 checks = us ? TimberDesign.Nds(depth, width, glulam, false, false, lengths, member.Length, forces, TimberDesign.TimeEffect(worst))
                     : TimberDesign.Eurocode(glulam ? TimberDesign.Gl24h : TimberDesign.C24, depth, width, false, lengths, forces, TimberDesign.Kmod(worst));
             }
+            else if (member.Section.Material.Kind == AnalyticalMaterialKind.Concrete && member.Section.Dimensions.Count >= 2)
+                checks = ConcreteUnderWall(member, forces, us);
 
             var said = $"{line:0.0} kN/m of {wall.Name} on {span:0.00} m";
-            yield return new JointCheck($"{member.Name} under {wall.Name}", "Beam under a wall", (checks ?? Array.Empty<StrengthCheck>()).Select(check => check with { Under = worst.Name, Note = said }).ToList(),
+            yield return new JointCheck($"{member.Name} under {wall.Name}", "Beam under a wall", (checks ?? Array.Empty<StrengthCheck>()).Select(check => check with { Under = worst.Name, Note = member.Section.Material.Kind == AnalyticalMaterialKind.Concrete ? $"{said}, {check.Note}" : said }).ToList(),
                 $"to carry {line:0.0} kN/m of the wall on it, with nothing for arching",
-                checks is null ? "A concrete beam under a wall is not worked out this way." : "By statics, the wall a load on it: masonry has no tension to make a deep beam of itself with the beam for its tie, whatever the plates say.");
+                checks is null ? "A beam of this section under a wall is not worked out this way." : "By statics, the wall a load on it: masonry has no tension to make a deep beam of itself with the beam for its tie, whatever the plates say.");
         }
+    }
+
+    /// <summary>A concrete beam's bending and shear as a load puts them on it, the steel and links it comes to said; the model holds none for it. Its depth less 50 for its cover, links and bar.</summary>
+    private static IEnumerable<StrengthCheck> ConcreteUnderWall(AnalyticalMember member, MemberForces forces, bool us)
+    {
+        var (depth, width) = (member.Section.Dimensions[0], member.Section.Dimensions[1]);
+        var d = depth - 50;
+        var fc = ConcreteDesign.StrengthOf(member.Section.Material.Quality);
+        var (moment, shear) = (Math.Abs(forces.My), Math.Abs(forces.Vz));
+        var (needed, problem) = us ? ConcreteDesign.Aci(moment, width, d, fc, ConcreteDesign.LeastAci(width, d, fc)) : ConcreteDesign.Eurocode(moment, width, d, fc, ConcreteDesign.LeastEurocode(width, d, fc));
+        var most = us ? 0.9 * 0.85 * fc * width * 0.375 * ConcreteDesign.Beta1(fc) * d * (d - 0.375 * ConcreteDesign.Beta1(fc) * d / 2) / 1e6 : 0.167 * width * d * d * fc / 1e6;
+        yield return new StrengthCheck("Bending", moment, most, "kNm", us ? "22.2" : "6.1", problem ?? $"needs {needed:0} mm²");
+        var (crushing, links, _) = us ? ConcreteDesign.ShearAci(shear, width, d, fc, null) : ConcreteDesign.ShearEurocode(shear, width, d, fc, null);
+        yield return new StrengthCheck("Shear", shear, crushing, "kN", us ? "22.5" : "6.2.3", $"needs links of {links:0} mm²/m");
     }
 
     /// <summary>Each steel column's base plate.</summary>
@@ -492,16 +575,11 @@ public static class JointDesign
         var analysis = second.Analysis;
         var flat = wall.FlatOutline;
         var (first, last, foot, top) = (flat.Min(p => p.X), flat.Max(p => p.X), flat.Min(p => p.Y), flat.Max(p => p.Y));
-        var length = (last - first) / 1000;
-        var factored = analysis.Loading.Combinations.Where(combination => combination.Factored).ToList();
-        var supports = analysis.Model.Supports.Where(support => ReferenceEquals(support.Panel, wall)).ToList();
-        var line = factored.Count == 0 || supports.Count == 0 ? 0
-            : factored.Max(combination => supports.Sum(support => analysis.ReactionOf(support, combination).Fz)) / Math.Max(length, 1e-3);
-        if (line <= 0 && wall.Element is Wall model) line = (us ? 1.6 : 1.5) * Loads.OnWall(document, model);
+        var line = LineDown(document, analysis, wall, us);
         var weight = (us ? 1.2 : 1.35) * (wall.SelfWeight + analysis.Loading.SurfaceLoads.Where(load => ReferenceEquals(load.Panel, wall) && load.Case.Nature != LoadNature.Wind && load.Case.Nature != LoadNature.Imposed).Sum(load => Math.Abs(load.Force.Z)));
         var fd = us ? 0 : MasonryDesign.Characteristic(MasonryDesign.LoadedUnitOf(document, wall)) / MasonryDesign.GammaCompression;
         var opening = 0;
-        foreach (var hole in wall.Openings.Select(hole => hole.Select(wall.Flat).ToList()).OrderBy(hole => hole.Min(p => p.X)))
+        foreach (var hole in wall.Cuts.Select(hole => hole.Select(wall.Flat).ToList()).OrderBy(hole => hole.Min(p => p.X)))
         {
             opening++;
             var (left, right, head) = (hole.Min(p => p.X), hole.Max(p => p.X), hole.Max(p => p.Y));
@@ -525,6 +603,44 @@ public static class JointDesign
         }
     }
 
+    /// <summary>What comes down a wall, kN a metre at the ultimate: what its foot holds up, or by the take-down for a wall that stands on something else.</summary>
+    private static double LineDown(BimDocument document, StructuralAnalysis analysis, AnalyticalPanel wall, bool us)
+    {
+        var flat = wall.FlatOutline;
+        var length = (flat.Max(p => p.X) - flat.Min(p => p.X)) / 1000;
+        var factored = analysis.Loading.Combinations.Where(combination => combination.Factored).ToList();
+        var supports = analysis.Model.Supports.Where(support => ReferenceEquals(support.Panel, wall)).ToList();
+        var line = factored.Count == 0 || supports.Count == 0 ? 0 : factored.Max(combination => supports.Sum(support => analysis.ReactionOf(support, combination).Fz)) / Math.Max(length, 1e-3);
+        return line <= 0 && wall.Element is Wall model ? (us ? 1.6 : 1.5) * Loads.OnWall(document, model) : line;
+    }
+
+    /// <summary>Each opening's header in a stud wall: the depth the frame gives it, two studs wide, on jacks, through the same checks as a timber beam, what comes down the wall carried along it.</summary>
+    private static IEnumerable<JointCheck> Headers(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel wall, bool us)
+    {
+        var analysis = second.Analysis;
+        if (TimberWallDesign.FrameOf(document, wall, us) is not { } frame) yield break;
+        var flat = wall.FlatOutline;
+        var top = flat.Max(p => p.Y);
+        var line = LineDown(document, analysis, wall, us);
+        var opening = 0;
+        foreach (var hole in wall.Cuts.Select(hole => hole.Select(wall.Flat).ToList()).OrderBy(hole => hole.Min(p => p.X)))
+        {
+            opening++;
+            var head = hole.Max(p => p.Y);
+            if (head >= top - 50) continue;
+            var clear = hole.Max(p => p.X) - hole.Min(p => p.X);
+            var depth = WallFramings.HeaderDepth(FramingMaterial.Timber, clear);
+            var width = 2 * frame.Section.Thickness;
+            var span = (clear + width) / 1000;
+            var forces = new MemberForces(0, 0, line * span / 2, 0, line * span * span / 8, 0, false);
+            var lengths = new MemberLengths(span * 1000, span * 1000, 0, 0);
+            var checks = (us ? TimberDesign.Nds(depth, width, false, false, false, lengths, span * 1000, forces, 0.8) : TimberDesign.Eurocode(frame.Section.Name.Contains("C16", StringComparison.Ordinal) ? TimberDesign.C16 : TimberDesign.C24, depth, width, false, lengths, forces, 0.8)).ToList();
+            yield return new JointCheck($"{wall.Name} over opening {opening}", "Header", checks.Select(check => check with { Note = $"{line:0.0} kN/m on {span:0.00} m" }).ToList(),
+                $"a header {width:0} by {depth:0} over {clear:0}, on a jack each side", "All the wall brings down taken along it, medium term. Its deflection and the jacks under it are not worked out.");
+        }
+
+    }
+
     /// <summary>A cavity wall's ties, by the wind that passes between its leaves.</summary>
     private static JointCheck? Ties(BimDocument document, StructuralAnalysis analysis, AnalyticalPanel wall, bool us)
     {
@@ -539,7 +655,7 @@ public static class JointDesign
         var height = analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall).Max(panel => panel.Outline.Max(node => node.At.Z));
         var (tie, density, needed) = TiesFor(design, height / 1000);
         var cavity = type.Structure.TotalWidth - wall.Thickness - outerT;
-        var openings = wall.Openings.Select(hole => hole.Select(wall.Flat).ToList()).ToList();
+        var openings = wall.Cuts.Select(hole => hole.Select(wall.Flat).ToList()).ToList();
         var extra = openings.Sum(hole => 2 * (int)Math.Ceiling((hole.Max(p => p.Y) - hole.Min(p => p.Y)) / 300));
         var count = (int)Math.Ceiling(wall.Area / 1e6 * density);
         return new JointCheck($"{wall.Name} ties", "Wall ties", new[] { new StrengthCheck("Ties a square metre", needed, density, "/m²", "6.5, (6.20)", $"{design:0.00} kN/m² between the leaves, {share:P0} of the wind, {tie.Name}") },

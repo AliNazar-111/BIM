@@ -175,7 +175,14 @@ public sealed class AnalyticalPanel
 
     public List<AnalyticalNode> Inside { get; } = new();
 
+    /// <summary>The holes in it, that a mesh has to go round.</summary>
     public List<IReadOnlyList<Point3D>> Openings { get; } = new();
+
+    /// <summary>
+    /// Every door and window cut from a wall, each as its four corners. A door standing on the foot of a wall is no hole in it but a notch in its outline, so it is not among
+    /// <see cref="Openings"/>: whatever an opening wants a lintel or a header for, or takes out of a wall's length, reads these.
+    /// </summary>
+    public List<IReadOnlyList<Point3D>> Cuts { get; } = new();
 
     /// <summary>The ground's stiffness under it, MN/m³; none for a panel not on the ground.</summary>
     public double? Subgrade { get; internal set; }
@@ -766,6 +773,13 @@ public sealed class AnalyticalModel
                     if (Polygon2D.SignedArea(outer) < 0) outer = outer.Reverse().ToList();
                     foreach (var corner in Simplified(outer)) panel.Outline.Add(Node(In(corner)));
                     foreach (var hole in region.Holes) panel.Openings.Add(hole.Select(In).ToList());
+                    var (left, right) = (outer.Min(p => p.X), outer.Max(p => p.X));
+                    foreach (var cut in cuts)
+                    {
+                        var (from, to, low, high) = (Math.Max(left, cut.Min(p => p.X)), Math.Min(right, cut.Max(p => p.X)), cut.Min(p => p.Y), cut.Max(p => p.Y));
+                        if (to - from > 1) panel.Cuts.Add(new[] { new Point2D(from, low), new Point2D(to, low), new Point2D(to, high), new Point2D(from, high) }.Select(In).ToList());
+                    }
+
                     _model.Panels.Add(panel);
                 }
             }

@@ -479,6 +479,8 @@ public sealed class StructuralLoading
         /// up the slope, what is put on it and its snow, its plan area shared along its eave, onto the
         /// top of the bearing wall under the eave, as trussed rafters bear on the walls at their feet.
         /// </summary>
+        private readonly List<(Vector2D Outward, double Pitch, double PerMetre, List<(Bearing Bearing, double Start, double End)> Stretches)> _slopes = new();
+
         private void PitchedRoofs()
         {
             foreach (var roof in _document.All<Roof>())
@@ -532,6 +534,7 @@ public sealed class StructuralLoading
                     if (covered < 1) continue;
                     var perMetre = area / (covered / 1000);
                     var stretch = face!.Plane.VerticalStretch;
+                    _slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, perMetre, stretches.Select(each => (each.Bearing, each.Start, each.End)).ToList()));
                     foreach (var (bearing, start, end) in stretches)
                     {
                         Line(_dead, bearing, start, end, perMetre * weight * stretch, $"{perMetre:0.00} m² a metre of the roof at {pitch:0}°, {weight * stretch:0.00} kN/m² on plan");
@@ -578,14 +581,14 @@ public sealed class StructuralLoading
                 var way = wind.Wind!.Value;
                 var depth = Math.Max(1, (corners.Max(p => (p - default(Point2D)).Dot(way)) - corners.Min(p => (p - default(Point2D)).Dot(way))) / 1000);
                 var breadth = Math.Max(1, (corners.Max(p => (p - default(Point2D)).Cross(way)) - corners.Min(p => (p - default(Point2D)).Cross(way))) / 1000);
-                double into, outOf;
+                double into, outOf, velocity;
                 string said;
                 if (_us)
                 {
                     var q = Architecture.Wind.FromSite(_document) ? Architecture.Wind.VelocityPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height) : project.WindPressure;
                     var ratio = depth / breadth;
                     var leeward = ratio <= 1 ? 0.5 : ratio <= 2 ? 0.5 - 0.2 * (ratio - 1) : ratio <= 4 ? 0.3 - 0.05 * (ratio - 2) : 0.2;
-                    (into, outOf) = (q * 0.85 * 0.8, q * 0.85 * leeward);
+                    (into, outOf, velocity) = (q * 0.85 * 0.8, q * 0.85 * leeward, q * 0.85);
                     said = $"qh {Units.Kilopascals(q, "0.00")} x G 0.85 x Cp 0.8 and -{leeward:0.00}, L/B {ratio:0.00} (ASCE 7-16 Figure 27.3-1)";
                 }
                 else
@@ -595,7 +598,7 @@ public sealed class StructuralLoading
                     double Between(double low, double one, double five) => ratio <= 0.25 ? low : ratio <= 1 ? low + (one - low) * (ratio - 0.25) / 0.75 : ratio < 5 ? one + (five - one) * (ratio - 1) / 4 : five;
                     var (d, e) = (Between(0.7, 0.8, 0.8), Between(0.3, 0.5, 0.7));
                     var correlation = ratio <= 1 ? 0.85 : ratio >= 5 ? 1 : 0.85 + 0.15 * (ratio - 1) / 4;
-                    (into, outOf) = (correlation * d * qp, correlation * e * qp);
+                    (into, outOf, velocity) = (correlation * d * qp, correlation * e * qp, qp);
                     said = $"qp {qp:0.00} kPa x {correlation:0.00} x cpe +{d:0.00} (D) and -{e:0.00} (E), h/d {ratio:0.00} (BS EN 1991-1-4 Table 7.1, 7.2.2(3))";
                 }
 
@@ -606,7 +609,36 @@ public sealed class StructuralLoading
                     if (pressure <= 0) continue;
                     _loading.SurfaceLoads.Add(new SurfaceLoad(wind, panel, new Direction3D(way.X * pressure, way.Y * pressure, 0), $"{(facing < 0 ? "into the wind" : "out of the wind")}: {said}"));
                 }
+
+                // Its roof: each slope by which way it faces, what presses on it across the slope, so sideways and down; each bearing on the wall under its eave, as its weight does.
+                foreach (var (outward, pitch, perMetre, stretches) in _slopes)
+                {
+                    if (pitch < 5) continue;
+                    var facing = outward.Dot(way);
+                    var (coefficient, zone) = facing < -0.7 ? (RoofPressure(pitch, true), "windward") : facing > 0.7 ? (RoofPressure(pitch, false), "leeward") : (-0.5, "along the wind");
+                    var (down, across) = (coefficient * velocity * perMetre, coefficient * velocity * perMetre * Math.Tan(pitch * Math.PI / 180));
+                    var force = new Direction3D(-outward.X * across, -outward.Y * across, -down);
+                    foreach (var (bearing, start, end) in stretches)
+                        if (end - start >= 1)
+                            _loading.LineLoads.Add(new LineLoad(wind, bearing.Member, bearing.Panel, bearing.From, bearing.To, start, end, force, $"{zone} slope at {pitch:0}°, c {coefficient:0.00}"));
+                }
             }
+        }
+
+        /// <summary>
+        /// A slope's pressure coefficient by its pitch, with the wind across its ridge, pressing in as a positive: its windward or leeward face taken as a whole by zones H and I of BS EN 1991-1-4 Table 7.4a, windward its pressing
+        /// values, which sway a building most; or ASCE 7-16 Figure 27.3-1 for h/L to 0.25, as remembered, with G already in what it is multiplied by.
+        /// </summary>
+        private double RoofPressure(double pitch, bool windward)
+        {
+            (double Pitch, double Value)[] table = _us
+                ? windward ? new[] { (15.0, 0.0), (20.0, 0.2), (25.0, 0.3), (30.0, 0.3), (35.0, 0.4), (45.0, 0.4), (60.0, 0.6) } : new[] { (10.0, -0.3), (15.0, -0.5), (20.0, -0.6), (60.0, -0.6) }
+                : windward ? new[] { (5.0, 0.0), (15.0, 0.2), (30.0, 0.4), (45.0, 0.6), (60.0, 0.7), (75.0, 0.8) } : new[] { (5.0, -0.6), (15.0, -0.4), (30.0, -0.4), (45.0, -0.2), (60.0, -0.2), (75.0, -0.2) };
+            if (pitch <= table[0].Pitch) return table[0].Value;
+            for (var i = 0; i + 1 < table.Length; i++)
+                if (pitch <= table[i + 1].Pitch)
+                    return table[i].Value + (table[i + 1].Value - table[i].Value) * (pitch - table[i].Pitch) / (table[i + 1].Pitch - table[i].Pitch);
+            return table[^1].Value;
         }
 
         // ---- combinations ---------------------------------------------------------------

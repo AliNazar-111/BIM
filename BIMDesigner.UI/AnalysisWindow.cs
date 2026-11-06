@@ -94,7 +94,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         root.Children.Add(DialogLook.Footer(_said, _report, again, close));
         root.Children.Add(DialogLook.Intro("The structure analysed here, linear and elastic: its members as beams and its plates as shell triangles about the mesh size apart, sharing their nodes where they meet, " +
                                            "held at its footings and piles and by the ground under a raft, each load case solved and each combination added up. Forces are kN and kNm, deflections mm. " +
-                                           "Its members are checked for strength on the Strength tab, on second-order forces where the Sway tab says the structure needs them, masonry walls on the Walls tab, concrete floors and rafts on the Slabs tab, joints and bearings on the Joints tab and the ground on the Foundations tab."));
+                                           "Its members are checked for strength on the Strength tab, on second-order forces where the Sway tab says the structure needs them, masonry, stud and concrete walls on the Walls tab, concrete floors and rafts on the Slabs tab, joints and bearings on the Joints tab and the ground on the Foundations tab."));
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);
         root.Children.Add(tabs);
@@ -257,7 +257,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
     /// <summary>Every wall's strength, worst first.</summary>
     private void ShowWalls()
     {
-        Fill(_walls, new[] { "Wall", "Thickness", "Masonry", "Of its strength", "Governed by", "Under", "By" }, _wallChecks.Select(check => new[]
+        Fill(_walls, new[] { "Wall", "Thickness", "Made of", "Of its strength", "Governed by", "Under", "By" }, _wallChecks.Select(check => new[]
         {
             check.Panel.Name, $"{check.Panel.Thickness:0} mm", check.Grade, check.Checks.Count > 0 ? Share(check.Ratio) : "not checked",
             check.Worst?.Name ?? "-", check.Worst?.Under ?? "-", check.By

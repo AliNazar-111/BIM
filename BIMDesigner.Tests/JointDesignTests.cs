@@ -266,8 +266,8 @@ public class JointDesignTests
         var document = House();
         Steel(document, new Point2D(0, 4000), new Point2D(10000, 4000));
         var joint = Joints(document).First(each => each.Kind == "Beam on a wall");
-        var bearing = joint.Checks.Single();
-        Assert.StartsWith("Bearing", bearing.Name, StringComparison.Ordinal);
+        var bearing = joint.Checks.Single(check => check.Name.StartsWith("Bearing", StringComparison.Ordinal));
+        Assert.Contains(joint.Checks, check => check.Name == "Beam's web on the wall");
         Assert.StartsWith("ULS", bearing.Under, StringComparison.Ordinal);
     }
 

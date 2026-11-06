@@ -16,6 +16,9 @@ public static class TimberDesign
 {
     public static readonly TimberGrade C24 = new("C24", 24, 14.5, 21, 4.0, 11000, 7400, 1.3, false);
 
+    /// <summary>C16 of BS EN 338:2016.</summary>
+    public static readonly TimberGrade C16 = new("C16", 16, 8.5, 17, 3.2, 8000, 5400, 1.3, false);
+
     public static readonly TimberGrade Gl24h = new("GL24h", 24, 19.2, 24, 3.5, 11500, 9600, 1.25, true);
 
     /// <summary>

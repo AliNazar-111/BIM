@@ -242,7 +242,7 @@ public static class ConcreteDesign
     /// slender (6.2.5, taken as bent in single curvature, kl/r over 22) with EI as 0.4 Ec Ig / (1 + 0.6),
     /// the two ways together taken straight-line. Between 1% and 8% steel (10.6.1.1).
     /// </summary>
-    public static (double Unity, double Steel) ColumnAci(ColumnSection strong, ColumnSection weak, double compression, double momentY, double momentZ, double lengthStrong, double lengthWeak, double fc)
+    public static (double Unity, double Steel) ColumnAci(ColumnSection strong, ColumnSection weak, double compression, double momentY, double momentZ, double lengthStrong, double lengthWeak, double fc, double leastShare = 0.01)
     {
         var (pu, area) = (Math.Max(0, compression) * 1e3, strong.Area);
         var ec = 57000 * Math.Sqrt(fc / Psi) * Psi;
@@ -264,7 +264,7 @@ public static class ConcreteDesign
             return rdX <= 0 || rdY <= 0 ? 2 : mx / rdX + my / rdY;
         }
 
-        return Solved(Unity, 0.01 * area, 0.08 * area);
+        return Solved(Unity, leastShare * area, 0.08 * area);
     }
 
     /// <summary>The interaction at the most steel, and the least steel that brings it to 1 - bisected; the most if nothing does.</summary>

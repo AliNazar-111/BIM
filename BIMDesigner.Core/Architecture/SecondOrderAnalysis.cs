@@ -580,7 +580,7 @@ public sealed class SecondOrderAnalysis
             var bands = new List<WallStretch>();
             foreach (var ((stretch, band), members) in cells)
             {
-                double vertical = 0, shear = 0, momentUp = 0, momentAlong = 0, gravity = 0, total = 0;
+                double vertical = 0, shear = 0, lateral = 0, momentUp = 0, momentAlong = 0, gravity = 0, total = 0;
                 foreach (var i in members)
                 {
                     var area = areas[i];
@@ -592,7 +592,12 @@ public sealed class SecondOrderAnalysis
                         shear += area * factor * own[1];
                         momentUp += area * factor * own[2];
                         momentAlong += area * factor * own[3];
-                        if (loadCase.Nature == LoadNature.Wind) continue;
+                        if (loadCase.Nature == LoadNature.Wind)
+                        {
+                            lateral += area * factor * own[1];
+                            continue;
+                        }
+
                         gravity += area * factor * own[2];
                         var (leanX, leanY) = (byLean[(loadCase, 0)][i], byLean[(loadCase, 1)][i]);
                         momentUp += area * factor * (x * leanX[2] + y * leanY[2]);
@@ -607,7 +612,7 @@ public sealed class SecondOrderAnalysis
                 }
 
                 if (total < 5e4) continue;
-                bands.Add(new WallStretch(band != 1, vertical / total, shear / total, momentUp / total, momentAlong / total, gravity / total, band, total / (band == 1 ? height * 3 / 5 : height / 5), stretch));
+                bands.Add(new WallStretch(band != 1, vertical / total, shear / total, momentUp / total, momentAlong / total, gravity / total, band, total / (band == 1 ? height * 3 / 5 : height / 5), stretch, lateral / total));
             }
 
             results.Add((variant, bands));

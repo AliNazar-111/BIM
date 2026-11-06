@@ -121,7 +121,7 @@ public static class CalculationReport
         {
             Row("Members, strength", checkedMembers.Count, checkedMembers.Count(check => !check.Enough), checkedMembers.Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
                 checkedMembers.FirstOrDefault() is { } member ? $"{member.Member.Name}: {member.Worst?.Name}" : "-"),
-            Row("Masonry walls", checkedWalls.Count, checkedWalls.Count(check => !check.Enough), checkedWalls.Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
+            Row("Walls", checkedWalls.Count, checkedWalls.Count(check => !check.Enough), checkedWalls.Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
                 checkedWalls.FirstOrDefault() is { } wall ? $"{wall.Panel.Name}: {wall.Worst?.Name}" : "-"),
             Row("Concrete floors and rafts", checkedPlates.Count, checkedPlates.Count(check => !check.Enough), checkedPlates.Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
                 checkedPlates.FirstOrDefault() is { } plate ? $"{plate.Panel.Name}: {plate.Worst?.Name}" : "-"),
@@ -341,7 +341,7 @@ public static class CalculationReport
     {
         if (walls.Count == 0) return;
         report.Heading("Walls");
-        report.Table(new[] { new ReportColumn("Wall", 0.6), new ReportColumn("Masonry", 3), new ReportColumn("hef", 0.7, true), new ReportColumn("tef", 0.6, true), new ReportColumn("Of its strength", 0.8, true), new ReportColumn("Governed by", 1.7) },
+        report.Table(new[] { new ReportColumn("Wall", 0.6), new ReportColumn("Made of", 3), new ReportColumn("hef", 0.7, true), new ReportColumn("tef", 0.6, true), new ReportColumn("Of its strength", 0.8, true), new ReportColumn("Governed by", 1.7) },
             walls.Select(check => new ReportCell[]
             {
                 check.Panel.Name, check.Grade, check.Checks.Count > 0 ? F(check.EffectiveHeight, "0") : "-", check.Checks.Count > 0 ? F(check.EffectiveThickness, "0") : "-",
@@ -351,11 +351,11 @@ public static class CalculationReport
         foreach (var check in walls.Where(check => check.Checks.Count > 0).Take(MostInFull))
         {
             report.Heading($"{check.Panel.Name}: {check.Grade}", 2);
-            report.Paragraph($"By {check.By}. {F(check.Panel.Thickness, "0")} mm loaded leaf, effective height {Units.Metres(check.EffectiveHeight, "0.00")}, effective thickness {F(check.EffectiveThickness, "0")} mm.", ReportTone.Muted);
+            report.Paragraph($"By {check.By}. {F(check.Panel.Thickness, "0")} mm {(check.Panel.Material.Kind == AnalyticalMaterialKind.Masonry ? "loaded leaf" : "wall")}, effective height {Units.Metres(check.EffectiveHeight, "0.00")}, effective thickness {F(check.EffectiveThickness, "0")} mm.", ReportTone.Muted);
             CheckTable(report, check.Checks);
         }
 
-        if (walls.FirstOrDefault(check => check.Checks.Count > 0) is { } first) report.Paragraph(first.Limits, ReportTone.Muted);
+        foreach (var limits in walls.Where(check => check.Checks.Count > 0).Select(check => check.Limits).Where(limits => limits.Length > 0).Distinct()) report.Paragraph(limits, ReportTone.Muted);
     }
 
     private static string Steel(double area) => double.IsInfinity(area) ? "too thin" : F(area, "0");

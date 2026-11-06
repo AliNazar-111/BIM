@@ -475,7 +475,7 @@ public class BuildingAuditTests
     }
 
     [Fact]
-    public void AUsTimberFrameHouseIsHeldUpAndSaysWhatItLeavesOut()
+    public void AUsTimberFrameHouseIsHeldUpAndSaysWhatItTakes()
     {
         var d = BimDocument.CreateDefault();
         d.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
@@ -485,6 +485,6 @@ public class BuildingAuditTests
         foreach (var wall in d.Walls.ToList()) d.Add(Footings.Fit(d, wall));
         AddRoof(d, 10000, 8000, lower, f);
         var audit = Audit(d);
-        Assert.All(MasonryDesign.Of(d, audit.Second), wall => Assert.Contains("Not checked", wall.Limits));
+        Assert.All(MasonryDesign.Of(d, audit.Second), wall => Assert.Contains("No frame is drawn", wall.Limits));
     }
 }

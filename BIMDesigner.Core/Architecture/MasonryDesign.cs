@@ -202,7 +202,7 @@ public static class MasonryDesign
         return new StrengthCheck("Shear in its plane", Math.Abs(stretches.Sum(stretch => stretch.Shear * stretch.Length)) / 1000, fvk / GammaShear * t * length / 1000, "kN", "6.2, 3.6.2", $"fvk {fvk:0.00}, {length / 1000:0.0} m in compression");
     }
 
-    /// <summary>Every bearing wall's checks, a wall not of masonry, or in a US project, said not to be.</summary>
+    /// <summary>Every bearing wall's checks: masonry, or timber and concrete by their own rules. A masonry wall in a US project is said not to be, and any other.</summary>
     public static IReadOnlyList<WallCheck> Of(BimDocument document, SecondOrderAnalysis second)
     {
         var analysis = second.Analysis;
@@ -211,6 +211,18 @@ public static class MasonryDesign
         foreach (var panel in analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall))
         {
             var quality = panel.Material.Quality;
+            if (panel.Material.Kind == AnalyticalMaterialKind.Timber)
+            {
+                results.Add(TimberWallDesign.Check(document, second, panel, us));
+                continue;
+            }
+
+            if (panel.Material.Kind == AnalyticalMaterialKind.Concrete)
+            {
+                results.Add(ConcreteWallDesign.Check(document, second, panel, us));
+                continue;
+            }
+
             if (panel.Material.Kind != AnalyticalMaterialKind.Masonry)
             {
                 results.Add(new WallCheck(panel, quality, string.Empty, Array.Empty<StrengthCheck>(), 0, panel.Thickness, $"Not checked: a {panel.Material.Kind.ToString().ToLowerInvariant()} wall is not worked out here."));
@@ -280,7 +292,7 @@ public static class MasonryDesign
 
         // Its edges, stiffened by a wall meeting them across it, where no large opening stands in the way (5.5.1.2(9)).
         var area = Geometry.Polygon2D.Area(flat);
-        var opened = wall.Openings.Any(opening =>
+        var opened = wall.Cuts.Any(opening =>
         {
             var points = opening.Select(wall.Flat).ToList();
             var (wide, high) = (points.Max(p => p.X) - points.Min(p => p.X), points.Max(p => p.Y) - points.Min(p => p.Y));
@@ -323,5 +335,5 @@ public static class MasonryDesign
     }
 }
 
-/// <summary>A stretch of wall about a metre long and a band of its height: its average forces in its plane, N per mm, compression negative, and moments, N mm per mm, up it and along it, with what is left of the moment up it without the wind.</summary>
-public readonly record struct WallStretch(bool End, double Vertical, double Shear, double MomentVertical, double MomentHorizontal, double GravityMoment, int Level = 0, double Length = 1000, int Stretch = 0);
+/// <summary>A stretch of wall about a metre long and a band of its height: its average forces in its plane, N per mm, compression negative, and moments, N mm per mm, up it and along it, with what is left of the moment up it without the wind and what of its shear the wind alone puts there.</summary>
+public readonly record struct WallStretch(bool End, double Vertical, double Shear, double MomentVertical, double MomentHorizontal, double GravityMoment, int Level = 0, double Length = 1000, int Stretch = 0, double Lateral = 0);
