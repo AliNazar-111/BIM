@@ -159,7 +159,7 @@ public static class CalculationReport
             "Joints past those set out here: splices, moment joints, holding-down bolts, the fixings of what the model holds as drawn, and what connects a tie. What a joint wants is said; it is not in the model.",
             "Settlement as anything more than an estimate: each footing's is worked from a presumed stiffness of the ground, the analysis's supports not giving way as it does. Heave and consolidation over time are not worked out.",
             "Cracking of any slab with no bars in the model, whose steel is what it needs and not what it has; and long-term deflection worked out, rather than ruled by span to depth.",
-            "Seismic loads, movement and durability. Impact and explosion, and the notional removal of a support; only the ties and anchorage of a building's class. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry and stud walls by the Fire Rating on their types.",
+            "Seismic loads, movement and durability. Impact and explosion, and the notional removal of a support; only the ties and anchorage of a building's class. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
             "The ground: its kind is as set on the project, and no site investigation stands behind it."
         };
         var skipped = members.Where(check => check.Checks.Count == 0).Select(check => check.Member.Name).Concat(walls.Where(check => check.Checks.Count == 0).Select(check => check.Panel.Name)).ToList();

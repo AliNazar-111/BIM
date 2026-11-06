@@ -175,7 +175,7 @@ public sealed class StructuralAnalysis
         }
 
         // Plates: meshed in their own plane.
-        foreach (var panel in Model.Panels.Concat(Model.Diaphragms)) Mesh(panel);
+        foreach (var panel in Model.Panels.Concat(Model.Diaphragms)) Mesh(panel, StudShare(document, panel));
 
         // Supports.
         foreach (var support in Model.Supports)
@@ -257,7 +257,16 @@ public sealed class StructuralAnalysis
     }
 
     /// <summary>A plate cut into shell triangles: its edges and openings divided, the lines other plates and members meet it along kept as edges, points about the mesh size apart filling it.</summary>
-    private void Mesh(AnalyticalPanel panel)
+    /// <summary>How stiff a wall of studs is up them, as a share of the solid plate standing for it: a stud's second moment of area for each mm along the wall over the plate's. Null for anything but studs.</summary>
+    private static double? StudShare(BimDocument document, AnalyticalPanel panel)
+    {
+        if (panel.Kind != AnalyticalPanelKind.Wall || panel.Material.Kind != AnalyticalMaterialKind.Timber) return null;
+        if (TimberWallDesign.FrameOf(document, panel, document.ProjectInformation.ClearanceStandard.IsUs()) is not { } frame) return null;
+        var nu = PoissonOf(panel.Material);
+        return frame.Section.Thickness * Math.Pow(frame.Section.Depth, 3) / 12 / frame.Spacing / (Math.Pow(panel.Thickness, 3) / (12 * (1 - nu * nu)));
+    }
+
+    private void Mesh(AnalyticalPanel panel, double? studs)
     {
         var points = new List<(Point2D Flat, Point3D At)>();
         var constraints = new List<(int, int)>();
@@ -332,7 +341,15 @@ public sealed class StructuralAnalysis
             if (Math.Abs(Polygon2D.SignedArea(new[] { pa, pb, pc })) < 1) continue;
             var nodes = new[] { Node(points[a].At), Node(points[b].At), Node(points[c].At) };
             if (nodes.Distinct().Count() < 3) continue;
-            var shell = Solver.AddShell(new StructuralSolver.Shell(nodes[0], nodes[1], nodes[2], panel.Material.Modulus, PoissonOf(panel.Material), panel.Thickness, panel.Kind == AnalyticalPanelKind.Diaphragm ? 1e-3 : 1));
+            var made = new StructuralSolver.Shell(nodes[0], nodes[1], nodes[2], panel.Material.Modulus, PoissonOf(panel.Material), panel.Thickness, panel.Kind == AnalyticalPanelKind.Diaphragm ? 1e-3 : 1);
+            if (studs is { } share)
+            {
+                var (x, y, _) = Solver.Axes(made);
+                var up = new StructuralSolver.Vector3(panel.V.X, panel.V.Y, panel.V.Z);
+                made = made with { Framed = new StructuralSolver.Studs(up.Dot(x), up.Dot(y), share) };
+            }
+
+            var shell = Solver.AddShell(made);
             _panelShells.Add((panel, shell));
             shells++;
             meshed += Math.Abs(Polygon2D.SignedArea(new[] { pa, pb, pc }));

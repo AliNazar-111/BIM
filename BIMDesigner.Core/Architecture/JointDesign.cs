@@ -306,7 +306,10 @@ public static class JointDesign
         joints.AddRange(UnderWalls(second, us));
         joints.AddRange(BaseOf(document, second, us));
         foreach (var panel in second.Analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Timber && TimberWallDesign.FrameOf(document, panel, us) is not null))
+        {
             joints.AddRange(Headers(document, second, panel, us));
+            if (TieDown(document, second, panel, us) is { } tie) joints.Add(tie);
+        }
         foreach (var panel in second.Analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Masonry))
         {
             joints.AddRange(Lintels(document, second, panel, us));
@@ -614,6 +617,16 @@ public static class JointDesign
         return line <= 0 && wall.Element is Wall model ? (us ? 1.6 : 1.5) * Loads.OnWall(document, model) : line;
     }
 
+    /// <summary>What comes down a wall in use, kN a metre: what its foot holds up under every load but the wind, or by the take-down for a wall that stands on something else.</summary>
+    private static double LineInUse(BimDocument document, StructuralAnalysis analysis, AnalyticalPanel wall)
+    {
+        var flat = wall.FlatOutline;
+        var length = (flat.Max(p => p.X) - flat.Min(p => p.X)) / 1000;
+        var supports = analysis.Model.Supports.Where(support => ReferenceEquals(support.Panel, wall)).ToList();
+        var line = supports.Sum(support => analysis.ReactionOf(support, analysis.Total).Fz) / Math.Max(length, 1e-3);
+        return line <= 0 && wall.Element is Wall model ? Loads.OnWall(document, model) : line;
+    }
+
     /// <summary>Each opening's header in a stud wall: the depth the frame gives it, two studs wide, on jacks, through the same checks as a timber beam, what comes down the wall carried along it.</summary>
     private static IEnumerable<JointCheck> Headers(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel wall, bool us)
     {
@@ -634,11 +647,55 @@ public static class JointDesign
             var span = (clear + width) / 1000;
             var forces = new MemberForces(0, 0, line * span / 2, 0, line * span * span / 8, 0, false);
             var lengths = new MemberLengths(span * 1000, span * 1000, 0, 0);
-            var checks = (us ? TimberDesign.Nds(depth, width, false, false, false, lengths, span * 1000, forces, 0.8) : TimberDesign.Eurocode(frame.Section.Name.Contains("C16", StringComparison.Ordinal) ? TimberDesign.C16 : TimberDesign.C24, depth, width, false, lengths, forces, 0.8)).ToList();
-            yield return new JointCheck($"{wall.Name} over opening {opening}", "Header", checks.Select(check => check with { Note = $"{line:0.0} kN/m on {span:0.00} m" }).ToList(),
-                $"a header {width:0} by {depth:0} over {clear:0}, on a jack each side", "All the wall brings down taken along it, medium term. Its deflection and the jacks under it are not worked out.");
+            var grade = frame.Section.Name.Contains("C16", StringComparison.Ordinal) ? TimberDesign.C16 : TimberDesign.C24;
+            var checks = (us ? TimberDesign.Nds(depth, width, false, false, false, lengths, span * 1000, forces, 0.8) : TimberDesign.Eurocode(grade, depth, width, false, lengths, forces, 0.8)).ToList();
+            var rows = checks.Select(check => check with { Note = $"{line:0.0} kN/m on {span:0.00} m" }).ToList();
+
+            // How far it sags, final: the load on it in use, and creep at BS EN 1995-1-1 Table 3.2's kdef of 0.6 for a dry building. The IBC's span/240 is on the total load, with no creep.
+            var served = LineInUse(document, analysis, wall);
+            var second_ = width * depth * depth * depth / 12;
+            var sag = 5 * served * Math.Pow(span * 1000, 4) / (384 * grade.E0Mean * second_) * (us ? 1 : 1.6);
+            var allowed = span * 1000 / (us ? 240 : 250);
+            rows.Add(new StrengthCheck("Sag", sag, allowed, "mm", us ? "IBC Table 1604.3" : "7.2, Table NA.5", $"{served:0.0} kN/m in use on {span:0.00} m"));
+
+            // Each end on its jack: as a stud as tall as the opening's head, held across by the sheathing, and the header's own bearing on it.
+            var reaction = line * span / 2;
+            var (jackWidth, jackDepth) = (frame.Section.Thickness, frame.Section.Depth);
+            var tall = head - flat.Min(p => p.Y);
+            var jackLengths = new MemberLengths(tall, Math.Min(600, tall), 0, 0);
+            var downJack = new MemberForces(-reaction, 0, 0, 0, 0, 0, false);
+            var jack = (us ? TimberDesign.Nds(jackDepth, jackWidth, false, true, true, jackLengths, tall, downJack, 0.8) : TimberDesign.Eurocode(grade, jackDepth, jackWidth, true, jackLengths, downJack, 0.8))
+                .Where(check => check.Name.Contains("uckling", StringComparison.Ordinal)).Select(check => check with { Name = $"Jack: {check.Name.ToLowerInvariant()}", Note = $"{reaction:0.0} kN on {tall:0} of stud" }).ToList();
+            rows.AddRange(jack);
+            var bearing = us ? TimberWallDesign.FootNds(reaction, jackWidth, jackDepth) : TimberWallDesign.FootEurocode(reaction, jackWidth, jackDepth, grade, 0.8);
+            rows.Add(bearing with { Name = "Header on its jack" });
+
+            var jacks = jack.Any(check => check.Ratio > 1) || bearing.Ratio > 1 ? "two jacks" : "a jack";
+            yield return new JointCheck($"{wall.Name} over opening {opening}", "Header", rows, $"a header {width:0} by {depth:0} over {clear:0}, on {jacks} each side", "All the wall brings down taken along it, medium term. Jacks with one stud on each side, or two where it says.");
         }
 
+    }
+
+    /// <summary>
+    /// What ties the ends of a stud wall down: (9.23) with the storeys above it, less what stands on it. BS EN 1995-1-1 9.2.4.2(1) applies its racking only to a wall tied down at its ends, or held down by its load; SDPWS by v h. Where a tension is left, the two end studs
+    /// carry it to a tie-down the model does not hold, and it says how much that has to take.
+    /// </summary>
+    private static JointCheck? TieDown(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel wall, bool us)
+    {
+        if (TimberWallDesign.FrameOf(document, wall, us) is not { } frame) return null;
+        var ends = TimberWallDesign.EndsOf(document, second, wall);
+        if (ends.Count == 0) return null;
+        var worst = ends.MaxBy(each => each.Uplift)!;
+        if (worst.Force <= 0.01) return null;
+        var (width, depth) = (frame.Section.Thickness, frame.Section.Depth);
+        var said = $"{worst.Force:0.0} kN at an end from {worst.Moment:0.0} kNm over its lengths, {worst.Line:0.0} kN/m on it";
+        if (worst.Uplift <= 0)
+            return new JointCheck($"{wall.Name} ends", "Tie-down", new[] { new StrengthCheck("Held down by its load", worst.Force, worst.Line * worst.Length / 2000, "kN", us ? "SDPWS 4.3.6" : "9.2.4.2(2)", said, worst.Under) }, string.Empty, "What stands on it holds its ends down, nothing else being asked of it.");
+
+        var grade = frame.Section.Name.Contains("C16", StringComparison.Ordinal) ? TimberDesign.C16 : TimberDesign.C24;
+        var strength = us ? 575 * TimberDesign.SizeFactors(depth, width).Tension * 2.70 * 0.80 * Psi : 1.1 * grade.Ft0 / grade.GammaM;
+        return new JointCheck($"{wall.Name} ends", "Tie-down", new[] { new StrengthCheck("End studs in tension", worst.Uplift, strength * 2 * width * depth / 1000, "kN", us ? "SDPWS 4.3.6" : "(9.23)", said, worst.Under) },
+            $"a tie-down for {worst.Uplift:0.0} kN at each end of each {worst.Length / 1000:0.0} m length, into what is below", "The tie-down itself is to its maker's rated load; its bolts and what they fix into are for whoever details it.");
     }
 
     /// <summary>A cavity wall's ties, by the wind that passes between its leaves.</summary>

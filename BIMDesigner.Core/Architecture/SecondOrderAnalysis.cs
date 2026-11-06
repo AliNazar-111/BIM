@@ -131,6 +131,25 @@ public sealed class SecondOrderAnalysis
         var imperfection = ImperfectionOf(us, heights.Max() - heights.Min());
         var limit = us ? UsLimit : UkLimit;
 
+        // A stud wall leans where a floor holds it. Its weight pushed sideways halfway up would only bow its studs, which is a stud's own buckling, in the stud's own checks, and no measure of how the building sways.
+        var leansAt = Enumerable.Range(0, solver.NodeCount).ToArray();
+        var floored = analysis.Model.Panels.Where(panel => panel.Kind != AnalyticalPanelKind.Wall).Concat(analysis.Model.Diaphragms).SelectMany(analysis.ShellsOf)
+            .Select(shell => solver.Shells[shell]).SelectMany(shell => new[] { shell.I, shell.J, shell.K }).ToHashSet();
+        foreach (var panel in analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall))
+        {
+            var shells = analysis.ShellsOf(panel).Select(shell => solver.Shells[shell]).ToList();
+            if (shells.Count == 0 || shells[0].Framed is null) continue;
+            // The nearest node above or below each that a floor holds, from the mesh, or failing one the top of the wall over it: not a door's head, which nothing holds, nor the strip of a wall that runs on past its floor up to a roof.
+            var foot = panel.Outline.Min(node => node.At.Z);
+            var nodes = shells.SelectMany(shell => new[] { shell.I, shell.J, shell.K }).Distinct().Select(node => (Node: node, At: panel.Flat(solver.NodeAt(node)))).ToList();
+            foreach (var (node, at) in nodes.Where(each => solver.NodeAt(each.Node).Z > foot + 1))
+            {
+                var over = nodes.Where(other => Math.Abs(other.At.X - at.X) <= analysis.MeshSize / 2 + 1).ToList();
+                var held = over.Where(other => floored.Contains(other.Node)).ToList();
+                leansAt[node] = held.Count > 0 ? held.MinBy(other => Math.Abs(other.At.Y - at.Y)).Node : over.MaxBy(other => other.At.Y).Node;
+            }
+        }
+
         // Each case's movement and stress, and how it moves leaning each way under the weight of it.
         var moved = new Dictionary<LoadCase, double[]>();
         var stress = new Dictionary<LoadCase, StructuralSolver.Prestress>();
@@ -145,7 +164,7 @@ public sealed class SecondOrderAnalysis
             for (var axis = 0; axis < 2; axis++)
             {
                 var horizontal = new double[length];
-                for (var node = 0; node < solver.NodeCount; node++) horizontal[node * 6 + axis] = -load[node * 6 + 2] * imperfection;
+                for (var node = 0; node < solver.NodeCount; node++) horizontal[leansAt[node] * 6 + axis] += -load[node * 6 + 2] * imperfection;
                 lean[(loadCase, axis)] = horizontal;
                 leanMoved[(loadCase, axis)] = factored.Solve(horizontal);
             }
@@ -217,7 +236,7 @@ public sealed class SecondOrderAnalysis
             us
                 ? $"Second-order effects by the direct analysis method of AISC 360-16 C2: notional loads of {imperfection:0.000} of the weight at each node, in every combination, EI and EA at 0.8 for steel, τb taken as 1.0. Concrete at ACI 318-19 Table 6.6.3.1.1(a)'s stiffnesses, timber at Emin, masonry cracked at half, as taken here. Taken to second order where αcr is under {limit:0}, Q over 0.05."
                 : $"Second-order effects by BS EN 1993-1-1 5.2: an out-of-plumb of 1 in {1 / imperfection:0} (5.3.2, αm taken as 1) as horizontal forces at each node, leaning with the wind or each of four ways. Concrete at 0.4 Ecd (BS EN 1992-1-1 Annex H), timber at E/γM, masonry cracked at half, as taken here. Taken to second order where αcr is under {limit:0}.",
-            "αcr is the energy ratio along the structure's leaning shape, the general form of the storey formula; a slender member's own buckling is in its own checks. The moments the foundations are designed for stay first order, at full stiffness."
+            "αcr is the energy ratio along the structure's leaning shape, the general form of the storey formula; a slender member's own buckling is in its own checks, and a stud wall's weight leans at the floor that holds it, its studs' bowing between floors being theirs. The moments the foundations are designed for stay first order, at full stiffness."
         };
 
         results.Sort((a, b) => a.Alpha.CompareTo(b.Alpha));

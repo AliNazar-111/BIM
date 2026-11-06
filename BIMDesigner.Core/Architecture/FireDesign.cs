@@ -161,6 +161,49 @@ public static class TimberFire
     /// <summary>How deep a face has gone after so many minutes, mm: (4.1), the zero strength layer growing to 7 mm over the first 20 minutes by Table 4.1.</summary>
     public static double Effective(double minutes, bool glulam) => (glulam ? 0.7 : 0.8) * minutes + Math.Min(1, minutes / 20) * 7;
 
+    /// <summary>What boards are counted of a lining, mm: (3.4.3.3): one layer, or the outer with half the inner, each of gypsum plasterboard, in the order they are in the build-up, outermost last.</summary>
+    public static double Counted(IReadOnlyList<double> boards) => boards.Count == 0 ? 0 : boards[^1] + (boards.Count > 1 ? 0.5 * boards[^2] : 0);
+
+    /// <summary>When plasterboard of type A or H lets the fire reach what is behind it, minutes: (3.11), 2.8 hp - 14. It falls off then, (3.15), so this is its failure time as well.</summary>
+    public static double StartOfCharring(double lining) => Math.Max(0, 2.8 * lining - 14);
+
+    /// <summary>
+    /// How deep a face behind a lining has gone, mm: nothing until the board falls off, then at twice the rate until the charring has caught up with what it would have been or gone 25 mm, then at the rate of Table 3.1: (3.8), the zero strength layer
+    /// growing over the time to the start of charring where that is more than 20 minutes, 4.2.2(3). With no lining, <see cref="Effective"/>.
+    /// </summary>
+    public static double Behind(double minutes, double lining, bool glulam)
+    {
+        var start = StartOfCharring(lining);
+        if (start <= 0) return Effective(minutes, glulam);
+        var rate = glulam ? 0.7 : 0.8;
+        const double doubled = 2;
+        var until = Math.Min(2 * start, 25 / (doubled * rate) + start);
+        var charred = minutes <= start ? 0 : minutes <= until ? doubled * rate * (minutes - start) : doubled * rate * (until - start) + rate * (minutes - until);
+        return charred + (start > 20 ? Math.Min(1, minutes / start) : Math.Min(1, minutes / 20)) * 7;
+    }
+
+    private static double Between((double At, double Value)[] table, double at)
+    {
+        if (at <= table[0].At) return table[0].Value;
+        for (var i = 1; i < table.Length; i++)
+            if (at <= table[i].At) return table[i - 1].Value + (table[i].Value - table[i - 1].Value) * (at - table[i - 1].At) / (table[i].At - table[i - 1].At);
+        return table[^1].Value;
+    }
+
+    /// <summary>
+    /// A stud in a wall with its cavity full of rock fibre, by Annex C, a fire on one side and at most 60 minutes: how deep it has charred from the fire's side, mm, (C.2) with β0 0.65, kn 1.5, ks by Table C1 and k3 0.036 tf + 1;
+    /// how much of its strength is left, (C.13) and Table C2; and of its stiffness across the wall, (C.14) and Table C4. Null past where the annex goes.
+    /// </summary>
+    public static (double Charred, double Strength, double Stiffness)? Stud(double minutes, double lining, double depth, double width)
+    {
+        if (minutes > 60) return null;
+        var failed = StartOfCharring(lining);
+        var charred = Math.Max(0, minutes - failed) * Between(new[] { (38.0, 1.4), (45.0, 1.3), (60.0, 1.1) }, width) * (0.036 * failed + 1) * 1.5 * 0.65;
+        var strength = Between(new[] { (95.0, 0.46), (145.0, 0.55), (195.0, 0.65), (220.0, 0.67) }, depth) - Between(new[] { (95.0, 0.37), (145.0, 0.40), (195.0, 0.48), (220.0, 0.47) }, depth) * charred / depth;
+        var stiffness = Between(new[] { (95.0, 0.50), (145.0, 0.60), (195.0, 0.68) }, depth) - Between(new[] { (95.0, 0.79), (145.0, 0.84), (195.0, 0.77) }, depth) * charred / depth;
+        return (charred, Math.Max(0, strength), Math.Max(0, stiffness));
+    }
+
     /// <summary>The strength class as a fire finds it: kfi of Table 2.1 on its strengths and stiffnesses, its partial factor undone, for γM,fi is 1.0 and kmod,fi is 1.0, so the checks at normal temperature can be used.</summary>
     public static TimberGrade Hot(TimberGrade grade)
     {
@@ -169,9 +212,9 @@ public static class TimberFire
     }
 
     /// <summary>A section's depth and width once a fire has been at it for so long: from the sides and beneath, or all round a post.</summary>
-    public static (double Depth, double Width) Left(double depth, double width, double minutes, bool glulam, bool allRound)
+    public static (double Depth, double Width) Left(double depth, double width, double minutes, bool glulam, bool allRound, double lining = 0)
     {
-        var gone = Effective(minutes, glulam);
+        var gone = Behind(minutes, lining, glulam);
         return (depth - (allRound ? 2 : 1) * gone, width - 2 * gone);
     }
 }
@@ -386,9 +429,49 @@ public static class FireDesign
             $"its bars {axis:0} mm to their centres from the soffit", "A floor finish of non-combustible material may count towards the thickness, 5.7.1, and is not counted here. A two-way slab held on four edges may want less axis distance.");
     }
 
+    /// <summary>
+    /// A wall of studs with no Fire Rating, its cavity full of insulation that stays up behind plasterboard, by Annex C of BS EN 1995-1-2, from its inner face: its stud as a column of what is left, at 20th percentile strength.
+    /// Null where the annex does not reach: an empty cavity, or glass fibre past the time the board falls off, or past 60 minutes.
+    /// </summary>
+    private static FireCheck? Stud(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel panel, WallType type, int minutes)
+    {
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        if (us || TimberWallDesign.FrameOf(document, panel, us) is not { } frame) return null;
+        var fill = type.Structure.Layers.Where(layer => layer.Function == BIMDesigner.Core.Materials.LayerFunction.Structure).Select(layer => document.FindMaterial(layer.MaterialId)?.Name ?? string.Empty).FirstOrDefault() ?? string.Empty;
+        var glass = fill.Contains("glass", StringComparison.OrdinalIgnoreCase);
+        if (!glass && !fill.Contains("wool", StringComparison.OrdinalIgnoreCase) && !fill.Contains("rock", StringComparison.OrdinalIgnoreCase)) return null;
+        var lining = TimberFire.Counted(BoardsAfter(document, type.Structure));
+        if (lining <= 0 || (glass && minutes > TimberFire.StartOfCharring(lining))) return null;
+        var (width, depth) = (frame.Section.Thickness, frame.Section.Depth);
+        if (TimberFire.Stud(minutes, lining, depth, width) is not { } left) return null;
+
+        var analysis = second.Analysis;
+        var height = panel.FlatOutline.Max(p => p.Y) - panel.FlatOutline.Min(p => p.Y);
+        var length = (panel.FlatOutline.Max(p => p.X) - panel.FlatOutline.Min(p => p.X)) / 1000;
+        var fire = Combination(document, analysis.Loading);
+        var line = analysis.Model.Supports.Where(support => ReferenceEquals(support.Panel, panel)).Sum(support => analysis.ReactionOf(support, fire).Fz) / Math.Max(length, 1e-3);
+        var load = Math.Max(0, line) * frame.Spacing / 1000;
+        var remaining = depth - left.Charred;
+        var grade = frame.Section.Name.Contains("C16", StringComparison.Ordinal) ? TimberDesign.C16 : TimberDesign.C24;
+        var strength = left.Strength * 1.25 * grade.Fc0;
+        var stiffness = left.Stiffness * 1.25 * grade.E05;
+        if (remaining <= 0 || stiffness <= 0)
+            return new FireCheck(panel.Name, "Wall", minutes, new[] { new StrengthCheck("Burnt through", left.Charred, depth, "mm", "Annex C", "from its inner face") }, $"a thicker lining, or a Fire Rating for {minutes} minutes", string.Empty);
+
+        var slender = height / (0.2887 * remaining) / Math.PI * Math.Sqrt(strength / stiffness);
+        var k = 0.5 * (1 + 0.2 * (slender - 0.3) + slender * slender);
+        var buckling = Math.Min(1, 1 / (k + Math.Sqrt(k * k - slender * slender)));
+        var capacity = buckling * strength * width * remaining / 1000;
+        return new FireCheck(panel.Name, "Wall", minutes, new[] { new StrengthCheck("In fire: stud in compression", load, capacity, "kN", "Annex C", $"{remaining:0} left of {depth:0}, {left.Strength:0.00} of its strength, kc {buckling:0.00}") },
+            load <= capacity ? string.Empty : $"a thicker lining, or a Fire Rating for {minutes} minutes",
+            $"Behind {lining:0.#} mm of plasterboard of type A or H counted, its cavity full of rock fibre taken to stay up, a fire from its inner face. Annex C is informative.");
+    }
+
     private static FireCheck WallOf(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel panel, Wall wall, int minutes)
     {
         var type = document.GetWallType(wall);
+        if (panel.Material.Kind == AnalyticalMaterialKind.Timber && type is not null && Doors.FireMinutes(type.FireRating) == 0 && Stud(document, second, panel, type, minutes) is { } stud) return stud;
+
         if (panel.Material.Kind != AnalyticalMaterialKind.Concrete)
             return ByRating(panel.Name, "Wall", minutes, Doors.FireMinutes(type?.FireRating ?? string.Empty), panel.Material.Kind == AnalyticalMaterialKind.Masonry
                 ? "The tables of BS EN 1996-1-2 have not been read here: give its type a Fire Rating from its block maker's data."
@@ -417,9 +500,14 @@ public static class FireDesign
         };
 
         // A joist stands inside its floor, whose rating is the floor's and all that is in it.
+        var lining = 0.0;
         if (member.Kind == AnalyticalMemberKind.Joist)
             foreach (var floor in floors.Where(floor => Math.Abs(floor.GetTopElevation(document) - level) <= 600 && Polygon2D.Contains(floor.Boundary, middle)))
-                rating = Math.Max(rating, Doors.FireMinutes(document.FindType<SlabType>(floor.TypeId)?.FireRating ?? string.Empty));
+            {
+                var type = document.FindType<SlabType>(floor.TypeId);
+                rating = Math.Max(rating, Doors.FireMinutes(type?.FireRating ?? string.Empty));
+                if (type is not null) lining = Math.Max(lining, TimberFire.Counted(BoardsAfter(document, type.Structure)));
+            }
 
         if (rating >= minutes && member.Section.Material.Kind != AnalyticalMaterialKind.Concrete)
             return new FireCheck(member.Name, kind, minutes, new[] { Rated(minutes, rating) }, string.Empty, member.Kind == AnalyticalMemberKind.Joist ? "As its floor's Fire Rating says, tested with the joists it has." : "As its type's Fire Rating says, the protection on it to be what was tested.");
@@ -429,7 +517,7 @@ public static class FireDesign
         return member.Section.Material.Kind switch
         {
             AnalyticalMaterialKind.Steel when SteelSection.Of(member.Section) is { } section => Steel(analysis.Model, check, section, forces, minutes),
-            AnalyticalMaterialKind.Timber when member.Section.Dimensions.Count >= 2 => Timber(check, forces, minutes),
+            AnalyticalMaterialKind.Timber when member.Section.Dimensions.Count >= 2 => Timber(check, forces, minutes, lining),
             AnalyticalMaterialKind.Concrete when member.Section.Dimensions.Count >= 2 => Concrete(check, forces, minutes),
             _ => new FireCheck(member.Name, kind, minutes, Array.Empty<StrengthCheck>(), $"{minutes} minutes' fire resistance", "Not checked: a member of this kind is not worked out in fire.")
         };
@@ -449,18 +537,28 @@ public static class FireDesign
             $"Bare, by the standard fire, {(onConcrete ? "three sides exposed under a concrete floor" : "all round")}. A protected member takes a Fire Rating on its type. Its lengths as cold.");
     }
 
-    private static FireCheck Timber(MemberCheck check, MemberForces forces, int minutes)
+    /// <summary>The plasterboard after a build-up's structure, on a floor's underside or a wall's inner face, mm each, in the order they are in it.</summary>
+    public static IReadOnlyList<double> BoardsAfter(BimDocument document, BIMDesigner.Core.Materials.CompoundStructure structure)
+    {
+        var layers = structure.Layers.ToList();
+        var last = layers.FindLastIndex(layer => layer.Function == BIMDesigner.Core.Materials.LayerFunction.Structure);
+        return layers.Skip(last + 1).Where(layer => document.FindMaterial(layer.MaterialId)?.Name is { } name && (name.Contains("plasterboard", StringComparison.OrdinalIgnoreCase) || name.Contains("gypsum", StringComparison.OrdinalIgnoreCase))).Select(layer => layer.Thickness).ToList();
+    }
+
+    private static FireCheck Timber(MemberCheck check, MemberForces forces, int minutes, double lining = 0)
     {
         var member = check.Member;
         var post = member.Kind == AnalyticalMemberKind.Column;
         var (depth, width) = (member.Section.Dimensions[0], member.Section.Dimensions[1]);
         var glulam = member.Section.Material.Quality.StartsWith("GL", StringComparison.Ordinal);
-        var (leftDepth, leftWidth) = TimberFire.Left(depth, width, minutes, glulam, post);
+        var (leftDepth, leftWidth) = TimberFire.Left(depth, width, minutes, glulam, post, lining);
         var said = $"{leftWidth:0} by {leftDepth:0} left of {width:0} by {depth:0}";
-        var wants = $"a lining or a Fire Rating for {minutes} minutes";
-        const string limits = "Bare, the reduced section of 4.2.2, three sides burning or all round a post. A lining delays this, and a tested floor or wall takes a Fire Rating on its type.";
+        var wants = lining > 0 ? $"a thicker lining, or a Fire Rating for {minutes} minutes" : $"a lining or a Fire Rating for {minutes} minutes";
+        var limits = lining > 0
+            ? $"Behind {lining:0.#} mm of plasterboard of type A or H counted, which falls away at {TimberFire.StartOfCharring(lining):0} minutes, then the reduced section of 4.2.2 with the charring of 3.4.3. Type F's failure time wants its maker's tests, and a tested floor takes a Fire Rating on its type."
+            : "Bare, the reduced section of 4.2.2, three sides burning or all round a post. A lining delays this, and a tested floor or wall takes a Fire Rating on its type.";
         if (leftDepth <= 0 || leftWidth <= 0)
-            return new FireCheck(member.Name, member.Kind.ToString(), minutes, new[] { new StrengthCheck("Burnt through", 2 * TimberFire.Effective(minutes, glulam), width, "mm", "4.2.2", $"two sides burning {TimberFire.Effective(minutes, glulam):0} mm each") }, wants, limits);
+            return new FireCheck(member.Name, member.Kind.ToString(), minutes, new[] { new StrengthCheck("Burnt through", 2 * TimberFire.Behind(minutes, lining, glulam), width, "mm", "4.2.2", $"two sides burning {TimberFire.Behind(minutes, lining, glulam):0} mm each") }, wants, limits);
 
         var grade = TimberFire.Hot(glulam ? TimberDesign.Gl24h : TimberDesign.C24);
         var checks = TimberDesign.Eurocode(grade, leftDepth, leftWidth, member.Kind == AnalyticalMemberKind.Joist, check.Lengths, forces, 1)

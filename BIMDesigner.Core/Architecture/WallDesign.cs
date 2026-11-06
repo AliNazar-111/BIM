@@ -51,6 +51,63 @@ public static class TimberWallDesign
         return aspect > 3.5 ? 0 : 0.8 * 670 * 4.44822e-3 / 0.3048 * length / 1000 * Math.Min(1, 1.25 - 0.125 * aspect);
     });
 
+    /// <summary>
+    /// The force at each end of a length of wall from racking, kN: (9.23), Fi,v h / bi, and what a wall of several lengths comes to, each taking its share by what it can carry, which brings the wall's overturning moment, kNm,
+    /// to that over the lengths that count, m. The same for the SDPWS, where a tie-down takes v h.
+    /// </summary>
+    public static double EndForce(double moment, IEnumerable<double> lengths, double height) =>
+        moment / Math.Max(lengths.Sum(length => length / 1000 * Math.Min(1, length / (height / 2))), 1e-6);
+
+    /// <summary>What lifts the end of a length of wall once what stands on it has held it down, kN: half the length's load on the arm of the whole length, what it comes to at one end.</summary>
+    public static double Uplift(double force, double line, double length) => force - line * length / 2000;
+
+    /// <summary>What a stud wall's ends come to under a combination: the force at each end, what stands on it, kN/m, and what is left lifting the narrowest full length.</summary>
+    public sealed record EndForces(string Under, double Force, double Line, double Length, double Uplift, double Moment);
+
+    /// <summary>
+    /// The ends of a stud wall under each combination, in the order the analysis gives them. The overturning moment at its foot is each storey's racking on its own height, this one's and those of the walls standing on it, by the rule that it is the sum of storey shears
+    /// by storey heights; what holds it down is what its foot carries under that same combination, so the wind's lift on the roof is in it.
+    /// </summary>
+    public static IReadOnlyList<EndForces> EndsOf(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel panel)
+    {
+        var flat = panel.FlatOutline;
+        var height = flat.Max(p => p.Y) - flat.Min(p => p.Y);
+        var solid = SolidLengths(panel);
+        if (solid.Count == 0) return Array.Empty<EndForces>();
+
+        // The narrowest length that counts in full holds down least.
+        var narrowest = solid.Where(length => length >= height / 2).DefaultIfEmpty(solid.Max()).Min();
+        var bands = second.WallStretches(panel, height);
+        var above = new List<(IReadOnlyList<(LoadCombination Combination, IReadOnlyList<WallStretch> Bands)> Bands, double Height, double Share)>();
+        if (panel.Element is Wall wall)
+        {
+            var own = flat.Max(p => p.X) - flat.Min(p => p.X);
+            foreach (var part in Loads.Stack(document, wall).Where(part => !ReferenceEquals(part, wall)))
+                foreach (var upper in second.Analysis.Model.Panels.Where(each => each.Kind == AnalyticalPanelKind.Wall && ReferenceEquals(each.Element, part)))
+                {
+                    var outline = upper.FlatOutline;
+                    var tall = outline.Max(p => p.Y) - outline.Min(p => p.Y);
+                    above.Add((second.WallStretches(upper, tall), tall, own / Math.Max(wall.Length, 1)));
+                }
+        }
+
+        static double Racked(IReadOnlyList<WallStretch> stretches) => Math.Abs(stretches.Where(stretch => stretch.Level == 0).Sum(stretch => stretch.Lateral * stretch.Length)) / 1000;
+        var results = new List<EndForces>();
+        for (var k = 0; k < bands.Count; k++)
+        {
+            var (combination, stretches) = bands[k];
+            var moment = Racked(stretches) * height / 1000;
+            foreach (var (upper, tall, share) in above)
+                if (k < upper.Count) moment += Racked(upper[k].Bands) * tall / 1000 * share;
+            var foot = stretches.Where(stretch => stretch.Level == 0).ToList();
+            var line = Math.Max(0, -foot.Sum(stretch => stretch.Vertical * stretch.Length) / Math.Max(foot.Sum(stretch => stretch.Length), 1));
+            var force = EndForce(moment, solid, height);
+            results.Add(new EndForces(combination.Name, force, line, narrowest, Uplift(force, line, narrowest), moment));
+        }
+
+        return results;
+    }
+
     /// <summary>A stud's foot on the sole plate by BS EN 1995-1-1 6.1.5, N/mm²: its thickness and 30 mm each way along the plate, on 1.25 of fc,90,d as a member on a continuous support.</summary>
     public static StrengthCheck FootEurocode(double force, double width, double depth, TimberGrade grade, double kmod)
     {
@@ -113,6 +170,7 @@ public static class TimberWallDesign
         var solid = SolidLengths(panel);
         var nail = NailInBoard(3.1, 9, 41);
         var bands = second.WallStretches(panel, height);
+        var ends = EndsOf(document, second, panel);
 
         IEnumerable<StrengthCheck> Under(LoadCombination combination, IReadOnlyList<WallStretch> stretches)
         {
@@ -128,13 +186,20 @@ public static class TimberWallDesign
             var racked = Math.Abs(stretches.Where(stretch => stretch.Level == 0).Sum(stretch => stretch.Lateral * stretch.Length)) / 1000;
             var carries = us ? RackingSdpws(solid, height) : RackingEurocode(solid, height, kmod * nail / 1.3, 150);
             yield return new StrengthCheck("Racking", racked, carries, "kN", us ? "SDPWS 4.3" : "9.2.4.2", $"{solid.Sum() / 1000:0.0} m of it with no opening");
+
+            // The end studs, two together, take what racking pushes down at the end of a length as well as their share of the wall's load: (9.23) and 9.2.4.2(9).
+            var end = ends.FirstOrDefault(each => each.Under == combination.Name)?.Force ?? 0;
+            if (end <= 0.01) yield break;
+            var together = forces with { N = -(stud + end) };
+            var pair = us ? TimberDesign.Nds(depth, 2 * width, false, true, true, lengths, height, together, TimberDesign.TimeEffect(combination)) : TimberDesign.Eurocode(grade, depth, 2 * width, true, lengths, together, kmod);
+            foreach (var check in pair.Where(check => check.Name.Contains("uckling", StringComparison.Ordinal))) yield return check with { Name = $"End studs: {check.Name.ToLowerInvariant()}", Note = $"{end:0.0} kN from racking on top of {stud:0.0} kN" };
         }
 
         var worst = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Under(entry.Combination, entry.Bands)))).ToList();
         var taken = drawn ? string.Empty : $"No frame is drawn for it: {section.Name} studs at {spacing:0} are taken. ";
         var sheet = us ? "7/16 in sheathing with 8d nails at 6 in round each sheet" : "9 mm OSB with 3.1 by 50 nails at 150 round each sheet";
         return new WallCheck(panel, $"{section.Name} at {spacing:0} centres", us ? "the NDS and the SDPWS, LRFD" : "BS EN 1995-1-1 and its UK National Annex", worst, lengths.Strong, depth,
-            $"{taken}Studs held across every {lengths.Weak:0} by what is fixed to their faces, the wind on them between their plates. Racking is the wind's share of the shear at its foot, taken on {sheet} on one face, each end tied down: the force in the tie-downs is not worked out. The plate standing for the wall spans sideways to its corners, as studs do not, so more of the wind on the walls across it comes through it than the half a hand sum would send, which is on the safe side.");
+            $"{taken}Studs held across every {lengths.Weak:0} by what is fixed to their faces, the wind on them between their plates. Racking is the wind's share of the shear at its foot, taken on {sheet} on one face, each end tied down, for which see Joints. Two studs together at each end. In the analysis it bends one way, up its studs, at their own stiffness, with a hundredth of that across them.");
     }
 }
 

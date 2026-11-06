@@ -299,7 +299,10 @@ public class FireDesignTests
     {
         var document = House("Exterior");
         var (second, members) = Analysed(document);
-        foreach (var type in document.TypesOf<FloorType>()) type.FireRating = string.Empty;
+        var boards = document.TypesOf<FloorType>().First(type => type.Name.StartsWith("Floor - Timber", StringComparison.Ordinal));
+        var bare = new FloorType("Boards alone", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, boards.Structure.Layers[1].MaterialId, 180)));
+        document.AddType(bare);
+        foreach (var floor in document.All<Floor>()) floor.TypeId = bare.Id;
         var joist = FireDesign.Of(document, second, members).First(check => check.Kind == "Joist");
 
         // 75 wide, 31 gone each side: 13 by 194 left, far too slender to stand.

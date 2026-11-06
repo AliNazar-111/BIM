@@ -27,7 +27,16 @@ public sealed class StructuralSolver
     public sealed record Beam(int I, int J, double E, double G, double A, double Iy, double Iz, double J0, Vector3 LocalY, bool PinnedI, bool PinnedJ);
 
     /// <summary>A flat shell triangle: its three nodes, its material and thickness.</summary>
-    public sealed record Shell(int I, int J, int K, double E, double Poisson, double Thickness, double Bending = 1);
+    public sealed record Shell(int I, int J, int K, double E, double Poisson, double Thickness, double Bending = 1, Studs? Framed = null);
+
+    /// <summary>
+    /// A plate that is a frame of studs, not a solid: it bends one way, up its studs, the direction they run in given by its cosines on the triangle's own axes. How stiff it is along them, as a share of the
+    /// solid plate's bending stiffness, so a stiffness reduced for the analysis reduces this with it; across them and in twist it is <see cref="AcrossStuds"/> of that, what its boards and noggings give it.
+    /// </summary>
+    public sealed record Studs(double Cos, double Sin, double Share);
+
+    /// <summary>What a frame of studs has across them, as a share of what it has along them.</summary>
+    public const double AcrossStuds = 0.01;
 
     /// <summary>A plain three dimensional vector.</summary>
     public readonly record struct Vector3(double X, double Y, double Z)
@@ -236,6 +245,22 @@ public sealed class StructuralSolver
         return inverse;
     }
 
+    /// <summary>
+    /// What relates a shell's moments to its curvatures, in its own axes, N mm: an isotropic plate's, or a frame of studs', its stiffnesses along and across them turned from their axes into the triangle's
+    /// by the rotation of curvatures, so a triangle's moments are those of the frame whichever way its first side happens to lie.
+    /// </summary>
+    public static double[,] BendingStiffness(Shell shell)
+    {
+        var (nu, t) = (shell.Poisson, shell.Thickness);
+        var solid = shell.Bending * shell.E * t * t * t / (12 * (1 - nu * nu));
+        if (shell.Framed is not { } studs) return new[,] { { solid, solid * nu, 0 }, { solid * nu, solid, 0 }, { 0, 0, solid * (1 - nu) / 2 } };
+
+        var (c, s) = (studs.Cos, studs.Sin);
+        var (along, across) = (solid * studs.Share, solid * studs.Share * AcrossStuds);
+        var turn = new[,] { { c * c, s * s, c * s }, { s * s, c * c, -c * s }, { -2 * c * s, 2 * c * s, c * c - s * s } };
+        return Multiply(Transpose(turn), Multiply(new[,] { { along, 0, 0 }, { 0, across, 0 }, { 0, 0, across / 2 } }, turn));
+    }
+
     /// <summary>A triangle's axes: along its first side, across it in its plane, and its normal.</summary>
     public (Vector3 X, Vector3 Y, Vector3 Z) Axes(Shell shell)
     {
@@ -283,8 +308,7 @@ public sealed class StructuralSolver
             k[mapMembrane[r], mapMembrane[c]] += membrane[r, c];
 
         // Across it: the discrete Kirchhoff triangle, by the three mid-side points.
-        var db = shell.Bending * e * t * t * t / (12 * (1 - nu * nu));
-        var dBending = new[,] { { db, db * nu, 0 }, { db * nu, db, 0 }, { 0, 0, db * (1 - nu) / 2 } };
+        var dBending = BendingStiffness(shell);
         var bending = new double[9, 9];
         foreach (var (xi, eta) in new[] { (0.5, 0.0), (0.5, 0.5), (0.0, 0.5) })
         {
@@ -855,12 +879,12 @@ public sealed class StructuralSolver
             l[i] += t[i, j] * global[j];
         int[] mapBending = { 2, 3, 4, 8, 9, 10, 14, 15, 16 };
         var b = DktB(local, 1.0 / 3, 1.0 / 3);
-        var db = shell.Bending * shell.E * Math.Pow(shell.Thickness, 3) / (12 * (1 - shell.Poisson * shell.Poisson));
+        var d = BendingStiffness(shell);
         var kappa = new double[3];
         for (var r = 0; r < 3; r++)
         for (var c = 0; c < 9; c++)
             kappa[r] += b[r, c] * l[mapBending[c]];
-        return new[] { db * (kappa[0] + shell.Poisson * kappa[1]), db * (shell.Poisson * kappa[0] + kappa[1]), db * (1 - shell.Poisson) / 2 * kappa[2] };
+        return new[] { d[0, 0] * kappa[0] + d[0, 1] * kappa[1] + d[0, 2] * kappa[2], d[1, 0] * kappa[0] + d[1, 1] * kappa[1] + d[1, 2] * kappa[2], d[2, 0] * kappa[0] + d[2, 1] * kappa[1] + d[2, 2] * kappa[2] };
     }
 
     /// <summary>The force a shell puts on each of its three corners, N, in the building's axes. They add up to nothing: the loads it carries are held at the nodes.</summary>
