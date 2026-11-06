@@ -581,6 +581,26 @@ public sealed class StructuralAnalysis
     }
 
     /// <summary>A support's reactions under a combination or a case, kN and kNm: the forces at its nodes the structure cannot carry itself.</summary>
+    /// <summary>
+    /// What a line of support takes at each of its nodes under a loading, up positive, kN, with how far along the panel's foot each is, mm, in order: what it comes to in one stretch and not on average.
+    /// A node a strip shares with another at a corner is shared with it, as <see cref="ReactionOf"/> shares it.
+    /// </summary>
+    public IReadOnlyList<(double At, double Down)> LineOf(AnalyticalSupport support, object loading)
+    {
+        var nodes = _supportNodes.First(entry => ReferenceEquals(entry.Support, support)).Nodes;
+        var terms = Terms(loading);
+        var line = new List<(double, double)>();
+        foreach (var n in nodes)
+        {
+            var share = 1.0 / _supportNodes.Count(entry => entry.Nodes.Contains(n));
+            var down = terms.Sum(term => term.Factor * (_internal[term.Case][n * 6 + 2] - _loads[term.Case][n * 6 + 2]));
+            var at = support.Panel?.Flat(Solver.NodeAt(n)).X ?? 0;
+            line.Add((at, share * down / 1000));
+        }
+
+        return line.OrderBy(entry => entry.Item1).ToList();
+    }
+
     public SupportResult ReactionOf(AnalyticalSupport support, object loading)
     {
         // A node two supports hold - a corner two strip footings meet at - is shared between them.

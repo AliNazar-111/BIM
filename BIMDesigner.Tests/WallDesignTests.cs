@@ -299,6 +299,38 @@ public class WallDesignTests
     }
 
     [Fact]
+    public void WhatIsDrawnAlongABeamIsWhatWasChecked()
+    {
+        // A timber beam between two walls with a floor on it, its load evenly along it: moment wL²/8 is a quarter of its end shear wL/2 times L, and it runs from none at each end to a peak in the middle.
+        var document = House("Exterior");
+        var ground = document.Levels[0].Id;
+        var first = document.Levels[1].Id;
+        var type = new BeamType("Timber 75 x 225") { Material = BeamMaterial.Timber, Width = 75, Depth = 225 };
+        document.AddType(type);
+        for (var x = 1000; x <= 9000; x += 2000)
+            document.Add(new Beam { TypeId = type.Id, LevelId = first, Start = new Point2D(x, 0), End = new Point2D(x, 8000), Usage = BeamUsage.Joist });
+        var boards = document.TypesOf<FloorType>().First(t => t.Name.StartsWith("Floor - Timber", StringComparison.Ordinal));
+        var floor = new Floor { TypeId = boards.Id, LevelId = first, SpanDirection = 0 };
+        floor.SetBoundary(new[] { new Point2D(0, 0), new Point2D(10000, 0), new Point2D(10000, 8000), new Point2D(0, 8000) });
+        document.Add(floor);
+
+        var (_, analysis, second) = Analysed(document);
+        var member = analysis.Model.Members.First(each => each.Kind == AnalyticalMemberKind.Joist && Math.Abs(each.Start.At.X - 5000) < 200);
+        var check = MemberStrength.Of(document, analysis, second).Single(each => ReferenceEquals(each.Member, member));
+        var under = check.Worst!.Under;
+        var along = second.DiagramOf(member, under);
+        Assert.True(along.Count >= 8);
+        Assert.Equal(0, along[0].At, 3);
+        Assert.Equal(member.Length, along[^1].At, 0);
+
+        var peak = along.MaxBy(station => Math.Abs(station.Forces.My));
+        Assert.InRange(peak.At, 0.35 * member.Length, 0.65 * member.Length);
+        Assert.True(Math.Abs(along[0].Forces.My) < 0.05 * Math.Abs(peak.Forces.My));
+        Assert.InRange(Math.Abs(peak.Forces.My) / (Math.Abs(along[0].Forces.Vz) * member.Length / 1000), 0.23, 0.27);
+        Assert.Empty(second.DiagramOf(member, "no such combination"));
+    }
+
+    [Fact]
     public void AConcreteBeamUnderAWallHasItsSteelSaid()
     {
         var document = BimDocument.CreateDefault();

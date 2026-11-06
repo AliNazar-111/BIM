@@ -644,6 +644,18 @@ public sealed class SecondOrderAnalysis
     }
 
     /// <summary>
+    /// What a member carries along it under one combination, by the name the strength checks give it: how far along, mm, and its forces at each end of each piece, so a load where two pieces
+    /// meet shows as the step it is. These are the forces the checks read, so what is drawn is what was checked. Empty for a combination it has no forces under.
+    /// </summary>
+    public IReadOnlyList<(double At, MemberForces Forces)> DiagramOf(AnalyticalMember member, string combination)
+    {
+        var pieces = Analysis.BeamsOf(member).ToList();
+        var stations = StationsOf(member).Where(station => station.Combination.Name == combination).ToList();
+        if (stations.Count != pieces.Count * 2) return Array.Empty<(double, MemberForces)>();
+        return stations.Select((station, i) => (i % 2 == 0 ? pieces[i / 2].From : pieces[i / 2].To, station.Forces)).ToList();
+    }
+
+    /// <summary>
     /// What a member puts down on each of its nodes under each combination each way it leans, kN, its own load along it in: what a wall or a padstone under it takes.
     /// Each piece's end forces hold it up, so what they add to at a node, upward, is what it bears on that node with.
     /// </summary>

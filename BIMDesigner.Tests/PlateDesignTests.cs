@@ -455,12 +455,13 @@ public class PlateDesignTests
             Assert.Equal(75, bearing.Capacity);
             Assert.Equal("BS 8004:1986 Table 1", bearing.Clause);
 
-            // From what the analysis puts on it, and its own weight.
+            // From what the analysis puts on it at its heaviest metre, and its own weight: no less than over its whole area. A slab spanning both ways comes down harder at the middle of a wall, here about 1.3 times its average.
             var strip = (WallFooting)check.Foundation;
             var area = Footings.RunOutlines(document, strip).Sum(run => Polygon2D.Area(run.Outline)) / 1e6;
             var down = analysis.Model.Supports.Where(support => support.Foundation == strip).Sum(support => analysis.ReactionOf(support, analysis.Total).Fz);
             var thickness = document.FindType<FootingType>(strip.TypeId)!.Thickness;
-            Assert.Equal((down + area * thickness / 1000 * 24) / area, bearing.Demand, 6);
+            var even = (down + area * thickness / 1000 * 24) / area;
+            Assert.InRange(bearing.Demand, even - 1e-6, even * 1.4);
         }
 
         // Where the ground has no presumed value its bearing is said, with the pressure, not judged; its concrete still is.

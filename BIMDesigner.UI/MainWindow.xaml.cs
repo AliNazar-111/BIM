@@ -4114,6 +4114,8 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition UnderlayParameter = new("Show Storey Below", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearancesParameter = new("Show Clearances", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ClearanceStandardParameter = new("Clearance Standard", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    /// <summary>What the building is, that its imposed loads, its fire resistance period and its consequence class go by.</summary>
+    private static readonly ParameterDefinition BuildingTypeParameter = new("Building Type", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>Whether planning makes Approved Document G's optional requirement a condition: 110 litres a person a day, not 125.</summary>
@@ -4122,6 +4124,8 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition ClayShrinkageParameter = new("Clay Shrinkage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition FrostDepthParameter = new("Frost Line (US, 0 = none)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition GroundSnowParameter = new("Ground Snow Load (US, psf)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition RetainedSurchargeParameter = new("Behind Retaining Walls (kN/m²)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition RetainedFrictionParameter = new("Retained Soil Friction (degrees, 0 = typical)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SnowZoneParameter = new("Snow Zone (UK, NA to BS EN 1991-1-3 Figure NA.1)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>The water's static pressure where it comes in, that the IRC sizes a US house's pipes by (Table P2903.7).</summary>
@@ -4257,6 +4261,11 @@ public partial class MainWindow : Window
                     Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshProperties);
                 },
                 Enum.GetValues<ClearanceStandard>().Select(Clearances.Label).ToArray()),
+            ParameterValue.BindChoice(BuildingTypeParameter, () => _document.ProjectInformation.BuildingType, type =>
+            {
+                _document.ProjectInformation.BuildingType = type;
+                if (ShowsAnalytical) ShowAnalytical();
+            }, StartUp.NewProjectSteps.BuildingTypes),
             ParameterValue.Bind(SprinkleredParameter, () => _document.ProjectInformation.Sprinklered, sprinklered =>
             {
                 _document.ProjectInformation.Sprinklered = sprinklered;
@@ -4300,6 +4309,16 @@ public partial class MainWindow : Window
             ParameterValue.Bind(SnowZoneParameter, () => _document.ProjectInformation.SnowZone, zone =>
             {
                 _document.ProjectInformation.SnowZone = Math.Clamp(Math.Round(zone * 2) / 2, 1, 5);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.Bind(RetainedSurchargeParameter, () => _document.ProjectInformation.RetainedSurcharge, load =>
+            {
+                _document.ProjectInformation.RetainedSurcharge = Math.Clamp(load, 0, 100);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.Bind(RetainedFrictionParameter, () => _document.ProjectInformation.RetainedFriction, angle =>
+            {
+                _document.ProjectInformation.RetainedFriction = angle <= 0 ? 0 : Math.Clamp(angle, 10, 45);
                 if (ShowsAnalytical) ShowAnalytical();
             }),
             ParameterValue.Bind(WaterPressureParameter, () => _document.ProjectInformation.WaterPressure, pressure =>

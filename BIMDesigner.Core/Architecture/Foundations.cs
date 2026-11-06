@@ -82,9 +82,12 @@ public sealed class FootingType : ElementType
     /// <summary>What stands on it up to the wall or column it carries: blockwork under a wall, a concrete pier under a column.</summary>
     public Guid StemMaterialId { get; set; }
 
+    /// <summary>Its concrete's characteristic strength, N/mm²: fck in the UK, f'c in the US. None for what is usual: C16/20 or 2,500 psi plain, RC28/35 or 3,000 psi reinforced.</summary>
+    public double Strength { get; set; }
+
     public FootingType Duplicate(string name) => WithCommonOf(new FootingType(name, Kind)
     {
-        Width = Width, Length = Length, Thickness = Thickness, MaterialId = MaterialId, StemMaterialId = StemMaterialId
+        Width = Width, Length = Length, Thickness = Thickness, MaterialId = MaterialId, StemMaterialId = StemMaterialId, Strength = Strength
     });
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
@@ -96,6 +99,7 @@ public sealed class FootingType : ElementType
         yield return ParameterValue.BindValidated(FootingParameters.Thickness, () => Thickness, v => { if (v < 100 || v > 3000) return false; Thickness = v; return true; });
         if (RoofEdgeSweepParameters.MaterialOf(document, () => MaterialId, id => MaterialId = id, FootingParameters.Material) is { } material) yield return material;
         if (RoofEdgeSweepParameters.MaterialOf(document, () => StemMaterialId, id => StemMaterialId = id, FootingParameters.StemMaterial) is { } stem) yield return stem;
+        yield return ParameterValue.BindValidated(FootingParameters.Strength, () => Strength, v => { if (v != 0 && (v < 12 || v > 90)) return false; Strength = v; return true; });
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
     }
 }
@@ -211,6 +215,7 @@ public static class FootingParameters
     public static readonly ParameterDefinition Kind = new("Footing", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition Width = new("Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Length = new("Length", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition Strength = new("Concrete Strength (N/mm², 0 = usual)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition Thickness = new("Foundation Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Material = new("Structural Material", ParameterDataType.Material, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition StemMaterial = new("Wall or Pier Material", ParameterDataType.Material, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);

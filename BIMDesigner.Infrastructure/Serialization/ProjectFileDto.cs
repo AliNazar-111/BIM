@@ -1397,6 +1397,8 @@ internal sealed class ProjectInformationDto
 
     /// <summary>A UK site's snow zone, 1 to 5; 1 in older files.</summary>
     public double SnowZone { get; set; } = 1;
+    public double RetainedSurcharge { get; set; } = 5;
+    public double RetainedFriction { get; set; }
 
     /// <summary>A US house's water pressure where it comes in, psi; 40 in older files.</summary>
     public double WaterPressure { get; set; } = 40;
@@ -1453,6 +1455,7 @@ internal sealed class FootingTypeDto
     public double Thickness { get; set; } = 225;
     public Guid MaterialId { get; set; }
     public Guid StemMaterialId { get; set; }
+    public double Strength { get; set; }
     public string? AssemblyCode { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
@@ -2566,6 +2569,7 @@ internal sealed class BeamTypeDto
     public double WebThickness { get; set; }
     public double FlangeThickness { get; set; }
     public Guid MaterialId { get; set; }
+    public string FireRating { get; set; } = string.Empty;
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
 }

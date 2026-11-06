@@ -85,6 +85,8 @@ public static partial class ProjectFile
                 FrostDepth = document.ProjectInformation.FrostDepth,
                 GroundSnowLoad = document.ProjectInformation.GroundSnowLoad,
                 SnowZone = document.ProjectInformation.SnowZone,
+                RetainedSurcharge = document.ProjectInformation.RetainedSurcharge,
+                RetainedFriction = document.ProjectInformation.RetainedFriction,
                 WaterPressure = document.ProjectInformation.WaterPressure,
                 WindPressure = document.ProjectInformation.WindPressure,
                 BasicWindSpeed = document.ProjectInformation.BasicWindSpeed,
@@ -441,7 +443,7 @@ public static partial class ProjectFile
             {
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Section = type.Section.ToString(), Material = type.Material.ToString(),
                 Depth = type.Depth, Width = type.Width, WebThickness = type.WebThickness, FlangeThickness = type.FlangeThickness,
-                MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description
+                MaterialId = type.MaterialId, FireRating = type.FireRating, Cost = type.Cost, Description = type.Description
             });
 
         foreach (var beam in document.All<Beam>())
@@ -1237,7 +1239,7 @@ public static partial class ProjectFile
             dto.FootingTypes.Add(new FootingTypeDto
             {
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Kind = type.Kind.ToString(), Width = type.Width, Length = type.Length,
-                Thickness = type.Thickness, MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, AssemblyCode = type.AssemblyCode,
+                Thickness = type.Thickness, MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, Strength = type.Strength, AssemblyCode = type.AssemblyCode,
                 Cost = type.Cost, Description = type.Description
             });
 
@@ -1800,6 +1802,8 @@ public static partial class ProjectFile
         document.ProjectInformation.FrostDepth = double.IsFinite(dto.Project.FrostDepth) && dto.Project.FrostDepth > 0 ? dto.Project.FrostDepth : 0;
         document.ProjectInformation.GroundSnowLoad = double.IsFinite(dto.Project.GroundSnowLoad) && dto.Project.GroundSnowLoad >= 0 ? dto.Project.GroundSnowLoad : 20;
         document.ProjectInformation.SnowZone = double.IsFinite(dto.Project.SnowZone) && dto.Project.SnowZone is >= 1 and <= 5 ? dto.Project.SnowZone : 1;
+        document.ProjectInformation.RetainedSurcharge = double.IsFinite(dto.Project.RetainedSurcharge) && dto.Project.RetainedSurcharge is >= 0 and <= 100 ? dto.Project.RetainedSurcharge : 5;
+        document.ProjectInformation.RetainedFriction = double.IsFinite(dto.Project.RetainedFriction) && dto.Project.RetainedFriction is >= 10 and <= 45 ? dto.Project.RetainedFriction : 0;
         document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
         document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;
@@ -2071,7 +2075,7 @@ public static partial class ProjectFile
                 Id = type.Id, TypeMark = type.TypeMark, Section = ParseEnum(type.Section, BeamSection.Rectangular), Material = ParseEnum(type.Material, BeamMaterial.Timber),
                 Depth = Size(type.Depth, 50, 2000, 225), Width = Size(type.Width, 20, 1000, 75),
                 WebThickness = Size(type.WebThickness, 0, 100, 0), FlangeThickness = Size(type.FlangeThickness, 0, 100, 0),
-                MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description ?? string.Empty
+                MaterialId = type.MaterialId, FireRating = type.FireRating ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
         }
 
@@ -3180,7 +3184,7 @@ public static partial class ProjectFile
             document.AddType(new FootingType(type.Name, ParseEnum(type.Kind, FootingKind.Strip))
             {
                 Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Width = Size(type.Width, 600), Length = Size(type.Length, 600),
-                Thickness = Size(type.Thickness, 225), MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId,
+                Thickness = Size(type.Thickness, 225), MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, Strength = double.IsFinite(type.Strength) && type.Strength is >= 12 and <= 90 ? type.Strength : 0,
                 AssemblyCode = type.AssemblyCode ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
         foreach (var footing in (dto.WallFootings ?? new List<WallFootingDto>()).Where(footing => document.Walls.Any(wall => wall.Id == footing.WallId)))

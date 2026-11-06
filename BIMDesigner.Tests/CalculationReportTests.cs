@@ -65,7 +65,7 @@ public class CalculationReportTests
         var model = AnalyticalModel.Of(document);
         var analysis = StructuralAnalysis.Run(document, model, StructuralLoading.Of(document, model));
         var second = SecondOrderAnalysis.Run(document, analysis);
-        return CalculationReport.Build(document, analysis, second, MemberStrength.Of(document, analysis, second), MasonryDesign.Of(document, second), PlateDesign.Of(document, second), FoundationDesign.Of(document, analysis), JointDesign.Of(document, second), "1.2.3", new DateTime(2026, 11, 5));
+        return CalculationReport.Build(document, analysis, second, MemberStrength.Of(document, analysis, second), MasonryDesign.Of(document, second), PlateDesign.Of(document, second), FoundationDesign.Of(document, analysis), JointDesign.Of(document, second), FireDesign.Of(document, second, MemberStrength.Of(document, analysis, second)), Robustness.Of(document, second), "1.2.3", new DateTime(2026, 11, 5));
     }
 
     /// <summary>The house of cavity walls with its roof, on strip footings, and two steel posts carrying a beam across its middle.</summary>

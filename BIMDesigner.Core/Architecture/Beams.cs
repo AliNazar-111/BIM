@@ -70,6 +70,9 @@ public sealed class BeamType : ElementType
     /// <summary>A material of the project's for it, where it has one; none for its usual colour.</summary>
     public Guid MaterialId { get; set; }
 
+    /// <summary>Fire resistance period the member has as it is protected, e.g. "60 min", tested with what is on it. Free text, as on drawings. None for a bare member.</summary>
+    public string FireRating { get; set; } = string.Empty;
+
     /// <summary>The area of its section, mm²: an I's flanges and web, root radii left out.</summary>
     public double SectionArea => Section == BeamSection.IBeam
         ? 2 * Width * FlangeThickness + Math.Max(0, Depth - 2 * FlangeThickness) * WebThickness
@@ -97,7 +100,7 @@ public sealed class BeamType : ElementType
     public BeamType Duplicate(string name) => WithCommonOf(new BeamType(name)
     {
         Section = Section, Material = Material, Depth = Depth, Width = Width, WebThickness = WebThickness,
-        FlangeThickness = FlangeThickness, MaterialId = MaterialId
+        FlangeThickness = FlangeThickness, MaterialId = MaterialId, FireRating = FireRating
     });
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
@@ -116,6 +119,7 @@ public sealed class BeamType : ElementType
         yield return Size(BeamTypeParameters.FlangeThickness, () => FlangeThickness, v => FlangeThickness = v, 0, 100);
         yield return ParameterValue.ReadOnly(BeamTypeParameters.SectionArea, () => SectionArea);
         yield return ParameterValue.ReadOnly(BeamTypeParameters.Mass, () => Math.Round(MassPerMetre, 1));
+        yield return ParameterValue.Bind(BeamTypeParameters.FireRating, () => FireRating, v => FireRating = v.Trim());
 
         if (document is not null)
         {
@@ -192,6 +196,7 @@ public static class BeamTypeParameters
     public static readonly ParameterDefinition FlangeThickness = new("Flange Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition SectionArea = new("Section Area", ParameterDataType.Area, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Mass = new("Mass per Metre", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition FireRating = new("Fire Rating", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
 }
 
 /// <summary>

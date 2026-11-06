@@ -34,6 +34,14 @@ internal sealed class AnalysisWindow : System.Windows.Window
     private readonly TabItem _jointsTab = new() { Header = "Joints" };
     private readonly TextBlock _jointSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<JointCheck> _jointChecks = Array.Empty<JointCheck>();
+    private readonly DataGrid _fires = Grid(), _fireDetail = Grid();
+    private readonly TabItem _fireTab = new() { Header = "Fire" };
+    private readonly TextBlock _fireSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private IReadOnlyList<FireCheck> _fireChecks = Array.Empty<FireCheck>();
+    private readonly DataGrid _ties = Grid(), _tieDetail = Grid();
+    private readonly TabItem _robustnessTab = new() { Header = "Robustness" };
+    private readonly TextBlock _tieSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private RobustnessResult? _robustness;
     private IReadOnlyList<FoundationCheck> _footingChecks = Array.Empty<FoundationCheck>();
     private readonly TextBlock _wallSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<WallCheck> _wallChecks = Array.Empty<WallCheck>();
@@ -82,6 +90,12 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _jointsTab.Content = Pane(_joints, _jointDetail, _jointSaid);
         _joints.SelectionChanged += (_, _) => ShowJoint();
         tabs.Items.Add(_jointsTab);
+        _fireTab.Content = Pane(_fires, _fireDetail, _fireSaid);
+        _fires.SelectionChanged += (_, _) => ShowFireCheck();
+        tabs.Items.Add(_fireTab);
+        _robustnessTab.Content = Pane(_ties, _tieDetail, _tieSaid);
+        _ties.SelectionChanged += (_, _) => ShowTie();
+        tabs.Items.Add(_robustnessTab);
         _swayTab.Content = _sway;
         tabs.Items.Add(_swayTab);
         tabs.Items.Add(new TabItem { Header = "Supports", Content = _supports });
@@ -94,7 +108,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         root.Children.Add(DialogLook.Footer(_said, _report, again, close));
         root.Children.Add(DialogLook.Intro("The structure analysed here, linear and elastic: its members as beams and its plates as shell triangles about the mesh size apart, sharing their nodes where they meet, " +
                                            "held at its footings and piles and by the ground under a raft, each load case solved and each combination added up. Forces are kN and kNm, deflections mm. " +
-                                           "Its members are checked for strength on the Strength tab, on second-order forces where the Sway tab says the structure needs them, masonry, stud and concrete walls on the Walls tab, concrete floors and rafts on the Slabs tab, joints and bearings on the Joints tab and the ground on the Foundations tab."));
+                                           "Its members are checked for strength on the Strength tab, on second-order forces where the Sway tab says the structure needs them, masonry, stud and concrete walls on the Walls tab, concrete floors and rafts on the Slabs tab, joints and bearings on the Joints tab, the period it must stand in a fire on the Fire tab, what an accident asks of it on the Robustness tab and the ground on the Foundations tab."));
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);
         root.Children.Add(tabs);
@@ -168,6 +182,8 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _wallsTab.Header = "Walls (working)";
         _slabsTab.Header = "Slabs (working)";
         _jointsTab.Header = "Joints (working)";
+        _fireTab.Header = "Fire (working)";
+        _robustnessTab.Header = "Robustness (working)";
         _plateChecks = Array.Empty<PlateCheck>();
         _jointChecks = Array.Empty<JointCheck>();
         _joints.ItemsSource = null;
@@ -188,12 +204,14 @@ internal sealed class AnalysisWindow : System.Windows.Window
         Task.Run(() =>
         {
             var worked = SecondOrderAnalysis.Run(document, analysis);
-            return (Second: worked, Checks: MemberStrength.Of(document, analysis, worked), Walls: MasonryDesign.Of(document, worked), Plates: PlateDesign.Of(document, worked), Footings: FoundationDesign.Of(document, analysis), Joints: JointDesign.Of(document, worked));
+            var members = MemberStrength.Of(document, analysis, worked);
+            var fires = FireDesign.Of(document, worked, members);
+            return (Second: worked, Checks: members, Walls: MasonryDesign.Of(document, worked), Plates: PlateDesign.Of(document, worked), Footings: FoundationDesign.Of(document, analysis), Joints: JointDesign.Of(document, worked), Fires: fires, Robustness: Robustness.Of(document, worked));
         }).ContinueWith(done => Dispatcher.BeginInvoke(() => StrengthWorkedOut(done, run)), TaskScheduler.Default);
     }
 
     /// <summary>Back on the window's own thread: what was worked out shown, or why it could not be.</summary>
-    private void StrengthWorkedOut(Task<(SecondOrderAnalysis Second, IReadOnlyList<MemberCheck> Checks, IReadOnlyList<WallCheck> Walls, IReadOnlyList<PlateCheck> Plates, IReadOnlyList<FoundationCheck> Footings, IReadOnlyList<JointCheck> Joints)> done, int run)
+    private void StrengthWorkedOut(Task<(SecondOrderAnalysis Second, IReadOnlyList<MemberCheck> Checks, IReadOnlyList<WallCheck> Walls, IReadOnlyList<PlateCheck> Plates, IReadOnlyList<FoundationCheck> Footings, IReadOnlyList<JointCheck> Joints, IReadOnlyList<FireCheck> Fires, RobustnessResult Robustness)> done, int run)
     {
         if (run != _strengthRun || !IsLoaded) return;
         if (done.Exception is { } failed)
@@ -202,12 +220,14 @@ internal sealed class AnalysisWindow : System.Windows.Window
             _swayTab.Header = "Sway";
             _slabsTab.Header = "Slabs";
             _jointsTab.Header = "Joints";
+            _fireTab.Header = "Fire";
+            _robustnessTab.Header = "Robustness";
             _wallsTab.Header = "Walls";
             _strengthSaid.Text = $"This could not be worked out, the model perhaps changing as it was: {failed.GetBaseException().Message} Analyse Again.";
             return;
         }
 
-        var (second, checks, walls, plates, footings, joints) = done.Result;
+        var (second, checks, walls, plates, footings, joints, fires, robustness) = done.Result;
         _second = second;
         ShowSway(second);
         _strengthChecks = checks.OrderByDescending(check => check.Ratio).ToList();
@@ -218,6 +238,10 @@ internal sealed class AnalysisWindow : System.Windows.Window
         ShowSlabs();
         _jointChecks = joints.OrderByDescending(check => check.Ratio).ToList();
         ShowJoints();
+        _fireChecks = fires;
+        ShowFires();
+        _robustness = robustness;
+        ShowRobustness();
         ShowStrength();
         Refresh();
         _report.IsEnabled = !_stale;
@@ -242,7 +266,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         if (_second is null) return null;
         try
         {
-            var report = Export.CalculationReport.Build(_main.Document, _analysis, _second, _strengthChecks, _wallChecks, _plateChecks, _footingChecks, _jointChecks, MainWindow.AppVersion, DateTime.Today);
+            var report = Export.CalculationReport.Build(_main.Document, _analysis, _second, _strengthChecks, _wallChecks, _plateChecks, _footingChecks, _jointChecks, _fireChecks, _robustness!, MainWindow.AppVersion, DateTime.Today);
             Export.CalculationReport.ToPdf(report, path);
             DialogLook.Say(_said, $"Calculations saved: {System.IO.Path.GetFileName(path)}, {report.PageCount} page{(report.PageCount == 1 ? "" : "s")}.");
             return report.PageCount;
@@ -290,6 +314,71 @@ internal sealed class AnalysisWindow : System.Windows.Window
     private static string Steel(double area) => double.IsInfinity(area) ? "too thin" : area.ToString("0", CultureInfo.CurrentCulture);
 
     /// <summary>Every concrete floor, roof and raft, worst first.</summary>
+    /// <summary>How long the building has to stand in a fire, and every element of structure against it: what could not be judged first, then the worst.</summary>
+    private void ShowFires()
+    {
+        Fill(_fires, new[] { "Element", "Kind", "Stands for", "Of its limit", "Governed by", "It wants" }, _fireChecks.Select(check => new[]
+        {
+            check.Name, check.Kind, $"{check.Minutes} min", check.Checks.Count > 0 ? Share(check.Ratio) : "not checked", check.Worst?.Name ?? "-", check.Wants.Length > 0 ? check.Wants : "-"
+        }));
+        var over = _fireChecks.Count(check => !check.Enough);
+        var unknown = _fireChecks.Count(check => check.Checks.Count == 0);
+        _fireTab.Header = over > 0 ? $"Fire ({over} over)" : unknown > 0 ? $"Fire ({unknown} unchecked)" : "Fire";
+        _fires.SelectedIndex = _fireChecks.Count > 0 ? 0 : -1;
+        ShowFireCheck();
+    }
+
+    private void ShowFireCheck()
+    {
+        var period = FireDesign.PeriodOf(_main.Document).Said;
+        if (_fires.SelectedIndex < 0 || _fires.SelectedIndex >= _fireChecks.Count)
+        {
+            _fireDetail.ItemsSource = null;
+            _fireSaid.Text = period;
+            return;
+        }
+
+        var check = _fireChecks[_fires.SelectedIndex];
+        Fill(_fireDetail, new[] { "Check", "It carries", "It can carry", "Of it", "Clause", "Note" }, check.Checks.OrderByDescending(item => item.Ratio).Select(item => new[]
+        {
+            item.Name, $"{item.Demand.ToString("0.00", CultureInfo.CurrentCulture)} {item.Unit}".TrimEnd(), $"{item.Capacity.ToString("0.00", CultureInfo.CurrentCulture)} {item.Unit}".TrimEnd(), Share(item.Ratio), item.Clause, item.Note
+        }));
+        _fireSaid.Text = $"{period}. {check.Limits}".Replace("..", ".", StringComparison.Ordinal);
+    }
+
+    /// <summary>The consequence class the building falls in, what it asks, and each tie it wants.</summary>
+    private void ShowRobustness()
+    {
+        var ties = _robustness?.Ties ?? Array.Empty<JointCheck>();
+        Fill(_ties, new[] { "Tie", "Kind", "Of its limit", "It wants" }, ties.Select(check => new[]
+        {
+            check.Name, check.Kind, check.Checks.Count > 0 ? Share(check.Ratio) : "-", check.Wants.Length > 0 ? check.Wants : "-"
+        }));
+        var over = ties.Count(check => !check.Enough);
+        _robustnessTab.Header = over > 0 ? $"Robustness ({over} over)" : "Robustness";
+        _ties.SelectedIndex = ties.Count > 0 ? 0 : -1;
+        ShowTie();
+    }
+
+    private void ShowTie()
+    {
+        var said = _robustness is { } result ? $"{result.Said} {result.Asks} {result.Limits}".TrimEnd() : string.Empty;
+        var ties = _robustness?.Ties ?? Array.Empty<JointCheck>();
+        if (_ties.SelectedIndex < 0 || _ties.SelectedIndex >= ties.Count)
+        {
+            _tieDetail.ItemsSource = null;
+            _tieSaid.Text = said;
+            return;
+        }
+
+        var tie = ties[_ties.SelectedIndex];
+        Fill(_tieDetail, new[] { "Check", "It carries", "It can carry", "Of it", "Clause", "Note" }, tie.Checks.OrderByDescending(item => item.Ratio).Select(item => new[]
+        {
+            item.Name, $"{item.Demand.ToString("0.00", CultureInfo.CurrentCulture)} {item.Unit}".TrimEnd(), $"{item.Capacity.ToString("0.00", CultureInfo.CurrentCulture)} {item.Unit}".TrimEnd(), Share(item.Ratio), item.Clause, item.Note
+        }));
+        _tieSaid.Text = $"{said} {tie.Limits}".TrimEnd();
+    }
+
     /// <summary>Every joint and bearing, worst first, and what each wants.</summary>
     private void ShowJoints()
     {
@@ -417,16 +506,35 @@ internal sealed class AnalysisWindow : System.Windows.Window
 
     private object? Loading => (_under.SelectedItem as ComboBoxItem)?.Tag;
 
-    private static void Fill(DataGrid grid, string[] headings, IEnumerable<string[]> rows)
+    /// <summary>Fills a grid. A column of wordy notes can be given a width of its own to wrap in, or its longest note would push the figures beside it out of sight.</summary>
+    private static void Fill(DataGrid grid, string[] headings, IEnumerable<string[]> rows, int wrapped = -1)
     {
         grid.Columns.Clear();
         for (var i = 0; i < headings.Length; i++)
-            grid.Columns.Add(new DataGridTextColumn
+        {
+            var column = new DataGridTextColumn
             {
                 Header = headings[i],
-                Width = i == headings.Length - 1 ? new DataGridLength(1, DataGridLengthUnitType.Star) : DataGridLength.Auto,
+                Width = i == wrapped ? new DataGridLength(320) : i == headings.Length - 1 ? new DataGridLength(1, DataGridLengthUnitType.Star) : DataGridLength.Auto,
                 Binding = new Binding($"[{i}]")
-            });
+            };
+            if (i == wrapped)
+            {
+                var style = new Style(typeof(TextBlock), DataGridTextColumn.DefaultElementStyle);
+                style.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
+                column.ElementStyle = style;
+            }
+
+            grid.Columns.Add(column);
+        }
+
+        // The theme holds every row to one line, which a wrapped note would be cut off by.
+        if (wrapped >= 0)
+        {
+            grid.MinRowHeight = 28;
+            grid.RowHeight = double.NaN;
+        }
+
         grid.ItemsSource = rows.ToList();
     }
 
@@ -530,11 +638,13 @@ internal sealed class AnalysisWindow : System.Windows.Window
         {
             foreach (var each in check.Checks.OrderByDescending(item => item.Ratio))
                 rows.Add(new[] { check.Name, each.Name, each.Note, Amount(each.Capacity, each.Unit), Amount(each.Demand, each.Unit), Ratio(each.Ratio), each.Clause });
-            if (check.Limits.Length > 0) rows.Add(new[] { check.Name, "Not checked", check.Limits, "-", "-", "-", "" });
+
+            // Its first sentence: all of a long note would widen the column and push the figures out of sight. Warnings and the calculations have the rest.
+            if (check.Limits.Length > 0) rows.Add(new[] { check.Name, check.Checks.Count > 0 ? "Note" : "Not checked", check.Limits.Split(". ")[0].TrimEnd('.') + ".", "-", "-", "-", "" });
         }
 
         Fill(_foundations, new[] { "Foundation", "Checked", "Found", "Allowed or needed", "Has", "Of it", "By" },
-            rows.Count > 0 ? rows : new[] { new[] { "-", "No foundation that can be checked in the model", "", "", "", "", "" } });
+            rows.Count > 0 ? rows : new[] { new[] { "-", "No foundation that can be checked in the model", "", "", "", "", "" } }, 2);
         var shortfalls = bearings.Count(b => b.Ratio > 1) + designs.Count(d => !d.Enough) + _footingChecks.Count(check => !check.Enough);
         _foundationsTab.Header = shortfalls > 0 ? $"Foundations ({shortfalls} short)" : "Foundations";
 

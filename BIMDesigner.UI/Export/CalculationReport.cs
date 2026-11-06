@@ -36,7 +36,7 @@ public static class CalculationReport
     private static string Amount(double value, string unit) => $"{F(value, "0.00")} {unit}".TrimEnd();
 
     /// <summary>The report, from an analysis and what was worked out from it.</summary>
-    public static ReportDocument Build(BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, string version, DateTime on)
+    public static ReportDocument Build(BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, IReadOnlyList<FireCheck> fires, RobustnessResult robustness, string version, DateTime on)
     {
         var project = document.ProjectInformation;
         var us = project.ClearanceStandard.IsUs();
@@ -59,7 +59,7 @@ public static class CalculationReport
             ("Ground", $"{StructureRules.Describe(project.Ground)}, taken, not investigated")
         });
 
-        Summary(report, document, analysis, second, byMember, byWall, byPlate, byFooting, byJoint);
+        Summary(report, document, analysis, second, byMember, byWall, byPlate, byFooting, byJoint, fires, robustness);
 
         report.Heading("Status of these calculations");
         report.Paragraph("Worked out by software from the model as it stood on the date above. They have not been reviewed: an engineer is to check them, and what they rest on, before anything is built from them.", ReportTone.Unmet);
@@ -75,10 +75,12 @@ public static class CalculationReport
         Basis(report, analysis, second);
         Loads(report, analysis);
         Analysis(report, analysis, second);
-        Members(report, byMember);
+        Members(report, byMember, second);
         Walls(report, byWall);
         Slabs(report, byPlate);
         Joints(report, byJoint);
+        Fire(report, document, fires);
+        RobustnessOf(report, robustness);
         Deflections(report, document, analysis);
         Foundations(report, document, analysis, byFooting);
         return report;
@@ -86,7 +88,7 @@ public static class CalculationReport
 
     // ---- what they come to ------------------------------------------------------------------
 
-    private static void Summary(ReportDocument report, BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints)
+    private static void Summary(ReportDocument report, BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, IReadOnlyList<FireCheck> fires, RobustnessResult robustness)
     {
         var checkedMembers = members.Where(check => check.Checks.Count > 0).ToList();
         var checkedWalls = walls.Where(check => check.Checks.Count > 0).ToList();
@@ -95,7 +97,7 @@ public static class CalculationReport
         var deflections = analysis.DeflectionChecks(document);
         var bearings = analysis.BearingChecks(document);
         var buckles = second.Results.Any(result => result.Buckles);
-        var over = checkedMembers.Count(check => !check.Enough) + checkedWalls.Count(check => !check.Enough) + checkedPlates.Count(check => !check.Enough) + checkedFootings.Count(check => !check.Enough) + checkedJoints.Count(check => !check.Enough) + deflections.Count(check => check.Ratio > 1) + bearings.Count(check => check.Ratio > 1);
+        var over = checkedMembers.Count(check => !check.Enough) + checkedWalls.Count(check => !check.Enough) + checkedPlates.Count(check => !check.Enough) + fires.Count(check => !check.Enough) + robustness.Ties.Count(check => !check.Enough) + checkedFootings.Count(check => !check.Enough) + checkedJoints.Count(check => !check.Enough) + deflections.Count(check => check.Ratio > 1) + bearings.Count(check => check.Ratio > 1);
         string Named(AnalyticalProblem problem)
         {
             var names = problem.Elements.Select(element => analysis.Model.Members.FirstOrDefault(member => member.Element == element)?.Name ?? analysis.Model.Panels.FirstOrDefault(panel => panel.Element == element)?.Name).OfType<string>().Distinct().ToList();
@@ -129,6 +131,10 @@ public static class CalculationReport
                 checkedFootings.FirstOrDefault()?.Name ?? "-"),
             Row("Joints and bearings", checkedJoints.Count, checkedJoints.Count(check => !check.Enough), checkedJoints.Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
                 checkedJoints.FirstOrDefault() is { } joint ? $"{joint.Name}: {joint.Worst?.Name}" : "-"),
+            Row("Fire", fires.Count(check => check.Checks.Count > 0), fires.Count(check => !check.Enough), fires.Where(check => check.Checks.Count > 0).Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
+                fires.FirstOrDefault(check => check.Checks.Count > 0) is { } burnt ? $"{burnt.Name}: {burnt.Worst?.Name}" : "-"),
+            Row("Ties", robustness.Ties.Count(check => check.Checks.Count > 0), robustness.Ties.Count(check => !check.Enough), robustness.Ties.Where(check => check.Checks.Count > 0).Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
+                robustness.Ties.FirstOrDefault(check => check.Checks.Count > 0) is { } tie ? $"{tie.Name}: {tie.Worst?.Name}" : "-"),
             Row("Members, deflection", deflections.Count, deflections.Count(check => check.Ratio > 1), deflections.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
                 deflections.OrderByDescending(check => check.Ratio ?? 0).FirstOrDefault() is { } bent ? bent.Member.Name : "-"),
             Row("Ground under plates", bearings.Count, bearings.Count(check => check.Ratio > 1), bearings.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
@@ -150,10 +156,10 @@ public static class CalculationReport
         report.Heading("What these calculations do not cover");
         var left = new List<string>
         {
-            "Joints past those set out here: splices, moment joints, tying forces, holding-down bolts, the fixings of what the model holds as drawn. What a joint wants is said; it is not in the model.",
-            "The settlement of the ground: a footing's bearing and its concrete are checked here, not how far it goes down.",
+            "Joints past those set out here: splices, moment joints, holding-down bolts, the fixings of what the model holds as drawn, and what connects a tie. What a joint wants is said; it is not in the model.",
+            "Settlement as anything more than an estimate: each footing's is worked from a presumed stiffness of the ground, the analysis's supports not giving way as it does. Heave and consolidation over time are not worked out.",
             "Cracking of any slab with no bars in the model, whose steel is what it needs and not what it has; and long-term deflection worked out, rather than ruled by span to depth.",
-            "Fire, accidental damage and disproportionate collapse, seismic loads, movement and durability.",
+            "Seismic loads, movement and durability. Impact and explosion, and the notional removal of a support; only the ties and anchorage of a building's class. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry and stud walls by the Fire Rating on their types.",
             "The ground: its kind is as set on the project, and no site investigation stands behind it."
         };
         var skipped = members.Where(check => check.Checks.Count == 0).Select(check => check.Member.Name).Concat(walls.Where(check => check.Checks.Count == 0).Select(check => check.Panel.Name)).ToList();
@@ -314,7 +320,7 @@ public static class CalculationReport
         if (quiet > 0) report.Paragraph($"{quiet} more check{(quiet == 1 ? "" : "s")} came to under 1% and {(quiet == 1 ? "is" : "are")} left out.", ReportTone.Muted);
     }
 
-    private static void Members(ReportDocument report, IReadOnlyList<MemberCheck> members)
+    private static void Members(ReportDocument report, IReadOnlyList<MemberCheck> members, SecondOrderAnalysis second)
     {
         if (members.Count == 0) return;
         report.Heading("Members");
@@ -333,8 +339,80 @@ public static class CalculationReport
             var lengths = check.Lengths;
             report.Paragraph($"By {check.By}. Buckles over {Units.Metres(lengths.Strong, "0.00")} about its strong axis and {Units.Metres(lengths.Weak, "0.00")} about its weak; {(lengths.Lateral > 0 ? $"sideways, {Units.Metres(lengths.Lateral, "0.00")}" : $"its top held, its underside free over {Units.Metres(lengths.LateralHogging, "0.00")}")}.", ReportTone.Muted);
             CheckTable(report, check.Checks);
+            Diagrams(report, second, check);
             report.Paragraph(check.Limits, ReportTone.Muted);
         }
+    }
+
+    /// <summary>What the worst of a kind of member carries along it under the combination that governs it: a beam's moment on the side in tension and its shear, a column's load and its moment.</summary>
+    private static void Diagrams(ReportDocument report, SecondOrderAnalysis second, MemberCheck check)
+    {
+        if (check.Worst?.Under is not { Length: > 0 } under) return;
+        var along = second.DiagramOf(check.Member, under);
+        if (along.Count < 2) return;
+        var column = check.Member.Kind == AnalyticalMemberKind.Column;
+        double Bending(MemberForces forces) => column ? forces.My : (forces.TopInTension ? -1 : 1) * Math.Abs(forces.My);
+        var moment = along.Select(station => (station.At, Bending(station.Forces))).ToList();
+        var other = along.Select(station => (station.At, column ? station.Forces.N : station.Forces.Vz)).ToList();
+        report.Paragraph($"Under {under}, which governs it. {(column ? "Its load, compression below, and its moment" : "Its moment, on the side in tension, and its shear")}, along its {Units.Metres(along.Max(station => station.At) - along.Min(station => station.At), "0.00")}.", ReportTone.Muted);
+        report.Block(92, (dc, area) =>
+        {
+            var half = (area.Width - 18) / 2;
+            var (left, right) = (new Rect(area.Left, area.Top, half, area.Height), new Rect(area.Left + half + 18, area.Top, half, area.Height));
+            if (column)
+            {
+                Plot(dc, left, "Load, kN", other, false);
+                Plot(dc, right, "Moment, kNm", moment, false);
+            }
+            else
+            {
+                Plot(dc, left, "Moment, kNm", moment, true);
+                Plot(dc, right, "Shear, kN", other, false);
+            }
+        });
+    }
+
+    /// <summary>One line of figures along a member over its length, its greatest and least said. Drawn from zero, the way a checker sketches it; <paramref name="down"/> takes positive figures below the line.</summary>
+    private static void Plot(DrawingContext dc, Rect area, string title, IReadOnlyList<(double At, double Value)> points, bool down)
+    {
+        var ink = new SolidColorBrush(Color.FromRgb(0x2A, 0x4D, 0x7A));
+        var fill = new SolidColorBrush(Color.FromRgb(0xDC, 0xE6, 0xF2));
+        var grey = new Pen(new SolidColorBrush(Color.FromRgb(0x8A, 0x90, 0x98)), 0.75);
+        var typeface = new Typeface("Segoe UI");
+        FormattedText Text(string text, double size, Brush brush) => new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, size, brush, 1);
+        var label = Text(title, 8, Brushes.Black);
+        dc.DrawText(label, new Point(area.Left, area.Top));
+
+        var plot = new Rect(area.Left + 4, area.Top + label.Height + 8, area.Width - 8, area.Height - label.Height - 18);
+        var (first, last) = (points.Min(point => point.At), points.Max(point => point.At));
+        var (low, high) = (Math.Min(0, points.Min(point => point.Value)), Math.Max(0, points.Max(point => point.Value)));
+        var range = Math.Max(high - low, 1e-9);
+        double X(double at) => plot.Left + (at - first) / Math.Max(last - first, 1e-9) * plot.Width;
+        double Y(double value) => (down ? plot.Top + (value - low) / range * plot.Height : plot.Bottom - (value - low) / range * plot.Height);
+
+        var shape = new StreamGeometry();
+        using (var context = shape.Open())
+        {
+            context.BeginFigure(new Point(X(points[0].At), Y(0)), true, true);
+            foreach (var (at, value) in points) context.LineTo(new Point(X(at), Y(value)), true, false);
+            context.LineTo(new Point(X(points[^1].At), Y(0)), true, false);
+        }
+
+        shape.Freeze();
+        dc.DrawGeometry(fill, new Pen(ink, 0.9), shape);
+        dc.DrawLine(grey, new Point(plot.Left, Y(0)), new Point(plot.Right, Y(0)));
+
+        void Peak((double At, double Value) point)
+        {
+            if (Math.Abs(point.Value) < 0.005 * range) return;
+            var text = Text(point.Value.ToString("0.0", CultureInfo.CurrentCulture), 7, Brushes.Black);
+            var x = Math.Clamp(X(point.At) - text.Width / 2, area.Left, area.Right - text.Width);
+            var y = Math.Clamp(Y(point.Value) + (Y(point.Value) >= Y(0) ? 1 : -text.Height - 1), area.Top + label.Height, area.Bottom - text.Height);
+            dc.DrawText(text, new Point(x, y));
+        }
+
+        Peak(points.MaxBy(point => point.Value));
+        Peak(points.MinBy(point => point.Value));
     }
 
     private static void Walls(ReportDocument report, IReadOnlyList<WallCheck> walls)
@@ -391,6 +469,45 @@ public static class CalculationReport
             CheckTable(report, worst.Checks);
             if (worst.Limits.Length > 0) report.Paragraph(worst.Limits, ReportTone.Muted);
         }
+    }
+
+    /// <summary>How long it has to stand in a fire, and every element of structure against that, grouped where they come to the same.</summary>
+    private static void Fire(ReportDocument report, BimDocument document, IReadOnlyList<FireCheck> fires)
+    {
+        report.Heading("Fire");
+        report.Paragraph(FireDesign.PeriodOf(document).Said + ".");
+        if (fires.Count == 0) return;
+        report.Paragraph("A structure carrying only a roof and the lowest floor are not elements of structure, Approved Document B 5.3. Forces in fire are its weight and the frequent value of what is on it.", ReportTone.Muted);
+        var groups = fires.GroupBy(check => (check.Kind, check.Wants, Ratio: Math.Round(check.Ratio, 2), Governs: check.Worst?.Name)).Select(group => (Check: group.First(), Count: group.Count())).ToList();
+        report.Table(new[] { new ReportColumn("Element", 1.3), new ReportColumn("Kind", 0.5), new ReportColumn("Stands for", 0.6, true), new ReportColumn("Of its limit", 0.6, true), new ReportColumn("It wants", 2.4) },
+            groups.Select(each => new ReportCell[]
+            {
+                each.Count > 1 ? $"{each.Check.Name}, and {each.Count - 1} like it" : each.Check.Name, each.Check.Kind, $"{each.Check.Minutes} min", each.Check.Checks.Count > 0 ? Share(each.Check.Ratio) : "not checked", each.Check.Wants.Length > 0 ? each.Check.Wants : "-"
+            }));
+
+        foreach (var (check, count) in groups.Where(each => each.Check.Checks.Count > 0 && each.Check.Worst?.Name != "Fire Rating").GroupBy(each => each.Check.Kind).Select(group => group.First()).Take(MostInFull))
+        {
+            report.Heading($"{check.Name}: {check.Kind.ToLowerInvariant()}{(count > 1 ? $", the worst of {count}" : string.Empty)}", 2);
+            CheckTable(report, check.Checks);
+            if (check.Limits.Length > 0) report.Paragraph(check.Limits, ReportTone.Muted);
+        }
+
+        foreach (var unjudged in fires.Where(check => check.Checks.Count == 0).Select(check => check.Limits).Distinct()) report.Paragraph(unjudged, ReportTone.Unmet);
+    }
+
+    /// <summary>The building's consequence class, what it asks and each tie.</summary>
+    private static void RobustnessOf(ReportDocument report, RobustnessResult robustness)
+    {
+        report.Heading("Robustness");
+        report.Paragraph(robustness.Said);
+        if (robustness.Asks.Length > 0) report.Paragraph(robustness.Asks);
+        if (robustness.Ties.Count > 0)
+            report.Table(new[] { new ReportColumn("Tie", 1.4), new ReportColumn("Kind", 0.9), new ReportColumn("Of its limit", 0.6, true), new ReportColumn("It wants", 2.4) },
+                robustness.Ties.GroupBy(check => (check.Kind, check.Wants)).Select(group => (Check: group.First(), Count: group.Count())).Select(each => new ReportCell[]
+                {
+                    each.Count > 1 ? $"{each.Check.Name}, and {each.Count - 1} like it" : each.Check.Name, each.Check.Kind, each.Check.Checks.Count > 0 ? Share(each.Check.Ratio) : "-", each.Check.Wants.Length > 0 ? each.Check.Wants : each.Check.Limits
+                }));
+        if (robustness.Limits.Length > 0) report.Paragraph(robustness.Limits, ReportTone.Muted);
     }
 
     private static void Deflections(ReportDocument report, BimDocument document, StructuralAnalysis analysis)

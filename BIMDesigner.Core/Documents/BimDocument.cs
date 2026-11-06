@@ -48,6 +48,12 @@ public sealed class ProjectInformation
     /// <summary>The ground snow load for a US house, psf - its jurisdiction's, from Table R301.2: what its roof and footings are sized for.</summary>
     public double GroundSnowLoad { get; set; } = 20;
 
+    /// <summary>What stands on the ground behind a retaining wall, kN/m²: a garden, a drive, a road. 5 to start.</summary>
+    public double RetainedSurcharge { get; set; } = 5;
+
+    /// <summary>The angle of friction of what a retaining wall holds back, degrees, from a site investigation. None for what is typical of the ground.</summary>
+    public double RetainedFriction { get; set; }
+
     /// <summary>
     /// The snow zone a UK site is in on the National Annex's map (NA to BS EN 1991-1-3 Figure NA.1),
     /// 1 to 5: what its ground snow load is worked from with its altitude (Equation NA.1).
@@ -709,6 +715,15 @@ public sealed class BimDocument
         foreach (var material in new[] { concrete, brick, block, insulation, cavity, plaster, plasterboard, aircrete, mineralWool })
             document.AddMaterial(material);
         foreach (var finish in FinishMaterials()) document.AddMaterial(finish);
+
+        // A garden's or a cut's: concrete cast with its base, checked for standing on the Foundations tab and in Warnings.
+        var retaining = new WallType("Retaining - Concrete 250mm", CompoundStructure.Single(concrete.Id, 250))
+        {
+            Function = WallFunction.Retaining,
+            TypeMark = "RW1",
+            AssemblyCode = "B2010",
+            Cost = 180m
+        };
 
         // A single structural layer - the simplest assembly.
         var generic = new WallType("Generic - 200mm", CompoundStructure.Single(concrete.Id, 200))
@@ -2569,7 +2584,7 @@ public sealed class BimDocument
 
         foreach (var type in new ElementType[]
                  {
-                     generic, exterior, partition,
+                     generic, exterior, partition, retaining,
                      dadoProfile, skirting, cornice, dado, reveal, shadowGap,
                      fascia, whiteFascia, halfRound, boxGutter, soffitBoard, soffits[0], soffits[1], soffits[2], soffits[3],
                      soffits[4], soffits[5], soffits[6], soffits[7],

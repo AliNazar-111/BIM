@@ -353,8 +353,19 @@ public static class StructureRules
         GroundBeam beam => GroundBeamProblems(document, beam, standard),
         Pile pile => PileProblems(document, pile, standard),
         Column { Structural: true } column => ColumnProblems(document, column, standard),
+        Wall wall when document.GetWallType(wall) is { Function: WallFunction.Retaining } => RetainingProblems(document, wall),
         _ => Array.Empty<(string, string)>()
     };
+
+    /// <summary>A retaining wall that will not stand, or that nothing can be said of.</summary>
+    private static IReadOnlyList<(string Said, string Rule)> RetainingProblems(BimDocument document, Wall wall)
+    {
+        var check = RetainingDesign.Check(document, wall, "Retaining wall");
+        var rule = document.ProjectInformation.ClearanceStandard.IsUs() ? "IRC R404.4" : "BS EN 1997-1";
+        if (check.Checks.Count == 0) return new[] { (check.Limits, rule) };
+        var over = check.Checks.Where(each => each.Ratio > 1).ToList();
+        return over.Count == 0 ? Array.Empty<(string, string)>() : new[] { ($"Its {string.Join(", ", over.Select(each => each.Name.ToLowerInvariant()))} is more than it can take. {check.Limits}", rule) };
+    }
 
     private static IReadOnlyList<(string Said, string Rule)> StripProblems(BimDocument document, WallFooting footing, ClearanceStandard standard)
     {

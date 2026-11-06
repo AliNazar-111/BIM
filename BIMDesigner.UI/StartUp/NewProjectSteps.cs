@@ -20,8 +20,9 @@ public sealed class NewProjectSteps : Grid
 {
     public static readonly string[] Steps = { "Template", "Project", "Site", "Storeys", "Save" };
 
-    private static readonly string[] BuildingTypes =
-        { "Detached house", "Semi-detached house", "Terraced house", "Bungalow", "Flat", "Extension", "Other" };
+    /// <summary>What a project can say the building is: its imposed loads, fire resistance and consequence class go by it.</summary>
+    public static readonly string[] BuildingTypes =
+        { "Detached house", "Semi-detached house", "Terraced house", "Bungalow", "Flat", "Office", "Extension", "Other" };
 
     private ProjectTemplate _template = ProjectTemplate.EnglandHouse;
     private readonly List<RadioButton> _templates = new();
