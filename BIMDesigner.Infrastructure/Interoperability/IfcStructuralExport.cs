@@ -222,7 +222,7 @@ public static partial class IfcExport
                     each.Name = loadCase.Name;
                     each.Description = loadCase.Description;
                     each.PredefinedType = IfcLoadGroupTypeEnum.LOAD_CASE;
-                    each.ActionType = loadCase.Permanent ? IfcActionTypeEnum.PERMANENT_G : IfcActionTypeEnum.VARIABLE_Q;
+                    each.ActionType = loadCase.Permanent ? IfcActionTypeEnum.PERMANENT_G : loadCase.Accidental ? IfcActionTypeEnum.EXTRAORDINARY_A : IfcActionTypeEnum.VARIABLE_Q;
                     each.ActionSource = loadCase.Nature switch
                     {
                         LoadNature.SelfWeight => IfcActionSourceTypeEnum.DEAD_LOAD_G,
@@ -260,9 +260,11 @@ public static partial class IfcExport
                         each.AppliedLoad = New<IfcStructuralLoadPlanarForce>(force =>
                         {
                             force.Name = load.Said.Length > 60 ? load.Said[..60] : load.Said;
-                            force.PlanarForceX = load.Force.X;
-                            force.PlanarForceY = load.Force.Y;
-                            force.PlanarForceZ = load.Force.Z;
+                            // A drift, falling away over its plate, as its average over the plate.
+                            var average = load.Ramp is null ? 1 : load.LoadedArea / Math.Max(load.Panel.Area, 1e-9);
+                            force.PlanarForceX = load.Force.X * average;
+                            force.PlanarForceY = load.Force.Y * average;
+                            force.PlanarForceZ = load.Force.Z * average;
                         });
                     });
                     actions.Add(action);

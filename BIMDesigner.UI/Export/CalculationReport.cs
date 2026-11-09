@@ -36,8 +36,10 @@ public static class CalculationReport
     private static string Amount(double value, string unit) => $"{F(value, "0.00")} {unit}".TrimEnd();
 
     /// <summary>The report, from an analysis and what was worked out from it.</summary>
-    public static ReportDocument Build(BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, IReadOnlyList<FireCheck> fires, RobustnessResult robustness, string version, DateTime on)
+    public static ReportDocument Build(BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, IReadOnlyList<FireCheck> fires, RobustnessResult robustness, string version, DateTime on,
+        ModalResult? modes = null, IReadOnlyList<FloorVibration>? floors = null)
     {
+        floors ??= Array.Empty<FloorVibration>();
         var project = document.ProjectInformation;
         var us = project.ClearanceStandard.IsUs();
         var date = on.ToString("d MMMM yyyy", CultureInfo.CurrentCulture);
@@ -59,7 +61,7 @@ public static class CalculationReport
             ("Ground", $"{StructureRules.Describe(project.Ground)}, taken, not investigated")
         });
 
-        Summary(report, document, analysis, second, byMember, byWall, byPlate, byFooting, byJoint, fires, robustness);
+        Summary(report, document, analysis, second, byMember, byWall, byPlate, byFooting, byJoint, fires, robustness, floors);
 
         report.Heading("Status of these calculations");
         report.Paragraph("Worked out by software from the model as it stood on the date above. They have not been reviewed: an engineer is to check them, and what they rest on, before anything is built from them.", ReportTone.Unmet);
@@ -85,13 +87,14 @@ public static class CalculationReport
         RobustnessOf(report, robustness);
         RemovalOf(report, robustness);
         Deflections(report, document, analysis);
+        ModesOf(report, document, analysis, modes, floors);
         Foundations(report, document, analysis, byFooting);
         return report;
     }
 
     // ---- what they come to ------------------------------------------------------------------
 
-    private static void Summary(ReportDocument report, BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, IReadOnlyList<FireCheck> fires, RobustnessResult robustness)
+    private static void Summary(ReportDocument report, BimDocument document, StructuralAnalysis analysis, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<WallCheck> walls, IReadOnlyList<PlateCheck> plates, IReadOnlyList<FoundationCheck> footings, IReadOnlyList<JointCheck> joints, IReadOnlyList<FireCheck> fires, RobustnessResult robustness, IReadOnlyList<FloorVibration> floors)
     {
         var checkedMembers = members.Where(check => check.Checks.Count > 0).ToList();
         var checkedWalls = walls.Where(check => check.Checks.Count > 0).ToList();
@@ -102,7 +105,7 @@ public static class CalculationReport
         var buckles = second.Results.Any(result => result.Buckles);
         var over = checkedMembers.Count(check => !check.Enough) + checkedWalls.Count(check => !check.Enough) + checkedPlates.Count(check => !check.Enough) + fires.Count(check => !check.Enough) + robustness.Ties.Count(check => !check.Enough) + checkedFootings.Count(check => !check.Enough) + checkedJoints.Count(check => !check.Enough) + deflections.Count(check => check.Ratio > 1) + bearings.Count(check => check.Ratio > 1);
         var braced = IrcBracing.Of(document, analysis);
-        over += (analysis.Seismic?.Drifts.Count(drift => drift.Ratio > 1) ?? 0) + (braced?.Lines.Count(line => !line.Enough) ?? 0) + (robustness.Removal?.Removals.Count(removal => !removal.Enough) ?? 0);
+        over += floors.Count(floor => !floor.Enough) + (analysis.Seismic?.Drifts.Count(drift => drift.Ratio > 1) ?? 0) + (braced?.Lines.Count(line => !line.Enough) ?? 0) + (robustness.Removal?.Removals.Count(removal => !removal.Enough) ?? 0);
         double RemovalShare(RemovalCheck removal) => removal.Stands ? 0 : removal.Key.Count == 0 ? double.PositiveInfinity : removal.Key.Max(check => check.Ratio);
         string Named(AnalyticalProblem problem)
         {
@@ -147,6 +150,8 @@ public static class CalculationReport
                 braced.Lines.MaxBy(line => line.Faults.Count > 0 ? double.PositiveInfinity : line.Ratio)!.Name) : null,
             analysis.Seismic is { } quake ? Row("Storey drift", quake.Drifts.Count, quake.Drifts.Count(drift => drift.Ratio > 1), quake.Drifts.Select(drift => drift.Ratio).DefaultIfEmpty(0).Max(),
                 quake.Drifts.MaxBy(drift => drift.Ratio) is { } drifting ? $"{drifting.Level}, {drifting.Case}" : "-") : null,
+            Row("Timber floors, vibration", floors.Count, floors.Count(floor => !floor.Enough), floors.Select(floor => floor.Ratio).DefaultIfEmpty(0).Max(),
+                floors.MaxBy(floor => floor.Ratio) is { } shaking ? $"{shaking.Joists} joists over {F(shaking.Span / 1000, "0.00")} m: {shaking.Checks.MaxBy(check => check.Ratio)!.Name}" : "-"),
             Row("Members, deflection", deflections.Count, deflections.Count(check => check.Ratio > 1), deflections.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
                 deflections.OrderByDescending(check => check.Ratio ?? 0).FirstOrDefault() is { } bent ? bent.Member.Name : "-"),
             Row("Ground under plates", bearings.Count, bearings.Count(check => check.Ratio > 1), bearings.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
@@ -298,6 +303,46 @@ public static class CalculationReport
         report.Paragraph("Design drift Cd δxe / Ie between each floor and the one under it, 12.8.6, against Table 12.12-1, taken as for a building of four storeys or fewer with its partitions and cladding made to take the drift, where it has no more. θ is the stability coefficient Px Δ Ie / (Vx hsx Cd) of (12.8-16), Px the dead and live load at and above the storey: under 0.10 P-delta need not be considered, and no more than 0.5 / Cd is allowed. ρ is taken as 1.3 in categories D to F without looking for 12.3.4.2's conditions for 1.0. Snow and storage in the seismic weight, and the overstrength combinations, are not worked out.", ReportTone.Muted);
     }
 
+    /// <summary>The structure's natural modes, where they were worked out, what its periods come to for an earthquake, and its timber floors' vibration.</summary>
+    private static void ModesOf(ReportDocument report, BimDocument document, StructuralAnalysis analysis, ModalResult? modes, IReadOnlyList<FloorVibration> floors)
+    {
+        if (modes is null && floors.Count == 0) return;
+        report.Heading("Natural modes and floor vibration");
+        if (modes is { Modes.Count: > 0 })
+        {
+            var (x, y, z) = (0.0, 0.0, 0.0);
+            report.Table(new[] { new ReportColumn("Mode", 0.5, true), new ReportColumn("Hz", 0.6, true), new ReportColumn("Period, s", 0.7, true), new ReportColumn("Moves mostly", 1.1), new ReportColumn("Mass x", 0.6, true), new ReportColumn("Mass y", 0.6, true), new ReportColumn("Mass z", 0.6, true), new ReportColumn("So far, x / y / z", 1.4, true) },
+                modes.Modes.Select(mode =>
+                {
+                    (x, y, z) = (x + mode.ShareX, y + mode.ShareY, z + mode.ShareZ);
+                    return new ReportCell[] { mode.Number.ToString(CultureInfo.CurrentCulture), F(mode.Frequency, "0.00"), F(mode.Period, "0.000"), mode.Way, mode.ShareX.ToString("P1", CultureInfo.CurrentCulture),
+                        mode.ShareY.ToString("P1", CultureInfo.CurrentCulture), mode.ShareZ.ToString("P1", CultureInfo.CurrentCulture), $"{x:P0} / {y:P0} / {z:P0}" };
+                }));
+            foreach (var note in modes.Notes) report.Paragraph(note, ReportTone.Muted);
+            if (analysis.Loading.Seismic is { Applies: true } quake)
+            {
+                var cu = ModalAnalysis.UpperLimit(quake.Sd1);
+                foreach (var (axis, name) in new[] { (0, "x"), (1, "y") })
+                    if (modes.PeriodAlong(axis) is { } period)
+                        report.Paragraph($"Along {name} the analysis gives T = {F(period, "0.000")} s, where Ta is {F(quake.Period, "0.000")} s and Cu Ta {F(cu * quake.Period, "0.000")} s (ASCE 7-16 12.8.2, Table 12.8-1); the seismic loads take Ta, on the safe side.");
+            }
+        }
+
+        if (floors.Count > 0)
+        {
+            report.Heading("Timber floors, BS EN 1995-1-1 7.3.3", 2);
+            report.Table(new[] { new ReportColumn("Floor", 1.6), new ReportColumn("f1, Hz", 0.6, true), new ReportColumn("w, mm", 0.6, true), new ReportColumn("a, mm", 0.6, true), new ReportColumn("v", 0.6, true), new ReportColumn("Limit", 0.6, true), new ReportColumn("Worst", 0.6, true) },
+                floors.Select(floor => new ReportCell[]
+                {
+                    floor.Said, F(floor.Frequency, "0.0"), F(floor.Checks[1].Demand, "0.00"), F(floor.Checks[1].Capacity, "0.00"), F(floor.Checks[2].Demand, "0.0"), F(floor.Checks[2].Capacity, "0.0"),
+                    new ReportCell(floor.Ratio.ToString("P0", CultureInfo.CurrentCulture), floor.Enough ? ReportTone.Plain : ReportTone.Unmet)
+                }));
+            report.Paragraph("Unloaded, the mass of the floor's build-up and joists (7.3.3(3)). f1 by (7.5), over 8 Hz or a special investigation is wanted; w under 1 kN by the UK National Annex, 1000 kdist ℓ³ kamp / 48 EI with kamp 1.05, against a of 1.8 mm to 4 m spans and 16500 / ℓ^1.1 past; v, mm/Ns², by (7.6) and (7.7) against b^(f1 ζ - 1), b = 180 - 60a to a of 1 and 160 - 40a past, ζ 0.02. The Annex's figures as remembered; the deck taken as 22 mm boards at 3,500 N/mm².", ReportTone.Muted);
+        }
+        else if (document.ProjectInformation.ClearanceStandard.IsUs())
+            report.Paragraph("Floor vibration: the IRC and the NDS set no limit on it.", ReportTone.Muted);
+    }
+
     /// <summary>A US house's walls braced by the IRC's prescriptive rules, where it is in categories D0 to D2.</summary>
     private static void BracingOf(ReportDocument report, BimDocument document, StructuralAnalysis analysis)
     {
@@ -327,7 +372,7 @@ public static class CalculationReport
         report.Table(new[] { new ReportColumn("Case", 0.6), new ReportColumn("What", 3.2), new ReportColumn("kN/m²", 0.8, true), new ReportColumn("On, m²", 0.8, true) },
             loading.SurfaceLoads.GroupBy(load => (load.Case.Name, load.Said, Value: Math.Round(Math.Sqrt(load.Force.X * load.Force.X + load.Force.Y * load.Force.Y + load.Force.Z * load.Force.Z), 2)))
                 .OrderBy(group => group.Key.Name, StringComparer.Ordinal)
-                .Select(group => new ReportCell[] { group.Key.Name, group.Key.Said, F(group.Key.Value, "0.00"), F(group.Sum(load => load.Panel.Area) / 1e6) }));
+                .Select(group => new ReportCell[] { group.Key.Name, group.Key.Said, F(group.Key.Value, "0.00"), F(group.Sum(load => load.LoadedArea) / 1e6) }));
 
         report.Heading("Combinations", 2);
         report.Table(new[] { new ReportColumn("Name", 0.7), new ReportColumn("Expression", 2.2), new ReportColumn("Factors", 3) },

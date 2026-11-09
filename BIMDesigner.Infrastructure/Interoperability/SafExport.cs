@@ -207,7 +207,7 @@ public static class SafExport
 
         var cases = Sheet("StructuralLoadCase", "Name", "Description", "Action type", "Load group", "Load type", "Duration");
         foreach (var loadCase in loading.Cases)
-            cases.Add(loadCase.Name, loadCase.Description, loadCase.Permanent ? "Permanent" : "Variable", GroupOf(loadCase), loadCase.Nature switch
+            cases.Add(loadCase.Name, loadCase.Description, loadCase.Permanent ? "Permanent" : loadCase.Accidental ? "Accidental" : "Variable", GroupOf(loadCase), loadCase.Nature switch
             {
                 LoadNature.SelfWeight => "Self weight",
                 LoadNature.Dead => "Standard",
@@ -239,11 +239,12 @@ public static class SafExport
 
         var surfaceActions = Sheet("StructuralSurfaceAction", "Name", "Direction", "Type", "Force action", "Value [kN/m2]", "2D Member", "Load case", "Coordinate system", "Location");
         var actionCount = 0;
+        // A drift, falling away over its plate, is written as its average over the plate: what it comes to in all, not where.
         foreach (var load in loading.SurfaceLoads)
         foreach (var (direction, value) in new[] { ("X", load.Force.X), ("Y", load.Force.Y), ("Z", load.Force.Z) })
             if (Math.Abs(value) >= 1e-6)
                 surfaceActions.Add($"SA{++actionCount}", direction, load.Case.Nature switch { LoadNature.Wind => "Wind", LoadNature.Snow => "Snow", _ => "Standard" },
-                    "On 2D member", Math.Round(value, 4), load.Panel.Name, load.Case.Name, "Global", "Length");
+                    "On 2D member", Math.Round(load.Ramp is null ? value : value * load.LoadedArea / Math.Max(load.Panel.Area, 1e-9), 4), load.Panel.Name, load.Case.Name, "Global", "Length");
         sheets.Add(surfaceActions);
 
         var curveActions = Sheet("StructuralCurveAction", "Name", "Type", "Force action", "Distribution", "Direction", "Value 1 [kN/m]", "Member", "2D Member", "Edge", "Load case",

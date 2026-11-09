@@ -429,12 +429,22 @@ public sealed class StructuralAnalysis
             else _beamLoads[(loadCase, beam)] = local;
         }
 
-        void OnPanel(AnalyticalPanel panel, V3 perMm2)
+        // A load that falls away over the plate, a drift, at its share of each triangle: what of the triangle it covers, at its share, over the triangle.
+        void OnPanel(AnalyticalPanel panel, V3 perMm2, LoadRamp? ramp = null)
         {
             foreach (var (_, shell) in _panelShells.Where(entry => ReferenceEquals(entry.Panel, panel)))
             {
                 var s = Solver.Shells[shell];
-                var force = perMm2 * (TriangleArea(s) / 3);
+                var share = 1.0;
+                if (ramp is not null)
+                {
+                    var (a, b, c) = (V3.Of(Solver.NodeAt(s.I)), V3.Of(Solver.NodeAt(s.J)), V3.Of(Solver.NodeAt(s.K)));
+                    var plan = new[] { new Point2D(a.X, a.Y), new Point2D(b.X, b.Y), new Point2D(c.X, c.Y) };
+                    share = ramp.Over(plan) / Math.Max(Polygon2D.Area(plan), 1e-9);
+                    if (share <= 0) continue;
+                }
+
+                var force = perMm2 * (TriangleArea(s) / 3 * share);
                 foreach (var n in new[] { s.I, s.J, s.K })
                 {
                     load[n * 6] += force.X;
@@ -454,7 +464,7 @@ public sealed class StructuralAnalysis
         }
 
         foreach (var surface in Loading.SurfaceLoads.Where(entry => entry.Case == loadCase))
-            OnPanel(surface.Panel, new V3(surface.Force.X, surface.Force.Y, surface.Force.Z) * 1e-3);
+            OnPanel(surface.Panel, new V3(surface.Force.X, surface.Force.Y, surface.Force.Z) * 1e-3, surface.Ramp);
 
         foreach (var line in Loading.LineLoads.Where(entry => entry.Case == loadCase))
         {

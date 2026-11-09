@@ -65,7 +65,7 @@ public class LoadArrangementTests
         // BS EN 1991-1-3 5.3.3 and Figure 5.3: case (ii) 0.5 μ1 on one slope and μ1 on the other, case (iii) the other way round - each an arrangement of its own, taken instead of the snow lying evenly.
         var (document, walls, _) = House();
         var loading = Loaded(document);
-        Assert.Equal(new[] { "G1", "G2", "Q2", "S1", "S2", "S3", "W1", "W2", "W3", "W4" }, loading.Cases.Select(each => each.Name));
+        Assert.Equal(new[] { "G1", "G2", "Q2", "S1", "S2", "S3", "W1", "W2", "W3", "W4", "W5", "W6" }, loading.Cases.Select(each => each.Name));
         var (south, north) = (walls[0], walls[2]);
         var even = On(loading, "S1", south);
         Assert.True(even > 1);
@@ -216,6 +216,72 @@ public class LoadArrangementTests
             Assert.Same(south, load.Panel!.Element);
             Assert.Equal(zoneD * q * 0.45, load.Force.Z, 4);
         });
+    }
+
+    [Fact]
+    public void AWindwardSlopeIsAlsoDrawnOffInACaseOfItsOwn()
+    {
+        // Table 7.4a gives a windward slope of 5° to 45° two values, pressing and drawing off. W3 has the first; W5 the second with all else as W3 has it - at 35° H -0.133 and F and G -0.333
+        // in the strip e/10 deep along the eave. It lifts a roof, so it is taken where the weight helps the wind, and only there.
+        var (document, walls, _) = House();
+        var loading = Loaded(document);
+        var (w3, w5) = (loading.Cases.Single(each => each.Name == "W3"), loading.Cases.Single(each => each.Name == "W5"));
+        Assert.Equal(w3.Wind, w5.Wind);
+        Assert.Contains("drawn off", w5.Description);
+        var q = document.ProjectInformation.WindPressure;
+        var e = Math.Min(10, 2 * Wind.Height(document) / 1000);
+        var (south, north) = (walls[0], walls[2]);
+        var deep = Deep(document, loading, south, 35);
+        var strip = Math.Min(e / 10, deep) / deep;
+        var drawn = loading.LineLoads.Where(load => load.Case == w5 && load.Panel?.Element == south && load.Said.StartsWith("windward slope, drawn off", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(drawn);
+        Assert.All(drawn, load => Assert.Equal((-0.5 + 0.5 / 3) * strip + (-0.2 + 0.2 / 3) * (1 - strip), -load.Force.Z / (q * deep), 4));
+
+        // Its walls, leeward slope and overhang as W3's.
+        string Rest(LoadCase wind) => string.Join("|", loading.SurfaceLoads.Where(load => load.Case == wind).Select(load => $"{load.Panel.Name} {load.Force}")
+            .Concat(loading.LineLoads.Where(load => load.Case == wind && !load.Said.StartsWith("windward slope", StringComparison.Ordinal)).Select(load => $"{load.Panel?.Name} {load.Start:0} {load.Force}")));
+        Assert.Equal(Rest(w3), Rest(w5));
+        Assert.Equal(new[] { "1 G1 + 1 G2 + 1.5 W5" }, loading.Combinations.Where(each => each.Terms.Any(term => term.Case == w5)).Select(each => each.Said));
+
+        // Past 45° there is one value, and no such case.
+        var (steep, _, _) = House(pitch: 50);
+        Assert.DoesNotContain(Loaded(steep).Cases, each => each.Description.Contains("drawn off", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AHippedRoofsFacesAreByTable75()
+    {
+        // The wind across the main ridge of a hipped roof at 35°: its windward face F +0.567 for e/4 from each end of the strip along its eave and G +0.7 between, H +0.467 on the rest; its leeward
+        // face J -0.667 along the ridge and I -0.367 on the rest - Table 7.5's, where a duopitch's are +0.7, -0.433 and -0.333.
+        var (document, _) = EaveTests.House(hip: true);
+        var walls = document.Walls.ToList();
+        foreach (var wall in walls)
+        {
+            wall.StructuralUsage = StructuralUsage.Bearing;
+            document.Add(Footings.Fit(document, wall));
+        }
+
+        var loading = Loaded(document);
+        var wind = loading.Cases.Single(each => each.Name == "W3");
+        var q = document.ProjectInformation.WindPressure;
+        var e = Math.Min(10, 2 * Wind.Height(document) / 1000);
+        var (south, north) = (walls[0], walls[2]);
+        var (deepSouth, deepNorth) = (Deep(document, loading, south, 35), Deep(document, loading, north, 35));
+        var eave = loading.LineLoads.Where(load => load.Case.Name == "S1" && load.Panel?.Element == south).Sum(load => load.Length) / 1000;
+        var atEnds = Math.Min(e / 2, eave) / eave;
+        var (stripSouth, stripNorth) = (Math.Min(e / 10, deepSouth) / deepSouth, Math.Min(e / 10, deepNorth) / deepNorth);
+        var edge = (0.5 + 0.2 / 3) * atEnds + 0.7 * (1 - atEnds);
+
+        var windward = loading.LineLoads.Where(load => load.Case == wind && load.Panel?.Element == south && load.Said.StartsWith("windward slope", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(windward);
+        Assert.All(windward, load =>
+        {
+            Assert.Contains("Table 7.5", load.Said);
+            Assert.Equal(edge * stripSouth + (0.4 + 0.2 / 3) * (1 - stripSouth), -load.Force.Z / (q * deepSouth), 4);
+        });
+        var leeward = loading.LineLoads.Where(load => load.Case == wind && load.Panel?.Element == north && load.Said.StartsWith("leeward slope", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(leeward);
+        Assert.All(leeward, load => Assert.Equal(-(0.7 - 0.1 / 3) * stripNorth - (0.4 - 0.1 / 3) * (1 - stripNorth), -load.Force.Z / (q * deepNorth), 4));
     }
 
     [Theory]

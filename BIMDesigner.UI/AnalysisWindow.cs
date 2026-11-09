@@ -50,6 +50,12 @@ internal sealed class AnalysisWindow : System.Windows.Window
     private readonly TextBlock _removalSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private int _removalRun;
     private readonly DataGrid _bracing = Grid();
+    private readonly TabItem _modesTab = new() { Header = "Modes" };
+    private readonly DataGrid _modes = Grid(), _vibration = Grid();
+    private readonly TextBlock _modesSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private int _modesRun;
+    private ModalResult? _modal;
+    private IReadOnlyList<FloorVibration> _floors = Array.Empty<FloorVibration>();
     private readonly TabItem _bracingTab = new() { Header = "Bracing" };
     private readonly TextBlock _bracingSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<FoundationCheck> _footingChecks = Array.Empty<FoundationCheck>();
@@ -128,6 +134,14 @@ internal sealed class AnalysisWindow : System.Windows.Window
         tabs.Items.Add(_bracingTab);
         _swayTab.Content = _sway;
         tabs.Items.Add(_swayTab);
+        // The modes over the timber floors, what was taken scrolling under both rather than taking their room.
+        var modesPane = new DockPanel();
+        var modesText = new ScrollViewer { Content = _modesSaid, MaxHeight = 80, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        DockPanel.SetDock(modesText, Dock.Bottom);
+        modesPane.Children.Add(modesText);
+        modesPane.Children.Add(Pane(_modes, _vibration, new TextBlock()));
+        _modesTab.Content = modesPane;
+        tabs.Items.Add(_modesTab);
         tabs.Items.Add(new TabItem { Header = "Supports", Content = _supports });
         tabs.Items.Add(new TabItem { Header = "Plates", Content = _plates });
         _foundationsTab.Content = _foundations;
@@ -231,6 +245,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _sway.ItemsSource = null;
         _strengthDetail.ItemsSource = null;
         _strengthSaid.Text = "Working out how the structure sways, then each member's strength...";
+        StartModes();
         Task.Run(() =>
         {
             var worked = SecondOrderAnalysis.Run(document, analysis);
@@ -277,6 +292,70 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _report.IsEnabled = !_stale;
         StartRemoval(second);
     }
+
+    /// <summary>The structure's natural modes and its timber floors' vibration, worked out away from the window beside the strength checks.</summary>
+    private void StartModes()
+    {
+        var (analysis, document, run) = (_analysis, _main.Document, ++_modesRun);
+        _modal = null;
+        _floors = Array.Empty<FloorVibration>();
+        _modesTab.Header = "Modes (working)";
+        _modes.ItemsSource = null;
+        _vibration.ItemsSource = null;
+        _modesSaid.Text = "Working out how the structure vibrates...";
+        Task.Run(() => (Modes: ModalAnalysis.Of(analysis), Floors: FloorVibrations.Of(document, analysis))).ContinueWith(done => Dispatcher.BeginInvoke(() =>
+        {
+            if (run != _modesRun || !IsLoaded) return;
+            if (done.Exception is { } failed)
+            {
+                _modesTab.Header = "Modes";
+                _modesSaid.Text = $"This could not be worked out: {failed.GetBaseException().Message} Analyse Again.";
+                return;
+            }
+
+            (_modal, _floors) = done.Result;
+            ShowModes();
+        }), TaskScheduler.Default);
+    }
+
+    /// <summary>Each mode - its frequency, period and the mass it moves each way - then each timber floor's vibration checks, and what the periods come to for an earthquake.</summary>
+    private void ShowModes()
+    {
+        if (_modal is not { } modal) return;
+        var c = CultureInfo.CurrentCulture;
+        var (sumX, sumY, sumZ) = (0.0, 0.0, 0.0);
+        Fill(_modes, new[] { "Mode", "Frequency, Hz", "Period, s", "Moves mostly", "Mass along x", "Along y", "Up and down", "So far, x / y / z" }, modal.Modes.Select(mode =>
+        {
+            (sumX, sumY, sumZ) = (sumX + mode.ShareX, sumY + mode.ShareY, sumZ + mode.ShareZ);
+            return new[]
+            {
+                mode.Number.ToString(c), mode.Frequency.ToString("0.00", c), mode.Period.ToString("0.000", c), mode.Way, mode.ShareX.ToString("P1", c), mode.ShareY.ToString("P1", c), mode.ShareZ.ToString("P1", c),
+                $"{sumX.ToString("P0", c)} / {sumY.ToString("P0", c)} / {sumZ.ToString("P0", c)}"
+            };
+        }));
+        Fill(_vibration, new[] { "Timber floor", "Joists", "f1, Hz", "Under 1 kN, mm", "a, mm", "Impulse velocity", "Limit", "Worst", "What it is taken as" }, _floors.Select(floor => new[]
+        {
+            _main.Document.FindType<SlabType>(floor.Floor.TypeId)?.Name ?? "Floor", floor.Joists.ToString(c), floor.Frequency.ToString("0.0", c),
+            floor.Checks[1].Demand.ToString("0.00", c), floor.Checks[1].Capacity.ToString("0.00", c), floor.Checks[2].Demand.ToString("0.0", c), floor.Checks[2].Capacity.ToString("0.0", c), Share(floor.Ratio), floor.Said
+        }), 8);
+        var over = _floors.Count(floor => !floor.Enough);
+        _modesTab.Header = over > 0 ? $"Modes ({over} over)" : "Modes";
+        var said = new List<string>(modal.Notes);
+        if (_analysis.Loading.Seismic is { Applies: true } quake)
+        {
+            var cu = ModalAnalysis.UpperLimit(quake.Sd1);
+            foreach (var (axis, name) in new[] { (0, "x"), (1, "y") })
+                if (modal.PeriodAlong(axis) is { } period)
+                    said.Add($"Along {name} the analysis gives T = {period.ToString("0.000", c)} s, where Ta is {quake.Period.ToString("0.000", c)} s and Cu Ta {(cu * quake.Period).ToString("0.000", c)} s (ASCE 7-16 12.8.2, Table 12.8-1): the seismic loads take Ta, on the safe side.");
+        }
+
+        said.Add(_main.Document.ProjectInformation.ClearanceStandard.IsUs()
+            ? "Floor vibration: the IRC and the NDS set no limit on it; the floors' deflections are checked as the Deflection Checks tab has them."
+            : _floors.Count == 0 ? "Floor vibration by BS EN 1995-1-1 7.3.3 is worked out for floors on drawn timber joists; there are none here." : FloorVibrationsSaid);
+        _modesSaid.Text = string.Join(" ", said);
+    }
+
+    private const string FloorVibrationsSaid = "Timber floors by BS EN 1995-1-1 7.3.3 with the UK National Annex, unloaded: f1 by (7.5), over 8 Hz or a special investigation is wanted; the deflection under 1 kN by the Annex's kdist and kamp 1.05 against a, and the unit impulse velocity by (7.6) and (7.7) against b^(f1 ζ - 1), ζ 0.02 - the Annex's figures as remembered, the deck taken as 22 mm boards at 3,500 N/mm².";
 
     /// <summary>
     /// A Consequence Class 2b building's notional removals, each support taken away in turn: a minute or so for a building of some size, so worked out after the rest, the calculations waiting for them.
@@ -345,7 +424,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         if (_second is null) return null;
         try
         {
-            var report = Export.CalculationReport.Build(_main.Document, _analysis, _second, _strengthChecks, _wallChecks, _plateChecks, _footingChecks, _jointChecks, _fireChecks, _robustness!, MainWindow.AppVersion, DateTime.Today);
+            var report = Export.CalculationReport.Build(_main.Document, _analysis, _second, _strengthChecks, _wallChecks, _plateChecks, _footingChecks, _jointChecks, _fireChecks, _robustness!, MainWindow.AppVersion, DateTime.Today, _modal, _floors);
             Export.CalculationReport.ToPdf(report, path);
             DialogLook.Say(_said, $"Calculations saved: {System.IO.Path.GetFileName(path)}, {report.PageCount} page{(report.PageCount == 1 ? "" : "s")}.");
             return report.PageCount;

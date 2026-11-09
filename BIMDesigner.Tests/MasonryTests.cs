@@ -394,7 +394,7 @@ public class MasonryTests
         Assert.True(with < 0.9 * without, $"{with:P0} with it, {without:P0} without");
 
         // The walls it runs beside it does nothing for.
-        Assert.Equal(Worst(stud, false), Worst(block, false), 1);
+        Assert.InRange(Worst(block, false), 0.97 * Worst(stud, false), 1.03 * Worst(stud, false));
     }
 
     [Theory]

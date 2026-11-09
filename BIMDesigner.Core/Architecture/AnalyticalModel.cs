@@ -1032,11 +1032,13 @@ public sealed class AnalyticalModel
 
         /// <summary>
         /// A floor's outline with its corners taken to the planes of the bearing walls it is on - where
-        /// two meet, to where they cross; by one, onto it - so its edges are where those walls are.
+        /// two meet, to where they cross; by one, onto it - so its edges are where those walls are. A wall
+        /// running on up past it, a parapet round a roof or the wall of a taller part a lower roof abuts,
+        /// holds it as one under it does.
         /// </summary>
         private IReadOnlyList<Point2D> Snapped(IReadOnlyList<Point2D> outline, double height, bool onTheirBase, double margin, IReadOnlyList<WallFrame>? walls = null)
         {
-            var bearing = walls ?? _walls.Where(frame => Math.Abs((onTheirBase ? frame.Base : frame.Top) - height) <= 600).ToList();
+            var bearing = walls ?? _walls.Where(frame => Math.Abs((onTheirBase ? frame.Base : frame.Top) - height) <= 600 || (!onTheirBase && frame.Base < height - 1 && frame.Top > height + 600)).ToList();
             var moved = outline.Select(corner =>
             {
                 var near = bearing
@@ -1126,7 +1128,10 @@ public sealed class AnalyticalModel
                 }
                 else if (within.Count > 0)
                 {
-                    var highest = within.Max(frame => frame.Top);
+                    // Not a wall running on up past the roof - the wall of a taller part a lean-to abuts, a parapet - which it does not rest on; a diaphragm at such a wall's top floated over the roof.
+                    var surface = ((Roof)slab).Surface(_document);
+                    within = within.Where(frame => frame.Top <= surface.HeightAt(frame.At((frame.From + frame.To) / 2)) + 300).ToList();
+                    var highest = within.Count == 0 ? 0 : within.Max(frame => frame.Top);
                     within = within.Where(frame => frame.Top >= highest - 600).ToList();
                 }
 
@@ -1136,7 +1141,10 @@ public sealed class AnalyticalModel
                 var plates = _model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && within.Any(frame => frame.Wall == panel.Element)).ToList();
                 if (plates.Count == 0) continue;
                 var height = plates.Min(EndTop);
-                var corners = Snapped(outline, height, false, 1200, within);
+
+                // Its edge against a wall running on up past it taken to that wall, and held there as a lean-to's rafters on a wall plate are.
+                var past = _walls.Where(frame => frame.To - frame.From >= 1 && frame.Base < height - 1 && frame.Top > height + 600 && Near(outline, frame.At((frame.From + frame.To) / 2), frame.Width + 1200)).ToList();
+                var corners = Snapped(outline, height, false, 1200, within.Concat(past).ToList());
                 if (corners.Count < 3 || Math.Abs(Polygon2D.SignedArea(corners)) < 1e5) continue;
                 if (made.Any(other => Math.Abs(other.Height - height) < 50 && Polygon2D.Contains(other.Area.Corners, Polygon2D.Centroid(corners, corners[0])))) continue;
                 if (_model.Panels.Any(panel => panel.Kind is AnalyticalPanelKind.Floor or AnalyticalPanelKind.Roof && Math.Abs(panel.Origin.Z - height) < 50 && Polygon2D.Contains(panel.FlatOutline, Polygon2D.Centroid(corners, corners[0])))) continue;

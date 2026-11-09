@@ -245,7 +245,7 @@ public class AnalyticalModelTests
         var model = AnalyticalModel.Of(document);
         var loading = StructuralLoading.Of(document, model);
         var cases = loading.Cases.Select(each => each.Name).ToList();
-        Assert.Equal(new[] { "G1", "G2", "Q2", "S1", "S2", "S3", "W1", "W2", "W3", "W4" }, cases);
+        Assert.Equal(new[] { "G1", "G2", "Q2", "S1", "S2", "S3", "W1", "W2", "W3", "W4", "W5", "W6" }, cases);
 
         // The gable roof's slopes on the south and north walls, the whole of each: its weight up the slope on plan.
         var roofType = document.FindType<SlabType>(roof.TypeId)!;
