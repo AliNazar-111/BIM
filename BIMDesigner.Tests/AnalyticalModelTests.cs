@@ -245,7 +245,7 @@ public class AnalyticalModelTests
         var model = AnalyticalModel.Of(document);
         var loading = StructuralLoading.Of(document, model);
         var cases = loading.Cases.Select(each => each.Name).ToList();
-        Assert.Equal(new[] { "G1", "G2", "Q2", "S1", "W1", "W2", "W3", "W4" }, cases);
+        Assert.Equal(new[] { "G1", "G2", "Q2", "S1", "S2", "S3", "W1", "W2", "W3", "W4" }, cases);
 
         // The gable roof's slopes on the south and north walls, the whole of each: its weight up the slope on plan.
         var roofType = document.FindType<SlabType>(roof.TypeId)!;
@@ -260,12 +260,15 @@ public class AnalyticalModelTests
         Assert.InRange(snow, roof.Area / 1e6 * 0.2 * 0.99, roof.Area / 1e6 * 0.2 * 1.01);
         Assert.Equal(0.5, StructuralLoading.RoofImposed(document, 35), 6);
 
-        // The wind from the west: the west wall pushed, the east one sucked, both toward +x - zones D and E for h/d 0.3, by 0.85.
+        // The wind from the west: the west wall pushed, the east one sucked, both toward +x - zones D and E for h/d 0.3, by 0.85 - and the side walls drawn off square to it.
         var west = loading.SurfaceLoads.Where(load => load.Case.Name == "W1").ToList();
-        Assert.Equal(2, west.Count);
-        Assert.All(west, load => Assert.True(load.Force.X > 0 && load.Force.Y == 0));
-        var pushed = west.Max(load => load.Force.X);
-        Assert.Equal(0.85 * (0.7 + 0.1 * (0.3 - 0.25) / 0.75) * document.ProjectInformation.WindPressure, pushed, 4);
+        Assert.Equal(4, west.Count);
+        var along = west.Where(load => Math.Abs(load.Force.X) > 1e-9).ToList();
+        Assert.Equal(2, along.Count);
+        Assert.All(along, load => Assert.True(load.Force.X > 0 && load.Force.Y == 0));
+        var pushed = along.MaxBy(load => load.Force.X)!;
+        Assert.Same(walls[3], pushed.Panel.Element);
+        Assert.Equal(0.85 * (0.7 + 0.1 * (0.3 - 0.25) / 0.75) * document.ProjectInformation.WindPressure, pushed.Force.X, 4);
     }
 
     [Fact]

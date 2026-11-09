@@ -262,38 +262,49 @@ public class WallDesignTests
     [Fact]
     public void WindGoesOnARoofAsWellAsItsWalls()
     {
-        // Wind across the ridge on slopes of 48.8 m² on plan at 35°: H and I of Table 7.4a come to +0.467 and -0.333, so 0.8 qp × 48.8 × tan 35° sideways.
+        // Wind across the ridge on slopes of 48.8 m² on plan at 35°, 4.88 m of plan to each metre of eave: H and I of Table 7.4a, +0.467 and -0.333, with F and G +0.7 along the windward eave
+        // and J -0.433 along the leeward side of the ridge, each strip e/10 deep, e the lesser of the 10 m across and 2h; sideways by tan 35°. The 300 overhang windward lifted at zone D's +0.717.
         var document = House("Exterior");
         var (loading, _, _) = Analysed(document);
         var wind = loading.Cases.First(c => c.Nature == LoadNature.Wind && Math.Abs(c.Wind!.Value.Y) > 0.5);
         var lines = loading.LineLoads.Where(load => load.Case == wind).ToList();
         Assert.NotEmpty(lines);
-        var qp = lines.First().Force is var _ ? WindPressure(loading, wind) : 0;
+        var qp = WindPressure(loading, wind);
+        var h = Wind.Height(document) / 1000;
+        var strip = Math.Min(Math.Min(10, 2 * h) / 10, 4.88) / 4.88;
+        var (windward, leeward) = (0.7 * strip + 0.4667 * (1 - strip), -0.4333 * strip - 0.3333 * (1 - strip));
         var sideways = Math.Abs(lines.Sum(load => load.Force.Y * (load.End - load.Start) / 1000));
-        Assert.InRange(sideways, 0.97 * 0.8 * qp * 48.8 * Math.Tan(35 * Math.PI / 180), 1.03 * 0.8 * qp * 48.8 * Math.Tan(35 * Math.PI / 180));
+        Assert.InRange(sideways, 0.97 * (windward - leeward) * qp * 48.8 * Math.Tan(35 * Math.PI / 180), 1.03 * (windward - leeward) * qp * 48.8 * Math.Tan(35 * Math.PI / 180));
 
-        // Down on the windward, up off the leeward: a little down in all.
+        // Down on the windward, up off the leeward and under the overhang.
+        var zoneD = 0.7 + 0.1 * (h / 8 - 0.25) / 0.75;
         var down = -lines.Sum(load => load.Force.Z * (load.End - load.Start) / 1000);
-        Assert.InRange(down, 0.97 * (0.4667 - 0.3333) * qp * 48.8, 1.03 * (0.4667 - 0.3333) * qp * 48.8);
+        var expected = (windward + leeward) * qp * 48.8 - zoneD * qp * 0.3 * 10;
+        Assert.InRange(down, expected - 0.03 * Math.Abs(expected), expected + 0.03 * Math.Abs(expected));
     }
 
     [Fact]
     public void WindAlongARidgeLiftsARoofOnly()
     {
-        // Each slope -0.5 of qp, both up, nothing sideways: they cancel.
+        // Table 7.4b at 35°: within e/10 of the windward gable F -1.1 for e/4 in from the eave and G -1.4 between, H -0.833 to e/2, I -0.5 past it, along each 10 m eave, both slopes up,
+        // nothing sideways: they cancel.
         var document = House("Exterior");
         var (loading, _, _) = Analysed(document);
         var wind = loading.Cases.First(c => c.Nature == LoadNature.Wind && Math.Abs(c.Wind!.Value.X) > 0.5);
         var lines = loading.LineLoads.Where(load => load.Case == wind).ToList();
         var qp = WindPressure(loading, wind);
+        var e = Math.Min(8, 2 * Wind.Height(document) / 1000);
+        var near = (-1.1 * Math.Min(e / 4, 4.88) - 1.4 * Math.Max(0, 4.88 - e / 4)) / 4.88;
+        var up = -2 * 4.88 * qp * (near * e / 10 - 0.8333 * (e / 2 - e / 10) - 0.5 * (10 - e / 2));
         Assert.InRange(lines.Sum(load => load.Force.X * (load.End - load.Start) / 1000), -0.5, 0.5);
-        Assert.InRange(lines.Sum(load => load.Force.Z * (load.End - load.Start) / 1000), 0.97 * 0.5 * qp * 97.6, 1.03 * 0.5 * qp * 97.6);
+        Assert.InRange(lines.Sum(load => load.Force.Y * (load.End - load.Start) / 1000), -0.5, 0.5);
+        Assert.InRange(lines.Sum(load => load.Force.Z * (load.End - load.Start) / 1000), 0.97 * up, 1.03 * up);
     }
 
     /// <summary>The peak pressure a case was worked from, read back from a wall into the wind: 0.85 × 0.7 or so of it, by its own note.</summary>
     private static double WindPressure(StructuralLoading loading, LoadCase wind)
     {
-        var said = loading.SurfaceLoads.First(load => load.Case == wind).Said;
+        var said = loading.SurfaceLoads.First(load => load.Case == wind && load.Said.Contains("qp ", StringComparison.Ordinal)).Said;
         var at = said.IndexOf("qp ", StringComparison.Ordinal) + 3;
         return double.Parse(said[at..said.IndexOf(" kPa", at, StringComparison.Ordinal)], System.Globalization.CultureInfo.InvariantCulture);
     }

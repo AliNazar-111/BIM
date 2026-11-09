@@ -39,6 +39,40 @@ public class NotionalRemovalTests
         return d;
     }
 
+    /// <summary>Five storeys of flats, 10 by 8 m, of brick on block walls round them and a cavity blockwork party wall across the middle, on 200 concrete slabs, 3 m floor to floor.</summary>
+    internal static BimDocument Flats(int storeys)
+    {
+        var d = BimDocument.CreateDefault();
+        d.ProjectInformation.BuildingType = "Flats";
+        d.ProjectInformation.Ground = GroundType.StiffClay;
+        for (var i = 2; i <= storeys; i++) d.AddLevel(new Level { Name = $"Level {i}", Elevation = i * 3000 });
+        var levels = d.Levels.OrderBy(level => level.Elevation).ToList();
+        var outer = d.TypesOf<WallType>().First(t => t.Name.StartsWith("Exterior - Brick on Block", StringComparison.Ordinal));
+        var cross = d.TypesOf<WallType>().First(t => t.Name.StartsWith("Party Wall", StringComparison.Ordinal));
+        var concrete = d.Materials.First(m => m.Name.StartsWith("Concrete, Cast", StringComparison.Ordinal));
+        var slab = new FloorType("Slab 200", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, concrete.Id, 200)));
+        d.AddType(slab);
+        var corners = new[] { new Point2D(0, 0), new Point2D(10000, 0), new Point2D(10000, 8000), new Point2D(0, 8000) };
+        for (var level = 0; level < storeys; level++)
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                var wall = new Wall { Start = corners[i], End = corners[(i + 1) % 4], TypeId = outer.Id, LevelId = levels[level].Id, TopLevelId = levels[level + 1].Id, StructuralUsage = StructuralUsage.Bearing };
+                d.Add(wall);
+                if (level == 0) d.Add(Footings.Fit(d, wall));
+            }
+
+            var middle = new Wall { Start = new Point2D(5000, 0), End = new Point2D(5000, 8000), TypeId = cross.Id, LevelId = levels[level].Id, TopLevelId = levels[level + 1].Id, StructuralUsage = StructuralUsage.Bearing };
+            d.Add(middle);
+            if (level == 0) d.Add(Footings.Fit(d, middle));
+            var floor = new Floor { TypeId = slab.Id, LevelId = levels[level + 1].Id };
+            floor.SetBoundary(corners);
+            d.Add(floor);
+        }
+
+        return d;
+    }
+
     [Fact]
     public void TakingAColumnAwayIsWhatRefactorisingGives()
     {
@@ -76,6 +110,42 @@ public class NotionalRemovalTests
             for (var r = 0; r < 3; r++)
                 Assert.Equal(worked[r], Enumerable.Range(0, 18).Sum(j => matrix[r, j] * slow[dofs[j]]), 6);
         }
+    }
+
+    [Fact]
+    public void AMasonryBlockOfFlatsTakesEachWallAwayANominalLengthAtATime()
+    {
+        // Five storeys of flats is Class 2b. The party wall across the middle splits the front and back walls in two where it meets them; it is 8.2 m long inside the outer walls' faces and an internal
+        // wall, so no more than 2.25 × 3 m = 6.75 m at a time: two lengths of 4.1 m. The ends are a length each. Eight a storey, forty in all.
+        var d = Flats(5);
+        var model = AnalyticalModel.Of(d);
+        var analysis = StructuralAnalysis.Run(d, model, StructuralLoading.Of(d, model));
+        var walls = MasonryDesign.Of(d, SecondOrderAnalysis.Run(d, analysis));
+        var result = NotionalRemoval.Of(d, analysis, walls)!;
+        Assert.Equal(40, result.Removals.Count);
+        var party = model.Panels.Single(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Outline.Min(node => node.At.Z) < 100 && Math.Abs(panel.Outline.Average(node => node.At.X) - 5000) < 200);
+        var flat = party.FlatOutline;
+        var lengths = NotionalRemoval.NominalLengths(party, model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall).ToList(), Array.Empty<AnalyticalMember>(),
+            flat.Min(p => p.X), flat.Max(p => p.X), 0, 3000, false, 3000);
+        Assert.Equal(2, lengths.Count);
+        Assert.All(lengths, length => Assert.InRange(length.To - length.From, 4000, 4200));
+
+        // Half the front wall taken from the ground storey: the wall over it spans the gap and the slabs with it, and nothing fails.
+        var front = result.Removals.First(each => each.Name.Contains("Ground Floor storey", StringComparison.Ordinal) && each.Name.StartsWith("W1.1", StringComparison.Ordinal));
+        Assert.True(front.Stands);
+        Assert.Equal(0, front.Failed);
+        Assert.Empty(front.AtRisk);
+
+        // A whole end wall from it: the walls beside it take more than they can, and what leaned on it - more than 15% of the floor - is at risk all the way up. A wall as a key element is not
+        // worked out, so it is short.
+        var end = result.Removals.First(each => each.Name.StartsWith("W4,", StringComparison.Ordinal));
+        Assert.False(end.Stands);
+        Assert.True(end.Failed > 0);
+        Assert.Equal(5, end.AtRisk.Count);
+        Assert.All(end.AtRisk, at => Assert.True(at.Area > at.Limit));
+        Assert.All(end.AtRisk, at => Assert.InRange(at.Limit / 1e6, 0.15 * 80, 0.15 * 86));
+        Assert.Empty(end.Key);
+        Assert.False(end.Enough);
     }
 
     [Fact]

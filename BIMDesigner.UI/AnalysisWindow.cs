@@ -293,7 +293,8 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _removal.ItemsSource = null;
         _removalSaid.Text = "Taking each column away in turn, a storey at a time, and each beam a column stands on...";
         _report.IsEnabled = false;
-        Task.Run(() => NotionalRemoval.Of(document, second.Analysis)).ContinueWith(done => Dispatcher.BeginInvoke(() =>
+        var wallChecks = _wallChecks;
+        Task.Run(() => NotionalRemoval.Of(document, second.Analysis, wallChecks)).ContinueWith(done => Dispatcher.BeginInvoke(() =>
         {
             if (run != _removalRun || !IsLoaded) return;
             if (done.Exception is { } failed)

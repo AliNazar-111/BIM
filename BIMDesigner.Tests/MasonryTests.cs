@@ -217,9 +217,10 @@ public class MasonryTests
             Assert.True(check.Checks.Single(each => each.Name == "Shear in its plane").Ratio < 1);
         }
 
-        // Long walls with no cross wall to span to bend up their height under the wind, about wh²/8: near what they can carry.
+        // Long walls with no cross wall to span to bend up their height under the wind, about wh²/8: near what they can carry, and past it where a side wall is drawn off by zones A to C,
+        // about 0.8 qp along it, where the wall into the wind is pressed at 0.85 x 0.7.
         var bending = checks.Max(check => check.Checks.Single(each => each.Name == "Bending up its height").Ratio);
-        Assert.InRange(bending, 0.6, 1.4);
+        Assert.InRange(bending, 0.6, 2.0);
     }
 
     [Fact]

@@ -19,8 +19,9 @@ public enum LoadNature
 }
 
 /// <summary>A load case: its name - G1, Q1, W3 - what it is, and for wind or an earthquake, the way it pushes. An earthquake's accidental torsion is a case of its own, about the way its forces go.</summary>
-public sealed record LoadCase(string Name, string Description, LoadNature Nature, Vector2D? Wind = null, bool Torsion = false)
+public sealed record LoadCase(string Name, string Description, LoadNature Nature, Vector2D? Wind = null, bool Torsion = false, bool Drifted = false)
 {
+    // Drifted: a drifted arrangement of snow, taken instead of the snow lying evenly and never with it.
     public bool Permanent => Nature is LoadNature.SelfWeight or LoadNature.Dead;
 
     /// <summary>Whether it pushes sideways: the wind, or an earthquake. What reads racking and shear takes it; what reads weight leaves it out.</summary>
@@ -141,9 +142,10 @@ public sealed class StructuralLoading
         -SurfaceLoads.Where(load => load.Case == loadCase).Sum(load => load.Force.Z * load.Panel.Area / 1e6)
         - LineLoads.Where(load => load.Case == loadCase).Sum(load => load.Force.Z * load.Length / 1000);
 
-    /// <summary>A case's loads across, kN: the push of the wind.</summary>
-    public double Across(LoadCase loadCase) =>
-        SurfaceLoads.Where(load => load.Case == loadCase).Sum(load => Math.Sqrt(load.Force.X * load.Force.X + load.Force.Y * load.Force.Y) * load.Panel.Area / 1e6);
+    /// <summary>A case's loads across, kN: the push of the wind, the way it blows - a side wall drawn off square to it adding nothing.</summary>
+    public double Across(LoadCase loadCase) => loadCase.Wind is { } way
+        ? Math.Abs(SurfaceLoads.Where(load => load.Case == loadCase).Sum(load => (load.Force.X * way.X + load.Force.Y * way.Y) * load.Panel.Area / 1e6))
+        : SurfaceLoads.Where(load => load.Case == loadCase).Sum(load => Math.Sqrt(load.Force.X * load.Force.X + load.Force.Y * load.Force.Y) * load.Panel.Area / 1e6);
 
     public static StructuralLoading Of(BimDocument document, AnalyticalModel model) => new Builder(document, model).Build();
 
@@ -220,6 +222,8 @@ public sealed class StructuralLoading
         private readonly StructuralLoading _loading = new();
         private readonly bool _us;
         private LoadCase _self = null!, _dead = null!, _imposed = null!, _roof = null!, _snow = null!;
+        private readonly List<LoadCase> _drifted = new();
+        private bool _drifts;
         private readonly List<LoadCase> _wind = new();
         private readonly List<LoadCase> _seismic = new();
         private readonly List<LoadCase> _torsion = new();
@@ -238,6 +242,8 @@ public sealed class StructuralLoading
             _imposed = new LoadCase(_us ? "L1" : "Q1", _us ? "Live load on the floors (ASCE 7-16 Table 4.3-1)" : "Imposed load on the floors (BS EN 1991-1-1)", LoadNature.Imposed);
             _roof = new LoadCase(_us ? "Lr1" : "Q2", _us ? "Roof live load (ASCE 7-16 4.8)" : "Imposed load on the roofs, category H", LoadNature.RoofImposed);
             _snow = new LoadCase("S1", _us ? "Snow (ASCE 7-16 Chapter 7)" : "Snow (BS EN 1991-1-3)", LoadNature.Snow);
+            _drifted.Add(new LoadCase("S2", _us ? "Snow unbalanced, each roof's first way leeward (ASCE 7-16 7.6.1)" : "Snow drifted, each roof's first way at half (BS EN 1991-1-3 5.3.3 case (ii))", LoadNature.Snow, null, false, true));
+            _drifted.Add(new LoadCase("S3", _us ? "Snow unbalanced, each roof's other way leeward (ASCE 7-16 7.6.1)" : "Snow drifted, each roof's other way at half (BS EN 1991-1-3 5.3.3 case (iii))", LoadNature.Snow, null, false, true));
             foreach (var (way, name) in new[] { (Vector2D.UnitX, "+X"), (-Vector2D.UnitX, "-X"), (Vector2D.UnitY, "+Y"), (-Vector2D.UnitY, "-Y") })
                 _wind.Add(new LoadCase($"W{_wind.Count + 1}", $"Wind {name}", LoadNature.Wind, way));
 
@@ -259,10 +265,16 @@ public sealed class StructuralLoading
                 }
             }
 
-            // Only the cases something is put in - and the structure's own weight, always.
+            // Only the cases something is put in - and the structure's own weight, always. Snow drifted nowhere is the snow lying evenly again, and left out.
+            if (!_drifts)
+            {
+                _loading.LineLoads.RemoveAll(load => load.Case.Drifted);
+                _loading.SurfaceLoads.RemoveAll(load => load.Case.Drifted);
+            }
+
             var used = _loading.SurfaceLoads.Select(load => load.Case).Concat(_loading.LineLoads.Select(load => load.Case)).ToHashSet();
             _loading.Cases.Add(_self);
-            foreach (var each in new[] { _dead, _imposed, _roof, _snow }.Concat(_wind))
+            foreach (var each in new[] { _dead, _imposed, _roof, _snow }.Concat(_drifted).Concat(_wind))
                 if (used.Contains(each)) _loading.Cases.Add(each);
             _loading.Cases.AddRange(_seismic);
             _loading.Cases.AddRange(_torsion);
@@ -309,6 +321,7 @@ public sealed class StructuralLoading
                     case AnalyticalPanelKind.Roof:
                         Surface(_roof, panel, RoofImposed(_document, 0), _us ? "Lr, 20 psf" : "category H, 0.6 kN/m²");
                         Surface(_snow, panel, RoofSnow(_document, 0), SnowSaid(0));
+                        foreach (var drifted in _drifted) Surface(drifted, panel, RoofSnow(_document, 0), SnowSaid(0));
                         break;
                 }
             }
@@ -521,7 +534,28 @@ public sealed class StructuralLoading
         /// up the slope, what is put on it and its snow, its plan area shared along its eave, onto the
         /// top of the bearing wall under the eave, as trussed rafters bear on the walls at their feet.
         /// </summary>
-        private readonly List<(Vector2D Outward, double Pitch, double PerMetre, List<(Bearing Bearing, double Start, double End)> Stretches)> _slopes = new();
+        private readonly List<(Vector2D Outward, double Pitch, double PerMetre, List<(Bearing Bearing, double Start, double End)> Stretches, double Overhang)> _slopes = new();
+
+        /// <summary>
+        /// A roof's drifted snow on one of its slopes, kN a metre of the wall under its eave, the slope the one the wind comes over (side 1), the one it drifts onto (-1) or neither (0). BS EN 1991-1-3
+        /// 5.3.3: half μ1 on the slope the wind comes over, all of it on the other. ASCE 7-16 7.6.1 for 1/2 on 12 to 7 on 12, W the windward slope's eave to ridge on plan: of 20 ft or less, nothing
+        /// windward and Is pg leeward; past that, 0.3 ps windward and ps leeward with the surcharge hd γ / √S over 8 hd √S / 3 from the ridge, 8 hd² γ / 3 a foot of eave in all, hd by (7.6-1) with lu
+        /// W, γ = 0.13 pg + 14 no more than 30 pcf. The plan the slope covers is perMetre a metre of the wall; its eave is spread times as long as the wall.
+        /// </summary>
+        private double DriftedSnow(double pitch, double perMetre, double windwardDeep, double spread, int side)
+        {
+            if (side == 0) return perMetre * RoofSnow(_document, pitch);
+            if (!_us) return perMetre * RoofSnow(_document, pitch) * (side > 0 ? 0.5 : 1);
+            var slope = Math.Tan(pitch * Math.PI / 180);
+            if (slope < 0.5 / 12 - 1e-9 || slope > 7.0 / 12 + 1e-9) return perMetre * RoofSnow(_document, pitch);
+            var pg = _document.ProjectInformation.GroundSnowLoad;
+            var w = windwardDeep / 0.3048;
+            if (w <= 20) return side > 0 ? 0 : perMetre * pg * Loads.Psf;
+            if (side > 0) return 0.3 * perMetre * RoofSnow(_document, pitch);
+            var hd = Math.Max(0, 0.43 * Math.Pow(w, 1.0 / 3) * Math.Pow(pg + 10, 0.25) - 1.5);
+            var gamma = Math.Min(0.13 * pg + 14, 30);
+            return perMetre * RoofSnow(_document, pitch) + 8 * hd * hd * gamma / 3 * 4.44822 / 0.3048 / 1000 * spread;
+        }
 
         private void PitchedRoofs()
         {
@@ -538,6 +572,7 @@ public sealed class StructuralLoading
 
                 var bearings = BearingsAt(roof.BaseElevation(_document)).Where(bearing => bearing.Panel is not null).ToList();
                 var count = roof.Boundary.Count;
+                var slopes = new List<(Vector2D Outward, double Pitch, double PerMetre, List<(Bearing Bearing, double Start, double End)> Stretches, double Deep, double Spread)>();
                 var weight = Loads.Weight(_document, type.Structure);
                 for (var i = 0; i < count; i++)
                 {
@@ -576,7 +611,10 @@ public sealed class StructuralLoading
                     if (covered < 1) continue;
                     var perMetre = area / (covered / 1000);
                     var stretch = face!.Plane.VerticalStretch;
-                    _slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, perMetre, stretches.Select(each => (each.Bearing, each.Start, each.End)).ToList()));
+                    var placed = stretches.Select(each => (each.Bearing, each.Start, each.End)).ToList();
+                    _slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, perMetre, placed, edge.Overhang));
+                    var deep = face.Outline.Max(point => (point - a).Dot(inward)) / 1000;
+                    slopes.Add((new Vector2D(-inward.X, -inward.Y), pitch, perMetre, placed, deep, eave / covered));
                     foreach (var (bearing, start, end) in stretches)
                     {
                         Line(_dead, bearing, start, end, perMetre * weight * stretch, $"{perMetre:0.00} m² a metre of the roof at {pitch:0}°, {weight * stretch:0.00} kN/m² on plan");
@@ -584,8 +622,28 @@ public sealed class StructuralLoading
                         Line(_snow, bearing, start, end, perMetre * RoofSnow(_document, pitch), SnowSaid(pitch));
                     }
                 }
+
+                // Its snow drifted from one way and the other: the way its biggest slope faces is its first.
+                if (slopes.Count == 0) continue;
+                var first = slopes.MaxBy(each => each.PerMetre * each.Stretches.Sum(s => s.End - s.Start)).Outward;
+                foreach (var (outward, pitch, perMetre, stretches, deep, spread) in slopes)
+                {
+                    var facing = outward.Dot(first);
+                    var side = facing > 0.5 ? 1 : facing < -0.5 ? -1 : 0;
+                    var opposite = slopes.Where(other => other.Outward.Dot(outward) < -0.5).Select(other => other.Deep).DefaultIfEmpty(deep).Max();
+                    for (var arrangement = 0; arrangement < 2; arrangement++)
+                    {
+                        var drift = arrangement == 0 ? side : -side;
+                        var load = DriftedSnow(pitch, perMetre, drift > 0 ? deep : opposite, spread, drift);
+                        if (Math.Abs(load - perMetre * RoofSnow(_document, pitch)) > 1e-9) _drifts = true;
+                        foreach (var (bearing, start, end) in stretches)
+                            Line(_drifted[arrangement], bearing, start, end, load, $"{(side == 0 ? "across the drift" : drift > 0 ? "the side the wind comes over" : "the side it drifts onto")} at {pitch:0}°");
+                    }
+                }
             }
         }
+
+        private readonly List<(Roof Roof, List<(Bearing Bearing, double Start, double End, double Width)> Spread)> _flats = new();
 
         /// <summary>A flat roof that is not a plate - joists, a deck - spread one way onto what carries it, as a floor is.</summary>
         private void FlatRoof(Roof roof, SlabType type)
@@ -598,8 +656,11 @@ public sealed class StructuralLoading
             }
 
             var weight = Loads.Weight(_document, type.Structure);
+            _flats.Add((roof, spread));
             foreach (var (bearing, start, end, width) in spread)
             {
+                Line(_drifted[0], bearing, start, end, RoofSnow(_document, 0) * width / 1000, $"{width:0} mm of a flat roof, {SnowSaid(0)}");
+                Line(_drifted[1], bearing, start, end, RoofSnow(_document, 0) * width / 1000, $"{width:0} mm of a flat roof, {SnowSaid(0)}");
                 Line(_dead, bearing, start, end, weight * width / 1000, $"{width:0} mm of the roof at {weight:0.00} kN/m²");
                 Line(_roof, bearing, start, end, RoofImposed(_document, 0) * width / 1000, $"{width:0} mm of the roof, {(_us ? "Lr" : "category H")}");
                 Line(_snow, bearing, start, end, RoofSnow(_document, 0) * width / 1000, $"{width:0} mm of the roof, {SnowSaid(0)}");
@@ -623,14 +684,14 @@ public sealed class StructuralLoading
                 var way = wind.Wind!.Value;
                 var depth = Math.Max(1, (corners.Max(p => (p - default(Point2D)).Dot(way)) - corners.Min(p => (p - default(Point2D)).Dot(way))) / 1000);
                 var breadth = Math.Max(1, (corners.Max(p => (p - default(Point2D)).Cross(way)) - corners.Min(p => (p - default(Point2D)).Cross(way))) / 1000);
-                double into, outOf, velocity;
+                double into, outOf, velocity, underside;
                 string said;
                 if (_us)
                 {
                     var q = Architecture.Wind.FromSite(_document) ? Architecture.Wind.VelocityPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height) : project.WindPressure;
                     var ratio = depth / breadth;
                     var leeward = ratio <= 1 ? 0.5 : ratio <= 2 ? 0.5 - 0.2 * (ratio - 1) : ratio <= 4 ? 0.3 - 0.05 * (ratio - 2) : 0.2;
-                    (into, outOf, velocity) = (q * 0.85 * 0.8, q * 0.85 * leeward, q * 0.85);
+                    (into, outOf, velocity, underside) = (q * 0.85 * 0.8, q * 0.85 * leeward, q * 0.85, 0.8);
                     said = $"qh {Units.Kilopascals(q, "0.00")} x G 0.85 x Cp 0.8 and -{leeward:0.00}, L/B {ratio:0.00} (ASCE 7-16 Figure 27.3-1)";
                 }
                 else
@@ -638,49 +699,218 @@ public sealed class StructuralLoading
                     var qp = Architecture.Wind.FromSite(_document) ? Architecture.Wind.PeakPressure(project.BasicWindSpeed, project.SiteAltitude, project.Terrain, height) : project.WindPressure;
                     var ratio = height / depth;
                     double Between(double low, double one, double five) => ratio <= 0.25 ? low : ratio <= 1 ? low + (one - low) * (ratio - 0.25) / 0.75 : ratio < 5 ? one + (five - one) * (ratio - 1) / 4 : five;
-                    var (d, e) = (Between(0.7, 0.8, 0.8), Between(0.3, 0.5, 0.7));
+                    var (cD, cE) = (Between(0.7, 0.8, 0.8), Between(0.3, 0.5, 0.7));
                     var correlation = ratio <= 1 ? 0.85 : ratio >= 5 ? 1 : 0.85 + 0.15 * (ratio - 1) / 4;
-                    (into, outOf, velocity) = (correlation * d * qp, correlation * e * qp, qp);
-                    said = $"qp {qp:0.00} kPa x {correlation:0.00} x cpe +{d:0.00} (D) and -{e:0.00} (E), h/d {ratio:0.00} (BS EN 1991-1-4 Table 7.1, 7.2.2(3))";
+                    (into, outOf, velocity, underside) = (correlation * cD * qp, correlation * cE * qp, qp, cD);
+                    said = $"qp {qp:0.00} kPa x {correlation:0.00} x cpe +{cD:0.00} (D) and -{cE:0.00} (E), h/d {ratio:0.00} (BS EN 1991-1-4 Table 7.1, 7.2.2(3))";
                 }
 
+                // The side walls: drawn off outward. BS EN 1991-1-4 Table 7.1's zones A, B and C, -1.2 for e/5 from the windward edge, -0.8 to e, -0.5 past it, e the lesser of b and 2h, each wall at the
+                // average over its length; ASCE 7-16 Figure 27.3-1's -0.7.
+                var windward = corners.Min(p => (p - default(Point2D)).Dot(way));
+                var e = Math.Min(breadth, 2 * height) * 1000;
                 foreach (var panel in _model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Element is Wall wall && _document.GetWallType(wall) is { Function: WallFunction.Exterior }))
                 {
-                    var facing = ((Wall)panel.Element).ExteriorNormal.Dot(way);
+                    var normal = Outward((Wall)panel.Element, outside);
+                    var facing = normal.Dot(way);
+                    if (Math.Abs(facing) <= 0.7)
+                    {
+                        var flat = panel.FlatOutline;
+                        var ends = new[] { flat.Min(p => p.X), flat.Max(p => p.X) }.Select(x => (panel.Origin.X + panel.U.X * x) * way.X + (panel.Origin.Y + panel.U.Y * x) * way.Y - windward).ToArray();
+                        var (from, to) = (Math.Max(0, ends.Min()), Math.Max(0, ends.Max()));
+                        double Zone(double s) => s < e / 5 ? -1.2 : s < e ? -0.8 : -0.5;
+                        double Averaged()
+                        {
+                            if (to - from < 1) return Zone(from);
+                            var cuts = new[] { from, Math.Clamp(e / 5, from, to), Math.Clamp(e, from, to), to };
+                            var sum = 0.0;
+                            for (var i = 0; i + 1 < cuts.Length; i++) sum += (cuts[i + 1] - cuts[i]) * Zone((cuts[i] + cuts[i + 1]) / 2);
+                            return sum / (to - from);
+                        }
+
+                        var (coefficient, side) = _us ? (-0.7, "side wall: qh x G 0.85 x Cp -0.7 (ASCE 7-16 Figure 27.3-1)") : (Averaged(), $"side wall: cpe {Averaged():0.00} over zones A, B and C, e {e / 1000:0.0} m (BS EN 1991-1-4 Table 7.1)");
+                        var suction = -coefficient * velocity;
+                        if (suction > 0) _loading.SurfaceLoads.Add(new SurfaceLoad(wind, panel, new Direction3D(normal.X * suction, normal.Y * suction, 0), side));
+                        continue;
+                    }
+
                     var pressure = facing < -0.7 ? into : facing > 0.7 ? outOf : 0;
                     if (pressure <= 0) continue;
                     _loading.SurfaceLoads.Add(new SurfaceLoad(wind, panel, new Direction3D(way.X * pressure, way.Y * pressure, 0), $"{(facing < 0 ? "into the wind" : "out of the wind")}: {said}"));
                 }
 
                 // Its roof: each slope by which way it faces, what presses on it across the slope, so sideways and down; each bearing on the wall under its eave, as its weight does.
-                foreach (var (outward, pitch, perMetre, stretches) in _slopes)
+                foreach (var (outward, pitch, perMetre, stretches, overhang) in _slopes)
                 {
                     if (pitch < 5) continue;
                     var facing = outward.Dot(way);
-                    var (coefficient, zone) = facing < -0.7 ? (RoofPressure(pitch, true), "windward") : facing > 0.7 ? (RoofPressure(pitch, false), "leeward") : (-0.5, "along the wind");
+
+                    // With the wind along its ridge, by how far along the wind each part of it is: BS EN 1991-1-4 Table 7.4b, F for e/4 in from its eave and G between, to e/10 from the windward
+                    // end, H to e/2 and I past it; ASCE 7-16 Figure 27.3-1 parallel to the ridge as on a flat roof, -0.9 to h, -0.5 to 2h and -0.3 past it for h/L to 0.5, -1.3 to h/2 and -0.7
+                    // past it for 1 or more. Each stretch cut where its zone changes.
+                    if (Math.Abs(facing) <= 0.7)
+                    {
+                        var eMetres = e / 1000;
+                        var nearEnd = (Interpolated(pitch, new[] { (5.0, -1.6), (15.0, -1.3), (30.0, -1.1), (45.0, -1.1), (60.0, -1.1), (75.0, -1.1) }) * Math.Min(eMetres / 4, perMetre)
+                                       + Interpolated(pitch, new[] { (5.0, -1.3), (15.0, -1.3), (30.0, -1.4), (45.0, -1.4), (60.0, -1.2), (75.0, -1.2) }) * Math.Max(0, perMetre - eMetres / 4)) / Math.Max(perMetre, 1e-9);
+                        var (zoneH, zoneI) = (Interpolated(pitch, new[] { (5.0, -0.7), (15.0, -0.6), (30.0, -0.8), (45.0, -0.9), (60.0, -0.8), (75.0, -0.8) }), Interpolated(pitch, new[] { (5.0, -0.6), (15.0, -0.5), (30.0, -0.5) }));
+                        var slender = height / depth;
+                        double AlongIt(double s)
+                        {
+                            if (!_us) return s < eMetres / 10 ? nearEnd : s < eMetres / 2 ? zoneH : zoneI;
+                            var (low, high) = (s < height ? -0.9 : s < 2 * height ? -0.5 : -0.3, s < height / 2 ? -1.3 : -0.7);
+                            return slender <= 0.5 ? low : slender >= 1 ? high : low + (high - low) * (slender - 0.5) / 0.5;
+                        }
+
+                        var changes = _us ? new[] { height / 2, height, 2 * height } : new[] { eMetres / 10, eMetres / 2 };
+                        foreach (var (bearing, start, end) in stretches)
+                        {
+                            var length = bearing.A.DistanceTo(bearing.B);
+                            var unit = (bearing.B - bearing.A) / Math.Max(length, 1e-9);
+                            var (at0, rate) = ((bearing.A - default(Point2D)).Dot(way) - windward, unit.Dot(way));
+                            var cuts = new List<double> { start, end };
+                            if (Math.Abs(rate) > 1e-9)
+                                cuts.AddRange(changes.Select(change => (change * 1000 - at0) / rate).Where(t => t > start && t < end));
+                            cuts.Sort();
+                            for (var i = 0; i + 1 < cuts.Count; i++)
+                            {
+                                if (cuts[i + 1] - cuts[i] < 1) continue;
+                                var c = AlongIt(Math.Max(0, at0 + rate * (cuts[i] + cuts[i + 1]) / 2) / 1000);
+                                var (pressing, sideways) = (c * velocity * perMetre, c * velocity * perMetre * Math.Tan(pitch * Math.PI / 180));
+                                _loading.LineLoads.Add(new LineLoad(wind, bearing.Member, bearing.Panel, bearing.From, bearing.To, cuts[i], cuts[i + 1], new Direction3D(-outward.X * sideways, -outward.Y * sideways, -pressing),
+                                    $"slope along the wind at {pitch:0}°, c {c:0.00} {(_us ? "(ASCE 7-16 Figure 27.3-1)" : "(BS EN 1991-1-4 Table 7.4b)")}"));
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    var (coefficient, zone) = facing < -0.7 ? (RoofPressure(pitch, true), "windward") : (RoofPressure(pitch, false), "leeward");
+                    var edgeSaid = string.Empty;
+
+                    // In the UK the strip e/10 deep along its eave windward, F and G, and along its ridge leeward, J, at their own coefficients, the slope's averaged over its depth.
+                    if (!_us)
+                    {
+                        var strip = Math.Min(e / 10 / 1000, perMetre) / Math.Max(perMetre, 1e-9);
+                        var edge = Interpolated(pitch, facing < 0 ? new[] { (5.0, 0.0), (15.0, 0.2), (30.0, 0.7), (45.0, 0.7), (60.0, 0.7), (75.0, 0.8) } : new[] { (5.0, -0.6), (15.0, -1.0), (30.0, -0.5), (45.0, -0.3), (60.0, -0.3), (75.0, -0.3) });
+                        coefficient = edge * strip + coefficient * (1 - strip);
+                        edgeSaid = facing < 0 ? $" with F and G along its eave, {strip * 100:0}% of its depth" : $" with J along its ridge, {strip * 100:0}% of its depth";
+                    }
+
+                    // Its overhang windward lifted from under by the pressure on the wall below it, BS EN 1991-1-4 7.2.1(2)'s zone D, or ASCE 7-16 27.3.3's Cp 0.8.
+                    if (facing < -0.7 && overhang > 0)
+                    {
+                        var lift = underside * velocity * overhang / 1000;
+                        foreach (var (bearing, start, end) in stretches)
+                            if (end - start >= 1)
+                                _loading.LineLoads.Add(new LineLoad(wind, bearing.Member, bearing.Panel, bearing.From, bearing.To, start, end, new Direction3D(0, 0, lift), $"its overhang of {overhang:0} lifted from under, c +{underside:0.00}"));
+                    }
                     var (down, across) = (coefficient * velocity * perMetre, coefficient * velocity * perMetre * Math.Tan(pitch * Math.PI / 180));
                     var force = new Direction3D(-outward.X * across, -outward.Y * across, -down);
                     foreach (var (bearing, start, end) in stretches)
                         if (end - start >= 1)
-                            _loading.LineLoads.Add(new LineLoad(wind, bearing.Member, bearing.Panel, bearing.From, bearing.To, start, end, force, $"{zone} slope at {pitch:0}°, c {coefficient:0.00}"));
+                            _loading.LineLoads.Add(new LineLoad(wind, bearing.Member, bearing.Panel, bearing.From, bearing.To, start, end, force, $"{zone} slope at {pitch:0}°{edgeSaid}, c {coefficient:0.00}"));
+                }
+
+                // A flat roof drawn off: BS EN 1991-1-4 Table 7.2's sharp eaves, F -1.8 over e/4 at each end of the strip e/10 deep at its windward edge and G -1.2 between, H -0.7 to e/2, I -0.2 past it;
+                // ASCE 7-16 Figure 27.3-1, G already in the velocity: for h/L to 0.5 -0.9 to h, -0.5 to 2h and -0.3 past it, for h/L of 1 or more -1.3 to h/2 and -0.7 past it, between them straight -
+                // each averaged over the roof's depth along the wind. On a plate as on joists.
+                double Lifted(IEnumerable<Point2D> outline)
+                {
+                    var points = outline.ToList();
+                    var (along, across) = (points.Select(p => (p - default(Point2D)).Dot(way)).ToList(), points.Select(p => (p - default(Point2D)).Cross(way)).ToList());
+                    var (deep, wide) = ((along.Max() - along.Min()) / 1000, (across.Max() - across.Min()) / 1000);
+                    if (deep <= 0 || wide <= 0) return 0;
+                    double Average((double Upto, double Value)[] zones)
+                    {
+                        var (sum, at) = (0.0, 0.0);
+                        foreach (var (upto, value) in zones)
+                        {
+                            var next = Math.Min(upto, deep);
+                            if (next > at) sum += (next - at) * value;
+                            at = Math.Max(at, next);
+                        }
+
+                        return sum / deep;
+                    }
+
+                    var eMetres = e / 1000;
+                    if (!_us)
+                    {
+                        var atCorners = Math.Min(eMetres / 2, wide);
+                        var strip = (-1.8 * atCorners - 1.2 * (wide - atCorners)) / wide;
+                        return Average(new[] { (eMetres / 10, strip), (eMetres / 2, -0.7), (double.MaxValue, -0.2) });
+                    }
+
+                    var (low, high) = (Average(new[] { (height, -0.9), (2 * height, -0.5), (double.MaxValue, -0.3) }), Average(new[] { (height / 2, -1.3), (double.MaxValue, -0.7) }));
+                    var slender = height / deep;
+                    return slender <= 0.5 ? low : slender >= 1 ? high : low + (high - low) * (slender - 0.5) / 0.5;
+                }
+
+                foreach (var (roof, spread) in _flats)
+                {
+                    var lifted = Lifted(roof.Boundary);
+                    if (lifted >= 0) continue;
+                    foreach (var (bearing, start, end, width) in spread)
+                        if (end - start >= 1)
+                            _loading.LineLoads.Add(new LineLoad(wind, bearing.Member, bearing.Panel, bearing.From, bearing.To, start, end, new Direction3D(0, 0, -lifted * velocity * width / 1000), $"flat roof drawn off, c {lifted:0.00} over its depth"));
+                }
+
+                foreach (var panel in _model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Roof && panel.Element is Roof))
+                {
+                    var lifted = Lifted(((Roof)panel.Element).Boundary);
+                    if (lifted < 0) _loading.SurfaceLoads.Add(new SurfaceLoad(wind, panel, new Direction3D(0, 0, -lifted * velocity), $"flat roof drawn off, c {lifted:0.00} over its depth"));
                 }
             }
+        }
+
+        private readonly Dictionary<Wall, Vector2D> _outward = new();
+
+        /// <summary>
+        /// The side of an outside wall the weather is on. Its exterior side as drawn, unless a line from its middle that way crosses the other outside walls of its level an odd number of times,
+        /// and so goes into the building: a wall drawn anticlockwise round a building and never turned has its exterior side in.
+        /// </summary>
+        private Vector2D Outward(Wall wall, IReadOnlyList<Wall> outside)
+        {
+            if (_outward.TryGetValue(wall, out var known)) return known;
+            var normal = wall.ExteriorNormal;
+            var from = wall.Start.MidpointTo(wall.End) + normal * 50;
+            var crossings = outside.Count(other =>
+            {
+                if (ReferenceEquals(other, wall) || other.LevelId != wall.LevelId) return false;
+                var run = other.End - other.Start;
+                var square = normal.Cross(run);
+                if (Math.Abs(square) < 1e-9) return false;
+                var toStart = other.Start - from;
+                var (ahead, along) = (toStart.Cross(run) / square, toStart.Cross(normal) / square);
+                return ahead > 0 && along >= 0 && along < 1;
+            });
+            var outward = crossings % 2 == 1 ? -normal : normal;
+            _outward[wall] = outward;
+            return outward;
+        }
+
+        /// <summary>A figure read off a table by pitch, straight between its rows and held at its first and last.</summary>
+        private static double Interpolated(double pitch, (double Pitch, double Value)[] table)
+        {
+            if (pitch <= table[0].Pitch) return table[0].Value;
+            for (var i = 0; i + 1 < table.Length; i++)
+                if (pitch <= table[i + 1].Pitch)
+                    return table[i].Value + (table[i + 1].Value - table[i].Value) * (pitch - table[i].Pitch) / (table[i + 1].Pitch - table[i].Pitch);
+            return table[^1].Value;
         }
 
         /// <summary>
         /// A slope's pressure coefficient by its pitch, with the wind across its ridge, pressing in as a positive: its windward or leeward face taken as a whole by zones H and I of BS EN 1991-1-4 Table 7.4a, windward its pressing
         /// values, which sway a building most; or ASCE 7-16 Figure 27.3-1 for h/L to 0.25, as remembered, with G already in what it is multiplied by.
         /// </summary>
+
         private double RoofPressure(double pitch, bool windward)
         {
             (double Pitch, double Value)[] table = _us
                 ? windward ? new[] { (15.0, 0.0), (20.0, 0.2), (25.0, 0.3), (30.0, 0.3), (35.0, 0.4), (45.0, 0.4), (60.0, 0.6) } : new[] { (10.0, -0.3), (15.0, -0.5), (20.0, -0.6), (60.0, -0.6) }
                 : windward ? new[] { (5.0, 0.0), (15.0, 0.2), (30.0, 0.4), (45.0, 0.6), (60.0, 0.7), (75.0, 0.8) } : new[] { (5.0, -0.6), (15.0, -0.4), (30.0, -0.4), (45.0, -0.2), (60.0, -0.2), (75.0, -0.2) };
-            if (pitch <= table[0].Pitch) return table[0].Value;
-            for (var i = 0; i + 1 < table.Length; i++)
-                if (pitch <= table[i + 1].Pitch)
-                    return table[i].Value + (table[i + 1].Value - table[i].Value) * (pitch - table[i].Pitch) / (table[i + 1].Pitch - table[i].Pitch);
-            return table[^1].Value;
+            return Interpolated(pitch, table);
         }
 
         // ---- combinations ---------------------------------------------------------------
@@ -702,8 +932,12 @@ public sealed class StructuralLoading
         /// <summary>BS EN 1990 with the UK National Annex: 6.10a and 6.10b with each variable action leading, weight helping the wind, then 6.14b and 6.16b.</summary>
         private void UkCombinations()
         {
-            var sets = new List<List<LoadCase>> { new() { _imposed, _roof }, new() { _imposed, _snow } };
-            foreach (var wind in _wind) sets.Add(new List<LoadCase> { _imposed, _snow, wind });
+            var snows = new[] { _snow }.Concat(_drifted).ToList();
+            var sets = new List<List<LoadCase>> { new() { _imposed, _roof } };
+            foreach (var snow in snows) sets.Add(new List<LoadCase> { _imposed, snow });
+            foreach (var wind in _wind)
+            foreach (var snow in snows)
+                sets.Add(new List<LoadCase> { _imposed, snow, wind });
             sets = sets.Select(set => set.Where(Has).ToList()).Where(set => set.Count > 0).ToList();
             double Psi0(LoadCase each) => Psi(_document, each.Nature).Combination;
 
@@ -724,7 +958,7 @@ public sealed class StructuralLoading
         /// <summary>ASCE 7-16: 2.3.1 for strength, 2.4.1 for allowable stress.</summary>
         private void UsCombinations()
         {
-            var roofs = new[] { _roof, _snow }.Where(Has).ToList();
+            var roofs = new[] { _roof, _snow }.Concat(_drifted).Where(Has).ToList();
             if (roofs.Count == 0) roofs.Add(_roof);
 
             Add("ASCE 7-16 2.3.1 (1)", LimitState.Ultimate, Permanent(1.4));
@@ -785,22 +1019,28 @@ public sealed class StructuralLoading
             var project = _document.ProjectInformation;
             if (_us)
             {
-                _loading.Notes.Add($"Snow: pg {project.GroundSnowLoad:0} psf, Ce {(project.Terrain == WindTerrain.Sea ? 0.9 : 1.0):0.0}, Ct 1.0, Is 1.0 - the snow lying evenly; drifts and unbalanced loads (7.6 to 7.8) left out.");
+                _loading.Notes.Add($"Snow: pg {project.GroundSnowLoad:0} psf, Ce {(project.Terrain == WindTerrain.Sea ? 0.9 : 1.0):0.0}, Ct 1.0, Is 1.0 - S1 the snow lying evenly; a gable roof from 1/2 on 12 to 7 on 12 unbalanced by 7.6.1 one way and the other as S2 and S3; drifts against a taller roof or a parapet (7.7, 7.8) left out.");
+                const string usWhere = "into the bearing outside walls and out of them, the side walls drawn off at Cp -0.7, each roof's slopes by Figure 27.3-1, along a ridge or over a flat roof by how far along the wind, a windward overhang lifted at Cp 0.8; internal pressure and the walls not bearing left out.";
                 _loading.Notes.Add(Architecture.Wind.FromSite(_document)
-                    ? $"Wind: {project.BasicWindSpeed:0} mph, exposure {(project.Terrain switch { WindTerrain.Sea => "D", WindTerrain.OpenCountry => "C", _ => "B" })}, on the bearing outside walls into and out of it; side walls, roofs and the walls not bearing left out."
-                    : $"Wind: no basic wind speed set, the {Units.Kilopascals(project.WindPressure, "0.00")} set taken as qh.");
-                _loading.Notes.Add("Live loads are not reduced for the area carried (4.7).");
+                    ? $"Wind: {project.BasicWindSpeed:0} mph, exposure {(project.Terrain switch { WindTerrain.Sea => "D", WindTerrain.OpenCountry => "C", _ => "B" })}, {usWhere}"
+                    : $"Wind: no basic wind speed set, the {Units.Kilopascals(project.WindPressure, "0.00")} set taken as qh, {usWhere}");
+                _loading.Notes.Add(project.ReduceImposedLoads
+                    ? "Live loads on beams and columns reduced for the area they carry by 4.7, as Imposed Loads Reduced by Area in the plan's Properties asks; walls and footings take them whole."
+                    : "Live loads are not reduced for the area carried (4.7): Imposed Loads Reduced by Area in the plan's Properties reduces them on beams and columns.");
                 _loading.Notes.Add(_loading.Seismic is { } quake
                     ? $"Seismic: Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}: {quake.Said}{(quake.Applies ? $" SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}; {quake.System.Name}, R {quake.System.R:0.#}, Cd {quake.System.Cd:0.#}; T {quake.Period:0.000} s, Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, ρ {quake.Redundancy:0.0}. The effective seismic weight its dead load; accidental torsion, snow and storage in it, and vertical irregularities, not worked out." : string.Empty)}"
                     : "Seismic: no Ss and S1 set in the plan's Properties, so none is worked out.");
             }
             else
             {
-                _loading.Notes.Add($"Snow: zone {project.SnowZone:0.#} at {project.SiteAltitude:0} m{(project.SiteAltitude < 100 ? ", taken as the map's 100 m" : "")}, sk {GroundSnow(project.SnowZone, project.SiteAltitude):0.00} kN/m² - the snow lying evenly; the drifted load of Table NA.1 and the exceptional drifts of Annex B left out.");
+                _loading.Notes.Add($"Snow: zone {project.SnowZone:0.#} at {project.SiteAltitude:0} m{(project.SiteAltitude < 100 ? ", taken as the map's 100 m" : "")}, sk {GroundSnow(project.SnowZone, project.SiteAltitude):0.00} kN/m² - S1 the snow lying evenly; a pitched roof's drifted by 5.3.3 as S2 and S3, half on the slope the wind comes over one way and the other; drifts against a taller roof or a parapet (5.3.6, 6.2), the drifted load of Table NA.1 and the exceptional drifts of Annex B left out.");
+                const string ukWhere = "into the bearing outside walls and out of them by Table 7.1's zones D and E, the side walls drawn off by its zones A to C, each roof's slopes by Table 7.4a with F and G along a windward eave and J along a leeward ridge, along a ridge by Table 7.4b, a flat roof by Table 7.2, a windward overhang lifted at zone D's pressure (7.2.1(2)); internal pressure and the walls not bearing left out.";
                 _loading.Notes.Add(Architecture.Wind.FromSite(_document)
-                    ? $"Wind: {project.BasicWindSpeed:0.0} m/s at {project.SiteAltitude:0} m, on the bearing outside walls into and out of it; side walls, roofs, internal pressure and the walls not bearing left out."
-                    : $"Wind: no basic wind speed set, the {project.WindPressure:0.00} kPa set taken as qp.");
-                _loading.Notes.Add("Imposed loads are not reduced for the area carried (6.3.1.2(10)); accidental actions are not combined.");
+                    ? $"Wind: {project.BasicWindSpeed:0.0} m/s at {project.SiteAltitude:0} m, {ukWhere}"
+                    : $"Wind: no basic wind speed set, the {project.WindPressure:0.00} kPa set taken as qp, {ukWhere}");
+                _loading.Notes.Add((project.ReduceImposedLoads
+                    ? "Imposed loads on beams and columns reduced by 6.3.1.2(10) and (11) with the UK National Annex, as Imposed Loads Reduced by Area in the plan's Properties asks; walls and footings take them whole"
+                    : "Imposed loads are not reduced for the area carried (6.3.1.2(10)): Imposed Loads Reduced by Area in the plan's Properties reduces them on beams and columns") + "; accidental actions are not combined.");
             }
         }
     }

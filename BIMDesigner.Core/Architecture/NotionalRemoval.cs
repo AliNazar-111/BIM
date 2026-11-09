@@ -37,7 +37,7 @@ public static class NotionalRemoval
     /// <summary>
     /// The building's notional removals, for a UK building in Consequence Class 2b; null otherwise. Load-bearing walls are not taken away here, their nominal lengths of A.7 being left to the engineer.
     /// </summary>
-    public static RemovalResult? Of(BimDocument document, StructuralAnalysis analysis)
+    public static RemovalResult? Of(BimDocument document, StructuralAnalysis analysis, IReadOnlyList<WallCheck>? wallChecks = null)
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return null;
         var (storeys, _) = FireDesign.HeightOf(document);
@@ -71,6 +71,10 @@ public static class NotionalRemoval
 
         var shelled = new bool[solver.NodeCount];
         foreach (var shell in solver.Shells) shelled[shell.I] = shelled[shell.J] = shelled[shell.K] = true;
+        var shellsAt = Enumerable.Range(0, solver.NodeCount).Select(_ => new List<int>()).ToArray();
+        for (var s = 0; s < solver.Shells.Count; s++)
+            foreach (var node in new[] { solver.Shells[s].I, solver.Shells[s].J, solver.Shells[s].K })
+                shellsAt[node].Add(s);
         var held = new bool[solver.NodeCount];
         for (var n = 0; n < solver.NodeCount; n++)
             for (var f = 0; f < 6; f++)
@@ -238,19 +242,93 @@ public static class NotionalRemoval
             return most.Select(m => Math.Max(m, least) * 1.15).ToArray();
         });
 
-        var removals = new List<RemovalCheck>();
-        double[]? intact = null;
-        void Remove(string name, string storey, IReadOnlyList<int> beams, (double X0, double Y0, double X1, double Y1) where, int level, AnalyticalMember? keyColumn)
+        // Walls: each triangle at a wall's foot, the fifth of its height there, in stretches of a metre along it, with how its axes turn up the wall.
+        var walls = model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall).ToList();
+        var feet = walls.ToDictionary(wall => wall, wall =>
+        {
+            var flat = wall.FlatOutline;
+            var (first, bottom, height) = (flat.Min(p => p.X), flat.Min(p => p.Y), flat.Max(p => p.Y) - flat.Min(p => p.Y));
+            var up = new StructuralSolver.Vector3(wall.V.X, wall.V.Y, wall.V.Z);
+            return analysis.ShellsOf(wall).Select(s =>
+            {
+                var shell = solver.Shells[s];
+                var (a, b, c) = (solver.NodeAt(shell.I), solver.NodeAt(shell.J), solver.NodeAt(shell.K));
+                var at = wall.Flat(new Geometry.Point3D((a.X + b.X + c.X) / 3, (a.Y + b.Y + c.Y) / 3, (a.Z + b.Z + c.Z) / 3));
+                var (x, y, _) = solver.Axes(shell);
+                var area = shellAt.TryGetValue(s, out var known) ? known.Area : 0.0;
+                var (ux, uy, uz, vx, vy, vz) = (b.X - a.X, b.Y - a.Y, b.Z - a.Z, c.X - a.X, c.Y - a.Y, c.Z - a.Z);
+                area = Math.Sqrt(Math.Pow(uy * vz - uz * vy, 2) + Math.Pow(uz * vx - ux * vz, 2) + Math.Pow(ux * vy - uy * vx, 2)) / 2;
+                return (Shell: s, Along: at.X, Stretch: (int)Math.Floor((at.X - first) / 1000), Foot: at.Y - bottom < height / 5, Area: area, XV: x.Dot(up), YV: y.Dot(up));
+            }).ToList();
+        });
+
+        // What a wall's foot carries, kN/m, compression positive, each stretch the average over its triangles; taken away triangles left out.
+        Dictionary<int, double> Carried(AnalyticalPanel wall, StructuralSolver.Prestress stress, HashSet<int>? gone)
+        {
+            var sums = new Dictionary<int, (double Force, double Area)>();
+            foreach (var each in feet[wall].Where(each => each.Foot && (gone is null || !gone.Contains(each.Shell))))
+            {
+                var vertical = stress.Nx[each.Shell] * each.XV * each.XV + stress.Ny[each.Shell] * each.YV * each.YV + 2 * stress.Nxy[each.Shell] * each.XV * each.YV;
+                var was = sums.GetValueOrDefault(each.Stretch);
+                sums[each.Stretch] = (was.Force - vertical * each.Area, was.Area + each.Area);
+            }
+
+            return sums.Where(entry => entry.Value.Area > 5e4).ToDictionary(entry => entry.Key, entry => entry.Value.Force / entry.Value.Area);
+        }
+
+        // What each can carry: a masonry wall its own checks' least, at γM 1.5 for an accident rather than 3.0, as remembered; any other what it carried as designed, at the accidental factor of
+        // its material.
+        var designedStress = designed.Select(each => solver.PrestressOf(factored, each.Moved)).ToList();
+        var wallCapacity = walls.ToDictionary(wall => wall, wall =>
+        {
+            var check = wallChecks?.FirstOrDefault(each => ReferenceEquals(each.Panel, wall));
+            var masonry = check?.Checks.Where(each => each.Name is "Load at its top or foot" or "Load at mid height").Select(each => each.Capacity).DefaultIfEmpty(0).Min() ?? 0;
+            if (wall.Material.Kind == AnalyticalMaterialKind.Masonry && masonry > 0)
+                return (Each: (Dictionary<int, double>?)null, Whole: masonry * MasonryDesign.GammaCompression / 1.5);
+            var most = new Dictionary<int, double>();
+            foreach (var stress in designedStress)
+                foreach (var (stretch, force) in Carried(wall, stress, null))
+                    most[stretch] = Math.Max(most.GetValueOrDefault(stretch), force);
+            var factor = wall.Material.Kind switch { AnalyticalMaterialKind.Concrete => 1.25, AnalyticalMaterialKind.Timber => 1.3, _ => 1.5 };
+            var floor = most.Values.DefaultIfEmpty(0).Average();
+            return (Each: most.ToDictionary(entry => entry.Key, entry => Math.Max(entry.Value, floor) * factor), Whole: floor * factor);
+        });
+
+        // Each removal stands alone, so they are worked side by side: what the solver works out once and keeps, worked before they start.
+        var intact = factored.Solve(load);
+        solver.PrestressOf(factored, intact);
+        var jobs = new List<Func<RemovalCheck>>();
+        RemovalCheck Remove(string name, string storey, IReadOnlyList<int> beams, IReadOnlyList<int> shells, (double X0, double Y0, double X1, double Y1) where, int level, AnalyticalMember? keyColumn)
         {
             var removed = beams.ToHashSet();
-            var nodes = beams.SelectMany(b => new[] { solver.Beams[b].I, solver.Beams[b].J }).Distinct().ToList();
-            bool Orphan(int n) => !held[n] && !shelled[n] && beamsAt[n].All(removed.Contains);
-            var inner = nodes.Where(Orphan).ToList();
-            var boundary = nodes.Where(n => !Orphan(n)).ToList();
+            var gone = shells.ToHashSet();
+            var nodes = beams.SelectMany(b => new[] { solver.Beams[b].I, solver.Beams[b].J }).Concat(shells.SelectMany(s => new[] { solver.Shells[s].I, solver.Shells[s].J, solver.Shells[s].K })).Distinct().ToList();
+            bool Left(int n) => beamsAt[n].Any(b => !removed.Contains(b)) || shellsAt[n].Any(s => !gone.Contains(s));
+            var inner = nodes.Where(n => !held[n] && !Left(n)).ToList();
+            var boundary = nodes.Where(n => held[n] || Left(n)).ToList();
             // A node held only by what was taken away and its support carries no load of its own now: the foot of a column taken from the lowest storey.
-            var bare = boundary.Where(n => !shelled[n] && beamsAt[n].All(removed.Contains)).ToList();
-            var u = Damaged(solver, factored, load, beams, inner, boundary, bare);
-            var stable = u is not null && boundary.Except(bare).All(n => Math.Sqrt(Math.Pow(u[n * 6], 2) + Math.Pow(u[n * 6 + 1], 2) + Math.Pow(u[n * 6 + 2], 2)) < 2000);
+            var bare = boundary.Where(n => !Left(n)).ToList();
+            double[]? u;
+            StructuralSolver.Factored standing;
+            if (shells.Count == 0)
+            {
+                // A column or a beam: the intact factorisation updated over the nodes it shared.
+                u = Damaged(solver, factored, load, beams, inner, boundary, bare);
+                standing = factored;
+            }
+            else
+            {
+                // A length of wall shares too many nodes for that: the stiffness factorised again without it, what it kept a billionth.
+                standing = solver.Factorise(null, Enumerable.Range(0, solver.Shells.Count).Select(s => gone.Contains(s) ? 1 - Kept : 1.0).ToArray());
+                var b0 = (double[])load.Clone();
+                foreach (var node in inner.Concat(bare))
+                    for (var f = 0; f < 6; f++)
+                        b0[node * 6 + f] = 0;
+                var free = inner.Concat(bare).ToHashSet();
+                u = standing.Unstable.Any(each => !free.Contains(each.Node)) ? null : standing.Solve(b0);
+            }
+
+            var stable = u is not null && u.All(double.IsFinite) && boundary.Except(bare).All(n => Math.Sqrt(Math.Pow(u[n * 6], 2) + Math.Pow(u[n * 6 + 1], 2) + Math.Pow(u[n * 6 + 2], 2)) < 2000);
 
             // What is left, as it is checked.
             var failed = new List<(string Where, double Ratio, int Level)>();
@@ -272,7 +350,18 @@ public static class NotionalRemoval
                     }
                 }
 
-                foreach (var (shell, panel) in slabShells)
+                // Walls, at their foot a metre at a time.
+                var stress = solver.PrestressOf(standing, u!);
+                foreach (var wall in walls)
+                {
+                    var (each, whole) = wallCapacity[wall];
+                    var carried = Carried(wall, stress, gone);
+                    if (carried.Count == 0 || whole <= 0) continue;
+                    var ratio = carried.Max(entry => entry.Value / (each?.GetValueOrDefault(entry.Key, whole) ?? whole));
+                    if (ratio > 1) failed.Add((wall.Name, ratio, LevelOf(wall.Outline.Max(node => node.At.Z))));
+                }
+
+                foreach (var (shell, panel) in slabShells.Where(each => !gone.Contains(each.Shell)))
                 {
                     var (bx, by, tx, ty) = WoodArmerOf(shell, u!);
                     var capacity = slabCapacity[shell];
@@ -297,12 +386,13 @@ public static class NotionalRemoval
             var stands = stable && (failed.Count == 0 || (atRisk.Count <= 2 && atRisk.All(each => each.Area <= each.Limit)
                 && atRisk.All(each => levels.FindIndex(l => l.Name == each.Level) <= level + 1)));
             var worst = failed.Count == 0 ? ("-", 0.0, -1) : failed.MaxBy(each => each.Ratio);
-            var key = !stands && keyColumn is not null ? KeyColumn(document, analysis, keyColumn, beams, lengths[keyColumn], intact ??= factored.Solve(load)) : Array.Empty<StrengthCheck>();
-            var said = !stable ? "Nothing is left to carry what it held: the building does not stand without it."
+            var key = !stands && keyColumn is not null ? KeyColumn(document, analysis, keyColumn, beams, lengths[keyColumn], intact) : Array.Empty<StrengthCheck>();
+            var said = !stable ? $"Nothing is left to carry what it held: the building does not stand without it{(shells.Count > 0 ? "; a wall as a key element is not worked out here" : string.Empty)}."
+                : !stands && keyColumn is null && shells.Count > 0 ? $"{failed.Count} part{(failed.Count == 1 ? "" : "s")} of what is left fail{(failed.Count == 1 ? "s" : "")}, the floor at risk past the limit: to be a key element, which for a wall is not worked out here."
                 : failed.Count == 0 ? "What is left carries what it held, nothing over its strength."
                 : stands ? $"{failed.Count} part{(failed.Count == 1 ? "" : "s")} of what is left fail{(failed.Count == 1 ? "s" : "")}, the floor at risk within the limit."
                 : $"{failed.Count} part{(failed.Count == 1 ? "" : "s")} of what is left fail{(failed.Count == 1 ? "s" : "")}, the floor at risk past the limit: to be a key element.";
-            removals.Add(new RemovalCheck(name, storey, stable, failed.Count, worst.Item2, worst.Item1, atRisk, stands, key, said));
+            return new RemovalCheck(name, storey, stable, failed.Count, worst.Item2, worst.Item1, atRisk, stands, key, said);
         }
 
         foreach (var column in columns)
@@ -318,7 +408,8 @@ public static class NotionalRemoval
                 var beams = storey.Select(piece => piece.Beam).ToList();
                 var top = beams.Select(b => solver.NodeAt(solver.Beams[b].I)).Concat(beams.Select(b => solver.NodeAt(solver.Beams[b].J))).MaxBy(p => p.Z);
                 var under0 = StoreyUnder(levels[storey.Key].Elevation);
-                Remove($"{column.Name}, {under0} storey", under0, beams, (top.X, top.Y, top.X, top.Y), storey.Key, column);
+                var at = storey.Key;
+                jobs.Add(() => Remove($"{column.Name}, {under0} storey", under0, beams, Array.Empty<int>(), (top.X, top.Y, top.X, top.Y), at, column));
             }
         }
 
@@ -329,15 +420,83 @@ public static class NotionalRemoval
             if (carried.Count == 0) continue;
             var (first, last) = (beam.Nodes[0].At, beam.Nodes[^1].At);
             var level = LevelOf((first.Z + last.Z) / 2);
-            Remove($"{beam.Name}, carrying {string.Join(", ", carried.Select(column => column.Name))}", levels[level].Name, pieces[beam].Select(piece => piece.Beam).ToList(), (first.X, first.Y, last.X, last.Y), level, null);
+            jobs.Add(() => Remove($"{beam.Name}, carrying {string.Join(", ", carried.Select(column => column.Name))}", levels[level].Name, pieces[beam].Select(piece => piece.Beam).ToList(), Array.Empty<int>(), (first.X, first.Y, last.X, last.Y), level, null));
         }
 
+        // Each nominal length of load-bearing wall, A.7: a concrete wall's no more than 2.25 times its storey's height; an outside wall of masonry or studs between what holds it - the walls
+        // that meet it, columns against it; an inside one no more than 2.25 times its height.
+        foreach (var wall in walls)
+        {
+            var flat = wall.FlatOutline;
+            var (from, to) = (flat.Min(p => p.X), flat.Max(p => p.X));
+            var (bottom, top) = (wall.Outline.Min(node => node.At.Z), wall.Outline.Max(node => node.At.Z));
+            var height = top - bottom;
+            if (height < 500 || to - from < 300) continue;
+            var outside = wall.Element is Wall element && document.GetWallType(element)?.Function == WallFunction.Exterior;
+            var nominal = NominalLengths(wall, walls, columns, from, to, bottom, top, outside && wall.Material.Kind != AnalyticalMaterialKind.Concrete, height);
+            var level = LevelOf(top);
+            var under0 = StoreyUnder(levels[level].Elevation);
+            for (var i = 0; i < nominal.Count; i++)
+            {
+                var (start, end) = nominal[i];
+                var shells = feet[wall].Where(each => each.Along >= start - 1 && each.Along <= end + 1).Select(each => each.Shell).ToList();
+                if (shells.Count == 0) continue;
+                var (p, q) = ((wall.Origin.X + wall.U.X * start, wall.Origin.Y + wall.U.Y * start), (wall.Origin.X + wall.U.X * end, wall.Origin.Y + wall.U.Y * end));
+                jobs.Add(() => Remove($"{wall.Name}{(nominal.Count > 1 ? $" {Units.Metres(start - from, "0.0")} to {Units.Metres(end - from, "0.0")}" : string.Empty)}, {under0} storey", under0, Array.Empty<int>(), shells,
+                    (p.Item1, p.Item2, q.Item1, q.Item2), level, null));
+            }
+        }
+
+        var worked = new RemovalCheck[jobs.Count];
+        Parallel.For(0, jobs.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, i => worked[i] = jobs[i]());
+        var removals = worked.ToList();
         var stands = removals.Count(each => each.Stands);
         return new RemovalResult(
             $"Consequence Class 2b: vertical ties, or each support taken away in turn, Approved Document A 5.1d. {removals.Count} taken away: {stands} stand without it, {removals.Count - stands} would be key elements.",
             removals,
-            "Load-bearing walls are not taken away here: their nominal lengths, Annex A.7, are left to the engineer. Steel and timber at their persistent partial factors, on the safe side; concrete taken to hold what " +
+            "Each load-bearing wall taken away a nominal length at a time, Annex A.7; a masonry wall left standing carries what its own checks give it at γM 1.5 for an accident, as remembered, and a wall as a key element is not worked out. Steel and timber at their persistent partial factors, on the safe side; concrete taken to hold what " +
             "its intact design asks of it at first order, or its least steel, with the accidental factor of steel. Linear and elastic: no catenary or membrane action is counted. A key element beam is not worked out.");
+    }
+
+    /// <summary>
+    /// A wall's nominal lengths, Annex A.7, along it in its own terms: between what holds it where that is asked - other walls meeting it, columns against it, within 400 mm of its line - or no more
+    /// than 2.25 times its height, in equal lengths.
+    /// </summary>
+    public static IReadOnlyList<(double From, double To)> NominalLengths(AnalyticalPanel wall, IReadOnlyList<AnalyticalPanel> walls, IReadOnlyList<AnalyticalMember> columns, double from, double to,
+        double bottom, double top, bool betweenSupports, double height)
+    {
+        var cuts = new List<double>();
+        if (betweenSupports)
+        {
+            double Along(Geometry.Point3D at) => wall.Flat(at).X;
+            double Off(Geometry.Point3D at) => Math.Abs((at.X - wall.Origin.X) * wall.Normal.X + (at.Y - wall.Origin.Y) * wall.Normal.Y);
+            foreach (var other in walls.Where(other => !ReferenceEquals(other, wall)))
+            {
+                var ends = other.Outline.Where(node => node.At.Z <= top + 1 && node.At.Z >= bottom - 1).Select(node => node.At).Where(at => Off(at) <= 400).ToList();
+                foreach (var at in ends)
+                {
+                    var along = Along(at);
+                    if (along > from + 300 && along < to - 300) cuts.Add(along);
+                }
+            }
+
+            foreach (var column in columns)
+                foreach (var node in column.Nodes.Where(node => node.At.Z <= top + 1 && node.At.Z >= bottom - 1 && Off(node.At) <= 400))
+                {
+                    var along = Along(node.At);
+                    if (along > from + 300 && along < to - 300) cuts.Add(along);
+                }
+
+            var points = new[] { from }.Concat(cuts.OrderBy(cut => cut)).Append(to).ToList();
+            var lengths = new List<(double, double)>();
+            for (var i = 0; i + 1 < points.Count; i++)
+                if (points[i + 1] - points[i] > 300) lengths.Add((points[i], points[i + 1]));
+            return lengths;
+        }
+
+        var most = 2.25 * height;
+        var count = Math.Max(1, (int)Math.Ceiling((to - from) / most - 1e-9));
+        return Enumerable.Range(0, count).Select(i => (from + (to - from) * i / count, from + (to - from) * (i + 1) / count)).ToList();
     }
 
     /// <summary>

@@ -204,4 +204,43 @@ public class StructuralSolverTests
 
         return document;
     }
+
+    [Fact]
+    public void TheSparseFactorisationSolvesWhatItIsGiven()
+    {
+        // A two storey flat slab frame: K u, put back together from every element and spring, comes to the load to a part in a hundred million - as it is, and with every element at a share of
+        // its stiffness, factorised again from what the first kept.
+        var d = NotionalRemovalTests.Office(2);
+        var model = AnalyticalModel.Of(d);
+        var analysis = StructuralAnalysis.Run(d, model, StructuralLoading.Of(d, model));
+        var solver = analysis.Solver;
+        var load = analysis.LoadOf(analysis.Loading.Cases[0]);
+        foreach (var share in new[] { 1.0, 0.35 })
+        {
+            var (beamShares, shellShares) = (Enumerable.Repeat(share, solver.Beams.Count).ToArray(), Enumerable.Repeat(share, solver.Shells.Count).ToArray());
+            var u = solver.Factorise(beamShares, shellShares).Solve(load);
+            var ku = new double[load.Length];
+            void Apply(int[] nodes, double[,] k)
+            {
+                var dofs = nodes.SelectMany(n => Enumerable.Range(0, 6).Select(f => n * 6 + f)).ToArray();
+                for (var i = 0; i < dofs.Length; i++)
+                for (var j = 0; j < dofs.Length; j++)
+                    ku[dofs[i]] += k[i, j] * u[dofs[j]];
+            }
+
+            foreach (var beam in solver.Beams) Apply(new[] { beam.I, beam.J }, solver.BeamGlobal(beam with { E = beam.E * share, G = beam.G * share }).K);
+            foreach (var shell in solver.Shells) Apply(new[] { shell.I, shell.J, shell.K }, solver.ShellGlobal(shell with { E = shell.E * share }).K);
+            foreach (var (node, freedom, stiffness) in solver.Springs) ku[node * 6 + freedom] += stiffness * u[node * 6 + freedom];
+            var (worst, scale) = (0.0, 0.0);
+            for (var dof = 0; dof < load.Length; dof++)
+            {
+                if (solver.IsRestrained(dof / 6, dof % 6)) continue;
+                worst = Math.Max(worst, Math.Abs(ku[dof] - load[dof]));
+                scale = Math.Max(scale, Math.Abs(load[dof]));
+            }
+
+            Assert.True(worst < 1e-8 * scale, $"share {share}: {worst} against {scale}");
+        }
+    }
 }
+

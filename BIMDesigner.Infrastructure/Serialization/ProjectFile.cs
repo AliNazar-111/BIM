@@ -79,6 +79,7 @@ public static partial class ProjectFile
                 ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString(),
                 Units = document.ProjectInformation.Units.ToString(),
                 Sprinklered = document.ProjectInformation.Sprinklered,
+                ReduceImposedLoads = document.ProjectInformation.ReduceImposedLoads,
                 WaterOptionalRequirement = document.ProjectInformation.WaterOptionalRequirement,
                 Ground = document.ProjectInformation.Ground.ToString(),
                 ClayShrinkage = document.ProjectInformation.ClayShrinkage.ToString(),
@@ -1800,6 +1801,7 @@ public static partial class ProjectFile
         // Written before a project had units of its own: a US project's are feet and inches.
         document.ProjectInformation.Units = ParseEnum(dto.Project.Units, document.ProjectInformation.ClearanceStandard.IsUs() ? UnitSystem.Imperial : UnitSystem.Metric);
         document.ProjectInformation.Sprinklered = dto.Project.Sprinklered;
+        document.ProjectInformation.ReduceImposedLoads = dto.Project.ReduceImposedLoads;
         document.ProjectInformation.WaterOptionalRequirement = dto.Project.WaterOptionalRequirement;
         document.ProjectInformation.Ground = ParseEnum(dto.Project.Ground, GroundType.FirmClay);
         document.ProjectInformation.ClayShrinkage = ParseEnum(dto.Project.ClayShrinkage, ClayShrinkage.None);

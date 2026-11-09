@@ -64,12 +64,14 @@ public sealed class StructuralSolver
 
     public int AddNode(Point3D at)
     {
+        _pattern = null;
         _nodes.Add(at);
         return _nodes.Count - 1;
     }
 
     public int AddBeam(Beam beam)
     {
+        _pattern = null;
         _lines = null;
         _beams.Add(beam);
         return _beams.Count - 1;
@@ -77,6 +79,7 @@ public sealed class StructuralSolver
 
     public int AddShell(Shell shell)
     {
+        _pattern = null;
         _shapes = null;
         _shells.Add(shell);
         return _shells.Count - 1;
@@ -85,6 +88,7 @@ public sealed class StructuralSolver
     /// <summary>Holds a node's freedoms: x, y, z movements then turns about x, y, z.</summary>
     public void Restrain(int node, params bool[] freedoms)
     {
+        _pattern = null;
         if (!_restraints.TryGetValue(node, out var held)) _restraints[node] = held = new bool[6];
         for (var i = 0; i < 6 && i < freedoms.Length; i++) held[i] |= freedoms[i];
     }
@@ -489,15 +493,30 @@ public sealed class StructuralSolver
     }
 
     /// <summary>
-    /// The structure's stiffness assembled and factorised, kept to put loads through - each element's
-    /// stiffness taken at its share of what it is, where a share is given: a cracked section's, say.
+    /// What one factorisation leaves the next: the order of the equations, where each element's stiffness lands in the matrix, the elements' stiffnesses as they are, and the elimination tree and
+    /// how much each column of L holds - none of which a share of an element's stiffness changes, its stiffness being in proportion to its E.
     /// </summary>
-    public Factored Factorise(IReadOnlyList<double>? beamShares = null, IReadOnlyList<double>? shellShares = null)
+    private sealed class Pattern
     {
-        var problems = new List<string>();
+        public required int[] Equation { get; init; }
+        public required int Count { get; init; }
+        public required int[] Ap { get; init; }
+        public required int[] Ai { get; init; }
+        public required int[] Diagonal { get; init; }
+        public required int[] Parent { get; init; }
+        public required int[] Lp { get; init; }
+        public required int[] DofOf { get; init; }
+        public required double[][,] BeamK { get; init; }
+        public required double[][,] ShellK { get; init; }
+        public required int[][] BeamPositions { get; init; }
+        public required int[][] ShellPositions { get; init; }
+    }
+
+    private Pattern? _pattern;
+
+    private Pattern PatternOf()
+    {
         var n = _nodes.Count;
-        var beams = _beams.Select((beam, i) => beamShares is null ? beam : beam with { E = beam.E * beamShares[i], G = beam.G * beamShares[i] }).ToList();
-        var shells = _shells.Select((shell, i) => shellShares is null ? shell : shell with { E = shell.E * shellShares[i] }).ToList();
 
         // Which nodes each element joins, for the ordering.
         var neighbours = Enumerable.Range(0, n).Select(_ => new HashSet<int>()).ToArray();
@@ -510,7 +529,7 @@ public sealed class StructuralSolver
 
         foreach (var beam in _beams) Join(beam.I, beam.J);
         foreach (var shell in _shells) Join(shell.I, shell.J, shell.K);
-        var order = ReverseCuthillMcKee(neighbours);
+        var order = NestedDissection(neighbours);
 
         // Each free freedom an equation, node by node in that order.
         var equation = new int[n * 6];
@@ -520,40 +539,12 @@ public sealed class StructuralSolver
             for (var f = 0; f < 6; f++)
                 if (!IsRestrained(node, f)) equation[node * 6 + f] = count++;
 
-        // The elements' stiffnesses in the building's axes, and where each lands.
-        var elements = new List<(int[] Dofs, double[,] K)>();
-        foreach (var beam in beams)
+        // The elements' stiffnesses as they are, and which entries above the diagonal each fills; every diagonal is there.
+        var beamK = _beams.Select(beam => BeamGlobal(beam).K).ToArray();
+        var shellK = _shells.Select(shell => ShellGlobal(shell).K).ToArray();
+        var rows = Enumerable.Range(0, count).Select(c => new HashSet<int> { c }).ToArray();
+        void Mark(int[] dofs, double[,] k)
         {
-            var (k, _, _) = BeamGlobal(beam);
-            elements.Add((Dofs(beam.I, beam.J), k));
-        }
-
-        foreach (var shell in shells)
-        {
-            var (k, _, _) = ShellGlobal(shell);
-            elements.Add((Dofs(shell.I, shell.J, shell.K), k));
-        }
-
-        // The skyline: how far up each column reaches.
-        var top = Enumerable.Range(0, count).ToArray();
-        foreach (var (dofs, _) in elements)
-        {
-            var eqs = dofs.Select(d => equation[d]).Where(e => e >= 0).ToList();
-            if (eqs.Count == 0) continue;
-            var least = eqs.Min();
-            foreach (var e in eqs) top[e] = Math.Min(top[e], least);
-        }
-
-        var address = new long[count + 1];
-        for (var e = 0; e < count; e++) address[e + 1] = address[e] + (e - top[e] + 1);
-        var a = new double[address[count]];
-        void Add(int row, int column, double value)
-        {
-            if (row > column) (row, column) = (column, row);
-            a[address[column] + (column - row)] += value;
-        }
-
-        foreach (var (dofs, k) in elements)
             for (var i = 0; i < dofs.Length; i++)
             {
                 var ei = equation[dofs[i]];
@@ -562,74 +553,245 @@ public sealed class StructuralSolver
                 {
                     var ej = equation[dofs[j]];
                     if (ej < 0 || k[i, j] == 0) continue;
-                    Add(ei, ej, k[i, j]);
+                    rows[Math.Max(ei, ej)].Add(Math.Min(ei, ej));
+                }
+            }
+        }
+
+        for (var b = 0; b < _beams.Count; b++) Mark(Dofs(_beams[b].I, _beams[b].J), beamK[b]);
+        for (var s = 0; s < _shells.Count; s++) Mark(Dofs(_shells[s].I, _shells[s].J, _shells[s].K), shellK[s]);
+
+        var ap = new int[count + 1];
+        for (var c = 0; c < count; c++) ap[c + 1] = ap[c] + rows[c].Count;
+        var ai = new int[ap[count]];
+        for (var c = 0; c < count; c++)
+        {
+            var sorted = rows[c].ToArray();
+            Array.Sort(sorted);
+            Array.Copy(sorted, 0, ai, ap[c], sorted.Length);
+        }
+
+        int Position(int row, int column)
+        {
+            if (row > column) (row, column) = (column, row);
+            return Array.BinarySearch(ai, ap[column], ap[column + 1] - ap[column], row);
+        }
+
+        int[] Positions(int[] dofs, double[,] k)
+        {
+            var positions = new int[dofs.Length * dofs.Length];
+            Array.Fill(positions, -1);
+            for (var i = 0; i < dofs.Length; i++)
+            {
+                var ei = equation[dofs[i]];
+                if (ei < 0) continue;
+                for (var j = i; j < dofs.Length; j++)
+                {
+                    var ej = equation[dofs[j]];
+                    if (ej < 0 || k[i, j] == 0) continue;
+                    positions[i * dofs.Length + j] = Position(ei, ej);
                 }
             }
 
+            return positions;
+        }
+
+        var beamPositions = Enumerable.Range(0, _beams.Count).Select(b => Positions(Dofs(_beams[b].I, _beams[b].J), beamK[b])).ToArray();
+        var shellPositions = Enumerable.Range(0, _shells.Count).Select(s => Positions(Dofs(_shells[s].I, _shells[s].J, _shells[s].K), shellK[s])).ToArray();
+        var diagonal = Enumerable.Range(0, count).Select(c => Position(c, c)).ToArray();
+
+        // The elimination tree, and how many each column of L holds.
+        var parent = new int[count];
+        var flag = new int[count];
+        var lnz = new int[count];
+        for (var k = 0; k < count; k++)
+        {
+            parent[k] = -1;
+            flag[k] = k;
+            for (var p = ap[k]; p < ap[k + 1]; p++)
+                for (var i = ai[p]; i < k && flag[i] != k; i = parent[i])
+                {
+                    if (parent[i] == -1) parent[i] = k;
+                    lnz[i]++;
+                    flag[i] = k;
+                }
+        }
+
+        var lp = new int[count + 1];
+        for (var k = 0; k < count; k++) lp[k + 1] = lp[k] + lnz[k];
+        var dofOf = new int[count];
+        for (var dof = 0; dof < equation.Length; dof++)
+            if (equation[dof] >= 0) dofOf[equation[dof]] = dof;
+        return new Pattern
+        {
+            Equation = equation, Count = count, Ap = ap, Ai = ai, Diagonal = diagonal, Parent = parent, Lp = lp, DofOf = dofOf,
+            BeamK = beamK, ShellK = shellK, BeamPositions = beamPositions, ShellPositions = shellPositions
+        };
+    }
+
+    /// <summary>
+    /// The structure's stiffness assembled and factorised, kept to put loads through - each element's
+    /// stiffness taken at its share of what it is, where a share is given: a cracked section's, say.
+    /// Sparse: the nodes in nested dissection order, each half of the building before what joins them,
+    /// and L D Lᵀ by rows as Davis's LDL has it, so only what fills in is worked. What a share does not
+    /// change is kept from one factorisation to the next.
+    /// </summary>
+    public Factored Factorise(IReadOnlyList<double>? beamShares = null, IReadOnlyList<double>? shellShares = null)
+    {
+        var problems = new List<string>();
+        var n = _nodes.Count;
+        var beams = _beams.Select((beam, i) => beamShares is null ? beam : beam with { E = beam.E * beamShares[i], G = beam.G * beamShares[i] }).ToList();
+        var shells = _shells.Select((shell, i) => shellShares is null ? shell : shell with { E = shell.E * shellShares[i] }).ToList();
+        var pattern = _pattern ??= PatternOf();
+        var (equation, count, ap, ai, parent, lp) = (pattern.Equation, pattern.Count, pattern.Ap, pattern.Ai, pattern.Parent, pattern.Lp);
+
+        // The elements' stiffnesses, each at its share, where they land.
+        var ax = new double[ai.Length];
+        void Place(double[,] k, int[] positions, double share)
+        {
+            var size = k.GetLength(0);
+            for (var i = 0; i < size; i++)
+            for (var j = i; j < size; j++)
+            {
+                var at = positions[i * size + j];
+                if (at >= 0) ax[at] += share * k[i, j];
+            }
+        }
+
+        for (var b = 0; b < _beams.Count; b++) Place(pattern.BeamK[b], pattern.BeamPositions[b], beamShares?[b] ?? 1);
+        for (var s = 0; s < _shells.Count; s++) Place(pattern.ShellK[s], pattern.ShellPositions[s], shellShares?[s] ?? 1);
         foreach (var (node, freedom, stiffness) in _springs)
             if (equation[node * 6 + freedom] is var e and >= 0)
-                Add(e, e, stiffness);
+                ax[pattern.Diagonal[e]] += stiffness;
 
         // A freedom nothing stiffens - a turn at a node only pinned beams meet at - is held.
-        var unstable = new List<(int, int)>();
         var biggest = 0.0;
-        for (var e = 0; e < count; e++) biggest = Math.Max(biggest, Math.Abs(a[address[e]]));
+        for (var e = 0; e < count; e++) biggest = Math.Max(biggest, Math.Abs(ax[pattern.Diagonal[e]]));
         for (var e = 0; e < count; e++)
-            if (Math.Abs(a[address[e]]) <= 1e-12 * Math.Max(biggest, 1)) a[address[e]] = Math.Max(biggest, 1) * 1e-6;
+            if (Math.Abs(ax[pattern.Diagonal[e]]) <= 1e-12 * Math.Max(biggest, 1)) ax[pattern.Diagonal[e]] = Math.Max(biggest, 1) * 1e-6;
 
-        // Factorised: L D L^T, column by column (Bathe's COLSOL).
-        for (var col = 0; col < count; col++)
+        var li = new int[lp[count]];
+        var lx = new double[lp[count]];
+        var d = new double[count];
+        var flag = new int[count];
+        var lnz = new int[count];
+
+        // Factorised: L D Lᵀ, a row of L at a time, each by the rows its pattern in the tree reaches.
+        var y = new double[count];
+        var reach = new int[count];
+        var unstable = new List<(int, int)>();
+        for (var k = 0; k < count; k++)
         {
-            var kn = address[col];
-            var height = (int)(address[col + 1] - kn - 1);
-            var first = col - height;
-            for (var row = first + 1; row < col; row++)
+            var top = count;
+            flag[k] = k;
+            lnz[k] = 0;
+            for (var p = ap[k]; p < ap[k + 1]; p++)
             {
-                var rowHeight = (int)(address[row + 1] - address[row] - 1);
-                var rowFirst = row - rowHeight;
-                var from = Math.Max(first, rowFirst);
-                var sum = 0.0;
-                for (var m = from; m < row; m++) sum += a[address[row] + (row - m)] * a[kn + (col - m)];
-                a[kn + (col - row)] -= sum;
+                var i = ai[p];
+                y[i] += ax[p];
+                var length = 0;
+                for (; flag[i] != k; i = parent[i])
+                {
+                    reach[length++] = i;
+                    flag[i] = k;
+                }
+
+                while (length > 0) reach[--top] = reach[--length];
             }
 
-            var diagonal = a[kn];
-            for (var row = first; row < col; row++)
+            var diagonal = y[k];
+            y[k] = 0;
+            for (; top < count; top++)
             {
-                var off = a[kn + (col - row)];
-                var c = off / a[address[row]];
-                diagonal -= c * off;
-                a[kn + (col - row)] = c;
+                var i = reach[top];
+                var yi = y[i];
+                y[i] = 0;
+                var end = lp[i] + lnz[i];
+                for (var p = lp[i]; p < end; p++) y[li[p]] -= lx[p] * yi;
+                var lki = yi / d[i];
+                diagonal -= lki * yi;
+                li[end] = k;
+                lx[end] = lki;
+                lnz[i]++;
             }
 
             if (diagonal <= 1e-12 * Math.Max(biggest, 1))
             {
                 // Nothing holds this way: a mechanism. Held, and said.
-                var dof = Array.IndexOf(equation, col);
+                var dof = pattern.DofOf[k];
                 unstable.Add((dof / 6, dof % 6));
                 diagonal = Math.Max(biggest, 1);
             }
 
-            a[kn] = diagonal;
+            d[k] = diagonal;
         }
 
         if (unstable.Count > 0)
             problems.Add($"The structure is free to move at {unstable.Select(u => u.Item1).Distinct().Count()} node{(unstable.Select(u => u.Item1).Distinct().Count() == 1 ? "" : "s")}: nothing holds it there - those movements are held at nothing to go on.");
 
-        return new Factored(a, address, equation, count, n * 6, beams, shells, problems, unstable);
+        return new Factored(lp, li, lx, d, equation, count, n * 6, beams, shells, problems, unstable);
+    }
+
+    /// <summary>
+    /// The nodes in nested dissection order: a part split across its longest extent at its middle, the smaller side's nodes that touch the other side kept back as what joins them, each side
+    /// ordered so in turn, and what joins them after both - so filling in stays within each half. A part of a few dozen nodes is taken as it comes.
+    /// </summary>
+    private int[] NestedDissection(HashSet<int>[] neighbours)
+    {
+        var order = new List<int>(_nodes.Count);
+        // Each part's halves first, then what joined them.
+        void Dissect(List<int> part)
+        {
+            if (part.Count <= 48)
+            {
+                order.AddRange(part);
+                return;
+            }
+
+            var (minX, maxX, minY, maxY, minZ, maxZ) = (double.MaxValue, double.MinValue, double.MaxValue, double.MinValue, double.MaxValue, double.MinValue);
+            foreach (var node in part)
+            {
+                var p = _nodes[node];
+                (minX, maxX, minY, maxY, minZ, maxZ) = (Math.Min(minX, p.X), Math.Max(maxX, p.X), Math.Min(minY, p.Y), Math.Max(maxY, p.Y), Math.Min(minZ, p.Z), Math.Max(maxZ, p.Z));
+            }
+
+            var spans = new[] { maxX - minX, maxY - minY, maxZ - minZ };
+            var axis = Array.IndexOf(spans, spans.Max());
+            double At(int node) => axis == 0 ? _nodes[node].X : axis == 1 ? _nodes[node].Y : _nodes[node].Z;
+            var sorted = part.OrderBy(At).ThenBy(node => node).ToList();
+            var half = sorted.Count / 2;
+            var (lower, upper) = (sorted.Take(half).ToHashSet(), sorted.Skip(half).ToHashSet());
+            var lowerEdge = lower.Where(node => neighbours[node].Any(upper.Contains)).ToList();
+            var upperEdge = upper.Where(node => neighbours[node].Any(lower.Contains)).ToList();
+            var (joining, side, other) = lowerEdge.Count <= upperEdge.Count ? (lowerEdge, lower, upper) : (upperEdge, upper, lower);
+            var joined = joining.ToHashSet();
+            var rest = side.Where(node => !joined.Contains(node)).ToList();
+            if (rest.Count + other.Count == 0 || joining.Count >= part.Count)
+            {
+                order.AddRange(part);
+                return;
+            }
+
+            Dissect(rest.OrderBy(node => node).ToList());
+            Dissect(other.OrderBy(node => node).ToList());
+            order.AddRange(joining.OrderBy(node => node));
+        }
+
+        Dissect(Enumerable.Range(0, _nodes.Count).ToList());
+        return order.ToArray();
     }
 
     /// <summary>A structure's stiffness factorised: what its elements were taken at, what was wrong, and any load put through it.</summary>
     public sealed class Factored
     {
-        private readonly double[] _a;
-        private readonly long[] _address;
-        private readonly int[] _equation;
+        private readonly int[] _lp, _li, _equation;
+        private readonly double[] _lx, _d;
         private readonly int _count, _freedoms;
 
-        internal Factored(double[] a, long[] address, int[] equation, int count, int freedoms, IReadOnlyList<Beam> beams, IReadOnlyList<Shell> shells, IReadOnlyList<string> problems, IReadOnlyList<(int, int)> unstable)
+        internal Factored(int[] lp, int[] li, double[] lx, double[] d, int[] equation, int count, int freedoms, IReadOnlyList<Beam> beams, IReadOnlyList<Shell> shells, IReadOnlyList<string> problems,
+            IReadOnlyList<(int Node, int Freedom)> unstable)
         {
-            (_a, _address, _equation, _count, _freedoms) = (a, address, equation, count, freedoms);
+            (_lp, _li, _lx, _d, _equation, _count, _freedoms) = (lp, li, lx, d, equation, count, freedoms);
             (Beams, Shells, Problems, Unstable) = (beams, shells, problems, unstable);
         }
 
@@ -644,32 +806,31 @@ public sealed class StructuralSolver
         /// <summary>A load - six forces to a node - as the movement of every node.</summary>
         public double[] Solve(double[] load)
         {
-            var (a, address, equation, count) = (_a, _address, _equation, _count);
+            var (lp, li, lx, d, equation, count) = (_lp, _li, _lx, _d, _equation, _count);
             var v = new double[count];
-            for (var d = 0; d < _freedoms; d++)
-                if (equation[d] >= 0) v[equation[d]] += load[d];
+            for (var dof = 0; dof < _freedoms; dof++)
+                if (equation[dof] >= 0) v[equation[dof]] += load[dof];
 
             // Forward, scale, back.
-            for (var col = 0; col < count; col++)
+            for (var j = 0; j < count; j++)
             {
-                var kn = address[col];
-                var height = (int)(address[col + 1] - kn - 1);
-                var sum = 0.0;
-                for (var m = 1; m <= height; m++) sum += a[kn + m] * v[col - m];
-                v[col] -= sum;
+                var vj = v[j];
+                if (vj != 0)
+                    for (var p = lp[j]; p < lp[j + 1]; p++)
+                        v[li[p]] -= lx[p] * vj;
             }
 
-            for (var col = 0; col < count; col++) v[col] /= a[address[col]];
-            for (var col = count - 1; col > 0; col--)
+            for (var j = 0; j < count; j++) v[j] /= d[j];
+            for (var j = count - 1; j >= 0; j--)
             {
-                var kn = address[col];
-                var height = (int)(address[col + 1] - kn - 1);
-                for (var m = 1; m <= height; m++) v[col - m] -= a[kn + m] * v[col];
+                var sum = v[j];
+                for (var p = lp[j]; p < lp[j + 1]; p++) sum -= lx[p] * v[li[p]];
+                v[j] = sum;
             }
 
             var u = new double[_freedoms];
-            for (var d = 0; d < _freedoms; d++)
-                if (equation[d] >= 0) u[d] = v[equation[d]];
+            for (var dof = 0; dof < _freedoms; dof++)
+                if (equation[dof] >= 0) u[dof] = v[equation[dof]];
             return u;
         }
     }
@@ -830,33 +991,6 @@ public sealed class StructuralSolver
 
     private static int[] Dofs(params int[] nodes) => nodes.SelectMany(node => Enumerable.Range(0, 6).Select(f => node * 6 + f)).ToArray();
 
-    /// <summary>The nodes in reverse Cuthill-McKee order: each part from a node with fewest neighbours, by breadth, reversed - so the equations bunch near the diagonal.</summary>
-    private static int[] ReverseCuthillMcKee(HashSet<int>[] neighbours)
-    {
-        var n = neighbours.Length;
-        var seen = new bool[n];
-        var order = new List<int>(n);
-        foreach (var start in Enumerable.Range(0, n).OrderBy(node => neighbours[node].Count))
-        {
-            if (seen[start]) continue;
-            var queue = new Queue<int>();
-            queue.Enqueue(start);
-            seen[start] = true;
-            while (queue.Count > 0)
-            {
-                var node = queue.Dequeue();
-                order.Add(node);
-                foreach (var next in neighbours[node].Where(next => !seen[next]).OrderBy(next => neighbours[next].Count))
-                {
-                    seen[next] = true;
-                    queue.Enqueue(next);
-                }
-            }
-        }
-
-        order.Reverse();
-        return order.ToArray();
-    }
 
     /// <summary>A beam's forces at its two ends in its own axes, from the movements: K d less the loads along it.</summary>
     public double[] BeamEndForces(Beam beam, double[] displacements, double[]? localLoad = null)

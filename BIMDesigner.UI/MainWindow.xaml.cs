@@ -4117,6 +4117,7 @@ public partial class MainWindow : Window
     /// <summary>What the building is, that its imposed loads, its fire resistance period and its consequence class go by.</summary>
     private static readonly ParameterDefinition BuildingTypeParameter = new("Building Type", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition ReduceImposedParameter = new("Imposed Loads Reduced by Area", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>Whether planning makes Approved Document G's optional requirement a condition: 110 litres a person a day, not 125.</summary>
     private static readonly ParameterDefinition WaterOptionalParameter = new("Water Use 110 l (Optional Requirement)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4270,6 +4271,11 @@ public partial class MainWindow : Window
                 _document.ProjectInformation.BuildingType = type;
                 if (ShowsAnalytical) ShowAnalytical();
             }, StartUp.NewProjectSteps.BuildingTypes),
+            ParameterValue.Bind(ReduceImposedParameter, () => _document.ProjectInformation.ReduceImposedLoads, reduce =>
+            {
+                _document.ProjectInformation.ReduceImposedLoads = reduce;
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
             ParameterValue.Bind(SprinkleredParameter, () => _document.ProjectInformation.Sprinklered, sprinklered =>
             {
                 _document.ProjectInformation.Sprinklered = sprinklered;

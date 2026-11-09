@@ -35,6 +35,11 @@ public sealed class SecondOrderAnalysis
 
     public StructuralAnalysis Analysis { get; }
 
+    /// <summary>Whether imposed loads are reduced for the area and floors a member carries, as the project asked when this was worked out.</summary>
+    public bool ReducesImposed { get; private init; }
+
+    private bool _usImposed;
+
     /// <summary>The out-of-plumb taken, as a share of the height: the horizontal force on a node over the weight on it.</summary>
     public double Imperfection { get; }
 
@@ -245,8 +250,12 @@ public sealed class SecondOrderAnalysis
             "αcr is the energy ratio along the structure's leaning shape, the general form of the storey formula; a slender member's own buckling is in its own checks, and a stud wall's weight leans at the floor that holds it, its studs' bowing between floors being theirs. A diaphragm's forces are left out: it carries no weight and has next to no bending of its own. The moments the foundations are designed for stay first order, at full stiffness."
         };
 
+        if (document.ProjectInformation.ReduceImposedLoads)
+            notes.Add(us
+                ? "Imposed loads on members reduced by ASCE 7-16 4.7: 0.25 + 15 / √(KLL AT), KLL 4 for a column and 2 for a beam, where KLL AT is 400 ft² or more, no less than 0.5, or 0.4 for a column carrying two floors or more; an office's 15 psf for partitions, walls and footings taken whole."
+                : "Imposed loads on members reduced by BS EN 1991-1-1 6.3.1.2 with the UK National Annex: a beam by 1 - A/1000, no less than 0.75, a column by the floors over it, 0.9 for two down to 0.6 for five to ten and 0.5 past ten; walls and footings take them whole.");
         results.Sort((a, b) => a.Alpha.CompareTo(b.Alpha));
-        var made = new SecondOrderAnalysis(analysis, imperfection, limit, factored, notes, results);
+        var made = new SecondOrderAnalysis(analysis, imperfection, limit, factored, notes, results) { ReducesImposed = document.ProjectInformation.ReduceImposedLoads, _usImposed = us };
         foreach (var (key, value) in moved) made._moved[key] = value;
         foreach (var (key, value) in leanMoved) made._leanMoved[key] = value;
         foreach (var (key, value) in stress) made._stress[key] = value;
@@ -693,7 +702,7 @@ public sealed class SecondOrderAnalysis
         var results = new List<(LoadCombination, IReadOnlyDictionary<AnalyticalNode, double>)>();
         Dictionary<AnalyticalNode, double>? down = null;
         LoadCombination? current = null;
-        foreach (var (variant, piece, f) in PieceForces(member))
+        foreach (var (variant, piece, f) in PieceForces(member, false))
         {
             if (!ReferenceEquals(variant, current))
             {
@@ -710,9 +719,81 @@ public sealed class SecondOrderAnalysis
         return results;
     }
 
-    /// <summary>Each piece of a member's end forces, N and N mm in its own axes, under each combination each way it leans: each case and lean read once, then added up.</summary>
-    private IEnumerable<(LoadCombination Variant, int Piece, double[] Forces)> PieceForces(AnalyticalMember member)
+    private readonly Dictionary<AnalyticalMember, double> _imposedShares = new();
+
+    /// <summary>
+    /// The share of the imposed load a member is checked for, where the project reduces it. BS EN 1991-1-1 6.3.1.2(10) and (11) as the UK National Annex has them: a beam by the area it carries,
+    /// 1 - A/1000 and no less than 0.75, a column by the floors over it, 1.1 - n/10 for two to five, 0.6 to ten and 0.5 past ten, a published table of the Annex's agreeing. Or ASCE 7-16 4.7:
+    /// 0.25 + 15 / √(KLL AT), KLL 4 for a column and 2 for a beam, where KLL AT is 400 ft² or more, no less than 0.5, or 0.4 for a column carrying two floors or more; a live load over 100 psf
+    /// not reduced, but by 20% on a column carrying two floors or more, by 4.7.3; an office's 15 psf for partitions, being 4.3.2's and not Table 4.3-1's, taken whole. The area is the imposed load its
+    /// ends carry over the floors' own load a square metre. 1 where the project does not reduce it, and for walls and footings, which take it whole.
+    /// </summary>
+    public double ImposedShare(AnalyticalMember member)
     {
+        if (_imposedShares.TryGetValue(member, out var known)) return known;
+        var share = 1.0;
+        var loading = Analysis.Loading;
+        var imposed = loading.Cases.FirstOrDefault(loadCase => loadCase.Nature == LoadNature.Imposed && !loadCase.Drifted);
+        var intensity = imposed is null ? 0 : loading.SurfaceLoads.Where(load => load.Case == imposed).Select(load => Math.Abs(load.Force.Z)).DefaultIfEmpty(0).Max();
+        if (imposed is not null && intensity > 0 && ReducesImposed && _moved.TryGetValue(imposed, out var moved))
+        {
+            var solver = Analysis.Solver;
+            var pieces = Analysis.BeamsOf(member).Select(piece => piece.Beam).ToList();
+            double[] End(int piece)
+            {
+                var (matrix, dofs) = solver.BeamForceMatrix(_factored.Beams[piece]);
+                var f = new double[12];
+                for (var i = 0; i < 12; i++)
+                for (var j = 0; j < 12; j++)
+                    f[i] += matrix[i, j] * moved[dofs[j]];
+                if (Analysis.LoadAlong(imposed, piece) is { } along)
+                {
+                    var load = solver.CondensedLoad(_factored.Beams[piece], along);
+                    for (var i = 0; i < 12; i++) f[i] -= load[i];
+                }
+
+                return f;
+            }
+
+            var column = member.Kind == AnalyticalMemberKind.Column;
+            if (pieces.Count > 0)
+            {
+                var (first, last) = (End(pieces[0]), End(pieces[^1]));
+                var carried = column
+                    ? pieces.Select(piece => Math.Abs(End(piece)[0])).Max() / 1000
+                    : (Math.Sqrt(first[1] * first[1] + first[2] * first[2]) + Math.Sqrt(last[7] * last[7] + last[8] * last[8])) / 1000;
+                var area = carried / intensity;
+                var bottom = member.Nodes.Min(node => node.At.Z);
+                var floors = loading.SurfaceLoads.Where(load => load.Case == imposed).Select(load => Math.Round(load.Panel.Outline.Average(node => node.At.Z) / 100))
+                    .Concat(loading.LineLoads.Where(load => load.Case == imposed && load.Panel is not null).Select(load => Math.Round(load.Panel!.Outline.Max(node => node.At.Z) / 100)))
+                    .Distinct().Count(z => z * 100 > bottom + 100);
+                if (_usImposed)
+                {
+                    // An office's 15 psf for partitions is 4.3.2's, not Table 4.3-1's, and is not reduced.
+                    var partitions = loading.SurfaceLoads.Any(load => load.Case == imposed && load.Said.Contains("partitions, 15 psf", StringComparison.Ordinal)) ? Math.Min(15 * Loads.Psf, intensity) : 0;
+                    var lo = intensity - partitions;
+                    var kll = column ? 4.0 : 2.0;
+                    var influence = kll * area * 10.7639;
+                    var reduced = lo > 100 * Loads.Psf + 1e-9 ? (column && floors >= 2 ? 0.8 : 1)
+                        : influence >= 400 ? Math.Min(1, Math.Max(column && floors >= 2 ? 0.4 : 0.5, 0.25 + 15 / Math.Sqrt(influence))) : 1;
+                    share = (lo * reduced + partitions) / intensity;
+                }
+                else
+                    share = column ? floors switch { <= 1 => 1.0, <= 5 => 1.1 - floors / 10.0, <= 10 => 0.6, _ => 0.5 } : Math.Max(0.75, 1 - area / 1000);
+            }
+        }
+
+        _imposedShares[member] = share;
+        return share;
+    }
+
+    /// <summary>
+    /// Each piece of a member's end forces, N and N mm in its own axes, under each combination each way it leans: each case and lean read once, then added up. Reduced, its imposed load is
+    /// taken at the share the member is checked for; what it lands on what holds it up is not reduced.
+    /// </summary>
+    private IEnumerable<(LoadCombination Variant, int Piece, double[] Forces)> PieceForces(AnalyticalMember member, bool reduced = true)
+    {
+        var imposedShare = reduced ? ImposedShare(member) : 1;
         var solver = Analysis.Solver;
         var pieces = Analysis.BeamsOf(member).Select(piece => piece.Beam).ToList();
         var matrices = pieces.Select(piece => solver.BeamForceMatrix(_factored.Beams[piece])).ToList();
@@ -743,8 +824,9 @@ public sealed class SecondOrderAnalysis
             for (var piece = 0; piece < pieces.Count; piece++)
             {
                 var f = new double[12];
-                foreach (var (loadCase, factor) in combination.Terms)
+                foreach (var (loadCase, term) in combination.Terms)
                 {
+                    var factor = loadCase.Nature == LoadNature.Imposed ? term * imposedShare : term;
                     var own = byCase[loadCase][piece];
                     for (var i = 0; i < 12; i++) f[i] += factor * own[i];
                     if (loadCase.Lateral) continue;

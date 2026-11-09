@@ -31,6 +31,12 @@ public sealed class ProjectInformation
     public bool Sprinklered { get; set; }
 
     /// <summary>
+    /// Whether members are checked for imposed loads reduced by the area each carries and the floors over it: BS EN 1991-1-1 6.3.1.2(10) and (11) with the UK National Annex, or ASCE 7-16 4.7.
+    /// Reducing them is allowed, not asked; off, they are taken whole.
+    /// </summary>
+    public bool ReduceImposedLoads { get; set; }
+
+    /// <summary>
     /// Whether planning permission makes Approved Document G's optional requirement a condition: the
     /// dwelling's water use 110 litres a person a day at most rather than 125 (regulation 36(2)(b)).
     /// </summary>

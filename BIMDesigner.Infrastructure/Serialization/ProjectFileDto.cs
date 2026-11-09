@@ -1386,6 +1386,8 @@ internal sealed class ProjectInformationDto
 
     public bool Sprinklered { get; set; }
 
+    public bool ReduceImposedLoads { get; set; }
+
     /// <summary>Whether Approved Document G's optional requirement of 110 litres a person a day applies.</summary>
     public bool WaterOptionalRequirement { get; set; }
 

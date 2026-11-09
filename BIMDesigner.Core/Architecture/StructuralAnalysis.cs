@@ -976,11 +976,11 @@ public sealed class StructuralAnalysis
 
     /// <summary>The cases loads vary by, for gravity: imposed, roof and snow.</summary>
     public IReadOnlyList<(LoadCase, double)> Variable =>
-        Loading.Cases.Where(loadCase => loadCase.Nature is LoadNature.Imposed or LoadNature.RoofImposed or LoadNature.Snow).Select(loadCase => (loadCase, 1.0)).ToList();
+        Loading.Cases.Where(loadCase => !loadCase.Drifted && loadCase.Nature is LoadNature.Imposed or LoadNature.RoofImposed or LoadNature.Snow).Select(loadCase => (loadCase, 1.0)).ToList();
 
     /// <summary>Every load but the wind and an earthquake, at its characteristic value: what a member deflects under in all.</summary>
     public IReadOnlyList<(LoadCase, double)> Total =>
-        Loading.Cases.Where(loadCase => !loadCase.Lateral).Select(loadCase => (loadCase, 1.0)).ToList();
+        Loading.Cases.Where(loadCase => !loadCase.Lateral && !loadCase.Drifted).Select(loadCase => (loadCase, 1.0)).ToList();
 
     /// <summary>
     /// A beam's deflection limits - under the loads that vary, and under all of them - as its material and
