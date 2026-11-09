@@ -31,9 +31,10 @@ public sealed class StructuralSolver
 
     /// <summary>
     /// A plate that is a frame of studs, not a solid: it bends one way, up its studs, the direction they run in given by its cosines on the triangle's own axes. How stiff it is along them, as a share of the
-    /// solid plate's bending stiffness, so a stiffness reduced for the analysis reduces this with it; across them and in twist it is <see cref="AcrossStuds"/> of that, what its boards and noggings give it.
+    /// solid plate's bending stiffness, so a stiffness reduced for the analysis reduces this with it; across them and in twist it is <see cref="AcrossStuds"/> of that, what its boards and noggings give it. In its own plane, where given:
+    /// up its studs, across them and in shear, each as a share of the solid plate's E t / (1 - ν²): studs end on to the load, boards across, and nails slipping in racking.
     /// </summary>
-    public sealed record Studs(double Cos, double Sin, double Share);
+    public sealed record Studs(double Cos, double Sin, double Share, double Axial = 0, double Across = 0, double Shear = 0);
 
     /// <summary>What a frame of studs has across them, as a share of what it has along them.</summary>
     public const double AcrossStuds = 0.01;
@@ -261,6 +262,21 @@ public sealed class StructuralSolver
         return Multiply(Transpose(turn), Multiply(new[,] { { along, 0, 0 }, { 0, across, 0 }, { 0, 0, across / 2 } }, turn));
     }
 
+    /// <summary>
+    /// What relates a shell's forces in its plane to its strains, N/mm, its thickness in it: an isotropic plate's, or a frame of studs' up and across them and in shear, turned into the triangle's axes as its bending is.
+    /// The same for its stiffness and for the forces read back from it, so the two cannot disagree.
+    /// </summary>
+    public static double[,] MembraneStiffness(Shell shell)
+    {
+        var (e, nu, t) = (shell.E, shell.Poisson, shell.Thickness);
+        var solid = e * t / (1 - nu * nu);
+        if (shell.Framed is not { Axial: > 0 } studs) return new[,] { { solid, solid * nu, 0 }, { solid * nu, solid, 0 }, { 0, 0, solid * (1 - nu) / 2 } };
+
+        var (c, s) = (studs.Cos, studs.Sin);
+        var turn = new[,] { { c * c, s * s, c * s }, { s * s, c * c, -c * s }, { -2 * c * s, 2 * c * s, c * c - s * s } };
+        return Multiply(Transpose(turn), Multiply(new[,] { { solid * studs.Axial, 0, 0 }, { 0, solid * studs.Across, 0 }, { 0, 0, solid * studs.Shear } }, turn));
+    }
+
     /// <summary>A triangle's axes: along its first side, across it in its plane, and its normal.</summary>
     public (Vector3 X, Vector3 Y, Vector3 Z) Axes(Shell shell)
     {
@@ -288,8 +304,7 @@ public sealed class StructuralSolver
         var (e, nu, t) = (shell.E, shell.Poisson, shell.Thickness);
 
         // In its plane: the constant strain triangle.
-        var dm = e / (1 - nu * nu);
-        var dMembrane = new[,] { { dm, dm * nu, 0 }, { dm * nu, dm, 0 }, { 0, 0, dm * (1 - nu) / 2 } };
+        var dMembrane = MembraneStiffness(shell);
         var (y23, y31, y12) = (y2 - y3, y3 - y1, y1 - y2);
         var (x32, x13, x21) = (x3 - x2, x1 - x3, x2 - x1);
         var bm = new double[3, 6]
@@ -301,7 +316,7 @@ public sealed class StructuralSolver
         for (var r = 0; r < 3; r++)
         for (var c = 0; c < 6; c++)
             bm[r, c] /= twiceArea;
-        var membrane = Multiply(Transpose(bm), Multiply(dMembrane, bm), t * area);
+        var membrane = Multiply(Transpose(bm), Multiply(dMembrane, bm), area);
         int[] mapMembrane = { 0, 1, 6, 7, 12, 13 };
         for (var r = 0; r < 6; r++)
         for (var c = 0; c < 6; c++)
@@ -746,10 +761,10 @@ public sealed class StructuralSolver
                 gamma += shape.C[c] * ux + shape.B[c] * uy;
             }
 
-            var d = shell.E * shell.Thickness / (1 - shell.Poisson * shell.Poisson);
-            nx[i] = d * (ex + shell.Poisson * ey);
-            ny[i] = d * (ey + shell.Poisson * ex);
-            nxy[i] = d * (1 - shell.Poisson) / 2 * gamma;
+            var d = MembraneStiffness(shell);
+            nx[i] = d[0, 0] * ex + d[0, 1] * ey + d[0, 2] * gamma;
+            ny[i] = d[1, 0] * ex + d[1, 1] * ey + d[1, 2] * gamma;
+            nxy[i] = d[2, 0] * ex + d[2, 1] * ey + d[2, 2] * gamma;
         }
 
         return new Prestress(axial, nx, ny, nxy);

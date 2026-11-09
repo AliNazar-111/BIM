@@ -155,12 +155,18 @@ public sealed class SecondOrderAnalysis
         var stress = new Dictionary<LoadCase, StructuralSolver.Prestress>();
         var lean = new Dictionary<(LoadCase, int), double[]>();
         var leanMoved = new Dictionary<(LoadCase, int), double[]>();
+
+        // A diaphragm stands for a floor or roof holding wall tops in its own plane: it carries no weight, and has next to no bending, so what it carries in its plane would buckle it out of it at
+        // a touch, as no real deck does between its joists. Its forces are left out of second order.
+        var diaphragms = analysis.Model.Diaphragms.SelectMany(analysis.ShellsOf).ToList();
         foreach (var loadCase in analysis.Loading.Cases)
         {
             var load = analysis.LoadOf(loadCase);
             moved[loadCase] = factored.Solve(load);
-            stress[loadCase] = solver.PrestressOf(factored, moved[loadCase]);
-            if (loadCase.Nature == LoadNature.Wind) continue;
+            var stressed = solver.PrestressOf(factored, moved[loadCase]);
+            foreach (var shell in diaphragms) (stressed.Nx[shell], stressed.Ny[shell], stressed.Nxy[shell]) = (0, 0, 0);
+            stress[loadCase] = stressed;
+            if (loadCase.Lateral) continue;
             for (var axis = 0; axis < 2; axis++)
             {
                 var horizontal = new double[length];
@@ -179,7 +185,7 @@ public sealed class SecondOrderAnalysis
                 ? new[] { (Name: string.Empty, X: blows.NormalisedOrDefault(Geometry.Vector2D.UnitX).X, Y: blows.NormalisedOrDefault(Geometry.Vector2D.UnitX).Y) }
                 : new[] { (Name: " +x", X: 1.0, Y: 0.0), (Name: " -x", X: -1.0, Y: 0.0), (Name: " +y", X: 0.0, Y: 1.0), (Name: " -y", X: 0.0, Y: -1.0) };
             var stressed = StructuralSolver.Prestress.Sum(combination.Terms.Select(term => (stress[term.Case], term.Factor)));
-            var gravity = combination.Terms.Where(term => term.Case.Nature != LoadNature.Wind).ToList();
+            var gravity = combination.Terms.Where(term => !term.Case.Lateral).ToList();
             foreach (var (name, x, y) in ways)
             {
                 var variant = combination with { Name = combination.Name + name };
@@ -236,7 +242,7 @@ public sealed class SecondOrderAnalysis
             us
                 ? $"Second-order effects by the direct analysis method of AISC 360-16 C2: notional loads of {imperfection:0.000} of the weight at each node, in every combination, EI and EA at 0.8 for steel, τb taken as 1.0. Concrete at ACI 318-19 Table 6.6.3.1.1(a)'s stiffnesses, timber at Emin, masonry cracked at half, as taken here. Taken to second order where αcr is under {limit:0}, Q over 0.05."
                 : $"Second-order effects by BS EN 1993-1-1 5.2: an out-of-plumb of 1 in {1 / imperfection:0} (5.3.2, αm taken as 1) as horizontal forces at each node, leaning with the wind or each of four ways. Concrete at 0.4 Ecd (BS EN 1992-1-1 Annex H), timber at E/γM, masonry cracked at half, as taken here. Taken to second order where αcr is under {limit:0}.",
-            "αcr is the energy ratio along the structure's leaning shape, the general form of the storey formula; a slender member's own buckling is in its own checks, and a stud wall's weight leans at the floor that holds it, its studs' bowing between floors being theirs. The moments the foundations are designed for stay first order, at full stiffness."
+            "αcr is the energy ratio along the structure's leaning shape, the general form of the storey formula; a slender member's own buckling is in its own checks, and a stud wall's weight leans at the floor that holds it, its studs' bowing between floors being theirs. A diaphragm's forces are left out: it carries no weight and has next to no bending of its own. The moments the foundations are designed for stay first order, at full stiffness."
         };
 
         results.Sort((a, b) => a.Alpha.CompareTo(b.Alpha));
@@ -520,7 +526,7 @@ public sealed class SecondOrderAnalysis
                 {
                     var own = byCase[loadCase][i];
                     for (var k = 0; k < 3; k++) sum[k] += factor * own[k];
-                    if (loadCase.Nature == LoadNature.Wind) continue;
+                    if (loadCase.Lateral) continue;
                     var (leanX, leanY) = (byLean[(loadCase, 0)][i], byLean[(loadCase, 1)][i]);
                     for (var k = 0; k < 3; k++) sum[k] += factor * (x * leanX[k] + y * leanY[k]);
                 }
@@ -611,7 +617,7 @@ public sealed class SecondOrderAnalysis
                         shear += area * factor * own[1];
                         momentUp += area * factor * own[2];
                         momentAlong += area * factor * own[3];
-                        if (loadCase.Nature == LoadNature.Wind)
+                        if (loadCase.Lateral)
                         {
                             lateral += area * factor * own[1];
                             continue;
@@ -741,7 +747,7 @@ public sealed class SecondOrderAnalysis
                 {
                     var own = byCase[loadCase][piece];
                     for (var i = 0; i < 12; i++) f[i] += factor * own[i];
-                    if (loadCase.Nature == LoadNature.Wind) continue;
+                    if (loadCase.Lateral) continue;
                     var (leanX, leanY) = (byLean[(loadCase, 0)][piece], byLean[(loadCase, 1)][piece]);
                     for (var i = 0; i < 12; i++) f[i] += factor * (x * leanX[i] + y * leanY[i]);
                 }

@@ -119,9 +119,10 @@ internal sealed class AnalyticalModelWindow : System.Windows.Window
                 .Concat(loading.LineLoads.Where(load => load.Case == loadCase).Select(load => load.Said)).FirstOrDefault() ?? string.Empty;
             return new[]
             {
-                loadCase.Name, loadCase.Description, loadCase.Nature == LoadNature.SelfWeight ? "by the analysis program" : count.ToString(),
-                loadCase.Nature is LoadNature.SelfWeight or LoadNature.Wind ? "" : Units.Kilonewtons(loading.Total(loadCase), "#,0.0"),
-                loadCase.Nature == LoadNature.Wind ? Units.Kilonewtons(loading.Across(loadCase), "#,0.0") : "", from
+                loadCase.Name, loadCase.Description, loadCase.Nature is LoadNature.SelfWeight or LoadNature.Seismic ? "by the analysis program" : count.ToString(),
+                loadCase.Nature is LoadNature.SelfWeight || loadCase.Lateral ? "" : Units.Kilonewtons(loading.Total(loadCase), "#,0.0"),
+                loadCase.Nature == LoadNature.Wind ? Units.Kilonewtons(loading.Across(loadCase), "#,0.0") : "",
+                loadCase.Nature == LoadNature.Seismic && loading.Seismic is { } quake ? $"V = Cs W, Cs {quake.Coefficient:0.0000}, up the building as w h^{quake.Exponent:0.00}" : from
             };
         }));
 

@@ -74,6 +74,7 @@ public static class CalculationReport
         KeyPlans(report, document, analysis, byMember, byWall);
         Basis(report, analysis, second);
         Loads(report, analysis);
+        SeismicOf(report, analysis);
         Analysis(report, analysis, second);
         Members(report, byMember, second);
         Walls(report, byWall);
@@ -135,6 +136,8 @@ public static class CalculationReport
                 fires.FirstOrDefault(check => check.Checks.Count > 0) is { } burnt ? $"{burnt.Name}: {burnt.Worst?.Name}" : "-"),
             Row("Ties", robustness.Ties.Count(check => check.Checks.Count > 0), robustness.Ties.Count(check => !check.Enough), robustness.Ties.Where(check => check.Checks.Count > 0).Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
                 robustness.Ties.FirstOrDefault(check => check.Checks.Count > 0) is { } tie ? $"{tie.Name}: {tie.Worst?.Name}" : "-"),
+            analysis.Seismic is { } quake ? Row("Storey drift", quake.Drifts.Count, quake.Drifts.Count(drift => drift.Ratio > 1), quake.Drifts.Select(drift => drift.Ratio).DefaultIfEmpty(0).Max(),
+                quake.Drifts.MaxBy(drift => drift.Ratio) is { } drifting ? $"{drifting.Level}, {drifting.Case}" : "-") : null,
             Row("Members, deflection", deflections.Count, deflections.Count(check => check.Ratio > 1), deflections.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
                 deflections.OrderByDescending(check => check.Ratio ?? 0).FirstOrDefault() is { } bent ? bent.Member.Name : "-"),
             Row("Ground under plates", bearings.Count, bearings.Count(check => check.Ratio > 1), bearings.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
@@ -159,7 +162,10 @@ public static class CalculationReport
             "Joints past those set out here: splices, moment joints, holding-down bolts, the fixings of what the model holds as drawn, and what connects a tie. What a joint wants is said; it is not in the model.",
             "Settlement as anything more than an estimate: each footing's is worked from a presumed stiffness of the ground, the analysis's supports not giving way as it does. Heave and consolidation over time are not worked out.",
             "Cracking of any slab with no bars in the model, whose steel is what it needs and not what it has; and long-term deflection worked out, rather than ruled by span to depth.",
-            "Seismic loads, movement and durability. Impact and explosion, and the notional removal of a support; only the ties and anchorage of a building's class. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
+            (document.ProjectInformation.ClearanceStandard.IsUs()
+                ? "Seismic loads past the equivalent lateral force procedure: accidental torsion, irregularities, the overstrength combinations, diaphragm and collector forces, anchorage of walls out of their plane and the detailing R assumes; movement and durability. "
+                : "Seismic loads in England, where Approved Document A does not usually ask for them; movement and durability. ") +
+            "Impact and explosion, and the notional removal of a support; only the ties and anchorage of a building's class. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
             "The ground: its kind is as set on the project, and no site investigation stands behind it."
         };
         var skipped = members.Where(check => check.Checks.Count == 0).Select(check => check.Member.Name).Concat(walls.Where(check => check.Checks.Count == 0).Select(check => check.Panel.Name)).ToList();
@@ -245,6 +251,30 @@ public static class CalculationReport
 
         report.Heading("What was taken", 2);
         foreach (var note in analysis.Loading.Notes.Concat(analysis.Notes).Concat(second.Notes).Append(MemberStrength.Said)) report.Paragraph($"- {note}");
+    }
+
+    /// <summary>The earthquake, where there is seismic design to do: how its base shear was come to, each level's share, each storey's drift.</summary>
+    private static void SeismicOf(ReportDocument report, StructuralAnalysis analysis)
+    {
+        if (analysis.Loading.Seismic is not { } quake) return;
+        report.Heading("Seismic");
+        report.Paragraph($"By the equivalent lateral force procedure of ASCE 7-16 12.8, Supplement 1's site coefficients taken in. Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}. {quake.Said}");
+        if (analysis.Seismic is not { } result) return;
+        report.Facts(new[]
+        {
+            ("Site coefficients", $"Fa {quake.Fa:0.00}, Fv {quake.Fv:0.00} (Tables 11.4-1, 11.4-2)"),
+            ("Design spectrum", $"SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000} (11.4-3, 11.4-4)"),
+            ("System", $"{quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#} (Table 12.2-1)"),
+            ("Period", $"T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")} (12.8-7), k {quake.Exponent:0.00}"),
+            ("Seismic response coefficient", $"Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, Ie {quake.Importance:0.00}"),
+            ("Base shear", $"V = Cs W = {quake.Coefficient:0.0000} × {result.Weight:0} = {result.Shear:0.0} kN, each way; ρ {quake.Redundancy:0.0}")
+        });
+        report.Table(new[] { new ReportColumn("Level", 1.2), new ReportColumn("Weight, kN", 0.8, true), new ReportColumn("Force, kN", 0.8, true), new ReportColumn("Of the base shear", 0.8, true) },
+            result.Levels.Select(level => new ReportCell[] { level.Name, F(level.Weight, "0"), F(level.Force), Share(result.Shear > 0 ? level.Force / result.Shear : 0) }));
+        report.Heading("Storey drift", 2);
+        report.Table(new[] { new ReportColumn("Case", 0.5), new ReportColumn("Storey", 1.2), new ReportColumn("Height, mm", 0.7, true), new ReportColumn("Drift, mm", 0.7, true), new ReportColumn("Allowed, mm", 0.7, true), new ReportColumn("Of it", 0.6, true), new ReportColumn("θ", 0.5, true) },
+            result.Drifts.Select(drift => new ReportCell[] { drift.Case, drift.Level, F(drift.Height, "0"), F(drift.Drift, "0.0"), F(drift.Allowed, "0.0"), Share(drift.Ratio), new ReportCell(drift.Theta.ToString("0.000", CultureInfo.CurrentCulture), drift.Theta > drift.ThetaMax ? ReportTone.Unmet : ReportTone.Plain) }));
+        report.Paragraph("Design drift Cd δxe / Ie between each floor and the one under it, 12.8.6, against Table 12.12-1, taken as for a building of four storeys or fewer with its partitions and cladding made to take the drift, where it has no more. θ is the stability coefficient Px Δ Ie / (Vx hsx Cd) of (12.8-16), Px the dead and live load at and above the storey: under 0.10 P-delta need not be considered, and no more than 0.5 / Cd is allowed. ρ is taken as 1.3 in categories D to F without looking for 12.3.4.2's conditions for 1.0. Accidental torsion, and snow and storage in the seismic weight, are not worked out.", ReportTone.Muted);
     }
 
     private static void Loads(ReportDocument report, StructuralAnalysis analysis)

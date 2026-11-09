@@ -111,7 +111,7 @@ public static class TimberDesign
     public static double TimeEffect(LoadCombination combination)
     {
         var natures = combination.Terms.Where(term => term.Factor > 0).Select(term => term.Case.Nature).ToList();
-        if (natures.Contains(LoadNature.Wind)) return 1.0;
+        if (natures.Contains(LoadNature.Wind) || natures.Contains(LoadNature.Seismic)) return 1.0;
         return natures.Any(nature => nature is LoadNature.Imposed or LoadNature.RoofImposed or LoadNature.Snow) ? 0.8 : 0.6;
     }
 

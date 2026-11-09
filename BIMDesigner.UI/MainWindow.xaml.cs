@@ -4124,6 +4124,10 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition ClayShrinkageParameter = new("Clay Shrinkage", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition FrostDepthParameter = new("Frost Line (US, 0 = none)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition GroundSnowParameter = new("Ground Snow Load (US, psf)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SeismicSsParameter = new("Seismic Ss (US, g, 0 = none)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SeismicS1Parameter = new("Seismic S1 (US, g)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SiteClassParameter = new("Site Class (US, ASCE 7-16 Ch. 20)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition RiskCategoryParameter = new("Risk Category (US, I to IV)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RetainedSurchargeParameter = new("Behind Retaining Walls (kN/m²)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RetainedFrictionParameter = new("Retained Soil Friction (degrees, 0 = typical)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SnowZoneParameter = new("Snow Zone (UK, NA to BS EN 1991-1-3 Figure NA.1)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4311,6 +4315,27 @@ public partial class MainWindow : Window
                 _document.ProjectInformation.SnowZone = Math.Clamp(Math.Round(zone * 2) / 2, 1, 5);
                 if (ShowsAnalytical) ShowAnalytical();
             }),
+            ParameterValue.Bind(SeismicSsParameter, () => _document.ProjectInformation.SeismicSs, ss =>
+            {
+                _document.ProjectInformation.SeismicSs = Math.Clamp(ss, 0, 5);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.Bind(SeismicS1Parameter, () => _document.ProjectInformation.SeismicS1, s1 =>
+            {
+                _document.ProjectInformation.SeismicS1 = Math.Clamp(s1, 0, 3);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.BindChoice(SiteClassParameter, () => _document.ProjectInformation.SiteClass.ToString(), site =>
+            {
+                if (Enum.TryParse<SiteClass>(site, out var parsed)) _document.ProjectInformation.SiteClass = parsed;
+                if (ShowsAnalytical) ShowAnalytical();
+            }, Enum.GetNames<SiteClass>()),
+            ParameterValue.BindChoice(RiskCategoryParameter, () => new[] { "I", "II", "III", "IV" }[Math.Clamp(_document.ProjectInformation.RiskCategory, 1, 4) - 1], risk =>
+            {
+                var index = Array.IndexOf(new[] { "I", "II", "III", "IV" }, risk);
+                if (index >= 0) _document.ProjectInformation.RiskCategory = index + 1;
+                if (ShowsAnalytical) ShowAnalytical();
+            }, new[] { "I", "II", "III", "IV" }),
             ParameterValue.Bind(RetainedSurchargeParameter, () => _document.ProjectInformation.RetainedSurcharge, load =>
             {
                 _document.ProjectInformation.RetainedSurcharge = Math.Clamp(load, 0, 100);

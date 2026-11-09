@@ -579,7 +579,7 @@ public static class JointDesign
         var flat = wall.FlatOutline;
         var (first, last, foot, top) = (flat.Min(p => p.X), flat.Max(p => p.X), flat.Min(p => p.Y), flat.Max(p => p.Y));
         var line = LineDown(document, analysis, wall, us);
-        var weight = (us ? 1.2 : 1.35) * (wall.SelfWeight + analysis.Loading.SurfaceLoads.Where(load => ReferenceEquals(load.Panel, wall) && load.Case.Nature != LoadNature.Wind && load.Case.Nature != LoadNature.Imposed).Sum(load => Math.Abs(load.Force.Z)));
+        var weight = (us ? 1.2 : 1.35) * (wall.SelfWeight + analysis.Loading.SurfaceLoads.Where(load => ReferenceEquals(load.Panel, wall) && !load.Case.Lateral && load.Case.Nature != LoadNature.Imposed).Sum(load => Math.Abs(load.Force.Z)));
         var fd = us ? 0 : MasonryDesign.Characteristic(MasonryDesign.LoadedUnitOf(document, wall)) / MasonryDesign.GammaCompression;
         var opening = 0;
         foreach (var hole in wall.Cuts.Select(hole => hole.Select(wall.Flat).ToList()).OrderBy(hole => hole.Min(p => p.X)))

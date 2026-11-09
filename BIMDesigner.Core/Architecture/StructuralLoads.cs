@@ -12,13 +12,19 @@ public enum LoadNature
     Imposed,
     RoofImposed,
     Snow,
-    Wind
+    Wind,
+
+    /// <summary>The earthquake's equivalent lateral force, ASCE 7-16 12.8, the way its case's direction gives.</summary>
+    Seismic
 }
 
 /// <summary>A load case: its name - G1, Q1, W3 - what it is, and for wind, the way it blows.</summary>
 public sealed record LoadCase(string Name, string Description, LoadNature Nature, Vector2D? Wind = null)
 {
     public bool Permanent => Nature is LoadNature.SelfWeight or LoadNature.Dead;
+
+    /// <summary>Whether it pushes sideways: the wind, or an earthquake. What reads racking and shear takes it; what reads weight leaves it out.</summary>
+    public bool Lateral => Nature is LoadNature.Wind or LoadNature.Seismic;
 }
 
 /// <summary>Whether a combination is for strength or for how the structure behaves in use.</summary>
@@ -111,6 +117,9 @@ public sealed class StructuralLoading
 
     public List<AnalyticalProblem> Problems { get; } = new();
 
+    /// <summary>The seismic design its earthquake cases are worked from, where there is one.</summary>
+    public SeismicDesign? Seismic { get; private set; }
+
     /// <summary>A case's loads added up, kN down: the weight of it.</summary>
     public double Total(LoadCase loadCase) =>
         -SurfaceLoads.Where(load => load.Case == loadCase).Sum(load => load.Force.Z * load.Panel.Area / 1e6)
@@ -196,6 +205,7 @@ public sealed class StructuralLoading
         private readonly bool _us;
         private LoadCase _self = null!, _dead = null!, _imposed = null!, _roof = null!, _snow = null!;
         private readonly List<LoadCase> _wind = new();
+        private readonly List<LoadCase> _seismic = new();
 
         public Builder(BimDocument document, AnalyticalModel model)
         {
@@ -218,12 +228,17 @@ public sealed class StructuralLoading
             SpanningFloors();
             PitchedRoofs();
             Wind();
+            _loading.Seismic = Architecture.Seismic.Of(_document, _model);
+            if (_loading.Seismic is { Applies: true })
+                foreach (var (way, name) in new[] { (Vector2D.UnitX, "+X"), (-Vector2D.UnitX, "-X"), (Vector2D.UnitY, "+Y"), (-Vector2D.UnitY, "-Y") })
+                    _seismic.Add(new LoadCase($"E{_seismic.Count + 1}", $"Earthquake {name} (ASCE 7-16 12.8)", LoadNature.Seismic, way));
 
             // Only the cases something is put in - and the structure's own weight, always.
             var used = _loading.SurfaceLoads.Select(load => load.Case).Concat(_loading.LineLoads.Select(load => load.Case)).ToHashSet();
             _loading.Cases.Add(_self);
             foreach (var each in new[] { _dead, _imposed, _roof, _snow }.Concat(_wind))
                 if (used.Contains(each)) _loading.Cases.Add(each);
+            _loading.Cases.AddRange(_seismic);
             if (_us) UsCombinations();
             else UkCombinations();
             Notes();
@@ -650,7 +665,7 @@ public sealed class StructuralLoading
             var list = terms.Where(term => Has(term.Case) && term.Factor > 0).ToList();
             if (list.Count == 0) return;
             if (_loading.Combinations.Any(each => each.State == state && each.Terms.Count == list.Count && each.Terms.Zip(list).All(pair => pair.First.Case == pair.Second.Case && Math.Abs(pair.First.Factor - pair.Second.Factor) < 1e-9))) return;
-            var prefix = state == LimitState.Ultimate ? (_us && description.Contains("2.4.1", StringComparison.Ordinal) ? "ASD" : "ULS") : "SLS";
+            var prefix = state == LimitState.Ultimate ? (_us && description.Contains("2.4.", StringComparison.Ordinal) ? "ASD" : "ULS") : "SLS";
             var number = _loading.Combinations.Count(each => each.Name.StartsWith(prefix, StringComparison.Ordinal)) + 1;
             _loading.Combinations.Add(new LoadCombination($"{prefix}{number}", description, state, list));
         }
@@ -714,6 +729,21 @@ public sealed class StructuralLoading
                 Add("ASCE 7-16 2.4.1 (6a)", LimitState.Ultimate, Permanent(1.0).Append((_imposed, 0.75)).Append((wind, 0.45)).Append((roof, 0.75)));
             foreach (var wind in _wind)
                 Add("ASCE 7-16 2.4.1 (7)", LimitState.Ultimate, Permanent(0.6).Append((wind, 0.6)));
+
+            // The earthquake, ρ QE with Ev as 0.2 SDS D on the dead load (12.4.2.2), none in category B, as remembered; L at 0.5 where it is 100 psf or less (2.3.6, exception 1).
+            if (_loading.Seismic is not { Applies: true } quake) return;
+            var (rho, ev) = (quake.Redundancy, quake.Category == "B" ? 0 : 0.2 * quake.Sds);
+            var snow = Has(_snow);
+            foreach (var earthquake in _seismic)
+            {
+                var six = Permanent(1.2 + ev).Append((earthquake, rho)).Append((_imposed, 0.5));
+                Add("ASCE 7-16 2.3.6 (6)", LimitState.Ultimate, snow ? six.Append((_snow, 0.2)) : six);
+                Add("ASCE 7-16 2.3.6 (7)", LimitState.Ultimate, Permanent(0.9 - ev).Append((earthquake, rho)));
+                Add("ASCE 7-16 2.4.5 (8)", LimitState.Ultimate, Permanent(1.0 + 0.7 * ev).Append((earthquake, 0.7 * rho)));
+                var nine = Permanent(1.0 + 0.525 * ev).Append((earthquake, 0.525 * rho)).Append((_imposed, 0.75));
+                Add("ASCE 7-16 2.4.5 (9)", LimitState.Ultimate, snow ? nine.Append((_snow, 0.75)) : nine);
+                Add("ASCE 7-16 2.4.5 (10)", LimitState.Ultimate, Permanent(0.6 - 0.7 * ev).Append((earthquake, 0.7 * rho)));
+            }
         }
 
         private void Notes()
@@ -725,7 +755,10 @@ public sealed class StructuralLoading
                 _loading.Notes.Add(Architecture.Wind.FromSite(_document)
                     ? $"Wind: {project.BasicWindSpeed:0} mph, exposure {(project.Terrain switch { WindTerrain.Sea => "D", WindTerrain.OpenCountry => "C", _ => "B" })}, on the bearing outside walls into and out of it; side walls, roofs and the walls not bearing left out."
                     : $"Wind: no basic wind speed set, the {Units.Kilopascals(project.WindPressure, "0.00")} set taken as qh.");
-                _loading.Notes.Add("Live loads are not reduced for the area carried (4.7); seismic loads are not worked out.");
+                _loading.Notes.Add("Live loads are not reduced for the area carried (4.7).");
+                _loading.Notes.Add(_loading.Seismic is { } quake
+                    ? $"Seismic: Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}: {quake.Said}{(quake.Applies ? $" SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}; {quake.System.Name}, R {quake.System.R:0.#}, Cd {quake.System.Cd:0.#}; T {quake.Period:0.000} s, Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, ρ {quake.Redundancy:0.0}. The effective seismic weight its dead load; accidental torsion, snow and storage in it, and vertical irregularities, not worked out." : string.Empty)}"
+                    : "Seismic: no Ss and S1 set in the plan's Properties, so none is worked out.");
             }
             else
             {

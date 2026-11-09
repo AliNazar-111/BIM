@@ -282,6 +282,47 @@ public class BuildingAuditTests
     }
 
     [Fact]
+    public void AConcreteFrameShakenTakesItsCoefficientOfItsWeight()
+    {
+        // Two flat slabs on six columns in the US, an office, Site Class D at Ss 0.3 and S1 0.08: Fa 1.6 - 0.2 × 0.05 / 0.25 = 1.56 and Fv 2.4, so SDS 0.312 and SD1 0.128, category B either way.
+        var d = FlatSlabs(2);
+        d.ProjectInformation.ClearanceStandard = ClearanceStandard.Ada;
+        d.ProjectInformation.BuildingType = "Office";
+        d.ProjectInformation.SeismicSs = 0.3;
+        d.ProjectInformation.SeismicS1 = 0.08;
+        var audit = Audit(d);
+        var quake = audit.Loading.Seismic!;
+        Assert.Equal("B", quake.Category);
+        Assert.True(quake.Applies);
+        Assert.Same(Seismic.ConcreteFrame, quake.System);
+
+        // An ordinary concrete moment frame 6 m high: 0.016 × 19.685^0.9 = 0.234 s; Cs = 0.312 / 3 = 0.104, under 0.128 / (0.234 × 3).
+        Assert.InRange(quake.Period, 0.233, 0.235);
+        Assert.Equal(0.312 / 3, quake.Coefficient, 6);
+
+        // W is the two slabs and the columns, less what sits at their feet: within a few percent of the dead load's reactions.
+        var result = audit.Analysis.Seismic!;
+        var dead = audit.Loading.Cases.Where(each => each.Permanent).Sum(each => audit.Analysis.TotalReaction(each).Z);
+        Assert.InRange(result.Weight, 0.97 * dead, dead);
+        Assert.Equal(quake.Coefficient * result.Weight, result.Shear, 6);
+        var e3 = audit.Loading.Cases.Single(each => each.Name == "E3");
+        Assert.InRange(-audit.Analysis.TotalReaction(e3).Y, 0.999 * result.Shear, 1.001 * result.Shear);
+
+        // k is 1, so the roof at twice the height of the floor and much the same weight takes about twice its force: two thirds of V.
+        var roof = result.Levels.Single(level => level.Name == "Roof");
+        Assert.InRange(roof.Force / result.Shear, 0.6, 0.7);
+        Assert.Equal(8, result.Drifts.Count);
+        Assert.All(result.Drifts, drift => Assert.True(drift.Drift > 0 && drift.Allowed == 0.025 * 3000));
+
+        // In category C the same frame is past what Table 12.2-1 permits it, and is said to be.
+        d.ProjectInformation.SeismicSs = 0.5;
+        d.ProjectInformation.SeismicS1 = 0.1;
+        var c = StructuralLoading.Of(d, AnalyticalModel.Of(d)).Seismic!;
+        Assert.Equal("C", c.Category);
+        Assert.Contains("not permitted from C", c.Said, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PunchingIsWhatTheSlabPutsOnAColumnNotWhatThatColumnCarries()
     {
         // Through two floors the lower column carries both, and only one comes through this slab: the same punching force at each.

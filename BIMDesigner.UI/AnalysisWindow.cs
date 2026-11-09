@@ -42,6 +42,9 @@ internal sealed class AnalysisWindow : System.Windows.Window
     private readonly TabItem _robustnessTab = new() { Header = "Robustness" };
     private readonly TextBlock _tieSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private RobustnessResult? _robustness;
+    private readonly DataGrid _quake = Grid(), _quakeDetail = Grid();
+    private readonly TabItem _quakeTab = new() { Header = "Seismic" };
+    private readonly TextBlock _quakeSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<FoundationCheck> _footingChecks = Array.Empty<FoundationCheck>();
     private readonly TextBlock _wallSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<WallCheck> _wallChecks = Array.Empty<WallCheck>();
@@ -96,6 +99,8 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _robustnessTab.Content = Pane(_ties, _tieDetail, _tieSaid);
         _ties.SelectionChanged += (_, _) => ShowTie();
         tabs.Items.Add(_robustnessTab);
+        _quakeTab.Content = Pane(_quake, _quakeDetail, _quakeSaid);
+        tabs.Items.Add(_quakeTab);
         _swayTab.Content = _sway;
         tabs.Items.Add(_swayTab);
         tabs.Items.Add(new TabItem { Header = "Supports", Content = _supports });
@@ -379,6 +384,31 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _tieSaid.Text = $"{said} {tie.Limits}".TrimEnd();
     }
 
+    /// <summary>The earthquake: how the design was come to, each level's weight and share of the base shear, and each storey's drift against its limit.</summary>
+    private void ShowSeismic()
+    {
+        var quake = _analysis.Loading.Seismic;
+        var result = _analysis.Seismic;
+        Fill(_quake, new[] { "Level", "Weight", "Force", "Of the base shear" }, (result?.Levels ?? Array.Empty<SeismicLevel>()).Select(level => new[]
+        {
+            level.Name, Units.Kilonewtons(level.Weight, "0"), Units.Kilonewtons(level.Force, "0.0"), Share(result!.Shear > 0 ? level.Force / result.Shear : 0)
+        }));
+        Fill(_quakeDetail, new[] { "Case", "Storey", "Height", "Moves, elastic", "Design drift", "Allowed", "Of it", "θ, (12.8-16)" }, (result?.Drifts ?? Array.Empty<SeismicDrift>()).Select(drift => new[]
+        {
+            drift.Case, drift.Level, Units.Bare(drift.Height), Units.Bare(drift.Elastic, "0.0"), Units.Bare(drift.Drift, "0.0"), Units.Bare(drift.Allowed, "0.0"), Share(drift.Ratio),
+            drift.Theta > drift.ThetaMax ? $"{drift.Theta:0.000}, over {drift.ThetaMax:0.000}: unstable" : drift.Theta > 0.1 ? $"{drift.Theta:0.000}: P-delta to be taken in" : $"{drift.Theta:0.000}"
+        }));
+        var over = result?.Drifts.Count(drift => drift.Ratio > 1) ?? 0;
+        _quakeTab.Header = over > 0 ? $"Seismic ({over} over)" : "Seismic";
+        _quakeSaid.Text = quake is null
+            ? _main.Document.ProjectInformation.ClearanceStandard.IsUs()
+                ? "Set Ss and S1 for the site in the plan's Properties, from the ASCE hazard tool, for its seismic design to be worked out."
+                : "Approved Document A 5.5: seismic design is not usually needed for buildings in consequence classes 1, 2a and 2b, so none is worked out."
+            : result is null
+                ? quake.Said
+                : $"{quake.Said} Fa {quake.Fa:0.00}, Fv {quake.Fv:0.00}: SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}. {quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#}, Ie {quake.Importance:0.00}. T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")}, k {quake.Exponent:0.00}; Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}. W {Units.Kilonewtons(result.Weight, "0")}, V = Cs W {Units.Kilonewtons(result.Shear, "0.0")}, each way. ρ {quake.Redundancy:0.0}.";
+    }
+
     /// <summary>Every joint and bearing, worst first, and what each wants.</summary>
     private void ShowJoints()
     {
@@ -647,6 +677,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
             rows.Count > 0 ? rows : new[] { new[] { "-", "No foundation that can be checked in the model", "", "", "", "", "" } }, 2);
         var shortfalls = bearings.Count(b => b.Ratio > 1) + designs.Count(d => !d.Enough) + _footingChecks.Count(check => !check.Enough);
         _foundationsTab.Header = shortfalls > 0 ? $"Foundations ({shortfalls} short)" : "Foundations";
+        ShowSeismic();
 
         _notes.Text = string.Join(Environment.NewLine + Environment.NewLine,
             analysis.Problems.DefaultIfEmpty("Nothing went wrong: every node is held, one way or another.")

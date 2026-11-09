@@ -108,6 +108,60 @@ public class TimberFrameTests
     }
 
     [Fact]
+    public void ASheathedWallIsAsStiffAsItsNailsLetIt()
+    {
+        // Kser = 420^1.5 × 3.1^0.8 / 30 = 709 N/mm a nail; round a 1200 by 2400 sheet at 150: 709 / (2 × 150 × (1/1200 + 1/2400)) = 1,892 N/mm; with 9 mm of OSB at G 1,080 in series, 1,583.
+        Assert.InRange(TimberWallDesign.RackingStiffness(false), 1575, 1590);
+
+        // As a solid 140 plate of C24 it was E t / 2(1 + ν), 592,000: some 370 times as stiff.
+        Assert.True(11000 * 140 / 2.6 / TimberWallDesign.RackingStiffness(false) > 300);
+    }
+
+    [Fact]
+    public void AWallOfStudsRacksOnItsNails()
+    {
+        // 6 m long, 3 m high, held along its foot, pushed along its top by 10 kN: in shear 10,000 × 3000 / (1,583 × 6000) = 3.16 mm, and in bending, its studs its chords, a percent more.
+        const double e = 11000, nu = 0.3, t = 140, length = 6000, height = 3000, push = 10000;
+        var solid = e * t / (1 - nu * nu);
+        var shear = TimberWallDesign.RackingStiffness(false);
+        var studs = new Studs(0, 0, 0.1, e * 38 * 140 / 400 / solid, 3000 * 9 / solid, shear / solid);
+        var solver = new StructuralSolver();
+        const int across = 12, along = 6;
+        var grid = new int[across + 1, along + 1];
+        for (var i = 0; i <= across; i++)
+        for (var j = 0; j <= along; j++)
+            grid[i, j] = solver.AddNode(new Point3D(length * i / across, height * j / along, 0));
+        void Triangle(int first, int second, int third)
+        {
+            var shell = new Shell(first, second, third, e, nu, t);
+            var (x, y, _) = solver.Axes(shell);
+            var up = new StructuralSolver.Vector3(0, 1, 0);
+            solver.AddShell(shell with { Framed = studs with { Cos = up.Dot(x), Sin = up.Dot(y) } });
+        }
+
+        for (var i = 0; i < across; i++)
+        for (var j = 0; j < along; j++)
+        {
+            Triangle(grid[i, j], grid[i + 1, j], grid[i + 1, j + 1]);
+            Triangle(grid[i, j], grid[i + 1, j + 1], grid[i, j + 1]);
+        }
+
+        var load = new double[solver.NodeCount * 6];
+        for (var i = 0; i <= across; i++)
+        for (var j = 0; j <= along; j++)
+        {
+            solver.Restrain(grid[i, j], j == 0, j == 0, true, true, true, false);
+            if (j == along) load[grid[i, j] * 6] = push / (across + 1);
+        }
+
+        var moved = solver.Solve(new[] { load }).Displacements[0];
+        var top = Enumerable.Range(0, across + 1).Average(i => moved[grid[i, along] * 6]);
+        var byShear = push * height / (shear * length);
+        var byBending = push * Math.Pow(height, 3) / (3 * e * (38.0 * 140 / 400) * Math.Pow(length, 3) / 12);
+        Assert.InRange(top, 0.95 * (byShear + byBending), 1.08 * (byShear + byBending));
+    }
+
+    [Fact]
     public void AnIsotropicPlateIsWhatItWas()
     {
         var plain = new Shell(0, 1, 2, 30000, 0.2, 200);

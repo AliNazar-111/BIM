@@ -51,6 +51,24 @@ public static class TimberWallDesign
         return aspect > 3.5 ? 0 : 0.8 * 670 * 4.44822e-3 / 0.3048 * length / 1000 * Math.Min(1, 1.25 - 0.125 * aspect);
     });
 
+    /// <summary>The sheathing's thickness, mm: 9 mm OSB, or 7/16 in.</summary>
+    public static double Board(bool us) => us ? 11.1 : 9;
+
+    /// <summary>OSB's modulus along a sheet, N/mm², taken as 3,000: what a wall of studs has across them in its plane.</summary>
+    public const double BoardModulus = 3000;
+
+    /// <summary>
+    /// How stiff a sheathed stud wall is in racking, N/mm of its length for a unit shear strain: each nail's slip modulus Kser = ρm^1.5 d^0.8 / 30 of BS EN 1995-1-1 Table 7.1, ρm 420, round a rigid sheet 1200 by 2400
+    /// at 150, by which the frame racks 2 v s / Kser (1/b + 1/h), in series with the sheet's own shear at a G of 1,080 N/mm². The same nails as the racking resistance takes: 3.1 mm, or 8d common at 0.131 in.
+    /// </summary>
+    public static double RackingStiffness(bool us)
+    {
+        var slip = Math.Pow(420, 1.5) * Math.Pow(us ? 3.33 : 3.1, 0.8) / 30;
+        var nails = slip / (2 * 150 * (1.0 / 1200 + 1.0 / 2400));
+        var sheet = 1080 * Board(us);
+        return 1 / (1 / nails + 1 / sheet);
+    }
+
     /// <summary>
     /// The force at each end of a length of wall from racking, kN: (9.23), Fi,v h / bi, and what a wall of several lengths comes to, each taking its share by what it can carry, which brings the wall's overturning moment, kNm,
     /// to that over the lengths that count, m. The same for the SDPWS, where a tie-down takes v h.
@@ -184,8 +202,9 @@ public static class TimberWallDesign
 
             // Racking is the wind's, at its foot. The plate standing for the wall also arches over its openings under its load, which reads as shear there; studs have no such thing.
             var racked = Math.Abs(stretches.Where(stretch => stretch.Level == 0).Sum(stretch => stretch.Lateral * stretch.Length)) / 1000;
-            var carries = us ? RackingSdpws(solid, height) : RackingEurocode(solid, height, kmod * nail / 1.3, 150);
-            yield return new StrengthCheck("Racking", racked, carries, "kN", us ? "SDPWS 4.3" : "9.2.4.2", $"{solid.Sum() / 1000:0.0} m of it with no opening");
+            var quake = combination.Terms.Any(term => term.Case.Nature == LoadNature.Seismic && term.Factor > 0);
+            var carries = us ? RackingSdpws(solid, height) / (quake ? 1.4 : 1) : RackingEurocode(solid, height, kmod * nail / 1.3, 150);
+            yield return new StrengthCheck("Racking", racked, carries, "kN", us ? "SDPWS 4.3" : "9.2.4.2", $"{solid.Sum() / 1000:0.0} m of it with no opening{(quake ? ", seismic at the wind's over 1.4" : string.Empty)}");
 
             // The end studs, two together, take what racking pushes down at the end of a length as well as their share of the wall's load: (9.23) and 9.2.4.2(9).
             var end = ends.FirstOrDefault(each => each.Under == combination.Name)?.Force ?? 0;

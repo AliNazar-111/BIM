@@ -1399,6 +1399,10 @@ internal sealed class ProjectInformationDto
     public double SnowZone { get; set; } = 1;
     public double RetainedSurcharge { get; set; } = 5;
     public double RetainedFriction { get; set; }
+    public double SeismicSs { get; set; }
+    public double SeismicS1 { get; set; }
+    public string? SiteClass { get; set; }
+    public int RiskCategory { get; set; }
 
     /// <summary>A US house's water pressure where it comes in, psi; 40 in older files.</summary>
     public double WaterPressure { get; set; } = 40;

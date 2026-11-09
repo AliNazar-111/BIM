@@ -240,7 +240,8 @@ public sealed class StructuralAnalysis
             Problems.Add("Nothing holds the structure up: no footing, pile or raft is under it, so it cannot be analysed.");
 
         // Loads, case by case.
-        foreach (var loadCase in Loading.Cases) _loads[loadCase] = Load(loadCase);
+        foreach (var loadCase in Loading.Cases.Where(loadCase => loadCase.Nature != LoadNature.Seismic)) _loads[loadCase] = Load(loadCase);
+        var levels = SeismicLoads(document);
         var solution = Solver.Solve(Loading.Cases.Select(loadCase => _loads[loadCase]).ToList());
         Problems.AddRange(solution.Problems);
         for (var i = 0; i < Loading.Cases.Count; i++)
@@ -248,6 +249,8 @@ public sealed class StructuralAnalysis
             _displacements[Loading.Cases[i]] = solution.Displacements[i];
             _internal[Loading.Cases[i]] = Solver.InternalForces(solution.Displacements[i]);
         }
+
+        if (levels is not null && Loading.Seismic is { } quake) Seismic = levels with { Drifts = Drifts(document, quake, levels) };
     }
 
     private double TriangleArea(StructuralSolver.Shell shell)
@@ -258,15 +261,22 @@ public sealed class StructuralAnalysis
 
     /// <summary>A plate cut into shell triangles: its edges and openings divided, the lines other plates and members meet it along kept as edges, points about the mesh size apart filling it.</summary>
     /// <summary>How stiff a wall of studs is up them, as a share of the solid plate standing for it: a stud's second moment of area for each mm along the wall over the plate's. Null for anything but studs.</summary>
-    private static double? StudShare(BimDocument document, AnalyticalPanel panel)
+    private static StructuralSolver.Studs? StudShare(BimDocument document, AnalyticalPanel panel)
     {
         if (panel.Kind != AnalyticalPanelKind.Wall || panel.Material.Kind != AnalyticalMaterialKind.Timber) return null;
-        if (TimberWallDesign.FrameOf(document, panel, document.ProjectInformation.ClearanceStandard.IsUs()) is not { } frame) return null;
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        if (TimberWallDesign.FrameOf(document, panel, us) is not { } frame) return null;
         var nu = PoissonOf(panel.Material);
-        return frame.Section.Thickness * Math.Pow(frame.Section.Depth, 3) / 12 / frame.Spacing / (Math.Pow(panel.Thickness, 3) / (12 * (1 - nu * nu)));
+        var (b, d, t) = (frame.Section.Thickness, frame.Section.Depth, panel.Thickness);
+        var solid = panel.Material.Modulus * t / (1 - nu * nu);
+
+        // In its plane: its studs end on, its boards across, and in shear the slip of the nails holding its boards on.
+        var board = TimberWallDesign.Board(us);
+        return new StructuralSolver.Studs(0, 0, b * Math.Pow(d, 3) / 12 / frame.Spacing / (Math.Pow(t, 3) / (12 * (1 - nu * nu))),
+            panel.Material.Modulus * b * d / frame.Spacing / solid, TimberWallDesign.BoardModulus * board / solid, TimberWallDesign.RackingStiffness(us) / solid);
     }
 
-    private void Mesh(AnalyticalPanel panel, double? studs)
+    private void Mesh(AnalyticalPanel panel, StructuralSolver.Studs? studs)
     {
         var points = new List<(Point2D Flat, Point3D At)>();
         var constraints = new List<(int, int)>();
@@ -342,11 +352,11 @@ public sealed class StructuralAnalysis
             var nodes = new[] { Node(points[a].At), Node(points[b].At), Node(points[c].At) };
             if (nodes.Distinct().Count() < 3) continue;
             var made = new StructuralSolver.Shell(nodes[0], nodes[1], nodes[2], panel.Material.Modulus, PoissonOf(panel.Material), panel.Thickness, panel.Kind == AnalyticalPanelKind.Diaphragm ? 1e-3 : 1);
-            if (studs is { } share)
+            if (studs is { } frame)
             {
                 var (x, y, _) = Solver.Axes(made);
                 var up = new StructuralSolver.Vector3(panel.V.X, panel.V.Y, panel.V.Z);
-                made = made with { Framed = new StructuralSolver.Studs(up.Dot(x), up.Dot(y), share) };
+                made = made with { Framed = frame with { Cos = up.Dot(x), Sin = up.Dot(y) } };
             }
 
             var shell = Solver.AddShell(made);
@@ -725,13 +735,103 @@ public sealed class StructuralAnalysis
 
     // ---- deflection limits -----------------------------------------------------------------
 
+    /// <summary>The earthquake's forces and drifts, where the project has seismic design to do.</summary>
+    public SeismicResult? Seismic { get; private set; }
+
+    /// <summary>
+    /// Each earthquake case's load: V = Cs W, (12.8-1), W the dead load above the base, at each node in the proportion of its weight by its height above the base to the power k, (12.8-11) and (12.8-12), so what is
+    /// lumped at a floor in the standard is here where the mass is. What each level comes to, each node counted at the level nearest it.
+    /// </summary>
+    private SeismicResult? SeismicLoads(BimDocument document)
+    {
+        if (Loading.Seismic is not { Applies: true } quake) return null;
+        var ground = Wind.Ground(document);
+        var permanent = Loading.Cases.Where(loadCase => loadCase.Permanent).ToList();
+        var count = Solver.NodeCount;
+        var (weights, heights) = (new double[count], new double[count]);
+        for (var n = 0; n < count; n++)
+        {
+            weights[n] = Math.Max(0, -permanent.Sum(loadCase => _loads[loadCase][n * 6 + 2])) / 1000;
+            heights[n] = Math.Max(0, Solver.NodeAt(n).Z - ground) / 1000;
+        }
+
+        var above = Enumerable.Range(0, count).Where(n => heights[n] > 0.01).ToList();
+        var weight = above.Sum(n => weights[n]);
+        var shear = quake.Coefficient * weight;
+        var lifted = above.Sum(n => weights[n] * Math.Pow(heights[n], quake.Exponent));
+        foreach (var loadCase in Loading.Cases.Where(loadCase => loadCase.Nature == LoadNature.Seismic))
+        {
+            var load = new double[count * 6];
+            var way = loadCase.Wind ?? Vector2D.UnitX;
+            if (lifted > 0)
+                foreach (var n in above)
+                {
+                    var force = shear * weights[n] * Math.Pow(heights[n], quake.Exponent) / lifted * 1000;
+                    load[n * 6] = force * way.X;
+                    load[n * 6 + 1] = force * way.Y;
+                }
+
+            _loads[loadCase] = load;
+        }
+
+        // Levels at one height are one floor: a project's Roof and an Eaves drawn at it, say.
+        var storeys = new List<(string Name, double Elevation)>();
+        foreach (var level in document.Levels.Where(level => level.Elevation > ground + 100).OrderBy(level => level.Elevation))
+            if (storeys.Count > 0 && level.Elevation - storeys[^1].Elevation < 50) storeys[^1] = ($"{storeys[^1].Name}, {level.Name}", storeys[^1].Elevation);
+            else storeys.Add((level.Name, level.Elevation));
+        var rows = new List<SeismicLevel>();
+        foreach (var (name, elevation) in storeys)
+        {
+            var mine = above.Where(n => storeys.MinBy(storey => Math.Abs(storey.Elevation - Solver.NodeAt(n).Z)).Elevation == elevation).ToList();
+            if (mine.Count == 0) continue;
+            var levelWeight = mine.Sum(n => weights[n]);
+            var levelForce = lifted > 0 ? mine.Sum(n => shear * weights[n] * Math.Pow(heights[n], quake.Exponent) / lifted) : 0;
+            rows.Add(new SeismicLevel(name, elevation, levelWeight, levelForce));
+        }
+
+        return new SeismicResult(weight, shear, rows, Array.Empty<SeismicDrift>());
+    }
+
+    /// <summary>
+    /// Each storey's design drift, 12.8.6: Cd δxe / Ie at the floor over the same at the floor under, δxe the most any node at that floor moves the case's way under the earthquake case, against Table 12.12-1 on its height.
+    /// </summary>
+    private IReadOnlyList<SeismicDrift> Drifts(BimDocument document, SeismicDesign quake, SeismicResult levels)
+    {
+        var ground = Wind.Ground(document);
+        var floors = levels.Levels.Select(level => (level.Name, level.Elevation)).ToList();
+        var limit = Architecture.Seismic.DriftLimit(quake.System, floors.Count, quake.Risk);
+        // Px is all the vertical load at and above the storey with no factor over 1.0: dead and live.
+        var gravity = Loading.Cases.Where(loadCase => loadCase.Permanent || loadCase.Nature == LoadNature.Imposed).ToList();
+        var drifts = new List<SeismicDrift>();
+        foreach (var loadCase in Loading.Cases.Where(loadCase => loadCase.Nature == LoadNature.Seismic))
+        {
+            var u = _displacements[loadCase];
+            var way = loadCase.Wind ?? Vector2D.UnitX;
+            var (below, under) = (0.0, ground);
+            foreach (var (name, elevation) in floors)
+            {
+                var at = Enumerable.Range(0, Solver.NodeCount).Where(n => Math.Abs(Solver.NodeAt(n).Z - elevation) <= 150).Select(n => u[n * 6] * way.X + u[n * 6 + 1] * way.Y).DefaultIfEmpty(0).Max();
+                var height = elevation - under;
+                var storey = Enumerable.Range(0, Solver.NodeCount).Where(n => Solver.NodeAt(n).Z > under + 150).ToList();
+                var px = storey.Sum(n => -gravity.Sum(each => _loads[each][n * 6 + 2])) / 1000;
+                var vx = Math.Abs(storey.Sum(n => _loads[loadCase][n * 6] * way.X + _loads[loadCase][n * 6 + 1] * way.Y)) / 1000;
+                var drift = quake.System.Cd * (at - below) / quake.Importance;
+                var theta = vx > 0 && height > 0 ? px * drift * quake.Importance / (vx * height * quake.System.Cd) : 0;
+                drifts.Add(new SeismicDrift(loadCase.Name, name, height, at, drift, limit * height, theta, Math.Min(0.25, 0.5 / quake.System.Cd)));
+                (below, under) = (at, elevation);
+            }
+        }
+
+        return drifts;
+    }
+
     /// <summary>The cases loads vary by, for gravity: imposed, roof and snow.</summary>
     public IReadOnlyList<(LoadCase, double)> Variable =>
         Loading.Cases.Where(loadCase => loadCase.Nature is LoadNature.Imposed or LoadNature.RoofImposed or LoadNature.Snow).Select(loadCase => (loadCase, 1.0)).ToList();
 
-    /// <summary>Every load but the wind, at its characteristic value: what a member deflects under in all.</summary>
+    /// <summary>Every load but the wind and an earthquake, at its characteristic value: what a member deflects under in all.</summary>
     public IReadOnlyList<(LoadCase, double)> Total =>
-        Loading.Cases.Where(loadCase => loadCase.Nature != LoadNature.Wind).Select(loadCase => (loadCase, 1.0)).ToList();
+        Loading.Cases.Where(loadCase => !loadCase.Lateral).Select(loadCase => (loadCase, 1.0)).ToList();
 
     /// <summary>
     /// A beam's deflection limits - under the loads that vary, and under all of them - as its material and
@@ -909,3 +1009,18 @@ public sealed class StructuralAnalysis
     public static (double Needed, string? Problem) Aci(double moment, double width, double depth) =>
         ConcreteDesign.Aci(moment, width, depth, 3000 * 0.00689476, Least(true, width, depth));
 }
+
+/// <summary>What a level comes to in an earthquake: its weight and its share of the base shear, kN.</summary>
+public sealed record SeismicLevel(string Name, double Elevation, double Weight, double Force);
+
+/// <summary>
+/// A storey's drift in an earthquake case: its height, how far its floor moves elastically, the design drift Cd δ / Ie it comes to over the storey under it, and what Table 12.12-1 allows, mm;
+/// and its stability coefficient θ = Px Δ Ie / (Vx hsx Cd), (12.8-16), against 0.10, under which P-delta need not be considered, and θmax = 0.5 / (β Cd), (12.8-17), β taken as 1.
+/// </summary>
+public sealed record SeismicDrift(string Case, string Level, double Height, double Elastic, double Drift, double Allowed, double Theta = 0, double ThetaMax = 0.25)
+{
+    public double Ratio => Allowed > 0 ? Math.Abs(Drift) / Allowed : 0;
+}
+
+/// <summary>The earthquake as the analysis worked it: the effective seismic weight and base shear, kN, each level's share, and each storey's drift.</summary>
+public sealed record SeismicResult(double Weight, double Shear, IReadOnlyList<SeismicLevel> Levels, IReadOnlyList<SeismicDrift> Drifts);

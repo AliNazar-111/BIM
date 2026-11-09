@@ -87,6 +87,10 @@ public static partial class ProjectFile
                 SnowZone = document.ProjectInformation.SnowZone,
                 RetainedSurcharge = document.ProjectInformation.RetainedSurcharge,
                 RetainedFriction = document.ProjectInformation.RetainedFriction,
+                SeismicSs = document.ProjectInformation.SeismicSs,
+                SeismicS1 = document.ProjectInformation.SeismicS1,
+                SiteClass = document.ProjectInformation.SiteClass.ToString(),
+                RiskCategory = document.ProjectInformation.RiskCategory,
                 WaterPressure = document.ProjectInformation.WaterPressure,
                 WindPressure = document.ProjectInformation.WindPressure,
                 BasicWindSpeed = document.ProjectInformation.BasicWindSpeed,
@@ -1803,6 +1807,10 @@ public static partial class ProjectFile
         document.ProjectInformation.GroundSnowLoad = double.IsFinite(dto.Project.GroundSnowLoad) && dto.Project.GroundSnowLoad >= 0 ? dto.Project.GroundSnowLoad : 20;
         document.ProjectInformation.SnowZone = double.IsFinite(dto.Project.SnowZone) && dto.Project.SnowZone is >= 1 and <= 5 ? dto.Project.SnowZone : 1;
         document.ProjectInformation.RetainedSurcharge = double.IsFinite(dto.Project.RetainedSurcharge) && dto.Project.RetainedSurcharge is >= 0 and <= 100 ? dto.Project.RetainedSurcharge : 5;
+        document.ProjectInformation.SeismicSs = double.IsFinite(dto.Project.SeismicSs) && dto.Project.SeismicSs is >= 0 and <= 5 ? dto.Project.SeismicSs : 0;
+        document.ProjectInformation.SeismicS1 = double.IsFinite(dto.Project.SeismicS1) && dto.Project.SeismicS1 is >= 0 and <= 3 ? dto.Project.SeismicS1 : 0;
+        document.ProjectInformation.SiteClass = ParseEnum(dto.Project.SiteClass, BIMDesigner.Core.Architecture.SiteClass.D);
+        document.ProjectInformation.RiskCategory = dto.Project.RiskCategory is >= 1 and <= 4 ? dto.Project.RiskCategory : 2;
         document.ProjectInformation.RetainedFriction = double.IsFinite(dto.Project.RetainedFriction) && dto.Project.RetainedFriction is >= 10 and <= 45 ? dto.Project.RetainedFriction : 0;
         document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;

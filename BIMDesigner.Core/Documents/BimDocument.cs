@@ -48,6 +48,18 @@ public sealed class ProjectInformation
     /// <summary>The ground snow load for a US house, psf - its jurisdiction's, from Table R301.2: what its roof and footings are sized for.</summary>
     public double GroundSnowLoad { get; set; } = 20;
 
+    /// <summary>The site's mapped MCER spectral acceleration at short periods, g, from the ASCE hazard tool or the maps: Ss. None for a project with no seismic design.</summary>
+    public double SeismicSs { get; set; }
+
+    /// <summary>The same at a period of 1 s, g: S1.</summary>
+    public double SeismicS1 { get; set; }
+
+    /// <summary>The site's class by what it stands on, ASCE 7-16 Chapter 20: D where nothing is known of it.</summary>
+    public Architecture.SiteClass SiteClass { get; set; } = Architecture.SiteClass.D;
+
+    /// <summary>The building's risk category, ASCE 7-16 Table 1.5-1, I to IV: II for most.</summary>
+    public int RiskCategory { get; set; } = 2;
+
     /// <summary>What stands on the ground behind a retaining wall, kN/m²: a garden, a drive, a road. 5 to start.</summary>
     public double RetainedSurcharge { get; set; } = 5;
 
