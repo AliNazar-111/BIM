@@ -75,6 +75,7 @@ public static class CalculationReport
         Basis(report, analysis, second);
         Loads(report, analysis);
         SeismicOf(report, analysis);
+        BracingOf(report, document, analysis);
         Analysis(report, analysis, second);
         Members(report, byMember, second);
         Walls(report, byWall);
@@ -82,6 +83,7 @@ public static class CalculationReport
         Joints(report, byJoint);
         Fire(report, document, fires);
         RobustnessOf(report, robustness);
+        RemovalOf(report, robustness);
         Deflections(report, document, analysis);
         Foundations(report, document, analysis, byFooting);
         return report;
@@ -99,6 +101,9 @@ public static class CalculationReport
         var bearings = analysis.BearingChecks(document);
         var buckles = second.Results.Any(result => result.Buckles);
         var over = checkedMembers.Count(check => !check.Enough) + checkedWalls.Count(check => !check.Enough) + checkedPlates.Count(check => !check.Enough) + fires.Count(check => !check.Enough) + robustness.Ties.Count(check => !check.Enough) + checkedFootings.Count(check => !check.Enough) + checkedJoints.Count(check => !check.Enough) + deflections.Count(check => check.Ratio > 1) + bearings.Count(check => check.Ratio > 1);
+        var braced = IrcBracing.Of(document, analysis);
+        over += (analysis.Seismic?.Drifts.Count(drift => drift.Ratio > 1) ?? 0) + (braced?.Lines.Count(line => !line.Enough) ?? 0) + (robustness.Removal?.Removals.Count(removal => !removal.Enough) ?? 0);
+        double RemovalShare(RemovalCheck removal) => removal.Stands ? 0 : removal.Key.Count == 0 ? double.PositiveInfinity : removal.Key.Max(check => check.Ratio);
         string Named(AnalyticalProblem problem)
         {
             var names = problem.Elements.Select(element => analysis.Model.Members.FirstOrDefault(member => member.Element == element)?.Name ?? analysis.Model.Panels.FirstOrDefault(panel => panel.Element == element)?.Name).OfType<string>().Distinct().ToList();
@@ -136,6 +141,10 @@ public static class CalculationReport
                 fires.FirstOrDefault(check => check.Checks.Count > 0) is { } burnt ? $"{burnt.Name}: {burnt.Worst?.Name}" : "-"),
             Row("Ties", robustness.Ties.Count(check => check.Checks.Count > 0), robustness.Ties.Count(check => !check.Enough), robustness.Ties.Where(check => check.Checks.Count > 0).Select(check => check.Ratio).DefaultIfEmpty(0).Max(),
                 robustness.Ties.FirstOrDefault(check => check.Checks.Count > 0) is { } tie ? $"{tie.Name}: {tie.Worst?.Name}" : "-"),
+            robustness.Removal is { Removals.Count: > 0 } removed ? Row("Notional removal", removed.Removals.Count, removed.Removals.Count(removal => !removal.Enough), removed.Removals.Max(RemovalShare),
+                removed.Removals.MaxBy(RemovalShare)!.Name) : null,
+            braced is { Lines.Count: > 0 } ? Row("Braced wall lines, IRC", braced.Lines.Count, braced.Lines.Count(line => !line.Enough), braced.Lines.Max(line => line.Faults.Count > 0 ? double.PositiveInfinity : line.Ratio),
+                braced.Lines.MaxBy(line => line.Faults.Count > 0 ? double.PositiveInfinity : line.Ratio)!.Name) : null,
             analysis.Seismic is { } quake ? Row("Storey drift", quake.Drifts.Count, quake.Drifts.Count(drift => drift.Ratio > 1), quake.Drifts.Select(drift => drift.Ratio).DefaultIfEmpty(0).Max(),
                 quake.Drifts.MaxBy(drift => drift.Ratio) is { } drifting ? $"{drifting.Level}, {drifting.Case}" : "-") : null,
             Row("Members, deflection", deflections.Count, deflections.Count(check => check.Ratio > 1), deflections.Select(check => check.Ratio ?? 0).DefaultIfEmpty(0).Max(),
@@ -165,7 +174,7 @@ public static class CalculationReport
             (document.ProjectInformation.ClearanceStandard.IsUs()
                 ? "Seismic loads past the equivalent lateral force procedure: accidental torsion, irregularities, the overstrength combinations, diaphragm and collector forces, anchorage of walls out of their plane and the detailing R assumes; movement and durability. "
                 : "Seismic loads in England, where Approved Document A does not usually ask for them; movement and durability. ") +
-            "Impact and explosion, and the notional removal of a support; only the ties and anchorage of a building's class. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
+            "Impact and explosion; the notional removal of a load-bearing wall; only the ties and anchorage of a building's class, and each column taken away in Consequence Class 2b. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
             "The ground: its kind is as set on the project, and no site investigation stands behind it."
         };
         var skipped = members.Where(check => check.Checks.Count == 0).Select(check => check.Member.Name).Concat(walls.Where(check => check.Checks.Count == 0).Select(check => check.Panel.Name)).ToList();
@@ -269,12 +278,42 @@ public static class CalculationReport
             ("Seismic response coefficient", $"Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, Ie {quake.Importance:0.00}"),
             ("Base shear", $"V = Cs W = {quake.Coefficient:0.0000} × {result.Weight:0} = {result.Shear:0.0} kN, each way; ρ {quake.Redundancy:0.0}")
         });
-        report.Table(new[] { new ReportColumn("Level", 1.2), new ReportColumn("Weight, kN", 0.8, true), new ReportColumn("Force, kN", 0.8, true), new ReportColumn("Of the base shear", 0.8, true) },
-            result.Levels.Select(level => new ReportCell[] { level.Name, F(level.Weight, "0"), F(level.Force), Share(result.Shear > 0 ? level.Force / result.Shear : 0) }));
+        report.Table(new[] { new ReportColumn("Level", 1.2), new ReportColumn("Weight, kN", 0.8, true), new ReportColumn("Force, kN", 0.8, true), new ReportColumn("Of the base shear", 0.8, true), new ReportColumn("Its diaphragm Fpx, kN", 0.9, true) },
+            result.Levels.Select(level => new ReportCell[] { level.Name, F(level.Weight, "0"), F(level.Force), Share(result.Shear > 0 ? level.Force / result.Shear : 0), F(level.Diaphragm) }));
+        report.Paragraph("Fpx by (12.10-1): the forces from a level up over the weights from it up, times its own weight, no less than 0.2 SDS Ie of its weight nor more than 0.4, (12.10-2) and (12.10-3); for its diaphragm, its chords and what joins it to the walls and frames.", ReportTone.Muted);
         report.Heading("Storey drift", 2);
-        report.Table(new[] { new ReportColumn("Case", 0.5), new ReportColumn("Storey", 1.2), new ReportColumn("Height, mm", 0.7, true), new ReportColumn("Drift, mm", 0.7, true), new ReportColumn("Allowed, mm", 0.7, true), new ReportColumn("Of it", 0.6, true), new ReportColumn("θ", 0.5, true) },
-            result.Drifts.Select(drift => new ReportCell[] { drift.Case, drift.Level, F(drift.Height, "0"), F(drift.Drift, "0.0"), F(drift.Allowed, "0.0"), Share(drift.Ratio), new ReportCell(drift.Theta.ToString("0.000", CultureInfo.CurrentCulture), drift.Theta > drift.ThetaMax ? ReportTone.Unmet : ReportTone.Plain) }));
-        report.Paragraph("Design drift Cd δxe / Ie between each floor and the one under it, 12.8.6, against Table 12.12-1, taken as for a building of four storeys or fewer with its partitions and cladding made to take the drift, where it has no more. θ is the stability coefficient Px Δ Ie / (Vx hsx Cd) of (12.8-16), Px the dead and live load at and above the storey: under 0.10 P-delta need not be considered, and no more than 0.5 / Cd is allowed. ρ is taken as 1.3 in categories D to F without looking for 12.3.4.2's conditions for 1.0. Accidental torsion, and snow and storage in the seismic weight, are not worked out.", ReportTone.Muted);
+        report.Table(new[] { new ReportColumn("Case", 0.5), new ReportColumn("Storey", 1.2), new ReportColumn("Height, mm", 0.7, true), new ReportColumn("Drift, mm", 0.7, true), new ReportColumn("Allowed, mm", 0.7, true), new ReportColumn("Of it", 0.6, true), new ReportColumn("θ", 0.5, true), new ReportColumn("Edge over average", 0.7, true) },
+            result.Drifts.Select(drift => new ReportCell[]
+            {
+                drift.Case, drift.Level, F(drift.Height, "0"), F(drift.Drift, "0.0"), F(drift.Allowed, "0.0"), Share(drift.Ratio),
+                new ReportCell(drift.Theta.ToString("0.000", CultureInfo.CurrentCulture), drift.Theta > drift.ThetaMax ? ReportTone.Unmet : ReportTone.Plain),
+                quake.Flexible ? "-" : new ReportCell($"{drift.Torsion.ToString("0.00", CultureInfo.CurrentCulture)}{(drift.Irregular.Length > 0 ? $", {drift.Irregular}" : string.Empty)}", drift.Irregular == "1b" ? ReportTone.Unmet : ReportTone.Plain)
+            }));
+        report.Paragraph($"Drift is worked from Cs {quake.DriftCoefficient:0.0000}, (12.8-5)'s least not being asked of it by 12.8.6.1, so at {result.DriftScale:0.00} of the strength forces{(result.Cracked ? ", with concrete cracked at ACI 318-19 Table 6.6.3.1.1(a)'s shares and masonry at half, 12.7.3" : string.Empty)}. " +
+                         (quake.Flexible
+                             ? "The floors and roofs are of timber, flexible diaphragms by 12.3.1.1, and take no accidental torsion. "
+                             : "Each level's mass is taken 5% of its width across the forces off its place, both ways, 12.8.4.2; where one edge drifts more than 1.2 times the average of the two it is torsionally irregular, and in categories C to F the torsion is amplified by Ax = (δmax / 1.2 δavg)², no more than 3, (12.8-14), in the combinations as well: as remembered. ") +
+                         "Where θ is over 0.10 the drift is increased by 1 / (1 - θ), 12.8.7.", ReportTone.Muted);
+        foreach (var said in result.Irregularities ?? Array.Empty<string>()) report.Paragraph($"- {said}", ReportTone.Unmet);
+        report.Paragraph("Design drift Cd δxe / Ie between each floor and the one under it, 12.8.6, against Table 12.12-1, taken as for a building of four storeys or fewer with its partitions and cladding made to take the drift, where it has no more. θ is the stability coefficient Px Δ Ie / (Vx hsx Cd) of (12.8-16), Px the dead and live load at and above the storey: under 0.10 P-delta need not be considered, and no more than 0.5 / Cd is allowed. ρ is taken as 1.3 in categories D to F without looking for 12.3.4.2's conditions for 1.0. Snow and storage in the seismic weight, and the overstrength combinations, are not worked out.", ReportTone.Muted);
+    }
+
+    /// <summary>A US house's walls braced by the IRC's prescriptive rules, where it is in categories D0 to D2.</summary>
+    private static void BracingOf(ReportDocument report, BimDocument document, StructuralAnalysis analysis)
+    {
+        if (IrcBracing.Of(document, analysis) is not { } result) return;
+        report.Heading("Wall bracing, IRC R602.10");
+        report.Paragraph(result.Said);
+        if (result.Lines.Count == 0) return;
+        report.Table(new[] { new ReportColumn("Braced wall line", 1.6), new ReportColumn("Long, ft", 0.5, true), new ReportColumn("Apart, ft", 0.5, true), new ReportColumn("Table, ft", 0.5, true), new ReportColumn("Factor", 0.5, true), new ReportColumn("Wants, ft", 0.5, true), new ReportColumn("Has, ft", 0.5, true), new ReportColumn("Of it", 0.5, true) },
+            result.Lines.Select(line => new ReportCell[]
+            {
+                line.Name, F(line.Length), F(line.Spacing), F(line.Table, "0.00"), line.Factor > 0 ? F(line.Factor, "0.00") : "-", F(line.Required), F(line.Provided),
+                new ReportCell(line.Enough ? line.Ratio.ToString("P0", CultureInfo.CurrentCulture) : line.Faults.Count > 0 ? "not as asked" : line.Ratio.ToString("P0", CultureInfo.CurrentCulture), line.Enough ? ReportTone.Plain : ReportTone.Unmet)
+            }));
+        foreach (var line in result.Lines.Where(line => line.Faults.Count + line.Notes.Count > 0))
+            report.Paragraph($"- {line.Name}: {string.Join(" ", line.Faults.Concat(line.Notes))}", line.Faults.Count > 0 ? ReportTone.Unmet : ReportTone.Muted);
+        report.Paragraph("Table R602.10.3(3) and its adjustments of Table R602.10.3(4) as the 2021 IRC has them, from Oregon's printing of R602.10; each line's factor is the product of those for its storey's height, its spacing past 25 ft, its walls' and the roof's dead load and walls with no gypsum board inside. Method WSP throughout, as the walls are sheathed in wood structural panels; Table R602.10.3(1), by the wind speed, the cripple walls of R602.10.11, and the veneer of R602.10.6.5 are not worked out.", ReportTone.Muted);
     }
 
     private static void Loads(ReportDocument report, StructuralAnalysis analysis)
@@ -526,6 +565,22 @@ public static class CalculationReport
     }
 
     /// <summary>The building's consequence class, what it asks and each tie.</summary>
+    /// <summary>A Consequence Class 2b building's notional removals, where they were worked out.</summary>
+    private static void RemovalOf(ReportDocument report, RobustnessResult robustness)
+    {
+        if (robustness.Removal is not { } result) return;
+        report.Heading("Notional removal", 2);
+        report.Paragraph(result.Said);
+        report.Table(new[] { new ReportColumn("Taken away", 1.4), new ReportColumn("Stands", 0.45), new ReportColumn("Parts over", 0.5, true), new ReportColumn("Worst", 0.9), new ReportColumn("Floor at risk, m²", 1.5), new ReportColumn("Key element", 0.8) },
+            result.Removals.Select(removal => new ReportCell[]
+            {
+                removal.Name, removal.Stands ? "yes" : "no", removal.Failed.ToString(CultureInfo.CurrentCulture), removal.Failed > 0 ? $"{removal.Worst.ToString("P0", CultureInfo.CurrentCulture)}, {removal.WorstWhere}" : "-",
+                removal.AtRisk.Count == 0 ? "none" : string.Join("; ", removal.AtRisk.Select(at => $"{at.Level} {F(at.Area / 1e6)} of {F(at.Limit / 1e6)}")),
+                removal.Stands ? "-" : removal.Key.Count == 0 ? new ReportCell("not worked out", ReportTone.Unmet) : new ReportCell(removal.Key.Max(check => check.Ratio).ToString("P0", CultureInfo.CurrentCulture), removal.Enough ? ReportTone.Plain : ReportTone.Unmet)
+            }));
+        report.Paragraph(result.Limits, ReportTone.Muted);
+    }
+
     private static void RobustnessOf(ReportDocument report, RobustnessResult robustness)
     {
         report.Heading("Robustness");

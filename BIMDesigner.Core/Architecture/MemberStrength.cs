@@ -91,6 +91,21 @@ public static class MemberStrength
         return results;
     }
 
+    /// <summary>
+    /// A steel or timber member's checks for forces along it given here, as Of takes them from second order: a damaged structure's, or a key element's under its accidental load. Empty for any other
+    /// material.
+    /// </summary>
+    public static IReadOnlyList<StrengthCheck> ChecksOf(BimDocument document, AnalyticalMember member, MemberLengths lengths, IReadOnlyList<(LoadCombination Combination, MemberForces Forces)> stations)
+    {
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        return member.Section.Material.Kind switch
+        {
+            AnalyticalMaterialKind.Steel => SteelChecks(member, us, lengths, stations).Item3,
+            AnalyticalMaterialKind.Timber => TimberChecks(member, us, lengths, stations).Item3,
+            _ => Array.Empty<StrengthCheck>()
+        };
+    }
+
     /// <summary>The worst of each check over the stations, in the order they first came.</summary>
     public static IReadOnlyList<StrengthCheck> Worst(IEnumerable<(string Under, IEnumerable<StrengthCheck> Checks)> asked)
     {

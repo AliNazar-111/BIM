@@ -18,8 +18,8 @@ public enum LoadNature
     Seismic
 }
 
-/// <summary>A load case: its name - G1, Q1, W3 - what it is, and for wind, the way it blows.</summary>
-public sealed record LoadCase(string Name, string Description, LoadNature Nature, Vector2D? Wind = null)
+/// <summary>A load case: its name - G1, Q1, W3 - what it is, and for wind or an earthquake, the way it pushes. An earthquake's accidental torsion is a case of its own, about the way its forces go.</summary>
+public sealed record LoadCase(string Name, string Description, LoadNature Nature, Vector2D? Wind = null, bool Torsion = false)
 {
     public bool Permanent => Nature is LoadNature.SelfWeight or LoadNature.Dead;
 
@@ -41,7 +41,7 @@ public sealed record LoadCombination(string Name, string Description, LimitState
     public bool Factored => State == LimitState.Ultimate && !Name.StartsWith("ASD", StringComparison.Ordinal);
 
     /// <summary>Its terms said: "1.35 G1 + 1.35 G2 + 1.5 Q1".</summary>
-    public string Said => string.Join(" + ", Terms.Select(term => $"{term.Factor:0.###} {term.Case.Name}"));
+    public string Said => string.Concat(Terms.Select((term, i) => $"{(i == 0 ? (term.Factor < 0 ? "-" : string.Empty) : term.Factor < 0 ? " - " : " + ")}{Math.Abs(term.Factor):0.###} {term.Case.Name}"));
 }
 
 /// <summary>A load spread over a panel: its case, kN/m² of its area as a force in the building's directions - down for weight, across for wind - and what it is.</summary>
@@ -119,6 +119,22 @@ public sealed class StructuralLoading
 
     /// <summary>The seismic design its earthquake cases are worked from, where there is one.</summary>
     public SeismicDesign? Seismic { get; private set; }
+
+    private readonly Dictionary<LoadCase, double> _amplified = new();
+
+    /// <summary>How much each accidental torsion case is amplified by in the combinations, Ax of 12.8.4.3: 1 until the analysis finds the building torsionally irregular.</summary>
+    public double AmplificationOf(LoadCase torsion) => _amplified.GetValueOrDefault(torsion, 1);
+
+    /// <summary>Amplifies an accidental torsion case in every combination that holds it, to Ax from what it was.</summary>
+    public void Amplify(LoadCase torsion, double ax)
+    {
+        var was = AmplificationOf(torsion);
+        if (Math.Abs(was - ax) < 1e-9) return;
+        for (var i = 0; i < Combinations.Count; i++)
+            if (Combinations[i].Terms.Any(term => term.Case == torsion))
+                Combinations[i] = Combinations[i] with { Terms = Combinations[i].Terms.Select(term => term.Case == torsion ? (term.Case, term.Factor * ax / was) : term).ToList() };
+        _amplified[torsion] = ax;
+    }
 
     /// <summary>A case's loads added up, kN down: the weight of it.</summary>
     public double Total(LoadCase loadCase) =>
@@ -206,6 +222,7 @@ public sealed class StructuralLoading
         private LoadCase _self = null!, _dead = null!, _imposed = null!, _roof = null!, _snow = null!;
         private readonly List<LoadCase> _wind = new();
         private readonly List<LoadCase> _seismic = new();
+        private readonly List<LoadCase> _torsion = new();
 
         public Builder(BimDocument document, AnalyticalModel model)
         {
@@ -229,9 +246,18 @@ public sealed class StructuralLoading
             PitchedRoofs();
             Wind();
             _loading.Seismic = Architecture.Seismic.Of(_document, _model);
-            if (_loading.Seismic is { Applies: true })
+            if (_loading.Seismic is { Applies: true } shaken)
+            {
                 foreach (var (way, name) in new[] { (Vector2D.UnitX, "+X"), (-Vector2D.UnitX, "-X"), (Vector2D.UnitY, "+Y"), (-Vector2D.UnitY, "-Y") })
                     _seismic.Add(new LoadCase($"E{_seismic.Count + 1}", $"Earthquake {name} (ASCE 7-16 12.8)", LoadNature.Seismic, way));
+
+                // Where the floors are not flexible, each level's mass is taken 5% of the building's width across the forces off where it is, both ways, 12.8.4.2.
+                if (!shaken.Flexible)
+                {
+                    _torsion.Add(new LoadCase("T1", "Accidental torsion of the earthquake along X, 5% of the width across it (ASCE 7-16 12.8.4.2)", LoadNature.Seismic, Vector2D.UnitX, true));
+                    _torsion.Add(new LoadCase("T2", "Accidental torsion of the earthquake along Y, 5% of the width across it (ASCE 7-16 12.8.4.2)", LoadNature.Seismic, Vector2D.UnitY, true));
+                }
+            }
 
             // Only the cases something is put in - and the structure's own weight, always.
             var used = _loading.SurfaceLoads.Select(load => load.Case).Concat(_loading.LineLoads.Select(load => load.Case)).ToHashSet();
@@ -239,6 +265,7 @@ public sealed class StructuralLoading
             foreach (var each in new[] { _dead, _imposed, _roof, _snow }.Concat(_wind))
                 if (used.Contains(each)) _loading.Cases.Add(each);
             _loading.Cases.AddRange(_seismic);
+            _loading.Cases.AddRange(_torsion);
             if (_us) UsCombinations();
             else UkCombinations();
             Notes();
@@ -662,7 +689,7 @@ public sealed class StructuralLoading
 
         private void Add(string description, LimitState state, IEnumerable<(LoadCase Case, double Factor)> terms)
         {
-            var list = terms.Where(term => Has(term.Case) && term.Factor > 0).ToList();
+            var list = terms.Where(term => Has(term.Case) && (term.Factor > 0 || (term.Case.Torsion && term.Factor != 0))).ToList();
             if (list.Count == 0) return;
             if (_loading.Combinations.Any(each => each.State == state && each.Terms.Count == list.Count && each.Terms.Zip(list).All(pair => pair.First.Case == pair.Second.Case && Math.Abs(pair.First.Factor - pair.Second.Factor) < 1e-9))) return;
             var prefix = state == LimitState.Ultimate ? (_us && description.Contains("2.4.", StringComparison.Ordinal) ? "ASD" : "ULS") : "SLS";
@@ -736,13 +763,20 @@ public sealed class StructuralLoading
             var snow = Has(_snow);
             foreach (var earthquake in _seismic)
             {
-                var six = Permanent(1.2 + ev).Append((earthquake, rho)).Append((_imposed, 0.5));
-                Add("ASCE 7-16 2.3.6 (6)", LimitState.Ultimate, snow ? six.Append((_snow, 0.2)) : six);
-                Add("ASCE 7-16 2.3.6 (7)", LimitState.Ultimate, Permanent(0.9 - ev).Append((earthquake, rho)));
-                Add("ASCE 7-16 2.4.5 (8)", LimitState.Ultimate, Permanent(1.0 + 0.7 * ev).Append((earthquake, 0.7 * rho)));
-                var nine = Permanent(1.0 + 0.525 * ev).Append((earthquake, 0.525 * rho)).Append((_imposed, 0.75));
-                Add("ASCE 7-16 2.4.5 (9)", LimitState.Ultimate, snow ? nine.Append((_snow, 0.75)) : nine);
-                Add("ASCE 7-16 2.4.5 (10)", LimitState.Ultimate, Permanent(0.6 - 0.7 * ev).Append((earthquake, 0.7 * rho)));
+                // With its accidental torsion one way and the other, where there is one: the mass off its place by +5% and by -5%.
+                var torsion = _torsion.FirstOrDefault(each => Math.Abs(each.Wind!.Value.Dot(earthquake.Wind!.Value)) > 0.5);
+                foreach (var sign in torsion is null ? new[] { 0.0 } : new[] { 1.0, -1.0 })
+                {
+                    IEnumerable<(LoadCase, double)> Shaken(IEnumerable<(LoadCase, double)> terms, double factor) =>
+                        torsion is null ? terms.Append((earthquake, factor)) : terms.Append((earthquake, factor)).Append((torsion, sign * factor));
+                    var six = Shaken(Permanent(1.2 + ev), rho).Append((_imposed, 0.5));
+                    Add("ASCE 7-16 2.3.6 (6)", LimitState.Ultimate, snow ? six.Append((_snow, 0.2)) : six);
+                    Add("ASCE 7-16 2.3.6 (7)", LimitState.Ultimate, Shaken(Permanent(0.9 - ev), rho));
+                    Add("ASCE 7-16 2.4.5 (8)", LimitState.Ultimate, Shaken(Permanent(1.0 + 0.7 * ev), 0.7 * rho));
+                    var nine = Shaken(Permanent(1.0 + 0.525 * ev), 0.525 * rho).Append((_imposed, 0.75));
+                    Add("ASCE 7-16 2.4.5 (9)", LimitState.Ultimate, snow ? nine.Append((_snow, 0.75)) : nine);
+                    Add("ASCE 7-16 2.4.5 (10)", LimitState.Ultimate, Shaken(Permanent(0.6 - 0.7 * ev), 0.7 * rho));
+                }
             }
         }
 

@@ -45,6 +45,13 @@ internal sealed class AnalysisWindow : System.Windows.Window
     private readonly DataGrid _quake = Grid(), _quakeDetail = Grid();
     private readonly TabItem _quakeTab = new() { Header = "Seismic" };
     private readonly TextBlock _quakeSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private readonly DataGrid _removal = Grid();
+    private readonly TabItem _removalTab = new() { Header = "Removal", Visibility = Visibility.Collapsed };
+    private readonly TextBlock _removalSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+    private int _removalRun;
+    private readonly DataGrid _bracing = Grid();
+    private readonly TabItem _bracingTab = new() { Header = "Bracing" };
+    private readonly TextBlock _bracingSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<FoundationCheck> _footingChecks = Array.Empty<FoundationCheck>();
     private readonly TextBlock _wallSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private IReadOnlyList<WallCheck> _wallChecks = Array.Empty<WallCheck>();
@@ -97,10 +104,28 @@ internal sealed class AnalysisWindow : System.Windows.Window
         _fires.SelectionChanged += (_, _) => ShowFireCheck();
         tabs.Items.Add(_fireTab);
         _robustnessTab.Content = Pane(_ties, _tieDetail, _tieSaid);
+        var removalPane = new DockPanel();
+        DockPanel.SetDock(_removalSaid, Dock.Bottom);
+        removalPane.Children.Add(_removalSaid);
+        removalPane.Children.Add(_removal);
+        _removalTab.Content = removalPane;
         _ties.SelectionChanged += (_, _) => ShowTie();
         tabs.Items.Add(_robustnessTab);
-        _quakeTab.Content = Pane(_quake, _quakeDetail, _quakeSaid);
+        tabs.Items.Add(_removalTab);
+        // Its text can run long - the system, the drift's basis, each irregularity - so it scrolls under both grids rather than taking their room.
+        var quakePane = new DockPanel();
+        var quakeText = new ScrollViewer { Content = _quakeSaid, MaxHeight = 100, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        DockPanel.SetDock(quakeText, Dock.Bottom);
+        quakePane.Children.Add(quakeText);
+        quakePane.Children.Add(Pane(_quake, _quakeDetail, new TextBlock()));
+        _quakeTab.Content = quakePane;
         tabs.Items.Add(_quakeTab);
+        var bracingPane = new DockPanel();
+        DockPanel.SetDock(_bracingSaid, Dock.Bottom);
+        bracingPane.Children.Add(_bracingSaid);
+        bracingPane.Children.Add(_bracing);
+        _bracingTab.Content = bracingPane;
+        tabs.Items.Add(_bracingTab);
         _swayTab.Content = _sway;
         tabs.Items.Add(_swayTab);
         tabs.Items.Add(new TabItem { Header = "Supports", Content = _supports });
@@ -250,6 +275,54 @@ internal sealed class AnalysisWindow : System.Windows.Window
         ShowStrength();
         Refresh();
         _report.IsEnabled = !_stale;
+        StartRemoval(second);
+    }
+
+    /// <summary>
+    /// A Consequence Class 2b building's notional removals, each support taken away in turn: a minute or so for a building of some size, so worked out after the rest, the calculations waiting for them.
+    /// </summary>
+    private void StartRemoval(SecondOrderAnalysis second)
+    {
+        var document = _main.Document;
+        var run = ++_removalRun;
+        var (storeys, _) = FireDesign.HeightOf(document);
+        var asked = !document.ProjectInformation.ClearanceStandard.IsUs() && Robustness.ClassOf(FireDesign.UseOf(document), storeys) == "2b";
+        _removalTab.Visibility = asked ? Visibility.Visible : Visibility.Collapsed;
+        if (!asked) return;
+        _removalTab.Header = "Removal (working)";
+        _removal.ItemsSource = null;
+        _removalSaid.Text = "Taking each column away in turn, a storey at a time, and each beam a column stands on...";
+        _report.IsEnabled = false;
+        Task.Run(() => NotionalRemoval.Of(document, second.Analysis)).ContinueWith(done => Dispatcher.BeginInvoke(() =>
+        {
+            if (run != _removalRun || !IsLoaded) return;
+            if (done.Exception is { } failed)
+            {
+                _removalTab.Header = "Removal";
+                _removalSaid.Text = $"This could not be worked out: {failed.GetBaseException().Message} Analyse Again.";
+                return;
+            }
+
+            if (_robustness is { } robustness) _robustness = robustness with { Removal = done.Result };
+            ShowRemoval(done.Result);
+            _report.IsEnabled = !_stale;
+        }), TaskScheduler.Default);
+    }
+
+    /// <summary>Each support taken away: whether the building stands, what fails and where, the floor at risk against its limit, and as a key element what it comes to.</summary>
+    private void ShowRemoval(RemovalResult? result)
+    {
+        var removals = result?.Removals ?? Array.Empty<RemovalCheck>();
+        Fill(_removal, new[] { "Taken away", "Stands", "Parts over", "Worst", "As a key element", "What it comes to, and the floor at risk, m², against its limit" }, removals.Select(removal => new[]
+        {
+            removal.Name, removal.Stands ? "yes" : "no", removal.Failed.ToString(CultureInfo.CurrentCulture), removal.Failed > 0 ? $"{Share(removal.Worst)}, {removal.WorstWhere}" : "-",
+            removal.Stands ? "-" : removal.Key.Count == 0 ? "not worked out" : $"{Share(removal.Key.Max(check => check.Ratio))}, {removal.Key.MaxBy(check => check.Ratio)!.Name}",
+            removal.AtRisk.Count == 0 ? removal.Said
+                : $"{removal.Said} {string.Join("; ", removal.AtRisk.Select(at => $"{at.Level} {(at.Area / 1e6).ToString("0.0", CultureInfo.CurrentCulture)} of {(at.Limit / 1e6).ToString("0.0", CultureInfo.CurrentCulture)}"))}."
+        }), 5);
+        var short_ = removals.Count(removal => !removal.Enough);
+        _removalTab.Header = short_ > 0 ? $"Removal ({short_} short)" : "Removal";
+        _removalSaid.Text = result is null ? string.Empty : $"{result.Said} {result.Limits}";
     }
 
     /// <summary>The calculations saved where asked.</summary>
@@ -389,15 +462,21 @@ internal sealed class AnalysisWindow : System.Windows.Window
     {
         var quake = _analysis.Loading.Seismic;
         var result = _analysis.Seismic;
-        Fill(_quake, new[] { "Level", "Weight", "Force", "Of the base shear" }, (result?.Levels ?? Array.Empty<SeismicLevel>()).Select(level => new[]
+        Fill(_quake, new[] { "Level", "Weight", "Force", "Of the base shear", "Its diaphragm, Fpx" }, (result?.Levels ?? Array.Empty<SeismicLevel>()).Select(level => new[]
         {
-            level.Name, Units.Kilonewtons(level.Weight, "0"), Units.Kilonewtons(level.Force, "0.0"), Share(result!.Shear > 0 ? level.Force / result.Shear : 0)
+            level.Name, Units.Kilonewtons(level.Weight, "0"), Units.Kilonewtons(level.Force, "0.0"), Share(result!.Shear > 0 ? level.Force / result.Shear : 0), Units.Kilonewtons(level.Diaphragm, "0.0")
         }));
-        Fill(_quakeDetail, new[] { "Case", "Storey", "Height", "Moves, elastic", "Design drift", "Allowed", "Of it", "θ, (12.8-16)" }, (result?.Drifts ?? Array.Empty<SeismicDrift>()).Select(drift => new[]
-        {
-            drift.Case, drift.Level, Units.Bare(drift.Height), Units.Bare(drift.Elastic, "0.0"), Units.Bare(drift.Drift, "0.0"), Units.Bare(drift.Allowed, "0.0"), Share(drift.Ratio),
-            drift.Theta > drift.ThetaMax ? $"{drift.Theta:0.000}, over {drift.ThetaMax:0.000}: unstable" : drift.Theta > 0.1 ? $"{drift.Theta:0.000}: P-delta to be taken in" : $"{drift.Theta:0.000}"
-        }));
+        var rigid = quake is { Flexible: false };
+        Fill(_quakeDetail, rigid
+                ? new[] { "Case", "Storey", "Height", "Moves, elastic", "Design drift", "Allowed", "Of it", "θ, (12.8-16)", "Edge over average" }
+                : new[] { "Case", "Storey", "Height", "Moves, elastic", "Design drift", "Allowed", "Of it", "θ, (12.8-16)" },
+            (result?.Drifts ?? Array.Empty<SeismicDrift>()).Select(drift => new[]
+            {
+                drift.Case, drift.Level, Units.Bare(drift.Height), Units.Bare(drift.Elastic, "0.0"), Units.Bare(drift.Drift, "0.0"), Units.Bare(drift.Allowed, "0.0"), Share(drift.Ratio),
+                drift.Theta > drift.ThetaMax ? $"{drift.Theta:0.000}, over {drift.ThetaMax:0.000}: unstable"
+                    : drift.Theta > 0.1 ? $"{drift.Theta:0.000}: drift taken {drift.Increase:0.00} times, 1 / (1 - θ)" : $"{drift.Theta:0.000}",
+                drift.Irregular.Length > 0 ? $"{drift.Torsion:0.00}, irregular {drift.Irregular}" : $"{drift.Torsion:0.00}"
+            }.Take(rigid ? 9 : 8).ToArray()));
         var over = result?.Drifts.Count(drift => drift.Ratio > 1) ?? 0;
         _quakeTab.Header = over > 0 ? $"Seismic ({over} over)" : "Seismic";
         _quakeSaid.Text = quake is null
@@ -406,7 +485,29 @@ internal sealed class AnalysisWindow : System.Windows.Window
                 : "Approved Document A 5.5: seismic design is not usually needed for buildings in consequence classes 1, 2a and 2b, so none is worked out."
             : result is null
                 ? quake.Said
-                : $"{quake.Said} Fa {quake.Fa:0.00}, Fv {quake.Fv:0.00}: SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}. {quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#}, Ie {quake.Importance:0.00}. T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")}, k {quake.Exponent:0.00}; Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}. W {Units.Kilonewtons(result.Weight, "0")}, V = Cs W {Units.Kilonewtons(result.Shear, "0.0")}, each way. ρ {quake.Redundancy:0.0}.";
+                : $"{quake.Said} Fa {quake.Fa:0.00}, Fv {quake.Fv:0.00}: SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}. {quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#}, Ie {quake.Importance:0.00}. T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")}, k {quake.Exponent:0.00}; Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}. W {Units.Kilonewtons(result.Weight, "0")}, V = Cs W {Units.Kilonewtons(result.Shear, "0.0")}, each way. ρ {quake.Redundancy:0.0}. " +
+                  $"Drift from Cs {quake.DriftCoefficient:0.0000}, without (12.8-5)'s least{(result.Cracked ? ", concrete and masonry cracked" : string.Empty)}. " +
+                  (quake.Flexible ? "Floors and roofs of timber, flexible diaphragms: no accidental torsion. " : "Accidental torsion 5% of each level's width across the forces, both ways. ") +
+                  string.Join(" ", result.Irregularities ?? Array.Empty<string>());
+    }
+
+    /// <summary>A US house's braced wall lines by the IRC, R602.10: what each wants by Method WSP and what it has, and what about where its panels stand does not do.</summary>
+    private void ShowBracing()
+    {
+        var document = _main.Document;
+        var result = IrcBracing.Of(document, _analysis);
+        _bracingTab.Visibility = result is null ? Visibility.Collapsed : Visibility.Visible;
+        var lines = result?.Lines ?? Array.Empty<BracedWallLine>();
+        Fill(_bracing, new[] { "Braced wall line", "Long, ft", "Apart, ft", "Table, ft", "Factor", "Wants, ft", "Has, ft", "Of it", "Its storey, its factor and what is not as R602.10 asks" }, lines.Select(line => new[]
+        {
+            line.Name, line.Length.ToString("0.0", CultureInfo.CurrentCulture), line.Spacing.ToString("0.0", CultureInfo.CurrentCulture), line.Table.ToString("0.00", CultureInfo.CurrentCulture),
+            line.Factor > 0 ? line.Factor.ToString("0.00", CultureInfo.CurrentCulture) : "-", line.Required.ToString("0.0", CultureInfo.CurrentCulture), line.Provided.ToString("0.0", CultureInfo.CurrentCulture),
+            line.Enough ? Share(line.Ratio) : line.Faults.Count > 0 ? "not as asked" : Share(line.Ratio),
+            string.Join(" ", new[] { $"{char.ToUpperInvariant(line.Location[0])}{line.Location[1..]}; {line.FactorSaid}." }.Concat(line.Faults).Concat(line.Notes))
+        }), 8);
+        var short_ = lines.Count(line => !line.Enough);
+        _bracingTab.Header = short_ > 0 ? $"Bracing ({short_} short)" : "Bracing";
+        _bracingSaid.Text = result?.Said ?? string.Empty;
     }
 
     /// <summary>Every joint and bearing, worst first, and what each wants.</summary>
@@ -678,6 +779,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         var shortfalls = bearings.Count(b => b.Ratio > 1) + designs.Count(d => !d.Enough) + _footingChecks.Count(check => !check.Enough);
         _foundationsTab.Header = shortfalls > 0 ? $"Foundations ({shortfalls} short)" : "Foundations";
         ShowSeismic();
+        ShowBracing();
 
         _notes.Text = string.Join(Environment.NewLine + Environment.NewLine,
             analysis.Problems.DefaultIfEmpty("Nothing went wrong: every node is held, one way or another.")

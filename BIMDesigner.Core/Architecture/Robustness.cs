@@ -4,7 +4,11 @@ using BIMDesigner.Core.Elements;
 namespace BIMDesigner.Core.Architecture;
 
 /// <summary>What the building's robustness comes to: the class it falls in, why, what that asks of it, each tie it wants, and what is left out.</summary>
-public sealed record RobustnessResult(string Class, string Said, string Asks, IReadOnlyList<JointCheck> Ties, string Limits);
+public sealed record RobustnessResult(string Class, string Said, string Asks, IReadOnlyList<JointCheck> Ties, string Limits)
+{
+    /// <summary>Its notional removals, for a building in Consequence Class 2b, once they are worked out.</summary>
+    public RemovalResult? Removal { get; init; }
+}
 
 /// <summary>
 /// Whether a building is robust enough that an accident brings down no more than it should: Approved Document A's Requirement A3. Its consequence class by Table 11, from what it is used for and how many storeys it has,
@@ -182,7 +186,7 @@ public static class Robustness
             "2b" => "Effective horizontal ties and vertical ties in every supporting column and wall: paragraph 5.1(d).",
             _ => "A systematic risk assessment of the building, which is not done here: paragraph 5.1(e). The ties of Class 2b are given as a start."
         };
-        var limits = cc == "2a" ? string.Empty : "Notional removal of each support and key elements of 34 kN/m², the alternative in paragraph 5.1(d), are not worked out.";
+        var limits = cc == "2a" ? string.Empty : "Notional removal of each support, the alternative in paragraph 5.1(d), and key elements of 34 kN/m² are on the Removal tab.";
         return new RobustnessResult(cc, said, asks, ties.OrderByDescending(tie => tie.Ratio).ToList(), limits);
     }
 

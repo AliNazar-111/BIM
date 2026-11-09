@@ -902,6 +902,29 @@ public sealed class StructuralSolver
         return new[] { d[0, 0] * kappa[0] + d[0, 1] * kappa[1] + d[0, 2] * kappa[2], d[1, 0] * kappa[0] + d[1, 1] * kappa[1] + d[1, 2] * kappa[2], d[2, 0] * kappa[0] + d[2, 1] * kappa[1] + d[2, 2] * kappa[2] };
     }
 
+    /// <summary>
+    /// What turns a shell's corners' movements, in the building's axes, into its moments at its middle as ShellMoments gives them: three rows by eighteen, and the freedoms they read. For reading the
+    /// moments of many movements without working the shell out each time.
+    /// </summary>
+    public (double[,] Matrix, int[] Dofs) ShellMomentMatrix(Shell shell)
+    {
+        var (_, t, local) = ShellGlobal(shell);
+        int[] mapBending = { 2, 3, 4, 8, 9, 10, 14, 15, 16 };
+        var b = DktB(local, 1.0 / 3, 1.0 / 3);
+        var d = BendingStiffness(shell);
+        var db = new double[3, 9];
+        for (var r = 0; r < 3; r++)
+        for (var c = 0; c < 9; c++)
+            for (var k = 0; k < 3; k++)
+                db[r, c] += d[r, k] * b[k, c];
+        var matrix = new double[3, 18];
+        for (var r = 0; r < 3; r++)
+        for (var c = 0; c < 9; c++)
+            for (var j = 0; j < 18; j++)
+                matrix[r, j] += db[r, c] * t[mapBending[c], j];
+        return (matrix, Dofs(shell.I, shell.J, shell.K));
+    }
+
     /// <summary>The force a shell puts on each of its three corners, N, in the building's axes. They add up to nothing: the loads it carries are held at the nodes.</summary>
     public Vector3[] ShellCornerForces(Shell shell, double[] displacements)
     {

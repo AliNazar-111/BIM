@@ -495,7 +495,7 @@ public sealed class BimDocument
                      FasciaType or GutterType or SoffitType or EaveType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
                      CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
-                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Party Wall - Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
+                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
@@ -2571,6 +2571,17 @@ public sealed class BimDocument
             HeatTransferCoefficient = 0.22, CoarseScaleFillColour = ColourRgb.FromHex("B59A7A"), WrapAtEnds = WallWrapping.Exterior
         };
 
+        // A timber frame as a US house has it: siding over sheathing, no brick, so the IRC's bracing tables are for it as they are.
+        var sidedFrame = new WallType("Timber Frame - Siding 183mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, cedar.Id, 19),
+            new MaterialLayer(LayerFunction.Substrate, softwood.Id, 11.5),
+            new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 140),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            Function = WallFunction.Exterior, TypeMark = "EW3", AssemblyCode = "B2010", FireRating = "30 min", AcousticRating = 40, Cost = 120m,
+            HeatTransferCoefficient = 0.25, CoarseScaleFillColour = ColourRgb.FromHex("C9A27E"), WrapAtEnds = WallWrapping.Exterior
+        };
+
         // A soffit of any shape - a porch's, a carport's - sketched as a ceiling of soffit board.
         var soffitCeiling = new CeilingType("Ceiling - Soffit Board, uPVC 10mm", new CompoundStructure(
             new MaterialLayer(LayerFunction.Finish1, pvcWhite.Id, 10)))
@@ -2612,7 +2623,7 @@ public sealed class BimDocument
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
-                     logRound, logD, logSquare, acousticPartition, timberFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof,
+                     logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof,
                      thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling
                  })
         {

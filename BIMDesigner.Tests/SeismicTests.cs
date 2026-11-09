@@ -2,6 +2,7 @@ using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Materials;
 using BIMDesigner.Infrastructure.Serialization;
 
 namespace BIMDesigner.Tests;
@@ -270,6 +271,186 @@ public class SeismicTests
     }
 
     [Fact]
+    public void DriftIsWorkedWithoutTheLeastCoefficient()
+    {
+        // Past TL at 10 s: 0.6 × 8 / (100 × 6.5) = 0.00738, all drift is worked from, where strength takes the least, 0.044 (12.8.6.1).
+        var (drift, said) = Seismic.Coefficient(1.0, 0.6, 0.5, 6.5, 1, 10, 8, false, forDrift: true);
+        Assert.Equal(0.6 * 8 / (100 * 6.5), drift, 6);
+        Assert.Equal("(12.8-4)", said);
+
+        // (12.8-6) still holds it where S1 is 0.6 or more: 0.5 × 0.6 / 6.5.
+        Assert.Equal(0.3 / 6.5, Seismic.Coefficient(1.0, 0.6, 0.6, 6.5, 1, 10, 8, false, forDrift: true).Value, 6);
+    }
+
+    [Fact]
+    public void TorsionDiaphragmsAndPDeltaByHand()
+    {
+        // Ax = (1.5 / (1.2 × 1.0))² = 1.5625, no less than 1 nor more than 3.
+        Assert.Equal(1.5625, Seismic.TorsionAmplification(1.5, 1.0), 6);
+        Assert.Equal(1, Seismic.TorsionAmplification(1.1, 1.0));
+        Assert.Equal(3, Seismic.TorsionAmplification(3, 1.0));
+        Assert.Equal("1a", Seismic.TorsionalIrregularity(1.3));
+        Assert.Equal("1b", Seismic.TorsionalIrregularity(1.5));
+        Assert.Equal(string.Empty, Seismic.TorsionalIrregularity(1.1));
+
+        // θ of 0.15: the drift taken 1 / 0.85 = 1.176 times; under 0.10, as it is.
+        Assert.Equal(1 / 0.85, Seismic.DriftIncrease(0.15), 6);
+        Assert.Equal(1, Seismic.DriftIncrease(0.08));
+
+        // Fpx: 300 kN over 1,000 kN from its level up, of its 400 kN, 120; at SDS 1.0 between 80 and 160. At 100 over 1,000 it is 40, so the least; at 900, 360, so the most.
+        Assert.Equal(120, Seismic.DiaphragmForce(300, 1000, 400, 1.0, 1), 6);
+        Assert.Equal(80, Seismic.DiaphragmForce(100, 1000, 400, 1.0, 1), 6);
+        Assert.Equal(160, Seismic.DiaphragmForce(900, 1000, 400, 1.0, 1), 6);
+    }
+
+    /// <summary>A concrete office in the US: six 400 columns, 14 by 7, two 300 slabs, and a 200 concrete wall along its west end if asked.</summary>
+    private static (StructuralLoading Loading, StructuralAnalysis Analysis) Frame(bool wall, double ss = 1.0, double s1 = 0.4, double first = 3000, int storeys = 2)
+    {
+        var d = BimDocument.CreateDefault();
+        d.ProjectInformation.ClearanceStandard = ClearanceStandard.Ada;
+        d.ProjectInformation.BuildingType = "Office";
+        d.ProjectInformation.Ground = GroundType.StiffClay;
+        d.ProjectInformation.SeismicSs = ss;
+        d.ProjectInformation.SeismicS1 = s1;
+        d.Levels[1].Elevation = first;
+        var levels = new List<Guid> { d.Levels[0].Id, d.Levels[1].Id };
+        for (var storey = 2; storey <= storeys; storey++)
+        {
+            var level = new BIMDesigner.Core.Datums.Level { Name = storey == storeys ? "Roof" : $"Level {storey}", Elevation = first + 3000 * (storey - 1) };
+            d.AddLevel(level);
+            levels.Add(level.Id);
+        }
+        var concrete = d.Materials.First(m => m.Name.StartsWith("Concrete, Cast", StringComparison.Ordinal));
+        var slab = new FloorType("Slab 300", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, concrete.Id, 300)));
+        d.AddType(slab);
+        var post = new ColumnType("Concrete 400", ColumnShape.Rectangular, 400, 400) { Structural = true, StructuralMaterial = BeamMaterial.Concrete };
+        d.AddType(post);
+        foreach (var x in new[] { 0.0, 7000, 14000 })
+            foreach (var y in new[] { 0.0, 7000 })
+                d.Add(new Column { TypeId = post.Id, LevelId = levels[0], TopLevelId = levels[^1], Location = new Point2D(x, y), Structural = true });
+        foreach (var level in levels.Skip(1))
+        {
+            var floor = new Floor { TypeId = slab.Id, LevelId = level };
+            floor.SetBoundary(new[] { new Point2D(-300, -300), new Point2D(14300, -300), new Point2D(14300, 7300), new Point2D(-300, 7300) });
+            d.Add(floor);
+        }
+
+        foreach (var column in d.All<Column>().ToList()) d.Add(Footings.Fit(d, column));
+        if (wall)
+        {
+            var type = new WallType("Concrete 200mm", new CompoundStructure(new MaterialLayer(LayerFunction.Structure, concrete.Id, 200))) { Function = WallFunction.Exterior };
+            d.AddType(type);
+            for (var i = 0; i < 2; i++)
+            {
+                var placed = new Wall { Start = new Point2D(0, 700), End = new Point2D(0, 6300), TypeId = type.Id, LevelId = levels[i], TopLevelId = levels[i + 1], StructuralUsage = StructuralUsage.Bearing };
+                d.Add(placed);
+                if (i == 0) d.Add(Footings.Fit(d, placed));
+            }
+        }
+
+        var model = AnalyticalModel.Of(d);
+        var loading = StructuralLoading.Of(d, model);
+        return (loading, StructuralAnalysis.Run(d, model, loading));
+    }
+
+    [Fact]
+    public void ConcreteFloorsTakeAccidentalTorsionBothWays()
+    {
+        var (loading, analysis) = Frame(false);
+        var quake = loading.Seismic!;
+        Assert.False(quake.Flexible);
+        var t1 = loading.Cases.Single(each => each.Name == "T1");
+        Assert.True(t1.Torsion);
+
+        // Each earthquake taken with its torsion one way and the other: 2.3.6 (6) for E1 twice, ρ 1.3 on both.
+        var e1 = loading.Cases.Single(each => each.Name == "E1");
+        var six = loading.Combinations.Where(each => each.Description == "ASCE 7-16 2.3.6 (6)" && each.Terms.Any(term => term.Case == e1)).ToList();
+        Assert.Equal(2, six.Count);
+        Assert.Equal(new[] { -1.3, 1.3 }, six.Select(each => each.Terms.Single(term => term.Case == t1).Factor).OrderBy(factor => factor).Select(factor => Math.Round(factor, 6)));
+
+        // Its load turns and does not push: no force either way, and a torque of each level's force 5% of its 7.6 m across the forces.
+        var load = analysis.LoadOf(t1);
+        var nodes = Enumerable.Range(0, analysis.Solver.NodeCount).ToList();
+        Assert.InRange(Math.Abs(nodes.Sum(n => load[n * 6])), 0, 1);
+        Assert.InRange(Math.Abs(nodes.Sum(n => load[n * 6 + 1])), 0, 1);
+        var torque = nodes.Sum(n => analysis.Solver.NodeAt(n).X * load[n * 6 + 1] - analysis.Solver.NodeAt(n).Y * load[n * 6]);
+        var hand = analysis.Seismic!.Levels.Sum(level => level.Force * 1000 * 0.05 * 7600);
+        Assert.InRange(torque, 0.97 * hand, 1.03 * hand);
+
+        // Even all round, it barely turns: no irregularity, and Ax stays 1.
+        Assert.All(analysis.Seismic.Drifts, drift => Assert.InRange(drift.Torsion, 1, 1.2));
+        Assert.Equal(1, loading.AmplificationOf(t1));
+        Assert.DoesNotContain(analysis.Seismic.Irregularities!, said => said.Contains("torsional", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AWallAtOneEndMakesItTorsionallyIrregular()
+    {
+        // A concrete wall along its west end holds that end against the earthquake along Y; the columns at the east end swing round it.
+        var (loading, analysis) = Frame(true);
+        Assert.Equal("D", loading.Seismic!.Category);
+
+        // Its wall stands only along Y, so along X its columns' frame is all there is: an ordinary concrete moment frame, R 3, the least, and not the wall's R 4.
+        Assert.Same(Seismic.ConcreteFrame, loading.Seismic.System);
+        var along = analysis.Seismic!.Drifts.Where(drift => drift.Case.StartsWith("E3", StringComparison.Ordinal)).ToList();
+        Assert.All(along, drift => Assert.Equal("1b", drift.Irregular));
+
+        // Category D amplifies its torsion, Ax up to 3, in its combinations: ρ 1.3 times Ax on T2.
+        var t2 = loading.Cases.Single(each => each.Name == "T2");
+        var ax = loading.AmplificationOf(t2);
+        Assert.InRange(ax, 1.01, 3);
+        Assert.All(along, drift => Assert.Equal(ax, drift.Amplification, 6));
+        var six = loading.Combinations.First(each => each.Description == "ASCE 7-16 2.3.6 (6)" && each.Terms.Any(term => term.Case == t2));
+        Assert.Equal(1.3 * ax, Math.Abs(six.Terms.Single(term => term.Case == t2).Factor), 6);
+        Assert.Contains(analysis.Seismic.Irregularities!, said => said.Contains("extreme torsional", StringComparison.Ordinal));
+
+        // Along X the wall stands across the forces and the frame does not turn.
+        Assert.All(analysis.Seismic.Drifts.Where(drift => drift.Case.StartsWith("E1", StringComparison.Ordinal)), drift => Assert.Equal(string.Empty, drift.Irregular));
+
+        // In category B it is as irregular, but its torsion is not amplified.
+        var (low, lowAnalysis) = Frame(true, 0.3, 0.08);
+        Assert.Equal("B", low.Seismic!.Category);
+        Assert.Equal(1, low.AmplificationOf(low.Cases.Single(each => each.Name == "T2")));
+        Assert.Contains(lowAnalysis.Seismic!.Drifts, drift => drift.Irregular.Length > 0);
+    }
+
+    [Fact]
+    public void ATallGroundStoreyIsSoft()
+    {
+        // Three storeys, the first 6 m and the two over it 3 m: its columns an eighth as stiff, so an extreme soft storey, and it drifts far more than 1.3 times the storey over it, so 12.3.2.2 does not excuse it.
+        var (_, analysis) = Frame(false, first: 6000, storeys: 3);
+        Assert.Contains(analysis.Seismic!.Irregularities!, said => said.StartsWith("First Floor", StringComparison.Ordinal) && said.Contains("1b, extreme soft storey", StringComparison.Ordinal));
+
+        // The storey over it, 23 kN/mm against 32 over that, is over 0.7 of it; with fewer than three storeys over it, no average of three is asked.
+        Assert.DoesNotContain(analysis.Seismic.Irregularities!, said => said.StartsWith("Level 2", StringComparison.Ordinal));
+
+        // All three 3 m, the first storey is still soft by the rule - its columns pinned on their pads, 19 kN/mm against 34 fixed by the slabs at both ends - and the second is not.
+        var (_, even) = Frame(false, storeys: 3);
+        Assert.Contains(even.Seismic!.Irregularities!, said => said.StartsWith("First Floor", StringComparison.Ordinal) && said.Contains("soft storey", StringComparison.Ordinal));
+        Assert.DoesNotContain(even.Seismic.Irregularities!, said => said.StartsWith("Level 2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ConcreteIsCrackedForDrift()
+    {
+        // At ACI's shares - columns 0.70, slabs 0.25 - the frame moves more than it did whole: between 1.4 and 4 times at the first floor.
+        var (loading, analysis) = Frame(false);
+        var result = analysis.Seismic!;
+        Assert.True(result.Cracked);
+        var e1 = loading.Cases.Single(each => each.Name == "E1");
+        var first = result.Drifts.First(drift => drift.Case.StartsWith("E1", StringComparison.Ordinal) && drift.Level == "First Floor");
+        var whole = Enumerable.Range(0, analysis.Solver.NodeCount).Where(n => Math.Abs(analysis.Solver.NodeAt(n).Z - 3000) <= 150).Max(n => analysis.Displacements[e1][n * 6]);
+        Assert.InRange(first.Elastic / (result.DriftScale * whole), 1.4, 4);
+
+        // Its diaphragms: the roof's force over its weight is its own Cvx, the first floor's at least 0.2 SDS of its weight.
+        var quake = loading.Seismic!;
+        var (floor, top) = (result.Levels[0], result.Levels[^1]);
+        Assert.Equal(Math.Clamp(top.Force / top.Weight, 0.2 * quake.Sds, 0.4 * quake.Sds) * top.Weight, top.Diaphragm, 6);
+        Assert.Equal(Seismic.DiaphragmForce(floor.Force + top.Force, floor.Weight + top.Weight, floor.Weight, quake.Sds, 1), floor.Diaphragm, 6);
+        Assert.True(floor.Diaphragm >= 0.2 * quake.Sds * floor.Weight - 1e-6);
+    }
+
+    [Fact]
     public void TheSiteIsKeptWithTheProject()
     {
         var document = BimDocument.CreateDefault();
@@ -307,7 +488,7 @@ public class SeismicTests
     }
 
     /// <summary>A two storey timber frame house, 10 by 8, with a floor on joists and a roof.</summary>
-    private static BimDocument House(ClearanceStandard? standard = null, string wall = "Timber Frame", int spacing = 2000)
+    internal static BimDocument House(ClearanceStandard? standard = null, string wall = "Timber Frame", int spacing = 2000)
     {
         var document = BimDocument.CreateDefault();
         if (standard is { } each) document.ProjectInformation.ClearanceStandard = each;

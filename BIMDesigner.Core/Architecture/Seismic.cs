@@ -19,12 +19,17 @@ public sealed record SeismicSystem(string Name, double R, double Overstrength, d
 
 /// <summary>
 /// A building's seismic design by the equivalent lateral force procedure of ASCE 7-16 12.8: its site's figures and the design spectrum's, its category, its system, its period and Cs, and whether it applies.
-/// The base shear is Cs times the effective seismic weight, which the analysis takes from the model's own dead load.
+/// The base shear is Cs times the effective seismic weight, which the analysis takes from the model's own dead load. Drift is worked from Cs without (12.8-5)'s least, 12.8.6.1. Floors and roofs of
+/// timber are flexible diaphragms, 12.3.1.1, and take no accidental torsion; concrete ones are not, and do.
 /// </summary>
 public sealed record SeismicDesign(
     double Ss, double S1, SiteClass Site, int Risk, double Fa, double Fv, double Sds, double Sd1, string Category, string IrcCategory,
     SeismicSystem System, double Importance, double Height, double Period, double Exponent, double Coefficient, string CoefficientSaid, double Redundancy,
-    bool Applies, string Said);
+    bool Applies, string Said, double DriftCoefficient = 0, bool Flexible = true)
+{
+    /// <summary>Whether its accidental torsion is amplified where it is torsionally irregular, 12.8.4.3: categories C to F.</summary>
+    public bool Amplifies => Category is "C" or "D" or "E" or "F";
+}
 
 /// <summary>
 /// Seismic loads for a US project by ASCE 7-16, Supplement 1's site coefficients taken in. In England Approved Document A 5.5 does not usually ask for seismic design for consequence classes 1, 2a and 2b, so none is made.
@@ -96,23 +101,31 @@ public static class Seismic
     public static readonly SeismicSystem ConcreteFrame = new("Ordinary reinforced concrete moment frames", 3, 3, 2.5, "C");
 
     /// <summary>
-    /// The system the model's walls and frames make: of those it has, the least R, as 12.2.3.3 asks of systems combined in a direction. Walls of studs, concrete or masonry, else its columns' steel or concrete.
+    /// The system the model's walls and frames make: of those it has, the least R, as 12.2.3.3 asks of systems combined in a direction. Walls of studs, concrete or masonry, and its columns' frame of
+    /// steel or concrete where walls do not stand both ways, the frame being all there is the other way.
     /// With its period's Ct and x of Table 12.8-2: 0.02 and 0.75 for all but moment frames, 0.028 and 0.8 for steel's, 0.016 and 0.9 for concrete's.
     /// </summary>
     public static (SeismicSystem System, double Ct, double X) SystemOf(AnalyticalModel model)
     {
         var systems = new List<SeismicSystem>();
-        foreach (var panel in model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall))
+        var walls = model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall).ToList();
+        foreach (var panel in walls)
             systems.Add(panel.Material.Kind switch
             {
                 AnalyticalMaterialKind.Timber => LightFrame,
                 AnalyticalMaterialKind.Concrete => ConcreteWalls,
                 _ => PlainMasonry
             });
-        if (systems.Count > 0) return (systems.MinBy(system => system.R)!, 0.02, 0.75);
+
+        // Where walls stand only one way, or none do, the columns are what is left the other way: their frame is a system of the building's too.
+        var (alongX, alongY) = (walls.Any(panel => Math.Abs(panel.U.X) >= 0.7), walls.Any(panel => Math.Abs(panel.U.Y) >= 0.7));
         var columns = model.Members.Where(member => member.Kind == AnalyticalMemberKind.Column).ToList();
-        if (columns.Any(member => member.Section.Material.Kind == AnalyticalMaterialKind.Concrete)) return (ConcreteFrame, 0.016, 0.9);
-        return (SteelFrame, 0.028, 0.8);
+        var frame = columns.Count == 0 || (alongX && alongY) ? null
+            : columns.Any(member => member.Section.Material.Kind == AnalyticalMaterialKind.Concrete) ? ConcreteFrame : SteelFrame;
+        if (frame is not null) systems.Add(frame);
+        if (systems.Count == 0) return (SteelFrame, 0.028, 0.8);
+        var least = systems.MinBy(system => system.R)!;
+        return ReferenceEquals(least, ConcreteFrame) ? (least, 0.016, 0.9) : ReferenceEquals(least, SteelFrame) ? (least, 0.028, 0.8) : (least, 0.02, 0.75);
     }
 
     /// <summary>The approximate fundamental period, s, (12.8-7): Ct hn^x, hn in feet.</summary>
@@ -125,7 +138,7 @@ public static class Seismic
     /// The seismic response coefficient, 12.8.1.1: SDS / (R / Ie), (12.8-2); no more than SD1 / (T R / Ie) to TL, (12.8-3), or SD1 TL / (T² R / Ie) past it, (12.8-4); no less than 0.044 SDS Ie nor 0.01, (12.8-5), and where S1 is 0.6 or
     /// more no less than 0.5 S1 / (R / Ie), (12.8-6), its coefficients as remembered. On a Site Class D site with S1 of 0.2 or more, 11.4.8's second exception: (12.8-2) to 1.5 Ts and 1.5 times (12.8-3) or (12.8-4) past it.
     /// </summary>
-    public static (double Value, string Said) Coefficient(double sds, double sd1, double s1, double r, double importance, double period, double transition, bool siteD)
+    public static (double Value, string Said) Coefficient(double sds, double sd1, double s1, double r, double importance, double period, double transition, bool siteD, bool forDrift = false)
     {
         var plateau = sds / (r / importance);
         var corner = sds > 0 ? sd1 / sds : 0;
@@ -139,12 +152,28 @@ public static class Seismic
         else
             (value, said) = plateau <= falling ? (plateau, "(12.8-2)") : (falling, period <= transition ? "(12.8-3)" : "(12.8-4)");
 
-        var least = Math.Max(0.044 * sds * importance, 0.01);
+        // For drift, 12.8.6.1: (12.8-5) need not be met, (12.8-6) still must.
+        var least = forDrift ? 0 : Math.Max(0.044 * sds * importance, 0.01);
         if (s1 >= 0.6) least = Math.Max(least, 0.5 * s1 / (r / importance));
-        return value >= least ? (value, said) : (least, s1 >= 0.6 ? "(12.8-6)" : "(12.8-5)");
+        return value >= least ? (value, said) : (least, s1 >= 0.6 && (forDrift || 0.5 * s1 / (r / importance) >= Math.Max(0.044 * sds * importance, 0.01)) ? "(12.8-6)" : "(12.8-5)");
     }
 
     /// <summary>The allowable story drift as a share of the storey's height, Table 12.12-1.</summary>
+    /// <summary>The amplification of accidental torsion, (12.8-14), as remembered: (δmax / 1.2 δavg)², no less than 1 nor more than 3.</summary>
+    public static double TorsionAmplification(double most, double average) => average <= 0 ? 1 : Math.Clamp(Math.Pow(most / (1.2 * average), 2), 1, 3);
+
+    /// <summary>Table 12.3-1's torsional irregularity by the most a storey drifts at an edge over the average of its two edges, as remembered: 1a past 1.2, 1b past 1.4.</summary>
+    public static string TorsionalIrregularity(double ratio) => ratio > 1.4 ? "1b" : ratio > 1.2 ? "1a" : string.Empty;
+
+    /// <summary>Where P-delta has to be taken in, 12.8.7, θ over 0.10: the first-order drift increased by 1 / (1 - θ).</summary>
+    public static double DriftIncrease(double theta) => theta > 0.1 && theta < 1 ? 1 / (1 - theta) : 1;
+
+    /// <summary>
+    /// A diaphragm's force at its level, (12.10-1) to (12.10-3): the forces from it up over the weights from it up, times its own weight, no less than 0.2 SDS Ie of its weight nor more than 0.4. kN.
+    /// </summary>
+    public static double DiaphragmForce(double forcesAbove, double weightsAbove, double weight, double sds, double importance) =>
+        weightsAbove <= 0 ? 0 : Math.Clamp(forcesAbove / weightsAbove * weight, 0.2 * sds * importance * weight, 0.4 * sds * importance * weight);
+
     public static double DriftLimit(SeismicSystem system, int storeys, int risk)
     {
         if (ReferenceEquals(system, PlainMasonry)) return 0.007;
@@ -186,6 +215,8 @@ public static class Seismic
         else
             why = $"Seismic Design Category {category}{(house ? $", IRC {irc}" : string.Empty)}.";
 
-        return new SeismicDesign(ss, s1, site, risk, fa, fv, sds, sd1, category, irc, system, importance, height, period, Exponent(period), cs, said, redundancy, applies, why);
+        var drift = Coefficient(sds, sd1, s1, system.R, importance, period, 8, site == SiteClass.D && s1 >= 0.2, true).Value;
+        var flexible = !model.Panels.Any(panel => panel.Kind is AnalyticalPanelKind.Floor or AnalyticalPanelKind.Roof && panel.Material.Kind == AnalyticalMaterialKind.Concrete);
+        return new SeismicDesign(ss, s1, site, risk, fa, fv, sds, sd1, category, irc, system, importance, height, period, Exponent(period), cs, said, redundancy, applies, why, drift, flexible);
     }
 }
