@@ -5,7 +5,7 @@ using BIMDesigner.Core.Geometry;
 namespace BIMDesigner.Core.Architecture;
 
 /// <summary>A joint or bearing checked: where it is, what kind, its checks, what it wants that the model does not hold, and what is left out.</summary>
-public sealed record JointCheck(string Name, string Kind, IReadOnlyList<StrengthCheck> Checks, string Wants, string Limits)
+public sealed record JointCheck(string Name, string Kind, IReadOnlyList<StrengthCheck> Checks, string Wants, string Limits, IReadOnlyList<AnalyticalMember>? Joined = null)
 {
     public StrengthCheck? Worst => Checks.Count == 0 ? null : Checks.MaxBy(check => check.Ratio);
 
@@ -367,9 +367,9 @@ public static class JointDesign
                     new("Cover plates in tension", carried, 2 * 0.9 * 410 * 10 * (width - 2 * 22) / 1.25 / 1000, "kN", "BS EN 1993-1-1 6.2.3", "10 mm S275 on each flange, net")
                 };
             var differs = Math.Abs(top.H - below.H) > 10;
-            yield return new JointCheck($"{upper.Name} on {lower.Name}", "Column splice", checks.Select(check => check with { Under = under }).ToList(),
+            yield return new JointCheck($"{upper.Name} on {lower.Name}", "Column splice", checks.Select(check => check with { Under = under }).ToList(), Joined: new[] { upper, lower }, Wants:
                 $"flange cover plates {width:0} wide{(differs ? " with a division plate between the two sections" : string.Empty)}",
-                $"In compression the ends bear on each other, prepared to bear{(differs ? "; the sections differ in depth, so a division plate carries the flange forces across" : string.Empty)}{(us ? ", the splice holding them in line (J1.4(a))" : $", the splice carrying a quarter of the most it carries, {compression:0.0} kN, as 6.2.7.1(14) of BS EN 1993-1-8 asks")}. In tension: {(uplift > 0.01 ? $"{uplift:0.0} kN lifts it" : "nothing lifts it")}{(tied ? $", and as a Class {cc} building's vertical tie the most a storey brings down on it under the accidental combination, {tie:0.0} kN (Approved Document A 5.1, BS EN 1991-1-7 A.6(2))" : string.Empty)}. Moment at the splice is not worked out.");
+                Limits: $"In compression the ends bear on each other, prepared to bear{(differs ? "; the sections differ in depth, so a division plate carries the flange forces across" : string.Empty)}{(us ? ", the splice holding them in line (J1.4(a))" : $", the splice carrying a quarter of the most it carries, {compression:0.0} kN, as 6.2.7.1(14) of BS EN 1993-1-8 asks")}. In tension: {(uplift > 0.01 ? $"{uplift:0.0} kN lifts it" : "nothing lifts it")}{(tied ? $", and as a Class {cc} building's vertical tie the most a storey brings down on it under the accidental combination, {tie:0.0} kN (Approved Document A 5.1, BS EN 1991-1-7 A.6(2))" : string.Empty)}. Moment at the splice is not worked out.");
         }
     }
 
@@ -636,7 +636,7 @@ public static class JointDesign
                 var web = new StrengthCheck("Beam's web on the post", down, carries, "kN", us ? "AISC J10.2, J10.3" : "EN 1993-1-5 6", $"{stiff:0} mm of stiff bearing through a {plate:0} plate, {(atEnd ? "at its end" : "along it")}", combination.Name);
                 var wanted = $"a cap plate {Math.Max(support.B, beam.B) + 50:0} by {support.H + 50:0} by {plate:0} for {down:0.0} kN{(web.Ratio > 1 ? ", and web stiffeners over the post" : string.Empty)}";
                 var knee = (ReferenceEquals(node, member.Start) ? member.StartRelease : member.EndRelease) == MemberRelease.Fixed;
-                return new JointCheck(name, "Beam on a post", new[] { web }, wanted, "The plate's own bending and its fixings are for whoever details it. A web carrying moment there as well wants 7.2 of EN 1993-1-5, not worked out."
+                return new JointCheck(name, "Beam on a post", new[] { web }, Joined: new[] { member, other }, Wants: wanted, Limits: "The plate's own bending and its fixings are for whoever details it. A web carrying moment there as well wants 7.2 of EN 1993-1-5, not worked out."
                     + (knee ? " It is modelled fixed on the post's top, a knee: the moment there, a haunched joint in a portal frame, is not worked out here." : string.Empty));
             }
 
@@ -651,7 +651,7 @@ public static class JointDesign
                 limits = other.Kind == AnalyticalMemberKind.Column
                     ? $"It is modelled fixed into the column's web, or askew to it, and this plate is for shear alone: a moment joint there is not worked out here. {limits}"
                     : $"It is modelled fixed, and this plate is for shear alone: the moment at it wants a joint of its own, not worked out here. {limits}";
-            return new JointCheck(name, fin ? "Fin plate" : "Steel end plate", checks.Select(check => check with { Under = combination.Name }).ToList(), wants, limits);
+            return new JointCheck(name, fin ? "Fin plate" : "Steel end plate", checks.Select(check => check with { Under = combination.Name }).ToList(), wants, limits, new[] { member, other });
         }
 
         return new JointCheck(name, "Not worked out", Array.Empty<StrengthCheck>(), string.Empty, $"A {mine.ToString().ToLowerInvariant()} member on a {theirs.ToString().ToLowerInvariant()} one is not worked out here.");
@@ -743,7 +743,7 @@ public static class JointDesign
                 var feet = MomentJoints.AtNode(second, member, node).Where(each => each.Combination.Factored).Select(each => (each.Combination.Name, each.Forces)).ToList();
                 var footing = support.Foundation is PadFooting padded ? document.FindType<FootingType>(padded.TypeId) : null;
                 var (padWidth, padThickness) = footing is null ? (3000.0, 600.0) : (Math.Min(footing.Width, footing.Length), footing.Thickness);
-                yield return us ? ColumnBases.Us($"{member.Name} base", column, feet, strength, padThickness) : ColumnBases.Uk($"{member.Name} base", column, feet, strength, padWidth, padThickness);
+                yield return (us ? ColumnBases.Us($"{member.Name} base", column, feet, strength, padThickness) : ColumnBases.Uk($"{member.Name} base", column, feet, strength, padWidth, padThickness)) with { Joined = new[] { member } };
                 continue;
             }
             var (combination, down) = WorstOn(landings, node);

@@ -242,7 +242,7 @@ public static class BeamSplices
                     }
                 var continuity = 0.25 * beam.Wply * fy / 1e6;
                 forces.Add(new SpliceForces("a quarter of Mc,y,Rd", continuity, 0, 0));
-                yield return Design($"{one.Name} to {other.Name}", beam, fy, fu, forces, us, differs, continuity);
+                yield return Design($"{one.Name} to {other.Name}", beam, fy, fu, forces, us, differs, continuity) with { Joined = new[] { one, other } };
             }
     }
 

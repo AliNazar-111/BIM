@@ -85,9 +85,12 @@ public sealed class FootingType : ElementType
     /// <summary>Its concrete's characteristic strength, N/mm²: fck in the UK, f'c in the US. None for what is usual: C16/20 or 2,500 psi plain, RC28/35 or 3,000 psi reinforced.</summary>
     public double Strength { get; set; }
 
+    /// <summary>How deep a key stands down under a strip, mm, as wide as its wall, to hold a retaining wall from sliding; none to start.</summary>
+    public double Key { get; set; }
+
     public FootingType Duplicate(string name) => WithCommonOf(new FootingType(name, Kind)
     {
-        Width = Width, Length = Length, Thickness = Thickness, MaterialId = MaterialId, StemMaterialId = StemMaterialId, Strength = Strength
+        Width = Width, Length = Length, Thickness = Thickness, MaterialId = MaterialId, StemMaterialId = StemMaterialId, Strength = Strength, Key = Key
     });
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
@@ -100,6 +103,8 @@ public sealed class FootingType : ElementType
         if (RoofEdgeSweepParameters.MaterialOf(document, () => MaterialId, id => MaterialId = id, FootingParameters.Material) is { } material) yield return material;
         if (RoofEdgeSweepParameters.MaterialOf(document, () => StemMaterialId, id => StemMaterialId = id, FootingParameters.StemMaterial) is { } stem) yield return stem;
         yield return ParameterValue.BindValidated(FootingParameters.Strength, () => Strength, v => { if (v != 0 && (v < 12 || v > 90)) return false; Strength = v; return true; });
+        if (Kind == FootingKind.Strip)
+            yield return ParameterValue.BindValidated(FootingParameters.Key, () => Key, v => { if (v != 0 && (v < 100 || v > 1500)) return false; Key = v; return true; });
         foreach (var parameter in GetCommonTypeParameters()) yield return parameter;
     }
 }
@@ -217,6 +222,7 @@ public static class FootingParameters
     public static readonly ParameterDefinition Length = new("Length", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Strength = new("Concrete Strength (N/mm², 0 = usual)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition Thickness = new("Foundation Thickness", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition Key = new("Key Depth (0 = none)", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Material = new("Structural Material", ParameterDataType.Material, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition StemMaterial = new("Wall or Pier Material", ParameterDataType.Material, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
 
@@ -308,6 +314,16 @@ public static class Footings
         var start = middle - along * (Joined(document, wall, wall.Start) ? half : 0);
         var end = wall.PointAt(wallType.Structure, wall.Length, 0) + along * (Joined(document, wall, wall.End) ? half : 0);
         return Box(start, end, across, half);
+    }
+
+    /// <summary>A key under a strip footing, in plan: under its wall, as wide as the wall, between the wall's ends.</summary>
+    public static IReadOnlyList<Point2D>? KeyOutline(BimDocument document, WallFooting footing)
+    {
+        if (document.Find<Wall>(footing.WallId) is not { } wall || wall.IsCurved || wall.Length < 1) return null;
+        if (document.GetWallType(wall) is not { } wallType) return null;
+        var middle = wall.PointAt(wallType.Structure, 0, 0);
+        var across = (wall.PointAt(wallType.Structure, 0, 1) - middle).NormalisedOrDefault((wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft());
+        return Box(middle, wall.PointAt(wallType.Structure, wall.Length, 0), across, wallType.Structure.TotalWidth / 2);
     }
 
     private static IReadOnlyList<Point2D> Box(Point2D start, Point2D end, Vector2D across, double half)
@@ -558,7 +574,7 @@ public static class Footings
     public static double Volume(BimDocument document, Element footing) => footing switch
     {
         WallFooting strip when document.FindType<FootingType>(strip.TypeId) is { } type => RunOutlines(document, strip).Sum(run => Polygon2D.Area(run.Outline)) * type.Thickness
-            - Overlaps(document, strip, type),
+            - Overlaps(document, strip, type) + (type.Key > 0 && KeyOutline(document, strip) is { } key ? Polygon2D.Area(key) * type.Key : 0),
         PadFooting pad when Outline(document, pad) is { } outline && document.FindType<FootingType>(pad.TypeId) is { } type => Polygon2D.Area(outline) * type.Thickness,
         _ => 0
     };
@@ -585,6 +601,22 @@ public static class Footings
                     var run = new Mesh3D(footing.Id, levelId, MeshKind.Floor, mesh.Colour, mesh.Description);
                     run.AddExtrusion(outline, bottom, bottom + type.Thickness);
                     parts.Add(run);
+                }
+
+                if (type.Key > 0 && KeyOutline(document, strip) is { } keyOutline)
+                {
+                    var keyStart = Outline(document, strip)![0];
+                    var keyLength = keyOutline[0].DistanceTo(keyOutline[1]);
+                    var keyAlong = keyLength < 1 ? Vector2D.UnitX : (keyOutline[1] - keyOutline[0]) / keyLength;
+                    var keyOffset = (keyOutline[0] - keyStart).Dot(keyAlong);
+                    foreach (var run in Runs(document, strip))
+                    {
+                        var (from, to) = (Math.Clamp(run.From - keyOffset, 0, keyLength), Math.Clamp(run.To - keyOffset, 0, keyLength));
+                        if (to - from < 1) continue;
+                        var key = new Mesh3D(footing.Id, levelId, MeshKind.Floor, mesh.Colour, mesh.Description);
+                        key.AddExtrusion(Stretch(keyOutline, from, to), run.Bottom - type.Key, run.Bottom);
+                        parts.Add(key);
+                    }
                 }
 
                 if (document.Find<Wall>(strip.WallId) is { } wall && StemOutline(document, strip) is { } wallOutline)

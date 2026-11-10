@@ -67,7 +67,10 @@ public static class Loads
     /// The load a wall brings down onto its footing, kN a metre of it: its weight and the walls',
     /// floors' and roof's on top of it.
     /// </summary>
-    public static double OnWall(BimDocument document, Wall wall)
+    public static double OnWall(BimDocument document, Wall wall) => OnWall(document, wall, true);
+
+    /// <summary>The load a wall brings down, kN a metre: with what is put on its floors and roof, or its weight and theirs alone.</summary>
+    public static double OnWall(BimDocument document, Wall wall, bool imposed)
     {
         if (wall.IsCurved || wall.Length < 1) return 0;
         var total = 0.0;
@@ -77,14 +80,14 @@ public static class Loads
             var share = ReferenceEquals(part, wall) ? 1 : Share(wall, part);
             if (document.GetWallType(part) is { } type)
                 total += Weight(document, type.Structure) * part.GetHeight(document) / 1000 * share;
-            total += FloorsOn(document, part) * share;
+            total += FloorsOn(document, part, imposed: imposed) * share;
         }
 
         // The roof, on whichever of them its eaves run along.
-        total += stack.Sum(part => RoofOn(document, part) * (ReferenceEquals(part, wall) ? 1 : Share(wall, part)));
+        total += stack.Sum(part => RoofOn(document, part, imposed) * (ReferenceEquals(part, wall) ? 1 : Share(wall, part)));
 
         // A suspended ground floor bears on the walls round it too; one cast on the ground does not.
-        total += FloorsOn(document, wall, atBase: true);
+        total += FloorsOn(document, wall, atBase: true, imposed: imposed);
         return total;
     }
 
@@ -98,7 +101,7 @@ public static class Loads
     /// The floors bearing on a wall's top - or, asked, a suspended floor at its base - kN a metre:
     /// each spanning onto it, the half of its span either side, its weight and what is put on it.
     /// </summary>
-    private static double FloorsOn(BimDocument document, Wall wall, bool atBase = false)
+    private static double FloorsOn(BimDocument document, Wall wall, bool atBase = false, bool imposed = true)
     {
         var height = atBase ? wall.GetBaseElevation(document) : wall.GetTopElevation(document);
         var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -120,7 +123,7 @@ public static class Loads
                 tributary += Reach(document, floor, middle, span * side, height, wall) / 2;
             if (tributary <= 0) continue;
 
-            total += tributary / 1000 * (Weight(document, type.Structure) + FloorImposed(document));
+            total += tributary / 1000 * (Weight(document, type.Structure) + (imposed ? FloorImposed(document) : 0));
         }
 
         return total;
@@ -186,7 +189,7 @@ public static class Loads
     /// The roof on a wall, kN a metre: each slope whose eave runs along it - picked off it, or over
     /// it - its plan area, its weight up the slope and what is put on it, shared along the eave.
     /// </summary>
-    private static double RoofOn(BimDocument document, Wall wall)
+    private static double RoofOn(BimDocument document, Wall wall, bool imposed = true)
     {
         var total = 0.0;
         var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
@@ -213,7 +216,7 @@ public static class Loads
                 if (surface.FaceAt(a.MidpointTo(b) + inward * 1) is not { } face) continue;
                 var eave = a.DistanceTo(b) / 1000;
                 if (eave <= 0) continue;
-                total += face.Area / 1e6 * (Weight(document, type.Structure) * face.Plane.VerticalStretch + RoofImposed(document)) / eave;
+                total += face.Area / 1e6 * (Weight(document, type.Structure) * face.Plane.VerticalStretch + (imposed ? RoofImposed(document) : 0)) / eave;
             }
         }
 

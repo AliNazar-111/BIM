@@ -4130,8 +4130,11 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition SiteClassParameter = new("Site Class (US, ASCE 7-16 Ch. 20)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RiskCategoryParameter = new("Risk Category (US, I to IV)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition MasonryExecutionParameter = new("Masonry Execution Class (1 or 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition ConstructionTypeParameter = new("Construction Type (US, IBC Table 601)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RetainedSurchargeParameter = new("Behind Retaining Walls (kN/m²)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RetainedFrictionParameter = new("Retained Soil Friction (degrees, 0 = typical)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition RetainedSlopeParameter = new("Retained Ground Slope (degrees)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition RetainedWaterParameter = new("Water Behind Retaining Walls (mm above base, 0 = drained)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SnowZoneParameter = new("Snow Zone (UK, NA to BS EN 1991-1-3 Figure NA.1)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>The water's static pressure where it comes in, that the IRC sizes a US house's pipes by (Table P2903.7).</summary>
@@ -4348,6 +4351,11 @@ public partial class MainWindow : Window
                 if (int.TryParse(execution, out var parsed) && parsed is 1 or 2) _document.ProjectInformation.MasonryExecutionClass = parsed;
                 if (ShowsAnalytical) ShowAnalytical();
             }, new[] { "1", "2" }),
+            ParameterValue.BindChoice(ConstructionTypeParameter, () => _document.ProjectInformation.ConstructionType == ConstructionType.NotSet ? "Not set" : _document.ProjectInformation.ConstructionType.ToString(), type =>
+            {
+                _document.ProjectInformation.ConstructionType = Enum.TryParse<ConstructionType>(type, out var parsed) ? parsed : ConstructionType.NotSet;
+                if (ShowsAnalytical) ShowAnalytical();
+            }, new[] { "Not set" }.Concat(Enum.GetNames<ConstructionType>().Skip(1)).ToArray()),
             ParameterValue.Bind(RetainedSurchargeParameter, () => _document.ProjectInformation.RetainedSurcharge, load =>
             {
                 _document.ProjectInformation.RetainedSurcharge = Math.Clamp(load, 0, 100);
@@ -4356,6 +4364,16 @@ public partial class MainWindow : Window
             ParameterValue.Bind(RetainedFrictionParameter, () => _document.ProjectInformation.RetainedFriction, angle =>
             {
                 _document.ProjectInformation.RetainedFriction = angle <= 0 ? 0 : Math.Clamp(angle, 10, 45);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.Bind(RetainedSlopeParameter, () => _document.ProjectInformation.RetainedSlope, angle =>
+            {
+                _document.ProjectInformation.RetainedSlope = Math.Clamp(angle, 0, 45);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.Bind(RetainedWaterParameter, () => _document.ProjectInformation.RetainedWater, height =>
+            {
+                _document.ProjectInformation.RetainedWater = Math.Clamp(height, 0, 20000);
                 if (ShowsAnalytical) ShowAnalytical();
             }),
             ParameterValue.Bind(WaterPressureParameter, () => _document.ProjectInformation.WaterPressure, pressure =>

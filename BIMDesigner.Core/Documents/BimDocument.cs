@@ -69,11 +69,20 @@ public sealed class ProjectInformation
     /// <summary>The class of execution control of its masonry, 1 or 2, the UK National Annex to BS EN 1996-1-1 Table NA.1: 1 where a site has the supervision and testing that class asks, 2 otherwise - the worse, unless set.</summary>
     public int MasonryExecutionClass { get; set; } = 2;
 
+    /// <summary>A US building's type of construction, IBC Chapter 6, from which Table 601 rates its frame, bearing walls and floors in fire; none set for a house under the IRC.</summary>
+    public Architecture.ConstructionType ConstructionType { get; set; } = Architecture.ConstructionType.NotSet;
+
     /// <summary>What stands on the ground behind a retaining wall, kN/m²: a garden, a drive, a road. 5 to start.</summary>
     public double RetainedSurcharge { get; set; } = 5;
 
     /// <summary>The angle of friction of what a retaining wall holds back, degrees, from a site investigation. None for what is typical of the ground.</summary>
     public double RetainedFriction { get; set; }
+
+    /// <summary>How steeply the ground behind a retaining wall rises away from it, degrees; level to start.</summary>
+    public double RetainedSlope { get; set; }
+
+    /// <summary>How high water may stand behind a retaining wall, mm above the underside of its base, where nothing drains it: none to start, the wall drained.</summary>
+    public double RetainedWater { get; set; }
 
     /// <summary>
     /// The snow zone a UK site is in on the National Annex's map (NA to BS EN 1991-1-3 Figure NA.1),

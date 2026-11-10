@@ -88,10 +88,13 @@ public static partial class ProjectFile
                 SnowZone = document.ProjectInformation.SnowZone,
                 RetainedSurcharge = document.ProjectInformation.RetainedSurcharge,
                 RetainedFriction = document.ProjectInformation.RetainedFriction,
+                RetainedSlope = document.ProjectInformation.RetainedSlope,
+                RetainedWater = document.ProjectInformation.RetainedWater,
                 SeismicSs = document.ProjectInformation.SeismicSs,
                 SeismicS1 = document.ProjectInformation.SeismicS1,
                 SiteClass = document.ProjectInformation.SiteClass.ToString(),
                 MasonryExecutionClass = document.ProjectInformation.MasonryExecutionClass,
+                ConstructionType = document.ProjectInformation.ConstructionType.ToString(),
                 RiskCategory = document.ProjectInformation.RiskCategory,
                 WaterPressure = document.ProjectInformation.WaterPressure,
                 WindPressure = document.ProjectInformation.WindPressure,
@@ -1247,7 +1250,7 @@ public static partial class ProjectFile
             dto.FootingTypes.Add(new FootingTypeDto
             {
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Kind = type.Kind.ToString(), Width = type.Width, Length = type.Length,
-                Thickness = type.Thickness, MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, Strength = type.Strength, AssemblyCode = type.AssemblyCode,
+                Thickness = type.Thickness, MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, Strength = type.Strength, Key = type.Key, AssemblyCode = type.AssemblyCode,
                 Cost = type.Cost, Description = type.Description
             });
 
@@ -1817,7 +1820,10 @@ public static partial class ProjectFile
         document.ProjectInformation.SiteClass = ParseEnum(dto.Project.SiteClass, BIMDesigner.Core.Architecture.SiteClass.D);
         document.ProjectInformation.RiskCategory = dto.Project.RiskCategory is >= 1 and <= 4 ? dto.Project.RiskCategory : 2;
         document.ProjectInformation.MasonryExecutionClass = dto.Project.MasonryExecutionClass is 1 or 2 ? dto.Project.MasonryExecutionClass : 2;
+        document.ProjectInformation.ConstructionType = ParseEnum(dto.Project.ConstructionType, BIMDesigner.Core.Architecture.ConstructionType.NotSet);
         document.ProjectInformation.RetainedFriction = double.IsFinite(dto.Project.RetainedFriction) && dto.Project.RetainedFriction is >= 10 and <= 45 ? dto.Project.RetainedFriction : 0;
+        document.ProjectInformation.RetainedSlope = double.IsFinite(dto.Project.RetainedSlope) && dto.Project.RetainedSlope is >= 0 and <= 45 ? dto.Project.RetainedSlope : 0;
+        document.ProjectInformation.RetainedWater = double.IsFinite(dto.Project.RetainedWater) && dto.Project.RetainedWater is >= 0 and <= 20000 ? dto.Project.RetainedWater : 0;
         document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
         document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;
@@ -3201,7 +3207,7 @@ public static partial class ProjectFile
             document.AddType(new FootingType(type.Name, ParseEnum(type.Kind, FootingKind.Strip))
             {
                 Id = type.Id, TypeMark = type.TypeMark ?? string.Empty, Width = Size(type.Width, 600), Length = Size(type.Length, 600),
-                Thickness = Size(type.Thickness, 225), MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, Strength = double.IsFinite(type.Strength) && type.Strength is >= 12 and <= 90 ? type.Strength : 0,
+                Thickness = Size(type.Thickness, 225), MaterialId = type.MaterialId, StemMaterialId = type.StemMaterialId, Strength = double.IsFinite(type.Strength) && type.Strength is >= 12 and <= 90 ? type.Strength : 0, Key = double.IsFinite(type.Key) && type.Key is >= 100 and <= 1500 ? type.Key : 0,
                 AssemblyCode = type.AssemblyCode ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
         foreach (var footing in (dto.WallFootings ?? new List<WallFootingDto>()).Where(footing => document.Walls.Any(wall => wall.Id == footing.WallId)))

@@ -345,13 +345,38 @@ public static class FireDesign
         }
     }
 
-    /// <summary>The period the building as modelled wants. In the US none is worked out: a one- or two-family dwelling's structure needs none under the IRC, and an IBC building's goes by a type of construction the project does not hold.</summary>
+    /// <summary>
+    /// IBC Table 601's hours for a type of construction, as remembered: the primary structural frame, exterior and interior bearing walls, and floors with their secondary members; Type IV's
+    /// heavy timber taken as none, its sizes being IBC 2304.11's, not worked out here. Its footnotes - a roof's, sprinklers in place of a rating - are not applied.
+    /// </summary>
+    public static (double Frame, double Exterior, double Interior, double Floor) Ibc601(ConstructionType type) => type switch
+    {
+        ConstructionType.IA => (3, 3, 3, 2),
+        ConstructionType.IB => (2, 2, 2, 2),
+        ConstructionType.IIA or ConstructionType.VA => (1, 1, 1, 1),
+        ConstructionType.IIIA => (1, 2, 1, 1),
+        ConstructionType.IIIB => (0, 2, 0, 0),
+        ConstructionType.IV => (0, 2, 0, 0),
+        _ => (0, 0, 0, 0)
+    };
+
+    /// <summary>
+    /// The period the building as modelled wants. In the US: a one- or two-family dwelling's structure needs none under the IRC; any other building goes by its type of construction and IBC
+    /// Table 601, each element its own hours, this the most of them.
+    /// </summary>
     public static FirePeriod PeriodOf(BimDocument document)
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs())
-            return new FirePeriod(0, UseOf(document) == BuildingUse.House
-                ? "A one- or two-family dwelling's structure needs no rating under the IRC, beyond what separates it from a garage or another dwelling (R302)."
-                : "IBC Table 601 goes by a type of construction the project does not hold: not worked out.");
+        {
+            if (UseOf(document) == BuildingUse.House)
+                return new FirePeriod(0, "A one- or two-family dwelling's structure needs no rating under the IRC, beyond what separates it from a garage or another dwelling (R302).");
+            var type = document.ProjectInformation.ConstructionType;
+            if (type == ConstructionType.NotSet) return new FirePeriod(0, "IBC Table 601 goes by a type of construction: set the Construction Type in the plan's Properties.");
+            var hours = Ibc601(type);
+            var most = Math.Max(Math.Max(hours.Frame, hours.Exterior), Math.Max(hours.Interior, hours.Floor));
+            return new FirePeriod((int)Math.Round(60 * most), $"Type {type}, IBC Table 601: {hours.Frame:0.#} h for its frame, {hours.Exterior:0.#} and {hours.Interior:0.#} h for its exterior and interior bearing walls, {hours.Floor:0.#} h for its floors{(type == ConstructionType.IV ? "; heavy timber (HT) by its sizes, not worked out" : string.Empty)}");
+        }
+
         var (storeys, top) = HeightOf(document);
         return Period(UseOf(document), storeys, top, document.ProjectInformation.Sprinklered);
     }
@@ -361,14 +386,27 @@ public static class FireDesign
         new("Accidental", "BS EN 1990 6.11b", LimitState.Ultimate, loading.Cases.Select(each => (each, each.Nature is LoadNature.SelfWeight or LoadNature.Dead ? 1.0 : each.Nature is LoadNature.Imposed ? StructuralLoading.Psi(document, each.Nature).Frequent : 0.0))
             .Where(term => term.Item2 > 0).ToList());
 
-    /// <summary>Every element of structure the building has, those short first; nothing if no period applies.</summary>
-    public static IReadOnlyList<FireCheck> Of(BimDocument document, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members)
+    /// <summary>What a member carries in a US fire, as NDS Chapter 16 takes it with allowable stress design's capacities: D + L.</summary>
+    public static LoadCombination CombinationUs(StructuralLoading loading) =>
+        new("Fire, D + L", "NDS 16.2, allowable stress design", LimitState.Ultimate, loading.Cases.Where(each => each.Nature is LoadNature.SelfWeight or LoadNature.Dead or LoadNature.Imposed).Select(each => (each, 1.0)).ToList());
+
+    /// <summary>
+    /// Every element of structure the building has, those short first; nothing if no period applies. Each element its own minutes: in the UK all of them Table B4's, a separating wall at least 60;
+    /// in the US by IBC Table 601 for its type of construction. With the joints, each steel one by BS EN 1993-1-2 4.2.1(6) against the members it joins.
+    /// </summary>
+    public static IReadOnlyList<FireCheck> Of(BimDocument document, SecondOrderAnalysis second, IReadOnlyList<MemberCheck> members, IReadOnlyList<JointCheck>? joints = null)
     {
         var period = PeriodOf(document);
         if (period.Minutes == 0) return Array.Empty<FireCheck>();
         var analysis = second.Analysis;
         var model = analysis.Model;
-        var fire = Combination(document, analysis.Loading);
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
+        var hours = Ibc601(document.ProjectInformation.ConstructionType);
+        var fire = us ? CombinationUs(analysis.Loading) : Combination(document, analysis.Loading);
+        int ForMember(AnalyticalMemberKind kind) => us ? (int)Math.Round(60 * (kind == AnalyticalMemberKind.Joist ? hours.Floor : hours.Frame)) : period.Minutes;
+        int ForWall(bool exterior, bool separating) => us ? (int)Math.Round(60 * (exterior ? hours.Exterior : hours.Interior)) : separating ? Math.Max(60, period.Minutes) : period.Minutes;
+        var forFloor = us ? (int)Math.Round(60 * hours.Floor) : period.Minutes;
+        var heated = new HashSet<AnalyticalMember>();
         var ground = Wind.Ground(document);
         var floors = document.All<Floor>().Where(floor => floor.GetTopElevation(document) > ground + 300).ToList();
         var results = new List<FireCheck>();
@@ -382,8 +420,23 @@ public static class FireDesign
             var holding = member.Kind == AnalyticalMemberKind.Column
                 ? CarriesFloor(foot)
                 : floors.Any(floor => Math.Abs(floor.GetTopElevation(document) - foot) <= 600);
-            if (!holding) continue;
-            results.Add(Member(document, analysis, fire, check, period.Minutes, floors, middle, foot));
+            if (!holding || ForMember(member.Kind) == 0) continue;
+            heated.Add(member);
+            results.Add(Member(document, analysis, fire, check, ForMember(member.Kind), floors, middle, foot));
+        }
+
+        // Steel joints, BS EN 1993-1-2 4.2.1(6): one whose use at room temperature is no more than the most of the members it joins, protected as they are, stands as long as they do.
+        if (!us && joints is not null)
+        {
+            var used = members.ToDictionary(each => each.Member, each => each.Ratio);
+            foreach (var joint in joints.Where(joint => joint.Joined is { Count: > 0 } && joint.Checks.Count > 0 && joint.Joined.All(each => each.Section.Material.Kind == AnalyticalMaterialKind.Steel) && joint.Joined.Any(heated.Contains)))
+            {
+                var most = joint.Joined.Max(each => used.GetValueOrDefault(each));
+                if (most <= 1e-6) continue;
+                results.Add(new FireCheck(joint.Name, "Joint", period.Minutes, new[] { new StrengthCheck("Used no more than its members", joint.Ratio, most, "", "BS EN 1993-1-2 4.2.1(6)", $"{joint.Kind}, {joint.Ratio:P0} against {most:P0} at room temperature") },
+                    joint.Ratio <= most + 1e-9 ? string.Empty : "a joint no more used than what it joins, or its resistance in fire by Annex D",
+                    "Protected as the members it joins are, or bare where they are bare: at least the protection of the least protected of them, 4.2.1(6)."));
+            }
         }
 
         foreach (var panel in model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Element is Wall))
@@ -392,27 +445,48 @@ public static class FireDesign
             var type = document.GetWallType(wall);
             var separating = type is { Separating: true };
             if (!separating && !CarriesFloor(wall.GetBaseElevation(document))) continue;
-            results.Add(WallOf(document, second, panel, wall, separating ? Math.Max(60, period.Minutes) : period.Minutes));
+            var minutes = ForWall(type is { Function: WallFunction.Exterior }, separating);
+            if (minutes > 0) results.Add(WallOf(document, second, panel, wall, minutes));
         }
 
         var bearing = model.Panels.Select(panel => panel.Element).OfType<Wall>().ToHashSet();
-        foreach (var wall in document.Walls.Where(wall => !bearing.Contains(wall) && document.GetWallType(wall) is { Separating: true }))
-            results.Add(ByRating(document.GetWallType(wall)!.Name, "Wall", Math.Max(60, period.Minutes), Doors.FireMinutes(document.GetWallType(wall)!.FireRating), "Give its type a Fire Rating from its maker's tested data."));
+        if (!us)
+            foreach (var wall in document.Walls.Where(wall => !bearing.Contains(wall) && document.GetWallType(wall) is { Separating: true }))
+                results.Add(ByRating(document.GetWallType(wall)!.Name, "Wall", Math.Max(60, period.Minutes), Doors.FireMinutes(document.GetWallType(wall)!.FireRating), "Give its type a Fire Rating from its maker's tested data."));
 
-        foreach (var floor in floors)
-        {
-            var panel = model.Panels.FirstOrDefault(each => ReferenceEquals(each.Element, floor) && each.Kind == AnalyticalPanelKind.Floor && each.Material.Kind == AnalyticalMaterialKind.Concrete);
-            results.Add(panel is null ? FloorByRating(document, floor, period.Minutes) : ConcreteFloor(model, panel, period.Minutes));
-        }
+        if (forFloor > 0)
+            foreach (var floor in floors)
+            {
+                var panel = model.Panels.FirstOrDefault(each => ReferenceEquals(each.Element, floor) && each.Kind == AnalyticalPanelKind.Floor && each.Material.Kind == AnalyticalMaterialKind.Concrete);
+                results.Add(panel is null ? FloorByRating(document, floor, forFloor) : us ? ConcreteUs(panel.Name, "Floor", panel.Thickness, forFloor) : ConcreteFloor(model, panel, forFloor));
+            }
 
         return results.OrderByDescending(each => each.Checks.Count == 0 ? double.MaxValue : each.Ratio).ToList();
     }
 
-    private static FireCheck ByRating(string name, string kind, int minutes, int rating, string otherwise) => rating == 0
-        ? new FireCheck(name, kind, minutes, Array.Empty<StrengthCheck>(), $"{minutes} minutes' fire resistance", $"Not checked. {otherwise}")
-        : new FireCheck(name, kind, minutes, new[] { Rated(minutes, rating) }, rating >= minutes ? string.Empty : $"{minutes} minutes' fire resistance, its type giving {rating}", "As its type's Fire Rating says, to be tested as it is built.");
+    /// <summary>
+    /// The least equivalent thickness of a concrete wall or floor for its hours, inches, ACI 216.1 Table 4.2 as IBC Table 722.2.1.1 has it, as remembered, for siliceous aggregate, the most asked:
+    /// 3.5 in for 1 h, 4.3 for 1.5, 5.0 for 2, 6.2 for 3, 7.0 for 4.
+    /// </summary>
+    public static double AciThickness(double hours) => hours <= 1 ? 3.5 : hours <= 1.5 ? 4.3 : hours <= 2 ? 5.0 : hours <= 3 ? 6.2 : 7.0;
 
-    private static StrengthCheck Rated(int minutes, int rating) => new("Fire Rating", minutes, rating, "min", "Table B4", "by its type's Fire Rating");
+    /// <summary>A concrete column's least dimension for its hours, inches, ACI 216.1 as IBC Table 722.2.4 has it, as remembered, for siliceous aggregate: 8 in for 1 h, 9, 10, 12 and 14 for 1.5 to 4.</summary>
+    public static double AciColumn(double hours) => hours <= 1 ? 8 : hours <= 1.5 ? 9 : hours <= 2 ? 10 : hours <= 3 ? 12 : 14;
+
+    private static FireCheck ConcreteUs(string name, string kind, double thickness, int minutes)
+    {
+        var hours = minutes / 60.0;
+        var column = kind == "Column";
+        var least = (column ? AciColumn(hours) : AciThickness(hours)) * 25.4;
+        return new FireCheck(name, kind, minutes, new[] { new StrengthCheck(column ? "Least dimension" : "Thickness", least, thickness, "mm", column ? "ACI 216.1, IBC Table 722.2.4" : "ACI 216.1, IBC Table 722.2.1.1", $"{hours:0.#} h, siliceous aggregate") },
+            string.Empty, "Siliceous aggregate taken, which asks the most; carbonate and lightweight aggregate ask less. Cover to the bars by ACI 216.1 is for whoever details them.");
+    }
+
+    private static FireCheck ByRating(string name, string kind, int minutes, int rating, string otherwise, string clause = "Table B4") => rating == 0
+        ? new FireCheck(name, kind, minutes, Array.Empty<StrengthCheck>(), $"{minutes} minutes' fire resistance", $"Not checked. {otherwise}")
+        : new FireCheck(name, kind, minutes, new[] { Rated(minutes, rating, clause) }, rating >= minutes ? string.Empty : $"{minutes} minutes' fire resistance, its type giving {rating}", "As its type's Fire Rating says, to be tested as it is built.");
+
+    private static StrengthCheck Rated(int minutes, int rating, string clause = "Table B4") => new("Fire Rating", minutes, rating, "min", clause, "by its type's Fire Rating");
 
     private static FireCheck FloorByRating(BimDocument document, Floor floor, int minutes) =>
         ByRating($"{document.FindType<SlabType>(floor.TypeId)?.Name ?? "Floor"} on {document.FindLevel(floor.LevelId)?.Name}", "Floor", minutes, Doors.FireMinutes(document.FindType<SlabType>(floor.TypeId)?.FireRating ?? string.Empty),
@@ -470,6 +544,10 @@ public static class FireDesign
     private static FireCheck WallOf(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel panel, Wall wall, int minutes)
     {
         var type = document.GetWallType(wall);
+        if (document.ProjectInformation.ClearanceStandard.IsUs())
+            return panel.Material.Kind == AnalyticalMaterialKind.Concrete
+                ? ConcreteUs(panel.Name, "Wall", panel.Thickness, minutes)
+                : ByRating(panel.Name, "Wall", minutes, Doors.FireMinutes(type?.FireRating ?? string.Empty), "Give its type a Fire Rating from a listed assembly, IBC 703.3: masonry by ACI 216.1's equivalent thickness and stud walls by tested assemblies are not worked out here.", "IBC Table 601");
         if (panel.Material.Kind == AnalyticalMaterialKind.Timber && type is not null && Doors.FireMinutes(type.FireRating) == 0 && Stud(document, second, panel, type, minutes) is { } stud) return stud;
 
         if (panel.Material.Kind != AnalyticalMaterialKind.Concrete)
@@ -514,27 +592,61 @@ public static class FireDesign
 
         var result = analysis.MemberOf(member, fire);
         var forces = new MemberForces(result.Axial, result.ShearY, result.ShearZ, result.Torsion, result.MomentY, result.MomentZ, false);
+        if (document.ProjectInformation.ClearanceStandard.IsUs())
+            return member.Section.Material.Kind switch
+            {
+                AnalyticalMaterialKind.Timber when member.Section.Dimensions.Count >= 2 => TimberUs(check, forces, minutes),
+                AnalyticalMaterialKind.Concrete when member.Section.Dimensions.Count >= 2 && member.Kind == AnalyticalMemberKind.Column => ConcreteUs(member.Name, "Column", Math.Min(member.Section.Dimensions[0], member.Section.Dimensions[1]), minutes),
+                _ => ByRating(member.Name, kind, minutes, rating, member.Section.Material.Kind == AnalyticalMaterialKind.Steel
+                    ? "Give its type a Fire Rating from a listed assembly or its protection's maker, IBC 703.3: AISC 360 Appendix 4 is not worked out here."
+                    : "A concrete beam's cover by ACI 216.1 is for whoever details it; give its type a Fire Rating from a listed assembly.", "IBC Table 601")
+            };
+
         return member.Section.Material.Kind switch
         {
-            AnalyticalMaterialKind.Steel when SteelSection.Of(member.Section) is { } section => Steel(analysis.Model, check, section, forces, minutes),
+            AnalyticalMaterialKind.Steel when SteelSection.Of(member.Section) is { } section => Steel(document, analysis.Model, check, section, forces, minutes),
             AnalyticalMaterialKind.Timber when member.Section.Dimensions.Count >= 2 => Timber(check, forces, minutes, lining),
             AnalyticalMaterialKind.Concrete when member.Section.Dimensions.Count >= 2 => Concrete(check, forces, minutes),
             _ => new FireCheck(member.Name, kind, minutes, Array.Empty<StrengthCheck>(), $"{minutes} minutes' fire resistance", "Not checked: a member of this kind is not worked out in fire.")
         };
     }
 
-    private static FireCheck Steel(AnalyticalModel model, MemberCheck check, SteelSection section, MemberForces forces, int minutes)
+    /// <summary>
+    /// A steel column's buckling length in fire, BS EN 1993-1-2 4.2.3.2(5) and its Figure 4.1: in a braced frame whose storeys are each a fire compartment, 0.5 L where it runs on both above and
+    /// below, 0.7 L where it runs on at one end only, the cooler column beyond holding it; otherwise as cold. Braced: walls stand in the building both ways. Compartments: flats and offices, whose
+    /// floors Approved Document B makes compartment floors.
+    /// </summary>
+    public static (MemberLengths Lengths, double Factor) LengthsInFire(BimDocument document, AnalyticalModel model, AnalyticalMember member, MemberLengths cold)
+    {
+        if (member.Kind != AnalyticalMemberKind.Column || UseOf(document) is not (BuildingUse.Flats or BuildingUse.Office)) return (cold, 1);
+        var walls = model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall).ToList();
+        var braced = walls.Any(wall => Math.Abs(wall.U.X) > 0.7) && walls.Any(wall => Math.Abs(wall.U.Y) > 0.7);
+        if (!braced) return (cold, 1);
+        AnalyticalNode Bottom(AnalyticalMember column) => column.Start.At.Z <= column.End.At.Z ? column.Start : column.End;
+        AnalyticalNode Top(AnalyticalMember column) => column.Start.At.Z <= column.End.At.Z ? column.End : column.Start;
+        var columns = model.Members.Where(each => each.Kind == AnalyticalMemberKind.Column && !ReferenceEquals(each, member)).ToList();
+        var above = columns.Any(each => ReferenceEquals(Bottom(each), Top(member)));
+        var below = columns.Any(each => ReferenceEquals(Top(each), Bottom(member)));
+        var factor = above && below ? 0.5 : above || below ? 0.7 : 1;
+        if (factor >= 1) return (cold, 1);
+        var length = member.Length;
+        return (cold with { Strong = Math.Min(cold.Strong, factor * length), Weak = Math.Min(cold.Weak, factor * length) }, factor);
+    }
+
+    private static FireCheck Steel(BimDocument document, AnalyticalModel model, MemberCheck check, SteelSection section, MemberForces forces, int minutes)
     {
         var member = check.Member;
         var column = member.Kind == AnalyticalMemberKind.Column;
         var onConcrete = !column && member.Nodes.Any(node => model.Panels.Any(panel => panel.Kind == AnalyticalPanelKind.Floor && panel.Material.Kind == AnalyticalMaterialKind.Concrete && panel.Outline.Concat(panel.Inside).Contains(node)));
         var (profile, box, shadow) = SteelFire.Factors(section, onConcrete);
         var hot = SteelFire.Temperature(shadow * profile, minutes);
-        var critical = SteelFire.CriticalOf(section, check.Lengths, forces, onConcrete ? 0.7 : 1);
+        var (lengths, factor) = LengthsInFire(document, model, member, check.Lengths);
+        var critical = SteelFire.CriticalOf(section, lengths, forces, onConcrete ? 0.7 : 1);
         return new FireCheck(member.Name, member.Kind.ToString(), minutes,
             new[] { new StrengthCheck($"Bare, at {minutes} minutes", hot, critical, "°C", "4.2.3, 4.2.5.1", $"Am/V {profile:0} /m, {forces.N:0.0} kN and {Math.Abs(forces.My):0.0} kNm in fire") },
             hot <= critical ? string.Empty : $"protection to hold it under {critical:0} °C for {minutes} minutes: Ap/V {box:0} /m boxed, {profile:0} /m following its shape",
-            $"Bare, by the standard fire, {(onConcrete ? "three sides exposed under a concrete floor" : "all round")}. A protected member takes a Fire Rating on its type. Its lengths as cold.");
+            $"Bare, by the standard fire, {(onConcrete ? "three sides exposed under a concrete floor" : "all round")}. A protected member takes a Fire Rating on its type. " +
+            (factor < 1 ? $"Its buckling length in fire {factor:0.0} L, its storey a compartment of its own in a braced frame, the column beyond it cooler (4.2.3.2(5))." : "Its lengths as cold."));
     }
 
     /// <summary>The plasterboard after a build-up's structure, on a floor's underside or a wall's inner face, mm each, in the order they are in it.</summary>
@@ -566,6 +678,51 @@ public static class FireDesign
         return new FireCheck(member.Name, member.Kind.ToString(), minutes, checks, checks.All(each => each.Ratio <= 1) ? string.Empty : wants, limits);
     }
 
+    /// <summary>NDS Chapter 16's effective char depth, mm, after so many minutes: aeff = 1.2 βn t^0.813 with βn 1.5 in/h, (16.2-1) and Table 16.2.1A as remembered.</summary>
+    public static double NdsChar(double minutes) => 1.2 * 1.5 * Math.Pow(minutes / 60, 0.813) * 25.4;
+
+    /// <summary>
+    /// A timber member in a US fire by NDS Chapter 16: the section left once each exposed face has charred aeff - three faces for a beam or joist under its floor, four for a post - its
+    /// allowable stress design capacity raised to the average ultimate by Table 16.2.2's factors, 2.85 in bending, 2.58 in compression, 2.03 for buckling, against D + L. No. 2 sawn lumber or
+    /// 24F glulam as the NDS checks take them, the size factor of the whole section.
+    /// </summary>
+    private static FireCheck TimberUs(MemberCheck check, MemberForces forces, int minutes)
+    {
+        const double psi = 0.00689476;
+        var member = check.Member;
+        var post = member.Kind == AnalyticalMemberKind.Column;
+        var (depth, width) = (member.Section.Dimensions[0], member.Section.Dimensions[1]);
+        var glulam = member.Section.Material.Quality.StartsWith("GL", StringComparison.Ordinal);
+        var charred = NdsChar(minutes);
+        var (leftDepth, leftWidth) = post ? (depth - 2 * charred, width - 2 * charred) : (depth - charred, width - 2 * charred);
+        var said = $"{leftWidth:0} by {leftDepth:0} left of {width:0} by {depth:0}, aeff {charred:0} mm";
+        if (leftDepth <= 0 || leftWidth <= 0)
+            return new FireCheck(member.Name, member.Kind.ToString(), minutes, new[] { new StrengthCheck("Burnt through", 2 * charred, width, "mm", "NDS 16.2", said) }, $"a larger section, or a Fire Rating for {minutes} minutes", string.Empty);
+
+        var (cb, _, cc) = glulam ? (1.0, 1.0, 1.0) : TimberDesign.SizeFactors(depth, width);
+        var (fb, fc, emin) = glulam ? (2400.0, 1600.0, 950000.0) : (900.0, 1350.0, 580000.0);
+        var repetitive = member.Kind == AnalyticalMemberKind.Joist && !glulam ? 1.15 : 1.0;
+        var area = leftDepth * leftWidth / (25.4 * 25.4);
+        var modulus = leftWidth * leftDepth * leftDepth / 6 / (25.4 * 25.4 * 25.4);
+        var bending = Math.Abs(forces.My) * 1e6 / psi / (25.4 * 25.4 * 25.4) / modulus;
+        var fbFire = 2.85 * fb * cb * repetitive;
+        var checks = new List<StrengthCheck> { new("In fire: bending", bending, fbFire, "psi", "NDS 16.2.2", $"{said}, 2.85 Fb") };
+        var compression = Math.Max(0, -forces.N) * 1e3 / psi / (leftDepth * leftWidth);
+        if (compression > 0)
+        {
+            var slender = Math.Max(check.Lengths.Strong / leftDepth, check.Lengths.Weak / leftWidth);
+            var euler = 0.822 * 2.03 * emin / (slender * slender);
+            var fcStar = 2.58 * fc * cc;
+            var cp = TimberDesign.Stability(euler / fcStar, glulam ? 0.9 : 0.8);
+            checks.Add(new StrengthCheck("In fire: compression", compression, cp * fcStar, "psi", "NDS 16.2.2, 3.7", $"{said}, 2.58 Fc, 2.03 for buckling, Cp {cp:0.00}"));
+            if (bending > 0)
+                checks.Add(new StrengthCheck("In fire: compression with bending", Math.Pow(compression / (cp * fcStar), 2) + bending / (fbFire * Math.Max(1e-6, 1 - compression / euler)), 1, "", "NDS 3.9.2, 16.2.2", said));
+        }
+
+        return new FireCheck(member.Name, member.Kind.ToString(), minutes, checks, checks.All(each => each.Ratio <= 1) ? string.Empty : $"a larger section, or a lining or Fire Rating for {minutes} minutes",
+            $"Bare, NDS Chapter 16 under D + L, {(post ? "four faces" : "three faces, its top under the floor")} charring. A lining delays this and a listed assembly takes a Fire Rating on its type.");
+    }
+
     private static FireCheck Concrete(MemberCheck check, MemberForces forces, int minutes)
     {
         var member = check.Member;
@@ -582,4 +739,19 @@ public static class FireDesign
         var (needs, axis) = ConcreteFire.Beam(minutes, width);
         return new FireCheck(member.Name, member.Kind.ToString(), minutes, new[] { new StrengthCheck("Width", needs, width, "mm", "Table 5.5", "as simply supported") }, $"its bars {axis:0} mm to their centres from the soffit and sides", string.Empty);
     }
+}
+
+/// <summary>A building's type of construction by the International Building Code, Chapter 6: what Table 601 rates its elements by. None set, none is worked out.</summary>
+public enum ConstructionType
+{
+    NotSet,
+    IA,
+    IB,
+    IIA,
+    IIB,
+    IIIA,
+    IIIB,
+    IV,
+    VA,
+    VB
 }

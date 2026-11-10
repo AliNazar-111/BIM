@@ -1401,10 +1401,13 @@ internal sealed class ProjectInformationDto
     public double SnowZone { get; set; } = 1;
     public double RetainedSurcharge { get; set; } = 5;
     public double RetainedFriction { get; set; }
+    public double RetainedSlope { get; set; }
+    public double RetainedWater { get; set; }
     public double SeismicSs { get; set; }
     public double SeismicS1 { get; set; }
     public string? SiteClass { get; set; }
     public int MasonryExecutionClass { get; set; }
+    public string? ConstructionType { get; set; }
     public int RiskCategory { get; set; }
 
     /// <summary>A US house's water pressure where it comes in, psi; 40 in older files.</summary>
@@ -1463,6 +1466,7 @@ internal sealed class FootingTypeDto
     public Guid MaterialId { get; set; }
     public Guid StemMaterialId { get; set; }
     public double Strength { get; set; }
+    public double Key { get; set; }
     public string? AssemblyCode { get; set; }
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;

@@ -257,8 +257,9 @@ internal sealed class AnalysisWindow : System.Windows.Window
             var worked = SecondOrderAnalysis.Run(document, analysis);
             _ = worked.Bucklings;
             var members = MemberStrength.Of(document, analysis, worked);
-            var fires = FireDesign.Of(document, worked, members);
-            return (Second: worked, Checks: members, Walls: MasonryDesign.Of(document, worked), Plates: PlateDesign.Of(document, worked), Footings: FoundationDesign.Of(document, analysis), Joints: JointDesign.Of(document, worked), Fires: fires, Robustness: Robustness.Of(document, worked));
+            var joints = JointDesign.Of(document, worked);
+            var fires = FireDesign.Of(document, worked, members, joints);
+            return (Second: worked, Checks: members, Walls: MasonryDesign.Of(document, worked), Plates: PlateDesign.Of(document, worked), Footings: FoundationDesign.Of(document, analysis), Joints: joints, Fires: fires, Robustness: Robustness.Of(document, worked));
         }).ContinueWith(done => Dispatcher.BeginInvoke(() => StrengthWorkedOut(done, run)), TaskScheduler.Default);
     }
 

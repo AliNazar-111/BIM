@@ -313,7 +313,8 @@ public class RetainingDesignTests
         Assert.Contains(check.Checks, each => each.Name == "Overturning");
         Assert.Contains(check.Checks, each => each.Name == "Stem in bending" && each.Note.Contains("mm²/m"));
         Assert.Contains("typical for the ground", check.Limits);
-        Assert.Contains("ground in front not counted", check.Limits);
+        Assert.Contains("drained behind it", check.Limits);
+        Assert.Contains("ground in front", check.Limits);
     }
 
     [Fact]

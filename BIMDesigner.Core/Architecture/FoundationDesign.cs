@@ -276,6 +276,7 @@ public static class FoundationDesign
         }
 
         results.AddRange(RetainingDesign.Of(document));
+        results.AddRange(RetainingDesign.Flotation(document, analysis));
         return results;
     }
 

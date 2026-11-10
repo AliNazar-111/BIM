@@ -538,9 +538,9 @@ public static class MomentJoints
                     continue;
                 }
 
-                yield return us
+                yield return (us
                     ? Us(name, beam.Section, held, beam.Forces.Values.ToList(), panels, opposite.Count > 0)
-                    : Uk(name, beam.Beam, beam.Section, held, fyColumn, kwc, beam.Forces.Values.ToList(), panels, n => Beta(n, beam.Forces[n].Hogging), hog, sag, opposite.Count > 0, knee);
+                    : Uk(name, beam.Beam, beam.Section, held, fyColumn, kwc, beam.Forces.Values.ToList(), panels, n => Beta(n, beam.Forces[n].Hogging), hog, sag, opposite.Count > 0, knee)) with { Joined = new[] { beam.Beam, column } };
             }
         }
     }
