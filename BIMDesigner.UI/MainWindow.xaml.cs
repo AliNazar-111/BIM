@@ -4129,6 +4129,7 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition SeismicS1Parameter = new("Seismic S1 (US, g)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SiteClassParameter = new("Site Class (US, ASCE 7-16 Ch. 20)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RiskCategoryParameter = new("Risk Category (US, I to IV)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition MasonryExecutionParameter = new("Masonry Execution Class (1 or 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RetainedSurchargeParameter = new("Behind Retaining Walls (kN/m²)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RetainedFrictionParameter = new("Retained Soil Friction (degrees, 0 = typical)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SnowZoneParameter = new("Snow Zone (UK, NA to BS EN 1991-1-3 Figure NA.1)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4342,6 +4343,11 @@ public partial class MainWindow : Window
                 if (index >= 0) _document.ProjectInformation.RiskCategory = index + 1;
                 if (ShowsAnalytical) ShowAnalytical();
             }, new[] { "I", "II", "III", "IV" }),
+            ParameterValue.BindChoice(MasonryExecutionParameter, () => _document.ProjectInformation.MasonryExecutionClass.ToString(), execution =>
+            {
+                if (int.TryParse(execution, out var parsed) && parsed is 1 or 2) _document.ProjectInformation.MasonryExecutionClass = parsed;
+                if (ShowsAnalytical) ShowAnalytical();
+            }, new[] { "1", "2" }),
             ParameterValue.Bind(RetainedSurchargeParameter, () => _document.ProjectInformation.RetainedSurcharge, load =>
             {
                 _document.ProjectInformation.RetainedSurcharge = Math.Clamp(load, 0, 100);

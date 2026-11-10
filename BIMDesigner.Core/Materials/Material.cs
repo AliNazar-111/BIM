@@ -67,6 +67,12 @@ public sealed class Material
     /// <summary>A clay unit's water absorption, percent; none where 7% to 12% is taken.</summary>
     public double WaterAbsorption { get; set; }
 
+    /// <summary>Its group by the volume and direction of its holes, BS EN 1996-1-1 Table 3.1, as its maker declares it: Group 1 solid or nearly, Group 2 with more holes.</summary>
+    public MasonryGroup Group { get; set; } = MasonryGroup.Group1;
+
+    /// <summary>The category of its maker's control of its strength, BS EN 771: Category I where the declared strength has a 95% confidence, Category II otherwise - the worse, unless set.</summary>
+    public UnitCategory Category { get; set; } = UnitCategory.CategoryII;
+
     // --- Graphical --------------------------------------------------------------
 
     /// <summary>Colour of the surface seen in elevation and 3D.</summary>
@@ -124,6 +130,20 @@ public enum MortarClass
     M4,
     M6,
     M12
+}
+
+/// <summary>A masonry unit's group by its holes, BS EN 1996-1-1 Table 3.1; Groups 3 and 4 have no values in the UK.</summary>
+public enum MasonryGroup
+{
+    Group1,
+    Group2
+}
+
+/// <summary>The category of a masonry unit's manufacturing control, BS EN 771: what γM takes with the class of execution.</summary>
+public enum UnitCategory
+{
+    CategoryI,
+    CategoryII
 }
 
 /// <summary>What a material's face is laid as, so it can be drawn so.</summary>

@@ -226,9 +226,151 @@ public static class JointDesign
             new("Bolts bearing on what it bolts to", shear, bolts * onSupporter, "kN", "Table 3.4", $"{supporter:0.0} mm of S355"),
             new("Web in shear at the plate", shear, 0.9 * depth * beam.Tw * fy / Math.Sqrt(3) / 1000, "kN", "EC3-1-1 6.2.6", $"{depth:0} deep, {beam.Tw:0.0} web"),
             new("Plate in shear", shear, 2 * depth * thick * fyPlate / 1.27 / Math.Sqrt(3) / 1000, "kN", "P358", "as P358 is quoted"),
+            new("Plate's block tearing", shear, 2 * (fuPlate * thick * (30 - 22.0 / 2) / 1.25 + fyPlate * thick * (depth - 40 - (rows - 0.5) * 22) / Math.Sqrt(3)) / 1000, "kN", "3.10.2 (3.9)",
+                "each side, 30 to its edge, sheared from its top row to its foot"),
             new("Welds to the web", shear, 2 * fu / Math.Sqrt(3) / (0.9 * 1.25) * throat * (depth - 2 * weld) / 1000, "kN", "4.5.3.3", $"{weld:0} mm fillets, βw 0.9")
         };
+        if (depth > clear) checks.Add(new StrengthCheck("Plate within the web", depth, clear, "mm", "P358", "between its root radii; past them, a full depth plate"));
         return (checks, $"a partial depth end plate 150 by {depth:0} by 10, {bolts} M20 8.8, 6 mm fillets");
+    }
+
+    /// <summary>
+    /// A steel beam's end on a fin plate as SCI P358 sets one out, by BS EN 1993-1-8: 10 mm S275 welded to what holds it, M20 8.8 bolts in one line at 70, 40 from the plate's ends and 50 from its
+    /// edge, the bolt line 60 from the face it is welded to, the plate at least 0.6 of the beam deep. The bolt group in shear and in bearing with its eccentricity z, β = 6z / n(n + 1)p1; the plate's
+    /// shear, gross by 1.27, net and by block tearing (3.10.2(3)); its bending where it is short of 2.73 z; the beam web's bearing and shear; the supporting web's own shear; 6 mm fillets
+    /// each side, more than half the plate's thickness. P358's own method as remembered, BS EN 1993-1-8's clauses read.
+    /// </summary>
+    public static (IReadOnlyList<StrengthCheck> Checks, string Wants) FinPlateEurocode(double shear, SteelSection beam, double supporter)
+    {
+        const double tp = 10, fyp = 275, fup = 410, fyb = 355, fub = 470, d0 = 22, p1 = 70, e1 = 40, e2 = 50, z = 60, gm2 = 1.25;
+        var clear = beam.H - 2 * (beam.Tf + beam.Root);
+        var n = 2;
+        while (2 * e1 + (n - 1) * p1 < 0.6 * beam.H && 2 * e1 + n * p1 <= clear) n++;
+        var hp = 2 * e1 + (n - 1) * p1;
+        var each = BoltShearEurocode(245);
+        var beta = 6 * z / (n * (n + 1) * p1);
+        double Bearing(double t, double fu, double endVertical, double endHorizontal)
+        {
+            var vertical = Math.Min(2.8 * endHorizontal / d0 - 1.7, 2.5) * Math.Min(Math.Min(endVertical / (3 * d0), p1 / (3 * d0) - 0.25), Math.Min(800 / fu, 1)) * fu * 20 * t / gm2 / 1000;
+            var horizontal = Math.Min(Math.Min(2.8 * endVertical / d0 - 1.7, 1.4 * p1 / d0 - 1.7), 2.5) * Math.Min(endHorizontal / (3 * d0), Math.Min(800 / fu, 1)) * fu * 20 * t / gm2 / 1000;
+            return n / Math.Sqrt(Math.Pow(1 / vertical, 2) + Math.Pow(beta * n / horizontal, 2));
+        }
+
+        var web = (beam.H - 2 * beam.Tf) * beam.Tw;
+        var checks = new List<StrengthCheck>
+        {
+            new("Bolt group in shear", shear, n * each / Math.Sqrt(1 + Math.Pow(beta * n, 2)), "kN", "3.6.1, Table 3.4", $"{n} M20 8.8, z {z:0}, β {beta:0.000}"),
+            new("Bolts bearing on the plate", shear, Bearing(tp, fup, e1, e2), "kN", "Table 3.4", "vertical and horizontal together"),
+            new("Bolts bearing on the beam's web", shear, Bearing(beam.Tw, fub, 1000, 50), "kN", "Table 3.4", $"{beam.Tw:0.0} web, 50 to its end"),
+            new("Plate in shear, gross", shear, hp * tp * fyp / (1.27 * Math.Sqrt(3)) / 1000, "kN", "P358", "1.27 for the moment its eccentricity puts on it"),
+            new("Plate in shear, net", shear, tp * (hp - n * d0) * fup / (Math.Sqrt(3) * gm2) / 1000, "kN", "6.2.6"),
+            new("Plate's block tearing", shear, (0.5 * fup * tp * (e2 - d0 / 2) / gm2 + fyp * tp * (hp - e1 - (n - 0.5) * d0) / Math.Sqrt(3)) / 1000, "kN", "3.10.2 (3.10)", "eccentric, 0.5 of the tension face"),
+            new("Beam's web in shear, net", shear, (web - n * d0 * beam.Tw) * fub / (Math.Sqrt(3) * gm2) / 1000, "kN", "6.2.6", $"{web - n * d0 * beam.Tw:0} mm² net"),
+            new("Supporting web in shear", shear, hp * supporter * fyb / Math.Sqrt(3) / 1000, "kN", "P358", $"{supporter:0.0} mm over the plate's depth"),
+            new("Welds to what holds it", shear, 2 * fup / Math.Sqrt(3) / (0.85 * gm2) * 0.7 * 6 * (hp - 12) / 1000, "kN", "4.5.3.3", "6 mm fillets each side, βw 0.85")
+        };
+        if (hp > clear) checks.Add(new StrengthCheck("Plate within the beam's web", hp, clear, "mm", "P358", "between its root radii; past them, the beam's flanges notched"));
+        if (hp < 2.73 * z) checks.Add(new StrengthCheck("Plate in bending", shear, tp * hp * hp / 6 * fyp / z / 1000, "kN", "P358", $"hp {hp:0} short of 2.73 z"));
+        return (checks, $"a fin plate {hp:0} deep by {z + e2:0} by 10 S275, {n} M20 8.8 in one line at 70, 6 mm fillets each side");
+    }
+
+    /// <summary>
+    /// A steel beam's end on a single plate, a shear tab, by AISC 360-16 in the Manual's conventional configuration: 3/8 in A36 welded to what holds it, 3/4 in A325-N bolts in one line at 3 in, 1 1/2 in
+    /// from the plate's ends and edge, the bolt line a = 3 in from the weld; the bolt group by the elastic method with e = a; bolt bearing and tearout (J3.10), the plate's shear yielding and rupture
+    /// (J4.2), block shear (J4.3), its flexure on Fy Z, and 5/8 of its thickness in fillets each side. As the Manual is remembered.
+    /// </summary>
+    public static (IReadOnlyList<StrengthCheck> Checks, string Wants) FinPlateAisc(double shear, SteelSection beam, double supporter)
+    {
+        const double tp = 9.525, fy = 248, fu = 400, fub = 448, d = 19.05, hole = 20.6, pitch = 76.2, end = 38.1, a = 76.2;
+        var clear = beam.H - 2 * (beam.Tf + beam.Root);
+        var n = 2;
+        while (2 * end + (n - 1) * pitch < 0.5 * beam.H && 2 * end + n * pitch <= clear) n++;
+        var depth = 2 * end + (n - 1) * pitch;
+        var each = 0.75 * 372 * 285 / 1000;
+        var share = 1 / Math.Sqrt(1 + Math.Pow(6 * a / ((n + 1) * pitch), 2));
+        var group = n * each * share;
+        double Bearing(double t, double fuOf, double edge) =>
+            share * 0.75 * (Math.Min(1.2 * (edge - hole / 2) * t * fuOf, 2.4 * d * t * fuOf) + (n - 1) * Math.Min(1.2 * (pitch - hole) * t * fuOf, 2.4 * d * t * fuOf)) / 1000;
+        var (gross, net) = (depth * tp, (depth - n * hole) * tp);
+        var (nv, nt) = ((depth - end - (n - 0.5) * hole) * tp, (end - hole / 2) * tp);
+        var checks = new List<StrengthCheck>
+        {
+            new("Bolt group in shear", shear, group, "kN", "J3.6, elastic method", $"{n} 3/4 in A325-N, e = a = 3 in"),
+            new("Bolts bearing on the plate", shear, Bearing(tp, fu, end), "kN", "J3.10", "bearing and tearout, by C / n for the eccentricity"),
+            new("Bolts bearing on the beam's web", shear, Bearing(beam.Tw, fub, 1000), "kN", "J3.10", $"{beam.Tw:0.0} web"),
+            new("Plate's shear yielding", shear, 1.0 * 0.6 * fy * gross / 1000, "kN", "J4.2(a)"),
+            new("Plate's shear rupture", shear, 0.75 * 0.6 * fu * net / 1000, "kN", "J4.2(b)"),
+            new("Plate's block shear", shear, 0.75 * Math.Min(0.6 * fu * nv + fu * nt, 0.6 * fy * (depth - end) * tp + fu * nt) / 1000, "kN", "J4.3", "Ubs 1.0"),
+            new("Plate in flexure", shear * a, 0.9 * fy * tp * depth * depth / 4 / 1000, "kN mm", "Manual Part 10", "Fy Z on the bolt line's eccentricity")
+        };
+        if (depth > clear) checks.Add(new StrengthCheck("Plate within the beam's web", depth, clear, "mm", "Manual Part 10", "the beam's T; past it, its flanges coped"));
+        return (checks, $"a single plate {depth / 25.4:0.#} in deep by 4 1/2 by 3/8 in A36, {n} 3/4 in A325-N at 3 in, 1/4 in fillets each side");
+    }
+
+    /// <summary>
+    /// Where one steel column stands on another, its splice: in compression the two bear on each other, their ends prepared, the splice carrying a quarter of the most it carries by BS EN 1993-1-8
+    /// 6.2.7.1(14); in tension what lifts it and, in a Consequence Class 2b or 3 building in England, the tie Approved Document A asks of a column, the most a storey brings down on it under the
+    /// accidental combination (BS EN 1991-1-7 A.6(2)); whichever is most carried by flange cover plates, 10 mm S275 as wide as the
+    /// narrower flange with two M20 8.8 bolts each side of the joint on each, by BS EN 1993-1-8 Table 3.4 and 6.2.3; in the US four 3/4 in A325-N bolts each side, the uplift alone (AISC J1.4).
+    /// </summary>
+    private static IEnumerable<JointCheck> Splices(BimDocument document, SecondOrderAnalysis second, bool us)
+    {
+        var model = second.Analysis.Model;
+        var columns = model.Members.Where(member => member.Kind == AnalyticalMemberKind.Column && member.Section.Material.Kind == AnalyticalMaterialKind.Steel).ToList();
+        AnalyticalNode Bottom(AnalyticalMember column) => column.Start.At.Z <= column.End.At.Z ? column.Start : column.End;
+        AnalyticalNode Top(AnalyticalMember column) => column.Start.At.Z <= column.End.At.Z ? column.End : column.Start;
+        var (storeys, _) = FireDesign.HeightOf(document);
+        var cc = us ? string.Empty : Robustness.ClassOf(FireDesign.UseOf(document), storeys);
+        var tied = cc is "2b" or "3";
+        var accidental = tied ? FireDesign.Combination(document, second.Analysis.Loading) : null;
+
+        // Each combination's axial force at a column's foot, kN, tension positive.
+        IReadOnlyList<(string Combination, double N)> FootForces(AnalyticalMember column)
+        {
+            var stations = second.StationsOf(column);
+            var pieces = second.Analysis.BeamsOf(column).Count();
+            var forces = new List<(string, double)>();
+            for (var k = 0; pieces > 0 && k + 2 * pieces <= stations.Count; k += 2 * pieces)
+            {
+                var (variant, f) = column.Start.At.Z <= column.End.At.Z ? stations[k] : stations[k + 2 * pieces - 1];
+                forces.Add((variant.Name, f.N));
+            }
+
+            return forces;
+        }
+
+        foreach (var upper in columns)
+        {
+            var foot = Bottom(upper);
+            var lower = columns.FirstOrDefault(each => !ReferenceEquals(each, upper) && ReferenceEquals(Top(each), foot));
+            if (lower is null || SteelSection.Of(upper.Section) is not { } top || SteelSection.Of(lower.Section) is not { } below) continue;
+            var forces = FootForces(upper);
+            if (forces.Count == 0) continue;
+            var uplift = forces.Max(each => each.N);
+            var tie = accidental is null ? 0 : Robustness.LargestStorey(second.Analysis, upper, accidental);
+            var tension = Math.Max(Math.Max(uplift, tie), 0);
+            var compression = Math.Max(0, -forces.Min(each => each.N));
+            var quarter = us ? 0 : 0.25 * compression;
+            var carried = Math.Max(tension, quarter);
+            var governs = carried <= 0.01 ? "nothing pulls it apart" : quarter >= tension ? "a quarter of its compression" : uplift >= tie ? "what lifts it" : "its vertical tie";
+            var under = carried <= 0.01 ? string.Empty : quarter >= tension ? forces.MinBy(each => each.N).Combination : uplift >= tie ? forces.MaxBy(each => each.N).Combination : accidental!.Name;
+            var width = Math.Min(top.B, below.B);
+            var checks = us
+                ? new List<StrengthCheck>
+                {
+                    new("Bolts in shear, each side", carried, 4 * 0.75 * 372 * 285 / 1000, "kN", "AISC 360-16 J3.6", $"4 3/4 in A325-N each side of the joint, for {governs}"),
+                    new("Cover plates in tension", carried, 2 * 0.75 * 400 * 9.525 * (width - 2 * 20.6) / 1000, "kN", "J4.1(b)", "3/8 in A36 on each flange, net")
+                }
+                : new List<StrengthCheck>
+                {
+                    new("Bolts in shear, each side", carried, 4 * BoltShearEurocode(245), "kN", "BS EN 1993-1-8 Table 3.4", $"two M20 8.8 on each flange each side of the joint, for {governs}"),
+                    new("Cover plates in tension", carried, 2 * 0.9 * 410 * 10 * (width - 2 * 22) / 1.25 / 1000, "kN", "BS EN 1993-1-1 6.2.3", "10 mm S275 on each flange, net")
+                };
+            var differs = Math.Abs(top.H - below.H) > 10;
+            yield return new JointCheck($"{upper.Name} on {lower.Name}", "Column splice", checks.Select(check => check with { Under = under }).ToList(),
+                $"flange cover plates {width:0} wide{(differs ? " with a division plate between the two sections" : string.Empty)}",
+                $"In compression the ends bear on each other, prepared to bear{(differs ? "; the sections differ in depth, so a division plate carries the flange forces across" : string.Empty)}{(us ? ", the splice holding them in line (J1.4(a))" : $", the splice carrying a quarter of the most it carries, {compression:0.0} kN, as 6.2.7.1(14) of BS EN 1993-1-8 asks")}. In tension: {(uplift > 0.01 ? $"{uplift:0.0} kN lifts it" : "nothing lifts it")}{(tied ? $", and as a Class {cc} building's vertical tie the most a storey brings down on it under the accidental combination, {tie:0.0} kN (Approved Document A 5.1, BS EN 1991-1-7 A.6(2))" : string.Empty)}. Moment at the splice is not worked out.");
+        }
     }
 
     /// <summary>
@@ -257,6 +399,7 @@ public static class JointDesign
             new("Plate in shear", shear, 2 * 0.6 * fyPlate * depth * thick / 1000, "kN", "J4.2", "its gross section, φ 1.0"),
             new("Welds to the web", shear, 2 * 0.75 * 0.6 * 70000 * Psi * 0.7071 * weld * (depth - 2 * weld) / 1000, "kN", "J2.4", "1/4 in E70 fillets")
         };
+        if (depth > clear) checks.Add(new StrengthCheck("Plate within the web", depth, clear, "mm", "Manual Part 10", "the beam's T; past it, a full depth plate"));
         return (checks, $"a shear end plate {depth / 25.4:0.#} in deep, 3/8 in A36, {bolts} 3/4 in A325-N, 1/4 in fillets");
     }
 
@@ -305,6 +448,9 @@ public static class JointDesign
         joints.AddRange(Landings(document, second, us));
         joints.AddRange(UnderWalls(second, us));
         joints.AddRange(BaseOf(document, second, us));
+        joints.AddRange(Splices(document, second, us));
+        joints.AddRange(MomentJoints.Of(document, second, us));
+        joints.AddRange(BeamSplices.Of(document, second, us));
         foreach (var panel in second.Analysis.Model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Material.Kind == AnalyticalMaterialKind.Timber && TimberWallDesign.FrameOf(document, panel, us) is not null))
         {
             joints.AddRange(Headers(document, second, panel, us));
@@ -355,10 +501,14 @@ public static class JointDesign
                 var others = model.Members.Where(each => !ReferenceEquals(each, member) && each.Nodes.Contains(node)).ToList();
                 var ends = ReferenceEquals(node, member.Start) || ReferenceEquals(node, member.End);
                 var passing = others.FirstOrDefault(each => each.Kind != AnalyticalMemberKind.Column && !ReferenceEquals(each.Start, node) && !ReferenceEquals(each.End, node));
-                var post = others.FirstOrDefault(each => each.Kind == AnalyticalMemberKind.Column);
+                bool TopAt(AnalyticalMember column) => ReferenceEquals(column.Start.At.Z >= column.End.At.Z ? column.Start : column.End, node);
+                var below = others.FirstOrDefault(each => each.Kind == AnalyticalMemberKind.Column && TopAt(each));
+                var post = below ?? others.FirstOrDefault(each => each.Kind == AnalyticalMemberKind.Column);
+                var through = below is not null && others.Any(each => each.Kind == AnalyticalMemberKind.Column && !TopAt(each));
                 var under = ends ? passing ?? post : post is not null && (ReferenceEquals(post.Start, node) || ReferenceEquals(post.End, node)) ? post : null;
-                if (under is null) continue;
-                if (OnMember(member, under, node, landings, us) is { } onMember) Keep(worst, $"{run}|{under.Name}", onMember);
+                if (under is null || MomentJoints.Carries(model, member, node)) continue;
+                var connection = member.Element is Beam drawn && document.FindType<BeamType>(drawn.TypeId) is { } beamType ? beamType.Connection : BeamConnection.EndPlate;
+                if (OnMember(member, under, node, landings, us, connection, through) is { } onMember) Keep(worst, $"{run}|{under.Name}", onMember);
             }
         }
 
@@ -444,13 +594,30 @@ public static class JointDesign
         return (eurocode, needs, worst.Combination.Name);
     }
 
-    private static JointCheck? OnMember(AnalyticalMember member, AnalyticalMember other, AnalyticalNode node, IReadOnlyList<(LoadCombination Combination, IReadOnlyDictionary<AnalyticalNode, double> Down)> landings, bool us)
+    private static JointCheck? OnMember(AnalyticalMember member, AnalyticalMember other, AnalyticalNode node, IReadOnlyList<(LoadCombination Combination, IReadOnlyDictionary<AnalyticalNode, double> Down)> landings, bool us,
+        BeamConnection connection = BeamConnection.EndPlate, bool through = false)
     {
         var (combination, down) = WorstOn(landings, node);
-        if (down <= 0.01) return null;
         var (mine, theirs) = (member.Section.Material.Kind, other.Section.Material.Kind);
         var name = $"{member.Name} to {other.Name}";
-        var onTop = other.Kind == AnalyticalMemberKind.Column && (ReferenceEquals(other.Start, node) || ReferenceEquals(other.End, node));
+
+        // On a column's top, unless the column runs on above it: then the beam frames into its side. A plate at a beam's end carries its shear whichever way it acts - next to a stiff floor a
+        // beam's end can be held down at a column rather than resting on it - where what sits on a post or a beam only bears on it going down.
+        var onTop = other.Kind == AnalyticalMemberKind.Column && !through && (ReferenceEquals(other.Start, node) || ReferenceEquals(other.End, node));
+        if (mine == AnalyticalMaterialKind.Steel && theirs == AnalyticalMaterialKind.Steel && !onTop)
+        {
+            var most = landings.Select(each => (each.Combination, Down: each.Down.GetValueOrDefault(node))).MaxBy(each => Math.Abs(each.Down));
+            (combination, down) = (most.Combination, Math.Abs(most.Down));
+        }
+
+        if (down <= 0.01)
+        {
+            var lifted = -landings.Select(each => each.Down.GetValueOrDefault(node)).DefaultIfEmpty(0).Min();
+            return onTop && mine == AnalyticalMaterialKind.Steel && theirs == AnalyticalMaterialKind.Steel && lifted > 0.01
+                ? new JointCheck(name, "Beam on a post", Array.Empty<StrengthCheck>(), $"a cap plate bolted to hold {lifted:0.0} kN down",
+                    "It is held down on the post's top rather than resting on it: the cap plate's bolts in tension are not worked out.")
+                : null;
+        }
         if (mine == AnalyticalMaterialKind.Timber)
         {
             var seat = theirs == AnalyticalMaterialKind.Steel && SteelSection.Of(other.Section) is { } flange ? Math.Max(40, (flange.B - flange.Tw) / 2) : Math.Min(WidthOf(other.Section), 100);
@@ -468,15 +635,23 @@ public static class JointDesign
                 var carries = us ? WebBearingAisc(beam, stiff, atEnd) : WebBearingEurocode(beam, stiff, member.Length, atEnd);
                 var web = new StrengthCheck("Beam's web on the post", down, carries, "kN", us ? "AISC J10.2, J10.3" : "EN 1993-1-5 6", $"{stiff:0} mm of stiff bearing through a {plate:0} plate, {(atEnd ? "at its end" : "along it")}", combination.Name);
                 var wanted = $"a cap plate {Math.Max(support.B, beam.B) + 50:0} by {support.H + 50:0} by {plate:0} for {down:0.0} kN{(web.Ratio > 1 ? ", and web stiffeners over the post" : string.Empty)}";
-                return new JointCheck(name, "Beam on a post", new[] { web }, wanted, "The plate's own bending and its fixings are for whoever details it. A web carrying moment there as well wants 7.2 of EN 1993-1-5, not worked out.");
+                var knee = (ReferenceEquals(node, member.Start) ? member.StartRelease : member.EndRelease) == MemberRelease.Fixed;
+                return new JointCheck(name, "Beam on a post", new[] { web }, wanted, "The plate's own bending and its fixings are for whoever details it. A web carrying moment there as well wants 7.2 of EN 1993-1-5, not worked out."
+                    + (knee ? " It is modelled fixed on the post's top, a knee: the moment there, a haunched joint in a portal frame, is not worked out here." : string.Empty));
             }
 
             var thick = other.Kind == AnalyticalMemberKind.Column ? support.Tf : support.Tw;
-            var (checks, wants) = us ? EndPlateAisc(down, beam, thick) : EndPlateEurocode(down, beam, thick);
+            var fin = connection == BeamConnection.FinPlate;
+            var (checks, wants) = fin ? us ? FinPlateAisc(down, beam, thick) : FinPlateEurocode(down, beam, thick) : us ? EndPlateAisc(down, beam, thick) : EndPlateEurocode(down, beam, thick);
             var fixedEnd = ReferenceEquals(node, member.Start) ? member.StartRelease == MemberRelease.Fixed : member.EndRelease == MemberRelease.Fixed;
-            var limits = "Tying forces, block tearing and the supporting member's own local checks are not worked out.";
-            if (fixedEnd) limits = $"It is modelled fixed, and this plate is for shear alone: the moment at it wants a joint of its own, not worked out here. {limits}";
-            return new JointCheck(name, "Steel end plate", checks.Select(check => check with { Under = combination.Name }).ToList(), wants, limits);
+            var limits = fin
+                ? "Tying forces and the fin plate's lateral torsional buckling, it being short (z no more than tp / 0.15), are not worked out."
+                : "Tying forces and the supporting member's own local checks are not worked out.";
+            if (fixedEnd)
+                limits = other.Kind == AnalyticalMemberKind.Column
+                    ? $"It is modelled fixed into the column's web, or askew to it, and this plate is for shear alone: a moment joint there is not worked out here. {limits}"
+                    : $"It is modelled fixed, and this plate is for shear alone: the moment at it wants a joint of its own, not worked out here. {limits}";
+            return new JointCheck(name, fin ? "Fin plate" : "Steel end plate", checks.Select(check => check with { Under = combination.Name }).ToList(), wants, limits);
         }
 
         return new JointCheck(name, "Not worked out", Array.Empty<StrengthCheck>(), string.Empty, $"A {mine.ToString().ToLowerInvariant()} member on a {theirs.ToString().ToLowerInvariant()} one is not worked out here.");
@@ -558,18 +733,141 @@ public static class JointDesign
             var node = member.Start.At.Z <= member.End.At.Z ? member.Start : member.End;
             var support = model.Supports.FirstOrDefault(each => ReferenceEquals(each.Node, node));
             if (support is null || SteelSection.Of(member.Section) is not { } column) continue;
-            if (us)
+            var landings = second.LandingsOf(member);
+            var reinforced = support.Foundation is PadFooting { Reinforced: true } or RaftFoundation or Pile;
+            var strength = us ? (reinforced ? 27.6 : 20.7) : reinforced ? 28.0 : 16;
+
+            // Fixed at its foot: a moment base plate, its bolts with it.
+            if (support.Fixity == SupportFixity.Fixed)
             {
-                yield return new JointCheck($"{member.Name} base", "Base plate", Array.Empty<StrengthCheck>(), string.Empty, "A base plate is not worked out for a US project.");
+                var feet = MomentJoints.AtNode(second, member, node).Where(each => each.Combination.Factored).Select(each => (each.Combination.Name, each.Forces)).ToList();
+                var footing = support.Foundation is PadFooting padded ? document.FindType<FootingType>(padded.TypeId) : null;
+                var (padWidth, padThickness) = footing is null ? (3000.0, 600.0) : (Math.Min(footing.Width, footing.Length), footing.Thickness);
+                yield return us ? ColumnBases.Us($"{member.Name} base", column, feet, strength, padThickness) : ColumnBases.Uk($"{member.Name} base", column, feet, strength, padWidth, padThickness);
                 continue;
             }
+            var (combination, down) = WorstOn(landings, node);
+            if (down > 0.01)
+            {
+                var (check, wants) = us ? BasePlateAisc(down, column, strength) : BasePlateEurocode(down, column, strength);
+                yield return new JointCheck($"{member.Name} base", "Base plate", new[] { check with { Under = combination.Name } }, wants,
+                    us ? "Under axial load, the concrete's area under the plate taken as the plate's own, √(A2/A1) as 1." : "Under axial load; any moment at the base is not worked out.");
+            }
 
-            var (combination, down) = WorstOn(second.LandingsOf(member), node);
-            if (down <= 0.01) continue;
-            var fck = support.Foundation is PadFooting { Reinforced: true } or RaftFoundation or Pile ? 28.0 : 16;
-            var (check, wants) = BasePlateEurocode(down, column, fck);
-            yield return new JointCheck($"{member.Name} base", "Base plate", new[] { check with { Under = combination.Name } }, wants, "Under axial load. Holding-down bolts and any moment at the base are not worked out.");
+            // Its holding-down bolts, under what lifts it and what pushes it along: each combination's down at its foot and its shear there, the worst of each check kept.
+            var stations = second.StationsOf(member);
+            var pieces = second.Analysis.BeamsOf(member).Count();
+            var shears = new Dictionary<string, double>();
+            for (var k = 0; pieces > 0 && k + 2 * pieces <= stations.Count; k += 2 * pieces)
+            {
+                var (variant, forces) = member.Start.At.Z <= member.End.At.Z ? stations[k] : stations[k + 2 * pieces - 1];
+                shears[variant.Name] = Math.Max(shears.GetValueOrDefault(variant.Name), Math.Sqrt(forces.Vy * forces.Vy + forces.Vz * forces.Vz));
+            }
+
+            var pad = support.Foundation as PadFooting;
+            var padType = pad is null ? null : document.FindType<FootingType>(pad.TypeId);
+            var spacing = Math.Max(100, column.B);
+            var edge = padType is null ? 1e9 : Math.Min(padType.Width, padType.Length) / 2 - spacing / 2;
+            var thickness = padType?.Thickness ?? 600;
+            var asked = landings.Select(each => (each.Combination.Name, Down: each.Down.GetValueOrDefault(node), Shear: shears.GetValueOrDefault(each.Combination.Name))).Where(each => each.Down < -0.01 || each.Shear > 0.01).ToList();
+            if (asked.Count == 0) continue;
+            var bolts = MemberStrength.Worst(asked.Select(each => (each.Name, (IEnumerable<StrengthCheck>)(us
+                ? HoldingDownAci(Math.Max(0, -each.Down), each.Shear, spacing, edge, thickness, strength).Checks
+                : HoldingDownEurocode(Math.Max(0, -each.Down), each.Shear, Math.Max(0, each.Down), spacing, edge, thickness, strength).Checks))));
+            if (bolts.Count == 0) continue;
+            yield return new JointCheck($"{member.Name} holding down", "Holding-down bolts", bolts,
+                us ? "4 3/4 in F1554 grade 36 anchor rods with heavy hex nuts" : "4 M20 grade 4.6 holding-down bolts, cast in 300 with 50 x 50 washer plates",
+                $"Taken as four at {spacing:0} square, {(edge > 1e8 ? "far from an edge" : $"{Math.Max(0, edge):0} from the pad's edge")}, the concrete cracked{(us ? "; concrete breakout in shear (17.7.2) and pryout are not worked out" : "; their bearing on the plate and the concrete's edge in shear are not worked out")}.");
         }
+    }
+
+    /// <summary>
+    /// Four M20 grade 4.6 holding-down bolts at a square spacing, cast in with 50 x 50 washer plates, what lifts the column and what pushes it along: by BS EN 1993-1-8 Table 3.4 each bolt's
+    /// tension, 0.9 fub As / γM2; the cone of concrete they pull out by BS EN 1992-4, k1 8.9 √fck hef^1.5 for cracked concrete, its area of (s + 2c)² against (3 hef)² with c no more than 1.5 hef and
+    /// an edge's ψs = 0.7 + 0.3 c / 1.5 hef, γMc 1.5; the washer plates pulling through, k2 7.5 Ah fck; the shear by 6.2.2(6) to (8), friction 0.2 of what bears with each bolt's αb fub As / γM2,
+    /// αb = 0.44 - 0.0003 fyb; and shear and tension together. BS EN 1992-4's figures as remembered.
+    /// </summary>
+    public static (IReadOnlyList<StrengthCheck> Checks, string Wants) HoldingDownEurocode(double uplift, double shear, double compression, double spacing, double edge, double thickness, double fck)
+    {
+        const int n = 4;
+        const double area = 245, fyb = 240, fub = 400, washer = 50;
+        var hef = Math.Min(300, Math.Max(100, thickness - 100));
+        var tension = 0.9 * fub * area / 1.25 / 1000;
+        var checks = new List<StrengthCheck>();
+        if (uplift > 0.01)
+        {
+            checks.Add(new StrengthCheck("Bolts in tension", uplift, n * tension, "kN", "BS EN 1993-1-8 Table 3.4", $"4 M20 grade 4.6, {tension:0.0} kN each"));
+            var reach = 1.5 * hef;
+            var near = Math.Min(Math.Max(edge, 0), reach);
+            var spread = Math.Min(Math.Pow(spacing + 2 * near, 2) / Math.Pow(2 * reach, 2), n);
+            var cone = 8.9 * Math.Sqrt(fck) * Math.Pow(hef, 1.5) / 1000 * spread * Math.Min(1, 0.7 + 0.3 * near / reach) / 1.5;
+            checks.Add(new StrengthCheck("Concrete cone", uplift, cone, "kN", "BS EN 1992-4 7.2.1.4", $"hef {hef:0} mm, cracked, k1 8.9, γMc 1.5"));
+            checks.Add(new StrengthCheck("Washer plates pulling through", uplift, n * 7.5 * (washer * washer - Math.PI * 22 * 22 / 4) * fck / 1000 / 1.5, "kN", "BS EN 1992-4 7.2.1.5", "k2 7.5, γMc 1.5"));
+        }
+
+        if (shear > 0.01)
+        {
+            var friction = 0.2 * Math.Max(0, compression);
+            var each = (0.44 - 0.0003 * fyb) * fub * area / 1.25 / 1000;
+            checks.Add(new StrengthCheck("Shear at the base", shear, friction + n * each, "kN", "BS EN 1993-1-8 6.2.2(6) to (8)", $"friction 0.2 x {Math.Max(0, compression):0} kN, {each:0.0} kN a bolt"));
+            if (uplift > 0.01)
+                checks.Add(new StrengthCheck("Bolts in shear and tension", Math.Max(0, shear - friction) / n / each + uplift / n / (1.4 * tension), 1, "", "BS EN 1993-1-8 Table 3.4"));
+        }
+
+        return (checks, "4 M20 grade 4.6 holding-down bolts");
+    }
+
+    /// <summary>
+    /// Four 3/4 in F1554 grade 36 anchor rods with heavy hex nuts, by ACI 318-19 Chapter 17: steel in tension, φ 0.75 Ase futa; concrete breakout, Nb = 10 √f'c hef^1.5 for a cast-in anchor in
+    /// cracked concrete, its projected area against 9 hef² and ψed,N = 0.7 + 0.3 ca,min / 1.5 hef, φ 0.70; pullout, 8 Abrg f'c, φ 0.70; steel in shear, 0.6 Ase futa by 0.8 for a grout pad, φ 0.65;
+    /// and the two together by 17.8.3. As remembered.
+    /// </summary>
+    public static (IReadOnlyList<StrengthCheck> Checks, string Wants) HoldingDownAci(double uplift, double shear, double spacing, double edge, double thickness, double fc)
+    {
+        const int n = 4;
+        const double area = 215.5, futa = 400, bearing = 422;
+        var hef = Math.Min(305, Math.Max(100, thickness - 75));
+        var checks = new List<StrengthCheck>();
+        var tension = double.PositiveInfinity;
+        if (uplift > 0.01)
+        {
+            var steel = 0.75 * n * area * futa / 1000;
+            var reach = 1.5 * hef;
+            var near = Math.Min(Math.Max(edge, 0), reach);
+            var spread = Math.Min(Math.Pow(spacing + 2 * near, 2) / Math.Pow(2 * reach, 2), n);
+            var breakout = 0.70 * 10 * Math.Sqrt(fc) * Math.Pow(hef, 1.5) / 1000 * spread * (edge < reach ? 0.7 + 0.3 * near / reach : 1);
+            var pullout = 0.70 * n * 8 * bearing * fc / 1000;
+            tension = Math.Min(steel, Math.Min(breakout, pullout));
+            checks.Add(new StrengthCheck("Anchor rods in tension", uplift, steel, "kN", "ACI 318-19 17.6.1", "4 3/4 in F1554 grade 36, φ 0.75"));
+            checks.Add(new StrengthCheck("Concrete breakout", uplift, breakout, "kN", "ACI 318-19 17.6.2", $"hef {hef:0} mm, cracked, φ 0.70"));
+            checks.Add(new StrengthCheck("Pullout", uplift, pullout, "kN", "ACI 318-19 17.6.3", "heavy hex nuts, φ 0.70"));
+        }
+
+        if (shear > 0.01)
+        {
+            var steelShear = 0.65 * n * 0.6 * area * futa * 0.8 / 1000;
+            checks.Add(new StrengthCheck("Anchor rods in shear", shear, steelShear, "kN", "ACI 318-19 17.7.1", "φ 0.65, 0.8 for a grout pad"));
+            if (uplift > 0.01 && uplift > 0.2 * tension && shear > 0.2 * steelShear)
+                checks.Add(new StrengthCheck("Tension and shear together", uplift / tension + shear / steelShear, 1.2, "", "ACI 318-19 17.8.3"));
+        }
+
+        return (checks, "4 3/4 in anchor rods");
+    }
+
+    /// <summary>
+    /// A US column's base plate under axial load by AISC Design Guide 1: the plate 6 in more than the column each way, the concrete bearing φ 0.65 x 0.85 f'c A1 (J8), and its thickness
+    /// l √(2 Pu / 0.9 Fy B N) with l the largest of m, n and n' = √(d bf) / 4, A36 plate.
+    /// </summary>
+    public static (StrengthCheck Check, string Wants) BasePlateAisc(double force, SteelSection column, double fc)
+    {
+        var (d, bf) = (column.H, column.B);
+        var (length, breadth) = (Math.Ceiling((d + 152.4) / 25.4) * 25.4, Math.Ceiling((bf + 152.4) / 25.4) * 25.4);
+        var bearing = 0.65 * 0.85 * fc * length * breadth / 1000;
+        var l = Math.Max((length - 0.95 * d) / 2, Math.Max((breadth - 0.8 * bf) / 2, Math.Sqrt(d * bf) / 4));
+        var need = l * Math.Sqrt(2 * force * 1000 / (0.9 * 250 * breadth * length));
+        var thick = new[] { 12.7, 15.875, 19.05, 22.225, 25.4, 31.75, 38.1, 44.45, 50.8 }.FirstOrDefault(t => t >= need, Math.Ceiling(need / 3.175) * 3.175);
+        return (new StrengthCheck("Column on its base plate", force, bearing, "kN", "AISC 360-16 J8, Design Guide 1", $"φ 0.65 x 0.85 f'c on {breadth / 25.4:0} x {length / 25.4:0} in"),
+            $"a base plate {breadth / 25.4:0} by {length / 25.4:0} by {thick / 25.4:0.###} in");
     }
 
     /// <summary>The lintel each opening in a masonry wall wants: what comes down on it spread along it, no arching taken, and its end on the wall.</summary>

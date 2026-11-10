@@ -4,12 +4,13 @@ using BIMDesigner.Core.Documents.Commands;
 namespace BIMDesigner.Core.Materials;
 
 /// <summary>What the Materials window changes of a material: its name, its cut colour, its face, and as masonry its strength and mortar.</summary>
-public readonly record struct MaterialLook(string Name, ColourRgb CutColour, SurfaceFinish Finish, double UnitStrength = 0, MortarClass Mortar = MortarClass.M4, double WaterAbsorption = 0)
+public readonly record struct MaterialLook(string Name, ColourRgb CutColour, SurfaceFinish Finish, double UnitStrength = 0, MortarClass Mortar = MortarClass.M4, double WaterAbsorption = 0,
+    MasonryGroup Group = MasonryGroup.Group1, UnitCategory Category = UnitCategory.CategoryII)
 {
-    public static MaterialLook Of(Material material) => new(material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption);
+    public static MaterialLook Of(Material material) => new(material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category);
 
     public void ApplyTo(Material material) =>
-        (material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption) = (Name, CutColour, Finish, UnitStrength, Mortar, WaterAbsorption);
+        (material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category) = (Name, CutColour, Finish, UnitStrength, Mortar, WaterAbsorption, Group, Category);
 }
 
 /// <summary>A material's name, colours and face changed as one step to undo.</summary>
@@ -57,7 +58,9 @@ public static class MaterialCopies
         Finish = original.Finish,
         UnitStrength = original.UnitStrength,
         Mortar = original.Mortar,
-        WaterAbsorption = original.WaterAbsorption
+        WaterAbsorption = original.WaterAbsorption,
+        Group = original.Group,
+        Category = original.Category
     };
 
     /// <summary>A name like the one given that no material of the project has yet: "Brick, Common 2".</summary>

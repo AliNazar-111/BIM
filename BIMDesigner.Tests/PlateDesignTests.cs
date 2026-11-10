@@ -397,10 +397,11 @@ public class PlateDesignTests
         var (wide, across) = (outline.Max(p => p.X) - outline.Min(p => p.X), outline.Max(p => p.Y) - outline.Min(p => p.Y));
         Assert.InRange(wide / across, 1.2, 1.3);
 
-        // Timoshenko's table, simply supported at b/a 1.25: My about 0.066 q a² across the short way. The walls hold its edges a little, so it comes in under, not over.
+        // Timoshenko's table, simply supported at b/a 1.25: My about 0.066 q a² across the short way. The walls hold its edges, so it comes in under, not over: about two thirds, block walls
+        // at E = 1000 fk with Table NA.4's K of 0.75 holding them more than at 0.55.
         var table = 0.066 * q * Math.Pow(across / 1000, 2);
         var moment = stretches.Max(stretch => stretch.MomentV) / 1000;
-        Assert.InRange(moment, 0.7 * table, 1.05 * table);
+        Assert.True(moment >= 0.6 * table && moment <= 1.05 * table, $"{moment / table:0.000} of the table");
     }
 
     [Fact]

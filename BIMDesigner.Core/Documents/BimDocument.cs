@@ -66,6 +66,9 @@ public sealed class ProjectInformation
     /// <summary>The building's risk category, ASCE 7-16 Table 1.5-1, I to IV: II for most.</summary>
     public int RiskCategory { get; set; } = 2;
 
+    /// <summary>The class of execution control of its masonry, 1 or 2, the UK National Annex to BS EN 1996-1-1 Table NA.1: 1 where a site has the supervision and testing that class asks, 2 otherwise - the worse, unless set.</summary>
+    public int MasonryExecutionClass { get; set; } = 2;
+
     /// <summary>What stands on the ground behind a retaining wall, kN/m²: a garden, a drive, a road. 5 to start.</summary>
     public double RetainedSurcharge { get; set; } = 5;
 

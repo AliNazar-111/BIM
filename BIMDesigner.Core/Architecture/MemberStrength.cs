@@ -80,7 +80,7 @@ public static class MemberStrength
             var (grade, by, checks, limits) = member.Section.Material.Kind switch
             {
                 AnalyticalMaterialKind.Steel => SteelChecks(member, us, lengths, stations),
-                AnalyticalMaterialKind.Timber => TimberChecks(member, us, lengths, stations),
+                AnalyticalMaterialKind.Timber => TimberChecks(member, us, lengths, stations, document),
                 AnalyticalMaterialKind.Concrete => ConcreteDesign.Checks(document, analysis, member, us, lengths, stations),
                 _ => (member.Section.Material.Quality, string.Empty, (IReadOnlyList<StrengthCheck>)Array.Empty<StrengthCheck>(), "Not checked: its material has no strengths here.")
             };
@@ -101,7 +101,7 @@ public static class MemberStrength
         return member.Section.Material.Kind switch
         {
             AnalyticalMaterialKind.Steel => SteelChecks(member, us, lengths, stations).Item3,
-            AnalyticalMaterialKind.Timber => TimberChecks(member, us, lengths, stations).Item3,
+            AnalyticalMaterialKind.Timber => TimberChecks(member, us, lengths, stations, document).Item3,
             _ => Array.Empty<StrengthCheck>()
         };
     }
@@ -135,8 +135,10 @@ public static class MemberStrength
         var whole = Math.Abs(lengths.LateralHogging - member.Length) < 1;
         var cbs = us && whole ? stations.GroupBy(station => station.Combination.Name).ToDictionary(group => group.Key, group => Cb(group.Select(station => station.Forces).ToList())) : null;
         var checks = Worst(stations.Select(station => (station.Combination.Name, us ? SteelDesign.Aisc(section, lengths, station.Forces, cbs?[station.Combination.Name] ?? 1) : SteelDesign.Eurocode(section, lengths, station.Forces))));
+        var twisted = section.IsI && stations.Count > 0 ? stations.Max(station => Math.Abs(station.Forces.T)) : 0;
         return (member.Section.Material.Quality, us ? "AISC 360-16, LRFD" : "BS EN 1993-1-1 and its UK National Annex", checks,
-            us ? "Connections, block shear and net-section rupture are not checked." : "Connections and the net section at bolt holes are not checked.");
+            (us ? "Connections, block shear and net-section rupture are not checked." : "Connections and the net section at bolt holes are not checked.")
+            + (twisted > 0.05 ? $" It is twisted, up to {twisted:0.00} kNm: an open section carries torsion mostly by warping, which is not worked out here." : string.Empty));
     }
 
     /// <summary>
@@ -152,18 +154,20 @@ public static class MemberStrength
         return most < 1e-9 ? 1 : Math.Min(3, 12.5 * most / (2.5 * most + 3 * At(0.25) + 4 * At(0.5) + 3 * At(0.75)));
     }
 
-    private static (string, string, IReadOnlyList<StrengthCheck>, string) TimberChecks(AnalyticalMember member, bool us, MemberLengths lengths, IReadOnlyList<(LoadCombination Combination, MemberForces Forces)> stations)
+    private static (string, string, IReadOnlyList<StrengthCheck>, string) TimberChecks(AnalyticalMember member, bool us, MemberLengths lengths, IReadOnlyList<(LoadCombination Combination, MemberForces Forces)> stations, BimDocument document)
     {
+        // A notch cut from its underside at its ends, where its type has one.
+        var (notch, notchLength) = member.Element is Beam { } drawn && document.FindType<BeamType>(drawn.TypeId) is { EndNotch: > 0 } notched ? (notched.EndNotch, notched.EndNotchLength) : (0.0, 0.0);
         var quality = member.Section.Material.Quality;
         if (member.Section.Shape != "Rectangle" || member.Section.Dimensions.Count < 2)
             return (quality, string.Empty, Array.Empty<StrengthCheck>(), $"Not checked: timber is worked out here as a rectangle, not a {member.Section.Shape}.");
         var (depth, width) = (member.Section.Dimensions[0], member.Section.Dimensions[1]);
         var joist = member.Kind == AnalyticalMemberKind.Joist;
         var glulam = quality is "GL24h" or "24F-1.8E";
-        var limits = "Bearing at its supports, notches and connections are not checked.";
+        var limits = notch > 0 ? "Bearing at its supports and connections are not checked." : "Bearing at its supports and connections are not checked; it has no notch.";
         if (us)
         {
-            var checks = Worst(stations.Select(station => (station.Combination.Name, TimberDesign.Nds(depth, width, glulam, joist, member.Kind == AnalyticalMemberKind.Column, lengths, member.Length, station.Forces, TimberDesign.TimeEffect(station.Combination)))));
+            var checks = Worst(stations.Select(station => (station.Combination.Name, TimberDesign.Nds(depth, width, glulam, joist, member.Kind == AnalyticalMemberKind.Column, lengths, member.Length, station.Forces, notch: notch, lambda: TimberDesign.TimeEffect(station.Combination)))));
             if (glulam && stations.Any(station => Math.Abs(station.Forces.N) > 0.5))
                 limits = "Its axial force is not checked: NDS Table 5A's compression and tension values for 24F-1.8E were not to hand. " + limits;
             return (quality, "NDS 2018, LRFD format", checks, limits);
@@ -171,7 +175,7 @@ public static class MemberStrength
 
         var grade = glulam ? TimberDesign.Gl24h : TimberDesign.C24;
         return (quality, "BS EN 1995-1-1 and its UK National Annex",
-            Worst(stations.Select(station => (station.Combination.Name, TimberDesign.Eurocode(grade, depth, width, joist, lengths, station.Forces, TimberDesign.Kmod(station.Combination))))), limits);
+            Worst(stations.Select(station => (station.Combination.Name, TimberDesign.Eurocode(grade, depth, width, joist, lengths, station.Forces, TimberDesign.Kmod(station.Combination), notch, notchLength)))), limits);
     }
 
     // ---- what holds a member ------------------------------------------------------------

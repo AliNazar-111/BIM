@@ -43,6 +43,13 @@ public enum BeamJustification
 /// A beam type: its section - a steel universal beam or wide flange, or a rectangle of timber,
 /// glulam or concrete - its sizes, and what it is made of.
 /// </summary>
+/// <summary>How a steel beam's end is joined to what holds it, where the joint is a simple one: a partial depth end plate, or a fin plate welded to the support.</summary>
+public enum BeamConnection
+{
+    EndPlate,
+    FinPlate
+}
+
 public sealed class BeamType : ElementType
 {
     public BeamType(string name) : base(name)
@@ -73,6 +80,15 @@ public sealed class BeamType : ElementType
     /// <summary>Fire resistance period the member has as it is protected, e.g. "60 min", tested with what is on it. Free text, as on drawings. None for a bare member.</summary>
     public string FireRating { get; set; } = string.Empty;
 
+    /// <summary>How deep a notch is cut out of its underside at each end, over its bearing or into a hanger, mm; none for a member left whole.</summary>
+    public double EndNotch { get; set; }
+
+    /// <summary>How far that notch runs in, mm, from the middle of the bearing to its corner - BS EN 1995-1-1 Figure 6.11's x.</summary>
+    public double EndNotchLength { get; set; }
+
+    /// <summary>How a steel one is joined at a simple end: by a partial depth end plate, the usual, or by a fin plate.</summary>
+    public BeamConnection Connection { get; set; } = BeamConnection.EndPlate;
+
     /// <summary>The area of its section, mm²: an I's flanges and web, root radii left out.</summary>
     public double SectionArea => Section == BeamSection.IBeam
         ? 2 * Width * FlangeThickness + Math.Max(0, Depth - 2 * FlangeThickness) * WebThickness
@@ -100,7 +116,7 @@ public sealed class BeamType : ElementType
     public BeamType Duplicate(string name) => WithCommonOf(new BeamType(name)
     {
         Section = Section, Material = Material, Depth = Depth, Width = Width, WebThickness = WebThickness,
-        FlangeThickness = FlangeThickness, MaterialId = MaterialId, FireRating = FireRating
+        FlangeThickness = FlangeThickness, MaterialId = MaterialId, FireRating = FireRating, EndNotch = EndNotch, EndNotchLength = EndNotchLength, Connection = Connection
     });
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
@@ -120,6 +136,12 @@ public sealed class BeamType : ElementType
         yield return ParameterValue.ReadOnly(BeamTypeParameters.SectionArea, () => SectionArea);
         yield return ParameterValue.ReadOnly(BeamTypeParameters.Mass, () => Math.Round(MassPerMetre, 1));
         yield return ParameterValue.Bind(BeamTypeParameters.FireRating, () => FireRating, v => FireRating = v.Trim());
+        yield return Size(BeamTypeParameters.EndNotch, () => EndNotch, v => EndNotch = v, 0, Math.Max(0, Depth - 20));
+        yield return Size(BeamTypeParameters.EndNotchLength, () => EndNotchLength, v => EndNotchLength = v, 0, 2000);
+        yield return ParameterValue.BindChoice(BeamTypeParameters.Connection,
+            () => EnumText.Humanise(Connection),
+            v => { if (EnumText.TryParse<BeamConnection>(v, out var connection)) Connection = connection; },
+            EnumText.Choices<BeamConnection>());
 
         if (document is not null)
         {
@@ -197,6 +219,9 @@ public static class BeamTypeParameters
     public static readonly ParameterDefinition SectionArea = new("Section Area", ParameterDataType.Area, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition Mass = new("Mass per Metre", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition FireRating = new("Fire Rating", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+    public static readonly ParameterDefinition EndNotch = new("End Notch Depth", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition EndNotchLength = new("End Notch Length", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Connection = new("End Connection", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 }
 
 /// <summary>

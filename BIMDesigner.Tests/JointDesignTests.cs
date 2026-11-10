@@ -315,7 +315,7 @@ public class JointDesignTests
         Steel(document, new Point2D(5000, 0), new Point2D(5000, 4000));
         var plate = Joints(document).Single(each => each.Kind == "Steel end plate");
         Assert.Contains("M20 8.8", plate.Wants);
-        Assert.Equal(6, plate.Checks.Count);
+        Assert.Equal(7, plate.Checks.Count);
     }
 
     [Fact]

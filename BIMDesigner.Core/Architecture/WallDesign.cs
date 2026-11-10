@@ -230,6 +230,33 @@ public static class ConcreteWallDesign
 {
     private const double Psi = 0.00689476;
 
+    /// <summary>
+    /// A metre of plain concrete wall by BS EN 1992-1-1 12.6.5.2, kN: NRd = b hw fcd,pl Φ with Φ = 1.14 (1 - 2 etot / hw) - 0.02 l0 / hw, no more than 1 - 2 etot / hw, (12.10) and (12.11);
+    /// fcd,pl = αcc,pl fck / γC with the UK National Annex's αcc,pl 0.6 as remembered, etot = e0 + l0 / 400.
+    /// </summary>
+    public static double PlainEurocode(double fck, double thickness, double effectiveLength, double eccentricity)
+    {
+        var total = eccentricity + effectiveLength / 400;
+        var phi = Math.Max(0, Math.Min(1.14 * (1 - 2 * total / thickness) - 0.02 * effectiveLength / thickness, 1 - 2 * total / thickness));
+        return 1000 * thickness * 0.6 * fck / 1.5 * phi / 1000;
+    }
+
+    /// <summary>
+    /// Plain concrete in shear in its plane by BS EN 1992-1-1 12.6.3, kN over a compressed area: fcvd = √(fctd,pl² + σcp fctd,pl) while σcp is no more than σc,lim = fcd,pl - 2 √(fctd,pl
+    /// (fctd,pl + fcd,pl)), the shear's peak 1.5 times its average; fctd,pl = αct,pl fctk,0.05 / γC with αct,pl 0.6, fctk,0.05 = 0.7 x 0.30 fck^(2/3).
+    /// </summary>
+    public static double PlainShearEurocode(double fck, double area, double stress)
+    {
+        var tension = 0.6 * 0.7 * 0.30 * Math.Pow(fck, 2.0 / 3) / 1.5;
+        var compression = 0.6 * fck / 1.5;
+        var limit = compression - 2 * Math.Sqrt(tension * (tension + compression));
+        var fcvd = Math.Sqrt(tension * tension + Math.Min(Math.Max(0, stress), Math.Max(0, limit)) * tension);
+        return fcvd * area / 1.5 / 1000;
+    }
+
+    /// <summary>ACI 318-19 (14.5.3.1), φ 0.60, kN per metre: 0.45 f'c Ag (1 - (lc / 32 h)²), a plain wall with its load's resultant in its middle third.</summary>
+    public static double PlainAci(double fc, double thickness, double length) => 0.60 * 0.45 * fc * thickness * (1 - Math.Pow(length / (32 * thickness), 2));
+
     /// <summary>ACI 318-19 (11.5.3.1), φ 0.65, kN per metre: 0.55 f'c Ag (1 - (k lc / 32 h)²).</summary>
     public static double SimplifiedAci(double fc, double thickness, double length, double k) =>
         0.65 * 0.55 * fc * thickness * (1 - Math.Pow(k * length / (32 * thickness), 2));
@@ -275,10 +302,46 @@ public static class ConcreteWallDesign
             yield return new StrengthCheck("Shear in its plane", shear, carries, "kN", us ? "11.5.4.5" : "6.2.2", $"{solid.Sum() / 1000:0.0} m of it, no links");
         }
 
-        var worst = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Under(entry.Bands)))).ToList();
+        // Plain first: where every metre stands without bars, by BS EN 1992-1-1 12.6.5.2 or ACI 318-19 14.5.3, its load in its middle third, and its plane by 12.6.3, it is a plain wall.
+        IEnumerable<StrengthCheck> Plain(IReadOnlyList<WallStretch> stretches)
+        {
+            foreach (var band in stretches)
+            {
+                var (load, moment) = (Math.Max(0, -band.Vertical), Math.Abs(band.MomentVertical) / 1000);
+                if (load <= 0.01) continue;
+                var eccentric = moment * 1000 / load;
+                if (us)
+                    yield return eccentric <= t / 6
+                        ? new StrengthCheck("Load as plain concrete", load, PlainAci(fc, t, height), "kN/m", "14.5.3.1", $"its load {eccentric:0} mm off centre, in its middle third")
+                        : new StrengthCheck("Load as plain concrete", eccentric, t / 6, "mm", "14.5.3.1", "its load outside its middle third");
+                else
+                    yield return new StrengthCheck("Load as plain concrete", load, PlainEurocode(fc, t, effective, eccentric), "kN/m", "12.6.5.2, (12.10)", $"etot {eccentric + effective / 400:0} mm");
+            }
+
+            if (!us)
+            {
+                yield return new StrengthCheck("Slenderness as plain concrete", effective / t * Math.Sqrt(12), 86, "λ", "12.6.5.1(5)", $"l0 {effective:0} mm");
+                var level = stretches.Where(stretch => stretch.Level == 0).ToList();
+                var shear = Math.Abs(level.Sum(stretch => stretch.Shear * stretch.Length)) / 1000;
+                var compressed = level.Where(stretch => stretch.Vertical < 0).ToList();
+                var area = compressed.Sum(stretch => stretch.Length) * t;
+                var stress = area > 0 ? compressed.Sum(stretch => -stretch.Vertical * stretch.Length) / area : 0;
+                yield return new StrengthCheck("Shear in its plane as plain concrete", shear, PlainShearEurocode(fc, area, stress), "kN", "12.6.3", $"{area / t / 1000:0.0} m in compression");
+            }
+        }
+
+        var plain = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Plain(entry.Bands)))).ToList();
         var flat = panel.FlatOutline;
+        if (us && plain.Count > 0)
+            plain.Insert(0, new StrengthCheck("Least thickness", Math.Max(139.7, Math.Min(height, flat.Max(p => p.X) - flat.Min(p => p.X)) / 24), t, "mm", "Table 14.3.1.1", "a plain bearing wall's: 5.5 in or 1/24 of its height or length, as remembered"));
+        if (plain.Count > 0 && plain.All(check => check.Ratio <= 1))
+            return new WallCheck(panel, $"{panel.Material.Quality}, plain", us ? "ACI 318-19 Chapter 14" : "BS EN 1992-1-1 Section 12 and its UK National Annex", plain, effective, t,
+                $"It stands as plain concrete, no bars needed for strength{(us ? " (14.5.3.1)" : " (12.6.5.2); a reinforced wall's least steel, 0.002 Ac, is for one that is reinforced (9.6.2)")}. Taken as pinned top and foot; αcc,pl and αct,pl as remembered.");
+
+        var worst = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Under(entry.Bands)))).ToList();
+        var plainSaid = plain.Count == 0 ? string.Empty : $" As plain concrete it would not stand: {plain.MaxBy(check => check.Ratio)!.Name}, {plain.Max(check => check.Ratio):P0}.";
         if (us) worst.Insert(0, new StrengthCheck("Least thickness", Math.Max(100, Math.Min(height, flat.Max(p => p.X) - flat.Min(p => p.X)) / 25), t, "mm", "Table 11.3.1.1", "a bearing wall's, unless analysis shows a thinner one stands"));
         return new WallCheck(panel, panel.Material.Quality, us ? "ACI 318-19" : "BS EN 1992-1-1 and its UK National Annex", worst, effective, t,
-            $"No bars are in the model: the steel said is what each metre of it comes to, each face half, with {(us ? "at least 0.0020" : "a quarter of it or 0.001, the greater,")} along it. Taken as pinned top and foot.{(us ? string.Empty : " Its slenderness goes in by nominal curvature: BS EN 1992-1-1 limits a plain wall's, 12.6.5.1(5), and not a reinforced one's.")}");
+            $"No bars are in the model: the steel said is what each metre of it comes to, each face half, with {(us ? "at least 0.0020" : "a quarter of it or 0.001, the greater,")} along it. Taken as pinned top and foot.{(us ? string.Empty : " Its slenderness goes in by nominal curvature: BS EN 1992-1-1 limits a plain wall's, 12.6.5.1(5), and not a reinforced one's.")}{plainSaid}");
     }
 }

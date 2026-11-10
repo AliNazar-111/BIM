@@ -23,12 +23,25 @@ public class MasonryTests
     [Fact]
     public void TheCharacteristicStrengthIsTheNationalAnnexs()
     {
-        // K 0.55 for concrete and aircrete units of Group 1, 0.50 for clay (Table NA.4), fk = K fb^0.7 fm^0.3 in M4.
-        Assert.Equal((0.55, false), (Aircrete.K, Aircrete.Clay));
+        // K by Table NA.4 as the Concrete Centre's guide 2 prints it: 0.75 for aggregate concrete and aircrete units of Group 1, 0.50 for clay, fk = K fb^0.7 fm^0.3 in M4.
+        Assert.Equal((0.75, false), (Aircrete.K, Aircrete.Clay));
         Assert.Equal((0.50, true), (Brick.K, Brick.Clay));
-        Assert.Equal(2.04, MasonryDesign.Characteristic(Aircrete), 2);
-        Assert.Equal(3.35, MasonryDesign.Characteristic(Block), 2);
+        Assert.Equal(0.75 * Math.Pow(3.6, 0.7) * Math.Pow(4, 0.3), MasonryDesign.Characteristic(Aircrete), 6);
+        Assert.Equal(0.75 * Math.Pow(7.3, 0.7) * Math.Pow(4, 0.3), MasonryDesign.Characteristic(Block), 6);
         Assert.Equal(6.17, MasonryDesign.Characteristic(Brick), 2);
+
+        // Group 2: 0.70 for aggregate concrete, 0.40 for clay and calcium silicate; a calcium silicate brick 0.50 in Group 1, its bending strengths its own.
+        Assert.Equal(0.70, MasonryDesign.UnitOf("Concrete Block", group: MasonryGroup.Group2).K);
+        Assert.Equal(0.40, MasonryDesign.UnitOf("Brick, Common", group: MasonryGroup.Group2).K);
+        var silicate = MasonryDesign.UnitOf("Brick, Calcium Silicate");
+        Assert.Equal((0.50, false, true), (silicate.K, silicate.Clay, silicate.BrickSized));
+        Assert.Equal((0.3, 0.9), MasonryDesign.FlexuralStrengths(silicate, 102));
+        Assert.Equal((0.2, 0.6), MasonryDesign.FlexuralStrengths(silicate with { Mortar = MortarClass.M2 }, 102));
+
+        // γM by Table NA.1: Category II units in class 2 the worse, 3.0, 2.7 and 2.5; Category I in class 1 2.3 throughout but shear.
+        Assert.Equal((3.0, 2.7, 2.5), MasonryDesign.Gammas(UnitCategory.CategoryII, 2));
+        Assert.Equal((2.3, 2.3, 2.5), MasonryDesign.Gammas(UnitCategory.CategoryI, 1));
+        Assert.Equal((2.6, 2.3, 2.5), MasonryDesign.Gammas(UnitCategory.CategoryII, 1));
     }
 
     [Fact]
@@ -95,7 +108,7 @@ public class MasonryTests
         Assert.Equal(100, foot.Demand, 6);
         Assert.Equal((1 - 2 * Math.Max(2800.0 / 450, 0.05 * t) / t) * t * fd, foot.Capacity, 3);
 
-        // At mid height, Annex G; a moment shifts the load, wind left out of it.
+        // At mid height, Annex G; the floors' moment shifts the load, the wind left out of it - that is the flexural check's.
         var middle = new WallStretch(false, -100, 0, 500, 0, 700);
         var mid = MasonryDesign.Checks(Block, t, null, 0, 2800, 140, middle).Single(check => check.Name == "Load at mid height");
         var eccentric = 700.0 / 100 + 2800.0 / 450;
@@ -208,18 +221,23 @@ public class MasonryTests
             // A 140 aircrete leaf and a 100 brick one, 3 m high, held top and foot.
             Assert.Equal(155.3, check.EffectiveThickness, 1);
             Assert.InRange(check.EffectiveHeight / 3000, 0.5, 1);
-            foreach (var name in new[] { "Slenderness", "Load at its top or foot", "Load at mid height", "Bending up its height", "Bending along its length", "Shear in its plane" })
+            foreach (var name in new[] { "Slenderness", "Load at its top or foot", "Load at mid height", "Shear in its plane" })
                 Assert.Contains(check.Checks, each => each.Name == name);
+
+            // Its bending under the wind: by Annex E where it has no openings, from the plate's moments where it has.
+            var bent = check.Panel.Cuts.Count == 0 ? new[] { "Wind, plane along the bed joints", "Wind, plane across the bed joints" } : new[] { "Bending up its height", "Bending along its length" };
+            foreach (var name in bent) Assert.Contains(check.Checks, each => each.Name == name);
             Assert.All(check.Checks, each => Assert.False(double.IsNaN(each.Ratio), each.Name));
 
             // The load down it is well within what it carries; shear too.
-            Assert.True(check.Checks.Single(each => each.Name == "Load at mid height").Ratio < 0.6);
+            var midHeight = check.Checks.Single(each => each.Name == "Load at mid height");
+            Assert.True(midHeight.Ratio < 0.6, $"{midHeight.Ratio:P0} {midHeight.Note} {midHeight.Under}");
             Assert.True(check.Checks.Single(each => each.Name == "Shear in its plane").Ratio < 1);
         }
 
         // Long walls with no cross wall to span to bend up their height under the wind, about wh²/8: near what they can carry, and past it where a side wall is drawn off by zones A to C,
         // about 0.8 qp along it, where the wall into the wind is pressed at 0.85 x 0.7.
-        var bending = checks.Max(check => check.Checks.Single(each => each.Name == "Bending up its height").Ratio);
+        var bending = checks.Max(check => check.Checks.Where(each => each.Name is "Bending up its height" or "Wind, plane along the bed joints" or "Wind, plane across the bed joints").Max(each => each.Ratio));
         Assert.InRange(bending, 0.6, 2.0);
     }
 
@@ -265,10 +283,12 @@ public class MasonryTests
         var block = document.Materials.First(material => material.Name == "Concrete Block");
         Assert.Equal((7.3, MortarClass.M4), (MasonryDesign.UnitOf(block).Fb, MasonryDesign.UnitOf(block).Mortar));
 
-        // 10.4 in M6: fk = 0.55 x 10.4^0.7 x 6^0.3.
+        // 10.4 in M6: fk = 0.75 x 10.4^0.7 x 6^0.3; in Group 2, 0.70.
         var command = new SetMaterialCommand(block, MaterialLook.Of(block) with { UnitStrength = 10.4, Mortar = MortarClass.M6 });
         command.Redo();
-        Assert.Equal(0.55 * Math.Pow(10.4, 0.7) * Math.Pow(6, 0.3), MasonryDesign.Characteristic(MasonryDesign.UnitOf(block)), 6);
+        Assert.Equal(0.75 * Math.Pow(10.4, 0.7) * Math.Pow(6, 0.3), MasonryDesign.Characteristic(MasonryDesign.UnitOf(block)), 6);
+        new SetMaterialCommand(block, MaterialLook.Of(block) with { Group = MasonryGroup.Group2, Category = UnitCategory.CategoryI }).Redo();
+        Assert.Equal((0.70, UnitCategory.CategoryI), (MasonryDesign.UnitOf(block).K, MasonryDesign.UnitOf(block).Category));
 
         // One step to undo; a copy keeps it; the project keeps it.
         var copy = MaterialCopies.Copy(block, "Block 2");
@@ -385,7 +405,7 @@ public class MasonryTests
     {
         double Worst(BimDocument document, bool meets) => Checked(document).Checks
             .Where(check => check.Panel.Element is Wall wall && Math.Abs(wall.End.Y - wall.Start.Y) < 1 == meets)
-            .Max(check => check.Checks.Single(each => each.Name == "Bending up its height").Ratio);
+            .Max(check => check.Checks.Where(each => each.Name is "Bending up its height" or "Wind, plane along the bed joints" or "Wind, plane across the bed joints").Max(each => each.Ratio));
 
         // Studs have no such stiffness; block across the same line eases the long walls it meets, each now a shorter panel.
         var (stud, _) = Crossed("Timber, Softwood", 100);

@@ -91,6 +91,7 @@ public static partial class ProjectFile
                 SeismicSs = document.ProjectInformation.SeismicSs,
                 SeismicS1 = document.ProjectInformation.SeismicS1,
                 SiteClass = document.ProjectInformation.SiteClass.ToString(),
+                MasonryExecutionClass = document.ProjectInformation.MasonryExecutionClass,
                 RiskCategory = document.ProjectInformation.RiskCategory,
                 WaterPressure = document.ProjectInformation.WaterPressure,
                 WindPressure = document.ProjectInformation.WindPressure,
@@ -140,6 +141,8 @@ public static partial class ProjectFile
                 UnitStrength = material.UnitStrength,
                 Mortar = material.Mortar == MortarClass.M4 ? null : material.Mortar.ToString(),
                 WaterAbsorption = material.WaterAbsorption,
+                Group = material.Group.ToString(),
+                Category = material.Category.ToString(),
                 JointColour = material.JointColour.ToString(),
                 Reflectance = material.Reflectance
             });
@@ -448,7 +451,7 @@ public static partial class ProjectFile
             {
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Section = type.Section.ToString(), Material = type.Material.ToString(),
                 Depth = type.Depth, Width = type.Width, WebThickness = type.WebThickness, FlangeThickness = type.FlangeThickness,
-                MaterialId = type.MaterialId, FireRating = type.FireRating, Cost = type.Cost, Description = type.Description
+                MaterialId = type.MaterialId, FireRating = type.FireRating, EndNotch = type.EndNotch, EndNotchLength = type.EndNotchLength, Connection = type.Connection.ToString(), Cost = type.Cost, Description = type.Description
             });
 
         foreach (var beam in document.All<Beam>())
@@ -1813,6 +1816,7 @@ public static partial class ProjectFile
         document.ProjectInformation.SeismicS1 = double.IsFinite(dto.Project.SeismicS1) && dto.Project.SeismicS1 is >= 0 and <= 3 ? dto.Project.SeismicS1 : 0;
         document.ProjectInformation.SiteClass = ParseEnum(dto.Project.SiteClass, BIMDesigner.Core.Architecture.SiteClass.D);
         document.ProjectInformation.RiskCategory = dto.Project.RiskCategory is >= 1 and <= 4 ? dto.Project.RiskCategory : 2;
+        document.ProjectInformation.MasonryExecutionClass = dto.Project.MasonryExecutionClass is 1 or 2 ? dto.Project.MasonryExecutionClass : 2;
         document.ProjectInformation.RetainedFriction = double.IsFinite(dto.Project.RetainedFriction) && dto.Project.RetainedFriction is >= 10 and <= 45 ? dto.Project.RetainedFriction : 0;
         document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
@@ -1868,6 +1872,8 @@ public static partial class ProjectFile
                 read.UnitStrength = Finite(material.UnitStrength, 0, 110);
                 read.Mortar = ParseEnum(material.Mortar, MortarClass.M4);
                 read.WaterAbsorption = Finite(material.WaterAbsorption, 0, 100);
+                read.Group = ParseEnum(material.Group, MasonryGroup.Group1);
+                read.Category = ParseEnum(material.Category, UnitCategory.CategoryII);
                 read.JointColour = ParseColour(material.JointColour, new ColourRgb(0xC8, 0xC2, 0xB4));
                 read.Reflectance = Finite(material.Reflectance, 0, 1);
             }
@@ -2085,6 +2091,7 @@ public static partial class ProjectFile
                 Id = type.Id, TypeMark = type.TypeMark, Section = ParseEnum(type.Section, BeamSection.Rectangular), Material = ParseEnum(type.Material, BeamMaterial.Timber),
                 Depth = Size(type.Depth, 50, 2000, 225), Width = Size(type.Width, 20, 1000, 75),
                 WebThickness = Size(type.WebThickness, 0, 100, 0), FlangeThickness = Size(type.FlangeThickness, 0, 100, 0),
+                EndNotch = Size(type.EndNotch, 0, 2000, 0), EndNotchLength = Size(type.EndNotchLength, 0, 2000, 0), Connection = ParseEnum(type.Connection, BeamConnection.EndPlate),
                 MaterialId = type.MaterialId, FireRating = type.FireRating ?? string.Empty, Cost = type.Cost, Description = type.Description ?? string.Empty
             });
         }

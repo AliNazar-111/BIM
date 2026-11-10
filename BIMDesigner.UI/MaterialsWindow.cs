@@ -39,6 +39,8 @@ internal sealed class MaterialsWindow : System.Windows.Window
     private readonly TextBox _strength = new() { Width = 80 };
     private readonly ComboBox _mortar = new() { Width = 80, ItemsSource = Enum.GetValues<MortarClass>().Select(mortar => mortar.ToString()).ToList() };
     private readonly TextBox _absorption = new() { Width = 80 };
+    private readonly ComboBox _group = new() { Width = 80, ItemsSource = new[] { "Group 1", "Group 2" } };
+    private readonly ComboBox _category = new() { Width = 80, ItemsSource = new[] { "Category I", "Category II" } };
     private readonly TextBlock _masonrySaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
     private readonly Border _surfaceSwatch = Swatch(), _cutSwatch = Swatch(), _jointSwatch = Swatch();
     private readonly Rectangle _preview = new() { Width = PreviewPx, Height = PreviewPx, Stroke = Brushes.Gray, StrokeThickness = 1 };
@@ -101,6 +103,8 @@ internal sealed class MaterialsWindow : System.Windows.Window
         Row(Label("Unit strength, N/mm²"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _strength, _masonrySaid } }, "A masonry unit's declared compressive strength: 3.6 or 7.3 for a block, 20 and up for a brick");
         Row(Label("Mortar"), _mortar, "The mortar it is laid in: what its strength in compression, bending and shear are worked from");
         Row(Label("Water absorption, %"), _absorption, "A clay unit's: under 7%, 7% to 12% or over 12% set its bending strength (Table NA.6)");
+        Row(Label("Group"), _group, "Its holes by BS EN 1996-1-1 Table 3.1, as its maker declares: what K takes in fk (Table NA.4)");
+        Row(Label("Category"), _category, "Its maker's control of its strength, Category I or II: what γM takes with the project's class of execution (Table NA.1)");
         var caption = new TextBlock { Text = $"A {Units.FormatLength(PreviewMm)} square of it", Opacity = 0.7, Margin = new Thickness(0, 4, 0, 0) };
         var preview = new StackPanel { Margin = new Thickness(6, 12, 16, 8), Children = { _preview, caption } };
 
@@ -117,6 +121,8 @@ internal sealed class MaterialsWindow : System.Windows.Window
 
         _pattern.SelectionChanged += (_, _) => ChangePattern();
         _mortar.SelectionChanged += (_, _) => Commit();
+        _group.SelectionChanged += (_, _) => Commit();
+        _category.SelectionChanged += (_, _) => Commit();
 
         var make = new Button { Content = "New" };
         make.Click += (_, _) => Add(null);
@@ -185,7 +191,9 @@ internal sealed class MaterialsWindow : System.Windows.Window
         foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance }) box.IsEnabled = material is not null;
         _pattern.IsEnabled = material is not null;
         var masonry = material is not null && AnalyticalModel.MaterialOf(_main.Document, material).Kind == AnalyticalMaterialKind.Masonry;
-        _strength.IsEnabled = _mortar.IsEnabled = masonry;
+        _strength.IsEnabled = _mortar.IsEnabled = _group.IsEnabled = _category.IsEnabled = masonry;
+        _group.SelectedIndex = masonry ? (int)material!.Group : -1;
+        _category.SelectedIndex = masonry ? (int)material!.Category : -1;
         var unit = masonry ? MasonryDesign.UnitOf(material!) : null;
         _absorption.IsEnabled = unit?.Clay == true;
         _strength.Text = unit is null ? string.Empty : unit.Fb.ToString("0.#", CultureInfo.CurrentCulture);
@@ -272,6 +280,8 @@ internal sealed class MaterialsWindow : System.Windows.Window
             if (double.TryParse(_strength.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var strength) && strength is > 0 and <= 110)
                 look = look with { UnitStrength = Math.Abs(strength - named.Fb) < 1e-9 ? 0 : strength };
             if (_mortar.SelectedIndex >= 0) look = look with { Mortar = (MortarClass)_mortar.SelectedIndex };
+            if (_group.SelectedIndex >= 0) look = look with { Group = (MasonryGroup)_group.SelectedIndex };
+            if (_category.SelectedIndex >= 0) look = look with { Category = (UnitCategory)_category.SelectedIndex };
             if (_absorption.IsEnabled && double.TryParse(_absorption.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var absorption) && absorption is > 0 and <= 100)
                 look = look with { WaterAbsorption = Math.Abs(absorption - named.Absorption) < 1e-9 ? 0 : absorption };
         }

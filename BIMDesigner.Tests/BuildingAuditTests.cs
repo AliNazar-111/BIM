@@ -150,7 +150,7 @@ public class BuildingAuditTests
         var audit = Audit(d);
         var walls = MasonryDesign.Of(d, audit.Second).Where(check => check.Checks.Count > 0).ToList();
         Assert.NotEmpty(walls);
-        Assert.All(walls, wall => Assert.True(wall.Checks.Single(each => each.Name == "Shear in its plane").Ratio < 1, wall.Panel.Name));
+        Assert.All(walls, wall => Assert.True(wall.Checks.Single(each => each.Name.StartsWith("Shear in its plane", StringComparison.Ordinal)).Ratio < 1, wall.Panel.Name));
     }
 
     private static BimDocument SteelFrame(double past)

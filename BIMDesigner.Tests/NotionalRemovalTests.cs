@@ -118,6 +118,9 @@ public class NotionalRemovalTests
         // Five storeys of flats is Class 2b. The party wall across the middle splits the front and back walls in two where it meets them; it is 8.2 m long inside the outer walls' faces and an internal
         // wall, so no more than 2.25 × 3 m = 6.75 m at a time: two lengths of 4.1 m. The ends are a length each. Eight a storey, forty in all.
         var d = Flats(5);
+
+        // In lightweight blocks of 3.6 N/mm², K 0.75 by Table NA.4.
+        foreach (var block in d.Materials.Where(material => material.Name.Contains("Block", StringComparison.Ordinal))) block.UnitStrength = 3.6;
         var model = AnalyticalModel.Of(d);
         var analysis = StructuralAnalysis.Run(d, model, StructuralLoading.Of(d, model));
         var walls = MasonryDesign.Of(d, SecondOrderAnalysis.Run(d, analysis));

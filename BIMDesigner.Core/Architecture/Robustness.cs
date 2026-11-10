@@ -73,7 +73,7 @@ public static class Robustness
         }).DefaultIfEmpty(0).Max();
 
     /// <summary>The most a column takes from any one storey under a combination, kN, A.6(2): the steps in its load up its length, and at its top what lands there beyond what the column above brings down.</summary>
-    private static double LargestStorey(StructuralAnalysis analysis, AnalyticalMember member, object loading)
+    internal static double LargestStorey(StructuralAnalysis analysis, AnalyticalMember member, object loading)
     {
         IReadOnlyList<(double Bottom, double Top)> LoadsUp(AnalyticalMember column)
         {

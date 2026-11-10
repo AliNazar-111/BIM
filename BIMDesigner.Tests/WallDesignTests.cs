@@ -82,12 +82,18 @@ public class WallDesignTests
         Assert.InRange(JointDesign.WebBearingAisc(Ub254, 200, false), 505, 520);
     }
 
-    private static BimDocument House(string wall, ClearanceStandard? standard = null)
+    private static BimDocument House(string wall, ClearanceStandard? standard = null, bool tall = false)
     {
         var document = BimDocument.CreateDefault();
         if (standard is { } each) document.ProjectInformation.ClearanceStandard = each;
         document.ProjectInformation.Ground = GroundType.StiffClay;
         var (ground, first) = (document.Levels[0].Id, document.Levels[1].Id);
+        if (tall)
+        {
+            var high = new BIMDesigner.Core.Datums.Level { Name = "High", Elevation = 6000 };
+            document.AddLevel(high);
+            first = high.Id;
+        }
         var type = document.TypesOf<WallType>().First(t => t.Name.StartsWith(wall, StringComparison.Ordinal));
         var corners = new[] { new Point2D(0, 0), new Point2D(10000, 0), new Point2D(10000, 8000), new Point2D(0, 8000) };
         var walls = Enumerable.Range(0, 4).Select(i => new Wall { Start = corners[i], End = corners[(i + 1) % 4], TypeId = type.Id, LevelId = ground, TopLevelId = first, StructuralUsage = StructuralUsage.Bearing }).ToList();
@@ -234,9 +240,41 @@ public class WallDesignTests
     }
 
     [Fact]
+    public void AConcreteWallStandsAsPlainConcreteWhereItCan()
+    {
+        // A 3 m generic wall under a house's roof stands without bars by BS EN 1992-1-1 12.6.5.2: each metre, its slenderness under 86, its plane by 12.6.3.
+        var document = House("Generic");
+        var (_, _, second) = Analysed(document);
+        Assert.All(MasonryDesign.Of(document, second), wall =>
+        {
+            Assert.Contains("plain", wall.Grade);
+            Assert.Contains(wall.Checks, check => check.Name == "Load as plain concrete" && check.Clause.Contains("12.6.5.2"));
+            Assert.Contains(wall.Checks, check => check.Name == "Slenderness as plain concrete");
+            Assert.Contains(wall.Checks, check => check.Name == "Shear in its plane as plain concrete");
+            Assert.True(wall.Enough);
+        });
+    }
+
+    [Fact]
+    public void PlainConcreteIsByBsEn1992Section12()
+    {
+        // 200 thick, 3 m held top and foot, 100 kN/m 20 mm off centre, C30: etot = 20 + 3000/400 = 27.5; Φ = 1.14 (1 - 0.275) - 0.02 x 15 = 0.527, under 1 - 0.275; NRd = 1000 x 200 x 0.6 x 30 / 1.5 x Φ.
+        var phi = Math.Min(1.14 * (1 - 2 * 27.5 / 200) - 0.02 * 3000 / 200, 1 - 2 * 27.5 / 200);
+        Assert.Equal(1000 * 200 * 0.6 * 30 / 1.5 * phi / 1000, ConcreteWallDesign.PlainEurocode(30, 200, 3000, 20), 6);
+
+        // In its plane, fcvd = √(fctd,pl² + σcp fctd,pl), fctd,pl = 0.6 x 0.7 x 0.3 fck^(2/3) / 1.5, on a compressed area over 1.5.
+        var fctd = 0.6 * 0.7 * 0.3 * Math.Pow(30, 2.0 / 3) / 1.5;
+        Assert.Equal(Math.Sqrt(fctd * fctd + 0.5 * fctd) * 200 * 3000 / 1.5 / 1000, ConcreteWallDesign.PlainShearEurocode(30, 200 * 3000, 0.5), 6);
+
+        // ACI 318-19 (14.5.3.1): 0.60 x 0.45 f'c Ag (1 - (lc / 32 h)²).
+        Assert.Equal(0.60 * 0.45 * 27.6 * 200 * (1 - Math.Pow(3000 / (32 * 200.0), 2)), ConcreteWallDesign.PlainAci(27.6, 200, 3000), 6);
+    }
+
+    [Fact]
     public void AConcreteWallIsWorkedOutAsAColumnAMetreWide()
     {
-        var document = House("Generic");
+        // A 6 m wall is too slender to stand plain, λ past 86: it takes bars, each metre as a column.
+        var document = House("Generic", tall: true);
         var (_, _, second) = Analysed(document);
         Assert.All(MasonryDesign.Of(document, second), wall =>
         {
@@ -244,19 +282,21 @@ public class WallDesignTests
             Assert.Contains(wall.Checks, check => check.Name == "Shear in its plane" && check.Unit == "kN");
             Assert.Contains(wall.Checks, check => check.Name == "Load and bending" && check.Note.Contains("needs") && check.Unit == "mm²/m" && check.Capacity == 8000);
             Assert.Contains("No bars are in the model", wall.Limits);
+            Assert.Contains("As plain concrete it would not stand", wall.Limits);
         });
     }
 
     [Fact]
     public void AUsConcreteWallTakesTheSimplifiedMethodWithItsLoadInItsMiddleThird()
     {
+        // Its load in its middle third, it stands as plain concrete by (14.5.3.1).
         var document = House("Generic", ClearanceStandard.Irc);
         var (_, _, second) = Analysed(document);
         var checks = MasonryDesign.Of(document, second).SelectMany(wall => wall.Checks).ToList();
-        Assert.Contains(checks, check => check.Clause == "11.5.3.1" && check.Name == "Load and bending");
+        Assert.Contains(checks, check => check.Clause == "14.5.3.1" && check.Name == "Load as plain concrete");
 
-        // A 3 m wall wants 3000 / 25 = 120 by Table 11.3.1.1.
-        Assert.Contains(checks, check => check.Name == "Least thickness" && Math.Abs(check.Demand - 120) < 0.1);
+        // As a plain bearing wall it wants 5.5 in, more than 3000 / 24 = 125 (Table 14.3.1.1).
+        Assert.Contains(checks, check => check.Name == "Least thickness" && Math.Abs(check.Demand - 139.7) < 0.1);
     }
 
     [Fact]

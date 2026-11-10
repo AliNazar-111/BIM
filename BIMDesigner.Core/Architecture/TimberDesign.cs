@@ -59,7 +59,7 @@ public static class TimberDesign
     }
 
     /// <summary>What a timber rectangle has to carry at a point against what it can, by BS EN 1995-1-1.</summary>
-    public static IEnumerable<StrengthCheck> Eurocode(TimberGrade grade, double depth, double width, bool joist, MemberLengths lengths, MemberForces f, double kmod)
+    public static IEnumerable<StrengthCheck> Eurocode(TimberGrade grade, double depth, double width, bool joist, MemberLengths lengths, MemberForces f, double kmod, double notch = 0, double notchLength = 0)
     {
         const double km = 0.7, kcr = 0.67;
         var share = joist ? 1.1 : 1.0;
@@ -79,6 +79,23 @@ public static class TimberDesign
         yield return new StrengthCheck("Bending both ways", Math.Max(sigmaY / fmy + km * sigmaZ / fmz, km * sigmaY / fmy + sigmaZ / fmz), 1, "", "6.1.6 (6.11), (6.12)");
         yield return new StrengthCheck("Shear along the depth", 1.5 * Math.Abs(f.Vz) * 1e3 / (kcr * area), fv, "N/mm²", "6.1.7");
         yield return new StrengthCheck("Shear across", 1.5 * Math.Abs(f.Vy) * 1e3 / (kcr * area), fv, "N/mm²", "6.1.7");
+
+        // Torsion, 6.1.8: a rectangle's St Venant stress, T (3 + 1.8 b/h) / b² h, against kshape fv,d.
+        if (Math.Abs(f.T) > 1e-6)
+        {
+            var (big, small) = (Math.Max(depth, width), Math.Min(depth, width));
+            var kshape = Math.Min(1 + 0.15 * big / small, 2.0);
+            yield return new StrengthCheck("Torsion", Math.Abs(f.T) * 1e6 * (3 + 1.8 * small / big) / (small * small * big), kshape * fv, "N/mm²", "6.1.8", $"kshape {kshape:0.00}");
+        }
+
+        // Notched at its ends on its underside, 6.5.2: the shear on the depth left, hef, against kv fv,d, kv by (6.62) for a square notch, kn 5 for solid timber and 6.5 for glulam.
+        if (notch > 0 && notch < depth)
+        {
+            var hef = depth - notch;
+            var alpha = hef / depth;
+            var kv = Math.Min(1, (grade.Glulam ? 6.5 : 5.0) / (Math.Sqrt(depth) * (Math.Sqrt(alpha * (1 - alpha)) + 0.8 * notchLength / depth * Math.Sqrt(1 / alpha - alpha * alpha))));
+            yield return new StrengthCheck("Shear at the notch", 1.5 * Math.Abs(f.Vz) * 1e3 / (kcr * width * hef), kv * fv, "N/mm²", "6.5.2, (6.60) to (6.62)", $"hef {hef:0} mm, kv {kv:0.00}");
+        }
 
         var (tension, compression) = (Math.Max(0, f.N) * 1e3 / area, Math.Max(0, -f.N) * 1e3 / area);
         if (tension > 0)
@@ -147,7 +164,7 @@ public static class TimberDesign
     }
 
     /// <summary>What a timber rectangle has to carry at a point against what it can, by the NDS in its LRFD format.</summary>
-    public static IEnumerable<StrengthCheck> Nds(double depth, double width, bool glulam, bool joist, bool column, MemberLengths lengths, double length, MemberForces f, double lambda)
+    public static IEnumerable<StrengthCheck> Nds(double depth, double width, bool glulam, bool joist, bool column, MemberLengths lengths, double length, MemberForces f, double lambda, double notch = 0)
     {
         const double kb = 2.54 * 0.85, kt = 2.70 * 0.80, kv = 2.88 * 0.75, kc = 2.40 * 0.90, ke = 1.76 * 0.85;
         var (d, b) = (depth / 25.4, width / 25.4);
@@ -178,6 +195,14 @@ public static class TimberDesign
         yield return new StrengthCheck("Bending, weak axis", fby, fbWeak, "psi", "3.3");
         yield return new StrengthCheck("Shear along the depth", 1.5 * Math.Abs(f.Vz) * 1e3 / Psi / (depth * width), fv * kv * lambda, "psi", "3.4");
         yield return new StrengthCheck("Shear across", 1.5 * Math.Abs(f.Vy) * 1e3 / Psi / (depth * width), fv * kv * lambda, "psi", "3.4");
+
+        // Notched at its ends on its tension face, 3.4.3.2(a): V'r = 2/3 F'v b dn (dn/d)², and an end notch no deeper than d/4 (4.4.3.2).
+        if (notch > 0 && notch < depth)
+        {
+            var dn = depth - notch;
+            yield return new StrengthCheck("Shear at the notch", 1.5 * Math.Abs(f.Vz) * 1e3 / Psi / (width * dn) * Math.Pow(depth / dn, 2), fv * kv * lambda, "psi", "3.4.3.2(a)", $"dn {dn:0} mm");
+            yield return new StrengthCheck("Notch depth", notch, depth / 4, "mm", "4.4.3.2", "an end notch no deeper than d/4");
+        }
         if (glulam) yield break;
 
         if (tension > 0)

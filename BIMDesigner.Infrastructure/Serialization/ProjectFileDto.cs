@@ -1404,6 +1404,7 @@ internal sealed class ProjectInformationDto
     public double SeismicSs { get; set; }
     public double SeismicS1 { get; set; }
     public string? SiteClass { get; set; }
+    public int MasonryExecutionClass { get; set; }
     public int RiskCategory { get; set; }
 
     /// <summary>A US house's water pressure where it comes in, psi; 40 in older files.</summary>
@@ -1627,6 +1628,8 @@ internal sealed class MaterialDto
     public double UnitStrength { get; set; }
     public string? Mortar { get; set; }
     public double WaterAbsorption { get; set; }
+    public string? Group { get; set; }
+    public string? Category { get; set; }
 }
 
 internal sealed class MaterialLayerDto
@@ -2576,6 +2579,9 @@ internal sealed class BeamTypeDto
     public double FlangeThickness { get; set; }
     public Guid MaterialId { get; set; }
     public string FireRating { get; set; } = string.Empty;
+    public double EndNotch { get; set; }
+    public double EndNotchLength { get; set; }
+    public string Connection { get; set; } = "EndPlate";
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
 }

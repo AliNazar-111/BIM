@@ -7,9 +7,11 @@ namespace BIMDesigner.Core.Architecture;
 /// <summary>
 /// A masonry unit as design takes it: its strength, N/mm², K of the UK National Annex's Table NA.4 for
 /// general purpose mortar, what kind it is for its flexural and shear strengths, its mortar, and a clay
-/// unit's water absorption, percent.
+/// unit's water absorption, percent; its group and the category of its maker's control; and whether it is a
+/// calcium silicate or concrete brick, brick-sized, whose bending strengths are their own.
 /// </summary>
-public sealed record MasonryUnit(string Name, double Fb, double K, bool Clay, MortarClass Mortar = MortarClass.M4, double Absorption = 10);
+public sealed record MasonryUnit(string Name, double Fb, double K, bool Clay, MortarClass Mortar = MortarClass.M4, double Absorption = 10,
+    MasonryGroup Group = MasonryGroup.Group1, UnitCategory Category = UnitCategory.CategoryII, bool BrickSized = false);
 
 /// <summary>One wall's checks: the worst of each over every ultimate combination, and how it stands.</summary>
 public sealed record WallCheck(AnalyticalPanel Panel, string Grade, string By, IReadOnlyList<StrengthCheck> Checks, double EffectiveHeight, double EffectiveThickness, string Limits)
@@ -25,31 +27,46 @@ public sealed record WallCheck(AnalyticalPanel Panel, string Grade, string By, I
 /// Masonry walls checked from what the analysis finds in them, by BS EN 1996-1-1 and its UK National
 /// Annex: compression at the top and foot and mid height with their eccentricities (6.1.2.2,
 /// Annex G), slenderness, bending each way under the wind (6.3) and shear (6.2), over bands of about a
-/// metre of wall so a peak at the corner of a window does not stand for the wall. γM 3.0 in compression,
-/// 2.7 in flexure, 2.5 in shear (Table NA.1): Category II units, class 2 of execution control. A material's
-/// strength and mortar are its own, or failing them what it is called has. TMS 402's values could not be
+/// metre of wall so a peak at the corner of a window does not stand for the wall. γM by Table NA.1 from the
+/// category of the unit and the project's class of execution control, the worse of each unless set. A material's
+/// strength, mortar and group are its own, or failing them what it is called has. TMS 402's values could not be
 /// confirmed, so a US project's masonry is not checked.
 /// </summary>
 public static class MasonryDesign
 {
+    /// <summary>γM for Category II units and class 2 of execution control, the worse of each: what is taken where nothing is set.</summary>
     public const double GammaCompression = 3.0, GammaFlexure = 2.7, GammaShear = 2.5;
 
     /// <summary>
-    /// The unit a material is. By its name: clay brick of 20 N/mm², dense concrete block of 7.3, aircrete block of 3.6, K 0.50 for
-    /// clay and 0.55 for concrete and aircrete units of Group 1 (Table NA.4), each as declared, not normalised for its shape, on
-    /// the safe side for a block on edge. A strength, mortar or water absorption of its own stand in for what its name has.
+    /// γM by the UK National Annex's Table NA.1, as remembered: in compression 2.3 and 2.7 for Category I units in class 1 and class 2 of execution control, 2.6 and 3.0 for Category II;
+    /// in flexural tension 2.3 and 2.7 and in shear 2.5 for either.
     /// </summary>
-    public static MasonryUnit UnitOf(string material, double strength = 0, MortarClass mortar = MortarClass.M4, double absorption = 0)
+    public static (double Compression, double Flexure, double Shear) Gammas(UnitCategory category, int execution) =>
+        (category == UnitCategory.CategoryI ? (execution == 1 ? 2.3 : 2.7) : (execution == 1 ? 2.6 : 3.0), execution == 1 ? 2.3 : 2.7, 2.5);
+
+    /// <summary>
+    /// The unit a material is. By its name: clay brick of 20 N/mm², calcium silicate or concrete brick of 20, dense concrete block of 7.3, aircrete block of 3.6. K by the UK National
+    /// Annex's Table NA.4 for general purpose mortar, as the Concrete Centre's guide 2 (Vertical resistance, Revision 2) prints it: clay 0.50 in Group 1 and 0.40 in Group 2, calcium silicate
+    /// the same, aggregate concrete 0.75 and 0.70, aircrete 0.75; each strength as declared, not normalised for its shape, on the safe side for a block on edge. A strength, mortar, water
+    /// absorption, group or category of its own stand in for what its name has.
+    /// </summary>
+    public static MasonryUnit UnitOf(string material, double strength = 0, MortarClass mortar = MortarClass.M4, double absorption = 0,
+        MasonryGroup group = MasonryGroup.Group1, UnitCategory category = UnitCategory.CategoryII)
     {
         var name = material.ToLowerInvariant();
         var usual = absorption > 0 ? absorption : 10;
-        if (name.Contains("aircrete") || name.Contains("aerated")) return new MasonryUnit("Aircrete block", strength > 0 ? strength : 3.6, 0.55, false, mortar, usual);
-        if (name.Contains("brick")) return new MasonryUnit("Clay brick", strength > 0 ? strength : 20, 0.50, true, mortar, usual);
-        return new MasonryUnit("Concrete block", strength > 0 ? strength : 7.3, 0.55, false, mortar, usual);
+        var second = group == MasonryGroup.Group2;
+        if (name.Contains("aircrete") || name.Contains("aerated")) return new MasonryUnit("Aircrete block", strength > 0 ? strength : 3.6, 0.75, false, mortar, usual, MasonryGroup.Group1, category);
+        if (name.Contains("calcium silicate") || name.Contains("sand lime") || name.Contains("sandlime"))
+            return new MasonryUnit("Calcium silicate brick", strength > 0 ? strength : 20, second ? 0.40 : 0.50, false, mortar, usual, group, category, true);
+        if (name.Contains("brick") && name.Contains("concrete"))
+            return new MasonryUnit("Concrete brick", strength > 0 ? strength : 20, second ? 0.70 : 0.75, false, mortar, usual, group, category, true);
+        if (name.Contains("brick")) return new MasonryUnit("Clay brick", strength > 0 ? strength : 20, second ? 0.40 : 0.50, true, mortar, usual, group, category);
+        return new MasonryUnit("Concrete block", strength > 0 ? strength : 7.3, second ? 0.70 : 0.75, false, mortar, usual, group, category);
     }
 
     /// <summary>The unit a material is, with what is set on it.</summary>
-    public static MasonryUnit UnitOf(Material material) => UnitOf(material.Name, material.UnitStrength, material.Mortar, material.WaterAbsorption);
+    public static MasonryUnit UnitOf(Material material) => UnitOf(material.Name, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category);
 
     /// <summary>A mortar's strength, N/mm²: no more than twice the unit's (NA.2.4).</summary>
     public static double MortarStrength(MasonryUnit unit) => Math.Min(unit.Mortar switch
@@ -77,7 +94,9 @@ public static class MasonryDesign
                 : unit.Absorption <= 12 ? (Column(0.5, 0.4, 0.35), Column(1.5, 1.1, 1.0))
                 : (Column(0.4, 0.3, 0.25), Column(1.1, 0.9, 0.8));
 
+        // Calcium silicate and aggregate concrete brick-sized units, 0.3 and 0.9 in M12 to M4, 0.2 and 0.6 in M2 (guide 3, Table 1).
         var weak = unit.Mortar == MortarClass.M2;
+        if (unit.BrickSized) return (weak ? 0.2 : 0.3, weak ? 0.6 : 0.9);
         if (unit.Fb >= 17.5) return (weak ? 0.2 : 0.25, weak ? 0.7 : 0.9);
         if (unit.Fb >= 10.4) return (weak ? 0.2 : 0.25, weak ? 0.6 : 0.75);
 
@@ -134,9 +153,14 @@ public static class MasonryDesign
     }
 
     /// <summary>What a stretch of wall has to carry against what it can, N per mm and N mm per mm of what the analysis found.</summary>
-    public static IEnumerable<StrengthCheck> Checks(MasonryUnit loaded, double t, MasonryUnit? outer, double outerT, double hef, double tef, WallStretch band)
+    public static IEnumerable<StrengthCheck> Checks(MasonryUnit loaded, double t, MasonryUnit? outer, double outerT, double hef, double tef, WallStretch band,
+        (double Compression, double Flexure, double Shear)? gammas = null, double area = double.PositiveInfinity, bool bending = true)
     {
-        var (fk, fd) = (Characteristic(loaded), Characteristic(loaded) / GammaCompression);
+        var (gammaC, gammaF, _) = gammas ?? (GammaCompression, GammaFlexure, GammaShear);
+
+        // Sections of small plan area, under 0.1 m², by (0.7 + 3A) (6.1.2.1(3)).
+        var small = area < 0.1 ? 0.7 + 3 * area : 1;
+        var (fk, fd) = (Characteristic(loaded), Characteristic(loaded) / gammaC * small);
         var slenderness = hef / tef;
         var initial = hef / 450;
         var compression = Math.Max(0, -band.Vertical);
@@ -145,6 +169,8 @@ public static class MasonryDesign
         if (compression > 0)
         {
             // A rigid joint overstates what a floor can put on a wall; past 0.45 t the load is taken on a stress block at its face no deeper than 0.1 t (Annex C(4) and (5), for any calculation, 5.5.1.1).
+            // The wind is left out of it, ehm taken as nothing: the wind is designed for by flexure, 6.3, its strength helped by what bears down (fxd1,app), as BS EN 1996-1-1 allows in place of
+            // eccentricity - taken here too it would be counted twice.
             var eccentric = Math.Min(Math.Max(Math.Abs(band.GravityMoment) / compression + initial, 0.05 * t), 0.45 * t);
             if (band.End)
                 yield return new StrengthCheck("Load at its top or foot", compression, PhiEnd(eccentric, t) * t * fd, "kN/m", "6.1.2.2", $"Φi {PhiEnd(eccentric, t):0.00}, e {eccentric:0.0} mm");
@@ -152,13 +178,15 @@ public static class MasonryDesign
                 yield return new StrengthCheck("Load at mid height", compression, PhiMiddle(eccentric, t, slenderness) * t * fd, "kN/m", "6.1.2.2, Annex G", $"Φm {PhiMiddle(eccentric, t, slenderness):0.00}, e {eccentric:0.0} mm");
         }
 
-        // Wind: each leaf takes its share, the loaded one helped by the weight on it (6.16).
+        if (!bending) yield break;
+
+        // Wind, where the wall has openings and the plate's moments stand for it: each leaf takes its share, the loaded one helped by the weight on it (6.16).
         var (fxk1, fxk2) = FlexuralStrengths(loaded, t);
         var (zLoaded, zOuter) = (t * t / 6, outerT * outerT / 6);
         var (outerK1, outerK2) = outer is null ? (0.0, 0.0) : FlexuralStrengths(outer, outerT);
-        var apparent = fxk1 / GammaFlexure + Math.Min(stress, 0.2 * fd);
-        yield return new StrengthCheck("Bending up its height", Math.Abs(band.MomentVertical) / 1000, (apparent * zLoaded + outerK1 / GammaFlexure * zOuter) / 1000, "kNm/m", "6.3.1", $"fxk1 {fxk1:0.00}");
-        yield return new StrengthCheck("Bending along its length", Math.Abs(band.MomentHorizontal) / 1000, (fxk2 / GammaFlexure * zLoaded + outerK2 / GammaFlexure * zOuter) / 1000, "kNm/m", "6.3.1", $"fxk2 {fxk2:0.00}");
+        var apparent = fxk1 / gammaF + Math.Min(stress, 0.2 * fd);
+        yield return new StrengthCheck("Bending up its height", Math.Abs(band.MomentVertical) / 1000, (apparent * zLoaded + outerK1 / gammaF * zOuter) / 1000, "kNm/m", "6.3.1", $"fxk1 {fxk1:0.00}");
+        yield return new StrengthCheck("Bending along its length", Math.Abs(band.MomentHorizontal) / 1000, (fxk2 / gammaF * zLoaded + outerK2 / gammaF * zOuter) / 1000, "kNm/m", "6.3.1", $"fxk2 {fxk2:0.00}");
 
     }
 
@@ -192,14 +220,36 @@ public static class MasonryDesign
     /// A wall's shear in its own plane by BS EN 1996-1-1 6.2: all of it at a level against VRd = fvd t lc, lc the length in compression, openings left out, and fvd from the average stress over
     /// that length (3.5), no more than 0.065 fb (NA.2.5). It is the wall that carries it, not a metre of it beside a window, where a plate's shear peaks.
     /// </summary>
-    public static StrengthCheck WholeShear(MasonryUnit unit, double t, IEnumerable<WallStretch> level)
+    public static StrengthCheck WholeShear(MasonryUnit unit, double t, IEnumerable<WallStretch> level, double gammaShear = GammaShear)
     {
         var stretches = level.ToList();
         var compressed = stretches.Where(stretch => stretch.Vertical < 0).ToList();
         var length = compressed.Sum(stretch => stretch.Length);
         var stress = length > 0 ? compressed.Sum(stretch => -stretch.Vertical * stretch.Length) / (length * t) : 0;
         var fvk = Math.Min(InitialShear(unit) + 0.4 * stress, 0.065 * unit.Fb);
-        return new StrengthCheck("Shear in its plane", Math.Abs(stretches.Sum(stretch => stretch.Shear * stretch.Length)) / 1000, fvk / GammaShear * t * length / 1000, "kN", "6.2, 3.6.2", $"fvk {fvk:0.00}, {length / 1000:0.0} m in compression");
+        return new StrengthCheck("Shear in its plane", Math.Abs(stretches.Sum(stretch => stretch.Shear * stretch.Length)) / 1000, fvk / gammaShear * t * length / 1000, "kN", "6.2, 3.6.2", $"fvk {fvk:0.00}, {length / 1000:0.0} m in compression");
+    }
+
+    /// <summary>
+    /// A panel with no openings under the wind by BS EN 1996-1-1 6.3.1 and Annex E: MEd1 = μ α2 WEd l² with its plane of failure along the bed joints and MEd2 = α2 WEd l² across them, α2 for
+    /// its edges, μ = fxk1 / fxk2; against MRd1 = (fxk1 / γM + σd) Z, σd no more than 0.2 fk / γM, and MRd2 = fxk2 / γM Z, a cavity wall's leaves together by their capacities, the loaded
+    /// leaf's μ. h and l in mm, the wind kN/m², σd N/mm².
+    /// </summary>
+    public static IEnumerable<StrengthCheck> Panel(MasonryUnit loaded, double t, MasonryUnit? outer, double outerT, double height, double length, PanelEdge top, PanelEdge left, PanelEdge right,
+        double wind, double stress, (double Compression, double Flexure, double Shear) gammas, string combination = "")
+    {
+        var (fxk1, fxk2) = FlexuralStrengths(loaded, t);
+        var mu = fxk1 / fxk2;
+        var (alpha, said) = LateralPanels.Alpha(top, PanelEdge.Simple, left, right, mu, height, length);
+        var squared = length * length / 1e6;
+        var (zLoaded, zOuter) = (t * t / 6 * 1000, outerT * outerT / 6 * 1000);
+        var (outerK1, outerK2) = outer is null ? (0.0, 0.0) : FlexuralStrengths(outer, outerT);
+        var fd = Characteristic(loaded) / gammas.Compression;
+        var apparent = fxk1 / gammas.Flexure + Math.Min(Math.Max(0, stress), 0.2 * fd);
+        yield return new StrengthCheck("Wind, plane along the bed joints", Math.Clamp(mu, 0.05, 1) * alpha * wind * squared, (apparent * zLoaded + outerK1 / gammas.Flexure * zOuter) / 1e6, "kNm/m",
+            "6.3.1, Annex E", $"MEd1 = μ α2 W l², {said}, α2 {alpha:0.000}, fxk1 {fxk1:0.00} with σd {Math.Min(Math.Max(0, stress), 0.2 * fd):0.00}", combination);
+        yield return new StrengthCheck("Wind, plane across the bed joints", alpha * wind * squared, (fxk2 / gammas.Flexure * zLoaded + outerK2 / gammas.Flexure * zOuter) / 1e6, "kNm/m",
+            "6.3.1, Annex E", $"MEd2 = α2 W l², fxk2 {fxk2:0.00}", combination);
     }
 
     /// <summary>Every bearing wall's checks: masonry, or timber and concrete by their own rules. A masonry wall in a US project is said not to be, and any other.</summary>
@@ -252,22 +302,61 @@ public static class MasonryDesign
         var material = panel.Element is Wall wall && document.GetWallType(wall) is { } type
             ? type.Structure.Layers.Where(layer => layer.Function == LayerFunction.Structure).OrderByDescending(layer => layer.Thickness).Select(layer => document.FindMaterial(layer.MaterialId)).FirstOrDefault()
             : null;
-        return material is null ? UnitOf(panel.Material.Name) : UnitOf(material);
+        var unit = material is null ? UnitOf(panel.Material.Name) : UnitOf(material);
+
+        // A wall of bricks thicker than one, no more than 112.5 wide, has a mortar joint along it through some of its length: K by 0.8 (3.6.1.2(4), Figure 2 of guide 2).
+        return (unit.Clay || unit.BrickSized) && panel.Thickness > 112.5 ? unit with { K = 0.8 * unit.K, Name = $"{unit.Name}, a joint along its face" } : unit;
     }
 
     /// <summary>A wall's other leaf: the thickest masonry in it beyond its structure, at least 75 mm (NA.2.15).</summary>
     private static (MasonryUnit? Unit, double Thickness) OuterLeaf(BimDocument document, AnalyticalPanel panel)
     {
-        if (panel.Element is not Wall wall || document.GetWallType(wall) is not { } type) return (null, 0);
+        var (unit, thickness, _) = OuterLeafWeighed(document, panel);
+        return (unit, thickness);
+    }
+
+    /// <summary>A wall's other leaf with its density, kg/m³: its material's, or 1,900 where none is set.</summary>
+    private static (MasonryUnit? Unit, double Thickness, double Density) OuterLeafWeighed(BimDocument document, AnalyticalPanel panel)
+    {
+        if (panel.Element is not Wall wall || document.GetWallType(wall) is not { } type) return (null, 0, 0);
         var leaf = type.Structure.Layers.Where(layer => layer.Function != LayerFunction.Structure && layer.Thickness >= 75)
             .Select(layer => (Layer: layer, Material: document.FindMaterial(layer.MaterialId)))
             .Where(entry => entry.Material is not null && AnalyticalModel.MaterialOf(document, entry.Material).Kind == AnalyticalMaterialKind.Masonry)
             .OrderByDescending(entry => entry.Layer.Thickness).FirstOrDefault();
-        return leaf.Material is null ? (null, 0) : (UnitOf(leaf.Material), leaf.Layer.Thickness);
+        return leaf.Material is null ? (null, 0, 0) : (UnitOf(leaf.Material), leaf.Layer.Thickness, leaf.Material.Density > 0 ? leaf.Material.Density : 1900);
     }
 
     /// <summary>How a wall is held: the height it stands between what holds it, whether that is a floor at its top, concrete at both, and the vertical edges stiffened.</summary>
-    public static (double Height, bool Held, bool Concrete, int Edges) Holding(AnalyticalModel model, AnalyticalPanel wall)
+    public static (double Height, bool Held, bool Concrete, int Edges) Holding(AnalyticalModel model, AnalyticalPanel wall, double effectiveThickness = 0)
+    {
+        var (height, held, concrete, left, right) = Edges(model, wall, effectiveThickness);
+        return (height, held, concrete, (left ? 1 : 0) + (right ? 1 : 0));
+    }
+
+    /// <summary>
+    /// A wall's edges under the wind for Annex E: its top simply supported where something holds it and free where nothing does, its foot simply supported; each vertical edge free unless a wall
+    /// stiffens it, simply supported where one does and continuous where the wall itself runs on past it, in its own plane. A wall with openings has none of these: its edges are its own.
+    /// </summary>
+    public static (PanelEdge Top, PanelEdge Left, PanelEdge Right) PanelEdges(AnalyticalModel model, AnalyticalPanel wall, double effectiveThickness = 0)
+    {
+        var (_, held, _, left, right) = Edges(model, wall, effectiveThickness);
+        var flat = wall.FlatOutline;
+        var (bottom, top) = (flat.Min(point => point.Y), flat.Max(point => point.Y));
+        var (start, end) = (flat.Min(point => point.X), flat.Max(point => point.X));
+        PanelEdge Side(bool stiffened, double along)
+        {
+            if (!stiffened) return PanelEdge.Free;
+            var at = new Geometry.Point2D(wall.Origin.X + wall.U.X * along, wall.Origin.Y + wall.U.Y * along);
+            var runsOn = model.Panels.Any(other => other.Kind == AnalyticalPanelKind.Wall && other != wall && Math.Abs(AnalyticalModel.Dot(other.U, wall.U)) > 0.95
+                && other.Outline.Any(node => Math.Abs(node.At.X - at.X) + Math.Abs(node.At.Y - at.Y) <= 50 && node.At.Z >= bottom - 1 && node.At.Z <= top + 1)
+                && other.FlatOutline.Max(point => point.X) - other.FlatOutline.Min(point => point.X) > 300);
+            return runsOn ? PanelEdge.Continuous : PanelEdge.Simple;
+        }
+
+        return (held ? PanelEdge.Simple : PanelEdge.Free, Side(left, start), Side(right, end));
+    }
+
+    private static (double Height, bool Held, bool Concrete, bool Left, bool Right) Edges(AnalyticalModel model, AnalyticalPanel wall, double effectiveThickness)
     {
         var flat = wall.FlatOutline;
         var (bottom, top) = (flat.Min(point => point.Y), flat.Max(point => point.Y));
@@ -299,18 +388,19 @@ public static class MasonryDesign
             return wide > length / 4 || high > clear / 4 || wide * high > area / 10;
         });
 
-        var edges = 0;
-        if (!opened)
-            foreach (var along in new[] { start, end })
-            {
-                var plan = new Geometry.Point2D(wall.Origin.X + wall.U.X * along, wall.Origin.Y + wall.U.Y * along);
-                if (model.Panels.Any(other => other.Kind == AnalyticalPanelKind.Wall && other != wall && Math.Abs(AnalyticalModel.Dot(other.U, wall.U)) < 0.3 &&
-                                              other.Outline.Any(node => Math.Abs(node.At.X - plan.X) + Math.Abs(node.At.Y - plan.Y) <= 50 && node.At.Z >= bottom - 1 && node.At.Z <= top + 1))
-                    || model.Stiffeners.Any(cross => cross.Host == wall.Element && Math.Abs(cross.At.X - plan.X) + Math.Abs(cross.At.Y - plan.Y) <= 50))
-                    edges++;
-            }
+        // A wall stiffening this one at least a fifth of its height long and 0.3 of its effective thickness thick (5.5.1.2(10)), or a stiffener found for it, which is held to the same.
+        var needed = 0.3 * (effectiveThickness > 0 ? effectiveThickness : wall.Thickness);
+        bool Stiffened(double along)
+        {
+            if (opened) return false;
+            var plan = new Geometry.Point2D(wall.Origin.X + wall.U.X * along, wall.Origin.Y + wall.U.Y * along);
+            return model.Panels.Any(other => other.Kind == AnalyticalPanelKind.Wall && other != wall && Math.Abs(AnalyticalModel.Dot(other.U, wall.U)) < 0.3 && other.Thickness >= needed - 1e-6
+                                             && other.FlatOutline.Max(point => point.X) - other.FlatOutline.Min(point => point.X) >= clear / 5 - 1 &&
+                                             other.Outline.Any(node => Math.Abs(node.At.X - plan.X) + Math.Abs(node.At.Y - plan.Y) <= 50 && node.At.Z >= bottom - 1 && node.At.Z <= top + 1))
+                   || model.Stiffeners.Any(cross => cross.Host == wall.Element && Math.Abs(cross.At.X - plan.X) + Math.Abs(cross.At.Y - plan.Y) <= 50);
+        }
 
-        return (clear, held is not null, concrete, edges);
+        return (clear, held is not null, concrete, Stiffened(start), Stiffened(end));
     }
 
     private static WallCheck Check(BimDocument document, SecondOrderAnalysis second, AnalyticalPanel panel)
@@ -318,21 +408,62 @@ public static class MasonryDesign
         var model = second.Analysis.Model;
         var unit = LoadedUnit(document, panel);
         var t = panel.Thickness;
-        var (outer, outerT) = OuterLeaf(document, panel);
+        var (outer, outerT, density) = OuterLeafWeighed(document, panel);
         var tef = EffectiveThickness(outerT, t);
-        var (height, held, concrete, edges) = Holding(model, panel);
+        var (height, held, concrete, edges) = Holding(model, panel, tef);
         var flat = panel.FlatOutline;
         var length = flat.Max(point => point.X) - flat.Min(point => point.X);
-        var hef = held ? Rho(concrete ? 0.75 : 1.0, height, length, t, edges) * height : 2 * height;
-
+        var execution = document.ProjectInformation.MasonryExecutionClass;
+        var gammas = Gammas(unit.Category, execution);
         var bands = second.WallStretches(panel, height);
-        var checks = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Relieved(entry.Bands, t).SelectMany(band => Checks(unit, t, outer, outerT, hef, tef, band))
-            .Concat(entry.Bands.GroupBy(band => band.Level).Select(level => WholeShear(unit, t, level)))))).ToList();
+
+        // ρ2 0.75 between concrete floors, unless the load at the top is more than 0.25 t off its centre (5.5.1.2(11)): then 1.0.
+        var offCentre = bands.SelectMany(entry => entry.Bands).Where(band => band.End && band.Vertical < 0).Select(band => Math.Abs(band.GravityMoment) / -band.Vertical).DefaultIfEmpty(0).Max();
+        var rho2 = concrete && offCentre <= 0.25 * t ? 0.75 : 1.0;
+        var hef = held ? Rho(rho2, height, length, t, edges) * height : 2 * height;
+
+        // Where the wall has no openings, its bending under the wind by Annex E's coefficients for its edges; where it has, the plate's own moments, the coefficients being for whole panels.
+        var whole = panel.Cuts.Count == 0;
+        var (top, left, right) = PanelEdges(model, panel, tef);
+        IEnumerable<StrengthCheck> Under(LoadCombination combination, IReadOnlyList<WallStretch> stretches)
+        {
+            var areas = stretches.GroupBy(band => band.Level).ToDictionary(level => level.Key, level => level.Sum(band => band.Length) * t / 1e6);
+            foreach (var band in Relieved(stretches, t))
+                foreach (var check in Checks(unit, t, outer, outerT, hef, tef, band, gammas, areas.GetValueOrDefault(band.Level, double.PositiveInfinity), !whole))
+                    yield return check;
+            foreach (var level in stretches.GroupBy(band => band.Level)) yield return WholeShear(unit, t, level, gammas.Shear);
+            if (!whole) yield break;
+            var wind = TimberWallDesign.WindOn(second.Analysis.Loading, panel, combination);
+            if (wind <= 1e-6) yield break;
+            var middle = stretches.Where(band => !band.End).Select(band => -band.Vertical / t).DefaultIfEmpty(0).Min();
+            foreach (var check in Panel(unit, t, outer, outerT, height, length, top, left, right, wind, middle, gammas)) yield return check;
+        }
+
+        var checks = MemberStrength.Worst(bands.Select(entry => (entry.Combination.Name, Under(entry.Combination, entry.Bands)))).ToList();
         checks.Insert(0, new StrengthCheck("Slenderness", hef / tef, 27, "hef/tef", "5.5.1.4", held ? $"ρ {hef / height:0.00}, {edges} edge{(edges == 1 ? "" : "s")} stiffened" : "nothing holds its top: it stands as a cantilever, at twice its height", string.Empty));
-        var grade = $"{unit.Name} {unit.Fb:0.0} in {unit.Mortar}, fk {Characteristic(unit):0.0}{(outer is null ? "" : $", with a {outer.Name.ToLowerInvariant()} leaf of {outerT:0}")}";
+
+        // The outer leaf under its own weight, all of it from its foot to the top of the wall in its line: at its foot and mid height with the least eccentricity, 0.05 t, by its own
+        // strength, the cavity wall's slenderness (5.5.1.3(1), 6.1.2.1).
+        if (outer is not null)
+        {
+            var above = model.Panels.Where(other => other.Kind == AnalyticalPanelKind.Wall && Math.Abs(AnalyticalModel.Dot(other.U, panel.U)) > 0.95
+                    && Math.Abs((other.Origin.X - panel.Origin.X) * -panel.U.Y + (other.Origin.Y - panel.Origin.Y) * panel.U.X) < 50 && other.Outline.Max(node => node.At.Z) > panel.Outline.Min(node => node.At.Z))
+                .Select(other => other.Outline.Max(node => node.At.Z)).DefaultIfEmpty(panel.Outline.Max(node => node.At.Z)).Max() - panel.Outline.Min(node => node.At.Z);
+            var weight = 1.35 * density * 9.81 * outerT / 1e3 * above / 1e3 / 1e3;
+            var outerGammas = Gammas(outer.Category, execution);
+            var phi = Math.Min(PhiEnd(0.05 * outerT, outerT), PhiMiddle(0.05 * outerT, outerT, hef / tef));
+            checks.Add(new StrengthCheck("Outer leaf under its own weight", weight, phi * outerT * Characteristic(outer) / outerGammas.Compression, "kN/m", "6.1.2.1, 5.5.1.3(1)",
+                $"{above / 1000:0.0} m of it at {density:0} kg/m³ and 1.35, Φ {phi:0.00}"));
+        }
+
+        var grade = $"{unit.Name} {unit.Fb:0.0} in {unit.Mortar}, fk {Characteristic(unit):0.0}, {(unit.Group == MasonryGroup.Group1 ? "Group 1" : "Group 2")}{(outer is null ? "" : $", with a {outer.Name.ToLowerInvariant()} leaf of {outerT:0}")}";
         return new WallCheck(panel, grade, "BS EN 1996-1-1 and its UK National Annex", checks, hef, tef,
-            "Units' strengths and mortars as set on their materials, or as their names have them; bending taken from an even plate, not masonry's own two strengths; the outer leaf's own load is not checked.");
+            $"γM {gammas.Compression:0.0} in compression, {gammas.Flexure:0.0} in flexure, {gammas.Shear:0.0} in shear: {(unit.Category == UnitCategory.CategoryI ? "Category I" : "Category II")} units, class {execution} of execution control (Table NA.1). " +
+            (whole ? $"Its bending under the wind by Annex E, its top {Said(top)}, its foot simply supported, its ends {Said(left)} and {Said(right)}; " : "Its bending under the wind from the plate's moments, Annex E's coefficients being for panels with no openings; ") +
+            "units' strengths, mortars and groups as set on their materials, or as their names have them; Annex F's limiting sizes for panels under the wind are not checked.");
     }
+
+    private static string Said(PanelEdge edge) => edge switch { PanelEdge.Free => "free", PanelEdge.Simple => "simply supported", _ => "continuous" };
 }
 
 /// <summary>A stretch of wall about a metre long and a band of its height: its average forces in its plane, N per mm, compression negative, and moments, N mm per mm, up it and along it, with what is left of the moment up it without the wind and what of its shear the wind alone puts there.</summary>

@@ -256,6 +256,19 @@ public static class SteelDesign
         yield return new StrengthCheck("Bending, weak axis", mz / 1e6, mzRd / 1e6, "kNm", "6.2.5");
         yield return new StrengthCheck("Shear along the web", vz / 1e3, vzRd / 1e3, "kN", "6.2.6");
         yield return new StrengthCheck("Shear across", vy / 1e3, vyRd / 1e3, "kN", "6.2.6");
+
+        // A tube or pipe twisted, 6.2.7: Bredt's shear flow round its wall, T / 2 Am t, against fy / √3 γM0; and its shear resistance reduced by it, 6.2.6 (6.28).
+        if ((s.IsTube || s.IsPipe) && Math.Abs(f.T) > 1e-6)
+        {
+            var t = s.IsTube ? s.Tw : s.Tf > 0 ? s.Tf : s.Tw;
+            var enclosed = s.IsTube ? (s.H - t) * (s.B - t) : Math.PI * Math.Pow((s.H - t) / 2, 2);
+            var limit = fy / Math.Sqrt(3) / GammaM0;
+            var stress = Math.Abs(f.T) * 1e6 / (2 * enclosed * t);
+            yield return new StrengthCheck("Torsion", Math.Abs(f.T), 2 * enclosed * t * limit / 1e6, "kNm", "6.2.7", $"Am {enclosed:0} mm²");
+            var left = Math.Max(0, 1 - stress / limit);
+            yield return new StrengthCheck("Shear with torsion", Math.Max(vz / vzRd, vy / vyRd), left, "", "6.2.6 (6.28)", $"Vpl,T,Rd {left:P0} of Vpl,Rd");
+        }
+
         yield return new StrengthCheck("Axial and bending together", (compression + tension) / axial + my / Math.Max(1, myRd) + mz / Math.Max(1, mzRd), 1, "", "6.2.1(7)");
 
         // Flexural and, for an I, torsional buckling: its slendernesses about each axis.
@@ -452,6 +465,18 @@ public static class SteelDesign
         yield return new StrengthCheck("Bending, weak axis", mz / 1e6, phiMy / 1e6, "kNm", "F6 to F11");
         yield return new StrengthCheck("Shear along the web", vz / 1e3, strongShear / 1e3, "kN", "G2");
         yield return new StrengthCheck("Shear across", vy / 1e3, weakShear / 1e3, "kN", "G6");
+
+        // An HSS twisted, H3.1: φTn = 0.9 Fcr C, Fcr taken as 0.6 Fy, C = 2(B - t)(H - t)t - 4.5(4 - π)t³ or π(D - t)² t / 2; and over 0.2 φTn, with the rest by (H3-6).
+        if ((s.IsTube || s.IsPipe) && Math.Abs(f.T) > 1e-6)
+        {
+            var t = s.IsTube ? s.Tw : s.Tf > 0 ? s.Tf : s.Tw;
+            var constant = s.IsTube ? 2 * (s.B - t) * (s.H - t) * t - 4.5 * (4 - Math.PI) * t * t * t : Math.PI * Math.Pow(s.H - t, 2) * t / 2;
+            var torsion = 0.9 * 0.6 * Fy * constant;
+            var tr = Math.Abs(f.T) * 1e6;
+            yield return new StrengthCheck("Torsion", tr / 1e6, torsion / 1e6, "kNm", "H3.1", $"C {constant / 1000:0} cm³");
+            if (tr > 0.2 * torsion)
+                yield return new StrengthCheck("Torsion with the rest", (f.N >= 0 ? tension / phiTn : compression / phiPn) + my / phiMx + mz / phiMy + Math.Pow(Math.Max(vz / strongShear, vy / weakShear) + tr / torsion, 2), 1, "", "H3.2 (H3-6)");
+        }
 
         // Axial force and bending together, H1.
         var axial = f.N >= 0 ? tension / phiTn : compression / phiPn;
