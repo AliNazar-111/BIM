@@ -51,6 +51,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
     private int _removalRun;
     private readonly DataGrid _bracing = Grid();
     private readonly TabItem _modesTab = new() { Header = "Modes" };
+    private readonly TextBlock _swaySaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private readonly DataGrid _modes = Grid(), _vibration = Grid();
     private readonly TextBlock _modesSaid = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
     private int _modesRun;
@@ -132,7 +133,11 @@ internal sealed class AnalysisWindow : System.Windows.Window
         bracingPane.Children.Add(_bracing);
         _bracingTab.Content = bracingPane;
         tabs.Items.Add(_bracingTab);
-        _swayTab.Content = _sway;
+        var swayPane = new DockPanel();
+        DockPanel.SetDock(_swaySaid, Dock.Bottom);
+        swayPane.Children.Add(_swaySaid);
+        swayPane.Children.Add(_sway);
+        _swayTab.Content = swayPane;
         tabs.Items.Add(_swayTab);
         // The modes over the timber floors, what was taken scrolling under both rather than taking their room.
         var modesPane = new DockPanel();
@@ -208,7 +213,8 @@ internal sealed class AnalysisWindow : System.Windows.Window
             double.IsInfinity(result.Amplifier) ? "-" : result.Amplifier.ToString("0.00", CultureInfo.CurrentCulture), double.IsInfinity(result.Movement) ? "-" : $"{F(result.Movement)} mm", Said(result)
         }));
         var taken = second.Results.Count(result => result.SecondOrder);
-        _swayTab.Header = second.Results.Any(result => result.Buckles) ? "Sway (buckles)" : taken > 0 ? $"Sway ({taken} second order)" : "Sway";
+        _swayTab.Header = second.Results.Any(result => result.Buckles) || second.Bucklings.Any(buckling => buckling.Buckles) ? "Sway (buckles)" : taken > 0 ? $"Sway ({taken} second order)" : "Sway";
+        _swaySaid.Text = string.Join(" ", second.Bucklings.Select(buckling => buckling.Said));
     }
 
     /// <summary>
@@ -249,6 +255,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         Task.Run(() =>
         {
             var worked = SecondOrderAnalysis.Run(document, analysis);
+            _ = worked.Bucklings;
             var members = MemberStrength.Of(document, analysis, worked);
             var fires = FireDesign.Of(document, worked, members);
             return (Second: worked, Checks: members, Walls: MasonryDesign.Of(document, worked), Plates: PlateDesign.Of(document, worked), Footings: FoundationDesign.Of(document, analysis), Joints: JointDesign.Of(document, worked), Fires: fires, Robustness: Robustness.Of(document, worked));

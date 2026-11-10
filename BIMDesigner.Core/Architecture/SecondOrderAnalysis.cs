@@ -7,6 +7,20 @@ namespace BIMDesigner.Core.Architecture;
 /// amplifies by, how far it moves at most and how far its lean alone moves it, mm, how many passes its second-order analysis took, none where
 /// first-order was enough, and whether it buckles before it reaches its loads.
 /// </summary>
+/// <summary>
+/// The load factor at which the structure or some part of it buckles under a combination, by eigenvalue; the member or plate its buckled shape moves most at, and whether it is a part buckling on its own
+/// rather than the building as a whole.
+/// </summary>
+public sealed record BucklingResult(LoadCombination Combination, double Factor, string Where, bool Local)
+{
+    public bool Buckles => Factor <= 1;
+
+    /// <summary>What it comes to, in words.</summary>
+    public string Said => $"By eigenvalue under {Combination.Name}, λ {(Factor >= 1000 ? "over 1000" : Factor.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture))}: " + (Local
+        ? $"{Where} buckling on its own, {(Buckles ? "before the loads are reached - it is to be stiffened" : "a member's or wall's own buckling, in its own checks")}."
+        : $"the building as a whole, {Where} moving most{(Buckles ? " - it buckles before the loads are reached" : "")}.");
+}
+
 public sealed record SwayResult(LoadCombination Combination, double Alpha, double Amplifier, double Movement, double Lean, int Passes, bool Buckles)
 {
     public bool SecondOrder => Passes > 0;
@@ -53,6 +67,133 @@ public sealed class SecondOrderAnalysis
     public IReadOnlyList<string> Notes { get; }
 
     public SwayResult? Worst => Results.Count == 0 ? null : Results[0];
+
+    private IReadOnlyList<BucklingResult>? _bucklings;
+
+    /// <summary>
+    /// The lowest load factor at which any part of it buckles, (K + λ Kg) φ = 0, by subspace iteration on K⁻¹ Kg with the stiffness and stresses second order took, under the combination with the
+    /// least αcr and under the heaviest. Where αcr reads the building leaning as a whole, this finds a slender part buckling on its own as well. Worked out when first asked for: a few seconds on
+    /// a building of size.
+    /// </summary>
+    public IReadOnlyList<BucklingResult> Bucklings => _bucklings ??= WorkOutBucklings();
+
+    private IReadOnlyList<BucklingResult> WorkOutBucklings()
+    {
+        var loading = Analysis.Loading;
+        LoadCombination? least = null;
+        if (Results.Count > 0)
+            foreach (var (variant, combination, _, _, _) in _variants)
+                if (ReferenceEquals(variant, Results[0].Combination)) least = combination;
+        var heaviest = loading.Combinations.Where(combination => combination.Factored).MaxBy(combination => combination.Terms.Where(term => !term.Case.Lateral).Sum(term => term.Factor * loading.Total(term.Case)));
+        var found = new List<BucklingResult>();
+        foreach (var combination in new[] { least, heaviest }.OfType<LoadCombination>().Distinct())
+            if (BucklingUnder(combination) is { } result) found.Add(result);
+        return found;
+    }
+
+    private BucklingResult? BucklingUnder(LoadCombination combination)
+    {
+        var solver = Analysis.Solver;
+        var length = solver.NodeCount * 6;
+        if (length == 0 || combination.Terms.Any(term => !_stress.ContainsKey(term.Case))) return null;
+        var stressed = StructuralSolver.Prestress.Sum(combination.Terms.Select(term => (_stress[term.Case], term.Factor)));
+        if (LowestBuckling(solver, _factored, stressed) is not var (factor, shape)) return null;
+
+        // Where it moves most, and whether a part of it moves alone.
+        var moves = Enumerable.Range(0, solver.NodeCount).Select(node => Math.Sqrt(shape[node * 6] * shape[node * 6] + shape[node * 6 + 1] * shape[node * 6 + 1] + shape[node * 6 + 2] * shape[node * 6 + 2])).ToList();
+        var top = moves.IndexOf(moves.Max());
+        var moving = moves.Count(move => move > 0.3 * moves[top]);
+        var where = "the structure";
+        foreach (var member in Analysis.Model.Members)
+            foreach (var (beam, _, _, _) in Analysis.BeamsOf(member))
+                if (where == "the structure" && (solver.Beams[beam].I == top || solver.Beams[beam].J == top)) where = member.Name;
+        if (where == "the structure")
+            foreach (var panel in Analysis.Model.Panels)
+                foreach (var shell in Analysis.ShellsOf(panel))
+                {
+                    var s = solver.Shells[shell];
+                    if (where == "the structure" && (s.I == top || s.J == top || s.K == top)) where = panel.Name;
+                }
+
+        return new BucklingResult(combination, factor, where, moving < 0.15 * solver.NodeCount);
+    }
+
+    /// <summary>
+    /// The least load factor λ at which (K + λ Kg) φ = 0 for a structure stressed so, and its buckled shape: subspace iteration on K⁻¹ (-Kg) with six vectors, leaning each way to start, the small
+    /// problem solved each pass with the stiffness, which is positive, as its metric; the greatest 1/λ found. Null where nothing is compressed enough to buckle.
+    /// </summary>
+    public static (double Factor, double[] Shape)? LowestBuckling(StructuralSolver solver, StructuralSolver.Factored factored, StructuralSolver.Prestress stressed)
+    {
+        var length = solver.NodeCount * 6;
+        double[] Softening(double[] u)
+        {
+            var f = solver.GeometricForces(stressed, u);
+            for (var i = 0; i < f.Length; i++) f[i] = -f[i];
+            return f;
+        }
+
+        // Starting shapes: leaning each way, more the higher, then scattered movements.
+        const int count = 6;
+        var random = new Random(48);
+        var heights = Enumerable.Range(0, solver.NodeCount).Select(node => solver.NodeAt(node).Z).ToList();
+        var (low, high) = (heights.Min(), Math.Max(heights.Max(), heights.Min() + 1));
+        var x = new double[count][];
+        for (var j = 0; j < count; j++)
+        {
+            x[j] = new double[length];
+            for (var node = 0; node < solver.NodeCount; node++)
+            for (var axis = 0; axis < 3; axis++)
+                x[j][node * 6 + axis] = j < 2 ? (axis == j ? (heights[node] - low) / (high - low) : 0) : random.NextDouble() - 0.5;
+        }
+
+        double Dot(double[] a, double[] b)
+        {
+            var sum = 0.0;
+            for (var i = 0; i < a.Length; i++) sum += a[i] * b[i];
+            return sum;
+        }
+
+        var (most, previous) = (0.0, double.NaN);
+        var shape = x[0];
+        for (var pass = 0; pass < 40; pass++)
+        {
+            var gx = x.Select(Softening).ToArray();
+            var y = gx.Select(factored.Solve).ToArray();
+            var gy = y.Select(Softening).ToArray();
+            var (stiff, soft) = (new double[count, count], new double[count, count]);
+            for (var i = 0; i < count; i++)
+            for (var j = i; j < count; j++)
+            {
+                stiff[i, j] = stiff[j, i] = 0.5 * (Dot(y[i], gx[j]) + Dot(y[j], gx[i]));
+                soft[i, j] = soft[j, i] = 0.5 * (Dot(y[i], gy[j]) + Dot(y[j], gy[i]));
+            }
+
+            var (values, vectors) = ModalAnalysis.Generalised(soft, stiff);
+            most = values[^1];
+            for (var j = 0; j < count; j++)
+            {
+                var next = new double[length];
+                for (var i = 0; i < count; i++)
+                {
+                    var q = vectors[i, j];
+                    if (q == 0) continue;
+                    for (var k = 0; k < length; k++) next[k] += q * y[i][k];
+                }
+
+                var scale = next.Select(Math.Abs).DefaultIfEmpty(0).Max();
+                if (scale > 0)
+                    for (var k = 0; k < length; k++) next[k] /= scale;
+                x[j] = next;
+            }
+
+            shape = x[count - 1];
+            if (!double.IsNaN(previous) && Math.Abs(most - previous) <= 1e-6 * Math.Abs(most)) break;
+            previous = most;
+        }
+
+        if (!(most > 1e-12)) return null;
+        return (1 / most, shape);
+    }
 
     private readonly StructuralSolver.Factored _factored;
     private readonly Dictionary<LoadCase, double[]> _moved = new();

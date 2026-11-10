@@ -409,6 +409,10 @@ public static class CalculationReport
                 double.IsInfinity(result.Amplifier) ? "-" : F(result.Amplifier, "0.00"), double.IsInfinity(result.Movement) ? "-" : $"{F(result.Movement)} mm",
                 new(result.Buckles ? "It buckles" : result.SecondOrder ? $"Second order, {result.Passes} passes" : "First order is enough", result.Buckles ? ReportTone.Unmet : ReportTone.Plain)
             }));
+        foreach (var buckling in second.Bucklings)
+            report.Paragraph(buckling.Said, buckling.Buckles ? ReportTone.Unmet : ReportTone.Plain);
+        if (second.Bucklings.Count > 0)
+            report.Paragraph("The lowest load factor at which any part buckles, (K + λ Kg) φ = 0, by subspace iteration with the stiffness and stresses second order took, under the combination with the least αcr and the heaviest: where αcr reads the building leaning as a whole, this finds a slender part buckling on its own too.", ReportTone.Muted);
     }
 
     // ---- each member and wall ----------------------------------------------------------------

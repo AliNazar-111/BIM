@@ -1011,18 +1011,102 @@ public sealed class StructuralAnalysis
         };
     }
 
-    /// <summary>Each member's results for deflection: under the loads that vary, and under all, against its limits.</summary>
+    /// <summary>
+    /// Each member's results for deflection: under the loads that vary, and under all, against its limits - timber and concrete in the long term. Timber with creep: in the UK the net final deflection
+    /// of BS EN 1995-1-1 2.3.2.2, the permanent loads by 1 + kdef and the rest by 1 + ψ2 kdef, kdef 0.6 for service class 1 (Table 3.2); in the US the dead load's by the NDS's Kcr of 1.5 (3.5.2).
+    /// Concrete beams cracked and creeping, from the bars their worst sagging moment needs: in the UK by BS EN 1992-1-1 7.4.3 under the quasi-permanent load, ζ = 1 - 0.5 (Mcr / M)² between the
+    /// uncracked and the cracked section, both at Ec,eff = Ecm / (1 + φ), φ taken as 2.5; in the US by ACI 318-19 24.2.3.5's Ie and 24.2.4.1's λΔ of 2.0 on the dead load, no compression bars.
+    /// </summary>
     public IReadOnlyList<MemberResult> DeflectionChecks(BimDocument document)
     {
         var results = new List<MemberResult>();
+        var us = document.ProjectInformation.ClearanceStandard.IsUs();
         foreach (var member in Model.Members.Where(member => member.Kind != AnalyticalMemberKind.Column))
         {
             var (variable, total) = LimitsOf(document, member);
+            var kind = member.Section.Material.Kind;
+            if (kind == AnalyticalMaterialKind.Concrete && member.Section.Shape == "Rectangle" && member.Element is not GroundBeam && Cracked(document, member, us) is { } cracked)
+            {
+                if (variable is { } cv) results.Add(MemberOf(member, Variable, cv.Limit, cv.Said) is var live && us ? live with { Deflection = live.Deflection * cracked.Live, LimitSaid = $"{cv.Said}, {cracked.Said}" } : live);
+                if (total is { } ct) results.Add(cracked.Result(ct.Limit, ct.Said));
+                continue;
+            }
+
             if (variable is { } v) results.Add(MemberOf(member, Variable, v.Limit, v.Said));
-            if (total is { } t) results.Add(MemberOf(member, Total, t.Limit, t.Said));
+            if (total is not { } t) continue;
+            if (kind == AnalyticalMaterialKind.Timber)
+            {
+                var terms = Total.Select(term => (term.Item1, us
+                    ? term.Item1.Permanent ? 1.5 : 1.0
+                    : term.Item1.Permanent ? 1.6 : 1 + StructuralLoading.Psi(document, term.Item1.Nature).QuasiPermanent * 0.6)).ToList();
+                results.Add(MemberOf(member, terms, t.Limit, us ? $"{t.Said}, the dead load's creep by Kcr 1.5 (NDS 3.5.2)" : $"{t.Said}: with creep, kdef 0.6 for service class 1 (2.3.2.2, Table 3.2)"));
+            }
+            else results.Add(MemberOf(member, Total, t.Limit, t.Said));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// A concrete beam's long-term deflection, its section cracked where its moment passes Mcr and its concrete creeping: how far the deflection the analysis gives, uncracked at Ecm, is to be
+    /// multiplied for the live load alone (the US) and what the whole comes to against a limit.
+    /// </summary>
+    private (double Live, string Said, Func<double, string, MemberResult> Result)? Cracked(BimDocument document, AnalyticalMember member, bool us)
+    {
+        var dimensions = member.Section.Dimensions;
+        if (dimensions.Count < 2) return null;
+        var (h, b) = (dimensions[0], dimensions[1]);
+        var d = h - 50;
+        if (d <= 0) return null;
+        var fck = ConcreteDesign.StrengthOf(member.Section.Material.Quality);
+        var e = member.Section.Material.Modulus;
+        var gross = b * h * h * h / 12;
+
+        // The bars: what the worst factored sagging moment needs.
+        var factored = Loading.Combinations.Where(combination => combination.Factored).Select(combination => Math.Abs(MemberOf(member, combination).MomentY)).DefaultIfEmpty(0).Max();
+        var steel = us ? ConcreteDesign.Aci(factored, b, d, fck, ConcreteDesign.LeastAci(b, h, fck)).Needed : ConcreteDesign.Eurocode(factored, b, d, fck, ConcreteDesign.LeastEurocode(b, h, fck)).Needed;
+        double CrackedSecond(double ratio)
+        {
+            var a = ratio * steel;
+            var x = (-a + Math.Sqrt(a * a + 2 * b * a * d)) / b;
+            return b * x * x * x / 3 + a * (d - x) * (d - x);
+        }
+
+        if (us)
+        {
+            // ACI 318-19: Ie of 24.2.3.5 under the service load, fr 0.62 √f'c, n = Es / Ec; the dead load's creep λΔ = ξ / (1 + 50ρ') with ξ 2.0 for five years or more and no compression bars.
+            var dead = Total.Where(term => term.Item1.Permanent).ToList();
+            var live = Total.Where(term => !term.Item1.Permanent).ToList();
+            var service = Math.Abs(MemberOf(member, Total).MomentY) * 1e6;
+            var crack = 0.62 * Math.Sqrt(fck) * gross / (h / 2);
+            var second = CrackedSecond(200000 / e);
+            var effective = service <= 2.0 / 3 * crack ? gross : Math.Min(gross, second / (1 - Math.Pow(2.0 / 3 * crack / service, 2) * (1 - second / gross)));
+            var factor = gross / effective;
+            var said = $"cracked, Ie {effective / gross:P0} of Ig, {steel:0} mm² of bars (ACI 318-19 24.2.3.5)";
+            return (factor, said, (limit, limitSaid) =>
+            {
+                var (deadDeflection, span) = DeflectionOf(member, dead);
+                var liveDeflection = DeflectionOf(member, live).Deflection;
+                var result = MemberOf(member, Total, limit, limitSaid);
+                return result with { Deflection = (deadDeflection * 3.0 + liveDeflection) * factor, Span = span > 0 ? span : result.Span, LimitSaid = $"{limitSaid}, {said}, the dead load's creep λΔ 2.0 (24.2.4.1)" };
+            });
+        }
+
+        // BS EN 1992-1-1 7.4.3: the quasi-permanent load; fctm = 0.3 fck^(2/3); αe = Es / Ec,eff with φ 2.5.
+        var quasi = Total.Select(term => (term.Item1, term.Item1.Permanent ? 1.0 : StructuralLoading.Psi(document, term.Item1.Nature).QuasiPermanent)).Where(term => term.Item2 > 0).ToList();
+        var moment = Math.Abs(MemberOf(member, quasi).MomentY) * 1e6;
+        var cracking = 0.3 * Math.Pow(fck, 2.0 / 3) * gross / (h / 2);
+        const double creep = 2.5;
+        var longTerm = e / (1 + creep);
+        var crackedSecond = CrackedSecond(200000 / longTerm);
+        var zeta = moment > cracking ? 1 - 0.5 * Math.Pow(cracking / moment, 2) : 0;
+        var times = (1 + creep) * (zeta * gross / crackedSecond + 1 - zeta);
+        var uk = $"cracked and creeping, ζ {zeta:0.00} and φ 2.5, {steel:0} mm² of bars (BS EN 1992-1-1 7.4.3)";
+        return (1, uk, (limit, limitSaid) =>
+        {
+            var result = MemberOf(member, quasi, limit, limitSaid);
+            return result with { Deflection = result.Deflection * times, LimitSaid = $"{limitSaid}, under the quasi-permanent load, {uk}" };
+        });
     }
 
     // ---- the ground under a raft -------------------------------------------------------------
