@@ -550,10 +550,17 @@ internal sealed class AnalysisWindow : System.Windows.Window
     {
         var quake = _analysis.Loading.Seismic;
         var result = _analysis.Seismic;
-        Fill(_quake, new[] { "Level", "Weight", "Force", "Of the base shear", "Its diaphragm, Fpx" }, (result?.Levels ?? Array.Empty<SeismicLevel>()).Select(level => new[]
-        {
-            level.Name, Units.Kilonewtons(level.Weight, "0"), Units.Kilonewtons(level.Force, "0.0"), Share(result!.Shear > 0 ? level.Force / result.Shear : 0), Units.Kilonewtons(level.Diaphragm, "0.0")
-        }));
+        if (result?.Modal is { } modal)
+            Fill(_quake, new[] { "Level", "Weight", "Force along x", "Along y", "Storey shear, x", "Storey shear, y", "Its diaphragm, Fpx" }, result.Levels.Select((level, i) => new[]
+            {
+                level.Name, Units.Kilonewtons(level.Weight, "0"), Units.Kilonewtons(level.Force, "0.0"), Units.Kilonewtons(level.AlongY, "0.0"),
+                Units.Kilonewtons(result.Levels.Skip(i).Sum(each => each.Force), "0.0"), Units.Kilonewtons(result.Levels.Skip(i).Sum(each => each.AlongY), "0.0"), Units.Kilonewtons(level.Diaphragm, "0.0")
+            }));
+        else
+            Fill(_quake, new[] { "Level", "Weight", "Force", "Of the base shear", "Its diaphragm, Fpx" }, (result?.Levels ?? Array.Empty<SeismicLevel>()).Select(level => new[]
+            {
+                level.Name, Units.Kilonewtons(level.Weight, "0"), Units.Kilonewtons(level.Force, "0.0"), Share(result!.Shear > 0 ? level.Force / result.Shear : 0), Units.Kilonewtons(level.Diaphragm, "0.0")
+            }));
         var rigid = quake is { Flexible: false };
         Fill(_quakeDetail, rigid
                 ? new[] { "Case", "Storey", "Height", "Moves, elastic", "Design drift", "Allowed", "Of it", "θ, (12.8-16)", "Edge over average" }
@@ -573,10 +580,23 @@ internal sealed class AnalysisWindow : System.Windows.Window
                 : "Approved Document A 5.5: seismic design is not usually needed for buildings in consequence classes 1, 2a and 2b, so none is worked out."
             : result is null
                 ? quake.Said
-                : $"{quake.Said} Fa {quake.Fa:0.00}, Fv {quake.Fv:0.00}: SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}. {quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#}, Ie {quake.Importance:0.00}. T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")}, k {quake.Exponent:0.00}; Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}. W {Units.Kilonewtons(result.Weight, "0")}, V = Cs W {Units.Kilonewtons(result.Shear, "0.0")}, each way. ρ {quake.Redundancy:0.0}. " +
-                  $"Drift from Cs {quake.DriftCoefficient:0.0000}, without (12.8-5)'s least{(result.Cracked ? ", concrete and masonry cracked" : string.Empty)}. " +
+                : $"{quake.Said} Fa {quake.Fa:0.00}, Fv {quake.Fv:0.00}: SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}. {quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#}, Ie {quake.Importance:0.00}. T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")}, k {quake.Exponent:0.00}; Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}. W {Units.Kilonewtons(result.Weight, "0")}{(result.Snow ? " with 20% of the snow (12.7.2)" : string.Empty)}, V = Cs W {Units.Kilonewtons(result.Shear, "0.0")}, each way. {(quake.RedundancySaid.Length > 0 ? quake.RedundancySaid : $"ρ {quake.Redundancy:0.0}")}. " +
+                  (result.Procedure.Length > 0 ? $"{result.Procedure}. " : string.Empty) +
+                  (result.Modal is { } done ? string.Join(" ", done.Ways.Select(way => $"Modal along {way.Way}: {way.Modes} modes moving {way.MassShare:P0} of the mass, the rest a rigid mode at 0.05 s; Vt {Units.Kilonewtons(way.Combined, "0.0")} by CQC against V {Units.Kilonewtons(way.Static, "0.0")}, forces by {way.Scale:0.000}{(way.Scale > 1 ? " (12.9.1.4.1)" : string.Empty)}, drift at {way.DriftScale:0.000} of them.")) + " " : string.Empty) +
+                  (result.Modal is null ? $"Drift from Cs {quake.DriftCoefficient:0.0000}, without (12.8-5)'s least" : "Drift from the modal forces as 12.9.1.4.2 has them") + $"{(result.Cracked ? ", concrete and masonry cracked" : string.Empty)}. " +
+                  (result.Modal is { } noted ? string.Join(" ", noted.Notes.Where(note => note.StartsWith("The modes found", StringComparison.Ordinal))) + " " : string.Empty) +
                   (quake.Flexible ? "Floors and roofs of timber, flexible diaphragms: no accidental torsion. " : "Accidental torsion 5% of each level's width across the forces, both ways. ") +
-                  string.Join(" ", result.Irregularities ?? Array.Empty<string>());
+                  string.Join(" ", result.Irregularities ?? Array.Empty<string>()) + Anchored(result);
+    }
+
+    /// <summary>The walls' earthquake out of their plane, 12.11, said: the most pressure on a wall, and the most an anchorage to a flexible floor takes.</summary>
+    private static string Anchored(SeismicResult result)
+    {
+        if (result.Anchorage is not { Count: > 0 } rows) return string.Empty;
+        var most = rows.MaxBy(row => row.Pressure)!;
+        var held = rows.Where(row => row.Anchor > 0).MaxBy(row => row.Anchor);
+        return $" Walls out of their plane, 12.11.1: the most {most.Pressure:0.00} kPa, on {most.Wall}." +
+               (held is null ? string.Empty : $" Anchored to a flexible floor or roof, (12.11-1): the most {held.Anchor:0.0} kN/m, {held.Wall} at {held.Level}, ka {held.Ka:0.00} for {Units.Metres(held.Span, "0.0")}.");
     }
 
     /// <summary>A US house's braced wall lines by the IRC, R602.10: what each wants by Method WSP and what it has, and what about where its panels stand does not do.</summary>

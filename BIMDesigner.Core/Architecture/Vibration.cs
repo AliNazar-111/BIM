@@ -59,8 +59,8 @@ public static class ModalAnalysis
         };
     }
 
-    /// <summary>The first modes of a structure with so many tonnes at each of its nodes, moving each way with them.</summary>
-    public static ModalResult Of(StructuralSolver solver, IReadOnlyList<double> nodeMass, int count = DefaultCount)
+    /// <summary>The first modes of a structure with so many tonnes at each of its nodes, moving each way with them: on its stiffness factorised here, or as already factorised.</summary>
+    public static ModalResult Of(StructuralSolver solver, IReadOnlyList<double> nodeMass, int count = DefaultCount, StructuralSolver.Factored? factored = null)
     {
         var n = solver.NodeCount * 6;
         var notes = new List<string>();
@@ -74,7 +74,7 @@ public static class ModalAnalysis
 
         count = Math.Min(count, massed);
         var p = Math.Min(count + Math.Max(count, 16), massed);
-        var factored = solver.Factorise();
+        factored ??= solver.Factorise();
         foreach (var problem in factored.Problems) notes.Add(problem);
 
         // Starting vectors: the mass moved each way as a whole, then the mass at scattered nodes.

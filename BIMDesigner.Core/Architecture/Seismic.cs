@@ -25,7 +25,7 @@ public sealed record SeismicSystem(string Name, double R, double Overstrength, d
 public sealed record SeismicDesign(
     double Ss, double S1, SiteClass Site, int Risk, double Fa, double Fv, double Sds, double Sd1, string Category, string IrcCategory,
     SeismicSystem System, double Importance, double Height, double Period, double Exponent, double Coefficient, string CoefficientSaid, double Redundancy,
-    bool Applies, string Said, double DriftCoefficient = 0, bool Flexible = true)
+    bool Applies, string Said, double DriftCoefficient = 0, bool Flexible = true, string RedundancySaid = "")
 {
     /// <summary>Whether its accidental torsion is amplified where it is torsionally irregular, 12.8.4.3: categories C to F.</summary>
     public bool Amplifies => Category is "C" or "D" or "E" or "F";

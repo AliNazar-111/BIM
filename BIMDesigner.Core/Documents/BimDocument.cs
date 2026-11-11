@@ -84,6 +84,9 @@ public sealed class ProjectInformation
     /// <summary>How high water may stand behind a retaining wall, mm above the underside of its base, where nothing drains it: none to start, the wall drained.</summary>
     public double RetainedWater { get; set; }
 
+    /// <summary>Whether a US project's earthquake is to be worked by the modal response spectrum analysis of ASCE 7-16 12.9.1 even where Table 12.6-1 permits the equivalent lateral force procedure.</summary>
+    public bool SeismicModal { get; set; }
+
     /// <summary>
     /// The snow zone a UK site is in on the National Annex's map (NA to BS EN 1991-1-3 Figure NA.1),
     /// 1 to 5: what its ground snow load is worked from with its altitude (Equation NA.1).

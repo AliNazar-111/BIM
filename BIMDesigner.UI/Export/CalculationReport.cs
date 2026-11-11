@@ -177,7 +177,7 @@ public static class CalculationReport
             "Settlement as anything more than an estimate: each footing's is worked from a presumed stiffness of the ground, the analysis's supports not giving way as it does. Heave and consolidation over time are not worked out.",
             "Cracking of any slab with no bars in the model, whose steel is what it needs and not what it has; and long-term deflection worked out, rather than ruled by span to depth.",
             (document.ProjectInformation.ClearanceStandard.IsUs()
-                ? "Seismic loads past the equivalent lateral force procedure: accidental torsion, irregularities, the overstrength combinations, diaphragm and collector forces, anchorage of walls out of their plane and the detailing R assumes; movement and durability. "
+                ? "Seismic loads past what is set out: the overstrength combinations, collectors, a weak storey, the response history procedures, the walls' and anchors' own strength against 12.11's forces and the detailing R assumes; movement and durability. "
                 : "Seismic loads in England, where Approved Document A does not usually ask for them; movement and durability. ") +
             "Impact and explosion; the notional removal of a load-bearing wall; only the ties and anchorage of a building's class, and each column taken away in Consequence Class 2b. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
             "The ground: its kind is as set on the project, and no site investigation stands behind it."
@@ -272,7 +272,8 @@ public static class CalculationReport
     {
         if (analysis.Loading.Seismic is not { } quake) return;
         report.Heading("Seismic");
-        report.Paragraph($"By the equivalent lateral force procedure of ASCE 7-16 12.8, Supplement 1's site coefficients taken in. Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}. {quake.Said}");
+        var modal = analysis.Seismic?.Modal;
+        report.Paragraph($"{(modal is null ? "By the equivalent lateral force procedure of ASCE 7-16 12.8" : "By the modal response spectrum analysis of ASCE 7-16 12.9.1, scaled to the equivalent lateral force procedure's base shear")}, Supplement 1's site coefficients taken in. Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}. {quake.Said}{(analysis.Seismic is { Procedure.Length: > 0 } done ? $" {done.Procedure}." : string.Empty)}");
         if (analysis.Seismic is not { } result) return;
         report.Facts(new[]
         {
@@ -281,10 +282,20 @@ public static class CalculationReport
             ("System", $"{quake.System.Name}: R {quake.System.R:0.#}, Ω0 {quake.System.Overstrength:0.#}, Cd {quake.System.Cd:0.#} (Table 12.2-1)"),
             ("Period", $"T {quake.Period:0.000} s for {Units.Metres(quake.Height, "0.0")} (12.8-7), k {quake.Exponent:0.00}"),
             ("Seismic response coefficient", $"Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, Ie {quake.Importance:0.00}"),
-            ("Base shear", $"V = Cs W = {quake.Coefficient:0.0000} × {result.Weight:0} = {result.Shear:0.0} kN, each way; ρ {quake.Redundancy:0.0}")
+            ("Base shear", $"V = Cs W = {quake.Coefficient:0.0000} × {result.Weight:0} = {result.Shear:0.0} kN, each way{(result.Snow ? ", W with 20% of the snow, 12.7.2" : string.Empty)}"),
+            ("Redundancy", quake.RedundancySaid.Length > 0 ? quake.RedundancySaid : $"ρ {quake.Redundancy:0.0}")
         });
-        report.Table(new[] { new ReportColumn("Level", 1.2), new ReportColumn("Weight, kN", 0.8, true), new ReportColumn("Force, kN", 0.8, true), new ReportColumn("Of the base shear", 0.8, true), new ReportColumn("Its diaphragm Fpx, kN", 0.9, true) },
-            result.Levels.Select(level => new ReportCell[] { level.Name, F(level.Weight, "0"), F(level.Force), Share(result.Shear > 0 ? level.Force / result.Shear : 0), F(level.Diaphragm) }));
+        if (modal is not null)
+            report.Table(new[] { new ReportColumn("Way", 0.4), new ReportColumn("Modes", 0.5, true), new ReportColumn("Mass they move", 0.8, true), new ReportColumn("Vt, kN", 0.7, true), new ReportColumn("V, kN", 0.7, true), new ReportColumn("Forces by", 0.7, true), new ReportColumn("Drift at", 0.7, true) },
+                modal.Ways.Select(way => new ReportCell[] { way.Way, way.Modes.ToString(CultureInfo.CurrentCulture), Share(way.MassShare), F(way.Combined), F(way.Static), F(way.Scale, "0.000"), F(way.DriftScale, "0.000") }));
+        if (modal is null)
+            report.Table(new[] { new ReportColumn("Level", 1.2), new ReportColumn("Weight, kN", 0.8, true), new ReportColumn("Force, kN", 0.8, true), new ReportColumn("Of the base shear", 0.8, true), new ReportColumn("Its diaphragm Fpx, kN", 0.9, true) },
+                result.Levels.Select(level => new ReportCell[] { level.Name, F(level.Weight, "0"), F(level.Force), Share(result.Shear > 0 ? level.Force / result.Shear : 0), F(level.Diaphragm) }));
+        else
+            report.Table(new[] { new ReportColumn("Level", 1.2), new ReportColumn("Weight, kN", 0.8, true), new ReportColumn("Force along x, kN", 0.8, true), new ReportColumn("Along y, kN", 0.8, true), new ReportColumn("Its diaphragm Fpx, kN", 0.9, true) },
+                result.Levels.Select(level => new ReportCell[] { level.Name, F(level.Weight, "0"), F(level.Force), F(level.AlongY), F(level.Diaphragm) }));
+        if (modal is not null)
+            report.Paragraph("Each mode's force at each level is its mass there by its shape by Γ Sa(T) g Ie / R, Sa by 11.4.6; each storey's shears combined mode by mode by the complete quadratic combination, 5% damped, the modes not found taken as one rigid mode at 0.05 s by 12.9.1.1; each level's force the difference of the storey shears over and under it, scaled up to V where Vt is less by 12.9.1.4.1, spread over its nodes by their weight and solved as the earthquake cases with their accidental torsion. Drift at Vt, unless (12.8-6) governs Cs, 12.9.1.4.2. Each response is not combined on its own: the forces from the combined storey shears stand in for them.", ReportTone.Muted);
         report.Paragraph("Fpx by (12.10-1): the forces from a level up over the weights from it up, times its own weight, no less than 0.2 SDS Ie of its weight nor more than 0.4, (12.10-2) and (12.10-3); for its diaphragm, its chords and what joins it to the walls and frames.", ReportTone.Muted);
         report.Heading("Storey drift", 2);
         report.Table(new[] { new ReportColumn("Case", 0.5), new ReportColumn("Storey", 1.2), new ReportColumn("Height, mm", 0.7, true), new ReportColumn("Drift, mm", 0.7, true), new ReportColumn("Allowed, mm", 0.7, true), new ReportColumn("Of it", 0.6, true), new ReportColumn("θ", 0.5, true), new ReportColumn("Edge over average", 0.7, true) },
@@ -294,13 +305,21 @@ public static class CalculationReport
                 new ReportCell(drift.Theta.ToString("0.000", CultureInfo.CurrentCulture), drift.Theta > drift.ThetaMax ? ReportTone.Unmet : ReportTone.Plain),
                 quake.Flexible ? "-" : new ReportCell($"{drift.Torsion.ToString("0.00", CultureInfo.CurrentCulture)}{(drift.Irregular.Length > 0 ? $", {drift.Irregular}" : string.Empty)}", drift.Irregular == "1b" ? ReportTone.Unmet : ReportTone.Plain)
             }));
-        report.Paragraph($"Drift is worked from Cs {quake.DriftCoefficient:0.0000}, (12.8-5)'s least not being asked of it by 12.8.6.1, so at {result.DriftScale:0.00} of the strength forces{(result.Cracked ? ", with concrete cracked at ACI 318-19 Table 6.6.3.1.1(a)'s shares and masonry at half, 12.7.3" : string.Empty)}. " +
+        foreach (var note in modal?.Notes.Where(note => note.StartsWith("The modes found", StringComparison.Ordinal)) ?? Enumerable.Empty<string>()) report.Paragraph(note, ReportTone.Muted);
+        report.Paragraph((modal is null ? $"Drift is worked from Cs {quake.DriftCoefficient:0.0000}, (12.8-5)'s least not being asked of it by 12.8.6.1, so" : "Drift is worked from the modal forces as 12.9.1.4.2 has them,") + $" at {result.DriftScale:0.00} of the strength forces{(result.Cracked ? ", with concrete cracked at ACI 318-19 Table 6.6.3.1.1(a)'s shares and masonry at half, 12.7.3" : string.Empty)}. " +
                          (quake.Flexible
                              ? "The floors and roofs are of timber, flexible diaphragms by 12.3.1.1, and take no accidental torsion. "
                              : "Each level's mass is taken 5% of its width across the forces off its place, both ways, 12.8.4.2; where one edge drifts more than 1.2 times the average of the two it is torsionally irregular, and in categories C to F the torsion is amplified by Ax = (δmax / 1.2 δavg)², no more than 3, (12.8-14), in the combinations as well: as remembered. ") +
                          "Where θ is over 0.10 the drift is increased by 1 / (1 - θ), 12.8.7.", ReportTone.Muted);
         foreach (var said in result.Irregularities ?? Array.Empty<string>()) report.Paragraph($"- {said}", ReportTone.Unmet);
-        report.Paragraph("Design drift Cd δxe / Ie between each floor and the one under it, 12.8.6, against Table 12.12-1, taken as for a building of four storeys or fewer with its partitions and cladding made to take the drift, where it has no more. θ is the stability coefficient Px Δ Ie / (Vx hsx Cd) of (12.8-16), Px the dead and live load at and above the storey: under 0.10 P-delta need not be considered, and no more than 0.5 / Cd is allowed. ρ is taken as 1.3 in categories D to F without looking for 12.3.4.2's conditions for 1.0. Snow and storage in the seismic weight, and the overstrength combinations, are not worked out.", ReportTone.Muted);
+        if (result.Anchorage is { Count: > 0 } anchorage)
+        {
+            var most = anchorage.MaxBy(row => row.Pressure)!;
+            var held = anchorage.Where(row => row.Anchor > 0).MaxBy(row => row.Anchor);
+            report.Paragraph($"Walls out of their plane, 12.11.1: 0.4 SDS Ie of their weight and no less than 0.1 of it, the most {most.Pressure:0.00} kPa on {most.Wall}." +
+                             (held is null ? string.Empty : $" Concrete and masonry walls anchored to flexible floors and roofs by (12.11-1), 0.4 SDS ka Ie Wp: the most {held.Anchor:0.0} kN/m, {held.Wall} at {held.Level}, ka {held.Ka:0.00} for a span of {Units.Metres(held.Span, "0.0")}."), ReportTone.Muted);
+        }
+        report.Paragraph("Design drift Cd δxe / Ie between each floor and the one under it, 12.8.6, against Table 12.12-1, taken as for a building of four storeys or fewer with its partitions and cladding made to take the drift, where it has no more. θ is the stability coefficient Px Δ Ie / (Vx hsx Cd) of (12.8-16), Px the dead and live load at and above the storey: under 0.10 P-delta need not be considered, and no more than 0.5 / Cd is allowed. ρ by 12.3.4.2(b) where the building is regular in plan with walls enough on its sides, else 1.3 in categories D to F. Storage and partitions in the seismic weight, and the overstrength combinations, are not worked out.", ReportTone.Muted);
     }
 
     /// <summary>The structure's natural modes, where they were worked out, what its periods come to for an earthquake, and its timber floors' vibration.</summary>

@@ -129,7 +129,10 @@ public class SeismicTests
         Assert.Equal(2.0 / 3 * 1.7 * 0.6, quake.Sd1, 6);
         Assert.Same(Seismic.LightFrame, quake.System);
         Assert.Equal(1 / 6.5, quake.Coefficient, 6);
-        Assert.Equal(1.3, quake.Redundancy);
+
+        // Regular in plan, its 10 m and 8 m walls on every side two bays of light frame each many times over: ρ 1.0 by 12.3.4.2(b), once the analysis has found no irregularity.
+        Assert.Equal(1.0, quake.Redundancy);
+        Assert.Contains("12.3.4.2(b)", quake.RedundancySaid);
         Assert.Equal(4, loading.Cases.Count(each => each.Nature == LoadNature.Seismic));
 
         // V = Cs W; the levels' forces come to it, and so do the reactions, against it.
@@ -180,25 +183,25 @@ public class SeismicTests
     [Fact]
     public void TheEarthquakeIsCombinedByAsce7()
     {
-        // In category D, Ev = 0.2 SDS D = 0.2 D on the dead load and ρ 1.3 on QE: 1.4 D + 1.3 E + 0.5 L + 0.2 S, and 0.7 D + 1.3 E.
+        // In category D, Ev = 0.2 SDS D = 0.2 D on the dead load and ρ on QE, here 1.0 by 12.3.4.2(b): 1.4 D + 1.0 E + 0.5 L + 0.2 S, and 0.7 D + 1.0 E.
         var (_, loading, analysis) = Shaken();
         var e1 = loading.Cases.Single(each => each.Name == "E1");
         double Factor(LoadCombination combination, Func<LoadCase, bool> which) => combination.Terms.Where(term => which(term.Case)).Select(term => term.Factor).DefaultIfEmpty(0).Max();
         LoadCombination Of(string clause) => loading.Combinations.Single(each => each.Description == clause && each.Terms.Any(term => term.Case == e1));
         var six = Of("ASCE 7-16 2.3.6 (6)");
         Assert.Equal(1.4, Factor(six, each => each.Permanent), 6);
-        Assert.Equal(1.3, Factor(six, each => each == e1), 6);
+        Assert.Equal(1.0, Factor(six, each => each == e1), 6);
         Assert.Equal(0.5, Factor(six, each => each.Nature == LoadNature.Imposed), 6);
         Assert.Equal(0.2, Factor(six, each => each.Nature == LoadNature.Snow), 6);
         Assert.True(six.Factored);
         Assert.Equal(0.7, Factor(Of("ASCE 7-16 2.3.6 (7)"), each => each.Permanent), 6);
 
-        // Allowable stress: 1.14 D + 0.91 E, 1.105 D + 0.6825 E + 0.75 L + 0.75 S, 0.46 D + 0.91 E; not checked against as strength.
+        // Allowable stress: 1.14 D + 0.7 E, 1.105 D + 0.525 E + 0.75 L + 0.75 S, 0.46 D + 0.7 E; not checked against as strength.
         var eight = Of("ASCE 7-16 2.4.5 (8)");
         Assert.Equal(1.14, Factor(eight, each => each.Permanent), 6);
-        Assert.Equal(0.91, Factor(eight, each => each == e1), 6);
+        Assert.Equal(0.7, Factor(eight, each => each == e1), 6);
         Assert.False(eight.Factored);
-        Assert.Equal(0.6825, Factor(Of("ASCE 7-16 2.4.5 (9)"), each => each == e1), 6);
+        Assert.Equal(0.525, Factor(Of("ASCE 7-16 2.4.5 (9)"), each => each == e1), 6);
         Assert.Equal(0.46, Factor(Of("ASCE 7-16 2.4.5 (10)"), each => each.Permanent), 6);
 
         // An earthquake is not something a member deflects under for good.
@@ -208,13 +211,13 @@ public class SeismicTests
     [Fact]
     public void AWallRacksUnderTheEarthquakeOnTheWindsCapacityOver14()
     {
-        // Each 10 m wall of the ground storey takes half of ρ V: 1.3 × 90.9 / 2 = 59 kN, a little going round into the walls it meets.
+        // Each 10 m wall of the ground storey takes half of ρ V: ρ 1.0 by 12.3.4.2(b), 90.9 / 2 = 45 kN, a little going round into the walls it meets.
         var (document, _, analysis) = Shaken();
         var second = SecondOrderAnalysis.Run(document, analysis);
         var wall = MasonryDesign.Of(document, second).Single(check => check.Panel.Name == "W1");
         var front = wall.Checks.Single(each => each.Name == "Racking");
         Assert.Contains("seismic", front.Note, StringComparison.Ordinal);
-        var hand = 1.3 * analysis.Seismic!.Shear / 2;
+        var hand = 1.0 * analysis.Seismic!.Shear / 2;
         Assert.InRange(front.Demand, 0.95 * hand, 1.01 * hand);
 
         // What it carries is the SDPWS's for the wind over 1.4.

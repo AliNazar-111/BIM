@@ -195,6 +195,22 @@ public sealed class StructuralLoading
         _amplified[torsion] = ax;
     }
 
+    /// <summary>
+    /// Sets the redundancy factor the analysis finds by 12.3.4.2, its earthquake and accidental torsion cases taken at it in every combination in place of what they were taken at, and said.
+    /// </summary>
+    public void SetRedundancy(double rho, string said)
+    {
+        if (Seismic is not { } quake) return;
+        var was = quake.Redundancy;
+        if (Math.Abs(was - rho) > 1e-9 && was > 0)
+            for (var i = 0; i < Combinations.Count; i++)
+                if (Combinations[i].Terms.Any(term => term.Case.Nature == LoadNature.Seismic))
+                    Combinations[i] = Combinations[i] with { Terms = Combinations[i].Terms.Select(term => term.Case.Nature == LoadNature.Seismic ? (term.Case, term.Factor * rho / was) : term).ToList() };
+        for (var i = 0; i < Notes.Count; i++)
+            if (Notes[i].StartsWith("Seismic:", StringComparison.Ordinal)) Notes[i] = Notes[i].Replace($"ρ {was:0.0}.", $"{said}.", StringComparison.Ordinal);
+        Seismic = quake with { Redundancy = rho, RedundancySaid = said };
+    }
+
     /// <summary>A case's loads added up, kN down: the weight of it.</summary>
     public double Total(LoadCase loadCase) =>
         -SurfaceLoads.Where(load => load.Case == loadCase).Sum(load => load.Force.Z * load.LoadedArea / 1e6)
@@ -1373,7 +1389,7 @@ public sealed class StructuralLoading
                     ? "Live loads on beams and columns reduced for the area they carry by 4.7, as Imposed Loads Reduced by Area in the plan's Properties asks; walls and footings take them whole."
                     : "Live loads are not reduced for the area carried (4.7): Imposed Loads Reduced by Area in the plan's Properties reduces them on beams and columns.");
                 _loading.Notes.Add(_loading.Seismic is { } quake
-                    ? $"Seismic: Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}: {quake.Said}{(quake.Applies ? $" SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}; {quake.System.Name}, R {quake.System.R:0.#}, Cd {quake.System.Cd:0.#}; T {quake.Period:0.000} s, Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, ρ {quake.Redundancy:0.0}. The effective seismic weight its dead load; accidental torsion, snow and storage in it, and vertical irregularities, not worked out." : string.Empty)}"
+                    ? $"Seismic: Ss {quake.Ss:0.00}, S1 {quake.S1:0.00}, Site Class {quake.Site}, Risk Category {quake.Risk}: {quake.Said}{(quake.Applies ? $" SDS {quake.Sds:0.000}, SD1 {quake.Sd1:0.000}; {quake.System.Name}, R {quake.System.R:0.#}, Cd {quake.System.Cd:0.#}; T {quake.Period:0.000} s, Cs {quake.Coefficient:0.0000} by {quake.CoefficientSaid}, ρ {quake.Redundancy:0.0}. The effective seismic weight its dead load, with 20% of the snow where the flat roof's is over 30 psf (12.7.2); storage and partitions in it not taken." : string.Empty)}"
                     : "Seismic: no Ss and S1 set in the plan's Properties, so none is worked out.");
             }
             else

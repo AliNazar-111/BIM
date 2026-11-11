@@ -90,6 +90,7 @@ public static partial class ProjectFile
                 RetainedFriction = document.ProjectInformation.RetainedFriction,
                 RetainedSlope = document.ProjectInformation.RetainedSlope,
                 RetainedWater = document.ProjectInformation.RetainedWater,
+                SeismicModal = document.ProjectInformation.SeismicModal,
                 SeismicSs = document.ProjectInformation.SeismicSs,
                 SeismicS1 = document.ProjectInformation.SeismicS1,
                 SiteClass = document.ProjectInformation.SiteClass.ToString(),
@@ -1824,6 +1825,7 @@ public static partial class ProjectFile
         document.ProjectInformation.RetainedFriction = double.IsFinite(dto.Project.RetainedFriction) && dto.Project.RetainedFriction is >= 10 and <= 45 ? dto.Project.RetainedFriction : 0;
         document.ProjectInformation.RetainedSlope = double.IsFinite(dto.Project.RetainedSlope) && dto.Project.RetainedSlope is >= 0 and <= 45 ? dto.Project.RetainedSlope : 0;
         document.ProjectInformation.RetainedWater = double.IsFinite(dto.Project.RetainedWater) && dto.Project.RetainedWater is >= 0 and <= 20000 ? dto.Project.RetainedWater : 0;
+        document.ProjectInformation.SeismicModal = dto.Project.SeismicModal;
         document.ProjectInformation.WaterPressure = double.IsFinite(dto.Project.WaterPressure) && dto.Project.WaterPressure is > 0 and <= 200 ? dto.Project.WaterPressure : 40;
         document.ProjectInformation.WindPressure = double.IsFinite(dto.Project.WindPressure) && dto.Project.WindPressure > 0 && dto.Project.WindPressure <= 10 ? dto.Project.WindPressure : 1.0;
         document.ProjectInformation.BasicWindSpeed = double.IsFinite(dto.Project.BasicWindSpeed) && dto.Project.BasicWindSpeed is > 0 and <= 300 ? dto.Project.BasicWindSpeed : 0;

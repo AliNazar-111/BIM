@@ -242,15 +242,16 @@ public sealed class StructuralAnalysis
         // Loads, case by case.
         foreach (var loadCase in Loading.Cases.Where(loadCase => loadCase.Nature != LoadNature.Seismic)) _loads[loadCase] = Load(loadCase);
         var levels = SeismicLoads(document);
-        var solution = Solver.Solve(Loading.Cases.Select(loadCase => _loads[loadCase]).ToList());
-        Problems.AddRange(solution.Problems);
-        for (var i = 0; i < Loading.Cases.Count; i++)
+        var factored = Solver.Factorise();
+        Problems.AddRange(factored.Problems);
+        foreach (var loadCase in Loading.Cases)
         {
-            _displacements[Loading.Cases[i]] = solution.Displacements[i];
-            _internal[Loading.Cases[i]] = Solver.InternalForces(solution.Displacements[i]);
+            var moved = factored.Solve(_loads[loadCase]);
+            _displacements[loadCase] = moved;
+            _internal[loadCase] = Solver.InternalForces(moved);
         }
 
-        if (levels is not null && Loading.Seismic is { } quake) Seismic = Drifts(document, quake, levels);
+        if (levels is not null && Loading.Seismic is { } quake) Seismic = Earthquake(document, quake, levels, factored);
     }
 
     private double TriangleArea(StructuralSolver.Shell shell)
@@ -748,8 +749,14 @@ public sealed class StructuralAnalysis
     /// <summary>The earthquake's forces and drifts, where the project has seismic design to do.</summary>
     public SeismicResult? Seismic { get; private set; }
 
+    // The earthquake's weight at each node, kN, the level each is counted at, those above the base, and the levels.
+    private double[] _quakeWeights = Array.Empty<double>();
+    private int[] _quakeLevelOf = Array.Empty<int>();
+    private List<int> _quakeAbove = new();
+    private List<(string Name, double Elevation)> _quakeStoreys = new();
+
     /// <summary>
-    /// Each earthquake case's load: V = Cs W, (12.8-1), W the dead load above the base, at each node in the proportion of its weight by its height above the base to the power k, (12.8-11) and (12.8-12), so what is
+    /// Each earthquake case's load: V = Cs W, (12.8-1), W the dead load above the base with 20% of the snow where the flat roof's is over 30 psf, 12.7.2, at each node in the proportion of its weight by its height above the base to the power k, (12.8-11) and (12.8-12), so what is
     /// lumped at a floor in the standard is here where the mass is. What each level comes to, each node counted at the level nearest it, and its diaphragm's force, (12.10-1) to (12.10-3).
     /// Each accidental torsion case, 12.8.4.2: at each level the torque of its force 5% of its width across the forces off its centre of mass, as remembered, spread over its nodes as their mass would turn.
     /// </summary>
@@ -765,6 +772,13 @@ public sealed class StructuralAnalysis
             weights[n] = Math.Max(0, -permanent.Sum(loadCase => _loads[loadCase][n * 6 + 2])) / 1000;
             heights[n] = Math.Max(0, Solver.NodeAt(n).Z - ground) / 1000;
         }
+
+        // 20% of the snow where the flat roof snow load is over 30 psf, 12.7.2.
+        var snow = Loading.Cases.FirstOrDefault(loadCase => loadCase.Nature == LoadNature.Snow && !loadCase.Drifted && !loadCase.Accidental);
+        var snowed = snow is not null && _loads.ContainsKey(snow) && StructuralLoading.RoofSnowPsf(document, 0) > 30;
+        if (snowed)
+            for (var n = 0; n < count; n++)
+                weights[n] += 0.2 * Math.Max(0, -_loads[snow!][n * 6 + 2]) / 1000;
 
         var above = Enumerable.Range(0, count).Where(n => heights[n] > 0.01).ToList();
         var weight = above.Sum(n => weights[n]);
@@ -785,11 +799,37 @@ public sealed class StructuralAnalysis
         if (storeys.Count > 0)
             foreach (var n in above)
                 levelOf[n] = storeys.Select((storey, index) => (Distance: Math.Abs(storey.Elevation - Solver.NodeAt(n).Z), Index: index)).MinBy(each => each.Distance).Index;
+        (_quakeWeights, _quakeLevelOf, _quakeAbove, _quakeStoreys) = (weights, levelOf, above, storeys);
+        ApplySeismic(forces, forces);
 
+        var rows = new List<SeismicLevel>();
+        for (var index = 0; index < storeys.Count; index++)
+        {
+            var mine = above.Where(n => levelOf[n] == index).ToList();
+            if (mine.Count == 0) continue;
+            rows.Add(new SeismicLevel(storeys[index].Name, storeys[index].Elevation, mine.Sum(n => weights[n]), mine.Sum(n => forces[n])));
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+            rows[i] = rows[i] with
+            {
+                Diaphragm = Architecture.Seismic.DiaphragmForce(rows.Skip(i).Sum(row => row.Force), rows.Skip(i).Sum(row => row.Weight), rows[i].Weight, quake.Sds, quake.Importance)
+            };
+        return new SeismicResult(weight, shear, rows, Array.Empty<SeismicDrift>(), Snow: snowed);
+    }
+
+    /// <summary>
+    /// The earthquake cases' loads from the force at each node along x and along y, kN: each case's own way's, and each accidental torsion case at each level the torque of its level's force 5% of
+    /// its width across the forces off its centre of mass, spread over its nodes as their mass would turn.
+    /// </summary>
+    private void ApplySeismic(double[] alongX, double[] alongY)
+    {
+        var (weights, levelOf, above, storeys, count) = (_quakeWeights, _quakeLevelOf, _quakeAbove, _quakeStoreys, Solver.NodeCount);
         foreach (var loadCase in Loading.Cases.Where(loadCase => loadCase.Nature == LoadNature.Seismic))
         {
             var load = new double[count * 6];
             var way = loadCase.Wind ?? Vector2D.UnitX;
+            var forces = Math.Abs(way.X) > 0.5 ? alongX : alongY;
             if (!loadCase.Torsion)
                 foreach (var n in above)
                 {
@@ -817,21 +857,91 @@ public sealed class StructuralAnalysis
 
             _loads[loadCase] = load;
         }
+    }
 
-        var rows = new List<SeismicLevel>();
-        for (var index = 0; index < storeys.Count; index++)
+    /// <summary>
+    /// The earthquake after the first solve: drift and the irregularities it shows, then those the drawing shows. Where Table 12.6-1 does not permit the equivalent lateral force procedure, or the
+    /// plan's Properties ask for it, the modal response spectrum analysis of 12.9.1: each level's force from its storeys' combined shears, scaled to V, spread over its nodes by their weight, put on
+    /// the earthquake cases in place of the equivalent lateral force's and solved again, drift worked again from them. Then ρ by 12.3.4.2, and walls out of their plane by 12.11.
+    /// </summary>
+    private SeismicResult Earthquake(BimDocument document, SeismicDesign quake, SeismicResult levels, StructuralSolver.Factored factored)
+    {
+        var ground = Wind.Ground(document);
+        var floors = _quakeStoreys;
+        var result = Drifts(document, quake, levels);
+        var geometric = SeismicRules.Geometric(Model, floors, ground);
+        var types = (result.Types ?? Array.Empty<string>()).Concat(geometric.Select(each => each.Type)).Distinct().ToList();
+        var (permitted, procedure) = SeismicRules.EquivalentPermitted(quake, types, floors.Count);
+        ModalSeismic? modal = null;
+        if (!permitted || document.ProjectInformation.SeismicModal)
         {
-            var mine = above.Where(n => levelOf[n] == index).ToList();
-            if (mine.Count == 0) continue;
-            rows.Add(new SeismicLevel(storeys[index].Name, storeys[index].Elevation, mine.Sum(n => weights[n]), mine.Sum(n => forces[n])));
+            var why = permitted ? $"{procedure}; the modal response spectrum analysis asked for in the plan's Properties" : procedure;
+            modal = Modal(quake, factored, levels, why);
+            if (modal is not null)
+            {
+                var (x, y) = (modal.Ways[0], modal.Ways[1]);
+                ApplySeismic(Spread(x.LevelForces), Spread(y.LevelForces));
+                foreach (var loadCase in Loading.Cases.Where(loadCase => loadCase.Nature == LoadNature.Seismic))
+                {
+                    var moved = factored.Solve(_loads[loadCase]);
+                    _displacements[loadCase] = moved;
+                    _internal[loadCase] = Solver.InternalForces(moved);
+                }
+
+                var rows = levels.Levels.Select(level => floors.FindIndex(floor => Math.Abs(floor.Elevation - level.Elevation) < 1) is var i and >= 0
+                    ? level with { Force = x.LevelForces[i], ForceY = y.LevelForces[i] } : level).ToList();
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    var weightAbove = rows.Skip(i).Sum(row => row.Weight);
+                    rows[i] = rows[i] with
+                    {
+                        Diaphragm = Math.Max(Architecture.Seismic.DiaphragmForce(rows.Skip(i).Sum(row => row.Force), weightAbove, rows[i].Weight, quake.Sds, quake.Importance),
+                            Architecture.Seismic.DiaphragmForce(rows.Skip(i).Sum(row => row.ForceY), weightAbove, rows[i].Weight, quake.Sds, quake.Importance))
+                    };
+                }
+
+                result = Drifts(document, quake, levels with { Levels = rows }, way => Math.Abs(way.X) > 0.5 ? x.DriftScale : y.DriftScale);
+                procedure = why;
+            }
         }
 
-        for (var i = 0; i < rows.Count; i++)
-            rows[i] = rows[i] with
-            {
-                Diaphragm = Architecture.Seismic.DiaphragmForce(rows.Skip(i).Sum(row => row.Force), rows.Skip(i).Sum(row => row.Weight), rows[i].Weight, quake.Sds, quake.Importance)
-            };
-        return new SeismicResult(weight, shear, rows, Array.Empty<SeismicDrift>());
+        // Each storey's share of the base shear, along x: what 12.3.4.2 counts the storeys taking more than 35% of it by.
+        var total = result.Levels.Sum(level => level.Force);
+        var shares = floors.Select(floor => total > 0 ? result.Levels.Where(level => level.Elevation >= floor.Elevation - 1).Sum(level => level.Force) / total : 0).ToList();
+        var (rho, rhoSaid) = SeismicRules.Redundancy(quake, Model, floors, ground, shares, types);
+        Loading.SetRedundancy(rho, rhoSaid);
+        var irregular = (result.Irregularities ?? Array.Empty<string>()).Concat(geometric.Select(each => each.Said)).Distinct().ToList();
+        return result with { Irregularities = irregular, Types = types, Procedure = procedure, Modal = modal, Anchorage = SeismicRules.Anchorage(quake, Model, floors) };
+    }
+
+    /// <summary>Each level's force put at its nodes by their weight, kN a node.</summary>
+    private double[] Spread(IReadOnlyList<double> levelForces)
+    {
+        var forces = new double[Solver.NodeCount];
+        for (var index = 0; index < _quakeStoreys.Count && index < levelForces.Count; index++)
+        {
+            var mine = _quakeAbove.Where(n => _quakeLevelOf[n] == index).ToList();
+            var mass = mine.Sum(n => _quakeWeights[n]);
+            if (mass <= 0) continue;
+            foreach (var n in mine) forces[n] = levelForces[index] * _quakeWeights[n] / mass;
+        }
+
+        return forces;
+    }
+
+    /// <summary>The modal response spectrum analysis both ways: the modes of the earthquake's own mass, its weight over g, on the stiffness already factorised.</summary>
+    private ModalSeismic? Modal(SeismicDesign quake, StructuralSolver.Factored factored, SeismicResult levels, string why)
+    {
+        var mass = Enumerable.Range(0, Solver.NodeCount).Select(n => _quakeLevelOf[n] >= 0 ? _quakeWeights[n] / Gravity : 0).ToArray();
+        var found = ModalAnalysis.Of(Solver, mass, ModalAnalysis.DefaultCount, factored);
+        if (found.Modes.Count == 0) return null;
+        var bySixth = quake.CoefficientSaid == "(12.8-6)";
+        var ways = new[] { (Axis: 0, Way: "x"), (Axis: 1, Way: "y") }.Select(each => ResponseSpectrum.Of(each.Way, found.Modes, mass, _quakeLevelOf, _quakeStoreys.Count, each.Axis, quake.Sds, quake.Sd1,
+            quake.System.R, quake.Importance, levels.Shear, bySixth, quake.Coefficient * levels.Weight)).ToList();
+        var notes = found.Notes.ToList();
+        foreach (var way in ways.Where(way => way.MassShare < 0.9))
+            notes.Add($"The modes found move {way.MassShare:P0} of the mass along {way.Way}: the rest is taken as one rigid mode at 0.05 s, which 12.9.1.1 allows of modes under 0.05 s; its 90% by the modes themselves would want more modes than the {way.Modes} found here.");
+        return new ModalSeismic(ways, why, notes);
     }
 
     /// <summary>
@@ -863,7 +973,7 @@ public sealed class StructuralAnalysis
     /// in its combinations as well as its drift. The stability coefficient θ, (12.8-16), and past 0.10 the drift increased by 1 / (1 - θ), 12.8.7. Stiffness and weight against the storeys round it,
     /// Table 12.3-2's soft storey and weight irregularity, as remembered.
     /// </summary>
-    private SeismicResult Drifts(BimDocument document, SeismicDesign quake, SeismicResult levels)
+    private SeismicResult Drifts(BimDocument document, SeismicDesign quake, SeismicResult levels, Func<Vector2D, double>? driftScale = null)
     {
         var ground = Wind.Ground(document);
         var floors = levels.Levels.Select(level => (level.Name, level.Elevation)).ToList();
@@ -872,6 +982,7 @@ public sealed class StructuralAnalysis
         // Px is all the vertical load at and above the storey with no factor over 1.0: dead and live.
         var gravity = Loading.Cases.Where(loadCase => loadCase.Permanent || loadCase.Nature == LoadNature.Imposed).ToList();
         var scale = quake.Coefficient > 0 && quake.DriftCoefficient > 0 ? Math.Min(1, quake.DriftCoefficient / quake.Coefficient) : 1;
+        double ScaleOf(LoadCase earthquake) => driftScale is null ? scale : driftScale(earthquake.Wind ?? Vector2D.UnitX);
         var (moved, cracked) = ForDrift();
         var atLevel = floors.Select(floor => Enumerable.Range(0, Solver.NodeCount).Where(n => Math.Abs(Solver.NodeAt(n).Z - floor.Elevation) <= 150).ToList()).ToList();
         var earthquakes = Loading.Cases.Where(loadCase => loadCase.Nature == LoadNature.Seismic && !loadCase.Torsion).ToList();
@@ -919,6 +1030,7 @@ public sealed class StructuralAnalysis
         {
             var way = earthquake.Wind ?? Vector2D.UnitX;
             var torsion = TorsionOf(earthquake);
+            var factor = ScaleOf(earthquake);
             var ax = torsion is null ? 1 : Loading.AmplificationOf(torsion);
             var signs = torsion is null ? new[] { 0.0 } : new[] { 1.0, -1.0 };
             var below = signs.ToDictionary(sign => sign, _ => 0.0);
@@ -929,7 +1041,7 @@ public sealed class StructuralAnalysis
             {
                 var (name, elevation) = floors[level];
                 var nodes = atLevel[level];
-                double At(double sign) => nodes.Select(n => scale * (Along(moved[earthquake], n, way) + (torsion is null ? 0 : sign * ax * Along(moved[torsion], n, way)))).DefaultIfEmpty(0).Max();
+                double At(double sign) => nodes.Select(n => factor * (Along(moved[earthquake], n, way) + (torsion is null ? 0 : sign * ax * Along(moved[torsion], n, way)))).DefaultIfEmpty(0).Max();
                 var worst = signs.MaxBy(sign => At(sign) - below[sign]);
                 var at = At(worst);
                 var height = elevation - under;
@@ -937,7 +1049,7 @@ public sealed class StructuralAnalysis
                 var px = storey.Sum(n => -gravity.Sum(each => _loads[each][n * 6 + 2])) / 1000;
                 var vx = Math.Abs(storey.Sum(n => Along(_loads[earthquake], n, way))) / 1000;
                 var drift = quake.System.Cd * (at - below[worst]) / quake.Importance;
-                var theta = vx > 0 && height > 0 ? px * drift * quake.Importance / (scale * vx * height * quake.System.Cd) : 0;
+                var theta = vx > 0 && height > 0 ? px * drift * quake.Importance / (factor * vx * height * quake.System.Cd) : 0;
                 var increase = Architecture.Seismic.DriftIncrease(theta);
                 var ratio = ratios.GetValueOrDefault((earthquake, level), 1);
                 var label = torsion is null ? earthquake.Name : $"{earthquake.Name} {(worst > 0 ? "+" : "-")} {(ax > 1 ? $"{ax:0.00} " : string.Empty)}{torsion.Name}";
@@ -955,6 +1067,7 @@ public sealed class StructuralAnalysis
         // 12.3.2.2's exceptions, as remembered: soft storeys and weight are not looked for in one storey, nor two in categories B to D, nor where no storey drifts more than 1.3 times the one over
         // it, the top two not compared.
         var irregular = new List<string>();
+        var types = new List<string>();
         var few = floors.Count == 1 || (floors.Count == 2 && quake.Category is "B" or "C" or "D");
         bool Even(LoadCase earthquake) => !Enumerable.Range(0, Math.Max(0, floors.Count - 2)).Any(level => leaning[earthquake][level] > 1.3 * leaning[earthquake][level + 1]);
         foreach (var (earthquake, k) in stiffness.Where(each => !few && !Even(each.Key)))
@@ -965,6 +1078,7 @@ public sealed class StructuralAnalysis
                 if (!double.IsFinite(k[level]) || upper.Any(each => !double.IsFinite(each))) continue;
                 var three = upper.Count == 3 ? upper.Average() : double.NaN;
                 var kind = k[level] < 0.6 * next || k[level] < 0.7 * three ? "1b, extreme soft storey" : k[level] < 0.7 * next || k[level] < 0.8 * three ? "1a, soft storey" : null;
+                if (kind is not null) types.Add(kind.StartsWith("1b", StringComparison.Ordinal) ? "V1b" : "V1a");
                 if (kind is not null)
                     irregular.Add($"{floors[level].Name}, {earthquake.Name}: vertical irregularity {kind}, its stiffness {k[level]:0} kN/mm against {next:0} over it (Table 12.3-2, as remembered).");
             }
@@ -975,13 +1089,15 @@ public sealed class StructuralAnalysis
             var neighbours = new List<double>();
             if (level > 0) neighbours.Add(levels.Levels[level - 1].Weight);
             if (level + 1 < levels.Levels.Count && level + 1 < levels.Levels.Count - 1) neighbours.Add(levels.Levels[level + 1].Weight);
+            if (neighbours.Any(other => weight > 1.5 * other)) types.Add("V2");
             if (neighbours.Any(other => weight > 1.5 * other))
                 irregular.Add($"{levels.Levels[level].Name}: vertical irregularity 2, weight, {weight:0} kN against {neighbours.Min():0} beside it (Table 12.3-2, as remembered; a lighter roof is not counted).");
         }
 
+        types.AddRange(drifts.Where(drift => drift.Irregular.Length > 0).Select(drift => $"H{drift.Irregular}"));
         foreach (var drift in drifts.Where(drift => drift.Irregular.Length > 0).GroupBy(drift => (drift.Level, drift.Irregular)).Select(group => group.First()))
             irregular.Add($"{drift.Level}: horizontal irregularity {drift.Irregular}, {(drift.Irregular == "1b" ? "extreme torsional" : "torsional")}, an edge drifting {drift.Torsion:0.00} times the average of the two (Table 12.3-1, as remembered).");
-        return levels with { Drifts = drifts, Irregularities = irregular.Distinct().ToList(), Cracked = cracked, DriftScale = scale };
+        return levels with { Drifts = drifts, Irregularities = irregular.Distinct().ToList(), Cracked = cracked, DriftScale = driftScale is null ? scale : driftScale(Vector2D.UnitX), Types = types.Distinct().ToList() };
     }
 
     /// <summary>The cases loads vary by, for gravity: imposed, roof and snow.</summary>
@@ -1254,7 +1370,11 @@ public sealed class StructuralAnalysis
 }
 
 /// <summary>What a level comes to in an earthquake: its weight, its share of the base shear and the force its diaphragm is designed for, kN.</summary>
-public sealed record SeismicLevel(string Name, double Elevation, double Weight, double Force, double Diaphragm = 0);
+public sealed record SeismicLevel(string Name, double Elevation, double Weight, double Force, double Diaphragm = 0, double ForceY = double.NaN)
+{
+    /// <summary>Its force along y, kN: the same as along x but for a modal analysis.</summary>
+    public double AlongY => double.IsNaN(ForceY) ? Force : ForceY;
+}
 
 /// <summary>
 /// A storey's drift in an earthquake case: its height, how far its floor moves elastically, the design drift Cd δ / Ie it comes to over the storey under it, and what Table 12.12-1 allows, mm;
@@ -1270,7 +1390,8 @@ public sealed record SeismicDrift(string Case, string Level, double Height, doub
 
 /// <summary>
 /// The earthquake as the analysis worked it: the effective seismic weight and base shear, kN, each level's share, and each storey's drift; the irregularities found, whether concrete and masonry were
-/// cracked for drift, and the share of the strength forces drift was worked from.
+/// cracked for drift, and the share of the strength forces drift was worked from; the irregularities' types, which procedure was used and why, the modal analysis where it was, the walls' forces out
+/// of their plane, and whether snow was in the weight.
 /// </summary>
 public sealed record SeismicResult(double Weight, double Shear, IReadOnlyList<SeismicLevel> Levels, IReadOnlyList<SeismicDrift> Drifts, IReadOnlyList<string>? Irregularities = null, bool Cracked = false,
-    double DriftScale = 1);
+    double DriftScale = 1, IReadOnlyList<string>? Types = null, string Procedure = "", ModalSeismic? Modal = null, IReadOnlyList<SeismicAnchorage>? Anchorage = null, bool Snow = false);

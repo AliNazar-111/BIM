@@ -1403,6 +1403,7 @@ internal sealed class ProjectInformationDto
     public double RetainedFriction { get; set; }
     public double RetainedSlope { get; set; }
     public double RetainedWater { get; set; }
+    public bool SeismicModal { get; set; }
     public double SeismicSs { get; set; }
     public double SeismicS1 { get; set; }
     public string? SiteClass { get; set; }

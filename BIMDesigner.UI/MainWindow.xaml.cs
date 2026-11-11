@@ -4127,6 +4127,7 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition GroundSnowParameter = new("Ground Snow Load (US, psf)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SeismicSsParameter = new("Seismic Ss (US, g, 0 = none)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SeismicS1Parameter = new("Seismic S1 (US, g)", ParameterDataType.Number, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition SeismicModalParameter = new("Seismic by Modal Response Spectrum (US)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SiteClassParameter = new("Site Class (US, ASCE 7-16 Ch. 20)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition RiskCategoryParameter = new("Risk Category (US, I to IV)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition MasonryExecutionParameter = new("Masonry Execution Class (1 or 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
@@ -4333,6 +4334,11 @@ public partial class MainWindow : Window
             ParameterValue.Bind(SeismicS1Parameter, () => _document.ProjectInformation.SeismicS1, s1 =>
             {
                 _document.ProjectInformation.SeismicS1 = Math.Clamp(s1, 0, 3);
+                if (ShowsAnalytical) ShowAnalytical();
+            }),
+            ParameterValue.Bind(SeismicModalParameter, () => _document.ProjectInformation.SeismicModal, modal =>
+            {
+                _document.ProjectInformation.SeismicModal = modal;
                 if (ShowsAnalytical) ShowAnalytical();
             }),
             ParameterValue.BindChoice(SiteClassParameter, () => _document.ProjectInformation.SiteClass.ToString(), site =>
