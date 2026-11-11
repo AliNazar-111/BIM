@@ -447,6 +447,25 @@ public static class HeatLoss
             var sloped = over?.By is Roof && !roof.Surface(document).IsFlat;
             var square = sloped ? area / Math.Max(0.2, Math.Cos(roof.SlopeDegrees * Math.PI / 180)) : area;
 
+            // Sloped glazing over it: glass, face by face - each face's part over the room, on the face, facing down its slope.
+            if (over?.By is Roof && GlazedRoofs.TypeOf(document, roof) is { } glazing)
+            {
+                var plan = new[] { (IReadOnlyList<Point2D>)polygon.ToList() };
+                foreach (var face in GlazedRoofs.Faces(document, roof))
+                {
+                    var under = PolygonBoolean.Combine(new[] { face.Region.Outer }.Concat(face.Region.Holes).ToList(), plan, BooleanOperation.Intersection)
+                        .Sum(region => Polygon2D.Area(region.Outer) - region.Holes.Sum(Polygon2D.Area)) / 1e6;
+                    if (under < 0.01) continue;
+                    var plane = face.Glass;
+                    var downhill = plane.Rise < 0.01 ? (double?)null : (Math.Atan2(-plane.A, -plane.B) * 180 / Math.PI + 360) % 360;
+                    Add($"Sloped glazing ({glazing.Name})", under * plane.VerticalStretch, glazing.HeatTransferCoefficient, HeatPath.Outside, outside, roof,
+                        kind: HeatSurface.Window, facing: downhill, tilt: plane.SlopeDegrees);
+                }
+
+                if (glazing.HeatTransferCoefficient <= 0) notes.Add("the sloped glazing's U-value is not given");
+                return;
+            }
+
             // The roof windows in the roof over it, lying in its slope - or level, rooflights on a flat roof.
             if (over?.By is Roof)
                 foreach (var window in RoofWindows.On(document, roof))

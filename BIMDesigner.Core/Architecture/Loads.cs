@@ -31,6 +31,18 @@ public static class Loads
     public static double Weight(BimDocument document, CompoundStructure structure) =>
         structure.Layers.Sum(layer => layer.Thickness / 1000 * (document.FindMaterial(layer.MaterialId)?.Density ?? 0)) * 9.81 / 1000;
 
+    /// <summary>
+    /// What a floor's, ceiling's or roof's type weighs a square metre of its face, kN/m²: its layers, and sloped
+    /// glazing's bars - a metre of them each way for every square metre the spacings give, 1/s up plus 1/s across,
+    /// by what a metre of bar weighs.
+    /// </summary>
+    public static double Weight(BimDocument document, SlabType type) =>
+        Weight(document, type.Structure) + (type is RoofType { SlopedGlazing: true } glazing ? GlazingBars(glazing) : 0);
+
+    /// <summary>Sloped glazing's bars, kN/m² of its face.</summary>
+    public static double GlazingBars(RoofType glazing) =>
+        glazing.GlazingBarMass * (1000 / Math.Max(1, glazing.UpBarSpacing) + 1000 / Math.Max(1, glazing.CrossBarSpacing)) * 9.81 / 1000;
+
     /// <summary>Whether two walls stand one on the other: along the same line, overlapping, one higher.</summary>
     private static bool Over(BimDocument document, Wall lower, Wall upper)
     {
@@ -216,7 +228,7 @@ public static class Loads
                 if (surface.FaceAt(a.MidpointTo(b) + inward * 1) is not { } face) continue;
                 var eave = a.DistanceTo(b) / 1000;
                 if (eave <= 0) continue;
-                total += face.Area / 1e6 * (Weight(document, type.Structure) * face.Plane.VerticalStretch + (imposed ? RoofImposed(document) : 0)) / eave;
+                total += face.Area / 1e6 * (Weight(document, type) * face.Plane.VerticalStretch + (imposed ? RoofImposed(document) : 0)) / eave;
             }
         }
 

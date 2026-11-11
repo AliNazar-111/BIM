@@ -178,7 +178,13 @@ public enum ComponentForm
     // Fire sprinklers: a residential pendent sprinkler hanging from the ceiling, and the valve set where
     // the sprinklers' supply comes in - its stop valve, check valve, flow switch and test and drain valve.
     Sprinkler,
-    SprinklerValve
+    SprinklerValve,
+
+    /// <summary>
+    /// A trapped gully at the ground: a grating over a trap, where a ground floor appliance's waste or a rainwater pipe
+    /// discharges into the drain - the branch ending between the grating and the trap's water (Approved Document H, H1 1.13).
+    /// </summary>
+    Gully
 }
 
 /// <summary>
@@ -467,6 +473,13 @@ public sealed class ComponentType : ElementType
     /// <summary>For a consumer unit, whether a surge protective device guards it against transient overvoltage - a Type 2 at the origin (BS 7671 534.4.1), a Type 1 or 2 at the service (NEC 230.67).</summary>
     public bool SurgeProtection { get; set; }
 
+    /// <summary>
+    /// For a surface water outfall, whether the sewer it meets carries foul water too - a combined sewer, which the
+    /// sewerage undertaker may let surface water into where it has the room (Approved Document H, H3 3.5): every inlet to
+    /// the surface water drains then trapped (3.7), a rainwater pipe discharging through a trap (H3 1.8).
+    /// </summary>
+    public bool CombinedSewer { get; set; }
+
     /// <summary>For a consumer unit, the phases of its supply: 1, or 3 with its circuits shared across them.</summary>
     public int Phases { get; set; } = 1;
 
@@ -505,7 +518,8 @@ public sealed class ComponentType : ElementType
         Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, GasInput = GasInput, Flue = Flue, Coverage = Coverage, KFactor = KFactor, Temperature = Temperature, SupplyPressure = SupplyPressure, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
         ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
-        Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance, SurgeProtection = SurgeProtection, Phases = Phases
+        Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance, SurgeProtection = SurgeProtection, Phases = Phases,
+        CombinedSewer = CombinedSewer
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -708,6 +722,9 @@ public sealed class ComponentType : ElementType
         if (Form == ComponentForm.BackgroundVentilator)
             yield return ParameterValue.BindScaled(ComponentTypeParameters.VentArea, ComponentTypeParameters.VentAreaSquareInches, 1 / (Units.MillimetresPerInch * Units.MillimetresPerInch), 1,
                 () => VentArea, v => NotNegative(v, x => VentArea = x));
+
+        if (Form == ComponentForm.SurfaceWaterOutfall)
+            yield return ParameterValue.Bind(ComponentTypeParameters.CombinedSewer, () => CombinedSewer, v => CombinedSewer = v);
 
         if (Form == ComponentForm.DrainAccess)
             yield return ParameterValue.BindChoice(
@@ -1218,6 +1235,9 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition SurgeProtection =
         new("Surge Protection (SPD)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition CombinedSewer =
+        new("Combined Sewer", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition Phases =
         new("Phases (1 or 3)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);

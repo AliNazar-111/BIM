@@ -1187,6 +1187,13 @@ public static class ComponentModel
                 Add(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, h, h + 5, PartFinish.Dark, PartShape.Upright);
                 break;
 
+            case ComponentForm.Gully:
+                // Its grating in its frame, flush with the ground, its bars across it.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                for (var k = -2; k <= 2; k++)
+                    Add(-halfW * 0.75, halfW * 0.75, k * halfD * 0.3 - 6, k * halfD * 0.3 + 6, h, h + 3, PartFinish.Dark);
+                break;
+
             case ComponentForm.DrainAccess:
             case ComponentForm.FoulOutfall:
             case ComponentForm.SurfaceWaterOutfall:
@@ -1634,6 +1641,12 @@ public static class ComponentModel
                 shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
                 break;
 
+            case ComponentForm.Gully:
+                // Its grating: the bars across it, inside its frame.
+                Inside(-halfW * 0.8, halfW * 0.8, -halfD * 0.8, halfD * 0.8);
+                for (var k = -2; k <= 2; k++) shapes.Add(frame.Line(-halfW * 0.8, k * halfD * 0.3, halfW * 0.8, k * halfD * 0.3));
+                break;
+
             case ComponentForm.ParkingBay:
                 // The inside of its lines.
                 Inside(-halfW + 100, halfW - 100, -halfD + 100, halfD);
@@ -1858,6 +1871,7 @@ public static class ComponentModel
             DrainAccessKind.InspectionChamber => "IC",
             _ => "MH"
         },
+        ComponentForm.Gully => "G",
         ComponentForm.FoulOutfall => "FS",
         ComponentForm.SurfaceWaterOutfall => "SW",
         ComponentForm.Soakaway => "SA",

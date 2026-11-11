@@ -239,12 +239,14 @@ public static class PlanningDrawings
 
             if (drawing == PlanningDrawing.Location)
             {
-                var maps = document.All<CadUnderlay>().Where(map => map.LevelId == callout.LevelId && Meets(map.Bounds, callout.Region)).ToList();
+                var maps = document.All<CadUnderlay>().Where(map => map.LevelId == callout.LevelId && Meets(map.Bounds, callout.Region)).Select(map => System.IO.Path.GetFileName(map.Source))
+                    .Concat(document.All<ImageUnderlay>().Where(map => map.LevelId == callout.LevelId && Meets(map.Bounds, callout.Region)).Select(map => System.IO.Path.GetFileName(map.Source)))
+                    .ToList();
                 checks.Add(maps.Count > 0
-                    ? new PlanningCheck(true, $"Drawn over {string.Join(", ", maps.Select(map => System.IO.Path.GetFileName(map.Source)))}.")
+                    ? new PlanningCheck(true, $"Drawn over {string.Join(", ", maps)}.")
                     : new PlanningCheck(false, us
-                        ? "No map under the vicinity map: import one - the streets round the site - as a DWG or DXF (Manage → Import CAD)."
-                        : "No map under the location plan: it shows the site among its surroundings - at least two named roads and the buildings round it - on up-to-date Ordnance Survey mapping, bought as DWG or DXF from a map reseller (Manage → Import CAD)."));
+                        ? "No map under the vicinity map: import one - the streets round the site - as a DWG or DXF (Manage → Import CAD), or a picture of it to scale (Import Image)."
+                        : "No map under the location plan: it shows the site among its surroundings - at least two named roads and the buildings round it - on up-to-date Ordnance Survey mapping, bought as DWG or DXF from a map reseller (Manage → Import CAD), or as a picture set to its scale (Import Image)."));
                 if (!us)
                     checks.Add(string.IsNullOrWhiteSpace(document.ProjectInformation.PlanningMapNote)
                         ? new PlanningCheck(false, "No copyright line: Ordnance Survey mapping carries its notice and licence - \"© Crown copyright and database rights 2026 OS AC0000000000\", as the reseller gives it.")

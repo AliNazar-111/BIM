@@ -492,6 +492,9 @@ public static class CoolingLoads
             case RoofWindow roofWindow when document.FindType<RoofWindowType>(roofWindow.TypeId) is { } type:
                 shgc = type.SolarHeatGainCoefficient;
                 break;
+            case Roof roof when GlazedRoofs.TypeOf(document, roof) is { } glazing:
+                shgc = glazing.SolarHeatGainCoefficient;
+                break;
             case Window window when document.FindType<WindowType>(window.TypeId) is { } type:
                 windowType = type;
                 shgc = type.SolarHeatGainCoefficient;

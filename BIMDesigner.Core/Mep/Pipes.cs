@@ -301,6 +301,28 @@ public enum PipeSeal
     Sleeved
 }
 
+/// <summary>
+/// How a drain below the ground is protected where Approved Document H asks it to be: under a concrete slab over it
+/// where it has too little cover or runs close under a building's floor (H1 2.44, Diagram 11), or in a trench filled with
+/// concrete where it is dug below a foundation near it (2.25).
+/// </summary>
+public enum DrainProtection
+{
+    None,
+    CoverSlab,
+    ConcreteFill
+}
+
+public static class DrainProtections
+{
+    public static string Title(this DrainProtection protection) => protection switch
+    {
+        DrainProtection.CoverSlab => "Concrete slab over it (2.44)",
+        DrainProtection.ConcreteFill => "Trench filled with concrete (2.25)",
+        _ => "None"
+    };
+}
+
 public static class PipeSeals
 {
     public static string Title(this PipeSeal seal) => seal switch
@@ -346,6 +368,9 @@ public sealed class Pipe : Element
     /// <summary>How it keeps a fire-separating wall or floor it passes through fire-separating.</summary>
     public PipeSeal Seal { get; set; }
 
+    /// <summary>A drain's protection below the ground: a concrete slab over it, or its trench filled with concrete.</summary>
+    public DrainProtection Protection { get; set; }
+
     /// <summary>Whether it runs up or down rather than along: its ends one over the other.</summary>
     public bool Upright => Start.DistanceTo(End) < 1;
 
@@ -386,6 +411,10 @@ public sealed class Pipe : Element
         yield return ParameterValue.BindChoice(PipeParameters.Seal, () => Seal.Title(),
             v => { foreach (var seal in Enum.GetValues<PipeSeal>()) if (seal.Title() == v) Seal = seal; },
             Enum.GetValues<PipeSeal>().Select(seal => seal.Title()).ToArray());
+        if (Drainage.IsDrainage(Kind))
+            yield return ParameterValue.BindChoice(PipeParameters.Protection, () => Protection.Title(),
+                v => { foreach (var protection in Enum.GetValues<DrainProtection>()) if (protection.Title() == v) Protection = protection; },
+                Enum.GetValues<DrainProtection>().Select(protection => protection.Title()).ToArray());
         yield return ParameterValue.ReadOnly(PipeParameters.Carries, () => PipeNetworks.Describe(document, this));
         yield return ParameterValue.ReadOnly(PipeParameters.Supports, () => Mep.Supports.Describe(document, this));
 
@@ -427,6 +456,7 @@ public static class PipeParameters
     public static readonly ParameterDefinition Circuit = new("Flow or Return", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
     public static readonly ParameterDefinition Insulation = new("Insulation (mm)", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition InsulationThickness = new("Insulation Thickness", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Protection = new("Protection", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Seal = new("Fire Stopping", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Supports = new("Supports", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
 }

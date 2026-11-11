@@ -111,8 +111,21 @@ public static class Drainage
         return kind == SystemKind.Foul ? full * 0.912 : full;
     }
 
-    /// <summary>The rain a surface water drain carries, l/s a m² of roof's effective area: 75 mm an hour, 0.021 l/s, the intensity Approved Document H takes a roof's gutters at.</summary>
-    public const double Rainfall = 0.021;
+    /// <summary>
+    /// The rain a surface water drain carries, l/s a m² of roof's effective area: 50 mm an hour, 0.014 l/s, what Approved Document H (H3 3.8) lets
+    /// surface water drains be designed for in normal situations - the gutters over them taken at 75 mm. Where a little flooding at the
+    /// surface could flood buildings, BS EN 752-4's intensity (3.9).
+    /// </summary>
+    public const double Rainfall = 0.014;
+
+    /// <summary>The least cover over a plastic drain, mm, by Approved Document H Table 10 (SN4 pipe, 100 to 300): 0.6 m in a garden or field, 0.9 m under a road or drive.</summary>
+    public static double LeastCover(bool underRoad) => underRoad ? 900 : 600;
+
+    /// <summary>The most cover over a plastic drain, mm, by Approved Document H Table 10: 7 m.</summary>
+    public const double MostCover = 7000;
+
+    /// <summary>The bedding under a drain in its trench, mm: the trench dug that far below its invert (Class S2, Diagram 10).</summary>
+    public const double Bedding = 100;
 
     /// <summary>
     /// What a drain carries, l/s: a foul drain a dwelling's 2.5 with a WC on it (Approved Document H Table 5), under 1 l/s without, taken at 1; a rainwater drain its roofs' effective area by
@@ -327,6 +340,10 @@ public static class Drainage
                 // What it carries against what it takes at its fall.
                 if (!us && !pipe.Upright && fall > 0.05 && Flow(system.Kind, load) is { } flow && Capacity(system.Kind, bore, fall) is var takes && flow > takes + 1e-6)
                     yield return new MepProblem(pipe, $"it carries {flow:0.0} l/s - at 1:{1000 / fall:0} a {bore:0} drain takes {takes:0.0} l/s {(system.Kind == SystemKind.Foul ? "running three quarters full" : "running full")} (Colebrook-White, ks {Roughness(system.Kind):0.0} mm)");
+
+                // Where it lies: its cover, the floor over it, the footings beside it.
+                if (!us)
+                    foreach (var problem in Laid(document, pipe, bore, floor)) yield return problem;
             }
 
             // Each appliance's branch, from its trap to where it meets a stack, a drain or another branch.
@@ -390,6 +407,10 @@ public static class Drainage
                 }
             }
 
+            // Gullies: wastewater only, and on a surface water drain to a combined sewer every rainwater pipe through one.
+            if (!us)
+                foreach (var problem in Gullies(document, system, network)) yield return problem;
+
             if (system.Kind == SystemKind.Foul)
             {
                 foreach (var problem in Stacks(document, network, valves, us)) yield return problem;
@@ -414,6 +435,115 @@ public static class Drainage
             }
         }
     }
+
+    /// <summary>The gullies in the project.</summary>
+    private static List<Component> GulliesIn(BimDocument document) =>
+        document.All<Component>().Where(component => document.FindType<ComponentType>(component.TypeId)?.Form == ComponentForm.Gully).ToList();
+
+    /// <summary>
+    /// A system's gullies. On a foul system, no pipe carrying a WC discharges into one: a ground floor branch goes to a gully
+    /// only if it carries wastewater alone (Approved Document H, H1 1.8). On a surface water system whose outfall is a combined
+    /// sewer, every rainwater pipe discharges through a trap - a gully at its foot (H3 1.8 and 3.7).
+    /// </summary>
+    private static IEnumerable<MepProblem> Gullies(BimDocument document, MepSystem system, PipeNetwork network)
+    {
+        var gullies = GulliesIn(document);
+        Component? At(Point2D point) => gullies.FirstOrDefault(gully => gully.Location.DistanceTo(point) <= PipeNetworks.Reach);
+
+        if (system.Kind == SystemKind.Foul)
+            foreach (var (pipe, load) in network.Loads)
+                if (load.Wcs > 0 && At(new Point2D(load.Near.X, load.Near.Y)) is { } gully)
+                    yield return new MepProblem(gully, $"{(load.Wcs == 1 ? "a WC discharges" : $"{load.Wcs} WCs discharge")} into it - Approved Document H (H1 1.8) takes a branch to a gully only if it carries wastewater alone: take the WC to the drain or a stack");
+
+        if (system.Kind == SystemKind.Rainwater && MepSystems.SourceOf(document, system) is { } outfall
+            && document.FindType<ComponentType>(outfall.TypeId) is { Form: ComponentForm.SurfaceWaterOutfall, CombinedSewer: true })
+            foreach (var downpipe in network.Downpipes)
+                if (Downpipes.Path(document, downpipe) is { } path && At(path.Foot) is null)
+                    yield return new MepProblem(downpipe, "it drains to a combined sewer with no trap at its foot - Approved Document H (H3 1.8, 3.7) traps every inlet to surface water drains joining a combined sewer: put it into a trapped gully");
+    }
+
+    /// <summary>
+    /// Where a drain below the ground lies, by Approved Document H section 2. Under the building, its crown 300 mm or more below
+    /// the floor slab, or protected (2.23, 2.44). Outside it, Table 10's cover over a plastic drain - 0.6 m in a garden, 0.9 m
+    /// under a drive or a parking bay, 7 m at most - or a concrete slab over it where it has less (2.44). And its trench, dug
+    /// its bedding below its invert, no lower than a footing near it (2.25, Diagram 8): within 1 m of the footing, filled with
+    /// concrete up to the footing's underside; further off, down to the distance less 150 mm below it. Each worst place once.
+    /// </summary>
+    private static IEnumerable<MepProblem> Laid(BimDocument document, Pipe pipe, double bore, double floor)
+    {
+        var (start, end) = pipe.Ends(document);
+        var plan = pipe.Start.DistanceTo(pipe.End);
+        var count = Math.Max(1, (int)Math.Ceiling(plan / 500));
+        var samples = Enumerable.Range(0, count + 1).Select(k => (double)k / count)
+            .Select(t => (At: pipe.Start + (pipe.End - pipe.Start) * t, Z: start.Z + (end.Z - start.Z) * t)).ToList();
+        var lowest = document.Levels.OrderBy(level => level.Elevation).FirstOrDefault()?.Id;
+        var floors = document.All<Floor>().Where(slab => slab.LevelId == lowest && slab.Boundary.Count >= 3).ToList();
+        var surface = document.All<Toposurface>().FirstOrDefault(each => each.LevelId == lowest) ?? document.All<Toposurface>().FirstOrDefault();
+        var radius = pipe.Diameter / 2;
+
+        // Under the floor: the least gap between its crown and the slab's underside.
+        double? gap = null;
+        foreach (var (at, z) in samples)
+            if (floors.FirstOrDefault(slab => slab.Contains(at)) is { } slab && slab.GetBottomElevation(document) - (z + radius) is var under && (gap is null || under < gap))
+                gap = under;
+        if (gap is { } least && least < 300 - 1 && pipe.Protection == DrainProtection.None)
+            yield return new MepProblem(pipe, least < 0
+                ? $"it runs up into the floor slab over it, {-least:0} mm - Approved Document H (2.23) keeps a drain under a building below its slab, protected within 300 mm of it"
+                : $"under the building its crown is {least:0} mm below the floor slab - Approved Document H (2.23) asks special protection within 300 mm: a concrete slab over it (2.44)");
+
+        // Outside: its cover, at the place it falls shortest of what it needs.
+        (double Cover, double Need, bool Road)? shortest = null;
+        var deepest = double.MinValue;
+        foreach (var (at, z) in samples)
+        {
+            if (floors.Any(slab => slab.Contains(at))) continue;
+            var ground = surface is not null && Terrains.HeightAt(document, surface, at) is { } height ? height : floor - 150;
+            var cover = ground - (z + radius);
+            var road = UnderRoad(document, lowest, at);
+            var need = LeastCover(road);
+            if (cover < need - 1 && (shortest is null || cover - need < shortest.Value.Cover - shortest.Value.Need)) shortest = (cover, need, road);
+            deepest = Math.Max(deepest, cover);
+        }
+
+        if (shortest is var (have, needs, underRoad) && pipe.Protection != DrainProtection.CoverSlab)
+            yield return new MepProblem(pipe, $"it has {Units.Metres(have, "0.00")} of cover{(underRoad ? " under the drive" : string.Empty)} - Approved Document H (Table 10) asks {Units.Metres(needs, "0.0")} over a plastic drain {(underRoad ? "under a road or drive" : "in a garden")}: lay it deeper, or put a concrete slab over it (2.44)");
+        if (deepest > MostCover + 1)
+            yield return new MepProblem(pipe, $"it is {Units.Metres(deepest, "0.0")} deep - more than Approved Document H's 7 m over a plastic drain (Table 10): a stronger pipe or bedding by BS EN 1295 (2.28)");
+
+        // Its trench beside the footings: the worst place against each.
+        if (pipe.Protection == DrainProtection.ConcreteFill) yield break;
+        var footings = document.All<WallFooting>().SelectMany(strip => Footings.RunOutlines(document, strip).Select(run => ((Elements.Element)strip, run.Outline, run.Bottom)))
+            .Concat(document.All<PadFooting>().Select(pad => (Element: (Elements.Element)pad, Outline: Footings.Outline(document, pad), Heights: Footings.Heights(document, pad)))
+                .Where(pad => pad.Outline is not null && pad.Heights is not null).Select(pad => (pad.Element, pad.Outline!, pad.Heights!.Value.Bottom)))
+            .ToList();
+        (double Below, double Away, double Fill)? worst = null;
+        foreach (var (at, z) in samples)
+        {
+            var trench = z - bore / 2 - Bedding;
+            foreach (var (_, outline, bottom) in footings)
+            {
+                if (outline.Count < 3 || Polygon2D.Contains(outline, at) || trench >= bottom) continue;
+                var away = Enumerable.Range(0, outline.Count).Min(i => Line2D.DistanceFromSegment(at, outline[i], outline[(i + 1) % outline.Count]));
+                // Within 1 m, concrete up to the footing's underside; further off, up to the distance less 150 mm below it.
+                var lowestUnfilled = away <= 1000 ? bottom : bottom - (away - 150);
+                if (trench >= lowestUnfilled - 1) continue;
+                var below = bottom - trench;
+                if (worst is null || below > worst.Value.Below) worst = (below, away, away <= 1000 ? bottom - trench : lowestUnfilled - trench);
+            }
+        }
+
+        if (worst is var (deeper, from, fill))
+            yield return new MepProblem(pipe, from <= 1000
+                ? $"its trench is dug {Units.Metres(deeper, "0.00")} below a footing {Units.Metres(from, "0.00")} from it - Approved Document H (2.25, Diagram 8) fills a trench within 1 m of a foundation with concrete up to its underside"
+                : $"its trench is dug {Units.Metres(deeper, "0.00")} below a footing {Units.Metres(from, "0.00")} from it - Approved Document H (2.25, Diagram 8) fills it with concrete up to {Units.Metres(from - 150, "0.00")} below the footing, the distance less 150 mm: {Units.Metres(fill, "0.00")} of it");
+    }
+
+    /// <summary>Whether a point of the ground is under a drive: a region or a pad laid as one, or a parking bay.</summary>
+    private static bool UnderRoad(BimDocument document, Guid? level, Point2D at) =>
+        document.All<GroundRegion>().Any(region => region.Surface == GroundSurface.Driveway && region.Boundary.Count >= 3 && Polygon2D.Contains(region.Boundary, at))
+        || document.All<SitePad>().Any(pad => pad.Surface == GroundSurface.Driveway && pad.Boundary.Count >= 3 && Polygon2D.Contains(pad.Boundary, at))
+        || document.All<Component>().Any(component => document.FindType<ComponentType>(component.TypeId) is { Form: ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay } type
+                                                      && Polygon2D.Contains(Views.ComponentModel.Footprint(type, Views.ComponentModel.FrameOf(component, 0)), at));
 
     /// <summary>A nominal size as the IRC writes it: "1¼ in", "2½ in", "3 in".</summary>
     private static string UsInches(double inches)

@@ -170,7 +170,7 @@ public static class Assets
         ComponentForm.Sink => AssetKind.Sink,
         ComponentForm.Bath => AssetKind.Bath,
         ComponentForm.Shower => AssetKind.Shower,
-        ComponentForm.DrainAccess => AssetKind.DrainAccess,
+        ComponentForm.DrainAccess or ComponentForm.Gully => AssetKind.DrainAccess,
         ComponentForm.Soakaway => AssetKind.Soakaway,
         ComponentForm.AirAdmittanceValve => AssetKind.AirAdmittanceValve,
         ComponentForm.Custom or ComponentForm.Box when type.Kind is BuiltInCategory.MechanicalEquipment or BuiltInCategory.ElectricalEquipment

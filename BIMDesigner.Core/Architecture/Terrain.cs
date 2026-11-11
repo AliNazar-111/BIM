@@ -851,9 +851,9 @@ public static class Terrains
 
     /// <summary>Whether the ground at a point is laid hard: paving or a path, a region or a pad.</summary>
     private static bool Hard(BimDocument document, Toposurface surface, Point2D at) =>
-        document.All<GroundRegion>().Any(region => region.LevelId == surface.LevelId && region.Surface is GroundSurface.Paving or GroundSurface.Path
+        document.All<GroundRegion>().Any(region => region.LevelId == surface.LevelId && region.Surface is GroundSurface.Paving or GroundSurface.Path or GroundSurface.Driveway
                                                                && region.Boundary.Count >= 3 && Polygon2D.Contains(region.Boundary, at))
-        || SitePads.On(document, surface.LevelId).Any(pad => pad.Surface is GroundSurface.Paving or GroundSurface.Path && Polygon2D.Contains(pad.Boundary, at));
+        || SitePads.On(document, surface.LevelId).Any(pad => pad.Surface is GroundSurface.Paving or GroundSurface.Path or GroundSurface.Driveway && Polygon2D.Contains(pad.Boundary, at));
 
     /// <summary>
     /// A slope steeper than 1 in 3 out from a wall, within 40 ft (12192): how far off it starts,

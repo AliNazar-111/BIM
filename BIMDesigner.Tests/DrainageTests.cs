@@ -294,9 +294,9 @@ public class DrainageTests
         Assert.InRange(Drainage.Capacity(SystemKind.Foul, 100, 12.5), 5.30, 5.35);
         Assert.InRange(Drainage.Capacity(SystemKind.Rainwater, 100, 10), 6.00, 6.05);
         Assert.Equal(2.5, Drainage.Flow(SystemKind.Foul, new PipeLoad(0, 0, 0, 0) { Wcs = 1, Fittings = 2 }));
-        Assert.Equal(100 * 0.021, Drainage.Flow(SystemKind.Rainwater, new PipeLoad(100, 0, 0, 0))!.Value, 9);
+        Assert.Equal(100 * 0.014, Drainage.Flow(SystemKind.Rainwater, new PipeLoad(100, 0, 0, 0))!.Value, 9);
 
-        // The house's gutter down one downpipe to a soakaway in a 75 drain laid at 1:1000: its roof's effective area at 0.021 l/s a m² is more than the 0.85 l/s such a drain takes.
+        // The house's gutter down one downpipe to a soakaway in a 75 drain laid at 1:1000: its roof's effective area at 0.014 l/s a m² (Approved Document H, H3 3.8) is more than the 0.85 l/s such a drain takes.
         var house = new HouseEditAuditTests.House(false);
         var document = house.Document;
         var gutter = new Gutter { RoofId = house.Roof.Id, LevelId = house.Roof.LevelId, TypeId = document.TypesOf<GutterType>().First().Id };
@@ -313,7 +313,7 @@ public class DrainageTests
         var load = PipeNetworks.Trace(document, rain).Loads[drain];
         Assert.Equal(area, load.Load, 6);
         Assert.InRange(Drainage.Capacity(SystemKind.Rainwater, 75, 1), 0.82, 0.87);
-        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == drain && problem.Text.Contains($"carries {area * 0.021:0.0} l/s") && problem.Text.Contains("Colebrook-White"));
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == drain && problem.Text.Contains($"carries {area * 0.014:0.0} l/s") && problem.Text.Contains("Colebrook-White"));
     }
 
     [Fact]

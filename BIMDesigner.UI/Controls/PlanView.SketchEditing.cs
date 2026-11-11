@@ -7,9 +7,10 @@ namespace BIMDesigner.UI.Controls;
 
 /// <summary>
 /// Changing a sketch's lines the ways Revit's Modify panel does while sketching: a corner dragged
-/// to a new place, the lines meeting there following it; the selected lines moved or mirrored -
-/// or copied so; a line aligned onto another; two lines rounded off into a fillet arc. A roof's
-/// footprint, a floor's or a ceiling's boundary alike.
+/// to a new place, the lines meeting there following it; the selected lines moved, mirrored or
+/// rotated - or copied so - arrayed or scaled; a line aligned onto another; two lines rounded off
+/// into a fillet arc. A roof's footprint, a floor's or a ceiling's boundary alike. A line moved
+/// off the wall, gridline or edge it was picked from no longer follows it: it stays where it is put.
 /// </summary>
 public partial class PlanView
 {
@@ -24,6 +25,24 @@ public partial class PlanView
 
     /// <summary>The radius Fillet Arc rounds two lines off at, mm.</summary>
     public double SketchFilletRadius { get; set; } = 1000;
+
+    /// <summary>Whether Rotate turns copies of the lines and leaves them where they are.</summary>
+    public bool SketchRotateCopy { get; set; }
+
+    /// <summary>The angle Rotate turns the lines by about the centre clicked, degrees anticlockwise; none to pick it with two more clicks.</summary>
+    public double SketchRotateAngle { get; set; }
+
+    /// <summary>How many Array makes in all, the lines selected the first of them.</summary>
+    public int SketchArrayCount { get; set; } = 3;
+
+    /// <summary>Whether Array repeats the lines round a centre clicked, rather than along a step.</summary>
+    public bool SketchArrayRadial { get; set; }
+
+    /// <summary>How far round a radial Array goes, degrees anticlockwise: 360 spaces them evenly all the way round; less puts the last that far round from the first.</summary>
+    public double SketchArrayAngle { get; set; } = 360;
+
+    /// <summary>How much Scale makes the lines bigger: 2 doubles them, 0.5 halves them.</summary>
+    public double SketchScaleFactor { get; set; } = 2;
 
     /// <summary>Whether a corner of the sketch is being dragged.</summary>
     public bool IsDraggingSketchCorner => _sketchDrag is not null;
@@ -149,6 +168,7 @@ public partial class PlanView
         {
             line.Start += by;
             line.End += by;
+            Loose(line);
         }
 
         if (SketchMoveCopy)
@@ -157,6 +177,8 @@ public partial class PlanView
             _sketchSelection.Clear();
             _sketchSelection.AddRange(lines);
         }
+
+        CarryArrows(SketchMoveCopy, point => point + by);
 
         _sketchStart = null;
         AfterSketchEdit($"{(SketchMoveCopy ? "Copied" : "Moved")} {Units.FormatLength(by.Length)}.");
@@ -203,6 +225,7 @@ public partial class PlanView
 
             // A reflection turns left into right: an arc bows the other way.
             line.Bulge = -line.Bulge;
+            Loose(line);
         }
 
         if (SketchMirrorCopy)
@@ -212,8 +235,274 @@ public partial class PlanView
             _sketchSelection.AddRange(lines);
         }
 
+        CarryArrows(SketchMirrorCopy, Reflect);
+
         _sketchStart = null;
         AfterSketchEdit(SketchMirrorCopy ? "Mirrored copies made." : "Mirrored.");
+        return true;
+    }
+
+    // ---- rotate, array and scale ------------------------------------------------------------
+
+    /// <summary>
+    /// A line moved off the wall, gridline or floor's or roof's edge it was picked from: it no longer follows it,
+    /// but stays where it is put - or, finished, it would be put back on what it was picked from.
+    /// </summary>
+    private static void Loose(RoofSketchLine line)
+    {
+        line.Edge.WallId = null;
+        line.Edge.GridId = null;
+        line.Edge.SlabId = null;
+        line.Edge.SlabEdgeId = null;
+    }
+
+    /// <summary>The selected slope arrows put through the same change as the lines - or copies of them, added and selected.</summary>
+    private void CarryArrows(bool copy, Func<Point2D, Point2D> to)
+    {
+        var arrows = copy ? _sketchArrowSelection.Select(arrow => arrow.Copy()).ToList() : _sketchArrowSelection.ToList();
+        foreach (var arrow in arrows) (arrow.Tail, arrow.Head) = (to(arrow.Tail), to(arrow.Head));
+        if (!copy) return;
+        _sketchArrows.AddRange(arrows);
+        _sketchArrowSelection.Clear();
+        _sketchArrowSelection.AddRange(arrows);
+    }
+
+    /// <summary>A point turned about a centre, degrees anticlockwise.</summary>
+    private static Point2D Turned(Point2D point, Point2D centre, double degrees)
+    {
+        var radians = degrees * Math.PI / 180;
+        var (cos, sin) = (Math.Cos(radians), Math.Sin(radians));
+        var (x, y) = (point.X - centre.X, point.Y - centre.Y);
+        return new Point2D(centre.X + x * cos - y * sin, centre.Y + x * sin + y * cos);
+    }
+
+    /// <summary>
+    /// The angle between two clicks about a centre, anticlockwise: to the whole degree, and to the
+    /// nearest 15 degrees within 3 of it, as Rotate picks it for the model.
+    /// </summary>
+    private static double SketchTurn(Point2D centre, Point2D from, Point2D to)
+    {
+        var (a, b) = (from - centre, to - centre);
+        if (a.Length <= RoofSketch.JoinTolerance || b.Length <= RoofSketch.JoinTolerance) return 0;
+        var degrees = Math.Atan2(a.Cross(b), a.Dot(b)) * 180 / Math.PI;
+        var fifteen = Math.Round(degrees / 15) * 15;
+        return Math.Abs(degrees - fifteen) <= 3 ? fifteen : Math.Round(degrees);
+    }
+
+    /// <summary>
+    /// Rotate: the first click is the centre the selected lines turn about. With an Angle typed on the
+    /// options bar they turn by it at once; without, the next two clicks are where the angle starts and
+    /// where it ends. Copy turns copies and leaves the lines where they are.
+    /// </summary>
+    private bool SketchRotateAt(Point2D raw)
+    {
+        if (_sketch is null) return false;
+        if (_sketchSelection.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Select the lines to rotate first (Select Lines), then Rotate: click the centre, then where the angle starts and ends.");
+            return false;
+        }
+
+        var point = SketchSnap(raw);
+        if (_sketchStart is not { } centre)
+        {
+            if (Math.Abs(SketchRotateAngle) > 1e-9) return RotateSketchLines(point, SketchRotateAngle);
+            _sketchStart = point;
+            HintChanged?.Invoke(this, "Click where the angle starts from.");
+            InvalidateVisual();
+            return true;
+        }
+
+        if (_sketchArcEnd is not { } from)
+        {
+            if (point.DistanceTo(centre) <= RoofSketch.JoinTolerance) return false;
+            _sketchArcEnd = point;
+            HintChanged?.Invoke(this, "Click where the angle ends. Esc starts again.");
+            InvalidateVisual();
+            return true;
+        }
+
+        var degrees = SketchTurn(centre, from, point);
+        if (Math.Abs(degrees) < 1e-9) return false;
+        _sketchStart = null;
+        _sketchArcEnd = null;
+        return RotateSketchLines(centre, degrees);
+    }
+
+    /// <summary>The selected lines turned about a centre - or copies of them, added and selected.</summary>
+    public bool RotateSketchLines(Point2D centre, double degrees)
+    {
+        if (_sketch is null || _sketchSelection.Count == 0 || Math.Abs(degrees) < 1e-9) return false;
+
+        Remember();
+        var lines = SketchRotateCopy ? _sketchSelection.Select(line => line.Copy()).ToList() : _sketchSelection.ToList();
+        foreach (var line in lines)
+        {
+            (line.Start, line.End) = (Turned(line.Start, centre, degrees), Turned(line.End, centre, degrees));
+            Loose(line);
+        }
+
+        if (SketchRotateCopy)
+        {
+            _sketch.AddRange(lines);
+            _sketchSelection.Clear();
+            _sketchSelection.AddRange(lines);
+        }
+
+        CarryArrows(SketchRotateCopy, point => Turned(point, centre, degrees));
+
+        AfterSketchEdit($"{(SketchRotateCopy ? "Copies turned" : "Turned")} {Math.Abs(degrees):0.##}° {(degrees > 0 ? "anticlockwise" : "clockwise")}.");
+        return true;
+    }
+
+    /// <summary>
+    /// Array: click where from, then where the next one goes - the selected lines are copied that far
+    /// on again and again, as many in all as the Count on the options bar, the lines themselves the first.
+    /// </summary>
+    private bool SketchArrayAt(Point2D raw)
+    {
+        if (_sketch is null) return false;
+        if (_sketchSelection.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Select the lines to repeat first (Select Lines), then Array: click where from, then where the next one goes.");
+            return false;
+        }
+
+        var point = SketchSnap(raw);
+        if (SketchArrayRadial) return ArraySketchLinesRound(point, Math.Max(2, SketchArrayCount), SketchArrayAngle);
+        if (_sketchStart is not { } from)
+        {
+            _sketchStart = point;
+            HintChanged?.Invoke(this, $"Click where the next one goes: {Math.Max(2, SketchArrayCount)} in all, each that far on from the last.");
+            InvalidateVisual();
+            return true;
+        }
+
+        var by = point - from;
+        if (by.Length <= RoofSketch.JoinTolerance) return false;
+        _sketchStart = null;
+        return ArraySketchLines(by, Math.Max(2, SketchArrayCount));
+    }
+
+    /// <summary>The selected lines copied a step on, again and again, as many in all as the count - the copies made selected.</summary>
+    public bool ArraySketchLines(Vector2D step, int count)
+    {
+        if (_sketch is null || _sketchSelection.Count == 0 || count < 2 || step.Length <= RoofSketch.JoinTolerance) return false;
+
+        Remember();
+        var originals = _sketchSelection.ToList();
+        var arrows = _sketchArrowSelection.ToList();
+        var made = new List<RoofSketchLine>();
+        var madeArrows = new List<RoofSlopeArrow>();
+        for (var k = 1; k < count; k++)
+        {
+            foreach (var line in originals)
+            {
+                var copy = line.Copy();
+                copy.Start += step * k;
+                copy.End += step * k;
+                Loose(copy);
+                made.Add(copy);
+            }
+
+            foreach (var arrow in arrows)
+            {
+                var copy = arrow.Copy();
+                (copy.Tail, copy.Head) = (copy.Tail + step * k, copy.Head + step * k);
+                madeArrows.Add(copy);
+            }
+        }
+
+        _sketch.AddRange(made);
+        _sketchSelection.Clear();
+        _sketchSelection.AddRange(made);
+        _sketchArrows.AddRange(madeArrows);
+        _sketchArrowSelection.Clear();
+        _sketchArrowSelection.AddRange(madeArrows);
+        AfterSketchEdit($"{count - 1} {(count == 2 ? "copy" : "copies")} made, {Units.FormatLength(step.Length)} apart.");
+        return true;
+    }
+
+    /// <summary>
+    /// The selected lines repeated round a centre - as many in all as the count, the lines themselves the first: all the
+    /// way round evenly at 360°, or the last so far round from the first at less - the copies made selected.
+    /// </summary>
+    public bool ArraySketchLinesRound(Point2D centre, int count, double angle)
+    {
+        if (_sketch is null || _sketchSelection.Count == 0 || count < 2 || Math.Abs(angle) < 1e-9) return false;
+        var full = Math.Abs(Math.Abs(angle) - 360) < 1e-9;
+        var step = full ? angle / count : angle / (count - 1);
+
+        Remember();
+        var originals = _sketchSelection.ToList();
+        var arrows = _sketchArrowSelection.ToList();
+        var made = new List<RoofSketchLine>();
+        var madeArrows = new List<RoofSlopeArrow>();
+        for (var k = 1; k < count; k++)
+        {
+            var turn = step * k;
+            foreach (var line in originals)
+            {
+                var copy = line.Copy();
+                (copy.Start, copy.End) = (Turned(copy.Start, centre, turn), Turned(copy.End, centre, turn));
+                Loose(copy);
+                made.Add(copy);
+            }
+
+            foreach (var arrow in arrows)
+            {
+                var copy = arrow.Copy();
+                (copy.Tail, copy.Head) = (Turned(copy.Tail, centre, turn), Turned(copy.Head, centre, turn));
+                madeArrows.Add(copy);
+            }
+        }
+
+        _sketch.AddRange(made);
+        _sketchSelection.Clear();
+        _sketchSelection.AddRange(made);
+        _sketchArrows.AddRange(madeArrows);
+        _sketchArrowSelection.Clear();
+        _sketchArrowSelection.AddRange(madeArrows);
+        AfterSketchEdit($"{count - 1} {(count == 2 ? "copy" : "copies")} made round the centre, {Math.Abs(step):0.##}° apart.");
+        return true;
+    }
+
+    /// <summary>
+    /// Scale: click the point the selected lines grow from or shrink toward, by the Scale on the
+    /// options bar - each line that much longer and that much further from it, an arc keeping its shape.
+    /// </summary>
+    private bool SketchScaleAt(Point2D raw)
+    {
+        if (_sketch is null) return false;
+        if (_sketchSelection.Count == 0)
+        {
+            HintChanged?.Invoke(this, "Select the lines to scale first (Select Lines), then Scale: type the scale, and click the point it is scaled about.");
+            return false;
+        }
+
+        return ScaleSketchLines(SketchSnap(raw), SketchScaleFactor);
+    }
+
+    /// <summary>The selected lines scaled about a point.</summary>
+    public bool ScaleSketchLines(Point2D about, double factor)
+    {
+        if (_sketch is null || _sketchSelection.Count == 0) return false;
+        if (factor <= 0 || Math.Abs(factor - 1) < 1e-9)
+        {
+            HintChanged?.Invoke(this, "Type a scale on the options bar first: 2 doubles the lines, 0.5 halves them.");
+            return false;
+        }
+
+        Remember();
+        foreach (var line in _sketchSelection)
+        {
+            (line.Start, line.End) = (about + (line.Start - about) * factor, about + (line.End - about) * factor);
+            Loose(line);
+        }
+
+        CarryArrows(false, point => about + (point - about) * factor);
+
+        AfterSketchEdit($"Scaled by {factor:0.###} about the point clicked.");
         return true;
     }
 
@@ -344,6 +633,11 @@ public partial class PlanView
         RoofSketchTool.Mirror => "Mirror: select lines first, then click two points on the line to mirror about. Untick Copy to move them instead.",
         RoofSketchTool.Align => "Align: click the line to align to, then a line running the same way to bring onto it.",
         RoofSketchTool.Fillet => "Fillet Arc: type the radius on the options bar, then click two lines, each on the part to keep.",
+        RoofSketchTool.Rotate => "Rotate: select lines first, then click the centre, then where the angle starts and ends - or type an Angle and click the centre. Tick Copy to turn copies.",
+        RoofSketchTool.Array => SketchArrayRadial
+            ? "Array, radial: select lines first, type the Count and the Angle round, then click the centre."
+            : "Array: select lines first, type the Count, then click where from and where the next one goes. Tick Radial to repeat them round a centre.",
+        RoofSketchTool.Scale => "Scale: select lines first, type the Scale, then click the point they are scaled about.",
         _ => null
     };
 }

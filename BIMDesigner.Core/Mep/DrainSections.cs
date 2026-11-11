@@ -51,7 +51,7 @@ public static class DrainSections
         // The access points along it, by where they stand over it.
         var accesses = new List<SectionAccess>();
         foreach (var access in document.All<Component>().Where(component => document.FindType<ComponentType>(component.TypeId)?.Form is
-                     ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway))
+                     ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway or ComponentForm.Gully))
         {
             foreach (var length in run)
             {

@@ -162,4 +162,107 @@ public class ServicesLeftoversTests
         Assert.Equal(ApplianceFlue.OpenFlued, boiler.Duplicate("Copy").Flue);
         Assert.Contains(boiler.GetTypeParameters(document), parameter => parameter.Name == "Flue (gas)");
     }
+    [Fact]
+    public void AKitchensExtractFanIsKeptTo20LitresASecondWithAnOpenFluedApplianceInIt()
+    {
+        // A 6 kW open-flued gas fire in the kitchen - under 7 kW net, so no vent asked of it - and a 60 l/s fan: three times what
+        // Approved Document J 1.20 a lets a kitchen's fan draw with an open-flued appliance in it.
+        var (document, rooms, _) = Row("Generic - 200mm", "Kitchen");
+        var fire = Put(document, "Gas Fire - Inset 600", rooms[0].Location.X, 300);
+        document.FindType<ComponentType>(fire.TypeId)!.GasInput = 6_000;
+        var fan = Put(document, "Extract Fan - 150 (60 l/s)", rooms[0].Location.X + 1000, 2400);
+        Assert.Contains(GasPipes.AirSupplyProblems(document), each => each.Element == fire && each.Text.Contains("60 l/s") && each.Text.Contains("1.20 a"));
+
+        // A 15 l/s fan in its place is within it; the fire room-sealed, nothing is asked whatever the fan.
+        document.Remove(fan);
+        Put(document, "Extract Fan - 100 (15 l/s)", rooms[0].Location.X + 1000, 2400);
+        Assert.DoesNotContain(GasPipes.AirSupplyProblems(document), each => each.Element == fire);
+        Put(document, "Extract Fan - 150 (60 l/s)", rooms[0].Location.X - 1000, 2400);
+        document.FindType<ComponentType>(fire.TypeId)!.Flue = ApplianceFlue.RoomSealed;
+        Assert.DoesNotContain(GasPipes.AirSupplyProblems(document), each => each.Element == fire);
+    }
+
+    [Fact]
+    public void ACircuitSetToAPhaseStaysOnIt()
+    {
+        // Three 9.5 kW showers on a three-phase board, two set to L1: those two on it - the larger whole, the next whole, 82.6 A - and
+        // the third shared out onto the least loaded, L2.
+        var (document, rooms, _) = Row("Generic - 200mm", "Bathroom", "Bathroom", "Bathroom");
+        var board = Put(document, "Consumer Unit - 12 Way", 300, 1500);
+        document.FindType<ComponentType>(board.TypeId)!.Phases = 3;
+        var showers = rooms.Select(room =>
+        {
+            var shower = Make(document, SystemKind.Power, board, Put(document, "Shower - Electric 9.5 kW", room.Location.X, 2400));
+            shower.Use = CircuitUse.Shower;
+            return shower;
+        }).ToList();
+        (showers[0].Phase, showers[1].Phase) = (1, 1);
+        var demand = Circuits.Demand(document, board)!;
+        Assert.Equal(2, demand.Phases[0].Circuits.Count);
+        Assert.Equal(2 * 9500 / 230.0, demand.Phases[0].Demand, 6);
+        Assert.Single(demand.Phases[1].Circuits);
+        Assert.Empty(demand.Phases[2].Circuits);
+        Assert.Equal(2 * 9500 / 230.0, demand.Demand, 6);
+
+        // Offered only on a three-phase board's circuits, and kept with the project.
+        Assert.Contains(showers[0].GetInstanceParameters(document), parameter => parameter.Definition == MepSystemParameters.Phase);
+        Assert.Equal(1, ProjectFile.FromJson(ProjectFile.ToJson(document)).Find<MepSystem>(showers[0].Id)!.Phase);
+        document.FindType<ComponentType>(board.TypeId)!.Phases = 1;
+        Assert.DoesNotContain(showers[0].GetInstanceParameters(document), parameter => parameter.Definition == MepSystemParameters.Phase);
+    }
+
+    [Fact]
+    public void AnUpsizedUsCircuitsGroundGrowsWithIt()
+    {
+        // A kitchen's 20 A small-appliance circuit at 16 A, its drop kept to 3.6 V: at 30 m, 98.4 ft, 12 AWG drops 2 × 12.9 × 16 × 98.4 / 6,530 =
+        // 6.22 V and 10 AWG 3.91 V, so it is 8 AWG, 2.46 V. NEC 250.122(B) grows Table 250.122's 12 AWG for 20 A by 16,510 / 6,530 to 16,510
+        // circular mils; 8 AWG NM-B's ground is 10 AWG, 10,380.
+        var (document, _, _) = Row("Generic - 200mm", "Kitchen");
+        document.ProjectInformation.ClearanceStandard = ClearanceStandard.Irc;
+        var board = Put(document, "Load Center - 200 A 40 Space", 300, 1500);
+        var kitchen = Make(document, SystemKind.Power, board, Put(document, "Socket - Double", 1000, 200), Put(document, "Socket - Double", 3000, 200));
+        kitchen.CableLength = 30;
+        var design = Circuits.Design(document, kitchen)!;
+        Assert.Equal((20.0, "8 AWG"), (design.Breaker, design.Cable.Name));
+        var ground = Circuits.UsGround(document, kitchen, design);
+        Assert.NotNull(ground);
+        Assert.Contains("upsized from 12 AWG", ground);
+        Assert.Contains("16,510 circular mils", ground);
+        Assert.Contains("10 AWG (10,380)", ground);
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == kitchen && problem.Text.Contains("250.122(B)"));
+
+        // At 25 m 10 AWG is enough, 3.26 V: its ground grows to 10,380, which 10 AWG NM-B has.
+        kitchen.CableLength = 25;
+        var shorter = Circuits.Design(document, kitchen)!;
+        Assert.Equal("10 AWG", shorter.Cable.Name);
+        Assert.Null(Circuits.UsGround(document, kitchen, shorter));
+        Assert.Equal(("12 AWG", 6530.0), Circuits.GroundFor(20));
+        Assert.Equal(("10 AWG", 10380.0), Circuits.GroundFor(60));
+        Assert.Equal(("8 AWG", 16510.0), Circuits.GroundFor(100));
+    }
+    [Fact]
+    public void AFluelessWaterHeaterIsInARoomOf5CubicMetresAtLeast()
+    {
+        // A cupboard 1.2 by 1.2 m inside 200 mm walls, 3 m to the storey above: 4.3 m³, less than 5 m³ (Approved Document J 3.9).
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0].Id;
+        var walls = document.TypesOf<WallType>().First(type => type.Name == "Generic - 200mm");
+        var corners = new[] { new Core.Geometry.Point2D(0, 0), new Core.Geometry.Point2D(1400, 0), new Core.Geometry.Point2D(1400, 1400), new Core.Geometry.Point2D(0, 1400) };
+        for (var i = 0; i < 4; i++)
+            document.Add(new Wall { Start = corners[i], End = corners[(i + 1) % 4], TypeId = walls.Id, LevelId = level, UnconnectedHeight = 3000 });
+        var cupboard = new Room { LevelId = level, Location = new Core.Geometry.Point2D(700, 700), Name = "Cupboard", Number = "1" };
+        document.Add(cupboard);
+        var space = RoomHeadroom.Measure(document, cupboard)!;
+        Assert.Equal(1.44e6, space.Area, 0);
+        Assert.True(space.Volume / 1e9 < 5, $"{space.Volume / 1e9:0.00} m³");
+
+        var heater = Put(document, "Water Heater - Gas 50 gal", 700, 700);
+        var type = document.FindType<ComponentType>(heater.TypeId)!;
+        type.Flue = ApplianceFlue.Flueless;
+        Assert.Contains(GasPipes.AirSupplyProblems(document), each => each.Element == heater && each.Text.Contains("3.9") && each.Text.Contains($"{space.Volume / 1e9:0.0} m³"));
+
+        // Flued, it is not asked.
+        type.Flue = ApplianceFlue.RoomSealed;
+        Assert.DoesNotContain(GasPipes.AirSupplyProblems(document), each => each.Element == heater && each.Text.Contains("3.9"));
+    }
 }

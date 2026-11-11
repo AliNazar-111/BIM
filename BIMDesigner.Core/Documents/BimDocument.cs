@@ -632,6 +632,9 @@ public sealed class BimDocument
                 if (roofWindow.FrameMaterialId == from) roofWindow.FrameMaterialId = to;
                 if (roofWindow.GlassMaterialId == from) roofWindow.GlassMaterialId = to;
                 return true;
+            case RoofType glazing when glazing.GlazingBarMaterialId == from:
+                glazing.GlazingBarMaterialId = to;
+                return true;
             default:
                 return false;
         }
@@ -652,6 +655,7 @@ public sealed class BimDocument
         FootingType footing => new[] { footing.MaterialId, footing.StemMaterialId },
         RoofWindowType roofWindow => new[] { roofWindow.FrameMaterialId, roofWindow.GlassMaterialId },
         ColumnType column => new[] { column.MaterialId },
+        RoofType roof => roof.Structure.Layers.Select(layer => layer.MaterialId).Append(roof.GlazingBarMaterialId),
         SlabType slab => slab.Structure.Layers.Select(layer => layer.MaterialId),
         _ => Array.Empty<Guid>()
     };
@@ -1426,6 +1430,28 @@ public sealed class BimDocument
             CostPerCubicMetre = 600m
         };
         foreach (var material in new[] { glass, aluminium, spandrel }) document.AddMaterial(material);
+
+        // Sloped glazing: a double glazed unit, 6 mm panes either side of a 16 mm cavity - 30 kg/m² of glass over
+        // its 28 mm, so the unit as one layer weighs what its glass does - between aluminium bars, thermally
+        // broken. Its U is the whole glazing's, bars and all, for a unit lying in a roof - worse than the same
+        // unit upright, the air in it moving more - well inside Approved Document L's 2.2 for roof-lights.
+        var glazingUnit = new Material("Glass, Double Glazed Unit 6-16-6")
+        {
+            Density = 30 / 0.028,
+            ThermalConductivity = 1.0,
+            SurfaceColour = ColourRgb.FromHex("8CC4E0"),
+            CutColour = ColourRgb.FromHex("6FA9C7"),
+            CostPerCubicMetre = 6000m
+        };
+        document.AddMaterial(glazingUnit);
+        var slopedGlazing = new RoofType("Sloped Glazing - Aluminium Bars, Double Glazed 28mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, glazingUnit.Id, 28)))
+        {
+            SlopedGlazing = true, UpBarSpacing = 1000, CrossBarSpacing = 2000, GlazingBarWidth = 60, GlazingBarDepth = 150,
+            GlazingBarMaterialId = aluminium.Id, SolarHeatGainCoefficient = 0.45,
+            TypeMark = "R6", AssemblyCode = "B3020", Function = SlabFunction.Architectural, HeatTransferCoefficient = 1.8,
+            Cost = 750m, CoarseScaleFillColour = ColourRgb.FromHex("8CC4E0")
+        };
 
         // Roof edges: a painted board to cover the ends of the roof, and gutters to hang off it.
         var fasciaBoard = new Material("Timber Fascia, Painted White")
@@ -2350,6 +2376,8 @@ public sealed class BimDocument
                 { TypeMark = "D6", Colour = new ColourRgb(0x3E, 0x6E, 0x7A), Cost = 1200m, Description = "The connection to the public surface water sewer" },
             new ComponentType("Soakaway - 1 m Crate", BuiltInCategory.Drainage, ComponentForm.Soakaway, 1000, 1000, 60)
                 { TypeMark = "D7", Colour = new ColourRgb(0x5E, 0x7A, 0x52), Cost = 650m, Description = "Geocellular crates wrapped in geotextile, for up to 100 m² of roof" },
+            new ComponentType("Gully - Back Inlet, Trapped 100", BuiltInCategory.Drainage, ComponentForm.Gully, 300, 300, 40)
+                { TypeMark = "D8", Colour = new ColourRgb(0x4A, 0x4E, 0x53), Cost = 95m, Description = "A trapped gully with a back inlet under its grating, for a rainwater pipe or a ground floor waste" },
             new ComponentType("Air Admittance Valve - 110", BuiltInCategory.PlumbingFixtures, ComponentForm.AirAdmittanceValve, 110, 110, 170)
                 { TypeMark = "P16", Colour = new ColourRgb(0x9A, 0x9E, 0xA3), Cost = 35m, Description = "BS EN 12380, on top of a stack inside the building" },
 
@@ -2644,7 +2672,7 @@ public sealed class BimDocument
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
-                     logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof,
+                     logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
                      thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling
                  })
         {

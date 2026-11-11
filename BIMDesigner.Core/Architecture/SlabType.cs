@@ -93,6 +93,106 @@ public sealed class RoofType : SlabType
     public RoofType(string name, CompoundStructure structure) : base(name, structure) { }
 
     public override BuiltInCategory Category => BuiltInCategory.Roofs;
+
+    /// <summary>
+    /// Sloped glazing: the roof laid in glass panes between glazing bars on each of its faces, as a
+    /// curtain wall is on a wall's face, rather than built up as a covering. Its layers are the glass;
+    /// the bars run up each face, spaced along its eave, and across it, spaced up the slope.
+    /// </summary>
+    public bool SlopedGlazing { get; set; }
+
+    /// <summary>How far apart the bars running up the slope stand, along the eave, mm: the panes' width.</summary>
+    public double UpBarSpacing { get; set; } = 1000;
+
+    /// <summary>How far apart the bars running across the slope stand, measured up the face, mm: the panes' length.</summary>
+    public double CrossBarSpacing { get; set; } = 2000;
+
+    /// <summary>How wide a glazing bar's cap is, on the face, mm.</summary>
+    public double GlazingBarWidth { get; set; } = 60;
+
+    /// <summary>How deep a glazing bar is, square to the face - its cap standing proud of the glass, the rest under it - mm.</summary>
+    public double GlazingBarDepth { get; set; } = 150;
+
+    /// <summary>What the glazing bars are made of.</summary>
+    public Guid GlazingBarMaterialId { get; set; }
+
+    /// <summary>What a metre of glazing bar weighs, its cap and pressure plate with it, kg: its maker's figure; 4 kg a typical thermally broken aluminium bar's.</summary>
+    public double GlazingBarMass { get; set; } = 4;
+
+    /// <summary>The glass's total solar energy transmittance g (BS EN 410): the share of the sun on it that comes through as heat.</summary>
+    public double SolarHeatGainCoefficient { get; set; } = 0.45;
+
+    /// <summary>Why glazing of these sizes could not be laid, or null where it can.</summary>
+    public static string? Unlaid(double up, double cross, double width, double depth) =>
+        width is < 20 or > 200 ? "A glazing bar is between 20 and 200 mm wide."
+        : depth is < 40 or > 500 ? "A glazing bar is between 40 and 500 mm deep."
+        : Math.Min(up, cross) < Math.Max(300, 4 * width) ? $"The bars are at least {Math.Max(300, 4 * width):0} mm apart, or the glass between them is lost in them."
+        : null;
+
+    public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
+    {
+        foreach (var parameter in base.GetTypeParameters(document)) yield return parameter;
+
+        yield return ParameterValue.Bind(GlazedRoofParameters.SlopedGlazing, () => SlopedGlazing, v => SlopedGlazing = v);
+        if (!SlopedGlazing) yield break;
+
+        yield return ParameterValue.BindValidated(GlazedRoofParameters.UpBarSpacing, () => UpBarSpacing,
+            (double v) => Set(Unlaid(v, CrossBarSpacing, GlazingBarWidth, GlazingBarDepth) is null, () => UpBarSpacing = v));
+        yield return ParameterValue.BindValidated(GlazedRoofParameters.CrossBarSpacing, () => CrossBarSpacing,
+            (double v) => Set(Unlaid(UpBarSpacing, v, GlazingBarWidth, GlazingBarDepth) is null, () => CrossBarSpacing = v));
+        yield return ParameterValue.BindValidated(GlazedRoofParameters.BarWidth, () => GlazingBarWidth,
+            (double v) => Set(Unlaid(UpBarSpacing, CrossBarSpacing, v, GlazingBarDepth) is null, () => GlazingBarWidth = v));
+        yield return ParameterValue.BindValidated(GlazedRoofParameters.BarDepth, () => GlazingBarDepth,
+            (double v) => Set(Unlaid(UpBarSpacing, CrossBarSpacing, GlazingBarWidth, v) is null, () => GlazingBarDepth = v));
+        yield return ParameterValue.BindValidated(GlazedRoofParameters.BarMass, () => GlazingBarMass, (double v) => Set(v is > 0 and <= 50, () => GlazingBarMass = v));
+        yield return ParameterValue.BindValidated(WindowTypeParameters.SolarHeatGain, () => SolarHeatGainCoefficient,
+            (double v) => Set(v is >= 0 and <= 1, () => SolarHeatGainCoefficient = v));
+        if (document is not null)
+            yield return ParameterValue.BindChoice(
+                GlazedRoofParameters.BarMaterial,
+                () => document.FindMaterial(GlazingBarMaterialId)?.Name ?? "<by category>",
+                v => GlazingBarMaterialId = document.Materials.FirstOrDefault(material => material.Name == v)?.Id ?? Guid.Empty,
+                new[] { "<by category>" }.Concat(document.Materials.Select(material => material.Name).OrderBy(name => name)).ToArray());
+    }
+
+    private static bool Set(bool valid, Action apply)
+    {
+        if (valid) apply();
+        return valid;
+    }
+}
+
+public static class GlazedRoofParameters
+{
+    public static readonly ParameterDefinition SlopedGlazing =
+        new("Sloped Glazing", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition UpBarSpacing =
+        new("Bars Up the Slope - Spacing", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition CrossBarSpacing =
+        new("Bars Across the Slope - Spacing", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition BarWidth =
+        new("Glazing Bar Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition BarDepth =
+        new("Glazing Bar Depth", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition BarMass =
+        new("Glazing Bar Mass (kg/m)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Structural);
+
+    public static readonly ParameterDefinition BarMaterial =
+        new("Glazing Bar Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
+
+    public static readonly ParameterDefinition GlazedArea =
+        new("Glazed Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition BarLength =
+        new("Glazing Bar Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Panes =
+        new("Panes", ParameterDataType.Integer, ParameterBinding.Instance, ParameterGroup.Dimensions);
 }
 
 public static class SlabTypeParameters

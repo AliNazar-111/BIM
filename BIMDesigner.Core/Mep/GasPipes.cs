@@ -269,6 +269,9 @@ public static class GasPipes
     /// <summary>A gas's gross heat over its net, natural gas's: what an appliance's net input is its gross over.</summary>
     public const double GrossOverNet = 1.11;
 
+    /// <summary>The fastest a kitchen's extract fan may draw where an open-flued gas appliance is in the kitchen, l/s: Approved Document J 1.20 a.</summary>
+    public const double KitchenExtractLimit = 20;
+
     /// <summary>
     /// The air an open-flued gas appliance in a room wants from outside, mm² of permanent vent: 500 mm² for each kW of its net input over 7 kW, Approved Document J and BS 5440-2, as
     /// remembered. None for a room-sealed or a flueless one, or one of 7 kW or less.
@@ -292,18 +295,34 @@ public static class GasPipes
             if (flue == ApplianceFlue.OpenFlued)
             {
                 var wanted = AirWanted(type);
-                if (wanted <= 0) continue;
-                var vents = room is null ? 0 : components.Where(each => document.FindType<ComponentType>(each.TypeId) is { Form: ComponentForm.BackgroundVentilator } && ReferenceEquals(RoomsOf.Of(document, each), room))
+                var vents = wanted <= 0 || room is null ? 0 : components.Where(each => document.FindType<ComponentType>(each.TypeId) is { Form: ComponentForm.BackgroundVentilator } && ReferenceEquals(RoomsOf.Of(document, each), room))
                     .Sum(each => document.FindType<ComponentType>(each.TypeId)!.VentArea);
-                if (vents < wanted - 0.5)
+                if (wanted > 0 && vents < wanted - 0.5)
                     yield return new MepProblem(appliance,
                         $"open-flued at {InputOf(type) / GrossOverNet / 1000:0.0} kW net, it wants {wanted:#,0} mm² of permanent vent to outside in {(room is null ? "the room it is in" : RoomsOf.Label(room))} - 500 mm² a kW over 7 kW (Approved Document J, BS 5440-2) - and has {vents:#,0}; a window's trickle vent closes and does not count");
+            }
+
+            // An open-flued appliance in a kitchen: the kitchen's extract fan no faster than 20 l/s, or it draws the flue's gases back
+            // into the room (Approved Document J 1.20 a); and every open-flued appliance tested for spillage with the fans running (1.21).
+            if (flue == ApplianceFlue.OpenFlued && room is not null && Lighting.KindOf(document, room, room.GetBoundary(document).Polygon) == LitRoom.Kitchen)
+            {
+                var fastest = components.Where(each => ReferenceEquals(RoomsOf.Of(document, each), room))
+                    .Select(each => document.FindType<ComponentType>(each.TypeId))
+                    .Where(each => each is { Form: ComponentForm.ExtractFan or ComponentForm.CookerHood })
+                    .Select(each => each!.ExtractRate).DefaultIfEmpty(0).Max();
+                if (fastest > KitchenExtractLimit + 1e-6)
+                    yield return new MepProblem(appliance,
+                        $"open-flued in {RoomsOf.Label(room)}, a kitchen whose extract draws {fastest:0} l/s - Approved Document J (1.20 a) keeps a kitchen's extract fan to 20 l/s where an open-flued gas appliance is in it, or it draws the flue's gases back into the room: a slower fan, or a room-sealed appliance; and a spillage test with the fans running (1.21)");
             }
             else if (flue == ApplianceFlue.Flueless && room is not null)
             {
                 var boundary = room.GetBoundary(document);
                 if (boundary.Polygon.Count >= 3 && Services.OpeningWindows(document, room, boundary.Polygon).Count == 0)
                     yield return new MepProblem(appliance, $"flueless, its room {RoomsOf.Label(room)} has no window to open - Approved Document J asks an openable window or a door to outside where a flueless gas appliance burns");
+
+                // A flueless instantaneous water heater: in a room of 5 m³ at least (Approved Document J 3.9).
+                if (type.Form == ComponentForm.HotWaterCylinder && boundary.IsEnclosed && RoomHeadroom.Measure(document, room) is { } space && space.Volume / 1e9 < 5 - 1e-9)
+                    yield return new MepProblem(appliance, $"a flueless water heater in {RoomsOf.Label(room)}, {space.Volume / 1e9:0.0} m³ - Approved Document J (3.9) puts one in a room of 5 m³ at least");
             }
         }
     }

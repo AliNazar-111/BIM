@@ -651,7 +651,7 @@ public sealed class StructuralLoading
                 var hipped = Enumerable.Range(0, count).Any(i => roof.Edges[i].DefinesSlope && roof.Edges[(i + 1) % count].DefinesSlope
                     && Math.Abs((roof.Boundary[(i + 1) % count] - roof.Boundary[i]).NormalisedOrDefault(Vector2D.UnitX).Cross((roof.Boundary[(i + 2) % count] - roof.Boundary[(i + 1) % count]).NormalisedOrDefault(Vector2D.UnitX))) > 0.3);
                 var slopes = new List<(Vector2D Outward, double Pitch, double PerMetre, List<(Bearing Bearing, double Start, double End)> Stretches, double Deep, double Spread)>();
-                var weight = Loads.Weight(_document, type.Structure);
+                var weight = Loads.Weight(_document, type);
                 for (var i = 0; i < count; i++)
                 {
                     var edge = roof.Edges[i];
@@ -733,7 +733,7 @@ public sealed class StructuralLoading
                 return;
             }
 
-            var weight = Loads.Weight(_document, type.Structure);
+            var weight = Loads.Weight(_document, type);
             _flats.Add((roof, spread));
             foreach (var (bearing, start, end, width) in spread)
             {

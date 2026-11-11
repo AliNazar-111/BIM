@@ -55,6 +55,10 @@ public static class SlabRules
                 ? GroundFloorU(layers, slab.Area / 1e6, slab.Perimeter / 1000) is var u && double.IsFinite(u) ? u : null
                 : null;
 
+        // Sloped glazing: the glazing's own U, bars and all, as a window's is given - not its glass's layers.
+        if (slab is Roof glazed && GlazedRoofs.TypeOf(document, glazed) is { } glazing)
+            return glazing.HeatTransferCoefficient > 0 ? glazing.HeatTransferCoefficient : null;
+
         if (slab is not Roof roof || Thermal.UValue(document, type.Structure, Thermal.Flow.Upward) is not { } own) return null;
 
         // A ceiling under it, its insulation on it: the loft's ceiling is what keeps the heat in.

@@ -447,6 +447,7 @@ public static partial class ProjectFile
                 StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind.ToString(),
                 SystemId = document.Find<MepSystem>(pipe.SystemId)?.Id, Return = pipe.Kind == SystemKind.Heating && pipe.Return ? true : null,
                 Insulation = pipe.Insulation > 0 ? pipe.Insulation : null, Seal = pipe.Seal != PipeSeal.None ? pipe.Seal.ToString() : null,
+                Protection = pipe.Protection != DrainProtection.None ? pipe.Protection.ToString() : null,
                 Mark = pipe.Mark, Comments = pipe.Comments
             });
 
@@ -469,6 +470,13 @@ public static partial class ProjectFile
 
         foreach (var underlay in document.All<CadUnderlay>())
             (dto.CadUnderlays ??= new List<CadUnderlayDto>()).Add(UnderlayOf(underlay));
+        foreach (var picture in document.All<ImageUnderlay>())
+            (dto.ImageUnderlays ??= new List<ImageUnderlayDto>()).Add(new ImageUnderlayDto
+            {
+                Id = picture.Id, LevelId = picture.LevelId, Source = picture.Source, Data = Convert.ToBase64String(picture.Data),
+                PixelWidth = picture.PixelWidth, PixelHeight = picture.PixelHeight, X = picture.Location.X, Y = picture.Location.Y,
+                Rotation = picture.Rotation, Scale = picture.Scale, Halftone = picture.Halftone, Mark = picture.Mark, Comments = picture.Comments
+            });
 
         foreach (var link in document.All<BIMDesigner.Core.Coordination.ModelLink>())
             (dto.ModelLinks ??= new List<ModelLinkDto>()).Add(new ModelLinkDto
@@ -1083,6 +1091,14 @@ public static partial class ProjectFile
                 AcousticRating = type.AcousticRating,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
+                SlopedGlazing = type is RoofType { SlopedGlazing: true } ? true : null,
+                UpBarSpacing = type is RoofType { SlopedGlazing: true } glazed ? glazed.UpBarSpacing : null,
+                CrossBarSpacing = type is RoofType { SlopedGlazing: true } across ? across.CrossBarSpacing : null,
+                GlazingBarWidth = type is RoofType { SlopedGlazing: true } wide ? wide.GlazingBarWidth : null,
+                GlazingBarDepth = type is RoofType { SlopedGlazing: true } deep ? deep.GlazingBarDepth : null,
+                GlazingBarMaterialId = type is RoofType { SlopedGlazing: true } barred ? barred.GlazingBarMaterialId : null,
+                GlazingBarMass = type is RoofType { SlopedGlazing: true } heavy ? heavy.GlazingBarMass : null,
+                SolarHeatGainCoefficient = type is RoofType { SlopedGlazing: true } sunny ? sunny.SolarHeatGainCoefficient : null,
                 Layers = type.Structure.Layers.Select(layer => new MaterialLayerDto
                 {
                     Function = layer.Function.ToString(),
@@ -1114,6 +1130,11 @@ public static partial class ProjectFile
                         WallId = edge.WallId,
                         GridId = edge.GridId,
                         GridOffset = edge.GridId is null ? null : edge.GridOffset,
+                        SlabId = edge.SlabId,
+                        SlabEdgeIndex = edge.SlabId is null ? null : edge.SlabEdgeIndex,
+                        SlabCorners = edge.SlabId is null ? null : edge.SlabCorners,
+                        SlabEdgeId = edge.SlabId is null ? null : edge.SlabEdgeId,
+                        SlabOffset = edge.SlabId is null ? null : edge.SlabOffset,
                         OnLeftOfWall = edge.OnLeftOfWall,
                         Overhang = edge.Overhang,
                         ExtendToCore = edge.ExtendToCore,
@@ -1347,6 +1368,7 @@ public static partial class ProjectFile
                 SupplyRating = type.Form == ComponentForm.ConsumerUnit && type.SupplyRating > 0 ? type.SupplyRating : null,
                 ExternalImpedance = type.Form == ComponentForm.ConsumerUnit && type.ExternalImpedance > 0 ? type.ExternalImpedance : null,
                 SurgeProtection = type.Form == ComponentForm.ConsumerUnit ? type.SurgeProtection : null,
+                CombinedSewer = type.Form == ComponentForm.SurfaceWaterOutfall && type.CombinedSewer ? true : null,
                 Phases = type.Form == ComponentForm.ConsumerUnit && type.Phases == 3 ? 3 : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
@@ -1413,6 +1435,7 @@ public static partial class ProjectFile
             Method = system.Kind == SystemKind.Power ? system.Method.ToString() : null,
             Grouped = system.Kind == SystemKind.Power && system.Grouped > 1 ? system.Grouped : null,
             CableLength = system.Kind == SystemKind.Power && system.CableLength > 0 ? system.CableLength : null,
+            Phase = system.Kind == SystemKind.Power && system.Phase is >= 1 and <= 3 ? system.Phase : null,
             Mark = system.Mark, Comments = system.Comments
         }).ToList();
         dto.Systems = systems.Count > 0 ? systems : null;
@@ -2510,6 +2533,17 @@ public static partial class ProjectFile
             slabType.AcousticRating = type.AcousticRating;
             slabType.HeatTransferCoefficient = type.HeatTransferCoefficient;
             slabType.CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x7A, 0x82, 0x8E));
+            if (slabType is RoofType roofType && type.SlopedGlazing == true)
+            {
+                roofType.SlopedGlazing = true;
+                roofType.UpBarSpacing = type.UpBarSpacing is > 0 and var up ? up : roofType.UpBarSpacing;
+                roofType.CrossBarSpacing = type.CrossBarSpacing is > 0 and var cross ? cross : roofType.CrossBarSpacing;
+                roofType.GlazingBarWidth = type.GlazingBarWidth is > 0 and var width ? width : roofType.GlazingBarWidth;
+                roofType.GlazingBarDepth = type.GlazingBarDepth is > 0 and var depth ? depth : roofType.GlazingBarDepth;
+                roofType.GlazingBarMaterialId = type.GlazingBarMaterialId ?? Guid.Empty;
+                roofType.GlazingBarMass = type.GlazingBarMass is > 0 and var mass ? mass : roofType.GlazingBarMass;
+                roofType.SolarHeatGainCoefficient = type.SolarHeatGainCoefficient is >= 0 and <= 1 and var g ? g : roofType.SolarHeatGainCoefficient;
+            }
 
             document.AddType(slabType);
         }
@@ -2603,6 +2637,11 @@ public static partial class ProjectFile
                         WallId = edge.WallId,
                         GridId = edge.GridId,
                         GridOffset = edge.GridOffset ?? 0,
+                        SlabId = edge.SlabId,
+                        SlabEdgeIndex = edge.SlabEdgeIndex ?? 0,
+                        SlabCorners = edge.SlabCorners ?? 0,
+                        SlabEdgeId = edge.SlabEdgeId,
+                        SlabOffset = edge.SlabOffset ?? 0,
                         OnLeftOfWall = edge.OnLeftOfWall,
                         Overhang = edge.Overhang,
                         ExtendToCore = edge.ExtendToCore,
@@ -2938,6 +2977,22 @@ public static partial class ProjectFile
         // An imported drawing, placed and shown as it was.
         foreach (var saved in (dto.CadUnderlays ?? new List<CadUnderlayDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null))
             if (ReadUnderlay(saved) is { } underlay) document.Add(underlay);
+
+        // A picture under a plan, as it came, where it was put.
+        foreach (var saved in (dto.ImageUnderlays ?? new List<ImageUnderlayDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null && saved.PixelWidth > 0 && saved.PixelHeight > 0))
+        {
+            byte[] data;
+            try { data = Convert.FromBase64String(saved.Data ?? string.Empty); }
+            catch (FormatException) { continue; }
+            if (data.Length == 0) continue;
+            document.Add(new ImageUnderlay
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Source = saved.Source ?? string.Empty, Data = data, PixelWidth = saved.PixelWidth, PixelHeight = saved.PixelHeight,
+                Location = double.IsFinite(saved.X) && double.IsFinite(saved.Y) ? new Point2D(saved.X, saved.Y) : default,
+                Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0, Scale = double.IsFinite(saved.Scale) && saved.Scale > 0 ? saved.Scale : 10,
+                Halftone = saved.Halftone, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+        }
 
         // A linked model: where its file was, and where it goes.
         foreach (var saved in dto.ModelLinks ?? new List<ModelLinkDto>())
@@ -3293,6 +3348,7 @@ public static partial class ProjectFile
                 SupplyRating = type.SupplyRating is >= 0 and < 1e5 ? type.SupplyRating.Value : TemplateElectric(type.Name, type.Form)?.SupplyRating ?? 0,
                 ExternalImpedance = type.ExternalImpedance is >= 0 and < 1000 ? type.ExternalImpedance.Value : TemplateElectric(type.Name, type.Form)?.ExternalImpedance ?? 0,
                 SurgeProtection = type.SurgeProtection ?? TemplateElectric(type.Name, type.Form)?.SurgeProtection ?? false,
+                CombinedSewer = type.CombinedSewer == true,
                 Phases = type.Phases == 3 ? 3 : 1,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
@@ -3375,7 +3431,8 @@ public static partial class ProjectFile
                 Cable = saved.Cable ?? string.Empty,
                 Method = ParseEnum(saved.Method, CableMethod.ClippedDirect),
                 Grouped = saved.Grouped is >= 1 and <= 100 ? saved.Grouped.Value : 1,
-                CableLength = saved.CableLength is > 0 and < 100000 ? saved.CableLength.Value : 0
+                CableLength = saved.CableLength is > 0 and < 100000 ? saved.CableLength.Value : 0,
+                Phase = saved.Phase is >= 1 and <= 3 ? saved.Phase.Value : 0
             };
             foreach (var id in (saved.Members ?? new List<Guid>()).Distinct())
                 if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);
@@ -3393,6 +3450,7 @@ public static partial class ProjectFile
                 StartOffset = saved.StartOffset, EndOffset = saved.EndOffset, Diameter = saved.Diameter > 0 ? saved.Diameter : 15,
                 Kind = ParseEnum(saved.Kind, SystemKind.ColdWater), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, Return = saved.Return == true,
                 Insulation = saved.Insulation is > 0 and <= 200 ? saved.Insulation.Value : 0, Seal = ParseEnum(saved.Seal, PipeSeal.None),
+                Protection = ParseEnum(saved.Protection, DrainProtection.None),
                 TypeId = document.FindType<PipeType>(saved.TypeId)?.Id ?? document.TypesOf<PipeType>().FirstOrDefault()?.Id ?? Guid.Empty
             };
             if (pipe.Length < 1) continue;

@@ -65,7 +65,16 @@ public enum RoofSketchTool
     TangentArc,
 
     /// <summary>The centre, then where the arc starts - its radius - then where it ends, the short way round.</summary>
-    CentreArc
+    CentreArc,
+
+    /// <summary>The selected lines turned about a centre clicked - by an angle typed, or picked with two more clicks - or copies of them.</summary>
+    Rotate,
+
+    /// <summary>The selected lines copied again and again along a step clicked with two points, as many in all as the count.</summary>
+    Array,
+
+    /// <summary>The selected lines made bigger or smaller about a point clicked, by the scale typed.</summary>
+    Scale
 }
 
 /// <summary>What a sketch makes when it is finished: a roof, a floor or a ceiling.</summary>
@@ -268,7 +277,7 @@ public partial class PlanView
             _alignReference = null;
             _sketchPreview.Clear();
             _sketchPickChain = false;
-            if (value is not (RoofSketchTool.Modify or RoofSketchTool.Move or RoofSketchTool.Mirror))
+            if (value is not (RoofSketchTool.Modify or RoofSketchTool.Move or RoofSketchTool.Mirror or RoofSketchTool.Rotate or RoofSketchTool.Array or RoofSketchTool.Scale))
             {
                 _sketchSelection.Clear();
                 _sketchArrowSelection.Clear();
@@ -801,6 +810,15 @@ public partial class PlanView
             case RoofSketchTool.Mirror:
                 return SketchMirrorAt(raw);
 
+            case RoofSketchTool.Rotate:
+                return SketchRotateAt(raw);
+
+            case RoofSketchTool.Array:
+                return SketchArrayAt(raw);
+
+            case RoofSketchTool.Scale:
+                return SketchScaleAt(raw);
+
             case RoofSketchTool.Align:
                 return SketchAlignAt(raw);
 
@@ -1073,6 +1091,29 @@ public partial class PlanView
 
         InvalidateVisual();
         return true;
+    }
+
+    /// <summary>
+    /// Every line of the sketch selected - Ctrl+A while sketching - to move, rotate, mirror, array or
+    /// scale the whole outline at once. The tool in hand stays, if it is one that works on what is selected.
+    /// </summary>
+    public void SelectAllSketchLines()
+    {
+        if (_sketch is null) return;
+        _sketchSelection.Clear();
+        _sketchSelection.AddRange(_sketch);
+        _sketchArrowSelection.Clear();
+        _sketchArrowSelection.AddRange(_sketchArrows);
+        if (_sketchTool is not (RoofSketchTool.Modify or RoofSketchTool.Move or RoofSketchTool.Mirror or RoofSketchTool.Rotate or RoofSketchTool.Array or RoofSketchTool.Scale))
+        {
+            _sketchTool = RoofSketchTool.Modify;
+            _sketchStart = null;
+            _sketchArcEnd = null;
+        }
+
+        HintChanged?.Invoke(this, $"{_sketchSelection.Count + _sketchArrowSelection.Count} selected. Del deletes them; Move, Mirror, Rotate, Array and Scale take them all.");
+        SketchChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
     }
 
     private void SelectSketchLineAt(Point2D raw)
@@ -1642,6 +1683,27 @@ public partial class PlanView
             {
                 dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
             }
+            else if (_sketchTool == RoofSketchTool.Rotate)
+            {
+                // The centre to the cursor; once the angle's start is clicked, the lines turned to the cursor.
+                if (_sketchArcEnd is { } start && SketchTurn(from, start, to) is var degrees)
+                {
+                    dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(start));
+                    foreach (var line in _sketchSelection)
+                        DrawSketchCurve(dc, SketchPreviewPen, line.Facets.Select(point => Turned(point, from, degrees)).ToList());
+                }
+
+                dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
+            }
+            else if (_sketchTool == RoofSketchTool.Array && !SketchArrayRadial)
+            {
+                // Each copy where it would go.
+                var by = to - from;
+                dc.DrawLine(SketchPreviewPen, ModelToScreen(from), ModelToScreen(to));
+                for (var k = 1; k < Math.Max(2, SketchArrayCount); k++)
+                    foreach (var line in _sketchSelection)
+                        DrawSketchCurve(dc, SketchPreviewPen, line.Facets.Select(point => point + by * k).ToList());
+            }
             else if (_sketchTool == RoofSketchTool.Move)
             {
                 // The selected lines where they would go.
@@ -1655,6 +1717,30 @@ public partial class PlanView
                 foreach (var piece in ShapePieces(from, to))
                     DrawSketchCurve(dc, SketchPreviewPen, RoofSketch.Facets(piece.Start, piece.End, piece.Bulge));
             }
+        }
+        else if (_sketchTool == RoofSketchTool.Scale && _sketchSelection.Count > 0 && SketchScaleFactor > 0)
+        {
+            // The lines scaled about the cursor.
+            var about = SketchSnap(_sketchCursor);
+            foreach (var line in _sketchSelection)
+                DrawSketchCurve(dc, SketchPreviewPen, line.Facets.Select(point => about + (point - about) * SketchScaleFactor).ToList());
+        }
+        else if (_sketchTool == RoofSketchTool.Array && SketchArrayRadial && _sketchSelection.Count > 0 && SketchArrayCount >= 2)
+        {
+            // The copies round the cursor, as a click there would make them.
+            var about = SketchSnap(_sketchCursor);
+            var full = Math.Abs(Math.Abs(SketchArrayAngle) - 360) < 1e-9;
+            var step = full ? SketchArrayAngle / SketchArrayCount : SketchArrayAngle / (SketchArrayCount - 1);
+            for (var k = 1; k < SketchArrayCount; k++)
+                foreach (var line in _sketchSelection)
+                    DrawSketchCurve(dc, SketchPreviewPen, line.Facets.Select(point => Turned(point, about, step * k)).ToList());
+        }
+        else if (_sketchTool == RoofSketchTool.Rotate && Math.Abs(SketchRotateAngle) > 1e-9 && _sketchSelection.Count > 0)
+        {
+            // The lines turned by the angle typed about the cursor.
+            var about = SketchSnap(_sketchCursor);
+            foreach (var line in _sketchSelection)
+                DrawSketchCurve(dc, SketchPreviewPen, line.Facets.Select(point => Turned(point, about, SketchRotateAngle)).ToList());
         }
         else if (_sketchTool == RoofSketchTool.PickLines && PickLineAt(_sketchCursor) is var (pickFrom, pickTo))
         {

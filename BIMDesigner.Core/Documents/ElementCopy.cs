@@ -370,6 +370,11 @@ public static class ElementCopy
         Annotation.FilledRegion region => CarryCommon(Outline(new Annotation.FilledRegion { Pattern = region.Pattern, CustomPatternId = region.CustomPatternId, Outlined = region.Outlined }, region.Boundary), region),
         Annotation.DraftingView drafting => CarryCommon(new Annotation.DraftingView { Name = drafting.Name }, drafting),
         CadUnderlay underlay => CarryCommon(Underlay(underlay), underlay),
+        ImageUnderlay picture => CarryCommon(new ImageUnderlay
+        {
+            Source = picture.Source, Data = picture.Data, PixelWidth = picture.PixelWidth, PixelHeight = picture.PixelHeight,
+            Location = picture.Location, Rotation = picture.Rotation, Scale = picture.Scale, Halftone = picture.Halftone
+        }, picture),
         Coordination.ModelLink link => CarryCommon(new Coordination.ModelLink
         {
             Path = link.Path, RelativePath = link.RelativePath, Positioning = link.Positioning, Offset = link.Offset, Elevation = link.Elevation, Rotation = link.Rotation,
@@ -378,7 +383,7 @@ public static class ElementCopy
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
             Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
-            Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal
+            Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal, Protection = pipe.Protection
         }, pipe),
         Mep.Duct duct => CarryCommon(new Mep.Duct
         {
@@ -389,7 +394,7 @@ public static class ElementCopy
         {
             Kind = system.Kind, Name = system.Name, SourceId = system.SourceId, Use = system.Use,
             FlowTemperature = system.FlowTemperature, ReturnTemperature = system.ReturnTemperature, Breaker = system.Breaker, Curve = system.Curve,
-            Rcd = system.Rcd, ArcFault = system.ArcFault, Cable = system.Cable, Method = system.Method, Grouped = system.Grouped, CableLength = system.CableLength
+            Rcd = system.Rcd, ArcFault = system.ArcFault, Cable = system.Cable, Method = system.Method, Grouped = system.Grouped, CableLength = system.CableLength, Phase = system.Phase
         }, system.Members), system),
         Beam beam => CarryCommon(new Beam
         {
@@ -712,6 +717,21 @@ public static class ElementCopy
             }
 
             if (dormer.DormerWalls.Count == 0) dormer.Dormer = null;
+        }
+
+        // A roof copied with the walls, gridlines, floors or roofs its edges were picked from follows the copies of
+        // them; copied without the gridline, floor or roof an edge is locked to, that edge stays where it is put.
+        if (copy is Roof { Edges.Count: > 0 } picked && picked.Edges.Any(edge => edge.WallId is not null || edge.GridId is not null || edge.SlabId is not null))
+        {
+            var edges = picked.Edges.Select(edge => edge.Copy()).ToList();
+            foreach (var edge in edges)
+            {
+                if (edge.WallId is { } wall && replacements.TryGetValue(wall, out var copiedWall)) edge.WallId = copiedWall;
+                if (edge.GridId is { } grid) edge.GridId = replacements.TryGetValue(grid, out var copiedGrid) ? copiedGrid : null;
+                if (edge.SlabId is { } slab) edge.SlabId = replacements.TryGetValue(slab, out var copiedSlab) ? copiedSlab : null;
+            }
+
+            picked.SetEdges(edges);
         }
 
         // A Juliet balcony copied with its door guards the copy; copied without it, it is a railing.

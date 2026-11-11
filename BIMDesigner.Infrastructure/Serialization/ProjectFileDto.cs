@@ -99,6 +99,9 @@ internal sealed class ProjectFileDto
     /// <summary>Drawings imported from DWG or DXF files to work over. Missing from older files.</summary>
     public List<CadUnderlayDto>? CadUnderlays { get; set; }
 
+    /// <summary>Pictures under the plan; missing in a file from before.</summary>
+    public List<ImageUnderlayDto>? ImageUnderlays { get; set; }
+
     /// <summary>The models linked in: where each file is and where it goes; none in a file from before.</summary>
     public List<ModelLinkDto>? ModelLinks { get; set; }
     public List<ToposurfaceDto> Toposurfaces { get; set; } = new();
@@ -891,6 +894,16 @@ internal sealed class SlabTypeDto
     public double HeatTransferCoefficient { get; set; }
     public string CoarseScaleFillColour { get; set; } = "#7A828E";
 
+    /// <summary>A roof type of sloped glazing: its bars' spacings up and across the slope, their size and material, and its glass's g; missing for any other.</summary>
+    public bool? SlopedGlazing { get; set; }
+    public double? UpBarSpacing { get; set; }
+    public double? CrossBarSpacing { get; set; }
+    public double? GlazingBarWidth { get; set; }
+    public double? GlazingBarDepth { get; set; }
+    public Guid? GlazingBarMaterialId { get; set; }
+    public double? GlazingBarMass { get; set; }
+    public double? SolarHeatGainCoefficient { get; set; }
+
     public List<MaterialLayerDto> Layers { get; set; } = new();
 }
 
@@ -1018,6 +1031,13 @@ internal sealed class RoofEdgeDto
     /// <summary>The gridline a locked edge follows, and how far to its left; missing where none.</summary>
     public Guid? GridId { get; set; }
     public double? GridOffset { get; set; }
+
+    /// <summary>The floor, ceiling or roof whose edge a locked edge follows - which edge, how many corners it had, that roof edge's id - and how far to its left; missing where none.</summary>
+    public Guid? SlabId { get; set; }
+    public int? SlabEdgeIndex { get; set; }
+    public int? SlabCorners { get; set; }
+    public Guid? SlabEdgeId { get; set; }
+    public double? SlabOffset { get; set; }
 
     public bool OnLeftOfWall { get; set; }
     public double Overhang { get; set; }
@@ -1200,6 +1220,9 @@ internal sealed class ComponentTypeDto
     public double? ExternalImpedance { get; set; }
     public bool? SurgeProtection { get; set; }
     public int? Phases { get; set; }
+
+    /// <summary>A surface water outfall to a combined sewer; missing for any other.</summary>
+    public bool? CombinedSewer { get; set; }
 
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
@@ -2663,6 +2686,9 @@ internal sealed class PipeDto
     /// <summary>Its insulation, mm, and how it is fire-stopped; none in a file from before.</summary>
     public double? Insulation { get; set; }
     public string? Seal { get; set; }
+
+    /// <summary>A drain's protection below the ground; none in a file from before.</summary>
+    public string? Protection { get; set; }
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }
@@ -2703,6 +2729,9 @@ internal sealed class MepSystemDto
     public int? Grouped { get; set; }
     public double? CableLength { get; set; }
 
+    /// <summary>A circuit's phase on a three-phase board, 1 to 3; missing where shared out.</summary>
+    public int? Phase { get; set; }
+
     public string Mark { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
 }
@@ -2723,6 +2752,24 @@ internal sealed class ModelLinkDto
     /// <summary>Whether it comes with the project into one that links it in, and whether an IFC export writes it beside; missing for an overlay, written.</summary>
     public bool? Attachment { get; set; }
     public bool? ExportToIfc { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
+}
+
+/// <summary>A picture under a plan: the file as it came, base64, and where it is put, turned and scaled.</summary>
+internal sealed class ImageUnderlayDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public string? Source { get; set; }
+    public string? Data { get; set; }
+    public int PixelWidth { get; set; }
+    public int PixelHeight { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Rotation { get; set; }
+    public double Scale { get; set; }
+    public bool Halftone { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
 }

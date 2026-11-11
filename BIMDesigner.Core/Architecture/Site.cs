@@ -148,7 +148,7 @@ public static class SitePads
         var problems = new List<string>();
         if (pad.Boundary.Count < 3) return problems;
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
-        var hard = pad.Surface is GroundSurface.Paving or GroundSurface.Path;
+        var hard = pad.Surface is GroundSurface.Paving or GroundSurface.Path or GroundSurface.Driveway;
 
         // Its edges near the building's walls, and the floor inside them.
         var (worstKept, toward, tooFlat) = ((double?)null, false, false);

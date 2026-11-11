@@ -1512,6 +1512,7 @@ public partial class PlanView : FrameworkElement
     public bool CancelPendingOperation()
     {
         var changed = CloseTypedLength()
+                      | CancelImageScale()
                       | CancelStair()
                       | CancelRamp()
                       | CancelRailing()
@@ -1638,6 +1639,10 @@ public partial class PlanView : FrameworkElement
     /// </summary>
     private static IEnumerable<Point2D> ExtentPoints(BimDocument document)
     {
+        // A picture by its corners.
+        foreach (var picture in document.All<ImageUnderlay>())
+            foreach (var corner in picture.Corners) yield return corner;
+
         // An imported drawing by the corners of what it holds.
         foreach (var underlay in document.All<CadUnderlay>())
             if (underlay.Bounds is { IsEmpty: false } box)
@@ -2124,6 +2129,9 @@ public partial class PlanView : FrameworkElement
             SketchClick(raw);
             return;
         }
+
+        // While a picture is being scaled, the clicks are its two points.
+        if (ImageScaleAt(raw)) return;
 
         // A double-click on a callout's box opens its view.
         if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && OpenCalloutAt(raw)) return;
@@ -6692,6 +6700,9 @@ public partial class PlanView : FrameworkElement
 
         // A linked model, by the lines it is cut in on this plan - under everything of this project.
         foreach (var link in LinksAt(model)) yield return link;
+
+        // A picture worked over, last of all: picked where nothing else is.
+        foreach (var picture in OnActiveLevel<ImageUnderlay>()) if (picture.Covers(model)) yield return picture;
     }
 
     /// <summary>Picks the wall whose body the point falls in, nearest first.</summary>

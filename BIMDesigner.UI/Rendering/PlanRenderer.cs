@@ -63,6 +63,7 @@ public sealed partial class PlanRenderer
     private readonly Pen _roomSeparatorPen;
     private readonly Pen _slabPen;
     private readonly Pen _roofLinePen;
+    private readonly Pen _glazingBarPen;
     private readonly Pen _roofSlopePen;
     private readonly Pen _gridLinePen;
     private readonly Pen _sectionPen;
@@ -149,6 +150,7 @@ public sealed partial class PlanRenderer
         // Ridges, hips and valleys are built lines, not the edge of a sketch, so they are
         // drawn solid and a little heavier than the roof outline they sit inside.
         _roofLinePen = RenderPens.Solid(ink.WallOutline, 1.2);
+        _glazingBarPen = RenderPens.Solid(ink.WallOutline, 0.6);
         _roofSlopePen = RenderPens.Solid(ink.Selected, 1.2);
 
         // Long dash, short dash: the chain line drawings use for setting-out.
@@ -292,6 +294,9 @@ public sealed partial class PlanRenderer
         // Only the walls the view shows join: one it leaves out - demolished, filtered out - leaves no mark on those it met.
         using var joins = WallJoins.TakingPart(Filter);
         using var cache = ModelCache.Begin(Document);
+
+        // A picture to work over - a map, an aerial photograph - under everything, the ground included.
+        if (!underlay) DrawImages(dc);
 
         // The ground first, under everything built on it: its contours, and its edge; then the regions laid on it.
         foreach (var ground in OnActiveLevel<Toposurface>()) Styled(dc, ground, d => DrawTerrain(d, ground, underlay));
@@ -1562,6 +1567,10 @@ public sealed partial class PlanRenderer
         {
             DrawRoofLines(dc, roof, isSelected, outlines);
             DrawFalls(dc, roof);
+
+            // Sloped glazing: the bars between its panes, each face's grid as it is laid in its own slope.
+            foreach (var bar in Kept($"glazing {roof.Id}", () => GlazedRoofs.Faces(Document, roof).SelectMany(face => face.Bars).Where(bar => bar.Run != GlazingBarRun.Edge).ToList()))
+                dc.DrawLine(_glazingBarPen, ModelToScreen(bar.From), ModelToScreen(bar.To));
 
             // Where the roof is cut away for a dormer, the hole's outline.
             foreach (var opening in Kept($"openings {roof.Id}", () => RoofJoin.Openings(Document, roof)))

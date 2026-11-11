@@ -26,6 +26,70 @@ public sealed partial class PlanRenderer
     /// <summary>Each imported drawing's lines, layer by layer and colour by colour, in its own units: built once, drawn through a transform.</summary>
     private static readonly ConditionalWeakTable<CadDrawing, List<(int Layer, ColourRgb? Colour, StreamGeometry Lines)>> UnderlayLines = new();
 
+    /// <summary>Each picture's bitmap, read once from its bytes.</summary>
+    private static readonly ConditionalWeakTable<byte[], System.Windows.Media.Imaging.BitmapSource> ImageBitmaps = new();
+
+    /// <summary>How much of a faded picture shows: enough to trace over, little enough for the model to stand out.</summary>
+    private const double ImageFade = 0.45;
+
+    private void DrawImages(DrawingContext dc)
+    {
+        foreach (var picture in OnActiveLevel<ImageUnderlay>()) Styled(dc, picture, d => DrawImage(d, picture));
+    }
+
+    /// <summary>
+    /// A picture where it is put, turned and scaled: its top left pixel at its top left corner on the plan, its pixels along and
+    /// down it as the plan has them - faded, unless wanted as it is - and its edge, which it is picked by, where it is selected.
+    /// </summary>
+    private void DrawImage(DrawingContext dc, ImageUnderlay picture)
+    {
+        if (picture.PixelWidth <= 0 || picture.PixelHeight <= 0 || picture.Data.Length == 0) return;
+        System.Windows.Media.Imaging.BitmapSource bitmap;
+        try
+        {
+            bitmap = ImageBitmaps.GetValue(picture.Data, data =>
+            {
+                var image = new System.Windows.Media.Imaging.BitmapImage();
+                image.BeginInit();
+                image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                image.StreamSource = new System.IO.MemoryStream(data);
+                image.EndInit();
+                image.Freeze();
+                return image;
+            });
+        }
+        catch (Exception exception) when (exception is NotSupportedException or System.IO.IOException or InvalidOperationException or ArgumentException)
+        {
+            return;
+        }
+
+        var (width, height) = ((double)picture.PixelWidth, (double)picture.PixelHeight);
+        var topLeft = ModelToScreen(picture.ToModel(new Point2D(0, height)));
+        var topRight = ModelToScreen(picture.ToModel(new Point2D(width, height)));
+        var bottomLeft = ModelToScreen(picture.ToModel(new Point2D(0, 0)));
+        var along = (topRight - topLeft) / width;
+        var down = (bottomLeft - topLeft) / height;
+        dc.PushTransform(new MatrixTransform(along.X, along.Y, down.X, down.Y, topLeft.X, topLeft.Y));
+        dc.PushOpacity(picture.Halftone ? ImageFade : 1);
+        dc.DrawImage(bitmap, new Rect(0, 0, width, height));
+        dc.Pop();
+        dc.Pop();
+
+        if (IsSelected(picture))
+        {
+            var edge = new StreamGeometry();
+            using (var context = edge.Open())
+            {
+                var corners = picture.Corners.Select(ModelToScreen).ToList();
+                context.BeginFigure(corners[0], false, true);
+                foreach (var corner in corners.Skip(1)) context.LineTo(corner, true, false);
+            }
+
+            edge.Freeze();
+            dc.DrawGeometry(null, _selectedPen, edge);
+        }
+    }
+
     private void DrawUnderlays(DrawingContext dc)
     {
         foreach (var underlay in OnActiveLevel<CadUnderlay>()) Styled(dc, underlay, d => DrawUnderlay(d, underlay));

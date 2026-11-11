@@ -13,7 +13,10 @@ public enum GroundSurface
     Path,
     Paving,
     Gravel,
-    Planting
+    Planting,
+
+    /// <summary>Laid for cars - a drive, a parking area: hard, and where a drain under it is under a light road (Approved Document H Table 10).</summary>
+    Driveway
 }
 
 /// <summary>
@@ -139,6 +142,7 @@ public static class GroundRegions
         GroundSurface.Paving => new ColourRgb(0xA8, 0xA4, 0x9E),
         GroundSurface.Gravel => new ColourRgb(0xB8, 0xAE, 0x98),
         GroundSurface.Planting => new ColourRgb(0x6B, 0x52, 0x38),
+        GroundSurface.Driveway => new ColourRgb(0x7E, 0x7B, 0x77),
         _ => new ColourRgb(0x6E, 0x9B, 0x48)
     };
 

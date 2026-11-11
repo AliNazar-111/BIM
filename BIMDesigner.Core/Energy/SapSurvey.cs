@@ -107,7 +107,7 @@ public static class SapSurvey
                     break;
                 case HeatSurface.Window:
                     var (g, frame, light, triple, curtain) = GlazingOf(document, through);
-                    var kind = through is RoofWindow ? line.Tilt is < 1 ? SapSurface.Rooflight : SapSurface.RoofWindow : SapSurface.Window;
+                    var kind = through is RoofWindow or Roof ? line.Tilt is < 1 ? SapSurface.Rooflight : SapSurface.RoofWindow : SapSurface.Window;
                     elements.Add(new SapElement(line.What, kind, line.Area, u)
                     {
                         Source = through, Orientation = orientation, Tilt = line.Tilt ?? 90, SolarTransmittance = g, FrameFactor = frame,
@@ -483,6 +483,8 @@ public static class SapSurvey
                 return (g, FrameFactor(type.FrameMaterial), triple ? 0.70 : single ? 0.90 : 0.80, triple, false);
             case RoofWindow roofWindow when document.FindType<RoofWindowType>(roofWindow.TypeId) is { } type:
                 return (type.SolarHeatGainCoefficient, 0.7, 0.80, false, false);
+            case Roof roof when GlazedRoofs.TypeOf(document, roof) is { } glazedRoof:
+                return (glazedRoof.SolarHeatGainCoefficient, GlazedRoofs.GlassShare(document, roof), 0.80, false, false);
             case Door door when document.FindType<DoorType>(door.TypeId) is { } type:
                 return (0.63, FrameFactor(type.FrameMaterial), 0.80, false, false);
             case Wall:

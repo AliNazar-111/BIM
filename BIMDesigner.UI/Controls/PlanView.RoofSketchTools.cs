@@ -189,16 +189,16 @@ public partial class PlanView
     /// </summary>
     private (Point2D Start, Point2D End)? PickLineAt(Point2D raw) => PickedAt(raw) is { } picked ? (picked.Start, picked.End) : null;
 
-    /// <summary>What Pick Lines would take here, and the wall or gridline it is taken from - what a locked line follows.</summary>
-    private (Point2D Start, Point2D End, Wall? Wall, Grid? Grid)? PickedAt(Point2D raw)
+    /// <summary>What Pick Lines would take here, and the wall, gridline or floor's or roof's edge it is taken from - what a locked line follows.</summary>
+    private (Point2D Start, Point2D End, Wall? Wall, Grid? Grid, (Slab Slab, int Edge)? Slab)? PickedAt(Point2D raw)
     {
         if (Document is null) return null;
 
         var reach = 10 / PixelsPerMm;
         (Point2D Start, Point2D End)? best = null;
-        (Wall? Wall, Grid? Grid) from = (null, null);
+        (Wall? Wall, Grid? Grid, (Slab, int)? Slab) from = (null, null, null);
 
-        void Consider(Point2D a, Point2D b, Wall? wall = null, Grid? grid = null)
+        void Consider(Point2D a, Point2D b, Wall? wall = null, Grid? grid = null, (Slab, int)? slab = null)
         {
             if (a.DistanceTo(b) <= RoofSketch.JoinTolerance) return;
 
@@ -207,7 +207,7 @@ public partial class PlanView
 
             reach = distance;
             best = (a, b);
-            from = (wall, grid);
+            from = (wall, grid, slab);
         }
 
         foreach (var slab in OnActiveLevel<Slab>())
@@ -215,7 +215,7 @@ public partial class PlanView
             if (ReferenceEquals(slab, SketchedElement)) continue;
 
             for (var i = 0; i < slab.Boundary.Count; i++)
-                Consider(slab.Boundary[i], slab.Boundary[(i + 1) % slab.Boundary.Count]);
+                Consider(slab.Boundary[i], slab.Boundary[(i + 1) % slab.Boundary.Count], slab: (slab, i));
         }
 
         foreach (var wall in OnActiveLevel<Wall>())
@@ -231,20 +231,20 @@ public partial class PlanView
             Consider(grid.Start, grid.End, grid: grid);
 
         if (best is not var (start, end)) return null;
-        if (Math.Abs(SketchOffset) < 1e-9) return (start, end, from.Wall, from.Grid);
+        if (Math.Abs(SketchOffset) < 1e-9) return (start, end, from.Wall, from.Grid, from.Slab);
 
         // Set off toward the side the cursor is on.
         var across = (end - start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
         var side = (raw - start).Dot(across) >= 0 ? 1 : -1;
         var shift = across * (side * SketchOffset);
-        return (start + shift, end + shift, from.Wall, from.Grid);
+        return (start + shift, end + shift, from.Wall, from.Grid, from.Slab);
     }
 
     private bool PickLinesAt(Point2D raw)
     {
         if (_sketch is null) return false;
 
-        if (PickedAt(raw) is not var (start, end, wall, grid))
+        if (PickedAt(raw) is not var (start, end, wall, grid, slab))
         {
             HintChanged?.Invoke(this, "No line there. Hover the edge of a floor or roof, a wall's face or a grid line.");
             return false;
@@ -252,7 +252,7 @@ public partial class PlanView
 
         Remember();
         var line = new RoofSketchLine(start, end, NewDrawnEdge());
-        if (SketchLock && _sketchTarget == SketchTarget.Roof) Lock(line, wall, grid);
+        if (SketchLock && _sketchTarget == SketchTarget.Roof) Lock(line, wall, grid, slab);
         _sketch.Add(line);
         RoofSketch.CloseCorners(_sketch, line, CornerReach());
 
@@ -262,15 +262,15 @@ public partial class PlanView
         return true;
     }
 
-    /// <summary>With Lock: a roof line picked off a wall's face follows the wall, one picked off a gridline the grid, as each is moved.</summary>
+    /// <summary>With Lock: a roof line picked off a wall's face follows the wall, one picked off a gridline the grid, one off a floor's or roof's edge that edge, as each is moved.</summary>
     public bool SketchLock { get; set; }
 
     /// <summary>
     /// A picked line locked to what it was picked from: on a wall, as a line picked by Pick Walls is,
-    /// at the distance it stands from the wall's middle; on a gridline, at its offset to the grid's left.
-    /// A floor's or roof's edge is not locked to: its line stays where it was picked.
+    /// at the distance it stands from the wall's middle; on a gridline, at its offset to the grid's left; on a
+    /// floor's, a ceiling's or another roof's edge, at its offset to the left of that edge as the outline runs.
     /// </summary>
-    private void Lock(RoofSketchLine line, Wall? wall, Grid? grid)
+    private void Lock(RoofSketchLine line, Wall? wall, Grid? grid, (Slab Slab, int Edge)? picked = null)
     {
         if (Document is null) return;
         if (wall is not null && Document.GetWallType(wall) is { } type)
@@ -291,6 +291,16 @@ public partial class PlanView
             var left = (grid.End - grid.Start).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
             line.Edge.GridId = grid.Id;
             line.Edge.GridOffset = (line.Start - grid.Start).Dot(left);
+        }
+        else if (picked is var (slab, index) && index < slab.Boundary.Count)
+        {
+            var (a, b) = (slab.Boundary[index], slab.Boundary[(index + 1) % slab.Boundary.Count]);
+            var left = (b - a).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft();
+            line.Edge.SlabId = slab.Id;
+            line.Edge.SlabEdgeIndex = index;
+            line.Edge.SlabCorners = slab.Boundary.Count;
+            line.Edge.SlabEdgeId = slab is Roof roof && index < roof.Edges.Count ? roof.Edges[index].Id : null;
+            line.Edge.SlabOffset = (line.Start - a).Dot(left);
         }
     }
 

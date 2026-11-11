@@ -56,7 +56,7 @@ public static class ElementTransforms
         RoomSeparator => true,
         Annotation.DetailLine or Annotation.FilledRegion => true,
         AreaBoundary or Area or Annotation.RepeatingDetail => true,
-        CadUnderlay => true,
+        CadUnderlay or ImageUnderlay => true,
         Coordination.ModelLink => true,
         Mep.Pipe => true,
         Mep.Duct => true,
@@ -201,6 +201,10 @@ public static class ElementTransforms
 
             case CadUnderlay underlay:
                 underlay.Location += delta;
+                break;
+
+            case ImageUnderlay picture:
+                picture.Location += delta;
                 break;
 
             // A linked model is moved by its offset: where its own origin falls on this project.
@@ -826,6 +830,13 @@ public static class ElementTransforms
                 underlay.Location = map(underlay.Location);
                 underlay.Rotation = ((underlay.Rotation + degrees) % 360 + 360) % 360;
                 underlay.Scale *= factor;
+                break;
+
+            // A picture likewise, about its bottom left corner.
+            case ImageUnderlay picture:
+                picture.Location = map(picture.Location);
+                picture.Rotation = ((picture.Rotation + degrees) % 360 + 360) % 360;
+                picture.Scale *= factor;
                 break;
 
             case Mep.Pipe pipe:

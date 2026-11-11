@@ -395,6 +395,7 @@ public static class Overheating
         Door door when document.FindType<DoorType>(door.TypeId) is { } type => line.Area * GlazedShare(type),
         RoofWindow roofWindow when document.FindType<RoofWindowType>(roofWindow.TypeId) is { } type && roofWindow.Built(type) is var built =>
             (built.Width - 2 * built.FrameWidth) * (built.Height - 2 * built.FrameWidth) / 1e6,
+        Roof roof when GlazedRoofs.IsGlazed(document, roof) => line.Area * GlazedRoofs.GlassShare(document, roof),
         _ => line.Area * 0.85
     };
 
@@ -561,6 +562,7 @@ public static class Overheating
                     Window window when document.FindType<WindowType>(window.TypeId) is { } type =>
                         type.SolarHeatGainCoefficient <= 0.4 && type.LightTransmittance >= 0.7 || DueSouthOverhang(document, window, opening.Bearing, north),
                     RoofWindow roofWindow => document.FindType<RoofWindowType>(roofWindow.TypeId) is { SolarHeatGainCoefficient: <= 0.4 },
+                    Roof roof => GlazedRoofs.TypeOf(document, roof) is { SolarHeatGainCoefficient: <= 0.4 },
                     Opening door => DueSouthOverhang(document, door, opening.Bearing, north),
                     _ => false
                 };

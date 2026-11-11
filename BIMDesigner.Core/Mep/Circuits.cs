@@ -164,6 +164,41 @@ public static class Circuits
     /// <summary>The cables a circuit may be wired in.</summary>
     public static IReadOnlyList<CableSize> Sizes(bool us) => us ? UsSizes : UkSizes;
 
+    /// <summary>
+    /// NEC Table 250.122: the least copper equipment grounding conductor for the rating of the breaker ahead of a circuit, and its
+    /// circular mils - 14 AWG to 15 A, 12 to 20, 10 to 60, 8 to 100, 6 to 200, 4 beyond.
+    /// </summary>
+    public static (string Name, double CircularMils) GroundFor(double breaker) =>
+        breaker <= 15 ? ("14 AWG", 4110) : breaker <= 20 ? ("12 AWG", 6530) : breaker <= 60 ? ("10 AWG", 10380)
+        : breaker <= 100 ? ("8 AWG", 16510) : breaker <= 200 ? ("6 AWG", 26240) : ("4 AWG", 41740);
+
+    /// <summary>The bare ground in NM-B, by its conductors' size: as big as them to 10 AWG, 10 AWG in 8 and 6 AWG cable, 8 AWG in 4.</summary>
+    public static (string Name, double CircularMils) NmGround(CableSize cable) => cable.Name switch
+    {
+        "14 AWG" => ("14 AWG", 4110),
+        "12 AWG" => ("12 AWG", 6530),
+        "10 AWG" or "8 AWG" or "6 AWG" => ("10 AWG", 10380),
+        _ => ("8 AWG", 16510)
+    };
+
+    /// <summary>
+    /// NEC 250.122(B): where a circuit's conductors are bigger than the least that carries its breaker - for its voltage drop - its
+    /// equipment grounding conductor grows in proportion to their circular mils, from Table 250.122's for the breaker. NM-B's bare
+    /// ground does not: past 10 AWG it stays smaller than its conductors. What is wanting, or null where the ground is enough.
+    /// </summary>
+    public static string? UsGround(BimDocument document, MepSystem circuit, CircuitDesign design)
+    {
+        var smallest = UsSizes.Where(size => size.MostBreaker == 0 || size.MostBreaker >= design.Breaker - 1e-9)
+            .FirstOrDefault(size => Evaluate(document, circuit, design.Breaker, size).Capacity >= design.Breaker - 1e-9);
+        if (smallest is null || design.Cable.CircularMils <= smallest.CircularMils + 1e-6) return null;
+        var (least, leastMils) = GroundFor(design.Breaker);
+        var wanted = leastMils * design.Cable.CircularMils / smallest.CircularMils;
+        var (ground, groundMils) = NmGround(design.Cable);
+        if (groundMils >= wanted - 1) return null;
+        return $"its conductors are {design.Cable.Name}, upsized from {smallest.Name} - NEC 250.122(B) grows its equipment grounding conductor in proportion, " +
+               $"from Table 250.122's {least} for {design.Breaker:0} A to {wanted:#,0} circular mils, and {design.Cable.Name} NM-B's bare ground is {ground} ({groundMils:#,0}): run a full-size ground, or wire it in cable or raceway that has one";
+    }
+
     /// <summary>A copper conductor's resistance at 20 °C, mΩ/m, by its size (BS EN 60228).</summary>
     private static double Resistance(double size) => size switch
     {
@@ -641,9 +676,12 @@ public static class Circuits
         var (all, lines) = Diversity(document, designs);
         if (type.Phases != 3) return new BoardDemand(board, designs, ways, supply, all, lines);
 
-        // Three phases: the circuits shared across them, the largest first onto the least loaded, each phase's demand after the same diversity.
+        // Three phases: the circuits set to a phase on it, then the rest shared across them, the largest first onto the least loaded;
+        // each phase's demand after the same diversity.
         var phases = Enumerable.Range(0, 3).Select(_ => new List<CircuitDesign>()).ToArray();
-        foreach (var design in designs.OrderByDescending(design => design.Current))
+        foreach (var design in designs.Where(design => design.Circuit.Phase is >= 1 and <= 3))
+            phases[design.Circuit.Phase - 1].Add(design);
+        foreach (var design in designs.Where(design => design.Circuit.Phase is not (>= 1 and <= 3)).OrderByDescending(design => design.Current))
             phases.MinBy(phase => phase.Sum(each => each.Current))!.Add(design);
         var each = phases.Select(phase => ((IReadOnlyList<CircuitDesign>)phase, Diversity(document, phase).Demand)).ToList();
         var most = each.Max(phase => phase.Item2);
@@ -760,6 +798,7 @@ public static class Circuits
         {
             if (Design(document, circuit) is not { } design) continue;
             foreach (var fault in Faults(document, design)) yield return new MepProblem(circuit, fault);
+            if (us && UsGround(document, circuit, design) is { } ground) yield return new MepProblem(circuit, ground);
 
             var members = MepSystems.MembersOf(document, circuit);
             if (!us)

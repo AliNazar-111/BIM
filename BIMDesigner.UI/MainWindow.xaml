@@ -394,6 +394,8 @@
                         <Separator/>
                         <MenuItem Header="Import DW_G or DXF..." Click="OnImportCad"
                                   ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over: the drawing tools snap to its lines"/>
+                        <MenuItem Header="Import Ima_ge..." Click="OnImportImage"
+                                  ToolTip="A PNG or JPEG picture - a map, an aerial photograph, a scanned survey - brought under the storey shown to work over; Scale Image sets its true size"/>
                         <MenuItem Header="Export _IFC..." Click="OnExportIfc">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Export}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
@@ -1250,6 +1252,12 @@
                                     Content="Import CAD" Click="OnImportCad"
                                     ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over, faded under the model. The drawing tools snap to its ends and along its lines; double-click it for its layers"/>
                                 <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ImportCad}" Content="Import Image" Click="OnImportImage"
+                                            ToolTip="A PNG or JPEG picture - a map, an aerial photograph, a scanned survey - brought under the storey shown to work over, faded under everything"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Scale}" Content="Scale Image" Click="OnScaleImage"
+                                            ToolTip="Set a picture's true size: click two points on it a known distance apart - the ends of its scale bar, a building's front - and give the distance"/>
+                                </StackPanel>
+                                <StackPanel>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Link}" Content="Link Model" Click="OnLinkModel"
                                             ToolTip="Link a BIMDesigner project or an IFC file - the structure's, the services', the building next door: drawn with this one in 3D and cut on its plans, clash tested against it, read from its own file and reloaded as it changes"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ImportCad}" Content="Link DWG" Click="OnLinkCad"
@@ -1906,6 +1914,17 @@
                                                  Content="Mirror" CommandParameter="Mirror"
                                                  ToolTip="Mirror the selected lines about a line clicked with two points - copied, unless Copy is unticked"/>
                                 </StackPanel>
+                                <StackPanel Margin="2,0">
+                                    <RadioButton x:Name="RoofSketchRotate" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Rotate}"
+                                                 Content="Rotate" CommandParameter="Rotate"
+                                                 ToolTip="Turn the selected lines: click the centre, then where the angle starts and ends - or type an Angle on the options bar and click the centre. Tick Copy to turn copies"/>
+                                    <RadioButton x:Name="RoofSketchArray" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Array}"
+                                                 Content="Array" CommandParameter="Array"
+                                                 ToolTip="Repeat the selected lines: type the Count on the options bar, then click where from and where the next one goes"/>
+                                    <RadioButton x:Name="RoofSketchScale" Style="{StaticResource RoofSketchRadio}" Tag="{StaticResource Icon.Scale}"
+                                                 Content="Scale" CommandParameter="Scale"
+                                                 ToolTip="Make the selected lines bigger or smaller: type the Scale on the options bar, then click the point they are scaled about"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -2004,6 +2023,10 @@
                     <CheckBox x:Name="RoofOffsetCopyBox" Content="Copy" VerticalAlignment="Center" Margin="12,0,0,0"
                               Click="OnRoofOffsetCopyChanged"
                               ToolTip="Offset adds a copy of the line instead of moving it"/>
+                    <TextBlock x:Name="RoofArrayAngleLabel" Text="Angle" VerticalAlignment="Center" Margin="12,0,6,0" Visibility="Collapsed"/>
+                    <TextBox x:Name="RoofArrayAngleBox" MinWidth="60" VerticalAlignment="Center" Visibility="Collapsed"
+                             LostFocus="OnRoofArrayAngleChanged" KeyDown="OnRoofArrayAngleKey"
+                             ToolTip="How far round, anticlockwise: 360 spaces them evenly all the way round; less puts the last that far round from the first"/>
                     <ComboBox x:Name="RoofAlignPicker" Style="{StaticResource OptionCombo}" MinWidth="130" Margin="12,0,0,0"
                               SelectionChanged="OnRoofAlignModeChanged"
                               ToolTip="Adjust Height brings an eave to the height by raising or lowering its plate. Adjust Overhang keeps the plate and runs the eave out or in until it lands there - for lines picked from walls"/>

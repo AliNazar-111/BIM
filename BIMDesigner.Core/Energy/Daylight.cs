@@ -329,7 +329,46 @@ public static class Daylight
             points.Add(new Point3D(inside.X, inside.Y, height));
         }
 
+        // Overhead: a roof window, or a face of sloped glazing, over the room - a point at the middle of each, just under its
+        // glass, as a window's is just inside its glass - not down at the roof's underside, where the reveal through a thick roof
+        // would hide the low sun the glass itself sees. A wall window's 1.2 m over the floor has nothing to say overhead.
+        foreach (var roof in RoomHeadroom.Covers(document, room, boundary.Polygon).OfType<Roof>())
+        {
+            foreach (var window in RoofWindows.On(document, roof))
+                if (RoofWindows.Frame(document, window) is { } frame && Polygon2D.Contains(boundary.Polygon, frame.Centre))
+                    points.Add(new Point3D(frame.Centre.X, frame.Centre.Y, frame.FrameTop(frame.Centre) - 30 * frame.Plane.VerticalStretch - 20));
+
+            if (GlazedRoofs.TypeOf(document, roof) is not { } glazing) continue;
+            foreach (var face in GlazedRoofs.Faces(document, roof))
+            {
+                var over = PolygonBoolean.Combine(new[] { face.Region.Outer }.Concat(face.Region.Holes).ToList(), new[] { boundary.Polygon }, BooleanOperation.Intersection)
+                    .Where(region => region.Outer is { Count: >= 3 }).OrderByDescending(region => Polygon2D.Area(region.Outer)).ToList();
+                if (over.Count == 0 || Polygon2D.Area(over[0].Outer) < 0.25e6) continue;
+                if (UnderAPane(face, over[0], glazing) is not { } at) continue;
+                points.Add(new Point3D(at.X, at.Y, face.Glass.HeightAt(at) - glazing.Thickness * face.Glass.VerticalStretch - 20));
+            }
+        }
+
         return points;
+    }
+
+    /// <summary>
+    /// The middle of a glazed face's part over a room, or - where a bar runs over it - the nearest middle of a pane to it:
+    /// half a spacing along the eave, up the slope or both. Null where every such place is under a bar or off the part.
+    /// </summary>
+    private static Point2D? UnderAPane(GlazedFace face, PolygonBoolean.Region over, RoofType glazing)
+    {
+        var middle = Polygon2D.Centroid(over.Outer, over.Outer[0]);
+        var (up, across) = (face.Up, new Vector2D(face.Up.Y, -face.Up.X));
+        var (alongStep, upStep) = (glazing.UpBarSpacing / 2, glazing.CrossBarSpacing / face.Glass.VerticalStretch / 2);
+        foreach (var (i, j) in new[] { (0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1), (-1, -1) })
+        {
+            var at = middle + across * (i * alongStep) + up * (j * upStep);
+            if (!Polygon2D.Contains(over.Outer, at) || over.Holes.Any(hole => Polygon2D.Contains(hole, at))) continue;
+            if (face.Bars.All(bar => Line2D.DistanceFromSegment(at, bar.From, bar.To) > glazing.GlazingBarWidth)) return at;
+        }
+
+        return null;
     }
 
     /// <summary>The hours of sun that reach any of a room's points on a day, counted every five minutes above the least altitude.</summary>

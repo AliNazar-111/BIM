@@ -14,9 +14,9 @@ public sealed record UnusedContent(IReadOnlyList<ElementType> Types, IReadOnlyLi
 }
 
 /// <summary>What Purge Unused found of the views' own: the schedules on no sheet and the view filters no view uses.</summary>
-public sealed record UnusedViews(IReadOnlyList<Schedules.ScheduleDefinition> Schedules, IReadOnlyList<Views.ParameterFilter> Filters)
+public sealed record UnusedViews(IReadOnlyList<Schedules.ScheduleDefinition> Schedules, IReadOnlyList<Views.ParameterFilter> Filters, IReadOnlyList<Elements.Element> Views)
 {
-    public int Count => Schedules.Count + Filters.Count;
+    public int Count => Schedules.Count + Filters.Count + Views.Count;
 }
 
 /// <summary>
@@ -122,11 +122,33 @@ public static class Purging
         var schedules = document.Schedules.Where(schedule => !schedule.IsKeySchedule && !placed.Contains(schedule)).ToList();
         var applied = document.ViewSettings.WithFilters.SelectMany(view => view.Filters).Select(use => use.FilterId)
             .Concat(document.All<Views.ViewTemplate>().SelectMany(template => template.Filters).Select(use => use.FilterId)).ToHashSet();
-        return new UnusedViews(schedules, document.ParameterFilters.Where(filter => !applied.Contains(filter.Id)).ToList());
+
+        // Drafting views and saved 3D views on no sheet; never the {3D} view, which is the project's own.
+        var views = document.All<Annotation.DraftingView>().Where(view => Views.Callouts.PlacedOn(document, Annotation.Detailing.Reference(view)) is null)
+            .OrderBy(view => view.Name, StringComparer.CurrentCulture).Cast<Elements.Element>()
+            .Concat(document.All<Views.View3D>().Where(view => !ReferenceEquals(view, document.Default3D) && Views.Callouts.PlacedOn(document, Views.Views3D.Reference(document, view)) is null)
+                .OrderBy(view => view.Name, StringComparer.CurrentCulture))
+            .ToList();
+        return new UnusedViews(schedules, document.ParameterFilters.Where(filter => !applied.Contains(filter.Id)).ToList(), views);
     }
 
-    /// <summary>Schedules and view filters taken out of the project as one step, put back where they were by undo.</summary>
-    public static IUndoableCommand PurgeViews(BimDocument document, IEnumerable<Schedules.ScheduleDefinition> schedules, IEnumerable<Views.ParameterFilter> filters)
+    /// <summary>
+    /// Schedules, view filters, drafting views - with what is drawn in them - and saved 3D views taken out of the project as
+    /// one step, put back where they were by undo.
+    /// </summary>
+    public static IUndoableCommand PurgeViews(BimDocument document, IEnumerable<Schedules.ScheduleDefinition> schedules, IEnumerable<Views.ParameterFilter> filters,
+        IEnumerable<Elements.Element>? views = null)
+    {
+        var lists = PurgeLists(document, schedules, filters);
+        var deletions = (views ?? Array.Empty<Elements.Element>()).Select(view => view switch
+        {
+            Annotation.DraftingView drafting => Annotation.Detailing.Delete(document, drafting),
+            _ => (IUndoableCommand)new DeleteElementCommand(document, view)
+        }).ToList();
+        return deletions.Count == 0 ? lists : new CompositeCommand("Purge Unused", new[] { lists }.Concat(deletions).ToList());
+    }
+
+    private static IUndoableCommand PurgeLists(BimDocument document, IEnumerable<Schedules.ScheduleDefinition> schedules, IEnumerable<Views.ParameterFilter> filters)
     {
         var (schedulesBefore, filtersBefore) = (document.Schedules.ToList(), document.ParameterFilters.ToList());
         var (goingSchedules, goingFilters) = (schedules.ToHashSet(), filters.ToHashSet());

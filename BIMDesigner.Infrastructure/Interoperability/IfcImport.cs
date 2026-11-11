@@ -140,6 +140,8 @@ public static class IfcImport
             FindShift();
 
             foreach (var wall in _model.Instances.OfType<IIfcWall>()) Try(wall, ImportWall);
+            foreach (var curtain in _model.Instances.OfType<IIfcCurtainWall>()) Try(curtain, ImportCurtainWall);
+            foreach (var stair in _model.Instances.OfType<IIfcStair>()) Try(stair, ImportStair);
             foreach (var opening in _model.Instances.OfType<IIfcDoor>()) Try(opening, ImportOpening);
             foreach (var opening in _model.Instances.OfType<IIfcWindow>()) Try(opening, ImportOpening);
             foreach (var slab in _model.Instances.OfType<IIfcSlab>()) Try(slab, ImportSlab);
@@ -988,8 +990,13 @@ public static class IfcImport
 
         private bool ImportRoof(IIfcRoof roof)
         {
-            // A roof made of parts is its parts: they come in as themselves.
-            if (roof.IsDecomposedBy.Any(relation => relation.RelatedObjects.Any())) return true;
+            // A roof made of parts: its faces taken back into a roof by its footprint where they are the faces of one; where
+            // they are not, the parts come in as themselves.
+            if (roof.IsDecomposedBy.Any(relation => relation.RelatedObjects.Any()))
+            {
+                Pitched(roof);
+                return true;
+            }
             if (Flat(roof) is not { } flat || flat.Top - flat.Bottom < 1) return false;
 
             var level = LevelOf(roof, flat.Bottom);
@@ -1000,6 +1007,348 @@ public static class IfcImport
             _made[roof.EntityLabel] = made;
             _result.Count("Roofs");
             return true;
+        }
+
+        /// <summary>
+        /// A part that is one outline extruded square out of its own sloping plane, as a face of a pitched roof is built: its
+        /// underside's plane, z = A x + B y + C, its outline in plan, and its thickness square to the plane. Null for anything
+        /// else - a part with holes in it among them, which a roof by footprint would fill back in.
+        /// </summary>
+        private (List<Point2D> Outline, RoofPlane Plane, double Thickness)? Sloped(IIfcProduct product)
+        {
+            var body = Body(product);
+            if (body.Count != 1 || body[0] is not IIfcExtrudedAreaSolid extrusion || extrusion.SweptArea is IIfcArbitraryProfileDefWithVoids) return null;
+
+            var frame = _geometry.Placement(product.ObjectPlacement).Then(_geometry.Axis(extrusion.Position));
+            var direction = Frame.Normalised(frame.Turn(IfcGeometry.Direction(extrusion.ExtrudedDirection)));
+            var depth = _geometry.Length(extrusion.Depth);
+            var points = _geometry.Profile(extrusion.SweptArea).Select(p => frame.Apply(new Point3D(p.X, p.Y, 0))).ToList();
+            if (points.Count < 3 || depth <= 0) return null;
+
+            // Extruded down, the profile is the top: the underside is the far face.
+            if (direction.Z < 0) points = points.Select(p => new Point3D(p.X + direction.X * depth, p.Y + direction.Y * depth, p.Z + direction.Z * depth)).ToList();
+
+            // The plane through the profile, which must lie flat in it and be no wall.
+            var (a, b, c) = (points[0], points[1], points.Skip(2).OrderByDescending(p => Frame.Cross(Sub(points[1], points[0]), Sub(p, points[0])).Z is var z ? Math.Abs(z) : 0).First());
+            var normal = Frame.Cross(Sub(b, a), Sub(c, a));
+            if (Math.Abs(normal.Z) < 1e-9 * Math.Max(1, Frame.Dot(normal, normal))) return null;
+            var (slopeA, slopeB) = (-normal.X / normal.Z, -normal.Y / normal.Z);
+            var plane = new RoofPlane(slopeA, slopeB, a.Z - slopeA * a.X - slopeB * a.Y, 0);
+            if (points.Any(p => Math.Abs(plane.HeightAt(new Point2D(p.X, p.Y)) - p.Z) > 1)) return null;
+
+            // Square to it, the way a roof's build-up is measured.
+            var unit = Frame.Normalised(normal);
+            var thickness = depth * Math.Abs(Frame.Dot(direction, unit));
+            return (points.Select(Plan).ToList(), plane, thickness);
+
+            static Point3D Sub(Point3D p, Point3D q) => new(p.X - q.X, p.Y - q.Y, p.Z - q.Z);
+        }
+
+        /// <summary>
+        /// A roof whose parts are its sloping faces, taken back into a roof by its footprint: their outlines joined into its
+        /// outline, each edge an eave where the face behind it lies level along it and rises inward - at that face's pitch, its
+        /// plate at that face's height there - and a gable where it does not. Kept only where the roof it makes is the one drawn:
+        /// every face's middle at the height its own plane gives; otherwise false, the parts coming in as themselves.
+        /// </summary>
+        private bool Pitched(IIfcRoof roof)
+        {
+            var parts = roof.IsDecomposedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcProduct>().ToList();
+            var faces = parts.Select(part => (Part: part, Face: Sloped(part))).ToList();
+            if (faces.Count == 0 || faces.Any(entry => entry.Face is null)) return false;
+            var shapes = faces.Select(entry => entry.Face!.Value).ToList();
+            var thickness = shapes[0].Thickness;
+            if (shapes.Any(face => Math.Abs(face.Thickness - thickness) > 1) || shapes.All(face => face.Plane.Rise < 1e-6)) return false;
+
+            // The footprint: the faces' outlines, each joined to those it meets.
+            var regions = new List<PolygonBoolean.Region>();
+            foreach (var face in shapes)
+            {
+                var current = new PolygonBoolean.Region(face.Outline, Array.Empty<IReadOnlyList<Point2D>>());
+                var apart = new List<PolygonBoolean.Region>();
+                foreach (var region in regions)
+                {
+                    var joined = PolygonBoolean.Combine(new[] { region.Outer }.Concat(region.Holes).ToList(), new[] { current.Outer }.Concat(current.Holes).ToList(), BooleanOperation.Union);
+                    if (joined.Count == 1) current = joined[0];
+                    else apart.Add(region);
+                }
+
+                apart.Add(current);
+                regions = apart;
+            }
+
+            if (regions.Count != 1) return false;
+            var footprint = Straightened(regions[0].Outer);
+            if (footprint.Count < 3) return false;
+            if (Polygon2D.SignedArea(footprint) < 0) footprint.Reverse();
+
+            // Each edge: what the face behind it does there.
+            var edges = new List<(bool Eave, double Slope, double Plate)>();
+            for (var i = 0; i < footprint.Count; i++)
+            {
+                var (from, to) = (footprint[i], footprint[(i + 1) % footprint.Count]);
+                var along = (to - from).NormalisedOrDefault(Vector2D.UnitX);
+                var inward = along.PerpendicularLeft();
+                var middle = from.MidpointTo(to);
+                var behind = shapes.Where(face => Polygon2D.Contains(face.Outline, middle + inward * 20)).Select(face => (RoofPlane?)face.Plane).FirstOrDefault();
+                if (behind is not { } plane) return false;
+                var level = Math.Abs(plane.A * along.X + plane.B * along.Y) <= 1e-3 * Math.Max(plane.Rise, 1e-9);
+                var rises = plane.A * inward.X + plane.B * inward.Y > 1e-6;
+                var eave = plane.Rise > 1e-4 && level && rises;
+                edges.Add((eave, plane.SlopeDegrees, plane.HeightAt(middle)));
+            }
+
+            if (!edges.Any(edge => edge.Eave)) return false;
+            var bottom = edges.Where(edge => edge.Eave).Min(edge => edge.Plate);
+            var storey = LevelOf(roof, bottom);
+            var structure = Structure(Layers(parts[0]).Set);
+            if (structure is not null && Math.Abs(structure.TotalWidth - thickness) > 1) structure = null;
+            var made = new Roof
+            {
+                Id = IdOf(roof), LevelId = storey.Id, HeightOffset = Math.Round(bottom - storey.Elevation, 3),
+                TypeId = SlabTypeFor<RoofType>(roof, thickness, structure, (name, s) => new RoofType(name, s)).Id
+            };
+            made.SetBoundary(footprint);
+            made.SetEdges(edges.Select(edge => new RoofEdge
+            {
+                DefinesSlope = edge.Eave,
+                SlopeDegrees = edge.Eave ? Math.Round(edge.Slope, 4) : RoofEdge.DefaultSlopeDegrees,
+                PlateOffset = edge.Eave ? Math.Round(edge.Plate - bottom, 3) : 0
+            }));
+
+            // The holes between its faces: openings through it, as a loop sketched inside its outline is.
+            if (regions[0].Holes.Count > 0) made.SetOpenings(regions[0].Holes.Where(hole => hole.Count >= 3).Select(hole => new RoofOpening(hole.ToList(), new Guid?[hole.Count])));
+            _document.Add(made);
+
+            // The roof drawn, or none: each face's middle where its own plane has it.
+            var surface = made.Surface(_document);
+            if (shapes.Any(face => Math.Abs(surface.HeightAt(Polygon2D.Centroid(face.Outline, face.Outline[0])) - face.Plane.HeightAt(Polygon2D.Centroid(face.Outline, face.Outline[0]))) > 20))
+            {
+                _document.Remove(made);
+                return false;
+            }
+
+            foreach (var part in parts) _handled.Add(part.EntityLabel);
+            _made[roof.EntityLabel] = made;
+            _result.Count("Roofs");
+            return true;
+        }
+
+        /// <summary>
+        /// A curtain wall made of its panels and its mullions and transoms, back as a curtain wall: its line the way its parts
+        /// spread most in plan, through the middle of their depth, from end to end of them, from the lowest of them to the
+        /// highest; its grid its own - each member standing taller than it is wide a mullion at its middle along the wall, each
+        /// lying longer than it is tall a transom at its middle up it, those at its edges its borders. Its type the project's of
+        /// the name it carries, or one made with its mullions' size. False where its parts are not one upright sheet - thicker
+        /// than 600 mm across - leaving them to come in as themselves.
+        /// </summary>
+        private bool ImportCurtainWall(IIfcCurtainWall curtain)
+        {
+            var parts = curtain.IsDecomposedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcProduct>().ToList();
+            if (parts.Count == 0) parts.Add(curtain);
+            var all = new List<Point3D>();
+            var members = new List<List<Point3D>>();
+            var panels = new List<Point3D>();
+            foreach (var part in parts)
+            {
+                var mesh = new Mesh3D(Guid.Empty, Guid.Empty, MeshKind.Wall, default, string.Empty);
+                foreach (var item in Body(part)) _geometry.Triangles(item, _geometry.Placement(part.ObjectPlacement), mesh);
+                all.AddRange(mesh.Positions);
+                if (part is IIfcMember && mesh.Positions.Count > 0) members.Add(mesh.Positions.ToList());
+                if (part is IIfcPlate) panels.AddRange(mesh.Positions);
+            }
+
+            if (all.Count < 4) return false;
+
+            // The way it runs: its points' spread in plan, the long way, as its own placement runs where that agrees.
+            var (meanX, meanY) = (all.Average(p => p.X), all.Average(p => p.Y));
+            var (xx, xy, yy) = (all.Average(p => (p.X - meanX) * (p.X - meanX)), all.Average(p => (p.X - meanX) * (p.Y - meanY)), all.Average(p => (p.Y - meanY) * (p.Y - meanY)));
+            var angle = 0.5 * Math.Atan2(2 * xy, xx - yy);
+            var along = new Vector2D(Math.Cos(angle), Math.Sin(angle));
+            var placed = _geometry.Placement(curtain.ObjectPlacement).X;
+            if (along.X * placed.X + along.Y * placed.Y < 0) along = along * -1;
+
+            // Its own placement, where it runs level and within 5° of that, exactly: its parts' spread leans with whatever stands to one side.
+            var level2D = new Vector2D(placed.X, placed.Y);
+            if (Math.Abs(placed.Z) < 1e-6 && level2D.Length > 1e-9 && along.Dot(level2D.NormalisedOrDefault(along)) > Math.Cos(5 * Math.PI / 180)) along = level2D.NormalisedOrDefault(along);
+            var across = along.PerpendicularLeft();
+            var middle = new Point2D(meanX, meanY);
+            double Along(Point3D p) => (p.X - meanX) * along.X + (p.Y - meanY) * along.Y;
+            double Across(Point3D p) => (p.X - meanX) * across.X + (p.Y - meanY) * across.Y;
+
+            var (from, to) = (all.Min(Along), all.Max(Along));
+            var (near, far) = (all.Min(Across), all.Max(Across));
+            var (bottom, top) = (all.Min(p => p.Z), all.Max(p => p.Z));
+            if (far - near > 600 || to - from < 300 || top - bottom < 300) return false;
+            // Through the middle of its panels, which its mullions may stand to one side of; of all of it where it has none.
+            var depth = panels.Count > 0 ? (panels.Min(Across) + panels.Max(Across)) / 2 : (near + far) / 2;
+            var length = to - from;
+
+            // Its grid: each member a mullion or a transom by its shape, those along its edges its borders.
+            var (verticals, horizontals, widths, depths) = (new List<double>(), new List<double>(), new List<double>(), new List<double>());
+            var borders = false;
+            foreach (var member in members)
+            {
+                var (s0, s1) = (member.Min(Along) - from, member.Max(Along) - from);
+                var (z0, z1) = (member.Min(p => p.Z) - bottom, member.Max(p => p.Z) - bottom);
+                var (wide, tall) = (s1 - s0, z1 - z0);
+                depths.Add(member.Max(Across) - member.Min(Across));
+                if (tall > 3 * wide)
+                {
+                    widths.Add(wide);
+                    var at = (s0 + s1) / 2;
+                    if (at > wide && at < length - wide) verticals.Add(at);
+                    else borders = true;
+                }
+                else if (wide > 3 * tall)
+                {
+                    var at = (z0 + z1) / 2;
+                    if (at > tall && at < top - bottom - tall) horizontals.Add(at);
+                    else borders = true;
+                }
+            }
+
+            static List<double> Distinct(IEnumerable<double> lines) =>
+                lines.OrderBy(line => line).Aggregate(new List<double>(), (kept, line) => { if (kept.Count == 0 || line - kept[^1] > 5) kept.Add(Math.Round(line, 1)); return kept; });
+
+            var level = LevelOf(curtain, bottom);
+            var type = CurtainTypeFor(curtain, widths.Count > 0 ? widths.Average() : 50, depths.Count > 0 ? depths.Max() : 150, borders);
+            var made = new CoreWall
+            {
+                Id = IdOf(curtain),
+                Start = middle + along * from + across * depth, End = middle + along * to + across * depth,
+                TypeId = type.Id, LevelId = level.Id,
+                BaseOffset = Math.Round(bottom - level.Elevation, 3), UnconnectedHeight = Math.Round(top - bottom, 3),
+                Mark = curtain.Tag?.ToString() ?? string.Empty,
+                CurtainGrid = new CurtainGrid(Distinct(verticals), Distinct(horizontals))
+            };
+            _document.Add(made);
+            foreach (var part in parts) _handled.Add(part.EntityLabel);
+            _made[curtain.EntityLabel] = made;
+            _result.Count("Curtain walls");
+            return true;
+        }
+
+        /// <summary>
+        /// A stair of one straight flight, back as a stair: up its flight's long way, toward the end its steps are higher at;
+        /// from the middle of its first riser, as wide as its flight; from the storey it stands on to the storey its top reaches -
+        /// a stair working its risers out from the storey's height. False for a stair with a landing, a turn or winders, or one
+        /// whose top reaches no storey, leaving it to come in as its shape.
+        /// </summary>
+        private bool ImportStair(IIfcStair stair)
+        {
+            var parts = stair.IsDecomposedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcProduct>().ToList();
+            var flights = parts.OfType<IIfcStairFlight>().ToList();
+            if (flights.Count != 1 || parts.Any(part => part is IIfcSlab)) return false;
+            if (flights[0].PredefinedType is { } shape && shape is not (IfcStairFlightTypeEnum.STRAIGHT or IfcStairFlightTypeEnum.NOTDEFINED)) return false;
+
+            var mesh = new Mesh3D(Guid.Empty, Guid.Empty, MeshKind.Stair, default, string.Empty);
+            foreach (var item in Body(flights[0])) _geometry.Triangles(item, _geometry.Placement(flights[0].ObjectPlacement), mesh);
+            var points = mesh.Positions.ToList();
+            if (points.Count < 8) return false;
+
+            // Its long way in plan, by the points' spread, and up it toward the higher end.
+            var (meanX, meanY) = (points.Average(p => p.X), points.Average(p => p.Y));
+            var (xx, xy, yy) = (points.Average(p => (p.X - meanX) * (p.X - meanX)), points.Average(p => (p.X - meanX) * (p.Y - meanY)), points.Average(p => (p.Y - meanY) * (p.Y - meanY)));
+            var angle = 0.5 * Math.Atan2(2 * xy, xx - yy);
+            var up = new Vector2D(Math.Cos(angle), Math.Sin(angle));
+            double Along(Point3D p) => (p.X - meanX) * up.X + (p.Y - meanY) * up.Y;
+            var (low, high) = (points.Min(Along), points.Max(Along));
+            var lowEnd = points.Where(p => Along(p) < low + (high - low) / 4).Average(p => p.Z);
+            var highEnd = points.Where(p => Along(p) > high - (high - low) / 4).Average(p => p.Z);
+            if (highEnd < lowEnd)
+            {
+                up = up * -1;
+                (low, high) = (-high, -low);
+            }
+
+            // Exactly, where its treads show it: the line through their middles, the lowest to the highest - the spread leaning with
+            // a string or a nosing on one side.
+            var levels = points.GroupBy(p => Math.Round(p.Z)).Where(level => level.Count() >= 4).OrderBy(level => level.Key)
+                .Select(level => new Point2D(level.Average(p => p.X), level.Average(p => p.Y))).ToList();
+            if (levels.Count >= 3 && (levels[^1] - levels[0]).Length > 300 && (levels[^1] - levels[0]).NormalisedOrDefault(up).Dot(up) > Math.Cos(10 * Math.PI / 180))
+            {
+                up = (levels[^1] - levels[0]).NormalisedOrDefault(up);
+                (low, high) = (points.Min(Along), points.Max(Along));
+            }
+
+            var across = up.PerpendicularLeft();
+            double Across(Point3D p) => (p.X - meanX) * across.X + (p.Y - meanY) * across.Y;
+            var (near, far) = (points.Min(Across), points.Max(Across));
+            var (bottom, top) = (points.Min(p => p.Z), points.Max(p => p.Z));
+            var width = far - near;
+            if (width < 500 || high - low < 500 || top - bottom < 300) return false;
+
+            // The storeys it runs between: the one it stands on, and the one its last riser rises onto - a rise over its top tread,
+            // the rise the step its treads' levels are apart.
+            var treads = points.GroupBy(p => Math.Round(p.Z)).Where(level => level.Count() >= 4).Select(level => level.Key).OrderBy(z => z).ToList();
+            var steps = treads.Zip(treads.Skip(1), (a, b) => b - a).Where(gap => gap is > 100 and < 250).OrderBy(gap => gap).ToList();
+            var rise = steps.Count > 0 ? steps[steps.Count / 2] : 0;
+            var reached = treads.Count > 0 ? treads[^1] + rise : top;
+            var foot = LevelOf(stair, bottom);
+            var head = _document.Levels.Where(level => Math.Abs(level.Elevation - reached) <= 60 || Math.Abs(level.Elevation - top) <= 60)
+                .OrderBy(level => Math.Min(Math.Abs(level.Elevation - reached), Math.Abs(level.Elevation - top))).FirstOrDefault();
+            if (head is null || head.Elevation <= foot.Elevation) return false;
+
+            var name = string.IsNullOrWhiteSpace(stair.Name) ? string.Empty : stair.Name.ToString()!;
+            var type = _document.TypesOf<StairType>().Where(each => name.StartsWith(each.Name, StringComparison.Ordinal)).OrderByDescending(each => each.Name.Length).FirstOrDefault()
+                       ?? _document.TypesOf<StairType>().FirstOrDefault();
+            if (type is null) return false;
+
+            var middle = new Point2D(meanX, meanY);
+            var made = new Stair
+            {
+                Id = IdOf(stair), TypeId = type.Id, LevelId = foot.Id, TopLevelId = head.Id, Shape = StairShape.Straight,
+                Start = middle + up * low + across * ((near + far) / 2), Angle = Math.Round(Math.Atan2(up.Y, up.X) * 180 / Math.PI, 4),
+                Width = Math.Round(width, 1), BaseOffset = Math.Round(bottom - foot.Elevation, 3), Mark = stair.Tag?.ToString() ?? string.Empty
+            };
+            _document.Add(made);
+            foreach (var part in parts) _handled.Add(part.EntityLabel);
+            _made[stair.EntityLabel] = made;
+            _result.Count("Stairs");
+            return true;
+        }
+
+        /// <summary>The curtain wall type a curtain wall comes in as: the project's whose name it carries, or one made with its mullions.</summary>
+        private CurtainWallType CurtainTypeFor(IIfcCurtainWall curtain, double mullionWidth, double mullionDepth, bool borders)
+        {
+            var name = TypeName(curtain);
+            if (string.IsNullOrWhiteSpace(name)) name = curtain.Name?.ToString() ?? string.Empty;
+            var known = _document.TypesOf<CurtainWallType>().Where(type => name.StartsWith(type.Name, StringComparison.Ordinal)).OrderByDescending(type => type.Name.Length).FirstOrDefault();
+            if (known is not null) return known;
+            if (string.IsNullOrWhiteSpace(name)) name = "Curtain Wall";
+            var key = $"CurtainWallType:{name}";
+            if (_types.TryGetValue(key, out var made)) return (CurtainWallType)made;
+            var type = new CurtainWallType(UniqueName(name))
+            {
+                MullionWidth = Math.Round(Math.Clamp(mullionWidth, 20, 300)), MullionDepth = Math.Round(Math.Clamp(mullionDepth, 20, 600)), BorderMullions = borders
+            };
+            _document.AddType(type);
+            type.TakeDepth(_document);
+            _types[key] = type;
+            return type;
+        }
+
+        /// <summary>An outline with the corners that are no corners taken out: points on a straight run between their neighbours.</summary>
+        private static List<Point2D> Straightened(IReadOnlyList<Point2D> outline)
+        {
+            var points = outline.ToList();
+            for (var changed = true; changed && points.Count > 3;)
+            {
+                changed = false;
+                for (var i = 0; i < points.Count && points.Count > 3; i++)
+                {
+                    var (before, at, after) = (points[(i - 1 + points.Count) % points.Count], points[i], points[(i + 1) % points.Count]);
+                    var (u, v) = (at - before, after - at);
+                    if (u.Length < 1 || v.Length < 1 || Math.Abs(u.Cross(v)) <= u.Length * v.Length * 1e-6 && u.Dot(v) > 0)
+                    {
+                        points.RemoveAt(i);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+
+            return points;
         }
 
         private bool ImportCovering(IIfcCovering covering)

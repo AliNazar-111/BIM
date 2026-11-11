@@ -1002,7 +1002,7 @@ public sealed class AnalyticalModel
                     var kind = slab is Roof ? AnalyticalPanelKind.Roof : onGround ? AnalyticalPanelKind.GroundSlab : AnalyticalPanelKind.Floor;
                     var panel = new AnalyticalPanel(slab, kind, material, thickness, slab is Roof ? "Bottom" : "Top", new Point3D(0, 0, height), new Direction3D(1, 0, 0), new Direction3D(0, 1, 0))
                     {
-                        Weight = Loads.Weight(_document, type.Structure),
+                        Weight = Loads.Weight(_document, type),
                         Subgrade = onGround ? Subgrade(_document.ProjectInformation.Ground) : null
                     };
                     foreach (var corner in Snapped(region.Outer, height, onGround, 100)) panel.Outline.Add(Node(Point3D.On(corner, height)));

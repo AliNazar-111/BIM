@@ -33,7 +33,7 @@ public sealed class SplitPipeCommand : IUndoableCommand
         Second = new Pipe
         {
             TypeId = pipe.TypeId, LevelId = pipe.LevelId, Start = _at, End = _end, StartOffset = _atOffset, EndOffset = _endOffset,
-            Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId, Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal,
+            Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId, Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal, Protection = pipe.Protection,
             PhaseCreated = pipe.PhaseCreated, PhaseDemolished = pipe.PhaseDemolished, Workset = pipe.Workset, DesignOptionId = pipe.DesignOptionId, Comments = pipe.Comments
         };
     }

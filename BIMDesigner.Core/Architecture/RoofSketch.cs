@@ -621,15 +621,79 @@ public static class RoofSketch
     /// commands that move walls. That way every change reaches it - a drag, a typed length, a
     /// new wall type, an undo - and an undo cannot leave the roof behind the wall it follows,
     /// since the roof is simply put back where the wall now says.
+    ///
+    /// An edge locked to another roof's edge follows that roof once it has followed its own walls:
+    /// gone round again while anything moves, a few times at most, so a roof locked to one locked to
+    /// it cannot chase the other for ever.
     /// </summary>
     public static bool FollowWalls(BimDocument document)
     {
         var changed = false;
 
-        foreach (var roof in document.All<Roof>())
-            changed |= Follow(document, roof);
+        for (var pass = 0; pass < 4; pass++)
+        {
+            var moved = false;
+            foreach (var roof in document.All<Roof>())
+                moved |= Follow(document, roof);
+            if (!moved) break;
+            changed = true;
+        }
 
         return changed;
+    }
+
+    /// <summary>
+    /// The line an edge locked to a floor's, a ceiling's or another roof's edge takes from it: that edge
+    /// set off to its left by the offset, running the way the locked edge runs. Another roof's edge is
+    /// found by its own id; a floor's by its place in the outline, or - a corner added or taken away -
+    /// by where the locked edge is, the edge running the same way that it lies nearest. Null where
+    /// that floor or roof is gone, and the edge stays where it is.
+    /// </summary>
+    private static (Point2D From, Point2D To)? OnSlab(BimDocument document, Roof roof, RoofEdge edge, (Point2D From, Point2D To) drawn)
+    {
+        if (edge.SlabId is not { } id || id == roof.Id || document.Find<Slab>(id) is not { Boundary.Count: >= 3 } slab) return null;
+        var boundary = slab.Boundary;
+        var count = boundary.Count;
+        (Point2D A, Point2D B) Side(int i) => (boundary[i], boundary[(i + 1) % count]);
+        (Point2D From, Point2D To) Off(int i)
+        {
+            var (a, b) = Side(i);
+            var left = (b - a).NormalisedOrDefault(Vector2D.UnitX).PerpendicularLeft() * edge.SlabOffset;
+            return (a + left, b + left);
+        }
+
+        double Away(int i)
+        {
+            var (from, to) = Off(i);
+            return Line2D.DistanceFromSegment(drawn.From.MidpointTo(drawn.To), from, to);
+        }
+
+        bool SameWay(int i)
+        {
+            var (a, b) = Side(i);
+            var (way, other) = ((b - a).NormalisedOrDefault(Vector2D.UnitX), (drawn.To - drawn.From).NormalisedOrDefault(Vector2D.UnitX));
+            return Math.Abs(way.Cross(other)) <= Math.Sin(Math.PI / 180) && (b - a).Length > JoinTolerance;
+        }
+
+        int index;
+        if (edge.SlabEdgeId is { } edgeId && slab is Roof host)
+        {
+            var pieces = Enumerable.Range(0, Math.Min(count, host.Edges.Count)).Where(i => host.Edges[i].Id == edgeId).ToList();
+            if (pieces.Count == 0) return null;
+            index = pieces.OrderBy(Away).First();
+        }
+        else if (count == edge.SlabCorners && edge.SlabEdgeIndex >= 0 && edge.SlabEdgeIndex < count) index = edge.SlabEdgeIndex;
+        else
+        {
+            var running = Enumerable.Range(0, count).Where(SameWay).ToList();
+            if (running.Count == 0) return null;
+            index = running.OrderBy(Away).First();
+        }
+
+        edge.SlabEdgeIndex = index;
+        edge.SlabCorners = count;
+        var line = Off(index);
+        return (drawn.To - drawn.From).Dot(line.To - line.From) >= 0 ? line : (line.To, line.From);
     }
 
     /// <summary>A gridline set off to its left by an offset, running the way the edge it fixes runs.</summary>
@@ -643,14 +707,16 @@ public static class RoofSketch
     private static bool Follow(BimDocument document, Roof roof)
     {
         var count = roof.Boundary.Count;
-        if (count < 3 || roof.Edges.Count != count || roof.Edges.All(edge => edge.WallId is null && edge.GridId is null)) return false;
+        if (count < 3 || roof.Edges.Count != count || roof.Edges.All(edge => edge.WallId is null && edge.GridId is null && edge.SlabId is null)) return false;
 
-        // Each edge's line: from its wall where it has one still standing, or where it is.
+        // Each edge's line: from its wall where it has one still standing, its gridline, the floor's or roof's
+        // edge it is locked to - or where it is.
         var lines = new (Point2D From, Point2D To)[count];
+        var edges = roof.Edges.Select(edge => edge.Copy()).ToList();
 
         for (var i = 0; i < count; i++)
         {
-            var edge = roof.Edges[i];
+            var edge = edges[i];
             var drawn = (roof.Boundary[i], roof.Boundary[(i + 1) % count]);
 
             lines[i] = edge.WallId is { } id &&
@@ -659,7 +725,7 @@ public static class RoofSketch
                 ? placed
                 : edge.GridId is { } gridId && document.Find<Datums.Grid>(gridId) is { } grid && grid.Start.DistanceTo(grid.End) > 1
                     ? Along(grid, edge.GridOffset, drawn)
-                    : drawn;
+                    : OnSlab(document, roof, edge, drawn) ?? drawn;
         }
 
         // Each corner is where the lines either side of it cross; where they run parallel the
@@ -679,7 +745,6 @@ public static class RoofSketch
         // through the roof would otherwise turn it inside out.
         if (Polygon2D.SignedArea(corners) <= 0) return false;
 
-        var edges = roof.Edges.Select(edge => edge.Copy()).ToList();
         roof.SetBoundary(corners);
         roof.SetEdges(edges);
         return true;

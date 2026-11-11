@@ -54,7 +54,7 @@ internal sealed class PurgeWindow : System.Windows.Window
         var root = new DockPanel();
         root.Children.Add(DialogLook.Footer(_said, _purge, close));
         root.Children.Add(DialogLook.Intro(
-            "The types and materials nothing in the project uses: no element is built from them, and no type or setting kept refers to them; the view filters no view uses, and the schedules on no sheet - those left unticked. "
+            "The types and materials nothing in the project uses: no element is built from them, and no type or setting kept refers to them; the view filters no view uses; and the schedules, drafting views and 3D views on no sheet - those left unticked. "
             + "Untick what should stay, then Purge - one step to undo. What only these use goes with them. "
             + "The last type of each kind stays for its tool, and so do the types the tools are set to draw with."));
         root.Children.Add(buttons);
@@ -120,6 +120,18 @@ internal sealed class PurgeWindow : System.Windows.Window
             foreach (var schedule in views.Schedules.OrderBy(schedule => schedule.Name, StringComparer.CurrentCulture)) Item(schedule.Name, schedule, false);
         }
 
+        if (views.Views.Count > 0)
+        {
+            Heading("Drafting and 3D views on no sheet - tick those to go", views.Views.Count);
+            foreach (var view in views.Views)
+                Item(view switch
+                {
+                    Core.Annotation.DraftingView drafting => $"Drafting View: {drafting.Name}",
+                    Core.Views.View3D threeD => $"3D View: {threeD.Name}",
+                    _ => view.Id.ToString()
+                }, view, false);
+        }
+
         if (unused.Count + views.Count == 0)
             _items.Children.Add(new TextBlock { Text = "Nothing is unused: every type and material in the project is used.", Margin = new Thickness(8), TextWrapping = TextWrapping.Wrap, Opacity = 0.75 });
 
@@ -139,18 +151,20 @@ internal sealed class PurgeWindow : System.Windows.Window
         _purge.IsEnabled = types.Count + materials.Count + views.Count > 0;
         DialogLook.Say(_said, _checks.Count == 0
             ? "Nothing to purge."
-            : $"{types.Count} {(types.Count == 1 ? "type" : "types")}, {materials.Count} {(materials.Count == 1 ? "material" : "materials")} and {views.Count} {(views.Count == 1 ? "schedule or filter" : "schedules and filters")} ticked, of {_checks.Count} unused.");
+            : $"{types.Count} {(types.Count == 1 ? "type" : "types")}, {materials.Count} {(materials.Count == 1 ? "material" : "materials")} and {views.Count} {(views.Count == 1 ? "schedule, filter or view" : "schedules, filters and views")} ticked, of {_checks.Count} unused.");
     }
 
     private UnusedViews TickedViews() =>
         new(_checks.Where(check => check.Box.IsChecked == true).Select(check => check.Item).OfType<Core.Schedules.ScheduleDefinition>().ToList(),
-            _checks.Where(check => check.Box.IsChecked == true).Select(check => check.Item).OfType<Core.Views.ParameterFilter>().ToList());
+            _checks.Where(check => check.Box.IsChecked == true).Select(check => check.Item).OfType<Core.Views.ParameterFilter>().ToList(),
+            _checks.Where(check => check.Box.IsChecked == true).Select(check => check.Item).Where(item => item is Core.Annotation.DraftingView or Core.Views.View3D).Cast<Core.Elements.Element>().ToList());
 
-    /// <summary>A schedule or filter ticked or not by name, for the harness and tests.</summary>
+    /// <summary>A schedule, filter, drafting view or 3D view ticked or not by name, for the harness and tests.</summary>
     public void TickView(string name, bool on)
     {
         foreach (var (box, item) in _checks)
-            if (item is Core.Schedules.ScheduleDefinition schedule && schedule.Name == name || item is Core.Views.ParameterFilter filter && filter.Name == name) box.IsChecked = on;
+            if (item is Core.Schedules.ScheduleDefinition schedule && schedule.Name == name || item is Core.Views.ParameterFilter filter && filter.Name == name
+                || item is Core.Annotation.DraftingView drafting && drafting.Name == name || item is Core.Views.View3D threeD && threeD.Name == name) box.IsChecked = on;
         Count();
     }
 
@@ -174,12 +188,12 @@ internal sealed class PurgeWindow : System.Windows.Window
             return 0;
         }
 
-        _main.History.Execute(views.Count == 0 ? command : new Core.Documents.Commands.CompositeCommand("Purge Unused", new Core.Documents.Commands.IUndoableCommand[] { command, Purging.PurgeViews(_main.Document, views.Schedules, views.Filters) }));
+        _main.History.Execute(views.Count == 0 ? command : new Core.Documents.Commands.CompositeCommand("Purge Unused", new Core.Documents.Commands.IUndoableCommand[] { command, Purging.PurgeViews(_main.Document, views.Schedules, views.Filters, views.Views) }));
         _main.AfterPurge();
         Refresh();
         var stayed = types.Count + materials.Count + views.Count - gone;
         var said = $"Purged {command.Types.Count} {(command.Types.Count == 1 ? "type" : "types")}, {command.Materials.Count} {(command.Materials.Count == 1 ? "material" : "materials")}"
-                   + (views.Count > 0 ? $", {views.Schedules.Count} schedule{(views.Schedules.Count == 1 ? string.Empty : "s")} and {views.Filters.Count} filter{(views.Filters.Count == 1 ? string.Empty : "s")}" : string.Empty)
+                   + (views.Count > 0 ? $", {views.Schedules.Count} schedule{(views.Schedules.Count == 1 ? string.Empty : "s")}, {views.Filters.Count} filter{(views.Filters.Count == 1 ? string.Empty : "s")} and {views.Views.Count} view{(views.Views.Count == 1 ? string.Empty : "s")}" : string.Empty)
                    + (stayed > 0 ? $"; {stayed} kept, used by what stays" : string.Empty) + ". Undo puts them back.";
         DialogLook.Say(_said, said);
         _main.StatusSay(said);

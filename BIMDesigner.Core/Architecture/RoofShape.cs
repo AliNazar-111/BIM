@@ -51,6 +51,24 @@ public sealed class RoofEdge
     /// <summary>How far to the left of its gridline, as the grid runs, a locked edge stands, mm; to its right where less than none.</summary>
     public double GridOffset { get; set; }
 
+    /// <summary>
+    /// The floor, ceiling or other roof this edge was picked from with Lock on, or null: the edge follows that one's edge
+    /// wherever it is moved, at <see cref="SlabOffset"/> to its left as its outline runs.
+    /// </summary>
+    public Guid? SlabId { get; set; }
+
+    /// <summary>Which edge of that outline it follows: the one from this corner to the next, as the outline runs.</summary>
+    public int SlabEdgeIndex { get; set; }
+
+    /// <summary>How many corners that outline had when the edge was last found: one added or taken away, the edge is found again by where it was.</summary>
+    public int SlabCorners { get; set; }
+
+    /// <summary>Locked to another roof's edge: that edge's own id, which the roof keeps however its outline is edited.</summary>
+    public Guid? SlabEdgeId { get; set; }
+
+    /// <summary>How far to the left of the edge it follows, as that outline runs, a locked edge stands, mm; to its right where less than none.</summary>
+    public double SlabOffset { get; set; }
+
     /// <summary>Which face of its wall the edge was picked on: the one to the left of the wall's drawn direction, or the right.</summary>
     public bool OnLeftOfWall { get; set; }
 
@@ -91,6 +109,11 @@ public sealed class RoofEdge
         WallId = WallId,
         GridId = GridId,
         GridOffset = GridOffset,
+        SlabId = SlabId,
+        SlabEdgeIndex = SlabEdgeIndex,
+        SlabCorners = SlabCorners,
+        SlabEdgeId = SlabEdgeId,
+        SlabOffset = SlabOffset,
         OnLeftOfWall = OnLeftOfWall,
         Overhang = Overhang,
         ExtendToCore = ExtendToCore,

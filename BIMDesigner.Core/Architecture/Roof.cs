@@ -538,7 +538,16 @@ public sealed class Roof : Slab
         SlopingArea(document) * (document.FindType<SlabType>(TypeId)?.Thickness ?? 0);
 
     protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document) =>
-        (Extrusion is null ? FootprintParameters(document) : ExtrusionParameters(document)).Append(AnalyticalParameters.Said(document, this));
+        (Extrusion is null ? FootprintParameters(document) : ExtrusionParameters(document)).Concat(GlazingParameters(document)).Append(AnalyticalParameters.Said(document, this));
+
+    /// <summary>Sloped glazing's quantities: its glass on the faces, its bars' length and how many panes they hold.</summary>
+    private IEnumerable<ParameterValue> GlazingParameters(BimDocument document)
+    {
+        if (!GlazedRoofs.IsGlazed(document, this)) yield break;
+        yield return ParameterValue.ReadOnly(GlazedRoofParameters.GlazedArea, () => GlazedRoofs.Area(document, this) * 1e6);
+        yield return ParameterValue.ReadOnly(GlazedRoofParameters.BarLength, () => GlazedRoofs.BarLength(document, this) * 1000);
+        yield return ParameterValue.ReadOnly(GlazedRoofParameters.Panes, () => GlazedRoofs.Panes(document, this).Count);
+    }
 
     /// <summary>
     /// A roof by extrusion's own settings - Revit's Extrusion Start and End - and what it

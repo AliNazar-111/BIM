@@ -1459,10 +1459,14 @@ public static class ModelMeshBuilder
     /// </summary>
     private static void AddRoof(BimDocument document, Roof roof, SlabType type, List<Mesh3D> meshes)
     {
+        // Sloped glazing: its layers glass, seen through, and its bars laid on each face.
+        var glazed = GlazedRoofs.IsGlazed(document, roof);
+        if (glazed && GlazedRoofs.BarMesh(document, roof) is { } bars) meshes.Add(bars);
+
         // A roof by extrusion is swept from its section, so a vault shades as the curve it is.
         if (roof.Extrusion is { IsValid: true } extrusion && roof.DormerOpenings.Count == 0 && roof.JoinedTo is null)
         {
-            AddExtrudedRoof(document, roof, extrusion, type, meshes);
+            AddExtrudedRoof(document, roof, extrusion, type, meshes, glazed);
             return;
         }
 
@@ -1475,7 +1479,7 @@ public static class ModelMeshBuilder
             var layer = group.Key;
             var material = document.FindMaterial(layer.MaterialId);
             var mesh = new Mesh3D(
-                roof.Id, roof.LevelId, MeshKind.Roof,
+                roof.Id, roof.LevelId, glazed ? MeshKind.Glazing : MeshKind.Roof,
                 material?.SurfaceColour ?? DefaultSurface,
                 material?.Name ?? layer.Function.ToString());
 
@@ -1579,7 +1583,7 @@ public static class ModelMeshBuilder
     /// an arc and crease only at the profile's real corners; its eaves are cut plumb and its
     /// ends capped square, the section showing on them as it would on a gable.
     /// </summary>
-    private static void AddExtrudedRoof(BimDocument document, Roof roof, RoofExtrusion extrusion, SlabType type, List<Mesh3D> meshes)
+    private static void AddExtrudedRoof(BimDocument document, Roof roof, RoofExtrusion extrusion, SlabType type, List<Mesh3D> meshes, bool glazed = false)
     {
         var baseElevation = roof.BaseElevation(document);
         var (start, end) = (extrusion.Start, extrusion.End);
@@ -1598,7 +1602,7 @@ public static class ModelMeshBuilder
         {
             var material = document.FindMaterial(section.Layer.MaterialId);
             var mesh = new Mesh3D(
-                roof.Id, roof.LevelId, MeshKind.Roof,
+                roof.Id, roof.LevelId, glazed ? MeshKind.Glazing : MeshKind.Roof,
                 material?.SurfaceColour ?? DefaultSurface,
                 material?.Name ?? section.Layer.Function.ToString());
 

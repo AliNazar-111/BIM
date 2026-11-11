@@ -131,7 +131,7 @@ public static class IrcBracing
 
         // The roof and ceiling's dead load, psf on plan, the heaviest of them: its type's layers over its slope, a diaphragm weighing nothing in the model, its weight being on the walls.
         var roofs = analysis.Model.Panels.Concat(analysis.Model.Diaphragms).Where(panel => panel.Element is Roof && Math.Abs(panel.Normal.Z) > 0.2).ToList();
-        var roofPsf = roofs.Select(panel => panel.Element is Roof roof && document.FindType<RoofType>(roof.TypeId) is { } type ? Loads.Weight(document, type.Structure) / Math.Abs(panel.Normal.Z) / Psf : 0)
+        var roofPsf = roofs.Select(panel => panel.Element is Roof roof && document.FindType<RoofType>(roof.TypeId) is { } type ? Loads.Weight(document, type) / Math.Abs(panel.Normal.Z) / Psf : 0)
             .DefaultIfEmpty(0).Max();
 
         var lines = new List<BracedWallLine>();

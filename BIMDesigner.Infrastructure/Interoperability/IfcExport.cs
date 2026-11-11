@@ -2315,7 +2315,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2346,6 +2346,7 @@ public static partial class IfcExport
             ComponentForm.GasMeter => ComponentClass.Meter,
             ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway => ComponentClass.Chamber,
             ComponentForm.AirAdmittanceValve => ComponentClass.AirValve,
+            ComponentForm.Gully => ComponentClass.Gully,
             _ => type.Kind switch
             {
                 BuiltInCategory.Furniture or BuiltInCategory.Casework => ComponentClass.Furniture,
@@ -2483,6 +2484,8 @@ public static partial class IfcExport
                 }),
                 ComponentClass.AirValve => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcValve>(component, type, meshes, valve =>
                     valve.PredefinedType = Xbim.Ifc4.Interfaces.IfcValveTypeEnum.AIRRELEASE),
+                ComponentClass.Gully => ComponentProduct<IfcWasteTerminal>(component, type, meshes, gully =>
+                    gully.PredefinedType = Xbim.Ifc4.Interfaces.IfcWasteTerminalTypeEnum.GULLYTRAP),
                 _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
             };
 
@@ -2507,6 +2510,7 @@ public static partial class IfcExport
                 ComponentClass.Meter => "Pset_FlowMeterTypeCommon",
                 ComponentClass.Chamber => "Pset_DistributionChamberElementTypeCommon",
                 ComponentClass.AirValve => "Pset_ValveTypeCommon",
+                ComponentClass.Gully => "Pset_WasteTerminalTypeCommon",
                 ComponentClass.HeatPump or ComponentClass.ExtractUnit => "Pset_UnitaryEquipmentTypeCommon",
                 ComponentClass.HeatRecovery => "Pset_AirToAirHeatRecoveryTypeCommon",
                 ComponentClass.AirTerminal => "Pset_AirTerminalTypeCommon",

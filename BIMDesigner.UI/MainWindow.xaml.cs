@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Printing;
 using System.Windows;
@@ -409,6 +410,7 @@ public partial class MainWindow : Window
         Plan.ExtrusionPlaced += (_, request) => DrawExtrusionProfile(request);
         Plan.EditProfileRequested += (_, roof) => EditRoofProfile(roof);
         Plan.UnderlayLayersRequested += (_, underlay) => EditUnderlayLayers(underlay);
+        Plan.ImageScaleMeasured += OnImageScaleMeasured;
 
         // Attach Top/Base offers its style and offset only while it waits for a target.
         Plan.AttachColumnsChanged += (_, _) => ShowOptionsForActiveTool();
@@ -1080,6 +1082,9 @@ public partial class MainWindow : Window
             RoofSketchAlignEaves.IsChecked = Plan.SketchTool == RoofSketchTool.AlignEaves;
             RoofSketchMove.IsChecked = Plan.SketchTool == RoofSketchTool.Move;
             RoofSketchMirror.IsChecked = Plan.SketchTool == RoofSketchTool.Mirror;
+            RoofSketchRotate.IsChecked = Plan.SketchTool == RoofSketchTool.Rotate;
+            RoofSketchArray.IsChecked = Plan.SketchTool == RoofSketchTool.Array;
+            RoofSketchScale.IsChecked = Plan.SketchTool == RoofSketchTool.Scale;
             RoofSketchAlign.IsChecked = Plan.SketchTool == RoofSketchTool.Align;
             RoofSketchFillet.IsChecked = Plan.SketchTool == RoofSketchTool.Fillet;
             RoofSketchTangentArc.IsChecked = Plan.SketchTool == RoofSketchTool.TangentArc;
@@ -1151,26 +1156,56 @@ public partial class MainWindow : Window
         RoofSidesLabel.Visibility = RoofSidesBox.Visibility =
             Plan.SketchTool == RoofSketchTool.Polygon ? Visibility.Visible : Visibility.Collapsed;
 
-        // The offset belongs to Pick Lines and to Offset - Fillet Arc's box is its radius; Copy to Offset, Move and Mirror.
+        // The offset belongs to Pick Lines and to Offset - Fillet Arc's box is its radius, Rotate's its angle, Array's its count,
+        // Scale's its scale; Copy to Offset, Move, Mirror and Rotate.
         var filleting = Plan.SketchTool == RoofSketchTool.Fillet;
-        RoofOffsetLabel.Text = filleting ? "Radius" : "Offset";
-        RoofOffsetBox.Text = Units.FormatLength(filleting ? Plan.SketchFilletRadius : Plan.SketchOffset);
+        RoofOffsetLabel.Text = Plan.SketchTool switch
+        {
+            RoofSketchTool.Fillet => "Radius",
+            RoofSketchTool.Rotate => "Angle",
+            RoofSketchTool.Array => "Count",
+            RoofSketchTool.Scale => "Scale",
+            _ => "Offset"
+        };
+        RoofOffsetBox.Text = Plan.SketchTool switch
+        {
+            RoofSketchTool.Rotate => Math.Abs(Plan.SketchRotateAngle) < 1e-9 ? string.Empty : ParameterFormatter.Format(ParameterDataType.Angle, Plan.SketchRotateAngle),
+            RoofSketchTool.Array => Plan.SketchArrayCount.ToString(CultureInfo.CurrentCulture),
+            RoofSketchTool.Scale => Plan.SketchScaleFactor.ToString("0.####", CultureInfo.CurrentCulture),
+            _ => Units.FormatLength(filleting ? Plan.SketchFilletRadius : Plan.SketchOffset)
+        };
         RoofOffsetCopyBox.IsChecked = Plan.SketchTool switch
         {
             RoofSketchTool.Move => Plan.SketchMoveCopy,
             RoofSketchTool.Mirror => Plan.SketchMirrorCopy,
+            RoofSketchTool.Rotate => Plan.SketchRotateCopy,
+            RoofSketchTool.Array => Plan.SketchArrayRadial,
             RoofSketchTool.PickLines => Plan.SketchLock,
             _ => Plan.SketchOffsetCopy
         };
+        RoofArrayAngleLabel.Visibility = RoofArrayAngleBox.Visibility =
+            Plan.SketchTool == RoofSketchTool.Array && Plan.SketchArrayRadial ? Visibility.Visible : Visibility.Collapsed;
+        RoofArrayAngleBox.Text = ParameterFormatter.Format(ParameterDataType.Angle, Plan.SketchArrayAngle);
 
         // With Pick Lines on a roof, the box locks a picked line to the wall or gridline it was picked from.
-        RoofOffsetCopyBox.Content = Plan.SketchTool == RoofSketchTool.PickLines ? "Lock" : "Copy";
-        RoofOffsetCopyBox.ToolTip = Plan.SketchTool == RoofSketchTool.PickLines
-            ? "Keep the line on the wall face or gridline it is picked from, wherever that is moved"
-            : null;
+        RoofOffsetCopyBox.Content = Plan.SketchTool switch { RoofSketchTool.PickLines => "Lock", RoofSketchTool.Array => "Radial", _ => "Copy" };
+        RoofOffsetCopyBox.ToolTip = Plan.SketchTool switch
+        {
+            RoofSketchTool.PickLines => "Keep the line on the wall face, gridline or floor's or roof's edge it is picked from, wherever that is moved",
+            RoofSketchTool.Array => "Repeat the lines round a centre you click, instead of along a step",
+            _ => null
+        };
+        RoofOffsetBox.ToolTip = Plan.SketchTool switch
+        {
+            RoofSketchTool.Rotate => "Type an angle, anticlockwise - negative for clockwise - then click the centre to turn the selected lines by it; leave it empty to pick the angle with two clicks",
+            RoofSketchTool.Array => "How many in all, the selected lines the first of them",
+            RoofSketchTool.Scale => "How much bigger: 2 doubles the selected lines, 0.5 halves them",
+            _ => "How far Pick Lines sets a picked line off, and how far Offset moves a line - toward the side the cursor is on"
+        };
         RoofOffsetLabel.Visibility = RoofOffsetBox.Visibility =
-            Plan.SketchTool is RoofSketchTool.PickLines or RoofSketchTool.Offset or RoofSketchTool.Fillet ? Visibility.Visible : Visibility.Collapsed;
-        RoofOffsetCopyBox.Visibility = Plan.SketchTool is RoofSketchTool.Offset or RoofSketchTool.Move or RoofSketchTool.Mirror
+            Plan.SketchTool is RoofSketchTool.PickLines or RoofSketchTool.Offset or RoofSketchTool.Fillet or RoofSketchTool.Rotate or RoofSketchTool.Array or RoofSketchTool.Scale
+                ? Visibility.Visible : Visibility.Collapsed;
+        RoofOffsetCopyBox.Visibility = Plan.SketchTool is RoofSketchTool.Offset or RoofSketchTool.Move or RoofSketchTool.Mirror or RoofSketchTool.Rotate or RoofSketchTool.Array
                                        || Plan.SketchTool == RoofSketchTool.PickLines && roofSketch ? Visibility.Visible : Visibility.Collapsed;
 
         // How Align Eaves brings an eave to height.
@@ -2019,7 +2054,21 @@ public partial class MainWindow : Window
     {
         if (_loadingOptions || Plan is null) return;
 
-        if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofOffsetBox.Text, out var value) && value is double millimetres)
+        if (Plan.SketchTool == RoofSketchTool.Rotate)
+        {
+            if (string.IsNullOrWhiteSpace(RoofOffsetBox.Text)) Plan.SketchRotateAngle = 0;
+            else if (ParameterFormatter.TryParse(ParameterDataType.Angle, RoofOffsetBox.Text, out var angle) && angle is double degrees && double.IsFinite(degrees))
+                Plan.SketchRotateAngle = Math.IEEERemainder(degrees, 360);
+        }
+        else if (Plan.SketchTool == RoofSketchTool.Array)
+        {
+            if (int.TryParse(RoofOffsetBox.Text.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out var count) && count is >= 2 and <= 200) Plan.SketchArrayCount = count;
+        }
+        else if (Plan.SketchTool == RoofSketchTool.Scale)
+        {
+            if (double.TryParse(RoofOffsetBox.Text.Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out var factor) && factor > 0 && double.IsFinite(factor)) Plan.SketchScaleFactor = factor;
+        }
+        else if (ParameterFormatter.TryParse(ParameterDataType.Length, RoofOffsetBox.Text, out var value) && value is double millimetres)
         {
             if (Plan.SketchTool == RoofSketchTool.Fillet)
             {
@@ -2036,6 +2085,23 @@ public partial class MainWindow : Window
         if (e.Key != Key.Enter) return;
 
         OnRoofOffsetChanged(sender, e);
+        Plan.Focus();
+        e.Handled = true;
+    }
+
+    private void OnRoofArrayAngleChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loadingOptions || Plan is null) return;
+        if (ParameterFormatter.TryParse(ParameterDataType.Angle, RoofArrayAngleBox.Text, out var value) && value is double degrees && double.IsFinite(degrees)
+            && Math.Abs(degrees) is > 1e-6 and <= 360)
+            Plan.SketchArrayAngle = degrees;
+        ShowRoofSketchOptions();
+    }
+
+    private void OnRoofArrayAngleKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnRoofArrayAngleChanged(sender, e);
         Plan.Focus();
         e.Handled = true;
     }
@@ -2057,6 +2123,12 @@ public partial class MainWindow : Window
         {
             case RoofSketchTool.Move: Plan.SketchMoveCopy = copy; break;
             case RoofSketchTool.Mirror: Plan.SketchMirrorCopy = copy; break;
+            case RoofSketchTool.Rotate: Plan.SketchRotateCopy = copy; break;
+            case RoofSketchTool.Array:
+                Plan.SketchArrayRadial = copy;
+                Plan.SketchTool = RoofSketchTool.Array;
+                ShowRoofSketchOptions();
+                break;
             case RoofSketchTool.PickLines: Plan.SketchLock = copy; break;
             default: Plan.SketchOffsetCopy = copy; break;
         }
@@ -5893,6 +5965,13 @@ public partial class MainWindow : Window
 
     private void OnSelectAll(object sender, RoutedEventArgs e)
     {
+        // In a sketch: every line of it, to move, rotate, mirror, array or scale together.
+        if (Plan.IsSketching)
+        {
+            Plan.SelectAllSketchLines();
+            return;
+        }
+
         SelectTool.IsChecked = true;
         Plan.SelectAllOnLevel();
     }
