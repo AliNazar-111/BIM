@@ -45,6 +45,9 @@ public sealed class AreaBoundary : Element
     /// <summary>The scheme of the plan it splits.</summary>
     public AreaScheme Scheme { get; set; } = AreaScheme.GrossInternal;
 
+    /// <summary>The wall it was picked from, whose middle it follows; none for one drawn, or one whose ends were moved by hand.</summary>
+    public Guid? WallId { get; set; }
+
     public double Length => Start.DistanceTo(End);
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
@@ -127,8 +130,21 @@ public static class Areas
     public static IEnumerable<Area> On(BimDocument document, Guid levelId, AreaScheme scheme) =>
         document.All<Area>().Where(area => area.LevelId == levelId && area.Scheme == scheme);
 
-    public static IEnumerable<AreaBoundary> Boundaries(BimDocument document, Guid levelId, AreaScheme scheme) =>
-        document.All<AreaBoundary>().Where(line => line.LevelId == levelId && line.Scheme == scheme);
+    public static IEnumerable<AreaBoundary> Boundaries(BimDocument document, Guid levelId, AreaScheme scheme)
+    {
+        FollowWalls(document);
+        return document.All<AreaBoundary>().Where(line => line.LevelId == levelId && line.Scheme == scheme);
+    }
+
+    /// <summary>
+    /// Each boundary picked from a wall taken to where the wall's middle now is - the wall moved, lengthened or made thicker - as it is measured and drawn; a wall gone or curved leaves it where it was.
+    /// </summary>
+    public static void FollowWalls(BimDocument document)
+    {
+        foreach (var line in document.All<AreaBoundary>())
+            if (line.WallId is { } id && document.Find<Wall>(id) is { IsCurved: false } wall && document.GetWallType(wall) is { } type)
+                (line.Start, line.End) = wall.GetBodyCentreline(type.Structure);
+    }
 
     /// <summary>The number the next area on a plan takes: one more than the highest that is a number.</summary>
     public static string NextNumber(BimDocument document, Guid levelId, AreaScheme scheme) =>

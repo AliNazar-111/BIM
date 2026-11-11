@@ -2840,6 +2840,8 @@
                                             ToolTip="Look the other way along the cut"/>
                                     <Button Content="Zoom to Fit" Padding="12,5" Margin="0,0,8,0"
                                             Click="OnZoomSectionToFit"/>
+                                    <Button x:Name="FloatSectionButton" Content="Own Window" Padding="12,5" Margin="0,0,8,0" Click="OnFloatSection"
+                                            ToolTip="This section in a window of its own - to put on a second screen, or make as big as the screen - while the plan has this one; Dock puts it back"/>
                                     <Button Content="Close" Padding="12,5" Click="OnCloseSection"/>
                                 </StackPanel>
                             </Grid>
@@ -2917,6 +2919,8 @@
                                             Margin="0,0,6,0" IsEnabled="False" Click="OnRemoveViewport"/>
                                     <Button Content="Zoom to Fit" Padding="8,4" Margin="0,0,6,0"
                                             Click="OnZoomSheetToFit"/>
+                                    <Button x:Name="FloatSheetButton" Content="Own Window" Padding="8,4" Margin="0,0,6,0" Click="OnFloatSheet"
+                                            ToolTip="This sheet in a window of its own - to put on a second screen - while the plan has this one; Dock puts it back"/>
                                     <Button Content="Close" Padding="8,4" Click="OnCloseSheet"/>
                                 </StackPanel>
                             </Grid>
@@ -3137,6 +3141,8 @@
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button x:Name="ExportCsvButton" Content="Export CSV..." Padding="12,5"
                                     Margin="0,0,8,0" Click="OnExportSchedule"/>
+                            <Button x:Name="FloatScheduleButton" Content="Own Window" Padding="12,5" Margin="0,0,8,0" Click="OnFloatSchedule"
+                                    ToolTip="This schedule in a window of its own - to put on a second screen - while the plan has this one; Dock puts it back"/>
                             <Button Content="Close" Padding="12,5" Click="OnCloseSchedule"/>
                         </StackPanel>
                     </Grid>

@@ -35,6 +35,15 @@ public enum ComponentPlacement
 /// a type names one of a set of forms and gives its size, which is enough to tell a table from
 /// a basin in a plan and in 3D, and to schedule either of them.
 /// </summary>
+/// <summary>How a gas appliance takes its air and gives its fumes: as usual for its kind, room-sealed from outside, open-flued from the room, or flueless into it.</summary>
+public enum ApplianceFlue
+{
+    Usual,
+    RoomSealed,
+    OpenFlued,
+    Flueless
+}
+
 public enum ComponentForm
 {
     Box,
@@ -377,6 +386,17 @@ public sealed class ComponentType : ElementType
     /// </summary>
     public double GasInput { get; set; }
 
+    /// <summary>For a gas appliance, how it takes its air and gives its fumes; as usual for its kind where not said - a boiler and a water heater room-sealed, a gas fire open-flued, a cooker flueless.</summary>
+    public ApplianceFlue Flue { get; set; }
+
+    /// <summary>Its flue as set, or as usual for its kind.</summary>
+    public ApplianceFlue FlueOf => Flue != ApplianceFlue.Usual ? Flue : Form switch
+    {
+        ComponentForm.GasFire => ApplianceFlue.OpenFlued,
+        ComponentForm.Cooker => ApplianceFlue.Flueless,
+        _ => ApplianceFlue.RoomSealed
+    };
+
     /// <summary>Whether it burns gas: a boiler or a gas fire always, a cooker, a water heater or a dryer with a gas input.</summary>
     public bool BurnsGas => Form is ComponentForm.Boiler or ComponentForm.GasFire
                             || GasInput > 0 && Form is ComponentForm.Cooker or ComponentForm.HotWaterCylinder or ComponentForm.TumbleDryer;
@@ -444,6 +464,12 @@ public sealed class ComponentType : ElementType
     /// <summary>For a consumer unit, the earth fault loop impedance external to the installation, Ω - Ze: 0.35 for TN-C-S, 0.8 for TN-S at most, as the electricity networks declare.</summary>
     public double ExternalImpedance { get; set; }
 
+    /// <summary>For a consumer unit, whether a surge protective device guards it against transient overvoltage - a Type 2 at the origin (BS 7671 534.4.1), a Type 1 or 2 at the service (NEC 230.67).</summary>
+    public bool SurgeProtection { get; set; }
+
+    /// <summary>For a consumer unit, the phases of its supply: 1, or 3 with its circuits shared across them.</summary>
+    public int Phases { get; set; } = 1;
+
     /// <summary>Across the component, left to right as it faces you. Millimetres.</summary>
     public double Width { get; set; }
 
@@ -476,10 +502,10 @@ public sealed class ComponentType : ElementType
         Enclosure = Enclosure, Mesh = Mesh, ExtractRate = ExtractRate, Efficacy = Efficacy, WaterDemand = WaterDemand, StemDiameter = StemDiameter,
         HotWater = HotWater, FlowRate = FlowRate, FlushVolume = FlushVolume, PartFlushVolume = PartFlushVolume, Capacity = Capacity, WaterPerUse = WaterPerUse,
         SpaceEfficiency = SpaceEfficiency, WaterEfficiency = WaterEfficiency, StandingLoss = StandingLoss, SpecificFanPower = SpecificFanPower,
-        Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, GasInput = GasInput, Coverage = Coverage, KFactor = KFactor, Temperature = Temperature, SupplyPressure = SupplyPressure, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
+        Access = Access, HeatOutput = HeatOutput, CoolingOutput = CoolingOutput, GasInput = GasInput, Flue = Flue, Coverage = Coverage, KFactor = KFactor, Temperature = Temperature, SupplyPressure = SupplyPressure, HeatExponent = HeatExponent, FloorOutput = FloorOutput, FloorOutputLimit = FloorOutputLimit, PipeSpacing = PipeSpacing,
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
         ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
-        Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance
+        Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance, SurgeProtection = SurgeProtection, Phases = Phases
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -557,6 +583,8 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.Ways, () => (double)Ways, v => { if (v is < 1 or > 100) return false; Ways = (int)Math.Round(v); return true; });
             yield return ParameterValue.BindValidated(ComponentTypeParameters.SupplyRating, () => SupplyRating, v => { if (v < 0) return false; SupplyRating = v; return true; });
             yield return ParameterValue.BindValidated(ComponentTypeParameters.ExternalImpedance, () => ExternalImpedance, v => { if (v < 0) return false; ExternalImpedance = v; return true; });
+            yield return ParameterValue.Bind(ComponentTypeParameters.SurgeProtection, () => SurgeProtection, v => SurgeProtection = v);
+            yield return ParameterValue.BindChoice(ComponentTypeParameters.Phases, () => Phases == 3 ? "3" : "1", v => Phases = v == "3" ? 3 : 1, new[] { "1", "3" });
         }
 
         if (Form is ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub)
@@ -621,8 +649,13 @@ public sealed class ComponentType : ElementType
         }
         // What it burns: the gas its pipes are sized for, in kW gross - in the US, Btu/h.
         if (Form is ComponentForm.Boiler or ComponentForm.GasFire or ComponentForm.Cooker or ComponentForm.HotWaterCylinder or ComponentForm.TumbleDryer)
+        {
             yield return ParameterValue.BindScaled(ComponentTypeParameters.GasInput, ComponentTypeParameters.GasInputBtu, Units.BtuPerHourPerWatt * 1000, 0,
                 () => GasInput / 1000, v => NotNegative(v, x => GasInput = x * 1000));
+            yield return ParameterValue.BindChoice(ComponentTypeParameters.Flue, () => Flue == ApplianceFlue.Usual ? $"As usual ({EnumText.Humanise(FlueOf)})" : EnumText.Humanise(Flue),
+                v => Flue = EnumText.TryParse<ApplianceFlue>(v, out var flue) ? flue : ApplianceFlue.Usual,
+                new[] { "As usual" }.Concat(new[] { ApplianceFlue.RoomSealed, ApplianceFlue.OpenFlued, ApplianceFlue.Flueless }.Select(each => EnumText.Humanise(each))).ToArray());
+        }
 
         // A sprinkler's listing: what it covers, the flow it asks there, its K-factor and the temperature it opens at;
         // a valve set's supply.
@@ -1051,6 +1084,7 @@ public static class ComponentTypeParameters
     public static readonly ParameterDefinition CoolingOutputBtu = new("Cooling Output (Btu/h, 0 = heats only)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition CoilOutputBtu = new("Coil Output (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition GasInput = new("Gas Input (kW gross)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Flue = new("Flue (gas)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition GasInputBtu = new("Gas Input (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition Coverage = new("Coverage (square side)", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition ListedFlow = new("Listed Flow (l/min)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
@@ -1181,6 +1215,12 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition SupplyRating =
         new("Supply (A)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition SurgeProtection =
+        new("Surge Protection (SPD)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Phases =
+        new("Phases (1 or 3)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition ExternalImpedance =
         new("External Earth Loop Impedance Ze (Ω)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);

@@ -266,6 +266,48 @@ public static class GasPipes
         return furthest.Appliance is null ? said : $"{said}; {MepSystems.Describe(document, furthest.Appliance)} the furthest, {Mbar(flows[furthest.Pipe].FromMeter)} below the meter (BS 6891 allows 1 mbar)";
     }
 
+    /// <summary>A gas's gross heat over its net, natural gas's: what an appliance's net input is its gross over.</summary>
+    public const double GrossOverNet = 1.11;
+
+    /// <summary>
+    /// The air an open-flued gas appliance in a room wants from outside, mm² of permanent vent: 500 mm² for each kW of its net input over 7 kW, Approved Document J and BS 5440-2, as
+    /// remembered. None for a room-sealed or a flueless one, or one of 7 kW or less.
+    /// </summary>
+    public static double AirWanted(ComponentType type) =>
+        type.BurnsGas && type.FlueOf == ApplianceFlue.OpenFlued ? Math.Max(0, InputOf(type) / GrossOverNet / 1000 - 7) * 500 : 0;
+
+    /// <summary>
+    /// What is wanting in the air gas appliances burn, in England: an open-flued one's room without the permanent vents it wants, by Approved Document J - its background ventilators through the
+    /// outside wall, taken as air bricks that do not close, a window's trickle vent closing and not counted; a flueless one with no window in its room that opens, J asking one.
+    /// </summary>
+    public static IEnumerable<MepProblem> AirSupplyProblems(BimDocument document)
+    {
+        if (document.ProjectInformation.ClearanceStandard.IsUs()) yield break;
+        var components = document.All<Component>().ToList();
+        foreach (var appliance in components)
+        {
+            if (document.FindType<ComponentType>(appliance.TypeId) is not { BurnsGas: true } type) continue;
+            var room = RoomsOf.Of(document, appliance);
+            var flue = type.FlueOf;
+            if (flue == ApplianceFlue.OpenFlued)
+            {
+                var wanted = AirWanted(type);
+                if (wanted <= 0) continue;
+                var vents = room is null ? 0 : components.Where(each => document.FindType<ComponentType>(each.TypeId) is { Form: ComponentForm.BackgroundVentilator } && ReferenceEquals(RoomsOf.Of(document, each), room))
+                    .Sum(each => document.FindType<ComponentType>(each.TypeId)!.VentArea);
+                if (vents < wanted - 0.5)
+                    yield return new MepProblem(appliance,
+                        $"open-flued at {InputOf(type) / GrossOverNet / 1000:0.0} kW net, it wants {wanted:#,0} mm² of permanent vent to outside in {(room is null ? "the room it is in" : RoomsOf.Label(room))} - 500 mm² a kW over 7 kW (Approved Document J, BS 5440-2) - and has {vents:#,0}; a window's trickle vent closes and does not count");
+            }
+            else if (flue == ApplianceFlue.Flueless && room is not null)
+            {
+                var boundary = room.GetBoundary(document);
+                if (boundary.Polygon.Count >= 3 && Services.OpeningWindows(document, room, boundary.Polygon).Count == 0)
+                    yield return new MepProblem(appliance, $"flueless, its room {RoomsOf.Label(room)} has no window to open - Approved Document J asks an openable window or a door to outside where a flueless gas appliance burns");
+            }
+        }
+    }
+
     /// <summary>What is wanting in a gas installation: an appliance short of pressure, a meter too small, a pipe too small, plastic pipe in the building.</summary>
     public static IEnumerable<MepProblem> Problems(BimDocument document, PipeNetwork network)
     {

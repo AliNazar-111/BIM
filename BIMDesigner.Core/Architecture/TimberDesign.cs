@@ -35,6 +35,12 @@ public static class TimberDesign
             _ => 0.6
         }).DefaultIfEmpty(0.6).Max();
 
+    /// <summary>Whether a combination is of an accidental design situation, BS EN 1990 6.11b - an accident's, a key element's, an exceptional snow drift's - where BS EN 1995-1-1 Table 2.3 takes γM as 1.0 and the action as instantaneous.</summary>
+    public static bool Accidental(LoadCombination combination) => combination.Description.Contains("6.11b", StringComparison.Ordinal);
+
+    /// <summary>kmod for an instantaneous load, Table 3.1, solid timber and glulam in service class 1 or 2.</summary>
+    public const double Instantaneous = 1.1;
+
     /// <summary>The depth factor kh for bending and tension over a depth: to 150 mm for solid timber, to 600 for glulam (3.2, 3.3).</summary>
     public static double DepthFactor(TimberGrade grade, double depth) => grade.Glulam
         ? depth < 600 ? Math.Min(Math.Pow(600 / depth, 0.1), 1.1) : 1

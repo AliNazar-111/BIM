@@ -351,6 +351,130 @@ public partial class MainWindow
     }
 }
 
+public partial class MainWindow
+{
+    // ---- a section, a sheet or a schedule in a window of its own ----------------------------
+
+    private readonly Dictionary<Border, (System.Windows.Window Window, Panel Parent, int Index, double Height, Button Button)> _floating = new();
+
+    /// <summary>Whether a view's panel is in a window of its own.</summary>
+    internal bool Floats(Border panel) => _floating.ContainsKey(panel);
+
+    private void OnFloatSection(object sender, RoutedEventArgs e) => Toggle(SectionPanel, ViewTitle(SectionPicker.Text, "Section"), FloatSectionButton, () => OnCloseSection(this, new RoutedEventArgs()));
+
+    private void OnFloatSheet(object sender, RoutedEventArgs e) => Toggle(SheetPanel, ViewTitle(SheetPicker.Text, "Sheet"), FloatSheetButton, () => OnCloseSheet(this, new RoutedEventArgs()));
+
+    private void OnFloatSchedule(object sender, RoutedEventArgs e) => Toggle(SchedulePanel, ViewTitle(SchedulePicker.Text, "Schedule"), FloatScheduleButton, () => OnCloseSchedule(this, new RoutedEventArgs()));
+
+    /// <summary>A floated view's title: what its picker shows, its kind before it where that does not say it already.</summary>
+    private static string ViewTitle(string shown, string kind) =>
+        string.IsNullOrWhiteSpace(shown) ? kind : shown.StartsWith(kind, StringComparison.OrdinalIgnoreCase) ? shown.Trim() : $"{kind} {shown.Trim()}";
+
+    private void Toggle(Border panel, string title, Button button, Action close)
+    {
+        if (Floats(panel)) DockView(panel);
+        else FloatPanel(panel, title, button, close);
+    }
+
+    /// <summary>The section, sheet or schedule panel as a view's own, for the harness and tests.</summary>
+    internal System.Windows.Window FloatView(string which) => which switch
+    {
+        "Section" => FloatPanel(SectionPanel, ViewTitle(SectionPicker.Text, "Section"), FloatSectionButton, () => OnCloseSection(this, new RoutedEventArgs())),
+        "Sheet" => FloatPanel(SheetPanel, ViewTitle(SheetPicker.Text, "Sheet"), FloatSheetButton, () => OnCloseSheet(this, new RoutedEventArgs())),
+        _ => FloatPanel(SchedulePanel, ViewTitle(SchedulePicker.Text, "Schedule"), FloatScheduleButton, () => OnCloseSchedule(this, new RoutedEventArgs()))
+    };
+
+    /// <summary>
+    /// A section, a sheet or a schedule taken out into a window of its own, as the 3D view can be - on the other screen where there is one - its panel moved there whole, with its buttons. Undo
+    /// and redo work from it as from here; closed, the view closes; Dock puts it back where it was.
+    /// </summary>
+    internal System.Windows.Window FloatPanel(Border panel, string title, Button button, Action close)
+    {
+        if (_floating.TryGetValue(panel, out var open))
+        {
+            open.Window.Activate();
+            return open.Window;
+        }
+
+        var parent = (Panel)panel.Parent;
+        var index = parent.Children.IndexOf(panel);
+        var height = panel.Height;
+        parent.Children.Remove(panel);
+        panel.Height = double.NaN;
+        panel.Visibility = Visibility.Visible;
+
+        var window = new ViewWindow
+        {
+            Title = $"{title} - BIMDesigner", Width = Math.Max(640, ActualWidth * 0.6), Height = Math.Max(420, ActualHeight * 0.6),
+            ShowInTaskbar = true, Icon = Icon, WindowStartupLocation = WindowStartupLocation.Manual
+        };
+        window.SetResourceReference(BackgroundProperty, "Bg.Window");
+        window.SetResourceReference(ForegroundProperty, "Text");
+        window.SetResourceReference(FontFamilyProperty, "UiFont");
+        window.SetResourceReference(FontSizeProperty, "UiFontSize");
+        window.CommandBindings.AddRange(CommandBindings);
+        if (IsLoaded) window.Owner = this;
+        var primary = SystemParameters.PrimaryScreenWidth;
+        if (SystemParameters.VirtualScreenWidth > primary + 200)
+        {
+            window.Left = SystemParameters.VirtualScreenLeft < 0 ? SystemParameters.VirtualScreenLeft + 60 : primary + 60;
+            window.Top = Math.Max(SystemParameters.VirtualScreenTop, 0) + 60;
+        }
+        else
+        {
+            window.Left = Math.Max(0, Left + ActualWidth - window.Width - 60);
+            window.Top = Math.Max(0, Top + 120);
+        }
+
+        window.Content = panel;
+        window.Closed += (_, _) =>
+        {
+            // Closed by its own close box: the panel put back, and the view closed.
+            if (!_floating.TryGetValue(panel, out var held) || !ReferenceEquals(held.Window, window)) return;
+            PutPanelBack(panel);
+            close();
+        };
+
+        _floating[panel] = (window, parent, index, height, button);
+        if (ReferenceEquals(panel, SectionPanel)) SectionSplitter.Visibility = Visibility.Collapsed;
+        if (ReferenceEquals(panel, SchedulePanel)) ScheduleSplitter.Visibility = Visibility.Collapsed;
+        button.Content = "Dock";
+        button.ToolTip = "Put it back in the main window";
+        window.Show();
+        StatusHint.Text = $"{title} is in a window of its own: move it where it suits, or onto the other screen. Dock puts it back.";
+        QueueViewTabs();
+        return window;
+    }
+
+    /// <summary>A view's panel put back in the main window, open as it was.</summary>
+    internal void DockView(Border panel)
+    {
+        if (!_floating.TryGetValue(panel, out var open)) return;
+        PutPanelBack(panel);
+        open.Window.Close();
+        QueueViewTabs();
+    }
+
+    private void PutPanelBack(Border panel)
+    {
+        var (window, parent, index, height, button) = _floating[panel];
+        _floating.Remove(panel);
+        window.Content = null;
+        parent.Children.Insert(Math.Min(index, parent.Children.Count), panel);
+        panel.Height = height;
+        var shown = panel.Visibility == Visibility.Visible;
+        if (ReferenceEquals(panel, SectionPanel)) SectionSplitter.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        if (ReferenceEquals(panel, SchedulePanel)) ScheduleSplitter.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        button.Content = "Own Window";
+        button.ToolTip = "In a window of its own - to put on a second screen - while the plan has this one; Dock puts it back";
+    }
+}
+
+/// <summary>The window a section, a sheet or a schedule is taken out into.</summary>
+internal sealed class ViewWindow : System.Windows.Window
+{
+}
+
 /// <summary>The window the 3D view is taken out into, to put on a second screen.</summary>
 internal sealed class ModelWindow : System.Windows.Window
 {

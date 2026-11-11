@@ -175,7 +175,9 @@ public static class MemberStrength
 
         var grade = glulam ? TimberDesign.Gl24h : TimberDesign.C24;
         return (quality, "BS EN 1995-1-1 and its UK National Annex",
-            Worst(stations.Select(station => (station.Combination.Name, TimberDesign.Eurocode(grade, depth, width, joist, lengths, station.Forces, TimberDesign.Kmod(station.Combination), notch, notchLength)))), limits);
+            Worst(stations.Select(station => (station.Combination.Name, TimberDesign.Accidental(station.Combination)
+                ? TimberDesign.Eurocode(grade with { GammaM = 1.0 }, depth, width, joist, lengths, station.Forces, TimberDesign.Instantaneous, notch, notchLength)
+                : TimberDesign.Eurocode(grade, depth, width, joist, lengths, station.Forces, TimberDesign.Kmod(station.Combination), notch, notchLength)))), limits);
     }
 
     // ---- what holds a member ------------------------------------------------------------

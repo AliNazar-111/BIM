@@ -2204,7 +2204,7 @@ public sealed class BimDocument
             },
             new ComponentType("Consumer Unit - 12 Way", BuiltInCategory.ElectricalEquipment, ComponentForm.ConsumerUnit, 380, 120, 300)
             {
-                TypeMark = "E4", Colour = white, Cost = 180m, Ways = 12, SupplyRating = 100, ExternalImpedance = 0.35,
+                TypeMark = "E4", Colour = white, Cost = 180m, Ways = 12, SupplyRating = 100, ExternalImpedance = 0.35, SurgeProtection = true,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1250,
                 Description = "On a 100 A main fuse, TN-C-S (Ze 0.35 Ω at most, as the networks declare)"
             },

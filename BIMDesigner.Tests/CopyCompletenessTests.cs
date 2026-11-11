@@ -41,9 +41,11 @@ public class CopyCompletenessTests
 
             // A mark is a number to be given out again, not a setting: copies are numbered afresh.
             // A pin holds the original where it is; its copy is put somewhere new, so is free.
+            // An area boundary's wall is what it follows: a copy is put somewhere new, drawn where it is put, not snapped back onto the original's wall.
             var settings = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead && p.GetSetMethod() is not null && p.GetIndexParameters().Length == 0)
-                .Where(p => p.Name is not ("Id" or "Mark" or "Pinned"));
+                .Where(p => p.Name is not ("Id" or "Mark" or "Pinned"))
+                .Where(p => !(type == typeof(BIMDesigner.Core.Views.AreaBoundary) && p.Name == "WallId"));
 
             foreach (var setting in settings)
             {

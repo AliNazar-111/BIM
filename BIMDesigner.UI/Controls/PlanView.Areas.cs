@@ -69,7 +69,7 @@ public partial class PlanView
                 return false;
             }
 
-            var picked = new AreaBoundary { LevelId = ActiveLevelId, Scheme = scheme, Start = from, End = to };
+            var picked = new AreaBoundary { LevelId = ActiveLevelId, Scheme = scheme, Start = from, End = to, WallId = wall.Id };
             Apply(new AddElementCommand(Document, picked, "Area Boundary"));
             HintChanged?.Invoke(this, $"Area boundary along the wall's middle, {Core.Units.FormatLength(picked.Length)}. Click the next wall; untick Pick Walls to draw one.");
             ModelChanged?.Invoke(this, EventArgs.Empty);

@@ -4950,6 +4950,7 @@ public partial class MainWindow : Window
 
     private void OnCloseSheet(object sender, RoutedEventArgs e)
     {
+        DockView(SheetPanel);
         SheetPanel.Visibility = Visibility.Collapsed;
         SheetMenuItem.IsChecked = false;
     }
@@ -6941,7 +6942,7 @@ public partial class MainWindow : Window
         var show = SectionPanel.Visibility != Visibility.Visible;
 
         SectionPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        SectionSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        SectionSplitter.Visibility = show && !Floats(SectionPanel) ? Visibility.Visible : Visibility.Collapsed;
         SectionMenuItem.IsChecked = show;
 
         if (!show) return;
@@ -6958,6 +6959,7 @@ public partial class MainWindow : Window
 
     private void OnCloseSection(object sender, RoutedEventArgs e)
     {
+        DockView(SectionPanel);
         SectionPanel.Visibility = Visibility.Collapsed;
         SectionSplitter.Visibility = Visibility.Collapsed;
         SectionMenuItem.IsChecked = false;
@@ -6973,7 +6975,7 @@ public partial class MainWindow : Window
         if (!view.ExistsIn(_document)) return;
 
         SectionPanel.Visibility = Visibility.Visible;
-        SectionSplitter.Visibility = Visibility.Visible;
+        SectionSplitter.Visibility = Floats(SectionPanel) ? Visibility.Collapsed : Visibility.Visible;
         SectionMenuItem.IsChecked = true;
         Section.Visibility = Visibility.Collapsed;
         Projected.Visibility = Visibility.Visible;
@@ -7043,7 +7045,7 @@ public partial class MainWindow : Window
         Projected.Visibility = Visibility.Collapsed;
         Section.Visibility = Visibility.Visible;
         SectionPanel.Visibility = Visibility.Visible;
-        SectionSplitter.Visibility = Visibility.Visible;
+        SectionSplitter.Visibility = Floats(SectionPanel) ? Visibility.Collapsed : Visibility.Visible;
         SectionMenuItem.IsChecked = true;
 
         RefreshSectionPicker();
@@ -7174,6 +7176,7 @@ public partial class MainWindow : Window
 
     private void OnCloseSchedule(object sender, RoutedEventArgs e)
     {
+        DockView(SchedulePanel);
         SchedulePanel.Visibility = Visibility.Collapsed;
         ScheduleSplitter.Visibility = Visibility.Collapsed;
         ScheduleMenuItem.IsChecked = false;
@@ -7287,7 +7290,7 @@ public partial class MainWindow : Window
     {
         RefreshSchedulePicker(schedule);
         SchedulePanel.Visibility = Visibility.Visible;
-        ScheduleSplitter.Visibility = Visibility.Visible;
+        ScheduleSplitter.Visibility = Floats(SchedulePanel) ? Visibility.Collapsed : Visibility.Visible;
         ScheduleMenuItem.IsChecked = true;
         RefreshSchedule();
     }

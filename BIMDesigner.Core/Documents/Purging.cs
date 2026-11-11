@@ -13,6 +13,12 @@ public sealed record UnusedContent(IReadOnlyList<ElementType> Types, IReadOnlyLi
     public int Count => Types.Count + Materials.Count;
 }
 
+/// <summary>What Purge Unused found of the views' own: the schedules on no sheet and the view filters no view uses.</summary>
+public sealed record UnusedViews(IReadOnlyList<Schedules.ScheduleDefinition> Schedules, IReadOnlyList<Views.ParameterFilter> Filters)
+{
+    public int Count => Schedules.Count + Filters.Count;
+}
+
 /// <summary>
 /// Purge Unused: the types no element is built from and no type still kept refers to - a curtain
 /// wall's mullions, a stacked wall's tiers, a stair's railing - and the materials no element, type,
@@ -104,6 +110,39 @@ public static class Purging
         return new UnusedContent(
             candidateTypes.Where(type => goingTypes.Contains(type.Id) && !used.Contains(type.Id)).ToList(),
             candidateMaterials.Where(material => goingMaterials.Contains(material.Id) && !used.Contains(material.Id)).ToList());
+    }
+
+    /// <summary>
+    /// The schedules on no sheet - a key schedule, whose keys elements are given, never among them - and the view filters no view and no view template uses: what Purge Unused offers of the
+    /// views' own, beside the types and materials.
+    /// </summary>
+    public static UnusedViews FindViews(BimDocument document)
+    {
+        var placed = document.All<Sheets.Sheet>().SelectMany(sheet => sheet.Viewports).Select(viewport => viewport.View.ScheduleIn(document)).OfType<Schedules.ScheduleDefinition>().ToHashSet();
+        var schedules = document.Schedules.Where(schedule => !schedule.IsKeySchedule && !placed.Contains(schedule)).ToList();
+        var applied = document.ViewSettings.WithFilters.SelectMany(view => view.Filters).Select(use => use.FilterId)
+            .Concat(document.All<Views.ViewTemplate>().SelectMany(template => template.Filters).Select(use => use.FilterId)).ToHashSet();
+        return new UnusedViews(schedules, document.ParameterFilters.Where(filter => !applied.Contains(filter.Id)).ToList());
+    }
+
+    /// <summary>Schedules and view filters taken out of the project as one step, put back where they were by undo.</summary>
+    public static IUndoableCommand PurgeViews(BimDocument document, IEnumerable<Schedules.ScheduleDefinition> schedules, IEnumerable<Views.ParameterFilter> filters)
+    {
+        var (schedulesBefore, filtersBefore) = (document.Schedules.ToList(), document.ParameterFilters.ToList());
+        var (goingSchedules, goingFilters) = (schedules.ToHashSet(), filters.ToHashSet());
+        return new Views.DelegateCommand("Purge Unused",
+            () =>
+            {
+                document.Schedules.RemoveAll(goingSchedules.Contains);
+                document.ParameterFilters.RemoveAll(goingFilters.Contains);
+            },
+            () =>
+            {
+                document.Schedules.Clear();
+                document.Schedules.AddRange(schedulesBefore);
+                document.ParameterFilters.Clear();
+                document.ParameterFilters.AddRange(filtersBefore);
+            });
     }
 
     /// <summary>

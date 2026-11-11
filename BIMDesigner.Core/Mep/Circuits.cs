@@ -67,6 +67,17 @@ public sealed record CircuitDesign(
 
     public double LengthLimit { get; init; }
 
+    /// <summary>
+    /// The fault current at its far end, A, 0.95 U0 over its earth fault loop impedance; the time it is cleared in, s - an RCD's 0.04 at five times its rating, else its breaker's 0.1 in its
+    /// magnetic region and 0.4 under it; and the protective conductor
+    /// BS 7671's adiabatic equation (543.1.3) asks, √(I² t) / k, k 115 for a copper conductor in a cable insulated with 70 °C thermoplastic (Table 54.3), mm².
+    /// </summary>
+    public double Fault { get; init; }
+
+    public double FaultTime { get; init; }
+
+    public double CpcNeeded { get; init; }
+
     /// <summary>Whether it is one of the On-Site Guide's standard socket circuits - a ring or radial of the breaker and cable it sets out.</summary>
     public bool Standard => LengthLimit > 0;
 
@@ -77,7 +88,11 @@ public sealed record CircuitDesign(
 }
 
 /// <summary>What a consumer unit's circuits come to: its ways, its supply, and the most it is drawn after diversity, A.</summary>
-public sealed record BoardDemand(Component Board, IReadOnlyList<CircuitDesign> Circuits, int Ways, double Supply, double Demand, IReadOnlyList<string> Workings);
+public sealed record BoardDemand(Component Board, IReadOnlyList<CircuitDesign> Circuits, int Ways, double Supply, double Demand, IReadOnlyList<string> Workings)
+{
+    /// <summary>On a three-phase supply, each phase's circuits and its demand after diversity, A, L1 to L3; none on one phase.</summary>
+    public IReadOnlyList<(IReadOnlyList<CircuitDesign> Circuits, double Demand)> Phases { get; init; } = Array.Empty<(IReadOnlyList<CircuitDesign>, double)>();
+}
 
 /// <summary>
 /// A home's circuits designed and checked as BS 7671 (18th edition, A4:2026) and the IET's On-Site
@@ -115,6 +130,9 @@ public static class Circuits
 
     /// <summary>A cable's resistance at 70 °C over its resistance at 20 °C, as the On-Site Guide takes it.</summary>
     public const double Hot = 1.20;
+
+    /// <summary>k for a copper protective conductor in a cable with 70 °C thermoplastic insulation, BS 7671 Table 54.3: 115.</summary>
+    public const double CpcFactor = 115;
 
     private static readonly double[] UkRatings = { 6, 10, 16, 20, 25, 32, 40, 45, 50, 63 };
     private static readonly double[] UsRatings = { 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100 };
@@ -477,8 +495,17 @@ public static class Circuits
             impedanceLimit = 0.95 * Uk / (breaker * circuit.Curve switch { BreakerCurve.B => 5, BreakerCurve.C => 10, _ => 20 });
         }
 
+        // Its protective conductor by the adiabatic equation, at the far end where the fault current is least and the breaker slowest.
+        double fault = 0, time = 0, cpcNeeded = 0;
+        if (!us && impedance > 0)
+        {
+            fault = 0.95 * Uk / impedance;
+            time = circuit.Rcd ? 0.04 : fault >= breaker * circuit.Curve switch { BreakerCurve.B => 5, BreakerCurve.C => 10, _ => 20 } ? 0.1 : 0.4;
+            cpcNeeded = Math.Sqrt(fault * fault * time) / CpcFactor;
+        }
+
         var design = new CircuitDesign(circuit, use, voltage, connected, current, breaker, circuit.Curve, cable, circuit.Method, capacity, length,
-            circuit.CableLength <= 0, drop, dropLimit, impedance, impedanceLimit, along);
+            circuit.CableLength <= 0, drop, dropLimit, impedance, impedanceLimit, along) { Fault = fault, FaultTime = time, CpcNeeded = cpcNeeded };
 
         // The On-Site Guide's standard socket circuits: the floor they serve and how far they go.
         if (!us && sockets && circuit.Curve == BreakerCurve.B && circuit.Method == CableMethod.ClippedDirect)
@@ -550,6 +577,10 @@ public static class Circuits
                     : $"its voltage drops {design.Drop:0.0} V ({design.Drop / design.Voltage:P1}) - BS 7671 (Appendix 4) keeps it to {design.DropLimit / design.Voltage:P0} {(design.DropLimit / design.Voltage < 0.04 ? "for lighting" : "for anything but lighting")}");
         }
 
+        // Its protective conductor against the heat of a fault, standard circuit or not.
+        if (!us && design.CpcNeeded > design.Cable.Cpc + 1e-9)
+            faults.Add($"its {design.Cable.Cpc:0.0#} mm² protective conductor is less than the {design.CpcNeeded:0.00} mm² the adiabatic equation asks (BS 7671 543.1.3): {design.Fault:0} A at its far end for {design.FaultTime:0.0} s, k {CpcFactor:0}");
+
         // The earth loop, standard circuit or not: the On-Site Guide's lengths take the usual Ze, not a board's higher one.
         if (!us && !design.Circuit.Rcd && design.Impedance > design.ImpedanceLimit + 1e-6)
             faults.Add($"its earth fault loop impedance is {design.Impedance:0.00} Ω - Table 41.3 allows {design.ImpedanceLimit:0.00} Ω for a {name} to disconnect in 0.4 s; a larger cable, a shorter run, or an RCD");
@@ -579,7 +610,7 @@ public static class Circuits
             ? $"{run} of {design.LengthLimit:0}, serving {Units.OfSquareMetres(design.Area, "0")} of {design.AreaLimit:0} (On-Site Guide)"
             : us
                 ? $"{run}, dropping {design.Drop:0.0} V ({design.Drop / design.Voltage:P1}) of 3%"
-                : $"{run}, dropping {design.Drop:0.0} V ({design.Drop / design.Voltage:P1}) of {design.DropLimit / design.Voltage:P0}; Zs {design.Impedance:0.00} Ω{(circuit.Rcd ? string.Empty : $" of {design.ImpedanceLimit:0.00}")}";
+                : $"{run}, dropping {design.Drop:0.0} V ({design.Drop / design.Voltage:P1}) of {design.DropLimit / design.Voltage:P0}; Zs {design.Impedance:0.00} Ω{(circuit.Rcd ? string.Empty : $" of {design.ImpedanceLimit:0.00}")}; cpc {design.Cable.Cpc:0.0#} mm² of {design.CpcNeeded:0.00} (543.1.3)";
         var chosen = design.BreakerChosen || design.CableChosen ? " - as Size Circuits chooses" : string.Empty;
         return $"{breaker}, {cable}; {current}; {rest}{chosen}";
     }
@@ -607,6 +638,23 @@ public static class Circuits
             return new BoardDemand(board, designs, ways, supply, Math.Min(standard, optional) / UsTwo, workings);
         }
 
+        var (all, lines) = Diversity(document, designs);
+        if (type.Phases != 3) return new BoardDemand(board, designs, ways, supply, all, lines);
+
+        // Three phases: the circuits shared across them, the largest first onto the least loaded, each phase's demand after the same diversity.
+        var phases = Enumerable.Range(0, 3).Select(_ => new List<CircuitDesign>()).ToArray();
+        foreach (var design in designs.OrderByDescending(design => design.Current))
+            phases.MinBy(phase => phase.Sum(each => each.Current))!.Add(design);
+        var each = phases.Select(phase => ((IReadOnlyList<CircuitDesign>)phase, Diversity(document, phase).Demand)).ToList();
+        var most = each.Max(phase => phase.Item2);
+        var least = each.Min(phase => phase.Item2);
+        lines.Add($"three phases: {string.Join(", ", each.Select((phase, i) => $"L{i + 1} {phase.Item2:0.#} A of {phase.Item1.Count} circuit{(phase.Item1.Count == 1 ? string.Empty : "s")}"))}, {(most > 0 ? (most - least) / most : 0):P0} out of balance");
+        return new BoardDemand(board, designs, ways, supply, most, lines) { Phases = each };
+    }
+
+    /// <summary>Circuits' demand after the On-Site Guide's diversity, A, and its workings.</summary>
+    private static (double Demand, List<string> Lines) Diversity(BimDocument document, IReadOnlyList<CircuitDesign> designs)
+    {
         var lines = new List<string>();
         double Sum(IEnumerable<CircuitDesign> of) => of.Sum(design => design.Current);
         var sockets = designs.Where(design => OfSockets(document, MepSystems.MembersOf(document, design.Circuit))).OrderByDescending(design => design.Breaker).ToList();
@@ -632,7 +680,7 @@ public static class Circuits
         Add("showers - the largest two and a quarter of the rest", showers.Select((design, i) => design.Current * (i < 2 ? 1 : 0.25)).Sum());
         Add("immersion heaters", Sum(immersion));
         Add("socket circuits - the largest and 40% of the others", sockets.Select((design, i) => design.Breaker * (i == 0 ? 1 : 0.4)).Sum());
-        return new BoardDemand(board, designs, ways, supply, demand, lines);
+        return (demand, lines);
     }
 
     /// <summary>
@@ -805,7 +853,15 @@ public static class Circuits
                     yield return new MepProblem(board, $"the dwelling's load is {demand.Demand:0} A at 240 V by NEC Article 220 - more than its {demand.Supply:0} A service");
             }
             else if (demand.Demand > demand.Supply + 1e-6)
-                yield return new MepProblem(board, $"its maximum demand after diversity is {demand.Demand:0} A - more than its {demand.Supply:0} A supply (the On-Site Guide's Table A2)");
+                yield return new MepProblem(board, demand.Phases.Count == 3
+                    ? $"its most loaded phase's demand after diversity is {demand.Demand:0} A - more than its {demand.Supply:0} A a phase (the On-Site Guide's Table A2)"
+                    : $"its maximum demand after diversity is {demand.Demand:0} A - more than its {demand.Supply:0} A supply (the On-Site Guide's Table A2)");
+
+            // Its surge protection.
+            if (TypeOf(document, board) is { SurgeProtection: false })
+                yield return new MepProblem(board, us
+                    ? "it has no surge-protective device - NEC 230.67 (2020 on) asks a Type 1 or Type 2 SPD at the service of every dwelling unit"
+                    : "it has no surge protective device - BS 7671 443.4 asks protection against transient overvoltage, a Type 2 SPD at the origin (534.4.1); a single dwelling may go without only where its installation's value does not justify it, as the designer judges and records");
         }
     }
 

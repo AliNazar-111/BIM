@@ -287,6 +287,36 @@ public class DrainageTests
     }
 
     [Fact]
+    public void ADrainTakesWhatItsBoreAndFallLetItByColebrookWhite()
+    {
+        // A 100 foul drain at 1:80 running full: √(2 g D S) = 0.1566, ks 1.5 / 370 + 2.51 × 1.141e-6 / (0.1 × 0.1566) = 0.004237, -2 × 0.007854 × 0.1566 × log10 of it = 5.84 l/s, three
+        // quarters full 0.912 of it, 5.32. A 100 rainwater drain at 1:100, ks 0.6, 6.03 l/s.
+        Assert.InRange(Drainage.Capacity(SystemKind.Foul, 100, 12.5), 5.30, 5.35);
+        Assert.InRange(Drainage.Capacity(SystemKind.Rainwater, 100, 10), 6.00, 6.05);
+        Assert.Equal(2.5, Drainage.Flow(SystemKind.Foul, new PipeLoad(0, 0, 0, 0) { Wcs = 1, Fittings = 2 }));
+        Assert.Equal(100 * 0.021, Drainage.Flow(SystemKind.Rainwater, new PipeLoad(100, 0, 0, 0))!.Value, 9);
+
+        // The house's gutter down one downpipe to a soakaway in a 75 drain laid at 1:1000: its roof's effective area at 0.021 l/s a m² is more than the 0.85 l/s such a drain takes.
+        var house = new HouseEditAuditTests.House(false);
+        var document = house.Document;
+        var gutter = new Gutter { RoofId = house.Roof.Id, LevelId = house.Roof.LevelId, TypeId = document.TypesOf<GutterType>().First().Id };
+        gutter.EdgeIds.AddRange(RoofEdgeSweeps.GutterEdges(document, house.Roof));
+        document.Add(gutter);
+        var downpipe = new Downpipe { GutterId = gutter.Id, LevelId = gutter.LevelId, Location = new Point2D(5000, -400) };
+        document.Add(downpipe);
+        var foot = Downpipes.Path(document, downpipe)!.Foot;
+        var area = RoofEdgeRules.DownpipeAreas(document)[downpipe];
+        Assert.InRange(area, 20, 200);
+        var soakaway = Put(document, "Soakaway - 1 m Crate", foot.X, foot.Y - 6000, 0);
+        var rain = Make(document, SystemKind.Rainwater, soakaway);
+        var drain = Run(document, At(foot.X, foot.Y, -400), At(foot.X, foot.Y - 6000, -406), rain, 75);
+        var load = PipeNetworks.Trace(document, rain).Loads[drain];
+        Assert.Equal(area, load.Load, 6);
+        Assert.InRange(Drainage.Capacity(SystemKind.Rainwater, 75, 1), 0.82, 0.87);
+        Assert.Contains(MepSystems.Problems(document), problem => problem.Element == drain && problem.Text.Contains($"carries {area * 0.021:0.0} l/s") && problem.Text.Contains("Colebrook-White"));
+    }
+
+    [Fact]
     public void InTheUsATrapsArmIsKeptToTableP3105_1()
     {
         var (document, foul, stack, _) = Stack();

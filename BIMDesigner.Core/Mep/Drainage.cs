@@ -92,6 +92,36 @@ public static class Drainage
         return Math.Max(start.Z, end.Z) < GroundFloor(document) - 150;
     }
 
+    /// <summary>Water's kinematic viscosity at 15 °C, m²/s, as HR Wallingford's tables take it.</summary>
+    private const double Viscosity = 1.141e-6;
+
+    /// <summary>The roughness a drain is taken at, mm: a foul drain's 1.5 slimed, a surface water drain's 0.6, as HR Wallingford's tables have them for pipes in normal condition, as remembered.</summary>
+    public static double Roughness(SystemKind kind) => kind == SystemKind.Foul ? 1.5 : 0.6;
+
+    /// <summary>
+    /// What a drain of a bore, mm, takes at a fall, mm a metre, l/s: running full by Colebrook-White, Q = -2 A √(2 g D S) log10(ks / 3.7 D + 2.51 ν / (D √(2 g D S))); a foul drain running three
+    /// quarters full, as Approved Document H's foul drains are taken, 0.912 of that by the circle's geometry.
+    /// </summary>
+    public static double Capacity(SystemKind kind, double bore, double fall)
+    {
+        if (bore <= 0 || fall <= 0) return 0;
+        var (d, s) = (bore / 1000, fall / 1000);
+        var root = Math.Sqrt(2 * 9.81 * d * s);
+        var full = -2 * Math.PI * d * d / 4 * root * Math.Log10(Roughness(kind) / 1000 / (3.7 * d) + 2.51 * Viscosity / (d * root)) * 1000;
+        return kind == SystemKind.Foul ? full * 0.912 : full;
+    }
+
+    /// <summary>The rain a surface water drain carries, l/s a m² of roof's effective area: 75 mm an hour, 0.021 l/s, the intensity Approved Document H takes a roof's gutters at.</summary>
+    public const double Rainfall = 0.021;
+
+    /// <summary>
+    /// What a drain carries, l/s: a foul drain a dwelling's 2.5 with a WC on it (Approved Document H Table 5), under 1 l/s without, taken at 1; a rainwater drain its roofs' effective area by
+    /// the rainfall; none for one carrying nothing.
+    /// </summary>
+    public static double? Flow(SystemKind kind, PipeLoad load) => kind == SystemKind.Rainwater
+        ? load.Load > 0 ? load.Load * Rainfall : null
+        : load.Wcs > 0 ? 2.5 : load.Fittings > 0 ? 1.0 : null;
+
     /// <summary>How flat a drain may be laid, as a fall in mm a metre: Approved Document H Table 6 for foul water, 3.15 for rainwater.</summary>
     public static (double Fall, string Said) Flattest(SystemKind kind, double bore, int wcs) => kind == SystemKind.Rainwater
         ? bore <= 100 + 1 ? (10, "1:100 (Approved Document H, 3.15)") : bore <= 150 + 1 ? (1000.0 / 150, "1:150 (Approved Document H, 3.15)") : (1000.0 / 225, "1:225 (Approved Document H, 3.15)")
@@ -293,6 +323,10 @@ public static class Drainage
                 var (flattest, said) = us ? (UsFall(bore), $"{(bore <= 65 ? "¼" : "⅛")} in a foot (IRC P3005.3)") : Flattest(system.Kind, bore, load.Wcs);
                 if (!pipe.Upright && fall < flattest - 0.05)
                     yield return new MepProblem(pipe, $"it falls 1:{(fall <= 0 ? 0 : 1000 / fall):0} - laid no flatter than {said}");
+
+                // What it carries against what it takes at its fall.
+                if (!us && !pipe.Upright && fall > 0.05 && Flow(system.Kind, load) is { } flow && Capacity(system.Kind, bore, fall) is var takes && flow > takes + 1e-6)
+                    yield return new MepProblem(pipe, $"it carries {flow:0.0} l/s - at 1:{1000 / fall:0} a {bore:0} drain takes {takes:0.0} l/s {(system.Kind == SystemKind.Foul ? "running three quarters full" : "running full")} (Colebrook-White, ks {Roughness(system.Kind):0.0} mm)");
             }
 
             // Each appliance's branch, from its trap to where it meets a stack, a drain or another branch.

@@ -161,6 +161,26 @@ public static class RoofEdgeRules
         }).ToList();
     }
 
+    /// <summary>The effective area of roof each downpipe takes from its gutter, m²: from halfway to the outlet each side of it, or from the run's end.</summary>
+    public static IReadOnlyDictionary<Downpipe, double> DownpipeAreas(BimDocument document)
+    {
+        var areas = new Dictionary<Downpipe, double>();
+        foreach (var gutter in document.All<Gutter>())
+        {
+            if (document.Find<Roof>(gutter.RoofId) is not { } roof) continue;
+            foreach (var channel in Channels(document, gutter, roof))
+                for (var i = 0; i < channel.Outlets.Count; i++)
+                {
+                    var at = channel.Outlets[i];
+                    var from = i == 0 ? 0 : (channel.Outlets[i - 1] + at) / 2;
+                    var to = i == channel.Outlets.Count - 1 ? channel.Length : (at + channel.Outlets[i + 1]) / 2;
+                    areas[channel.Pipes[i]] = areas.GetValueOrDefault(channel.Pipes[i]) + channel.Between(from - 1e-6, to + 1e-6);
+                }
+        }
+
+        return areas;
+    }
+
     /// <summary>A band along a run, as wide as the gutter: what is drawn red in plan.</summary>
     private static IReadOnlyList<Point2D> Band(IReadOnlyList<Point2D> line, double width)
     {

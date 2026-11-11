@@ -230,4 +230,38 @@ public class ViewsAndKeysTests
             Assert.Contains(Field<FrameworkElement>(window, "ModelPanel"), grid.Children.Cast<UIElement>());
         });
     }
+
+    [Fact]
+    public void ASectionOrAScheduleOpensInAWindowOfItsOwn()
+    {
+        OnUiThread(window =>
+        {
+            foreach (var (which, panelName, toggle) in new[] { ("Section", "SectionPanel", "OnToggleSection"), ("Schedule", "SchedulePanel", "OnToggleSchedules") })
+            {
+                var panel = Field<Border>(window, panelName);
+                var home = (Panel)panel.Parent;
+                Call(window, toggle, window, new RoutedEventArgs());
+
+                // Out into a window of its own: the panel moved there whole, and the main window's splitter for it put away.
+                var own = (System.Windows.Window)Call(window, "FloatView", which)!;
+                Assert.Same(panel, own.Content);
+                Assert.True((bool)Call(window, "Floats", panel)!);
+                Assert.DoesNotContain(panel, home.Children.Cast<UIElement>());
+                Assert.Equal(Visibility.Visible, panel.Visibility);
+                if (which == "Section") Assert.Equal(Visibility.Collapsed, Field<GridSplitter>(window, "SectionSplitter").Visibility);
+
+                // Docked: back where it was, open, its height as it had it.
+                Call(window, "DockView", panel);
+                Assert.False((bool)Call(window, "Floats", panel)!);
+                Assert.Contains(panel, home.Children.Cast<UIElement>());
+                Assert.Equal(Visibility.Visible, panel.Visibility);
+
+                // Out again and closed by its own close box: back, and closed.
+                ((System.Windows.Window)Call(window, "FloatView", which)!).Close();
+                Assert.False((bool)Call(window, "Floats", panel)!);
+                Assert.Contains(panel, home.Children.Cast<UIElement>());
+                Assert.Equal(Visibility.Collapsed, panel.Visibility);
+            }
+        });
+    }
 }

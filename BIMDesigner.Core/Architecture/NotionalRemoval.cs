@@ -296,9 +296,9 @@ public static class NotionalRemoval
 
         // Each removal stands alone, so they are worked side by side: what the solver works out once and keeps, worked before they start.
         var intact = factored.Solve(load);
-        solver.PrestressOf(factored, intact);
+        var intactStress = solver.PrestressOf(factored, intact);
         var jobs = new List<Func<RemovalCheck>>();
-        RemovalCheck Remove(string name, string storey, IReadOnlyList<int> beams, IReadOnlyList<int> shells, (double X0, double Y0, double X1, double Y1) where, int level, AnalyticalMember? keyColumn)
+        RemovalCheck Remove(string name, string storey, IReadOnlyList<int> beams, IReadOnlyList<int> shells, (double X0, double Y0, double X1, double Y1) where, int level, Func<IReadOnlyList<StrengthCheck>>? keyChecks)
         {
             var removed = beams.ToHashSet();
             var gone = shells.ToHashSet();
@@ -386,12 +386,12 @@ public static class NotionalRemoval
             var stands = stable && (failed.Count == 0 || (atRisk.Count <= 2 && atRisk.All(each => each.Area <= each.Limit)
                 && atRisk.All(each => levels.FindIndex(l => l.Name == each.Level) <= level + 1)));
             var worst = failed.Count == 0 ? ("-", 0.0, -1) : failed.MaxBy(each => each.Ratio);
-            var key = !stands && keyColumn is not null ? KeyColumn(document, analysis, keyColumn, beams, lengths[keyColumn], intact) : Array.Empty<StrengthCheck>();
-            var said = !stable ? $"Nothing is left to carry what it held: the building does not stand without it{(shells.Count > 0 ? "; a wall as a key element is not worked out here" : string.Empty)}."
-                : !stands && keyColumn is null && shells.Count > 0 ? $"{failed.Count} part{(failed.Count == 1 ? "" : "s")} of what is left fail{(failed.Count == 1 ? "s" : "")}, the floor at risk past the limit: to be a key element, which for a wall is not worked out here."
+            var key = !stands && keyChecks is not null ? keyChecks() : Array.Empty<StrengthCheck>();
+            var said = !stable ? "Nothing is left to carry what it held: the building does not stand without it, so it is to be a key element."
                 : failed.Count == 0 ? "What is left carries what it held, nothing over its strength."
                 : stands ? $"{failed.Count} part{(failed.Count == 1 ? "" : "s")} of what is left fail{(failed.Count == 1 ? "s" : "")}, the floor at risk within the limit."
                 : $"{failed.Count} part{(failed.Count == 1 ? "" : "s")} of what is left fail{(failed.Count == 1 ? "s" : "")}, the floor at risk past the limit: to be a key element.";
+            if (!stands && key.Count == 0) said += " As a key element it is not worked out here: a stud wall's is not.";
             return new RemovalCheck(name, storey, stable, failed.Count, worst.Item2, worst.Item1, atRisk, stands, key, said);
         }
 
@@ -409,7 +409,7 @@ public static class NotionalRemoval
                 var top = beams.Select(b => solver.NodeAt(solver.Beams[b].I)).Concat(beams.Select(b => solver.NodeAt(solver.Beams[b].J))).MaxBy(p => p.Z);
                 var under0 = StoreyUnder(levels[storey.Key].Elevation);
                 var at = storey.Key;
-                jobs.Add(() => Remove($"{column.Name}, {under0} storey", under0, beams, Array.Empty<int>(), (top.X, top.Y, top.X, top.Y), at, column));
+                jobs.Add(() => Remove($"{column.Name}, {under0} storey", under0, beams, Array.Empty<int>(), (top.X, top.Y, top.X, top.Y), at, () => KeyColumn(document, analysis, column, beams, lengths[column], intact)));
             }
         }
 
@@ -420,7 +420,8 @@ public static class NotionalRemoval
             if (carried.Count == 0) continue;
             var (first, last) = (beam.Nodes[0].At, beam.Nodes[^1].At);
             var level = LevelOf((first.Z + last.Z) / 2);
-            jobs.Add(() => Remove($"{beam.Name}, carrying {string.Join(", ", carried.Select(column => column.Name))}", levels[level].Name, pieces[beam].Select(piece => piece.Beam).ToList(), Array.Empty<int>(), (first.X, first.Y, last.X, last.Y), level, null));
+            jobs.Add(() => Remove($"{beam.Name}, carrying {string.Join(", ", carried.Select(column => column.Name))}", levels[level].Name, pieces[beam].Select(piece => piece.Beam).ToList(), Array.Empty<int>(), (first.X, first.Y, last.X, last.Y), level,
+                () => KeyBeam(document, analysis, beam, Stations(pieces[beam].Select(piece => piece.Beam), intact, accidental), lengths[beam])));
         }
 
         // Each nominal length of load-bearing wall, A.7: a concrete wall's no more than 2.25 times its storey's height; an outside wall of masonry or studs between what holds it - the walls
@@ -442,8 +443,11 @@ public static class NotionalRemoval
                 var shells = feet[wall].Where(each => each.Along >= start - 1 && each.Along <= end + 1).Select(each => each.Shell).ToList();
                 if (shells.Count == 0) continue;
                 var (p, q) = ((wall.Origin.X + wall.U.X * start, wall.Origin.Y + wall.U.Y * start), (wall.Origin.X + wall.U.X * end, wall.Origin.Y + wall.U.Y * end));
+                // What bears down on that length at its foot in the accident, the building whole: the average of its metres.
+                var stretches = feet[wall].Where(each => each.Along >= start - 1 && each.Along <= end + 1).Select(each => each.Stretch).Distinct().ToHashSet();
+                var bearing = Carried(wall, intactStress, null).Where(entry => stretches.Contains(entry.Key)).Select(entry => entry.Value).DefaultIfEmpty(0).Average();
                 jobs.Add(() => Remove($"{wall.Name}{(nominal.Count > 1 ? $" {Units.Metres(start - from, "0.0")} to {Units.Metres(end - from, "0.0")}" : string.Empty)}, {under0} storey", under0, Array.Empty<int>(), shells,
-                    (p.Item1, p.Item2, q.Item1, q.Item2), level, null));
+                    (p.Item1, p.Item2, q.Item1, q.Item2), level, () => KeyWall(document, wall, bearing)));
             }
         }
 
@@ -454,8 +458,9 @@ public static class NotionalRemoval
         return new RemovalResult(
             $"Consequence Class 2b: vertical ties, or each support taken away in turn, Approved Document A 5.1d. {removals.Count} taken away: {stands} stand without it, {removals.Count - stands} would be key elements.",
             removals,
-            "Each load-bearing wall taken away a nominal length at a time, Annex A.7; a masonry wall left standing carries what its own checks give it at γM 1.5 for an accident, as remembered, and a wall as a key element is not worked out. Steel and timber at their persistent partial factors, on the safe side; concrete taken to hold what " +
-            "its intact design asks of it at first order, or its least steel, with the accidental factor of steel. Linear and elastic: no catenary or membrane action is counted. A key element beam is not worked out.");
+            "Each load-bearing wall taken away a nominal length at a time, Annex A.7; a masonry wall left standing carries what its own checks give it at γM 1.5 for an accident, as remembered. A key element carries 34 kN/m² on its faces, A.8: a column on each face in turn, a beam on its top and then its side, a wall across its face between the floors, " +
+            "with what bears down on it; what is attached to it is not loaded here, a wall's arching is not counted, and a stud wall as a key element is not worked out. Steel at γM 1.0, as in a persistent situation; timber at BS EN 1995-1-1's accidental γM 1.0 and kmod for an instantaneous load, 1.1; concrete taken to hold what " +
+            "its intact design asks of it at first order, or its least steel, with the accidental factor of steel. Linear and elastic: no catenary or membrane action is counted.");
     }
 
     /// <summary>
@@ -634,6 +639,78 @@ public static class NotionalRemoval
             }
 
         return x;
+    }
+
+    /// <summary>
+    /// A beam as a key element, A.8: what it carries in the accident with 34 kN/m² on its top, as wide as it is, over its span as a beam held at its ends; then on its side, as deep as it is - one way
+    /// at a time, each added to the most of what it carries; checked as any member of its material is. What is attached to it is not loaded here.
+    /// </summary>
+    public static IReadOnlyList<StrengthCheck> KeyBeam(BimDocument document, StructuralAnalysis analysis, AnalyticalMember beam, IReadOnlyList<(LoadCombination, MemberForces)> carried, MemberLengths lengths)
+    {
+        var stations = KeyBeamForces(FireDesign.Combination(document, analysis.Loading), beam, carried);
+        return beam.Section.Material.Kind == AnalyticalMaterialKind.Concrete
+            ? ConcreteDesign.Checks(document, analysis, beam, false, lengths, stations).Checks
+            : MemberStrength.ChecksOf(document, beam, lengths, stations);
+    }
+
+    /// <summary>A key element beam's forces: each of what it carries with the 34 kN/m² on its top, w L² / 8 and w L / 2 more, and again with it on its side, about its weak axis.</summary>
+    public static IReadOnlyList<(LoadCombination, MemberForces)> KeyBeamForces(LoadCombination accidental, AnalyticalMember beam, IReadOnlyList<(LoadCombination, MemberForces)> carried)
+    {
+        var key = new LoadCombination("Key element", "BS EN 1990 6.11b, Ad 34 kN/m²", LimitState.Ultimate, accidental.Terms);
+        var dims = beam.Section.Dimensions;
+        var (depth, width) = dims.Count >= 2 ? (dims[0], dims[1]) : (Math.Sqrt(beam.Section.Area), Math.Sqrt(beam.Section.Area));
+        var span = beam.Length / 1000;
+        var (top, side) = (KeyLoad * width / 1000, KeyLoad * depth / 1000);
+        static double More(double value, double add) => value >= 0 ? value + add : value - add;
+        var stations = new List<(LoadCombination, MemberForces)>();
+        foreach (var (_, f) in carried)
+        {
+            stations.Add((key, f with { Vz = More(f.Vz, top * span / 2), My = More(f.My, top * span * span / 8) }));
+            stations.Add((key, f with { Vy = More(f.Vy, side * span / 2), Mz = More(f.Mz, side * span * span / 8) }));
+        }
+
+        return stations;
+    }
+
+    /// <summary>
+    /// A length of load-bearing wall as a key element, A.8: 34 kN/m² across its face, spanning its height between the floors at its foot and its top, held at both, with what bears down on it in the
+    /// accident, kN/m. Concrete a metre at a time in bending, saying the bars each face needs, the load coming either way, and in shear; masonry by its flexural strength with what bears down on it,
+    /// BS EN 1996-1-1 6.3.1, at its persistent γM on the safe side and no arching counted. A stud wall's is not worked out: none.
+    /// </summary>
+    public static IReadOnlyList<StrengthCheck> KeyWall(BimDocument document, AnalyticalPanel wall, double bearing)
+    {
+        var height = (wall.Outline.Max(node => node.At.Z) - wall.Outline.Min(node => node.At.Z)) / 1000;
+        var (moment, shear) = (KeyLoad * height * height / 8, KeyLoad * height / 2);
+        var t = wall.Thickness;
+        switch (wall.Material.Kind)
+        {
+            case AnalyticalMaterialKind.Concrete:
+            {
+                var fck = ConcreteDesign.StrengthOf(wall.Material.Quality);
+                var d = Math.Max(t / 2, t - 50);
+                var (needed, problem) = ConcreteDesign.Eurocode(moment, 1000, d, fck, ConcreteDesign.LeastEurocode(1000, d, fck));
+                var share = Math.Min(0.02, needed / (1000 * d));
+                return new[]
+                {
+                    new StrengthCheck("Bending across its face", moment, 0.167 * 1000 * d * d * fck / 1e6, "kNm/m", "BS EN 1992-1-1 6.1", problem ?? $"34 kN/m² over {height:0.0} m: needs {needed:0} mm²/m in each face"),
+                    new StrengthCheck("Shear across its face", shear, PlateDesign.OneWayEurocode(d, share, fck) * d, "kN/m", "BS EN 1992-1-1 6.2.2")
+                };
+            }
+            case AnalyticalMaterialKind.Masonry:
+            {
+                var unit = MasonryDesign.LoadedUnitOf(document, wall);
+                var fxk1 = MasonryDesign.FlexuralStrengths(unit, t).Fxk1;
+                var fd = MasonryDesign.Characteristic(unit) / MasonryDesign.GammaCompression;
+                var compression = 0.9 * Math.Max(0, bearing) / t;
+                var capacity = (fxk1 / MasonryDesign.GammaFlexure + Math.Min(compression, 0.2 * fd)) * 1000 * t * t / 6 / 1e6;
+                return new[]
+                {
+                    new StrengthCheck("Bending across its face", moment, capacity, "kNm/m", "BS EN 1996-1-1 6.3.1", $"34 kN/m² over {height:0.0} m; fxk1 {fxk1:0.00} and {Math.Max(0, bearing):0} kN/m bearing down, no arching counted")
+                };
+            }
+            default:
+                return Array.Empty<StrengthCheck>();
+        }
     }
 
     /// <summary>

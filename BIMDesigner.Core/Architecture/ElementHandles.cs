@@ -322,6 +322,8 @@ public static class ElementHandles
 
             case AreaBoundary boundary:
             {
+                // Its end moved by hand: it no longer follows the wall it was picked from.
+                boundary.WallId = null;
                 switch (handle.Key)
                 {
                     case "start": boundary.Start = to; break;
@@ -598,7 +600,7 @@ public static class ElementHandles
         Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
         RoomSeparator separator => (separator.Start, separator.End),
         Annotation.DetailLine detail => (detail.Start, detail.End),
-        AreaBoundary boundary => (boundary.Start, boundary.End),
+        AreaBoundary boundary => (boundary.Start, boundary.End, boundary.WallId),
         Annotation.RepeatingDetail repeating => (repeating.Start, repeating.End),
         Annotation.FilledRegion region => region.Boundary.ToList(),
         Toposurface ground => ground.Points.ToList(),
@@ -632,8 +634,8 @@ public static class ElementHandles
             case (Annotation.RepeatingDetail repeating, ValueTuple<Point2D, Point2D> state):
                 (repeating.Start, repeating.End) = state;
                 break;
-            case (AreaBoundary boundary, ValueTuple<Point2D, Point2D> state):
-                (boundary.Start, boundary.End) = state;
+            case (AreaBoundary boundary, ValueTuple<Point2D, Point2D, Guid?> state):
+                (boundary.Start, boundary.End, boundary.WallId) = state;
                 break;
             case (Annotation.FilledRegion region, List<Point2D> outline):
                 region.SetBoundary(outline);

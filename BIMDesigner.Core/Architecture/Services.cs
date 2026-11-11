@@ -187,7 +187,7 @@ public static class Services
             .ToList();
 
     /// <summary>The windows in a room's walls that open, and their areas, m².</summary>
-    private static IReadOnlyList<double> OpeningWindows(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
+    public static IReadOnlyList<double> OpeningWindows(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
     {
         var areas = new List<double>();
         foreach (var window in document.All<Window>())

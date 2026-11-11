@@ -179,7 +179,7 @@ public static class CalculationReport
             (document.ProjectInformation.ClearanceStandard.IsUs()
                 ? "Seismic loads past what is set out: the overstrength combinations, collectors, a weak storey, the response history procedures, the walls' and anchors' own strength against 12.11's forces and the detailing R assumes; movement and durability. "
                 : "Seismic loads in England, where Approved Document A does not usually ask for them; movement and durability. ") +
-            "Impact and explosion; the notional removal of a load-bearing wall; only the ties and anchorage of a building's class, and each column taken away in Consequence Class 2b. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
+            "Impact and explosion; catenary and membrane action after a removal, a stud wall as a key element and what is attached to a key element; only the ties and anchorage of a building's class, and in Consequence Class 2b each column, beam carrying one and nominal length of wall taken away. A fire's effects as they pass from one element to the next, and joints in fire: each element stands alone here, and masonry, and stud walls with no rock fibre behind plasterboard, by the Fire Rating on their types.",
             "The ground: its kind is as set on the project, and no site investigation stands behind it."
         };
         var skipped = members.Where(check => check.Checks.Count == 0).Select(check => check.Member.Name).Concat(walls.Where(check => check.Checks.Count == 0).Select(check => check.Panel.Name)).ToList();

@@ -282,13 +282,15 @@ public static class PipeNetworks
         int? Under(Point2D where) => nodes.Points.Select((point, index) => (Index: index, Plan: new Point2D(point.X, point.Y).DistanceTo(where), point.Z))
             .Where(entry => entry.Plan <= Reach).OrderBy(entry => entry.Z).ThenBy(entry => entry.Plan).Select(entry => (int?)entry.Index).FirstOrDefault();
         var downpipes = new List<Downpipe>();
+        IReadOnlyDictionary<Downpipe, double>? areas = null;
         if (system.Kind == SystemKind.Rainwater)
             foreach (var downpipe in document.All<Downpipe>())
                 if (Downpipes.Path(document, downpipe) is { OntoRoof: false } path && Under(path.Foot) is { } foot)
                 {
+                    // A rainwater drain's load is the effective area of roof its downpipes bring to it, m².
                     downpipes.Add(downpipe);
                     var known = draws.GetValueOrDefault(foot);
-                    draws[foot] = (known.Load, known.Highest, known.Units, known.Fittings + 1, known.Wcs, known.Heat);
+                    draws[foot] = (known.Load + (areas ??= RoofEdgeRules.DownpipeAreas(document)).GetValueOrDefault(downpipe), known.Highest, known.Units, known.Fittings + 1, known.Wcs, known.Heat);
                 }
 
         // Out from the source, along the pipes, each node reached once.

@@ -139,15 +139,15 @@ public class NotionalRemovalTests
         Assert.Equal(0, front.Failed);
         Assert.Empty(front.AtRisk);
 
-        // A whole end wall from it: the walls beside it take more than they can, and what leaned on it - more than 15% of the floor - is at risk all the way up. A wall as a key element is not
-        // worked out, so it is short.
+        // A whole end wall from it: the walls beside it take more than they can, and what leaned on it - more than 15% of the floor - is at risk all the way up. As a key element its blockwork
+        // cannot take 34 kN/m² across its face, so it is short.
         var end = result.Removals.First(each => each.Name.StartsWith("W4,", StringComparison.Ordinal));
         Assert.False(end.Stands);
         Assert.True(end.Failed > 0);
         Assert.Equal(5, end.AtRisk.Count);
         Assert.All(end.AtRisk, at => Assert.True(at.Area > at.Limit));
         Assert.All(end.AtRisk, at => Assert.InRange(at.Limit / 1e6, 0.15 * 80, 0.15 * 86));
-        Assert.Empty(end.Key);
+        Assert.NotEmpty(end.Key);
         Assert.False(end.Enough);
     }
 

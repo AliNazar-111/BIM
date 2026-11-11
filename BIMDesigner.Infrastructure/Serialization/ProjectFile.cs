@@ -514,6 +514,7 @@ public static partial class ProjectFile
         }).ToList();
         dto.AreaBoundaries = document.All<AreaBoundary>().Select(line => new AreaBoundaryDto
         {
+            WallId = line.WallId,
             Id = line.Id, LevelId = line.LevelId, Scheme = line.Scheme.ToString(), StartX = line.Start.X, StartY = line.Start.Y, EndX = line.End.X, EndY = line.End.Y, Comments = line.Comments
         }).ToList();
         dto.Areas = document.All<Area>().Select(area => new AreaDto
@@ -1314,6 +1315,7 @@ public static partial class ProjectFile
                 HeatOutput = HeatsOrHeated(type.Form) ? type.HeatOutput : null,
                 CoolingOutput = type.CoolingOutput > 0 ? type.CoolingOutput : null,
                 GasInput = type.GasInput > 0 ? type.GasInput : null,
+                Flue = type.Flue == ApplianceFlue.Usual ? null : type.Flue.ToString(),
                 Coverage = type.Coverage > 0 ? type.Coverage : null, KFactor = type.KFactor > 0 ? type.KFactor : null,
                 Temperature = type.Temperature > 0 ? type.Temperature : null, SupplyPressure = type.SupplyPressure > 0 ? type.SupplyPressure : null,
                 HeatExponent = type.Form is ComponentForm.Radiator or ComponentForm.TowelRail ? type.HeatExponent : null,
@@ -1344,6 +1346,8 @@ public static partial class ProjectFile
                 Ways = type.Form == ComponentForm.ConsumerUnit && type.Ways > 0 ? type.Ways : null,
                 SupplyRating = type.Form == ComponentForm.ConsumerUnit && type.SupplyRating > 0 ? type.SupplyRating : null,
                 ExternalImpedance = type.Form == ComponentForm.ConsumerUnit && type.ExternalImpedance > 0 ? type.ExternalImpedance : null,
+                SurgeProtection = type.Form == ComponentForm.ConsumerUnit ? type.SurgeProtection : null,
+                Phases = type.Form == ComponentForm.ConsumerUnit && type.Phases == 3 ? 3 : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
                     Name = solid.Name, Shape = solid.Shape.ToString(), Finish = solid.Finish.ToString(),
@@ -3016,7 +3020,7 @@ public static partial class ProjectFile
         {
             var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
             if (start.DistanceTo(end) < 0.01) continue;
-            document.Add(new AreaBoundary { Id = saved.Id, LevelId = saved.LevelId, Scheme = ParseEnum(saved.Scheme, AreaScheme.GrossInternal), Start = start, End = end, Comments = saved.Comments ?? string.Empty });
+            document.Add(new AreaBoundary { Id = saved.Id, LevelId = saved.LevelId, Scheme = ParseEnum(saved.Scheme, AreaScheme.GrossInternal), Start = start, End = end, WallId = saved.WallId, Comments = saved.Comments ?? string.Empty });
         }
 
         foreach (var saved in (dto.Areas ?? new List<AreaDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
@@ -3261,6 +3265,7 @@ public static partial class ProjectFile
                 HeatOutput = type.HeatOutput is >= 0 and < 1e7 ? type.HeatOutput.Value : TemplateHeat(type.Name, type.Width)?.HeatOutput ?? 0,
                 CoolingOutput = type.CoolingOutput is >= 0 and < 1e7 ? type.CoolingOutput.Value : 0,
                 GasInput = type.GasInput is >= 0 and < 1e7 ? type.GasInput.Value : TemplateElectric(type.Name, type.Form)?.GasInput ?? 0,
+                Flue = ParseEnum(type.Flue, ApplianceFlue.Usual),
                 Coverage = type.Coverage is >= 0 and < 1e5 ? type.Coverage.Value : TemplateElectric(type.Name, type.Form)?.Coverage ?? 0,
                 KFactor = type.KFactor is >= 0 and < 1e4 ? type.KFactor.Value : TemplateElectric(type.Name, type.Form)?.KFactor ?? 0,
                 Temperature = type.Temperature is >= 0 and < 1000 ? type.Temperature.Value : TemplateElectric(type.Name, type.Form)?.Temperature ?? 0,
@@ -3287,6 +3292,8 @@ public static partial class ProjectFile
                 Ways = type.Ways is > 0 and < 1000 ? type.Ways.Value : TemplateElectric(type.Name, type.Form)?.Ways ?? 0,
                 SupplyRating = type.SupplyRating is >= 0 and < 1e5 ? type.SupplyRating.Value : TemplateElectric(type.Name, type.Form)?.SupplyRating ?? 0,
                 ExternalImpedance = type.ExternalImpedance is >= 0 and < 1000 ? type.ExternalImpedance.Value : TemplateElectric(type.Name, type.Form)?.ExternalImpedance ?? 0,
+                SurgeProtection = type.SurgeProtection ?? TemplateElectric(type.Name, type.Form)?.SurgeProtection ?? false,
+                Phases = type.Phases == 3 ? 3 : 1,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
                 PartFlushVolume = type.PartFlushVolume is >= 0 and < 100 ? type.PartFlushVolume.Value

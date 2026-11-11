@@ -1198,6 +1198,8 @@ internal sealed class ComponentTypeDto
     public int? Ways { get; set; }
     public double? SupplyRating { get; set; }
     public double? ExternalImpedance { get; set; }
+    public bool? SurgeProtection { get; set; }
+    public int? Phases { get; set; }
 
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
@@ -1207,6 +1209,7 @@ internal sealed class ComponentTypeDto
 
     /// <summary>What a gas appliance takes in as gas, W gross; none for one that burns none - or in a file from before, where a template type takes its own.</summary>
     public double? GasInput { get; set; }
+    public string? Flue { get; set; }
 
     /// <summary>A sprinkler's listing - the side of the square it covers, mm, its K-factor, l/min/bar½, and its temperature rating, °C - and a sprinkler valve set's supply pressure, bar.</summary>
     public double? Coverage { get; set; }
@@ -3036,6 +3039,9 @@ internal sealed class RepeatingDetailDto
 
 internal sealed class AreaBoundaryDto
 {
+    /// <summary>The wall it was picked from and follows; none for one drawn.</summary>
+    public Guid? WallId { get; set; }
+
     public Guid Id { get; set; }
     public Guid LevelId { get; set; }
     public string? Scheme { get; set; }
