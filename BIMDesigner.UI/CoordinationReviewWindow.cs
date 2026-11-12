@@ -5,8 +5,9 @@ using BIMDesigner.Core.Coordination;
 namespace BIMDesigner.UI;
 
 /// <summary>
-/// The Coordination Review: each level and gridline following a linked model's whose original has
-/// changed since it was last agreed - moved, renamed, gone, or its link taken out - with what to do:
+/// The Coordination Review: each level, gridline, column and wall following a linked model's whose
+/// original has changed since it was last agreed - moved, renamed, its bottom or top moved, of another
+/// type, gone, or its link taken out - with what to do:
 /// Move to Match brings this project's to it, Accept leaves this project's where it is and agrees
 /// the original as it now is, Stop Following lets it go its own way. Each is one step to undo.
 /// </summary>
@@ -23,14 +24,14 @@ internal sealed class CoordinationReviewWindow : System.Windows.Window
         MinWidth = 520;
         MinHeight = 260;
 
-        var copy = new Button { Content = "Copy/Monitor", ToolTip = "Copy the picked link's levels and gridlines in, or pair them with this project's own, to follow them" };
-        copy.Click += (_, _) => _main.CopyMonitorFrom(null);
+        var copy = new Button { Content = "Copy/Monitor", ToolTip = "Copy the picked link's levels, gridlines, columns or walls in, or pair them with this project's own, to follow them" };
+        copy.Click += (_, _) => _main.AskAndCopyMonitor(null);
         var close = new Button { Content = "Close", IsCancel = true, IsDefault = true };
         close.Click += (_, _) => Close();
 
         var root = new DockPanel();
         root.Children.Add(DialogLook.Footer(_said, copy, close));
-        root.Children.Add(DialogLook.Intro("The levels and gridlines copied from a linked model, or paired with one there, follow their originals. "
+        root.Children.Add(DialogLook.Intro("The levels, gridlines, columns and walls copied from a linked model, or paired with one there, follow their originals. "
                                            + "Where an original has changed since it was last agreed, it is listed here: move this project's to match it, accept it as it now is, or stop following it."));
         root.Children.Add(new ScrollViewer { Content = _rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
@@ -47,13 +48,14 @@ internal sealed class CoordinationReviewWindow : System.Windows.Window
         _rows.Children.Clear();
         var document = _main.Document;
         var findings = CopyMonitor.Review(document);
-        var followed = document.Levels.Count(level => level.Monitor is not null) + document.All<Core.Datums.Grid>().Count(grid => grid.Monitor is not null);
+        var followed = document.Levels.Count(level => level.Monitor is not null) + document.All<Core.Datums.Grid>().Count(grid => grid.Monitor is not null)
+                       + document.All<Core.Architecture.Column>().Count(column => column.Monitor is not null) + document.All<Core.Architecture.Wall>().Count(wall => wall.Monitor is not null);
         foreach (var finding in findings) _rows.Children.Add(Row(finding));
 
         DialogLook.Say(_said, followed == 0
             ? "Nothing follows a linked model yet: pick a link and Copy/Monitor."
             : findings.Count == 0
-                ? $"{followed} level{(followed == 1 ? string.Empty : "s")} and gridline{(followed == 1 ? string.Empty : "s")} following, all as agreed."
+                ? $"{followed} following a linked model's, all as agreed."
                 : $"{findings.Count} change{(findings.Count == 1 ? string.Empty : "s")} among the {followed} followed.");
     }
 
@@ -70,9 +72,15 @@ internal sealed class CoordinationReviewWindow : System.Windows.Window
             buttons.Children.Add(button);
         }
 
-        if (finding.Change is MonitorChange.Moved or MonitorChange.Renamed)
+        if (finding.Change is MonitorChange.Moved or MonitorChange.Renamed or MonitorChange.Resized or MonitorChange.Retyped)
         {
-            Add(finding.Change == MonitorChange.Moved ? "Move to Match" : "Rename to Match", "Bring this project's to where its original now is", () => CopyMonitor.Match(_main.Document, finding));
+            Add(finding.Change switch
+                {
+                    MonitorChange.Moved => "Move to Match",
+                    MonitorChange.Renamed => "Rename to Match",
+                    MonitorChange.Resized => "Match Height",
+                    _ => "Change Type to Match"
+                }, "Bring this project's to where its original now is, or as it now is", () => CopyMonitor.Match(_main.Document, finding));
             Add("Accept", "Leave this project's as it is, and agree its original as it now is", () => CopyMonitor.Accept(_main.Document, finding));
         }
 

@@ -400,19 +400,27 @@ internal sealed class IssuesWindow : System.Windows.Window
         Replace(changed, $"Comment on {issue.Title}");
     }
 
-    /// <summary>An issue for each open clash with none of its own yet - by the clash's GUID - with a picture of it.</summary>
+    /// <summary>
+    /// An issue for each open group of clashes, and each open clash in none, with none of its own yet - by
+    /// the group's or the clash's GUID - with a picture of it.
+    /// </summary>
     private void FromClashes()
     {
         var known = Document.Issues.Select(issue => issue.Id).ToHashSet();
         var made = new List<Issue>();
         var index = Document.Issues.Count;
         foreach (var test in Document.ClashTests)
-            foreach (var clash in test.Results.Where(clash => clash.IsOpen && !known.Contains(clash.Id)))
+        {
+            foreach (var group in test.Groups.Where(group => ClashGroups.IsOpen(test, group) && !known.Contains(group.Id)))
+                made.Add(Issues.FromClashGroup(test, group, Me, _host.SnapshotOf(ClashGroups.Members(test, group)), ++index));
+            foreach (var clash in test.Results.Where(clash => clash.IsOpen && clash.GroupId is null && !known.Contains(clash.Id)))
                 made.Add(Issues.FromClash(test, clash, Me, _host.Snapshot(clash), ++index));
-        var open = Document.ClashTests.Sum(test => test.Results.Count(clash => clash.IsOpen));
+        }
+
+        var open = Document.ClashTests.Sum(test => test.Groups.Count(group => ClashGroups.IsOpen(test, group)) + test.Results.Count(clash => clash.IsOpen && clash.GroupId is null));
         if (made.Count == 0)
         {
-            DialogLook.Say(_problem, open == 0 ? "There are no open clashes: run the clash tests in Clash Detective first." : $"Each of the {open} open clashes is an issue already.");
+            DialogLook.Say(_problem, open == 0 ? "There are no open clashes: run the clash tests in Clash Detective first." : $"Each of the {open} open clashes - or groups of them - is an issue already.");
             return;
         }
 

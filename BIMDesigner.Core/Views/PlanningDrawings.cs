@@ -49,7 +49,7 @@ public static class PlanningDrawings
     private static readonly HashSet<BuiltInCategory> OnLocationPlans = new()
     {
         BuiltInCategory.Walls, BuiltInCategory.Floors, BuiltInCategory.Roofs, BuiltInCategory.PropertyLines, BuiltInCategory.Topography,
-        BuiltInCategory.Pads, BuiltInCategory.ImportedDrawings, BuiltInCategory.LinkedModels, BuiltInCategory.CurtainPanels, BuiltInCategory.CurtainWallMullions
+        BuiltInCategory.Pads, BuiltInCategory.ImportedDrawings, BuiltInCategory.RasterImages, BuiltInCategory.LinkedModels, BuiltInCategory.CurtainPanels, BuiltInCategory.CurtainWallMullions
     };
 
     /// <summary>What a block plan draws as well: the doors and windows, the roof's edges, steps, ramps, railings, trees, parking.</summary>

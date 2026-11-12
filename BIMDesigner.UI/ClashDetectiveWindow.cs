@@ -26,6 +26,12 @@ internal interface ICoordinationHost
     /// <summary>A picture of the 3D view at a clash, as a PNG - none where it cannot be drawn.</summary>
     byte[]? Snapshot(Clash clash);
 
+    /// <summary>Selects every element of a group of clashes and turns the 3D view to take them all in.</summary>
+    void ShowClashes(IReadOnlyList<Clash> clashes);
+
+    /// <summary>A picture of the 3D view taking in a group of clashes, as a PNG - none where it cannot be drawn.</summary>
+    byte[]? SnapshotOf(IReadOnlyList<Clash> clashes);
+
     /// <summary>The elements selected in the model.</summary>
     IReadOnlyList<Element> Selected { get; }
 
@@ -49,6 +55,8 @@ internal interface ICoordinationHost
 /// Clash Detective: the project's clash tests - what each checks against what, how closely - run
 /// one at a time or all together, and what each found: each clash with its status, where it is,
 /// what it is between and by how much, who has it and by when, and what has been said about it.
+/// Clashes are put together in groups - by the element they share, their storey, grid, types or
+/// nearness, each time the test runs, or by hand - a group one issue, folded away under its row.
 /// Show turns the 3D view to it. The clashes go out as BCF for other BIM tools, as a report, or
 /// as a spreadsheet. Every change is a step to undo.
 /// </summary>
@@ -59,7 +67,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
     private readonly StackPanel _editor = new();
     private readonly DataGrid _results = new()
     {
-        AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Single, HeadersVisibility = DataGridHeadersVisibility.Column,
+        AutoGenerateColumns = false, IsReadOnly = true, SelectionMode = DataGridSelectionMode.Extended, HeadersVisibility = DataGridHeadersVisibility.Column,
         GridLinesVisibility = DataGridGridLinesVisibility.Horizontal, CanUserAddRows = false
     };
 
@@ -69,6 +77,9 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
     private Guid? _testId;
     private bool _loading;
 
+    /// <summary>The groups whose clashes are shown under them.</summary>
+    private readonly HashSet<Guid> _unfolded = new();
+
     public ClashDetectiveWindow(ICoordinationHost host)
     {
         _host = host;
@@ -77,7 +88,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         MinWidth = 900;
         MinHeight = 520;
 
-        _results.Columns.Add(Column("Clash", nameof(ClashRow.Name), 70));
+        _results.Columns.Add(Column("Clash", nameof(ClashRow.Name), 150));
         _results.Columns.Add(Column("Status", nameof(ClashRow.Status), 72));
         _results.Columns.Add(Column("Distance", nameof(ClashRow.Distance), 70));
         _results.Columns.Add(Column("Level", nameof(ClashRow.Level), 90));
@@ -89,7 +100,11 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         _results.Columns.Add(Column("Due", nameof(ClashRow.Due), 76));
         _results.Columns.Add(Column("Found", nameof(ClashRow.Found), 76));
         _results.SelectionChanged += (_, _) => ShowIssue();
-        _results.MouseDoubleClick += (_, _) => { if (Picked is { } clash) _host.ShowClash(clash); };
+        _results.MouseDoubleClick += (_, _) =>
+        {
+            if (PickedGroup is { } group) Fold(group);
+            else if (Picked is { } clash) _host.ShowClash(clash);
+        };
         _tests.SelectionChanged += (_, _) =>
         {
             if (_loading) return;
@@ -122,7 +137,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
 
         var right = new DockPanel { Margin = new Thickness(0, 0, 16, 0) };
         var top = new DockPanel();
-        top.Children.Add(Label("CLASHES  -  DOUBLE-CLICK ONE TO SEE IT", 0));
+        top.Children.Add(Label("CLASHES  -  DOUBLE-CLICK ONE TO SEE IT, A GROUP TO OPEN IT", 0));
         DockPanel.SetDock(top, Dock.Top);
         right.Children.Add(top);
         var bottom = new StackPanel();
@@ -138,8 +153,8 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
             + "A clearance clash is two coming nearer than the distance given; a duplicate is the same thing drawn twice in one place; a sequence clash is something built, by the construction programme, before what it stands on is finished. "
             + "Run a test again after changes: what it still finds keeps its status, what it no longer finds is resolved."));
         dock.Children.Add(DialogLook.Footer(_problem,
-            Make("Show", () => { if (Picked is { } clash) _host.ShowClash(clash); }, "Select the clash's two elements and turn the 3D view to it"),
-            Make("BCF...", ExportBcf, "The open clashes as BCF 2.1 issues, with a picture of each, for Navisworks, Solibri, BIMcollab and the rest to open against the IFC"),
+            Make("Show", ShowPicked, "Select the clash's two elements - or every element of the group - and turn the 3D view to it"),
+            Make("BCF...", ExportBcf, "The open clashes as BCF 2.1 issues - each group one, with every element in it - with a picture of each, for Navisworks, Solibri, BIMcollab and the rest to open against the IFC"),
             Make("Report...", ExportHtml, "Every test and clash as a web page, with a picture of each"),
             Make("Excel...", ExportExcel, "Every clash as a spreadsheet row"),
             new Button { Content = "Close", IsCancel = true }));
@@ -159,6 +174,25 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
     private ClashTest? Test => Document.ClashTests.FirstOrDefault(test => test.Id == _testId);
 
     private Clash? Picked => (_results.SelectedItem as ClashRow)?.Clash is { } shown ? Test?.Results.FirstOrDefault(clash => clash.Id == shown.Id) : null;
+
+    private ClashGroup? PickedGroup => (_results.SelectedItem as ClashRow)?.Group is { } shown ? Test?.Groups.FirstOrDefault(group => group.Id == shown.Id) : null;
+
+    /// <summary>The clashes picked in the list, groups' rows left out.</summary>
+    private List<Clash> PickedClashes => _results.SelectedItems.OfType<ClashRow>().Select(row => row.Clash).OfType<Clash>()
+        .Select(shown => Test?.Results.FirstOrDefault(clash => clash.Id == shown.Id)).OfType<Clash>().ToList();
+
+    private void ShowPicked()
+    {
+        if (PickedGroup is { } group && Test is { } test) _host.ShowClashes(ClashGroups.Members(test, group));
+        else if (Picked is { } clash) _host.ShowClash(clash);
+    }
+
+    /// <summary>A group's clashes shown under it, or folded away.</summary>
+    private void Fold(ClashGroup group)
+    {
+        if (!_unfolded.Remove(group.Id)) _unfolded.Add(group.Id);
+        ShowResults();
+    }
 
     private static TextBlock Label(string text, double top = 10) => new() { Text = text, FontWeight = FontWeights.SemiBold, Opacity = 0.8, Margin = new Thickness(0, top, 0, 4) };
 
@@ -181,9 +215,10 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         foreach (var test in Document.ClashTests)
         {
             var open = test.Results.Count(clash => clash.IsOpen);
+            var groups = test.Groups.Count(group => ClashGroups.IsOpen(test, group));
             var item = new ListBoxItem
             {
-                Content = $"{test.Name}  -  {(test.LastRun is null ? "not run" : open == 0 ? "no clashes" : $"{open} open")}",
+                Content = $"{test.Name}  -  {(test.LastRun is null ? "not run" : open == 0 ? "no clashes" : $"{open} open{(groups > 0 ? $", {groups} group{(groups == 1 ? "" : "s")}" : "")}")}",
                 Tag = test.Id
             };
             _tests.Items.Add(item);
@@ -286,6 +321,39 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         _editor.Children.Add(hosted);
         _editor.Children.Add(insulated);
         _editor.Children.Add(linked);
+
+        // What its clashes are grouped by: now, and each time it runs.
+        var grouping = new ComboBox { ItemsSource = EnumText.Choices<ClashGrouping>(), SelectedItem = EnumText.Humanise(test.Grouping), Width = 130, Margin = new Thickness(0, 0, 8, 0),
+            ToolTip = "Put the clashes together each time the test runs: those sharing an element - a duct through seven beams, one duct to move - on one storey, on one storey near one grid crossing, between the same two types, or near each other" };
+        grouping.SelectionChanged += (_, _) =>
+        {
+            if (!EnumText.TryParse<ClashGrouping>(grouping.SelectedItem as string, out var picked) || picked == test.Grouping) return;
+            Change("Group Clashes", () =>
+            {
+                var live = Test!;
+                live.Grouping = picked;
+                ClashGroups.Group(Document, live, picked, live.GroupDistance);
+            });
+        };
+        var within = new TextBox { Text = test.GroupDistance.ToString("0"), Width = 64, ToolTip = "How near clashes are to each other to be grouped, mm",
+            Visibility = test.Grouping == ClashGrouping.Proximity ? Visibility.Visible : Visibility.Collapsed };
+        within.LostFocus += (_, _) =>
+        {
+            if (double.TryParse(within.Text, out var value) && value >= 1 && value <= 100_000 && Math.Abs(value - test.GroupDistance) > 1e-9)
+                Change("Clash Group Distance", () => Test!.GroupDistance = value);
+        };
+        var ungroupAll = Small("Ungroup All", () => Change("Ungroup Clashes", () =>
+        {
+            var live = Test!;
+            foreach (var group in live.Groups.ToList()) ClashGroups.Ungroup(live, group);
+        }), "Take every group of this test apart, its clashes back on their own");
+        ungroupAll.IsEnabled = test.Groups.Count > 0;
+        var groupRow = new StackPanel { Orientation = Orientation.Horizontal };
+        groupRow.Children.Add(grouping);
+        groupRow.Children.Add(within);
+        groupRow.Children.Add(ungroupAll);
+        _editor.Children.Add(Label("GROUP CLASHES BY"));
+        _editor.Children.Add(groupRow);
         _editor.Children.Add(Label("SELECTION A  -  AGAINST  -  SELECTION B"));
         var sets = new Grid();
         sets.ColumnDefinitions.Add(new ColumnDefinition());
@@ -323,20 +391,40 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
 
     // ---- clashes ------------------------------------------------------------------------
 
-    /// <summary>A clash as the list shows it.</summary>
-    private sealed record ClashRow(Clash Clash, string Name, string Status, string Distance, string Level, string Grid, string First, string Second, string AssignedTo, string Priority, string Due, string Found);
+    /// <summary>A clash as the list shows it - or a group of them, its clashes under it when it is open.</summary>
+    private sealed record ClashRow(Clash? Clash, ClashGroup? Group, string Name, string Status, string Distance, string Level, string Grid, string First, string Second, string AssignedTo, string Priority, string Due, string Found);
 
     private void ShowResults()
     {
-        var keep = Picked?.Id;
-        var rows = (Test?.Results ?? new List<Clash>())
-            .Where(clash => _showResolved.IsChecked == true || clash.IsOpen)
-            .Select(clash => new ClashRow(clash, clash.Name, clash.Status.ToString(), $"{Core.Units.Millimetres(clash.Distance, "0")}", clash.Level, clash.GridLocation,
-                ClashDetective.NameOf(Document, clash.ElementA), ClashDetective.NameOf(Document, clash.ElementB), clash.AssignedTo, clash.Priority.ToString(),
-                clash.DueDate?.ToString("d MMM yyyy") ?? string.Empty, clash.Found.ToString("d MMM yyyy")))
-            .ToList();
+        var keep = _results.SelectedItems.OfType<ClashRow>().Select(row => row.Clash?.Id ?? row.Group?.Id).OfType<Guid>().ToHashSet();
+        var rows = new List<ClashRow>();
+        bool Shown(Clash clash) => _showResolved.IsChecked == true || clash.IsOpen;
+        ClashRow RowOf(Clash clash, string indent) => new(clash, null, indent + clash.Name, clash.Status.ToString(), $"{Core.Units.Millimetres(clash.Distance, "0")}", clash.Level, clash.GridLocation,
+            ClashDetective.NameOf(Document, clash.ElementA), ClashDetective.NameOf(Document, clash.ElementB), clash.AssignedTo, clash.Priority.ToString(),
+            clash.DueDate?.ToString("d MMM yyyy") ?? string.Empty, clash.Found.ToString("d MMM yyyy"));
+        static string Common(IEnumerable<string> values) => values.Distinct().Take(2).ToList() is [var one] ? one : "(several)";
+
+        if (Test is { } test)
+        {
+            foreach (var group in test.Groups)
+            {
+                var members = ClashGroups.Members(test, group);
+                var shown = members.Where(Shown).ToList();
+                if (shown.Count == 0) continue;
+                var open = _unfolded.Contains(group.Id);
+                var count = members.Count(clash => clash.IsOpen);
+                rows.Add(new ClashRow(null, group, $"{(open ? "▾" : "▸")} {group.Name}", ClashGroups.Status(test, group).ToString(),
+                    Core.Units.Millimetres(members.Min(clash => clash.Distance), "0"), Common(members.Select(clash => clash.Level)), Common(members.Select(clash => clash.GridLocation)),
+                    $"{members.Count} clash{(members.Count == 1 ? "" : "es")}{(count < members.Count ? $", {count} open" : "")}", string.Empty, ClashGroups.AssignedTo(test, group),
+                    ClashGroups.Priority(test, group).ToString(), ClashGroups.Due(test, group)?.ToString("d MMM yyyy") ?? string.Empty, members.Min(clash => clash.Found).ToString("d MMM yyyy")));
+                if (open) rows.AddRange(shown.Select(clash => RowOf(clash, "      ")));
+            }
+
+            rows.AddRange(test.Results.Where(clash => clash.GroupId is null && Shown(clash)).Select(clash => RowOf(clash, string.Empty)));
+        }
+
         _results.ItemsSource = rows;
-        _results.SelectedItem = rows.FirstOrDefault(row => row.Clash.Id == keep);
+        foreach (var row in rows.Where(row => keep.Contains(row.Clash?.Id ?? row.Group!.Id))) _results.SelectedItems.Add(row);
         ShowIssue();
     }
 
@@ -344,9 +432,21 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
     private void ShowIssue()
     {
         _issue.Children.Clear();
+        if (PickedGroup is { } picked && _results.SelectedItems.Count == 1)
+        {
+            ShowGroup(picked);
+            return;
+        }
+
+        if (PickedClashes is { Count: > 1 } several)
+        {
+            ShowSeveral(several);
+            return;
+        }
+
         if (Picked is not { } clash)
         {
-            _issue.Children.Add(new TextBlock { Text = "Pick a clash to give it a status, assign it and comment on it.", Opacity = 0.7 });
+            _issue.Children.Add(new TextBlock { Text = "Pick a clash to give it a status, assign it and comment on it - or several, with Ctrl or Shift, to group them.", Opacity = 0.7 });
             return;
         }
 
@@ -394,6 +494,116 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         commentRow.Children.Add(say);
         commentRow.Children.Add(add);
         _issue.Children.Add(commentRow);
+
+        // In a group: which, and out of it.
+        if (Test?.Groups.FirstOrDefault(group => group.Id == clash.GroupId) is { } inGroup)
+        {
+            var groupRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            groupRow.Children.Add(new TextBlock { Text = $"In the group {inGroup.Name}.", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75, Margin = new Thickness(0, 0, 8, 0) });
+            groupRow.Children.Add(Small("Take Out of Group", () => Change("Take Clash Out of Group", () => ClashGroups.TakeOut(Test!, new[] { clash.Id })),
+                "On its own again - its group taken away if it is left with none"));
+            _issue.Children.Add(groupRow);
+        }
+    }
+
+    private static Button Small(string text, Action act, string tip)
+    {
+        var button = new Button { Content = text, Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 6, 0), ToolTip = tip };
+        button.Click += (_, _) => act();
+        return button;
+    }
+
+    /// <summary>A group picked: its name, where it stands - set on each of its clashes - what has been said of it, and to show it, open it, or take it apart.</summary>
+    private void ShowGroup(ClashGroup group)
+    {
+        var test = Test!;
+        var members = ClashGroups.Members(test, group);
+        void Set(string what, Action<ClashTest, ClashGroup> change)
+        {
+            var id = group.Id;
+            Change($"Clash Group {what}", () =>
+            {
+                if (Test is { } live && live.Groups.FirstOrDefault(each => each.Id == id) is { } kept) change(live, kept);
+            });
+        }
+
+        var open = members.Count(clash => clash.IsOpen);
+        _issue.Children.Add(new TextBlock
+        {
+            Text = $"{group.Name}: {members.Count} clash{(members.Count == 1 ? "" : "es")}, {open} open{(group.Key is null ? ", grouped by hand" : string.Empty)}. What is set here is set on each of them.",
+            TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6)
+        });
+        var row = new WrapPanel();
+        var name = new TextBox { Text = group.Name, Width = 200, Margin = new Thickness(0, 0, 8, 0), ToolTip = "The group's name" };
+        name.LostFocus += (_, _) => { if (name.Text.Trim() is { Length: > 0 } text && text != group.Name) Set("Name", (_, live) => live.Name = text); };
+        var status = new ComboBox { ItemsSource = Enum.GetNames<ClashStatus>(), SelectedItem = ClashGroups.Status(test, group).ToString(), Width = 100, Margin = new Thickness(0, 0, 8, 0),
+            ToolTip = "Its least advanced clash's status. Set, it is each clash's - but one the test no longer finds stays resolved unless the group is approved" };
+        status.SelectionChanged += (_, _) =>
+        {
+            if (Enum.TryParse<ClashStatus>(status.SelectedItem as string, out var value) && value != ClashGroups.Status(test, group)) Set("Status", (live, kept) => ClashGroups.SetStatus(live, kept, value));
+        };
+        var priority = new ComboBox { ItemsSource = Enum.GetNames<ClashPriority>(), SelectedItem = ClashGroups.Priority(test, group).ToString(), Width = 90, Margin = new Thickness(0, 0, 8, 0) };
+        priority.SelectionChanged += (_, _) =>
+        {
+            if (Enum.TryParse<ClashPriority>(priority.SelectedItem as string, out var value) && members.Any(clash => clash.Priority != value))
+                Set("Priority", (live, kept) => { foreach (var clash in ClashGroups.Members(live, kept)) clash.Priority = value; });
+        };
+        var assigned = new TextBox { Text = ClashGroups.AssignedTo(test, group), Width = 160, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Who it is assigned to: each of its clashes" };
+        assigned.LostFocus += (_, _) =>
+        {
+            var who = assigned.Text.Trim();
+            if (members.Any(clash => clash.AssignedTo != who)) Set("Assigned To", (live, kept) => { foreach (var clash in ClashGroups.Members(live, kept)) clash.AssignedTo = who; });
+        };
+        var due = new TextBox { Text = ClashGroups.Due(test, group)?.ToString("yyyy-MM-dd") ?? string.Empty, Width = 96, ToolTip = "Due by: a date, such as 2026-11-30 - each of its clashes" };
+        due.LostFocus += (_, _) =>
+        {
+            var text = due.Text.Trim();
+            DateOnly? value = text.Length == 0 ? null : DateOnly.TryParse(text, out var parsed) ? parsed : ClashGroups.Due(test, group);
+            if (members.Any(clash => clash.DueDate != value)) Set("Due Date", (live, kept) => { foreach (var clash in ClashGroups.Members(live, kept)) clash.DueDate = value; });
+        };
+        foreach (var (label, control) in new (string, Control)[] { ("Name", name), ("Status", status), ("Priority", priority), ("Assigned to", assigned), ("Due", due) })
+        {
+            row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), Opacity = 0.75 });
+            row.Children.Add(control);
+        }
+
+        _issue.Children.Add(row);
+        foreach (var comment in group.Comments)
+            _issue.Children.Add(new TextBlock { Text = $"{comment.Author}, {comment.Date:d MMM yyyy HH:mm}: {comment.Text}", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
+        var say = new TextBox { Width = 520, Margin = new Thickness(0, 6, 8, 0) };
+        var add = new Button { Content = "Comment", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 6, 0, 0) };
+        add.Click += (_, _) =>
+        {
+            if (say.Text.Trim() is not { Length: > 0 } text) return;
+            Set("Comment", (_, live) => live.Comments.Add(new ClashComment(DateTime.Now, Environment.UserName, text)));
+        };
+        var commentRow = new StackPanel { Orientation = Orientation.Horizontal };
+        commentRow.Children.Add(say);
+        commentRow.Children.Add(add);
+        _issue.Children.Add(commentRow);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        buttons.Children.Add(Small("Show", () => _host.ShowClashes(ClashGroups.Members(Test!, group)), "Select every element of its clashes and turn the 3D view to take them all in"));
+        buttons.Children.Add(Small(_unfolded.Contains(group.Id) ? "Fold Away" : "Open", () => Fold(group), "Its clashes listed under it, or folded away"));
+        buttons.Children.Add(Small("Ungroup", () => Change("Ungroup Clashes", () => { if (Test!.Groups.FirstOrDefault(each => each.Id == group.Id) is { } live) ClashGroups.Ungroup(Test!, live); }),
+            "Take the group apart: its clashes back on their own"));
+        _issue.Children.Add(buttons);
+    }
+
+    /// <summary>Several clashes picked: put them together as a group of their own, or take them out of theirs.</summary>
+    private void ShowSeveral(IReadOnlyList<Clash> clashes)
+    {
+        var test = Test!;
+        _issue.Children.Add(new TextBlock { Text = $"{clashes.Count} clashes picked.", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var name = new TextBox { Text = $"Group {test.Groups.Count + 1}", Width = 200, Margin = new Thickness(0, 0, 8, 0), ToolTip = "The new group's name" };
+        var ids = clashes.Select(clash => clash.Id).ToList();
+        row.Children.Add(name);
+        row.Children.Add(Small("Group", () => Change("Group Clashes by Hand", () => ClashGroups.GroupByHand(Test!, ids, name.Text)),
+            "Put them together as one issue - out of any group they were in"));
+        if (clashes.Any(clash => clash.GroupId is not null))
+            row.Children.Add(Small("Take Out of Groups", () => Change("Take Clashes Out of Groups", () => ClashGroups.TakeOut(Test!, ids)), "Each on its own again"));
+        _issue.Children.Add(row);
     }
 
     // ---- reports ------------------------------------------------------------------------
@@ -405,7 +615,7 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         try
         {
             using var file = File.Create(dialog.FileName);
-            ClashReports.WriteBcf(file, Document, Document.ClashTests, Environment.UserName, _host.Snapshot);
+            ClashReports.WriteBcf(file, Document, Document.ClashTests, Environment.UserName, _host.Snapshot, groupSnapshot: _host.SnapshotOf);
             _problem.Text = $"Saved {Path.GetFileName(dialog.FileName)}.";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { _problem.Text = exception.Message; }

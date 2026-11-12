@@ -1,6 +1,7 @@
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
+using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
 using BIMDesigner.Core.Views;
 using BIMDesigner.Infrastructure.Serialization;
@@ -34,6 +35,7 @@ public class ImageUnderlayTests
         var (_, picture) = Placed();
         Assert.Equal((2000, 1000), (picture.PixelWidth, picture.PixelHeight));
         Assert.Null(ImageUnderlay.From("notes.txt", new byte[] { 1, 2, 3, 4 }, Guid.Empty));
+        Assert.Equal(BuiltInCategory.RasterImages, picture.Category);
 
         // 10 mm a pixel to start: 20 by 10 m from its bottom left corner.
         Assert.Equal((20_000.0, 10_000.0), (picture.Width, picture.Height));

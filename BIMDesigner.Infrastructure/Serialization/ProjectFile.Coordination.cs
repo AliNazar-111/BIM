@@ -20,12 +20,19 @@ public static partial class ProjectFile
             AgainstLinks = test.AgainstLinks ? true : null,
             SelectionA = test.SelectionA.Select(category => category.ToString()).ToList(),
             SelectionB = test.SelectionB.Select(category => category.ToString()).ToList(),
+            Grouping = test.Grouping == ClashGrouping.None ? null : test.Grouping.ToString(),
+            GroupDistance = test.Grouping == ClashGrouping.Proximity ? test.GroupDistance : null,
+            Groups = test.Groups.Count == 0 ? null : test.Groups.Select(group => new ClashGroupDto
+            {
+                Id = group.Id, Name = group.Name, Key = group.Key,
+                Comments = group.Comments.Count == 0 ? null : group.Comments.Select(comment => new ClashCommentDto { Date = comment.Date, Author = comment.Author, Text = comment.Text }).ToList()
+            }).ToList(),
             Results = test.Results.Select(clash => new ClashDto
             {
                 Id = clash.Id, Name = clash.Name, ElementA = clash.ElementA, ElementB = clash.ElementB,
                 X = clash.Point.X, Y = clash.Point.Y, Z = clash.Point.Z, Distance = clash.Distance, Status = clash.Status.ToString(), Found = clash.Found,
                 Description = clash.Description, GridLocation = clash.GridLocation, Level = clash.Level, AssignedTo = clash.AssignedTo,
-                Priority = clash.Priority.ToString(), DueDate = clash.DueDate,
+                Priority = clash.Priority.ToString(), DueDate = clash.DueDate, GroupId = clash.GroupId,
                 Comments = clash.Comments.Select(comment => new ClashCommentDto { Date = comment.Date, Author = comment.Author, Text = comment.Text }).ToList()
             }).ToList()
         }).ToList();
@@ -76,8 +83,17 @@ public static partial class ProjectFile
                     Id = saved.Id, Name = saved.Name ?? "Clash test", Kind = ParseEnum(saved.Kind, ClashKind.Hard),
                     Tolerance = Math.Clamp(Finite(saved.Tolerance, 10), 0, 10000), IgnoreHosted = saved.IgnoreHosted, LastRun = saved.LastRun,
                     AllowInsulation = saved.AllowInsulation == true,
-                    AgainstLinks = saved.AgainstLinks == true
+                    AgainstLinks = saved.AgainstLinks == true,
+                    Grouping = ParseEnum(saved.Grouping, ClashGrouping.None),
+                    GroupDistance = Math.Clamp(Finite(saved.GroupDistance ?? 3000, 3000), 1, 100_000)
                 };
+                foreach (var group in saved.Groups ?? new List<ClashGroupDto>())
+                {
+                    var kept = new ClashGroup { Id = group.Id, Name = group.Name ?? "Group", Key = group.Key };
+                    kept.Comments.AddRange((group.Comments ?? new List<ClashCommentDto>()).Select(comment => new ClashComment(comment.Date, comment.Author ?? string.Empty, comment.Text ?? string.Empty)));
+                    test.Groups.Add(kept);
+                }
+
                 test.SelectionA.AddRange(Categories(saved.SelectionA));
                 test.SelectionB.AddRange(Categories(saved.SelectionB));
                 foreach (var result in saved.Results ?? new List<ClashDto>())
@@ -88,12 +104,13 @@ public static partial class ProjectFile
                         Point = new Core.Geometry.Point3D(Finite(result.X, 0), Finite(result.Y, 0), Finite(result.Z, 0)), Distance = Finite(result.Distance, 0),
                         Status = ParseEnum(result.Status, ClashStatus.New), Found = result.Found, Description = result.Description ?? string.Empty,
                         GridLocation = result.GridLocation ?? string.Empty, Level = result.Level ?? string.Empty, AssignedTo = result.AssignedTo ?? string.Empty,
-                        Priority = ParseEnum(result.Priority, ClashPriority.Normal), DueDate = result.DueDate
+                        Priority = ParseEnum(result.Priority, ClashPriority.Normal), DueDate = result.DueDate, GroupId = result.GroupId
                     };
                     clash.Comments.AddRange((result.Comments ?? new List<ClashCommentDto>()).Select(comment => new ClashComment(comment.Date, comment.Author ?? string.Empty, comment.Text ?? string.Empty)));
                     test.Results.Add(clash);
                 }
 
+                ClashGroups.Tidy(test);
                 document.ClashTests.Add(test);
             }
 
@@ -161,6 +178,19 @@ internal sealed class ClashTestDto
     public List<string>? SelectionA { get; set; }
     public List<string>? SelectionB { get; set; }
     public List<ClashDto>? Results { get; set; }
+
+    /// <summary>What its clashes are grouped by each run; none in a file from before.</summary>
+    public string? Grouping { get; set; }
+    public double? GroupDistance { get; set; }
+    public List<ClashGroupDto>? Groups { get; set; }
+}
+
+internal sealed class ClashGroupDto
+{
+    public Guid Id { get; set; }
+    public string? Name { get; set; }
+    public string? Key { get; set; }
+    public List<ClashCommentDto>? Comments { get; set; }
 }
 
 internal sealed class ClashDto
@@ -181,6 +211,7 @@ internal sealed class ClashDto
     public string? AssignedTo { get; set; }
     public string? Priority { get; set; }
     public DateOnly? DueDate { get; set; }
+    public Guid? GroupId { get; set; }
     public List<ClashCommentDto>? Comments { get; set; }
 }
 

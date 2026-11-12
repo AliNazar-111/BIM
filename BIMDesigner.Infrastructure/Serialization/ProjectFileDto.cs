@@ -1105,6 +1105,9 @@ internal sealed class ColumnTypeDto
 internal sealed class ColumnDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The linked model's column it follows; none in a file from before, or for one of its own.</summary>
+    public ElementMonitorDto? Monitor { get; set; }
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }
 
@@ -1634,6 +1637,37 @@ internal sealed class MonitorDto
             : null;
 }
 
+/// <summary>A column's or wall's agreed state of the linked model's it follows.</summary>
+internal sealed class ElementMonitorDto
+{
+    public Guid LinkId { get; set; }
+    public Guid SourceId { get; set; }
+    public string? SourceName { get; set; }
+    public string? TypeName { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public double Rotation { get; set; }
+    public double Bulge { get; set; }
+    public double Bottom { get; set; }
+    public double Top { get; set; }
+    public string? Mark { get; set; }
+
+    public static ElementMonitorDto? Of(BIMDesigner.Core.Coordination.ElementMonitor? monitor) => monitor is null ? null : new ElementMonitorDto
+    {
+        LinkId = monitor.LinkId, SourceId = monitor.SourceId, SourceName = monitor.SourceName, TypeName = monitor.TypeName,
+        StartX = monitor.Start.X, StartY = monitor.Start.Y, EndX = monitor.End.X, EndY = monitor.End.Y,
+        Rotation = monitor.Rotation, Bulge = monitor.Bulge, Bottom = monitor.Bottom, Top = monitor.Top, Mark = monitor.Mark.Length > 0 ? monitor.Mark : null
+    };
+
+    public BIMDesigner.Core.Coordination.ElementMonitor? ToMonitor() =>
+        new[] { StartX, StartY, EndX, EndY, Rotation, Bulge, Bottom, Top }.All(double.IsFinite)
+            ? new(LinkId, SourceId, SourceName ?? string.Empty, TypeName ?? string.Empty, new BIMDesigner.Core.Geometry.Point2D(StartX, StartY),
+                new BIMDesigner.Core.Geometry.Point2D(EndX, EndY), Rotation, Bulge, Bottom, Top, Mark ?? string.Empty)
+            : null;
+}
+
 internal sealed class MaterialDto
 {
     public Guid Id { get; set; }
@@ -2008,6 +2042,9 @@ internal sealed class WallFaceRegionDto
 internal sealed class WallDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The linked model's wall it follows; none in a file from before, or for one of its own.</summary>
+    public ElementMonitorDto? Monitor { get; set; }
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }
 

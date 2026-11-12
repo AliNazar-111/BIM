@@ -14,7 +14,7 @@ namespace BIMDesigner.Core.Architecture;
 /// </summary>
 public sealed class ImageUnderlay : Element
 {
-    public override BuiltInCategory Category => BuiltInCategory.ImportedDrawings;
+    public override BuiltInCategory Category => BuiltInCategory.RasterImages;
 
     /// <summary>The file it came from.</summary>
     public string Source { get; set; } = string.Empty;

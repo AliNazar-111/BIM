@@ -73,11 +73,30 @@ public partial class MainWindow : ICoordinationHost
         StatusHint.Text = $"{clash.Name}: {clash.Description}";
     }
 
-    byte[]? ICoordinationHost.Snapshot(Clash clash)
+    void ICoordinationHost.ShowClashes(IReadOnlyList<Clash> clashes)
+    {
+        if (clashes.Count == 0) return;
+        var elements = clashes.SelectMany(clash => new[] { clash.ElementA, clash.ElementB }).Distinct().Select(id => _document.FindElement(id)).OfType<Element>().ToList();
+        if (elements.Count > 0) Plan.SelectMany(elements);
+        if (ModelPanel.Visibility != Visibility.Visible) Show3D();
+        Model3D.SetSelection(elements.Select(element => element.Id));
+        var (middle, min, max) = ClashGroups.Extent(clashes);
+        var across = Math.Sqrt(Math.Pow(max.X - min.X, 2) + Math.Pow(max.Y - min.Y, 2) + Math.Pow(max.Z - min.Z, 2));
+        Model3D.LookAt(middle, Math.Max(5000, across * 1.2));
+        RefreshProperties();
+        StatusHint.Text = $"{clashes.Count} clashes: {string.Join(", ", clashes.Select(clash => clash.Name))}";
+    }
+
+    byte[]? ICoordinationHost.Snapshot(Clash clash) => Picture(() => ((ICoordinationHost)this).ShowClash(clash));
+
+    byte[]? ICoordinationHost.SnapshotOf(IReadOnlyList<Clash> clashes) => Picture(() => ((ICoordinationHost)this).ShowClashes(clashes));
+
+    /// <summary>The 3D view as a PNG once it has been turned to something.</summary>
+    private byte[]? Picture(Action show)
     {
         try
         {
-            ((ICoordinationHost)this).ShowClash(clash);
+            show();
             Model3D.UpdateLayout();
             var picture = Model3D.RenderFrame();
             var encoder = new PngBitmapEncoder();

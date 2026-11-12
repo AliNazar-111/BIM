@@ -1,3 +1,4 @@
+using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Datums;
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Documents.Commands;
@@ -7,7 +8,7 @@ using BIMDesigner.Core.Views;
 
 namespace BIMDesigner.Core.Coordination;
 
-/// <summary>What has become of a level or gridline of a linked model one of this project's follows.</summary>
+/// <summary>What has become of a level, gridline, column or wall of a linked model one of this project's follows.</summary>
 public enum MonitorChange
 {
     /// <summary>It has moved: a level up or down, a gridline across or along.</summary>
@@ -15,6 +16,12 @@ public enum MonitorChange
 
     /// <summary>It has been renamed.</summary>
     Renamed,
+
+    /// <summary>A column's or wall's bottom or top has moved up or down.</summary>
+    Resized,
+
+    /// <summary>A column or wall is of another type.</summary>
+    Retyped,
 
     /// <summary>It is no longer in the linked model.</summary>
     Gone,
@@ -26,7 +33,14 @@ public enum MonitorChange
 /// <summary>A change found in what a level or gridline follows: this project's datum, its link, what has become of it and what is said.</summary>
 public sealed record MonitorFinding(object Datum, ModelLink? Link, MonitorChange Change, string Said)
 {
-    public string Name => Datum switch { Level level => level.Name, Grid grid => $"Grid {grid.Name}", _ => "?" };
+    public string Name => Datum switch
+    {
+        Level level => level.Name,
+        Grid grid => $"Grid {grid.Name}",
+        Column column => string.IsNullOrWhiteSpace(column.Mark) ? "Column" : $"Column {column.Mark}",
+        Wall wall => string.IsNullOrWhiteSpace(wall.Mark) ? "Wall" : $"Wall {wall.Mark}",
+        _ => "?"
+    };
 }
 
 /// <summary>
@@ -34,9 +48,10 @@ public sealed record MonitorFinding(object Datum, ModelLink? Link, MonitorChange
 /// architect's storeys - brought into this project where the link puts them, or paired with this
 /// project's own already there, each then following its original. Where the linked model is issued
 /// again and one has moved, been renamed or gone, the Coordination Review says so, and each change
-/// is moved to match, accepted as it now is, or no longer followed - one step to undo.
+/// is moved to match, accepted as it now is, or no longer followed - one step to undo. Its columns
+/// and walls are copied and followed as well, where asked.
 /// </summary>
-public static class CopyMonitor
+public static partial class CopyMonitor
 {
     /// <summary>How far apart a datum and its original may be and still be the same place, mm.</summary>
     public const double Tolerance = 0.5;
@@ -58,21 +73,24 @@ public static class CopyMonitor
         (a.Start.DistanceTo(b.End) <= Tolerance && a.End.DistanceTo(b.Start) <= Tolerance);
 
     /// <summary>
-    /// A link's levels and gridlines - those asked for, or all - copied into this project where the link
-    /// puts them, each following its original; one already here at the same place is paired with it
-    /// instead, not copied again. One step to undo, and what was done said; null where there is nothing to do.
+    /// A link's levels and gridlines - those asked for, or all - and its columns and walls where asked,
+    /// copied into this project where the link puts them, each following its original; one already here
+    /// at the same place is paired with it instead, not copied again. One step to undo, and what was
+    /// done said; null where there is nothing to do.
     /// </summary>
-    public static (IUndoableCommand? Command, string Said) Copy(BimDocument host, ModelLink link, IReadOnlyCollection<Guid>? levels = null, IReadOnlyCollection<Guid>? grids = null)
+    public static (IUndoableCommand? Command, string Said) Copy(BimDocument host, ModelLink link, IReadOnlyCollection<Guid>? levels = null, IReadOnlyCollection<Guid>? grids = null,
+        CopyMonitorKinds kinds = CopyMonitorKinds.Datums)
     {
         if (ModelLinks.Of(link) is not { Document: { } linked })
             return (null, $"{link.Title} is not loaded: load it to copy from it.");
 
         var steps = new List<IUndoableCommand>();
-        var (copied, paired) = (new List<string>(), new List<string>());
+        var (copied, paired, passed) = (new List<string>(), new List<string>(), new List<string>());
+        var levelFor = new Dictionary<Guid, Level>();
         var takenLevels = host.Levels.Select(level => level.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var takenGrids = host.All<Grid>().Select(grid => grid.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var source in linked.Levels.Where(level => levels is null || levels.Contains(level.Id)))
+        foreach (var source in linked.Levels.Where(level => kinds.HasFlag(CopyMonitorKinds.Levels) && (levels is null || levels.Contains(level.Id))))
         {
             var elevation = ElevationOf(host, link, linked, source);
             var monitor = new DatumMonitor(link.Id, source.Id, source.Name, elevation, default, default);
@@ -81,16 +99,19 @@ public static class CopyMonitor
                 if (here.Monitor is not null) continue;
                 steps.Add(Monitoring(here, monitor));
                 paired.Add($"{here.Name} with {source.Name}");
+                levelFor[source.Id] = here;
                 continue;
             }
 
             if (host.Levels.Any(level => level.Monitor is { } already && already.LinkId == link.Id && (already.SourceId == source.Id || already.SourceName == source.Name))) continue;
             var name = Unique(source.Name, takenLevels);
-            steps.Add(new AddLevelCommand(host, new Level { Name = name, Elevation = elevation, Monitor = monitor }));
+            var made = new Level { Name = name, Elevation = elevation, Monitor = monitor };
+            steps.Add(new AddLevelCommand(host, made));
+            levelFor[source.Id] = made;
             copied.Add(name);
         }
 
-        foreach (var source in linked.All<Grid>().Where(grid => grids is null || grids.Contains(grid.Id)))
+        foreach (var source in linked.All<Grid>().Where(grid => kinds.HasFlag(CopyMonitorKinds.Grids) && (grids is null || grids.Contains(grid.Id))))
         {
             var line = LineOf(host, link, linked, source);
             var monitor = new DatumMonitor(link.Id, source.Id, source.Name, 0, line.Start, line.End);
@@ -108,11 +129,18 @@ public static class CopyMonitor
             copied.Add($"grid {name}");
         }
 
-        if (steps.Count == 0) return (null, $"Nothing more to copy from {link.Title}: its levels and gridlines are followed already.");
+        if (kinds.HasFlag(CopyMonitorKinds.Columns) || kinds.HasFlag(CopyMonitorKinds.Walls))
+            CopyElements(host, link, linked, kinds, levelFor, steps, copied, paired, passed);
+
+        var left = passed.GroupBy(what => what).Select(what => $"{what.Count()} {(what.Count() == 1 ? what.Key : what.Key.EndsWith(" wall") ? what.Key + "s" : what.Key.Replace("column", "columns"))}").ToList();
+        var what = string.Join(", ", new[] { kinds.HasFlag(CopyMonitorKinds.Levels) ? "levels" : null, kinds.HasFlag(CopyMonitorKinds.Grids) ? "gridlines" : null,
+            kinds.HasFlag(CopyMonitorKinds.Columns) ? "columns" : null, kinds.HasFlag(CopyMonitorKinds.Walls) ? "walls" : null }.OfType<string>());
+        if (steps.Count == 0) return (null, $"Nothing more to copy from {link.Title}: its {what} are followed already{(left.Count > 0 ? $", but for {string.Join(", ", left)}, which cannot be followed" : string.Empty)}.");
         var said = $"From {link.Title}: " + string.Join("; ", new[]
         {
             copied.Count > 0 ? $"copied {string.Join(", ", copied)}" : null,
-            paired.Count > 0 ? $"paired {string.Join(", ", paired)}" : null
+            paired.Count > 0 ? $"paired {string.Join(", ", paired)}" : null,
+            left.Count > 0 ? $"left {string.Join(", ", left)}, which cannot be followed" : null
         }.OfType<string>()) + ". Each now follows its original: the Coordination Review says when one changes.";
         return (new CompositeCommand("Copy/Monitor", steps), said);
     }
@@ -141,8 +169,9 @@ public static class CopyMonitor
     }
 
     /// <summary>
-    /// What has changed in the linked models since each datum following one was last agreed: an
-    /// original moved, renamed or gone, or its link taken out. A link not loaded says nothing.
+    /// What has changed in the linked models since each datum, column or wall following one was last
+    /// agreed: an original moved, renamed, its bottom or top moved, of another type or gone, or its
+    /// link taken out. A link not loaded says nothing.
     /// </summary>
     public static IReadOnlyList<MonitorFinding> Review(BimDocument host)
     {
@@ -194,6 +223,7 @@ public static class CopyMonitor
             }
         }
 
+        findings.AddRange(ReviewElements(host));
         return findings;
     }
 
@@ -220,6 +250,7 @@ public static class CopyMonitor
     /// </summary>
     public static IUndoableCommand? Match(BimDocument host, MonitorFinding finding)
     {
+        if (finding.Datum is Column or Wall) return MatchElement(host, finding, (Element)finding.Datum);
         if (finding.Link is not { } link || ModelLinks.Of(link) is not { Document: { } linked } || MonitorOf(finding.Datum) is not { } monitor) return null;
         switch (finding.Datum)
         {
@@ -251,6 +282,7 @@ public static class CopyMonitor
     /// <summary>A change accepted as it now is: this project's datum left where it is, its original agreed where it now stands. One step to undo.</summary>
     public static IUndoableCommand? Accept(BimDocument host, MonitorFinding finding)
     {
+        if (finding.Datum is Column or Wall) return AcceptElement(host, finding, (Element)finding.Datum);
         if (finding.Link is not { } link || ModelLinks.Of(link) is not { Document: { } linked } || MonitorOf(finding.Datum) is not { } monitor) return null;
         return finding.Datum switch
         {
@@ -263,10 +295,10 @@ public static class CopyMonitor
     }
 
     /// <summary>A datum no longer following its original. One step to undo.</summary>
-    public static IUndoableCommand Stop(MonitorFinding finding) => Monitoring(finding.Datum, null);
+    public static IUndoableCommand Stop(MonitorFinding finding) => Stop(finding.Datum);
 
-    /// <summary>A datum no longer following its original, from its Properties. One step to undo.</summary>
-    public static IUndoableCommand Stop(object datum) => Monitoring(datum, null);
+    /// <summary>A datum, column or wall no longer following its original, from its Properties. One step to undo.</summary>
+    public static IUndoableCommand Stop(object datum) => datum is Column or Wall ? Following((Element)datum, null) : Monitoring(datum, null);
 
     /// <summary>What a datum follows, as its Properties say it.</summary>
     public static string Said(BimDocument host, DatumMonitor? monitor) =>

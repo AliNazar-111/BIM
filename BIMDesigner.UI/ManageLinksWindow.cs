@@ -83,8 +83,8 @@ internal sealed class ManageLinksWindow : System.Windows.Window
             if (picked is ModelLink link) ModelLinks.Forget(link);
             _main.Relinked();
         };
-        var copyMonitor = new Button { Content = "Copy/Monitor", ToolTip = "Copy the picked model's levels and gridlines in - or pair them with this project's own - each to follow its original" };
-        copyMonitor.Click += (_, _) => { if (Picked is ModelLink link) _main.CopyMonitorFrom(link); };
+        var copyMonitor = new Button { Content = "Copy/Monitor", ToolTip = "Copy the picked model's levels, gridlines, columns or walls in - or pair them with this project's own - each to follow its original" };
+        copyMonitor.Click += (_, _) => { if (Picked is ModelLink link) _main.AskAndCopyMonitor(link); };
         var close = new Button { Content = "Close", IsCancel = true };
         close.Click += (_, _) => Close();
 

@@ -76,6 +76,14 @@ public sealed class CoordinationEditCommand : IUndoableCommand
         copy.SelectionA.AddRange(test.SelectionA);
         copy.SelectionB.AddRange(test.SelectionB);
         copy.Results.AddRange(test.Results.Select(Copy));
+        (copy.Grouping, copy.GroupDistance) = (test.Grouping, test.GroupDistance);
+        foreach (var group in test.Groups)
+        {
+            var kept = new ClashGroup { Id = group.Id, Name = group.Name, Key = group.Key };
+            kept.Comments.AddRange(group.Comments);
+            copy.Groups.Add(kept);
+        }
+
         return copy;
     }
 
@@ -85,7 +93,7 @@ public sealed class CoordinationEditCommand : IUndoableCommand
         {
             Id = clash.Id, Name = clash.Name, ElementA = clash.ElementA, ElementB = clash.ElementB, Point = clash.Point, Distance = clash.Distance,
             Status = clash.Status, Found = clash.Found, Description = clash.Description, GridLocation = clash.GridLocation, Level = clash.Level,
-            AssignedTo = clash.AssignedTo, Priority = clash.Priority, DueDate = clash.DueDate
+            AssignedTo = clash.AssignedTo, Priority = clash.Priority, DueDate = clash.DueDate, GroupId = clash.GroupId
         };
         copy.Comments.AddRange(clash.Comments);
         return copy;

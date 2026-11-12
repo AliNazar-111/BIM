@@ -113,6 +113,155 @@ public class LinkWorkTests : IDisposable
         Assert.Single(CopyMonitor.Review(host));
     }
 
+    /// <summary>
+    /// The structure with a steel column C1 at (3000, 2000) from the ground floor to the first, and its walls of
+    /// an engineer's blockwork type of their own - of a material this project has not got - marked W1 to W4.
+    /// </summary>
+    private static BimDocument Framed()
+    {
+        var document = Structure();
+        var blockwork = new Core.Materials.Material("Blockwork, Engineer's 7N") { Density = 2000 };
+        document.AddMaterial(blockwork);
+        var type = document.TypesOf<WallType>().First(each => each.Function == WallFunction.Exterior).Duplicate("Engineer's Blockwork 215");
+        type.Structure.ReplaceLayers(new[] { new Core.Materials.MaterialLayer(Core.Materials.LayerFunction.Structure, blockwork.Id, 215) });
+        document.AddType(type);
+        var mark = 0;
+        foreach (var wall in document.Walls)
+            (wall.TypeId, wall.Mark) = (type.Id, $"W{++mark}");
+        var steel = document.TypesOf<ColumnType>().First(each => each.Structural && each.Shape == ColumnShape.IBeam);
+        document.Add(new Column { Structural = true, TypeId = steel.Id, Location = new Point2D(3000, 2000), LevelId = document.Levels[0].Id, TopLevelId = document.Levels[1].Id, Mark = "C1" });
+        return document;
+    }
+
+    [Fact]
+    public void ColumnsAndWallsCopiedFollowTheirOriginalsAndTheirMovesHeightsAndTypesAreMatched()
+    {
+        // Linked turned a quarter and a metre east: (x, y) there is (1000 - y, x) here.
+        var structure = Framed();
+        var file = Path.Combine(_folder, "framed.bimx");
+        ProjectFile.Save(structure, file);
+        var host = BimDocument.CreateDefault();
+        var link = new ModelLink { Path = file, Offset = new Vector2D(1000, 0), Rotation = 90 };
+        host.Add(link);
+        ModelLinks.Load(link);
+
+        var (copy, said) = CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Levels | CopyMonitorKinds.Columns | CopyMonitorKinds.Walls);
+        var history = new UndoStack();
+        history.Execute(copy!);
+        Assert.Contains("1 column", said);
+        Assert.Contains("4 walls", said);
+        Assert.Contains("Engineer's Blockwork 215", said);
+        Assert.Empty(host.All<Grid>());
+
+        // The column where the link puts it, turned with it, from the ground floor to the first floor copied at 3500.
+        var column = host.All<Column>().Single();
+        Assert.Equal((new Point2D(-1000, 3000), 90.0, "C1"), (new Point2D(Math.Round(column.Location.X, 6), Math.Round(column.Location.Y, 6)), Math.Round(column.Rotation, 6), column.Mark));
+        Assert.True(column.Structural);
+        Assert.Equal(structure.All<Column>().Single().GetBaseElevation(structure), column.GetBaseElevation(host), 6);
+        Assert.Equal(3500.0, Math.Round(column.GetTopElevation(host) - host.FindType<ColumnType>(column.TypeId)!.OffsetTop, 6));
+        Assert.Equal(host.Levels.Single(level => level.Elevation == 3500).Id, column.TopLevelId);
+
+        // The walls of the engineer's type, brought in with its blockwork; 3 m high, as drawn there.
+        var walls = host.Walls.OrderBy(wall => wall.Mark).ToList();
+        Assert.Equal(4, walls.Count);
+        var type = host.FindType<WallType>(walls[0].TypeId)!;
+        Assert.Equal("Engineer's Blockwork 215", type.Name);
+        Assert.Equal("Blockwork, Engineer's 7N", host.FindMaterial(type.Structure.Layers[0].MaterialId)!.Name);
+        Assert.Equal((new Point2D(1000, 0), new Point2D(1000, 6000)), (Rounded(walls[0].Start), Rounded(walls[0].End)));
+        Assert.Equal(3000, walls[0].GetTopElevation(host) - walls[0].GetBaseElevation(host), 6);
+        Assert.Empty(CopyMonitor.Review(host));
+        Assert.Null(CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Columns | CopyMonitorKinds.Walls).Command);
+        Assert.All(ProjectFile.FromJson(ProjectFile.ToJson(host)).Walls, wall => Assert.Equal("Engineer's Blockwork 215", wall.Monitor?.TypeName));
+
+        // Issued again: the column 500 east, W2 300 higher, W3 a partition, W4 gone.
+        var source = structure.All<Column>().Single();
+        source.Location += new Vector2D(500, 0);
+        var sourceWalls = structure.Walls.OrderBy(wall => wall.Mark).ToList();
+        sourceWalls[1].UnconnectedHeight = 3300;
+        var partition = structure.TypesOf<WallType>().First(each => each.Name == "Interior - Partition 125mm");
+        sourceWalls[2].TypeId = partition.Id;
+        structure.Remove(sourceWalls[3]);
+        ProjectFile.Save(structure, file);
+        ModelLinks.Load(link);
+
+        var findings = CopyMonitor.Review(host);
+        Assert.Equal(new[] { MonitorChange.Moved, MonitorChange.Resized, MonitorChange.Retyped, MonitorChange.Gone }.OrderBy(change => change), findings.Select(finding => finding.Change).OrderBy(change => change));
+        var moved = findings.Single(finding => finding.Change == MonitorChange.Moved);
+        Assert.Equal("Column C1", moved.Name);
+        Assert.Contains("moved 500", moved.Said.Replace(" mm", string.Empty));
+        Assert.Contains("top 300 higher", findings.Single(finding => finding.Change == MonitorChange.Resized).Said.Replace(" mm", string.Empty));
+        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked columns and walls changed");
+
+        // Each matched: the column to where it now is, W2 to its new top, W3 to this project's partition; W4 let go.
+        foreach (var finding in findings.Where(finding => finding.Change != MonitorChange.Gone)) history.Execute(CopyMonitor.Match(host, finding)!);
+        history.Execute(CopyMonitor.Stop(findings.Single(finding => finding.Change == MonitorChange.Gone)));
+        Assert.Equal(new Point2D(-1000, 3500), Rounded(column.Location));
+        Assert.Equal(3300, walls[1].GetTopElevation(host) - walls[1].GetBaseElevation(host), 6);
+        Assert.Equal("Interior - Partition 125mm", host.FindType<WallType>(walls[2].TypeId)!.Name);
+        Assert.Null(walls[3].Monitor);
+        Assert.Empty(CopyMonitor.Review(host));
+
+        // Undone, the partition back to blockwork and its change to review again.
+        history.Undo();
+        history.Undo();
+        Assert.Equal("Engineer's Blockwork 215", host.FindType<WallType>(walls[2].TypeId)!.Name);
+        Assert.Equal(2, CopyMonitor.Review(host).Count);
+    }
+
+    private static Point2D Rounded(Point2D point) => new(Math.Round(point.X, 6), Math.Round(point.Y, 6));
+
+    [Fact]
+    public void AFrameWrittenAgainFromScratchIsFollowedByItsMarks()
+    {
+        var (host, link, file) = Linked(Framed());
+        new UndoStack().Execute(CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Columns | CopyMonitorKinds.Walls).Command!);
+
+        // Made again from nothing - every element a new id - its column C1 200 north.
+        var again = Framed();
+        again.All<Column>().Single().Location += new Vector2D(0, 200);
+        ProjectFile.Save(again, file);
+        ModelLinks.Load(link);
+
+        // Found again by their marks: the column moved, nothing gone; matched, it follows the new one.
+        var finding = Assert.Single(CopyMonitor.Review(host));
+        Assert.Equal((MonitorChange.Moved, "Column C1"), (finding.Change, finding.Name));
+        CopyMonitor.Match(host, finding)!.Redo();
+        Assert.Empty(CopyMonitor.Review(host));
+        Assert.Equal(again.All<Column>().Single().Id, host.All<Column>().Single().Monitor!.SourceId);
+        Assert.Null(CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Columns | CopyMonitorKinds.Walls).Command);
+    }
+
+    [Fact]
+    public void AColumnOrWallAlreadyStandingThereIsPairedAndACurtainWallIsLeft()
+    {
+        var structure = Framed();
+        structure.Add(new Wall
+        {
+            Start = new Point2D(0, 6000), End = new Point2D(6000, 6000), LevelId = structure.Levels[0].Id, UnconnectedHeight = 3000,
+            TypeId = structure.TypesOf<CurtainWallType>().First(type => type.Name.Contains("Storefront")).Id
+        });
+        var (host, link, _) = Linked(structure);
+
+        // This project's own wall already on W1's line, as high; and its own column type of the engineer's column's name.
+        var own = new Wall { Start = new Point2D(0, 0), End = new Point2D(6000, 0), LevelId = host.Levels[0].Id, UnconnectedHeight = 3000, TypeId = host.TypesOf<WallType>().First().Id };
+        host.Add(own);
+        var (copy, said) = CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Walls | CopyMonitorKinds.Columns);
+        new UndoStack().Execute(copy!);
+        Assert.Contains("paired wall W1", said);
+        Assert.Contains("left 1 curtain, stacked, elliptical or spline wall", said);
+        Assert.Equal(4, host.Walls.Count());
+        Assert.NotNull(own.Monitor);
+        Assert.Equal("The wall W1 in structure.bimx", CopyMonitor.Said(host, own.Monitor));
+        Assert.Equal(host.TypesOf<WallType>().First().Name, host.FindType<WallType>(own.TypeId)!.Name);
+
+        // The column on the storey it stands at, this project's ground floor, standing its height there; its type this project's own of that name.
+        var column = host.All<Column>().Single();
+        Assert.Equal(host.Levels[0].Id, column.LevelId);
+        Assert.Null(column.TopLevelId);
+        Assert.Single(host.TypesOf<ColumnType>(), type => type.Name == host.FindType<ColumnType>(column.TypeId)!.Name);
+        Assert.Empty(CopyMonitor.Review(host));
+    }
+
     [Fact]
     public void ALinkedModelWrittenAgainFromScratchIsFollowedByNameWhereItsIdsAreNew()
     {

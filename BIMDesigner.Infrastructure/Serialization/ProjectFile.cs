@@ -1241,6 +1241,7 @@ public static partial class ProjectFile
             dto.Columns.Add(new ColumnDto
             {
                 Id = column.Id,
+                Monitor = ElementMonitorDto.Of(column.Monitor),
                 TypeId = column.TypeId,
                 LevelId = column.LevelId,
                 LocationX = column.Location.X,
@@ -1470,6 +1471,7 @@ public static partial class ProjectFile
             dto.Walls.Add(new WallDto
             {
                 Id = wall.Id,
+                Monitor = ElementMonitorDto.Of(wall.Monitor),
                 TypeId = wall.TypeId,
                 LevelId = wall.LevelId,
                 StartX = wall.Start.X,
@@ -2366,6 +2368,7 @@ public static partial class ProjectFile
             document.Add(new Wall
             {
                 Id = wall.Id,
+                Monitor = wall.Monitor?.ToMonitor(),
                 TypeId = wall.TypeId,
                 LevelId = wall.LevelId,
                 Start = new Point2D(wall.StartX, wall.StartY),
@@ -3233,6 +3236,7 @@ public static partial class ProjectFile
             document.Add(new Column
             {
                 Id = column.Id,
+                Monitor = column.Monitor?.ToMonitor(),
                 TypeId = column.TypeId,
                 LevelId = column.LevelId,
                 Location = new Point2D(column.LocationX, column.LocationY),

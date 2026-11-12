@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using BIMDesigner.Core.Architecture;
@@ -121,21 +122,69 @@ public partial class MainWindow
         var changed = CopyMonitor.Review(_document).Count(finding => finding.Link?.Id == link.Id);
         if (changed > 0)
         {
-            StatusHint.Text += $" {changed} change{(changed == 1 ? string.Empty : "s")} to the levels and gridlines followed from it - Coordination Review.";
+            StatusHint.Text += $" {changed} change{(changed == 1 ? string.Empty : "s")} to the levels, gridlines, columns and walls followed from it - Coordination Review.";
             _reviewWindow?.Refresh();
         }
     }
 
     private CoordinationReviewWindow? _reviewWindow;
 
-    private void OnCopyMonitor(object sender, RoutedEventArgs e) => CopyMonitorFrom(null);
+    private void OnCopyMonitor(object sender, RoutedEventArgs e) => AskAndCopyMonitor(null);
+
+    /// <summary>What Copy/Monitor brings from a link: its levels and gridlines to start with, then as last asked.</summary>
+    internal CopyMonitorKinds CopyMonitorKinds { get; set; } = CopyMonitorKinds.Datums;
+
+    /// <summary>Asks what to bring from the link - levels, gridlines, columns, walls - then copies and follows them.</summary>
+    internal void AskAndCopyMonitor(ModelLink? link)
+    {
+        var boxes = new (CopyMonitorKinds Kind, CheckBox Box)[]
+        {
+            (CopyMonitorKinds.Levels, new CheckBox { Content = "Levels", ToolTip = "Its storeys: copied in, or paired with this project's at the same height" }),
+            (CopyMonitorKinds.Grids, new CheckBox { Content = "Gridlines", ToolTip = "Its grid: copied in, or paired with this project's on the same line" }),
+            (CopyMonitorKinds.Columns, new CheckBox { Content = "Columns", ToolTip = "Its columns, structural and architectural: copied in with their types, or paired with this project's standing there" }),
+            (CopyMonitorKinds.Walls, new CheckBox { Content = "Walls", ToolTip = "Its straight and curved walls - not curtain, stacked, elliptical or spline walls: copied in with their types, or paired with this project's on the same line" })
+        };
+        var content = new StackPanel { Margin = new Thickness(16) };
+        content.Children.Add(new TextBlock { Text = "Copy from the linked model, each to follow its original:", Margin = new Thickness(0, 0, 0, 8) });
+        foreach (var (kind, box) in boxes)
+        {
+            box.IsChecked = CopyMonitorKinds.HasFlag(kind);
+            box.Margin = new Thickness(0, 2, 0, 2);
+            content.Children.Add(box);
+        }
+
+        var ok = new Button { Content = "Copy", Padding = new Thickness(20, 5, 20, 5), Margin = new Thickness(0, 12, 8, 0), IsDefault = true };
+        var cancel = new Button { Content = "Cancel", Padding = new Thickness(14, 5, 14, 5), Margin = new Thickness(0, 12, 0, 0), IsCancel = true };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        content.Children.Add(buttons);
+        var window = new System.Windows.Window
+        {
+            Title = "Copy/Monitor", Content = content, Owner = this, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, Background = Background, Foreground = Foreground
+        };
+        ok.Click += (_, _) => window.DialogResult = true;
+        if (window.ShowDialog() != true) return;
+
+        var kinds = boxes.Where(entry => entry.Box.IsChecked == true).Aggregate(CopyMonitorKinds.None, (all, entry) => all | entry.Kind);
+        if (kinds == CopyMonitorKinds.None)
+        {
+            StatusHint.Text = "Nothing picked to copy.";
+            return;
+        }
+
+        CopyMonitorKinds = kinds;
+        CopyMonitorFrom(link);
+    }
 
     private void OnCoordinationReview(object sender, RoutedEventArgs e) => OpenCoordinationReview();
 
     /// <summary>
-    /// A linked model's levels and gridlines copied in, or paired with this project's own where they
-    /// already stand, each to follow its original: the link given, the one picked, or the only one.
-    /// One step to undo; internal so tests and the harness can copy.
+    /// A linked model's levels and gridlines - and its columns and walls, as <see cref="CopyMonitorKinds"/>
+    /// says - copied in, or paired with this project's own where they already stand, each to follow its
+    /// original: the link given, the one picked, or the only one. One step to undo; internal so tests and
+    /// the harness can copy.
     /// </summary>
     internal void CopyMonitorFrom(ModelLink? link)
     {
@@ -144,12 +193,12 @@ public partial class MainWindow
         if (link is null)
         {
             StatusHint.Text = links.Count == 0
-                ? "Link a model first - Manage → Link Model - to copy its levels and gridlines."
+                ? "Link a model first - Manage → Link Model - to copy its levels, gridlines, columns or walls."
                 : "Pick the linked model to copy from - on the plan, in 3D or in Manage Links - then Copy/Monitor.";
             return;
         }
 
-        var (command, said) = CopyMonitor.Copy(_document, link);
+        var (command, said) = CopyMonitor.Copy(_document, link, kinds: CopyMonitorKinds);
         if (command is not null)
         {
             _history.Execute(command);

@@ -281,6 +281,53 @@ public static class Issues
     }
 
     /// <summary>
+    /// A group of clashes as one issue of the group's GUID: its test and name for its title, each of its
+    /// clashes said in it, where it stands - its least advanced clash's status, its highest priority, its
+    /// soonest due date, who has the most of it - what has been said of it and of each clash; and a view
+    /// of it all from the south-west, far enough off to take every clash in, each clash's first element
+    /// red and its second green.
+    /// </summary>
+    public static Issue FromClashGroup(ClashTest test, ClashGroup group, string author, byte[]? snapshot = null, int? index = null)
+    {
+        var members = ClashGroups.Members(test, group);
+        var due = ClashGroups.Due(test, group);
+        var issue = new Issue
+        {
+            Id = group.Id,
+            Title = $"{test.Name}: {group.Name}",
+            Type = "Clash",
+            Status = ClashGroups.Status(test, group).ToString(),
+            Priority = ClashGroups.Priority(test, group).ToString(),
+            Index = index,
+            Author = author,
+            Created = (members.Count > 0 ? members.Min(clash => clash.Found) : DateTime.Now).ToUniversalTime(),
+            Due = due?.ToDateTime(new TimeOnly(17, 0)).ToUniversalTime(),
+            AssignedTo = ClashGroups.AssignedTo(test, group),
+            Description = $"{members.Count} clash{(members.Count == 1 ? "" : "es")}: " + string.Join(" ", members.Select(clash =>
+                $"{clash.Name} ({clash.Status}{(clash.Level.Length > 0 ? $", {clash.Level}" : "")}{(clash.GridLocation.Length > 0 ? $" at grid {clash.GridLocation}" : "")}): {clash.Description}"))
+        };
+        issue.Labels.Add(test.Kind.ToString());
+        issue.Labels.Add("Group");
+
+        // Far enough off for the field of view to take in the box round every clash, and never nearer than one clash's view.
+        var (middle, min, max) = ClashGroups.Extent(members);
+        var across = Math.Sqrt(Math.Pow(max.X - min.X, 2) + Math.Pow(max.Y - min.Y, 2) + Math.Pow(max.Z - min.Z, 2));
+        var off = Math.Max(6000, across / 2 / Math.Tan(30 * Math.PI / 180) * 1.2);
+        var direction = new Point3D(Math.Sqrt(1.0 / 3), Math.Sqrt(1.0 / 3), -Math.Sqrt(1.0 / 3));
+        var eye = new Point3D(middle.X - direction.X * off, middle.Y - direction.Y * off, middle.Z - direction.Z * off);
+        var view = new IssueViewpoint { Camera = IssueCamera.From(new Camera3D(eye, middle) { FieldOfView = 60 }, 1), Snapshot = snapshot };
+        var (first, second) = (members.Select(clash => clash.ElementA).Distinct().ToList(), members.Select(clash => clash.ElementB).Distinct().ToList());
+        view.Selected.AddRange(first.Concat(second).Distinct().Select(IfcGuids.Compress));
+        view.Colours.Add(new IssueColour("FFFF0000", first.Select(IfcGuids.Compress).ToList()));
+        view.Colours.Add(new IssueColour("FF00A000", second.Except(first).Select(IfcGuids.Compress).ToList()));
+        issue.Viewpoints.Add(view);
+        issue.Comments.AddRange(group.Comments.Select(comment => new IssueComment { Date = comment.Date.ToUniversalTime(), Author = comment.Author, Text = comment.Text, Viewpoint = view.Id })
+            .Concat(members.SelectMany(clash => clash.Comments.Select(comment => new IssueComment { Date = comment.Date.ToUniversalTime(), Author = comment.Author, Text = $"{clash.Name}: {comment.Text}", Viewpoint = view.Id })))
+            .OrderBy(comment => comment.Date));
+        return issue;
+    }
+
+    /// <summary>
     /// Issues brought in from another program merged into the project's: one of a GUID it has already
     /// replaced by the one come in, its comments and viewpoints added to; the rest added after.
     /// </summary>

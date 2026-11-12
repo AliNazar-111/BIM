@@ -3603,6 +3603,7 @@ public partial class MainWindow : Window
         ContextEditFootprint.Visibility = selected is [Roof { IsExtrusion: false }] ? Visibility.Visible : Visibility.Collapsed;
         ContextSlabPanel.Visibility = selected is [Floor] or [Ceiling] ? Visibility.Visible : Visibility.Collapsed;
         ContextMassPanel.Visibility = selected is [Mass] ? Visibility.Visible : Visibility.Collapsed;
+        ContextImagePanel.Visibility = selected is [ImageUnderlay] ? Visibility.Visible : Visibility.Collapsed;
         ContextEditProfile.Visibility = selected is [Roof { IsExtrusion: true }] ? Visibility.Visible : Visibility.Collapsed;
         ContextAddFascia.Visibility = ContextAddGutters.Visibility = ContextAddSoffits.Visibility = ContextAddEaves.Visibility =
             selected is [Roof { IsExtrusion: false }] || dormerPicked ? Visibility.Visible : Visibility.Collapsed;

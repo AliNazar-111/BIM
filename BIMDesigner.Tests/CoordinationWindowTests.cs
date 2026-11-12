@@ -86,6 +86,44 @@ public class CoordinationWindowTests
     }
 
     [Fact]
+    public void ClashesPickedTogetherAreGroupedAndAGroupsStatusIsSetOnEach()
+    {
+        OnUiThread(() =>
+        {
+            // A second desk pushed into the front wall: two clashes.
+            var (main, document) = Opened();
+            var desk = document.Elements.OfType<Component>().Single();
+            document.Add(new Component { TypeId = desk.TypeId, TypeKind = desk.TypeKind, LevelId = desk.LevelId, Location = new Point2D(7000, 200) });
+            Call(main, "OnClashDetective", main, new RoutedEventArgs());
+            var window = Field<System.Windows.Window>(main, "_clashWindow");
+            Call(window, "Run", true);
+            var test = document.ClashTests.Single(each => each.Name.Contains("Fittings and furniture through walls"));
+            Assert.Equal(2, test.Results.Count);
+            Field<ListBox>(window, "_tests").SelectedIndex = document.ClashTests.IndexOf(test);
+
+            // Both picked and grouped: the list one row, the group, folded.
+            var results = Field<DataGrid>(window, "_results");
+            results.SelectAll();
+            var issue = Field<StackPanel>(window, "_issue");
+            var group = issue.Children.OfType<StackPanel>().SelectMany(row => row.Children.OfType<Button>()).Single(button => (string)button.Content == "Group");
+            group.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            var live = document.ClashTests.Single(each => each.Id == test.Id);
+            Assert.Single(live.Groups);
+            Assert.All(live.Results, clash => Assert.Equal(live.Groups[0].Id, clash.GroupId));
+            Assert.Equal(1, ((System.Collections.IList)results.ItemsSource).Count);
+
+            // The group picked, approved: each of its clashes approved - one step, undone.
+            results.SelectedIndex = 0;
+            var status = issue.Children.OfType<WrapPanel>().First().Children.OfType<ComboBox>().First();
+            status.SelectedItem = "Approved";
+            Assert.All(document.ClashTests.Single(each => each.Id == test.Id).Results, clash => Assert.Equal(ClashStatus.Approved, clash.Status));
+            Field<UndoStack>(main, "_history").Undo();
+            Assert.All(document.ClashTests.Single(each => each.Id == test.Id).Results, clash => Assert.Equal(ClashStatus.New, clash.Status));
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void TheProgrammeIsMadeFromTheModelAndPlayedInThe3DView()
     {
         OnUiThread(() =>

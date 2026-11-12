@@ -82,6 +82,9 @@ public sealed class Clash
 
     public List<ClashComment> Comments { get; } = new();
 
+    /// <summary>The group it is in, of its test's: none on its own.</summary>
+    public Guid? GroupId { get; set; }
+
     /// <summary>Whether it still wants looking at: not approved, not resolved.</summary>
     public bool IsOpen => Status is ClashStatus.New or ClashStatus.Active or ClashStatus.Reviewed;
 }
@@ -117,6 +120,15 @@ public sealed class ClashTest
     public DateTime? LastRun { get; set; }
 
     public List<Clash> Results { get; } = new();
+
+    /// <summary>What its clashes are put together by, each time it runs: those in no group yet joined to one of theirs, or grouped where two or more share it.</summary>
+    public ClashGrouping Grouping { get; set; }
+
+    /// <summary>How near clashes are to be to be grouped by nearness, mm.</summary>
+    public double GroupDistance { get; set; } = 3000;
+
+    /// <summary>Its clashes put together - by a rule or by hand - each group one issue.</summary>
+    public List<ClashGroup> Groups { get; } = new();
 }
 
 /// <summary>
@@ -261,7 +273,7 @@ public static class ClashDetective
         BuiltInCategory.Callouts or BuiltInCategory.ViewTemplates or BuiltInCategory.RevisionClouds or BuiltInCategory.KeynoteTags or
         BuiltInCategory.SpotElevations or BuiltInCategory.PropertyLines or BuiltInCategory.DetailLines or BuiltInCategory.FilledRegions or BuiltInCategory.AreaBoundaries or BuiltInCategory.Areas or BuiltInCategory.DetailComponents or BuiltInCategory.Masses or BuiltInCategory.Topography or
         BuiltInCategory.WallOpenings or BuiltInCategory.ShaftOpenings or BuiltInCategory.Entourage or BuiltInCategory.RoomSeparationLines or
-        BuiltInCategory.PipingSystems or BuiltInCategory.DuctSystems or BuiltInCategory.ElectricalCircuits);
+        BuiltInCategory.PipingSystems or BuiltInCategory.DuctSystems or BuiltInCategory.ElectricalCircuits or BuiltInCategory.RasterImages);
 
     /// <summary>Each element's solid, from its 3D meshes - a curtain panel's with its wall.</summary>
     // What one build of the model is made into for clash tests, kept with it: the tests run on it in turn find it made.
@@ -373,6 +385,8 @@ public static class ClashDetective
         test.Results.Clear();
         test.Results.AddRange(next.OrderBy(clash => clash.Status == ClashStatus.Resolved).ThenBy(clash => clash.Distance));
         test.LastRun = now;
+        ClashGroups.Tidy(test);
+        ClashGroups.Group(document, test, test.Grouping, test.GroupDistance);
         return test.Results.Where(clash => clash.IsOpen).ToList();
     }
 

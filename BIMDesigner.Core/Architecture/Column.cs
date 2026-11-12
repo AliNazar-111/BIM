@@ -299,6 +299,9 @@ public sealed class Column : Element
 
     public double TopOffset { get; set; }
 
+    /// <summary>The linked model's column this one follows, as last agreed: none for a column of this project's own.</summary>
+    public Coordination.ElementMonitor? Monitor { get; set; }
+
     private double _unconnectedHeight = 3000;
 
     /// <summary>How high it stands when nothing above constrains it.</summary>
@@ -557,6 +560,9 @@ public sealed class Column : Element
             yield return ParameterValue.ReadOnly(ColumnParameters.Regulations, () => StructureRules.Verdict(document, this));
             yield return AnalyticalParameters.Said(document, this);
         }
+
+        if (Monitor is not null)
+            yield return ParameterValue.ReadOnly(Coordination.ElementMonitorParameters.Monitors, () => Coordination.CopyMonitor.Said(document, Monitor));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }

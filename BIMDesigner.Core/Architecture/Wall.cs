@@ -142,6 +142,9 @@ public sealed class Wall : Element
     /// <summary>Millimetres relative to the top level. Negative drops below it.</summary>
     public double TopOffset { get; set; }
 
+    /// <summary>The linked model's wall this one follows, as last agreed: none for a wall of this project's own.</summary>
+    public Coordination.ElementMonitor? Monitor { get; set; }
+
     /// <summary>Height used when the wall has no top constraint. Millimetres.</summary>
     public double UnconnectedHeight
     {
@@ -759,6 +762,9 @@ public sealed class Wall : Element
         if (document.IsCurtainWall(this))
             yield return ParameterValue.ReadOnly(WallParameters.Guarding, () => OpeningGuarding.CurtainVerdict(document, this));
         yield return ParameterValue.ReadOnly(WallParameters.Regulations, () => WallRules.Verdict(document, this));
+
+        if (Monitor is not null)
+            yield return ParameterValue.ReadOnly(Coordination.ElementMonitorParameters.Monitors, () => Coordination.CopyMonitor.Said(document, Monitor));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }

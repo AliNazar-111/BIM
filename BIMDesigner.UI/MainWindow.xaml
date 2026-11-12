@@ -1248,10 +1248,9 @@
 
                         <HeaderedContentControl Header="Import &amp; Link" Style="{StaticResource RibbonPanel}">
                             <StackPanel Orientation="Horizontal">
-                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.ImportCad}"
-                                    Content="Import CAD" Click="OnImportCad"
-                                    ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over, faded under the model. The drawing tools snap to its ends and along its lines; double-click it for its layers"/>
                                 <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ImportCad}" Content="Import CAD" Click="OnImportCad"
+                                            ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over, faded under the model. The drawing tools snap to its ends and along its lines; double-click it for its layers"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.ImportCad}" Content="Import Image" Click="OnImportImage"
                                             ToolTip="A PNG or JPEG picture - a map, an aerial photograph, a scanned survey - brought under the storey shown to work over, faded under everything"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Scale}" Content="Scale Image" Click="OnScaleImage"
@@ -1267,9 +1266,9 @@
                                 </StackPanel>
                                 <StackPanel>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Level}" Content="Copy/Monitor" Click="OnCopyMonitor"
-                                            ToolTip="Copy the picked linked model's levels and gridlines into this project - or pair them with this project's own where they already stand - each to follow its original"/>
+                                            ToolTip="Copy the picked linked model's levels, gridlines, columns or walls into this project - or pair them with this project's own where they already stand - each to follow its original"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Warnings}" Content="Coordination Review" Click="OnCoordinationReview"
-                                            ToolTip="What has changed in the levels and gridlines following a linked model's: move each to match, accept it, or stop following it"/>
+                                            ToolTip="What has changed in the levels, gridlines, columns and walls following a linked model's: move each to match, accept it, or stop following it"/>
                                 </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
@@ -1596,6 +1595,14 @@
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Mass}"
                                         Content="Update to Face" Click="OnUpdateMassToFace"
                                         ToolTip="Bring the walls, curtain walls, floors and roof made from this mass's faces back to them, after the mass has changed - one step to undo"/>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <HeaderedContentControl x:Name="ContextImagePanel" Header="Picture" Style="{StaticResource ContextRibbonPanel}" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Scale}"
+                                        Content="Scale Image" Click="OnScaleImage"
+                                        ToolTip="Set the picture's true size: click two points on it a known distance apart - the ends of its scale bar, a building's front - and give the distance"/>
                             </StackPanel>
                         </HeaderedContentControl>
 

@@ -14,8 +14,8 @@ namespace BIMDesigner.Infrastructure.Interoperability;
 /// one folder per clash, named by its GUID, holding its markup (the topic: title, status, priority,
 /// who it is assigned to, when it is due, its comments) and a viewpoint (a camera looking at the
 /// clash and the two elements selected by their IFC GUIDs, in metres) with a snapshot where one
-/// is given - which Solibri, Navisworks, BIMcollab and the rest open against the IFC; as an HTML
-/// report; or as a spreadsheet.
+/// is given - which Solibri, Navisworks, BIMcollab and the rest open against the IFC; a group of
+/// clashes one topic, with every element in it; as an HTML report; or as a spreadsheet.
 /// </summary>
 public static class ClashReports
 {
@@ -30,15 +30,28 @@ public static class ClashReports
         tests.SelectMany(test => test.Results.Where(clash => !openOnly || clash.IsOpen).Select(clash => (test, clash)));
 
     /// <summary>
-    /// Writes clashes as a BCF 2.1 file. A snapshot for a clash, a PNG, goes in with it where one
-    /// is given; the author is who the topics are said to come from.
+    /// Writes clashes as a BCF 2.1 file: each group of clashes one topic - open while any of them is - and
+    /// each clash in none a topic of its own. A snapshot, a PNG, goes in with each where one is given; the
+    /// author is who the topics are said to come from.
     /// </summary>
-    public static void WriteBcf(Stream output, BimDocument document, IEnumerable<ClashTest> tests, string author, Func<Clash, byte[]?>? snapshot = null, bool openOnly = true)
+    public static void WriteBcf(Stream output, BimDocument document, IEnumerable<ClashTest> tests, string author, Func<Clash, byte[]?>? snapshot = null, bool openOnly = true,
+        Func<IReadOnlyList<Clash>, byte[]?>? groupSnapshot = null)
     {
         var index = 0;
-        var issues = Chosen(tests, openOnly).Select(chosen => Issues.FromClash(chosen.Test, chosen.Clash, author, snapshot?.Invoke(chosen.Clash), ++index)).ToList();
+        var issues = new List<Issue>();
+        foreach (var test in tests)
+        {
+            foreach (var group in test.Groups.Where(group => !openOnly || ClashGroups.IsOpen(test, group)))
+                issues.Add(Issues.FromClashGroup(test, group, author, groupSnapshot?.Invoke(ClashGroups.Members(test, group)), ++index));
+            foreach (var clash in test.Results.Where(clash => clash.GroupId is null && (!openOnly || clash.IsOpen)))
+                issues.Add(Issues.FromClash(test, clash, author, snapshot?.Invoke(clash), ++index));
+        }
+
         BcfFile.Write(output, document, issues, "2.1");
     }
+
+    /// <summary>The name of the group a clash is in, if any.</summary>
+    private static string GroupOf(ClashTest test, Clash clash) => test.Groups.FirstOrDefault(group => group.Id == clash.GroupId)?.Name ?? string.Empty;
 
     /// <summary>The clashes as a web page: each test, what it checks and when it ran, and each clash with what it is between, where, its status and who has it - a picture of it where one is given.</summary>
     public static string Html(BimDocument document, IEnumerable<ClashTest> tests, Func<Clash, byte[]?>? snapshot = null, bool openOnly = false)
@@ -55,21 +68,27 @@ public static class ClashReports
 
         foreach (var test in tests)
         {
-            var clashes = test.Results.Where(clash => !openOnly || clash.IsOpen).ToList();
+            // Each group's clashes together, the groups in the order they were made, then those in none.
+            var order = test.Groups.Select((group, at) => (group.Id, at)).ToDictionary(entry => entry.Id, entry => entry.at);
+            var clashes = test.Results.Where(clash => !openOnly || clash.IsOpen)
+                .OrderBy(clash => clash.GroupId is { } id && order.TryGetValue(id, out var at) ? at : int.MaxValue).ToList();
             var counts = string.Join(", ", Enum.GetValues<ClashStatus>().Select(status => (status, count: test.Results.Count(clash => clash.Status == status)))
                 .Where(entry => entry.count > 0).Select(entry => $"{entry.count} {entry.status.ToString().ToLowerInvariant()}"));
             html.Append("<h2>").Append(E(test.Name)).Append("</h2><p>").Append(E(test.Kind.ToString())).Append(" clash")
                 .Append(test.Kind == ClashKind.Clearance ? $", {test.Tolerance:0} mm clear" : test.Kind == ClashKind.Hard ? $", tolerance {test.Tolerance:0} mm" : string.Empty)
                 .Append(" - ").Append(E(string.Join(", ", test.SelectionA.Distinct()))).Append(" against ").Append(E(string.Join(", ", test.SelectionB.Distinct())))
                 .Append(". Run ").Append(E(test.LastRun?.ToString("d MMM yyyy HH:mm", CultureInfo.InvariantCulture) ?? "never")).Append(": ").Append(E(counts.Length == 0 ? "no clashes" : counts)).Append(".</p>");
+            if (test.Groups.Count > 0)
+                html.Append("<p>Grouped: ").Append(E(string.Join("; ", test.Groups.Select(group =>
+                    $"{group.Name} - {ClashGroups.Members(test, group).Count} clashes, {ClashGroups.Status(test, group).ToString().ToLowerInvariant()}")))).Append(".</p>");
             if (clashes.Count == 0) continue;
 
-            html.Append("<table><tr><th>Clash</th><th>Status</th><th>Distance (mm)</th><th>Level</th><th>Grid</th><th>Element 1</th><th>Element 2</th><th>Description</th><th>Found</th><th>Assigned to</th><th>Priority</th><th>Due</th><th>Comments</th>");
+            html.Append("<table><tr><th>Clash</th><th>Group</th><th>Status</th><th>Distance (mm)</th><th>Level</th><th>Grid</th><th>Element 1</th><th>Element 2</th><th>Description</th><th>Found</th><th>Assigned to</th><th>Priority</th><th>Due</th><th>Comments</th>");
             if (snapshot is not null) html.Append("<th>View</th>");
             html.Append("</tr>");
             foreach (var clash in clashes)
             {
-                html.Append("<tr><td>").Append(E(clash.Name)).Append("</td><td class=\"").Append(clash.Status).Append("\">").Append(clash.Status)
+                html.Append("<tr><td>").Append(E(clash.Name)).Append("</td><td>").Append(E(GroupOf(test, clash))).Append("</td><td class=\"").Append(clash.Status).Append("\">").Append(clash.Status)
                     .Append("</td><td class=\"n\">").Append(clash.Distance.ToString("0", CultureInfo.InvariantCulture))
                     .Append("</td><td>").Append(E(clash.Level)).Append("</td><td>").Append(E(clash.GridLocation))
                     .Append("</td><td>").Append(E(ClashDetective.NameOf(document, clash.ElementA))).Append("</td><td>").Append(E(ClashDetective.NameOf(document, clash.ElementB)))
@@ -93,13 +112,13 @@ public static class ClashReports
     {
         var sheet = new XlsxSheet("Clashes", new[]
         {
-            ("Test", HeadingKind.Plain), ("Clash", HeadingKind.Plain), ("Status", HeadingKind.Plain), ("Distance (mm)", HeadingKind.Plain),
+            ("Test", HeadingKind.Plain), ("Clash", HeadingKind.Plain), ("Group", HeadingKind.Plain), ("Status", HeadingKind.Plain), ("Distance (mm)", HeadingKind.Plain),
             ("Level", HeadingKind.Plain), ("Grid", HeadingKind.Plain), ("Element 1", HeadingKind.Plain), ("Element 1 IFC GUID", HeadingKind.External),
             ("Element 2", HeadingKind.Plain), ("Element 2 IFC GUID", HeadingKind.External), ("Description", HeadingKind.Plain), ("Found", HeadingKind.Plain),
             ("Assigned to", HeadingKind.Plain), ("Priority", HeadingKind.Plain), ("Due", HeadingKind.Plain), ("X (m)", HeadingKind.Plain), ("Y (m)", HeadingKind.Plain), ("Z (m)", HeadingKind.Plain)
         });
         foreach (var (test, clash) in Chosen(tests, openOnly))
-            sheet.Add(test.Name, clash.Name, clash.Status.ToString(), Math.Round(clash.Distance, 1), clash.Level, clash.GridLocation,
+            sheet.Add(test.Name, clash.Name, GroupOf(test, clash), clash.Status.ToString(), Math.Round(clash.Distance, 1), clash.Level, clash.GridLocation,
                 ClashDetective.NameOf(document, clash.ElementA), IfcGuid(clash.ElementA), ClashDetective.NameOf(document, clash.ElementB), IfcGuid(clash.ElementB),
                 clash.Description, clash.Found.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), clash.AssignedTo, clash.Priority.ToString(),
                 clash.DueDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty,

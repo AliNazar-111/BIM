@@ -157,7 +157,10 @@ public enum BuiltInCategory
     Areas,
 
     /// <summary>Details drawn in a view and nowhere else, over and over along a line: brick courses, insulation, timbers.</summary>
-    DetailComponents
+    DetailComponents,
+
+    /// <summary>Pictures brought in to work over - a map, an aerial photograph, a scanned survey: underlays, not built.</summary>
+    RasterImages
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>
