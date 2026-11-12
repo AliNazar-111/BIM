@@ -111,6 +111,9 @@ public static partial class ProjectFile
                 Latitude = document.ProjectInformation.Latitude,
                 TrueNorth = document.ProjectInformation.TrueNorth,
                 PlanningMapNote = document.ProjectInformation.PlanningMapNote.Length == 0 ? null : document.ProjectInformation.PlanningMapNote,
+                EngineerNotes = document.ProjectInformation.EngineerNotes.Length == 0 ? null : document.ProjectInformation.EngineerNotes,
+                CheckedBy = document.ProjectInformation.CheckedBy.Length == 0 ? null : document.ProjectInformation.CheckedBy,
+                ApprovedBy = document.ProjectInformation.ApprovedBy.Length == 0 ? null : document.ProjectInformation.ApprovedBy,
                 SurveyOffsetX = document.ProjectInformation.SurveyOffset.X,
                 SurveyOffsetY = document.ProjectInformation.SurveyOffset.Y,
                 DuctRun = document.ProjectInformation.DuctRun.ToString(),
@@ -473,9 +476,11 @@ public static partial class ProjectFile
         foreach (var picture in document.All<ImageUnderlay>())
             (dto.ImageUnderlays ??= new List<ImageUnderlayDto>()).Add(new ImageUnderlayDto
             {
-                Id = picture.Id, LevelId = picture.LevelId, Source = picture.Source, Data = Convert.ToBase64String(picture.Data),
+                Id = picture.Id, LevelId = picture.LevelId, Source = picture.Source, Data = picture.Linked ? null : Convert.ToBase64String(picture.Data),
                 PixelWidth = picture.PixelWidth, PixelHeight = picture.PixelHeight, X = picture.Location.X, Y = picture.Location.Y,
-                Rotation = picture.Rotation, Scale = picture.Scale, Halftone = picture.Halftone, Mark = picture.Mark, Comments = picture.Comments
+                Rotation = picture.Rotation, Scale = picture.Scale, Halftone = picture.Halftone, Mark = picture.Mark, Comments = picture.Comments,
+                Linked = picture.Linked ? true : null,
+                Crop = picture.Crop is { } crop ? new[] { crop.Left, crop.Bottom, crop.Right, crop.Top } : null
             });
 
         foreach (var link in document.All<BIMDesigner.Core.Coordination.ModelLink>())
@@ -523,7 +528,8 @@ public static partial class ProjectFile
         dto.AreaBoundaries = document.All<AreaBoundary>().Select(line => new AreaBoundaryDto
         {
             WallId = line.WallId,
-            Id = line.Id, LevelId = line.LevelId, Scheme = line.Scheme.ToString(), StartX = line.Start.X, StartY = line.Start.Y, EndX = line.End.X, EndY = line.End.Y, Comments = line.Comments
+            Id = line.Id, LevelId = line.LevelId, Scheme = line.Scheme.ToString(), StartX = line.Start.X, StartY = line.Start.Y, EndX = line.End.X, EndY = line.End.Y, Comments = line.Comments,
+            Bulge = line.Bulge != 0 ? line.Bulge : null
         }).ToList();
         dto.Areas = document.All<Area>().Select(area => new AreaDto
         {
@@ -1119,6 +1125,7 @@ public static partial class ProjectFile
                 Boundary = slab.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 Holes = slab.Holes.Count > 0 ? slab.Holes.Select(hole => hole.SelectMany(point => new[] { point.X, point.Y }).ToList()).ToList() : null,
                 SpanDirection = (slab as Floor)?.SpanDirection,
+                Monitor = ElementMonitorDto.Of((slab as Floor)?.Monitor),
                 AnalyseAs = slab is Floor { AnalyseAs: not FloorAnalysis.Automatic } analysed ? analysed.AnalyseAs.ToString() : null,
                 RoofEdges = slab is Roof roof
                     ? roof.Edges.Select(edge => new RoofEdgeDto
@@ -1590,6 +1597,7 @@ public static partial class ProjectFile
     private static void WriteOpening(OpeningDto dto, Opening opening)
     {
         dto.Id = opening.Id;
+        dto.Monitor = ElementMonitorDto.Of(opening.Monitor);
         dto.TypeId = opening.TypeId;
         dto.LevelId = opening.LevelId;
         dto.HostWallId = opening.HostWallId;
@@ -1870,6 +1878,9 @@ public static partial class ProjectFile
         document.ProjectInformation.Latitude = dto.Project.Latitude is { } latitude && double.IsFinite(latitude) && latitude is >= 0 and <= 70 ? latitude : 40;
         document.ProjectInformation.TrueNorth = double.IsFinite(dto.Project.TrueNorth) ? (dto.Project.TrueNorth % 360 + 360) % 360 : 0;
         document.ProjectInformation.PlanningMapNote = dto.Project.PlanningMapNote ?? string.Empty;
+        document.ProjectInformation.EngineerNotes = dto.Project.EngineerNotes ?? string.Empty;
+        document.ProjectInformation.CheckedBy = dto.Project.CheckedBy ?? string.Empty;
+        document.ProjectInformation.ApprovedBy = dto.Project.ApprovedBy ?? string.Empty;
         if (double.IsFinite(dto.Project.SurveyOffsetX) && double.IsFinite(dto.Project.SurveyOffsetY))
             document.ProjectInformation.SurveyOffset = new Vector2D(dto.Project.SurveyOffsetX, dto.Project.SurveyOffsetY);
         document.ProjectInformation.DuctRun = ParseEnum(dto.Project.DuctRun, DuctRun.ConditionedSpace);
@@ -2569,6 +2580,7 @@ public static partial class ProjectFile
                 element.SetHoles(sketchedHoles.Select(hole => Enumerable.Range(0, hole.Count / 2).Select(i => new Point2D(hole[2 * i], hole[2 * i + 1]))));
             if (element is Floor spanned && slab.SpanDirection is { } span && double.IsFinite(span)) spanned.SpanDirection = Floors.Normalised(span);
             if (element is Floor analysed && slab.AnalyseAs is { } analysis) analysed.AnalyseAs = ParseEnum(analysis, FloorAnalysis.Automatic);
+            if (element is Floor followed) followed.Monitor = slab.Monitor?.ToMonitor();
 
             // The edges come after the outline, since it is the outline that says how many
             // there are. A roof from a file that predates pitched roofs has none, and reads
@@ -2984,16 +2996,20 @@ public static partial class ProjectFile
         // A picture under a plan, as it came, where it was put.
         foreach (var saved in (dto.ImageUnderlays ?? new List<ImageUnderlayDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null && saved.PixelWidth > 0 && saved.PixelHeight > 0))
         {
+            // A linked picture keeps none of its pixels here: they are read from its file as the project opens.
             byte[] data;
             try { data = Convert.FromBase64String(saved.Data ?? string.Empty); }
             catch (FormatException) { continue; }
-            if (data.Length == 0) continue;
+            if (data.Length == 0 && saved.Linked != true) continue;
+            var crop = saved.Crop is [var left, var bottom, var right, var top] && new[] { left, bottom, right, top }.All(double.IsFinite) && right - left >= 1 && top - bottom >= 1
+                ? new ImageCrop(left, bottom, right, top)
+                : null;
             document.Add(new ImageUnderlay
             {
                 Id = saved.Id, LevelId = saved.LevelId, Source = saved.Source ?? string.Empty, Data = data, PixelWidth = saved.PixelWidth, PixelHeight = saved.PixelHeight,
                 Location = double.IsFinite(saved.X) && double.IsFinite(saved.Y) ? new Point2D(saved.X, saved.Y) : default,
                 Rotation = double.IsFinite(saved.Rotation) ? saved.Rotation : 0, Scale = double.IsFinite(saved.Scale) && saved.Scale > 0 ? saved.Scale : 10,
-                Halftone = saved.Halftone, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Halftone = saved.Halftone, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, Linked = saved.Linked == true, Crop = crop
             });
         }
 
@@ -3078,7 +3094,8 @@ public static partial class ProjectFile
         {
             var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
             if (start.DistanceTo(end) < 0.01) continue;
-            document.Add(new AreaBoundary { Id = saved.Id, LevelId = saved.LevelId, Scheme = ParseEnum(saved.Scheme, AreaScheme.GrossInternal), Start = start, End = end, WallId = saved.WallId, Comments = saved.Comments ?? string.Empty });
+            document.Add(new AreaBoundary { Id = saved.Id, LevelId = saved.LevelId, Scheme = ParseEnum(saved.Scheme, AreaScheme.GrossInternal), Start = start, End = end, WallId = saved.WallId, Comments = saved.Comments ?? string.Empty,
+                Bulge = saved.Bulge is { } bulge && double.IsFinite(bulge) ? bulge : 0 });
         }
 
         foreach (var saved in (dto.Areas ?? new List<AreaDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null && double.IsFinite(saved.X) && double.IsFinite(saved.Y)))
@@ -3954,6 +3971,7 @@ public static partial class ProjectFile
 
     private static void ReadOpening(Opening opening, OpeningDto dto)
     {
+        opening.Monitor = dto.Monitor?.ToMonitor();
         opening.TypeId = dto.TypeId;
         opening.LevelId = dto.LevelId;
         opening.HostWallId = dto.HostWallId;

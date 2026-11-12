@@ -1228,23 +1228,48 @@ public static class IfcImport
             return true;
         }
 
+        /// <summary>One straight flight of a stair as its geometry shows it: where its first riser's middle is, which way it goes up, how wide, from what height to what, its treads' heights and how far apart they are, and the box round it in plan.</summary>
+        private sealed record FlightShape(Point2D Start, Vector2D Up, double Width, double Length, double Bottom, double Top, IReadOnlyList<double> Treads, double Rise, double? Going,
+            double MinX, double MinY, double MaxX, double MaxY);
+
         /// <summary>
-        /// A stair of one straight flight, back as a stair: up its flight's long way, toward the end its steps are higher at;
-        /// from the middle of its first riser, as wide as its flight; from the storey it stands on to the storey its top reaches -
-        /// a stair working its risers out from the storey's height. False for a stair with a landing, a turn or winders, or one
-        /// whose top reaches no storey, leaving it to come in as its shape.
+        /// A stair back as a stair: one straight flight, or two at a quarter or half turn with a landing between - an L or a U -
+        /// up its first flight's long way from the middle of its first riser, as wide as its flights, turning the way its second
+        /// goes, so many risers to its landing, its well the gap between its flights; from the storey it stands on to the storey
+        /// its top reaches, of the project's stair type of its name - or one made from it with its going and its rise. Laid out
+        /// again and kept only where its flights and landing lie where the file has them. False for winders, a stair of more
+        /// turns, or one whose top reaches no storey, leaving it to come in as its shape.
         /// </summary>
         private bool ImportStair(IIfcStair stair)
         {
             var parts = stair.IsDecomposedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcProduct>().ToList();
             var flights = parts.OfType<IIfcStairFlight>().ToList();
-            if (flights.Count != 1 || parts.Any(part => part is IIfcSlab)) return false;
-            if (flights[0].PredefinedType is { } shape && shape is not (IfcStairFlightTypeEnum.STRAIGHT or IfcStairFlightTypeEnum.NOTDEFINED)) return false;
+            var landings = parts.OfType<IIfcSlab>().ToList();
+            if (flights.Count is < 1 or > 2 || landings.Count > flights.Count - 1) return false;
+            if (flights.Any(flight => flight.PredefinedType is { } shape && shape is not (IfcStairFlightTypeEnum.STRAIGHT or IfcStairFlightTypeEnum.NOTDEFINED))) return false;
+            var shapes = flights.Select(MeasureFlight).ToList();
+            if (shapes.Any(shape => shape is null)) return false;
+            var measured = shapes.Select(shape => shape!).OrderBy(shape => shape.Bottom).ToList();
+            return measured.Count == 1 ? ImportStraightStair(stair, parts, measured[0]) : ImportTurningStair(stair, parts, measured, landings);
+        }
 
+        /// <summary>A flight's points, placed.</summary>
+        private List<Point3D> PointsOf(IIfcProduct product)
+        {
             var mesh = new Mesh3D(Guid.Empty, Guid.Empty, MeshKind.Stair, default, string.Empty);
-            foreach (var item in Body(flights[0])) _geometry.Triangles(item, _geometry.Placement(flights[0].ObjectPlacement), mesh);
-            var points = mesh.Positions.ToList();
-            if (points.Count < 8) return false;
+            foreach (var item in Body(product)) _geometry.Triangles(item, _geometry.Placement(product.ObjectPlacement), mesh);
+            return mesh.Positions.ToList();
+        }
+
+        /// <summary>
+        /// A straight flight measured: its long way in plan by its points' spread - then exactly, the line through its treads'
+        /// middles - up it toward the end its steps are higher at; its first riser's middle at its low end; its rise the step its
+        /// treads' heights are apart, and its going how far apart along it their middles are. None for one too small to be a flight.
+        /// </summary>
+        private FlightShape? MeasureFlight(IIfcStairFlight flight)
+        {
+            var points = PointsOf(flight);
+            if (points.Count < 8) return null;
 
             // Its long way in plan, by the points' spread, and up it toward the higher end.
             var (meanX, meanY) = (points.Average(p => p.X), points.Average(p => p.Y));
@@ -1261,13 +1286,20 @@ public static class IfcImport
                 (low, high) = (-high, -low);
             }
 
-            // Exactly, where its treads show it: the line through their middles, the lowest to the highest - the spread leaning with
-            // a string or a nosing on one side.
+            // Exactly, where its treads show it: the line through their middles, the lowest to the highest, uphill - the spread leaning
+            // with a string or a nosing on one side, or wider than long in a short flight.
+            // The line is fitted through every middle - the lowest and highest left out where there are five or more, a solid
+            // stair's soffit gathering points at its foot and head that pull them aside.
             var levels = points.GroupBy(p => Math.Round(p.Z)).Where(level => level.Count() >= 4).OrderBy(level => level.Key)
                 .Select(level => new Point2D(level.Average(p => p.X), level.Average(p => p.Y))).ToList();
-            if (levels.Count >= 3 && (levels[^1] - levels[0]).Length > 300 && (levels[^1] - levels[0]).NormalisedOrDefault(up).Dot(up) > Math.Cos(10 * Math.PI / 180))
+            if (levels.Count >= 3 && (levels[^1] - levels[0]).Length > 300)
             {
-                up = (levels[^1] - levels[0]).NormalisedOrDefault(up);
+                var fitted = levels.Count >= 5 ? levels.Skip(1).Take(levels.Count - 2).ToList() : levels;
+                var (cx, cy) = (fitted.Average(p => p.X), fitted.Average(p => p.Y));
+                var (sxx, sxy, syy) = (fitted.Average(p => (p.X - cx) * (p.X - cx)), fitted.Average(p => (p.X - cx) * (p.Y - cy)), fitted.Average(p => (p.Y - cy) * (p.Y - cy)));
+                var along = 0.5 * Math.Atan2(2 * sxy, sxx - syy);
+                var line = new Vector2D(Math.Cos(along), Math.Sin(along));
+                up = line.Dot(levels[^1] - levels[0]) >= 0 ? line : line * -1;
                 (low, high) = (points.Min(Along), points.Max(Along));
             }
 
@@ -1276,32 +1308,141 @@ public static class IfcImport
             var (near, far) = (points.Min(Across), points.Max(Across));
             var (bottom, top) = (points.Min(p => p.Z), points.Max(p => p.Z));
             var width = far - near;
-            if (width < 500 || high - low < 500 || top - bottom < 300) return false;
+            if (width < 500 || high - low < 200 || top - bottom < 150) return null;
 
-            // The storeys it runs between: the one it stands on, and the one its last riser rises onto - a rise over its top tread,
-            // the rise the step its treads' levels are apart.
-            var treads = points.GroupBy(p => Math.Round(p.Z)).Where(level => level.Count() >= 4).Select(level => level.Key).OrderBy(z => z).ToList();
+            // Its treads: the heights its points gather at - a tread's top and its underside a tread's thickness below taken as
+            // one, its top - the step between them its rise, the step along it between their middles its going.
+            var gathered = new List<(double Z, List<Point3D> Points)>();
+            foreach (var level in points.GroupBy(p => Math.Round(p.Z)).Where(level => level.Count() >= 4).OrderBy(level => level.Key))
+                if (gathered.Count > 0 && level.Key - gathered[^1].Z < 80) gathered[^1] = (level.Key, gathered[^1].Points.Concat(level).ToList());
+                else gathered.Add((level.Key, level.ToList()));
+            var treads = gathered.Select(level => level.Z).ToList();
             var steps = treads.Zip(treads.Skip(1), (a, b) => b - a).Where(gap => gap is > 100 and < 250).OrderBy(gap => gap).ToList();
             var rise = steps.Count > 0 ? steps[steps.Count / 2] : 0;
-            var reached = treads.Count > 0 ? treads[^1] + rise : top;
-            var foot = LevelOf(stair, bottom);
-            var head = _document.Levels.Where(level => Math.Abs(level.Elevation - reached) <= 60 || Math.Abs(level.Elevation - top) <= 60)
-                .OrderBy(level => Math.Min(Math.Abs(level.Elevation - reached), Math.Abs(level.Elevation - top))).FirstOrDefault();
-            if (head is null || head.Elevation <= foot.Elevation) return false;
+            var middles = gathered.Select(level => level.Points.Average(Along)).ToList();
+            var goings = middles.Zip(middles.Skip(1), (a, b) => b - a).Where(gap => gap is > 150 and < 450).OrderBy(gap => gap).ToList();
+            double? going = goings.Count > 0 ? goings[goings.Count / 2] : null;
 
+            // Its first riser where it stands on the floor - its first tread's nosing reaches out past it, higher up.
+            var foot = points.Where(p => p.Z <= bottom + 1).ToList();
+            var start = new Point2D(meanX, meanY) + up * (foot.Count > 0 ? foot.Min(Along) : low) + across * ((near + far) / 2);
+            return new FlightShape(start, up, width, high - low, bottom, top, treads, rise, going, points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X), points.Max(p => p.Y));
+        }
+
+        /// <summary>The storey a stair's top reaches: one a rise over its top tread, or at its top; none where it reaches none above its foot.</summary>
+        private Level? HeadOf(FlightShape last, Level foot)
+        {
+            var reached = last.Treads.Count > 0 ? last.Treads[^1] + last.Rise : last.Top;
+            var head = _document.Levels.Where(level => Math.Abs(level.Elevation - reached) <= 60 || Math.Abs(level.Elevation - last.Top) <= 60)
+                .OrderBy(level => Math.Min(Math.Abs(level.Elevation - reached), Math.Abs(level.Elevation - last.Top))).FirstOrDefault();
+            return head is null || head.Elevation <= foot.Elevation ? null : head;
+        }
+
+        /// <summary>
+        /// The stair type a stair comes in as: the project's whose name it carries - or, failing that, the first - where its going
+        /// is the one measured and its risers come out as many; otherwise one made from it with the going and the rise measured,
+        /// named for its going.
+        /// </summary>
+        private StairType? StairTypeFor(IIfcStair stair, double? going, double rise, double height)
+        {
             var name = string.IsNullOrWhiteSpace(stair.Name) ? string.Empty : stair.Name.ToString()!;
-            var type = _document.TypesOf<StairType>().Where(each => name.StartsWith(each.Name, StringComparison.Ordinal)).OrderByDescending(each => each.Name.Length).FirstOrDefault()
-                       ?? _document.TypesOf<StairType>().FirstOrDefault();
-            if (type is null) return false;
+            var named = _document.TypesOf<StairType>().Where(each => name.StartsWith(each.Name, StringComparison.Ordinal)).OrderByDescending(each => each.Name.Length).FirstOrDefault()
+                        ?? _document.TypesOf<StairType>().FirstOrDefault();
+            if (named is null || rise <= 0) return named;
 
-            var middle = new Point2D(meanX, meanY);
+            var risers = (int)Math.Round(height / rise);
+            bool Fits(StairType type) => (going is not { } g || Math.Abs(type.Going - g) <= 1) && (int)Math.Ceiling(height / type.MaxRiser - 1e-9) == risers;
+            if (Fits(named)) return named;
+
+            var key = $"StairType:{named.Name}:{going:0}:{rise:0.0}";
+            if (_types.TryGetValue(key, out var made)) return (StairType)made;
+            var copy = named.Duplicate(UniqueName($"{named.Name} - {(going ?? named.Going):0} going"));
+            (copy.Going, copy.MaxRiser) = (Math.Round(going ?? named.Going, 1), Math.Round(height / risers + 0.5, 1));
+            _document.AddType(copy);
+            _types[key] = copy;
+            return copy;
+        }
+
+        private bool ImportStraightStair(IIfcStair stair, IReadOnlyList<IIfcProduct> parts, FlightShape flight)
+        {
+            var foot = LevelOf(stair, flight.Bottom);
+            if (HeadOf(flight, foot) is not { } head) return false;
+            if (StairTypeFor(stair, flight.Going, flight.Rise, head.Elevation - flight.Bottom) is not { } type) return false;
+
             var made = new Stair
             {
                 Id = IdOf(stair), TypeId = type.Id, LevelId = foot.Id, TopLevelId = head.Id, Shape = StairShape.Straight,
-                Start = middle + up * low + across * ((near + far) / 2), Angle = Math.Round(Math.Atan2(up.Y, up.X) * 180 / Math.PI, 4),
-                Width = Math.Round(width, 1), BaseOffset = Math.Round(bottom - foot.Elevation, 3), Mark = stair.Tag?.ToString() ?? string.Empty
+                Start = flight.Start, Angle = Math.Round(Math.Atan2(flight.Up.Y, flight.Up.X) * 180 / Math.PI, 4),
+                Width = Math.Round(flight.Width, 1), BaseOffset = Math.Round(flight.Bottom - foot.Elevation, 3), Mark = stair.Tag?.ToString() ?? string.Empty
             };
             _document.Add(made);
+            foreach (var part in parts) _handled.Add(part.EntityLabel);
+            _made[stair.EntityLabel] = made;
+            _result.Count("Stairs");
+            return true;
+        }
+
+        /// <summary>
+        /// A stair of two straight flights at a quarter turn - an L - or a half turn - a U - with a landing between: turning the way
+        /// its second flight goes from its first, so many risers to its landing, its well the gap across between its flights. Laid
+        /// out again, it is kept only where its flights fall within 100 mm of where the file has them in plan and its landing within
+        /// 30 mm of the height.
+        /// </summary>
+        private bool ImportTurningStair(IIfcStair stair, IReadOnlyList<IIfcProduct> parts, IReadOnlyList<FlightShape> flights, IReadOnlyList<IIfcSlab> landings)
+        {
+            var (first, second) = (flights[0], flights[1]);
+            var turn = Math.Atan2(first.Up.Cross(second.Up), first.Up.Dot(second.Up)) * 180 / Math.PI;
+            var left = first.Up.PerpendicularLeft();
+            StairShape shape;
+            bool turnsLeft;
+            if (Math.Abs(Math.Abs(turn) - 90) <= 10) (shape, turnsLeft) = (StairShape.QuarterTurn, turn > 0);
+            else if (Math.Abs(Math.Abs(turn) - 180) <= 10) (shape, turnsLeft) = (StairShape.HalfTurn, (second.Start - first.Start).Dot(left) > 0);
+            else return false;
+
+            // Its rise and going, as its flights have them between them; its landing's height, its top - or a rise over its first flight.
+            var rises = flights.Where(flight => flight.Rise > 0).Select(flight => flight.Rise).ToList();
+            if (rises.Count == 0) return false;
+            var rise = rises.Average();
+            var goings = flights.Select(flight => flight.Going).OfType<double>().ToList();
+            double? going = goings.Count > 0 ? goings.Average() : null;
+            var landingTop = landings.Count == 1 && PointsOf(landings[0]) is { Count: > 0 } slab ? slab.Max(p => p.Z) : first.Treads.Count > 0 ? first.Treads[^1] + rise : first.Top;
+            var beforeTurn = (int)Math.Round((landingTop - first.Bottom) / rise);
+            if (beforeTurn < 1) return false;
+
+            var foot = LevelOf(stair, first.Bottom);
+            if (HeadOf(second, foot) is not { } head) return false;
+            if (StairTypeFor(stair, going, rise, head.Elevation - first.Bottom) is not { } type) return false;
+
+            // A half turn's well: how far apart across its two flights' middles are, less a flight's width.
+            var width = Math.Min(first.Width, second.Width);
+            var well = shape == StairShape.HalfTurn ? Math.Max(0, Math.Abs(((second.Start - first.Start).Dot(left))) - width) : 100;
+            var made = new Stair
+            {
+                Id = IdOf(stair), TypeId = type.Id, LevelId = foot.Id, TopLevelId = head.Id, Shape = shape, Corner = StairCorner.Landing, TurnsLeft = turnsLeft,
+                Start = first.Start, Angle = Math.Round(Math.Atan2(first.Up.Y, first.Up.X) * 180 / Math.PI, 4), Width = Math.Round(width, 1),
+                RisersBeforeTurn = beforeTurn, Well = Math.Round(well, 1), BaseOffset = Math.Round(first.Bottom - foot.Elevation, 3), Mark = stair.Tag?.ToString() ?? string.Empty
+            };
+            _document.Add(made);
+
+            // Laid out again: each flight's treads where the file's flight is, the landing at its height.
+            var layout = Stairs.Layout(_document, made);
+            bool Within(FlightShape flight, IEnumerable<StairStep> steps)
+            {
+                var outline = steps.SelectMany(step => step.Outline).ToList();
+                return outline.Count > 0 && Math.Abs(outline.Min(p => p.X) - flight.MinX) <= 100 && Math.Abs(outline.Max(p => p.X) - flight.MaxX) <= 100
+                       && Math.Abs(outline.Min(p => p.Y) - flight.MinY) <= 100 && Math.Abs(outline.Max(p => p.Y) - flight.MaxY) <= 100;
+            }
+
+            var landing = layout.Steps.FirstOrDefault(step => step.Kind == StairStepKind.Landing);
+            var fits = landing is not null && Math.Abs(landing.Top - landingTop) <= 30
+                       && Within(first, layout.Steps.Where(step => step.Kind == StairStepKind.Tread && step.Number < landing.Number))
+                       && Within(second, layout.Steps.Where(step => step.Kind == StairStepKind.Tread && step.Number > landing.Number));
+            if (!fits)
+            {
+                _document.Remove(made);
+                return false;
+            }
+
             foreach (var part in parts) _handled.Add(part.EntityLabel);
             _made[stair.EntityLabel] = made;
             _result.Count("Stairs");

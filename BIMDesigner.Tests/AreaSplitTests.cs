@@ -195,4 +195,43 @@ public class AreaSplitTests
         Area(document, level, AreaScheme.GrossInternal, 5000, 6000, "Whole floor");
         Assert.Contains(AreaPlans.Table(document, AreaPlans.Schedule(AreaScheme.GrossInternal)).Lines, line => line.Cells[0].Trim() == "Whole floor (1)");
     }
+
+    [Fact]
+    public void ABoundaryPickedFromACurvedWallSplitsTheStoreyAlongItsArc()
+    {
+        // A 12 by 8 m storey, a semicircular partition from (6000, 0) to (6000, 8000) bowing east - radius 4 m, its middle at (10000, 4000).
+        var document = BimDocument.CreateDefault();
+        var level = document.Levels[0].Id;
+        var w = Box(document, level, 12000, 8000);
+        var partition = Type(document, "Generic");
+        var wall = new Wall { Start = new Point2D(6000, 0), End = new Point2D(6000, 8000), Bulge = 1, TypeId = partition.Id, LevelId = level, UnconnectedHeight = 2700 };
+        document.Add(wall);
+        Assert.Equal(new Point2D(10000, 4000), Round(wall.LocationCurve.At(wall.LocationCurve.Length / 2, 0)));
+
+        var (from, to, bulge) = Areas.Along(wall, partition.Structure);
+        var boundary = new AreaBoundary { LevelId = level, Scheme = AreaScheme.GrossInternal, Start = from, End = to, Bulge = bulge, WallId = wall.Id };
+        document.Add(boundary);
+        Assert.Equal(Math.PI * 4000, boundary.Length, 0);
+        var west = Area(document, level, AreaScheme.GrossInternal, 2000, 4000, "Hall");
+        var east = Area(document, level, AreaScheme.GrossInternal, 11500, 7000, "Office");
+
+        // West of the chord to the inside faces, with the half disc east of it - less the two caps of the disc the inside faces cut
+        // off, a circular segment a chord d = 4000 - w/2 from its centre: r² acos(d/r) - d √(r² - d²), half of each top and bottom.
+        var (r, d) = (4000.0, 4000 - w / 2);
+        var segment = r * r * Math.Acos(d / r) - d * Math.Sqrt(r * r - d * d);
+        var expected = (6000 - w / 2) * (8000 - w) + Math.PI * r * r / 2 - segment;
+        Assert.InRange(Areas.Shape(document, west).Area, expected * 0.999, expected * 1.001);
+        Assert.Equal(AreaPlans.Measure(document, level, AreaScheme.GrossInternal).Area, Areas.Shape(document, west).Area + Areas.Shape(document, east).Area, 0);
+
+        // The wall moved a metre west: the boundary goes with it, bowed the same; mirrored, it bows the other way; kept with the project.
+        (wall.Start, wall.End) = (new Point2D(5000, 0), new Point2D(5000, 8000));
+        Areas.FollowWalls(document);
+        Assert.Equal((new Point2D(5000, 0), new Point2D(5000, 8000), 1.0), (boundary.Start, boundary.End, boundary.Bulge));
+        Assert.Equal(1.0, ProjectFile.FromJson(ProjectFile.ToJson(document)).All<AreaBoundary>().Single().Bulge);
+        boundary.WallId = null;
+        ElementTransforms.Mirror(boundary, new Line2D(new Point2D(0, 0), new Vector2D(0, 1)));
+        Assert.Equal(-1.0, boundary.Bulge);
+    }
+
+    private static Point2D Round(Point2D point) => new(Math.Round(point.X, 6), Math.Round(point.Y, 6));
 }

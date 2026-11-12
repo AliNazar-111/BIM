@@ -68,9 +68,26 @@ public static class CalculationReport
         report.Table(new[] { new ReportColumn("", 1), new ReportColumn("Name", 2), new ReportColumn("Signature", 2), new ReportColumn("Date", 1) }, new[]
         {
             new ReportCell[] { "Worked out", $"BIMDesigner {version}", "-", date },
-            new ReportCell[] { "Checked by", " ", " ", " " },
-            new ReportCell[] { "Approved by", " ", " ", " " }
+            new ReportCell[] { "Checked by", string.IsNullOrWhiteSpace(project.CheckedBy) ? " " : project.CheckedBy.Trim(), " ", " " },
+            new ReportCell[] { "Approved by", string.IsNullOrWhiteSpace(project.ApprovedBy) ? " " : project.ApprovedBy.Trim(), " ", " " }
         });
+
+        // The engineer's own notes - the basis taken, what was assumed, what is to be confirmed - each paragraph as written; and
+        // what has been said of each member, wall and slab in its Comments.
+        var paragraphs = Paragraphs(project.EngineerNotes);
+        var noted = members.Select(check => (check.Member.Name, check.Member.Element)).Concat(walls.Select(check => (check.Panel.Name, check.Panel.Element)))
+            .Concat(plates.Select(check => (check.Panel.Name, check.Panel.Element)))
+            .Where(each => !string.IsNullOrWhiteSpace(each.Element.Comments)).DistinctBy(each => each.Element.Id).ToList();
+        if (paragraphs.Count > 0 || noted.Count > 0)
+        {
+            report.Heading("Engineer's notes");
+            foreach (var note in paragraphs) report.Paragraph(note);
+            if (noted.Count > 0)
+            {
+                report.Heading("Notes on members, walls and slabs", 2);
+                report.Table(new[] { new ReportColumn("Of", 1), new ReportColumn("Note", 4) }, noted.Select(each => new ReportCell[] { each.Name, each.Element.Comments.Trim() }));
+            }
+        }
 
         report.NewPage();
         KeyPlans(report, document, analysis, byMember, byWall);
@@ -90,6 +107,18 @@ public static class CalculationReport
         ModesOf(report, document, analysis, modes, floors);
         Foundations(report, document, analysis, byFooting);
         return report;
+    }
+
+    /// <summary>A note's paragraphs: the text between blank lines, each run onto one line.</summary>
+    public static IReadOnlyList<string> Paragraphs(string? text) =>
+        (text ?? string.Empty).Replace("\r\n", "\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+            .Select(paragraph => string.Join(" ", paragraph.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim())).Trim())
+            .Where(paragraph => paragraph.Length > 0).ToList();
+
+    /// <summary>What has been said of an element in its Comments, under its check as a note; nothing where nothing has.</summary>
+    private static void NoteOn(ReportDocument report, Core.Elements.Element element)
+    {
+        if (!string.IsNullOrWhiteSpace(element.Comments)) report.Paragraph($"Note: {element.Comments.Trim()}");
     }
 
     // ---- what they come to ------------------------------------------------------------------
@@ -469,10 +498,13 @@ public static class CalculationReport
             }));
 
         // The worst of each kind of member in full.
-        var groups = members.Where(check => check.Checks.Count > 0).GroupBy(check => (check.Member.Kind, check.Member.Section.Name, check.Grade)).Select(group => (Worst: group.First(), Count: group.Count())).Take(MostInFull).ToList();
-        foreach (var (check, count) in groups)
+        var groups = members.Where(check => check.Checks.Count > 0).GroupBy(check => (check.Member.Kind, check.Member.Section.Name, check.Grade))
+            .Select(group => (Worst: group.First(), Count: group.Count(), Notes: group.Where(each => !string.IsNullOrWhiteSpace(each.Member.Element.Comments)).Select(each => $"{each.Member.Name}: {each.Member.Element.Comments.Trim()}").Distinct().ToList()))
+            .Take(MostInFull).ToList();
+        foreach (var (check, count, notes) in groups)
         {
             report.Heading($"{check.Member.Name}: {check.Member.Section.Name}, {check.Grade}{(count > 1 ? $", the worst of {count}" : string.Empty)}", 2);
+            foreach (var note in notes) report.Paragraph($"Note on {note}");
             var lengths = check.Lengths;
             report.Paragraph($"By {check.By}. Buckles over {Units.Metres(lengths.Strong, "0.00")} about its strong axis and {Units.Metres(lengths.Weak, "0.00")} about its weak; {(lengths.Lateral > 0 ? $"sideways, {Units.Metres(lengths.Lateral, "0.00")}" : $"its top held, its underside free over {Units.Metres(lengths.LateralHogging, "0.00")}")}.", ReportTone.Muted);
             CheckTable(report, check.Checks);
@@ -566,6 +598,7 @@ public static class CalculationReport
         foreach (var check in walls.Where(check => check.Checks.Count > 0).Take(MostInFull))
         {
             report.Heading($"{check.Panel.Name}: {check.Grade}", 2);
+            NoteOn(report, check.Panel.Element);
             report.Paragraph($"By {check.By}. {F(check.Panel.Thickness, "0")} mm {(check.Panel.Material.Kind == AnalyticalMaterialKind.Masonry ? "loaded leaf" : "wall")}, effective height {Units.Metres(check.EffectiveHeight, "0.00")}, effective thickness {F(check.EffectiveThickness, "0")} mm.", ReportTone.Muted);
             CheckTable(report, check.Checks);
         }
@@ -586,6 +619,7 @@ public static class CalculationReport
         foreach (var check in worked.Take(MostInFull))
         {
             report.Heading($"{check.Panel.Name}: {F(check.Panel.Thickness, "0")} mm {check.Panel.Kind.ToString().ToLowerInvariant()}, {check.Grade}", 2);
+            NoteOn(report, check.Panel.Element);
             report.Paragraph($"By {check.By}.", ReportTone.Muted);
             CheckTable(report, check.Checks);
             report.Paragraph(check.Limits, ReportTone.Muted);

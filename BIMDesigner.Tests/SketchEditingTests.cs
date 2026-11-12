@@ -285,4 +285,58 @@ public class SketchEditingTests
         Assert.True(plan.CancelPendingOperation());
         Assert.False(plan.IsScalingImage);
     });
+
+    [Fact]
+    public void APictureIsCroppedToTwoCornersClicked() => OnUiThread(() =>
+    {
+        // 2000 by 1000 pixels at 10 mm a pixel: corners clicked at (6000, 4000) and (2000, 1000) keep pixels 200 to 600 across, 100 to 400 up.
+        var document = BimDocument.CreateDefault();
+        var picture = ImageUnderlay.From("site.png", ImageUnderlayTests.Png(2000, 1000), document.Levels[0].Id)!;
+        document.Add(picture);
+        var history = new UndoStack();
+        var plan = new PlanView { Document = document, ActiveLevelId = document.Levels[0].Id, History = history };
+        Assert.True(plan.BeginImageCrop());
+        plan.ImageCropAt(new Point2D(6000, 4000));
+        Assert.True(plan.IsCroppingImage);
+        plan.ImageCropAt(new Point2D(2000, 1000));
+        Assert.False(plan.IsCroppingImage);
+        Assert.Equal(new ImageCrop(200, 100, 600, 400), picture.Crop);
+        Assert.Equal(new Point2D(2000, 1000), picture.Corners[0]);
+
+        // Picked only where it is shown now; undone, all of it again.
+        Assert.False(picture.Covers(new Point2D(1000, 500)));
+        Assert.True(picture.Covers(new Point2D(3000, 2000)));
+        history.Undo();
+        Assert.Null(picture.Crop);
+        Assert.True(picture.Covers(new Point2D(1000, 500)));
+
+        // Esc stops it half way.
+        plan.BeginImageCrop(picture);
+        plan.ImageCropAt(new Point2D(0, 0));
+        Assert.True(plan.CancelPendingOperation());
+        Assert.False(plan.IsCroppingImage);
+    });
+
+    [Fact]
+    public void APictureLiesOnItsStoreyIn3DItsPartShownOverItsFace() => OnUiThread(() =>
+    {
+        // 200 by 100 pixels at 10 mm a pixel, cropped to pixels 50 to 150 across and 20 to 80 up: a face from (500, 200) to (1500, 800) mm,
+        // its corners at the picture's places a quarter and three quarters across, a fifth and four fifths down from its top.
+        var document = BimDocument.CreateDefault();
+        var picture = ImageUnderlay.From("site.png", ImageUnderlayTests.Png(200, 100), document.Levels[0].Id)!;
+        picture.Crop = new ImageCrop(50, 20, 150, 80);
+        var bitmap = System.Windows.Media.Imaging.BitmapSource.Create(2, 2, 96, 96, System.Windows.Media.PixelFormats.Gray8, null, new byte[] { 0, 255, 255, 0 }, 2);
+        var face = (System.Windows.Media.Media3D.GeometryModel3D)typeof(ModelView).GetMethod("PictureFace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[] { picture, -5.0, bitmap })!;
+        var mesh = (System.Windows.Media.Media3D.MeshGeometry3D)face.Geometry;
+        var unit = (double)typeof(ModelView).GetField("MillimetresPerUnit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        Assert.Equal(new[] { (500.0, 200.0), (1500.0, 200.0), (1500.0, 800.0), (500.0, 800.0) },
+            mesh.Positions.Select(p => (Math.Round(p.X * unit, 6), Math.Round(p.Y * unit, 6))));
+        Assert.All(mesh.Positions, p => Assert.Equal(-5, p.Z * unit, 6));
+        Assert.Equal(new[] { (0.25, 0.8), (0.75, 0.8), (0.75, 0.2), (0.25, 0.2) }, mesh.TextureCoordinates.Select(p => (Math.Round(p.X, 6), Math.Round(p.Y, 6))));
+
+        // Facing up: its first triangle turns anticlockwise seen from above.
+        var (a, b, c) = (mesh.Positions[0], mesh.Positions[1], mesh.Positions[2]);
+        Assert.True((b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X) > 0);
+    });
 }

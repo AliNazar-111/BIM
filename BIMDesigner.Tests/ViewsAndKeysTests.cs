@@ -264,4 +264,81 @@ public class ViewsAndKeysTests
             }
         });
     }
+
+    [Fact]
+    public void APictureWithAWorldFileBesideItGoesWhereItSaysAndSetsTheSurveyPoint()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"world-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            // 400 by 300 pixels at a metre each, its top left pixel's centre at E 530000.5 N 180299.5: its bottom left corner at E 530000 N 180000.
+            var file = Path.Combine(folder, "os-map.png");
+            File.WriteAllBytes(file, ImageUnderlayTests.Png(400, 300));
+            File.WriteAllText(Path.Combine(folder, "os-map.pgw"), "1\n0\n0\n-1\n530000.5\n180299.5\n");
+            OnUiThread(window =>
+            {
+                var document = Field<PlanView>(window, "Plan").Document!;
+                var picture = (Core.Architecture.ImageUnderlay)Call(window, "ImportImage", file, true, true)!;
+
+                // The project had no survey point and the map lands 530 km off: the survey point is set at the map's middle, E 530200 N 180150, to the metre.
+                Assert.Equal(new Core.Geometry.Vector2D(530_200_000, 180_150_000), document.ProjectInformation.SurveyOffset);
+                Assert.Equal((new Core.Geometry.Point2D(-200_000, -150_000), 1000.0, 0.0), (picture.Location, picture.Scale, picture.Rotation));
+                Assert.True(picture.Linked);
+
+                // One step to undo, the survey point with it; its world file written back is the one it came by.
+                Field<Core.Documents.Commands.UndoStack>(window, "_history").Undo();
+                Assert.Equal(default, document.ProjectInformation.SurveyOffset);
+                Assert.Empty(document.All<Core.Architecture.ImageUnderlay>());
+                Field<Core.Documents.Commands.UndoStack>(window, "_history").Redo();
+                var written = Path.Combine(folder, "back.pgw");
+                Assert.True((bool)Call(window, "SaveImageWorldFile", picture, written)!);
+                Assert.Equal(new Core.Architecture.WorldFile(1, 0, 0, -1, 530000.5, 180299.5), Core.Architecture.WorldFile.Parse(File.ReadAllText(written)));
+            });
+        }
+        finally
+        {
+            try { Directory.Delete(folder, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public void AStoreysPlanOpensInAWindowOfItsOwnAndWhatIsPickedThereIsPickedHere()
+    {
+        OnUiThread(window =>
+        {
+            // A wall on the first floor; the main window drawing the ground floor.
+            var plan = Field<PlanView>(window, "Plan");
+            var document = plan.Document!;
+            var history = Field<Core.Documents.Commands.UndoStack>(window, "_history");
+            var first = document.Levels[1];
+            var wall = new Core.Architecture.Wall
+            {
+                Start = new Core.Geometry.Point2D(0, 0), End = new Core.Geometry.Point2D(5000, 0), LevelId = first.Id,
+                TypeId = document.TypesOf<Core.Architecture.WallType>().First().Id
+            };
+            history.Execute(new Core.Documents.Commands.AddElementCommand(document, wall, "Wall"));
+
+            // The first floor's plan in a window of its own; the main window keeps the ground floor.
+            var opened = (System.Windows.Window)Call(window, "OpenPlanWindow", first.Id)!;
+            var other = (PlanView)opened.GetType().GetProperty("Plan")!.GetValue(opened)!;
+            Assert.Equal(first.Id, other.ActiveLevelId);
+            Assert.Equal($"Floor Plan: {first.Name} - BIMDesigner", opened.Title);
+            Assert.Equal(document.Levels[0].Id, plan.ActiveLevelId);
+
+            // Picked there, picked here: its Properties and its tab are the main window's.
+            other.Select(wall);
+            Assert.Equal(new[] { wall }, plan.SelectedElements);
+
+            // Undone here, gone there too: nothing left picked in it.
+            history.Undo();
+            opened.GetType().GetMethod("Refresh")!.Invoke(opened, null);
+            Assert.Empty(other.SelectedElements);
+
+            // Another project opened: the window closes with the one it showed.
+            Call(window, "LoadDocument", BimDocument.CreateDefault(), null, false);
+            Assert.Empty((System.Collections.ICollection)typeof(MainWindow).GetProperty("PlanWindows", Hidden)!.GetValue(window)!);
+            Assert.False(opened.IsVisible);
+        });
+    }
 }

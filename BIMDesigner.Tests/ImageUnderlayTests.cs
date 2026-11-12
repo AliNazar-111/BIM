@@ -84,6 +84,124 @@ public class ImageUnderlayTests
         Assert.Same(picture.Data, copy.Data);
     }
 
+    /// <summary>A world file for a picture whose bottom left corner is at (east, north) on the grid, turned so many degrees, so many metres a pixel, this many pixels high.</summary>
+    private static WorldFile World(double east, double north, double degrees, double size, int high)
+    {
+        var turn = degrees * Math.PI / 180;
+        var (a, d) = (size * Math.Cos(turn), size * Math.Sin(turn));
+        var (b, e) = (d, -a);
+        // The top left corner is the bottom left one up the picture's height; the top left pixel's centre half a pixel across and down from it.
+        var (left, top) = (east - size * Math.Sin(turn) * high, north + size * Math.Cos(turn) * high);
+        return new WorldFile(a, d, b, e, left + (a + b) / 2, top + (d + e) / 2);
+    }
+
+    [Fact]
+    public void AWorldFilePutsAPictureWhereTheGridSays()
+    {
+        // Half a metre a pixel, its top left pixel's centre at E 530000.25 N 180049.75: its top left corner at 530000, 180050, its bottom left
+        // 100 pixels (50 m) below, at 530000, 180000 - the project's origin, its survey point being there. A pixel is 500 mm, not turned.
+        var world = WorldFile.Parse("0.5\r\n0\r\n0\r\n-0.5\r\n530000.25\r\n180049.75\r\n")!;
+        Assert.Equal(new WorldFile(0.5, 0, 0, -0.5, 530000.25, 180049.75), world);
+        var (placed, problem) = ImageUnderlays.Place(world, 200, 100, new Vector2D(530_000_000, 180_000_000));
+        Assert.Null(problem);
+        Assert.Equal((new Point2D(0, 0), 0.0, 500.0), (Round(placed!.Value.Location), placed.Value.Rotation, placed.Value.Scale));
+
+        // The survey point 10 m west and 5 m south of that corner: the corner 10 m east and 5 m north of the origin.
+        Assert.Equal(new Point2D(10_000, 5_000), Round(ImageUnderlays.Place(world, 200, 100, new Vector2D(529_990_000, 179_995_000)).Placed!.Value.Location));
+
+        // Turned 30 degrees: its corner where it was made to be, turned 30 degrees, and written back as the same six numbers.
+        var turned = World(530_000, 180_000, 30, 0.5, 100);
+        var (at, rotation, scale) = ImageUnderlays.Place(turned, 200, 100, new Vector2D(530_000_000, 180_000_000)).Placed!.Value;
+        Assert.Equal((new Point2D(0, 0), 30.0, 500.0), (Round(at), Math.Round(rotation, 6), Math.Round(scale, 6)));
+        var picture = new ImageUnderlay { PixelWidth = 200, PixelHeight = 100, Location = at, Rotation = rotation, Scale = scale };
+        var back = WorldFile.Parse(ImageUnderlays.For(picture, new Vector2D(530_000_000, 180_000_000)).ToString())!;
+        Assert.All(new[] { back.A - turned.A, back.D - turned.D, back.B - turned.B, back.E - turned.E, back.C - turned.C, back.F - turned.F }, off => Assert.InRange(off, -1e-6, 1e-6));
+
+        // Skewed, mirrored, in degrees, or not six numbers: not taken.
+        Assert.Contains("skews", ImageUnderlays.Place(world with { B = 0.1 }, 200, 100, default).Problem);
+        Assert.Contains("mirrors", ImageUnderlays.Place(world with { E = 0.5 }, 200, 100, default).Problem);
+        Assert.Contains("degrees", ImageUnderlays.Place(new WorldFile(0.00001, 0, 0, -0.00001, -0.12, 51.5), 200, 100, default).Problem);
+        Assert.Null(WorldFile.Parse("0.5\n0\n0\n-0.5\n530000.25\n"));
+        Assert.Equal(1.5e-3, WorldFile.Parse("1.5E-3\n0\n0\n-1.5E-3\n\n1\n2\n")!.A);
+
+        // Beside site.png: site.pgw, site.pngw or site.wld; beside photo.jpeg, photo.jgw among them.
+        Assert.Equal(new[] { "site.pgw", "site.pngw", "site.wld" }, WorldFile.NamesFor(@"C:\maps\site.png").Select(Path.GetFileName));
+        Assert.Contains("photo.jgw", WorldFile.NamesFor(@"C:\maps\photo.jpeg").Select(Path.GetFileName));
+    }
+
+    private static Point2D Round(Point2D point) => new(Math.Round(point.X, 3), Math.Round(point.Y, 3));
+
+    [Fact]
+    public void APictureIsCroppedAndKeepsItsCropWithTheProject()
+    {
+        var (document, picture) = Placed();
+
+        // Points at (2000, 1000) and (6000, 4000) mm, 10 mm a pixel: pixels 200 to 600 across and 100 to 400 up.
+        picture.Crop = ImageUnderlays.CropTo(picture, new Point2D(6000, 4000), new Point2D(2000, 1000));
+        Assert.Equal(new ImageCrop(200, 100, 600, 400), picture.Crop);
+        Assert.Equal(new[] { new Point2D(2000, 1000), new Point2D(6000, 1000), new Point2D(6000, 4000), new Point2D(2000, 4000) }, picture.Corners);
+
+        // Cropped again, it can only lose more; nothing between two points, no crop.
+        Assert.Equal(new ImageCrop(200, 100, 400, 300), ImageUnderlays.CropTo(picture, new Point2D(0, 0), new Point2D(4000, 3000)));
+        Assert.Null(ImageUnderlays.CropTo(picture, new Point2D(3000, 2000), new Point2D(3005, 2500)));
+
+        // Turned a quarter, a point of the plan back to the picture's pixel it is.
+        picture.Rotation = 90;
+        Assert.Equal(new Point2D(300, 200), Round(picture.ToPixel(picture.ToModel(new Point2D(300, 200)))));
+
+        var back = ProjectFile.FromJson(ProjectFile.ToJson(document)).All<ImageUnderlay>().Single();
+        Assert.Equal(picture.Crop, back.Crop);
+        Assert.Equal(picture.Crop, ((ImageUnderlay)ElementCopy.Clone(picture)!).Crop);
+    }
+
+    [Fact]
+    public void ALinkedPictureKeepsNoPixelsAndIsReadFromItsFile()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"pictures-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var file = Path.Combine(folder, "aerial.png");
+            File.WriteAllBytes(file, Png(2000, 1000));
+            var document = BimDocument.CreateDefault();
+            var picture = ImageUnderlay.From(file, File.ReadAllBytes(file), document.Levels[0].Id)!;
+            (picture.Linked, picture.Crop) = (true, new ImageCrop(1500, 0, 2000, 800));
+            document.Add(picture);
+
+            // Saved: no pixels in the project; opened, read from its file.
+            var json = ProjectFile.ToJson(document);
+            using (var parsed = System.Text.Json.JsonDocument.Parse(json))
+            {
+                var saved = parsed.RootElement.EnumerateObject().Single(property => property.Name.Equals("ImageUnderlays", StringComparison.OrdinalIgnoreCase)).Value[0];
+                var data = saved.EnumerateObject().FirstOrDefault(property => property.Name.Equals("Data", StringComparison.OrdinalIgnoreCase));
+                Assert.True(data.Value.ValueKind is System.Text.Json.JsonValueKind.Undefined or System.Text.Json.JsonValueKind.Null);
+            }
+
+            Assert.Empty(ProjectFile.FromJson(json).All<ImageUnderlay>().Single().Data);
+            var project = Path.Combine(folder, "site.bimx");
+            ProjectFile.Save(document, project);
+            var opened = ProjectFile.Load(project).All<ImageUnderlay>().Single();
+            Assert.True(opened.Linked);
+            Assert.Equal(picture.Data, opened.Data);
+
+            // Its file made smaller, 1600 by 600: opened again, its crop kept inside it.
+            File.WriteAllBytes(file, Png(1600, 600));
+            var again = ProjectFile.Load(project).All<ImageUnderlay>().Single();
+            Assert.Equal((1600, 600), (again.PixelWidth, again.PixelHeight));
+            Assert.Equal(new ImageCrop(1500, 0, 1600, 600), again.Crop);
+
+            // Gone: only where it was, its outline as it was saved, is kept.
+            File.Delete(file);
+            var gone = ProjectFile.Load(project).All<ImageUnderlay>().Single();
+            Assert.Empty(gone.Data);
+            Assert.Equal((2000, 1000), (gone.PixelWidth, gone.PixelHeight));
+        }
+        finally
+        {
+            try { Directory.Delete(folder, recursive: true); } catch (IOException) { }
+        }
+    }
+
     [Fact]
     public void APictureUnderTheLocationPlanIsItsMap()
     {

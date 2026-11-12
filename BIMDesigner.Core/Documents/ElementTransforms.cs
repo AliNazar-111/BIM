@@ -483,8 +483,9 @@ public static class ElementTransforms
                 (detail.Start, detail.End) = (Reflect(detail.Start), Reflect(detail.End));
                 break;
 
+            // Mirrored, an arc bows the other way.
             case AreaBoundary boundary:
-                (boundary.Start, boundary.End) = (Reflect(boundary.Start), Reflect(boundary.End));
+                (boundary.Start, boundary.End, boundary.Bulge) = (Reflect(boundary.Start), Reflect(boundary.End), -boundary.Bulge);
                 break;
 
             // Mirrored, it is drawn on the other side of its line, as the mirror image is.

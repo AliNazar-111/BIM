@@ -48,7 +48,21 @@ public sealed class AreaBoundary : Element
     /// <summary>The wall it was picked from, whose middle it follows; none for one drawn, or one whose ends were moved by hand.</summary>
     public Guid? WallId { get; set; }
 
-    public double Length => Start.DistanceTo(End);
+    /// <summary>How far it bows, as a wall does: the tangent of a quarter of the angle its arc turns through, positive turning left - bowing out to the right of the way it runs; none for a straight one.</summary>
+    public double Bulge { get; set; }
+
+    /// <summary>The line or arc it runs along.</summary>
+    public WallCurve Curve => WallCurve.Of(Start, End, Bulge);
+
+    public double Length => Math.Abs(Bulge) < WallCurve.StraightBulge ? Start.DistanceTo(End) : Curve.Length;
+
+    /// <summary>Its line, or its arc as short straight pieces: what it splits the plan by.</summary>
+    public IReadOnlyList<(Point2D From, Point2D To)> Pieces()
+    {
+        if (Math.Abs(Bulge) < WallCurve.StraightBulge) return new[] { (Start, End) };
+        var points = Curve.Points();
+        return points.Zip(points.Skip(1)).ToList();
+    }
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
@@ -137,13 +151,21 @@ public static class Areas
     }
 
     /// <summary>
-    /// Each boundary picked from a wall taken to where the wall's middle now is - the wall moved, lengthened or made thicker - as it is measured and drawn; a wall gone or curved leaves it where it was.
+    /// Each boundary picked from a wall taken to where the wall's middle now is - the wall moved, lengthened, made thicker or
+    /// bowed - as it is measured and drawn, along the same arc for a curved wall; a wall gone, elliptical or a spline leaves it where it was.
     /// </summary>
     public static void FollowWalls(BimDocument document)
     {
         foreach (var line in document.All<AreaBoundary>())
-            if (line.WallId is { } id && document.Find<Wall>(id) is { IsCurved: false } wall && document.GetWallType(wall) is { } type)
-                (line.Start, line.End) = wall.GetBodyCentreline(type.Structure);
+            if (line.WallId is { } id && document.Find<Wall>(id) is { IsElliptical: false, IsSpline: false } wall && document.GetWallType(wall) is { } type)
+                (line.Start, line.End, line.Bulge) = Along(wall, type.Structure);
+    }
+
+    /// <summary>The middle of a straight or arc wall's body: its ends, and how far it bows - an arc moved sideways keeps its bow.</summary>
+    public static (Point2D Start, Point2D End, double Bulge) Along(Wall wall, Materials.CompoundStructure structure)
+    {
+        var (start, end) = wall.GetBodyCentreline(structure);
+        return (start, end, wall.IsCurved ? wall.Bulge : 0);
     }
 
     /// <summary>The number the next area on a plan takes: one more than the highest that is a number.</summary>
@@ -161,7 +183,7 @@ public static class Areas
         if (!frame.Any(outline => Polygon2D.Contains(outline, area.Location)))
             return new AreaShape(null, 0, "Not inside the storey's outline: it is measured within the walls that close round the building.");
 
-        var lines = Boundaries(document, area.LevelId, area.Scheme).Select(line => (line.Start, line.End))
+        var lines = Boundaries(document, area.LevelId, area.Scheme).SelectMany(line => line.Pieces())
             .Concat(frame.SelectMany(outline => outline.Select((point, i) => (point, outline[(i + 1) % outline.Count]))));
         if (RoomBoundary.Face(lines, area.Location) is not { } face)
             return new AreaShape(null, 0, "Not enclosed: its area boundaries do not close round it.");

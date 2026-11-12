@@ -395,7 +395,9 @@
                         <MenuItem Header="Import DW_G or DXF..." Click="OnImportCad"
                                   ToolTip="A DWG or DXF drawing - a survey, a consultant's layout, an existing building's plans - brought onto the storey shown to work over: the drawing tools snap to its lines"/>
                         <MenuItem Header="Import Ima_ge..." Click="OnImportImage"
-                                  ToolTip="A PNG or JPEG picture - a map, an aerial photograph, a scanned survey - brought under the storey shown to work over; Scale Image sets its true size"/>
+                                  ToolTip="A PNG or JPEG picture - a map, an aerial photograph, a scanned survey - brought under the storey shown to work over, where its world file puts it if it has one; Scale Image sets its true size"/>
+                        <MenuItem Header="_Link Image..." Click="OnLinkImage"
+                                  ToolTip="A PNG or JPEG picture linked under the storey shown: read again from its file as the project opens and when reloaded, its pixels not kept in the project"/>
                         <MenuItem Header="Export _IFC..." Click="OnExportIfc">
                             <MenuItem.Icon><Image Source="{StaticResource Icon.Export}" Width="16"/></MenuItem.Icon>
                         </MenuItem>
@@ -1603,6 +1605,17 @@
                                 <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Scale}"
                                         Content="Scale Image" Click="OnScaleImage"
                                         ToolTip="Set the picture's true size: click two points on it a known distance apart - the ends of its scale bar, a building's front - and give the distance"/>
+                                <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.Region}"
+                                        Content="Crop Image" Click="OnCropImage"
+                                        ToolTip="Keep only part of the picture: click two opposite corners of the part to keep"/>
+                                <StackPanel>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Undo}" Content="Uncrop" Click="OnUncropImage"
+                                            ToolTip="Show all of the picture again"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Open}" Content="Place by World File..." Click="OnPlaceImageByWorldFile"
+                                            ToolTip="Put the picture where its world file - .pgw, .jgw, .wld - says, in metres on the grid the project is set out on by its survey point"/>
+                                    <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.Save}" Content="Save World File..." Click="OnSaveImageWorldFile"
+                                            ToolTip="Write the picture's world file where it lies here, so a GIS or another program puts it in the same place"/>
+                                </StackPanel>
                             </StackPanel>
                         </HeaderedContentControl>
 
@@ -2829,6 +2842,8 @@
                                           ToolTip="Colour the ground: by slope - level, gently sloping, as steep as a ramp, too steep to mow, steeper than earth stands - by height, or by what is cut and filled against the ground as it was"/>
                                 <Button Style="{StaticResource ViewControlButton}" Content="Zoom to Fit" Click="OnPlanZoomToFit"
                                         ToolTip="Frame the whole plan (F)"/>
+                                <Button Style="{StaticResource ViewControlButton}" Content="Own Window" Click="OnPlanOwnWindow"
+                                        ToolTip="This storey's plan in a window of its own as well - another storey beside this one, or this one larger on a second screen; pick and drag there as here"/>
                             </StackPanel>
                         </Border>
                         <controls:PlanView x:Name="Plan"/>
@@ -3022,6 +3037,10 @@
                                                   VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Click="OnModelCategoryToggled"
                                                   ToolTip="The ground: the toposurface the building is set into"/>
+                                        <CheckBox x:Name="ShowPicturesBox" Content="Pictures" IsChecked="True"
+                                                  VerticalAlignment="Center" Margin="0,0,12,0"
+                                                  Click="OnModelCategoryToggled"
+                                                  ToolTip="The pictures under the plans - a site map, an aerial photograph - lying on their storeys"/>
                                         <CheckBox x:Name="ShowEdgesBox" Content="Edges" IsChecked="True"
                                                   VerticalAlignment="Center" Margin="0,0,22,0"
                                                   Click="OnModelCategoryToggled"

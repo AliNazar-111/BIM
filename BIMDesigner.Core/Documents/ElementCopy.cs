@@ -365,7 +365,7 @@ public static class ElementCopy
         {
             Start = repeating.Start, End = repeating.End, Kind = repeating.Kind, Width = repeating.Width, Unit = repeating.Unit, Spacing = repeating.Spacing, Flipped = repeating.Flipped
         }, repeating),
-        AreaBoundary boundary => CarryCommon(new AreaBoundary { Start = boundary.Start, End = boundary.End, Scheme = boundary.Scheme }, boundary),
+        AreaBoundary boundary => CarryCommon(new AreaBoundary { Start = boundary.Start, End = boundary.End, Bulge = boundary.Bulge, Scheme = boundary.Scheme }, boundary),
         Area area => CarryCommon(new Area { Location = area.Location, Name = area.Name, Number = area.Number, Scheme = area.Scheme, Use = area.Use }, area),
         Annotation.FilledRegion region => CarryCommon(Outline(new Annotation.FilledRegion { Pattern = region.Pattern, CustomPatternId = region.CustomPatternId, Outlined = region.Outlined }, region.Boundary), region),
         Annotation.DraftingView drafting => CarryCommon(new Annotation.DraftingView { Name = drafting.Name }, drafting),
@@ -373,7 +373,7 @@ public static class ElementCopy
         ImageUnderlay picture => CarryCommon(new ImageUnderlay
         {
             Source = picture.Source, Data = picture.Data, PixelWidth = picture.PixelWidth, PixelHeight = picture.PixelHeight,
-            Location = picture.Location, Rotation = picture.Rotation, Scale = picture.Scale, Halftone = picture.Halftone
+            Location = picture.Location, Rotation = picture.Rotation, Scale = picture.Scale, Halftone = picture.Halftone, Linked = picture.Linked, Crop = picture.Crop
         }, picture),
         Coordination.ModelLink link => CarryCommon(new Coordination.ModelLink
         {

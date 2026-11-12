@@ -1,6 +1,7 @@
 using BIMDesigner.Core;
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Views;
 
 namespace BIMDesigner.UI.Controls;
 
@@ -88,6 +89,65 @@ public partial class PlanView
         if (_imageScale is null) return false;
         (_imageScale, _imageScalePoints) = (null, null);
         HintChanged?.Invoke(this, "Scaling the picture stopped.");
+        InvalidateVisual();
+        return true;
+    }
+
+    // ---- cropping -------------------------------------------------------------------------------------------------------
+
+    private (ImageUnderlay Picture, Point2D? First)? _imageCrop;
+
+    /// <summary>Whether the two corners to crop a picture to are being clicked.</summary>
+    public bool IsCroppingImage => _imageCrop is not null;
+
+    /// <summary>Starts cropping a picture - the one selected, or the only one on the storey - to two corners clicked on it. False where there is none.</summary>
+    public bool BeginImageCrop(ImageUnderlay? picture = null)
+    {
+        picture ??= _selection.OfType<ImageUnderlay>().FirstOrDefault() ?? (OnActiveLevel<ImageUnderlay>().Take(2).ToList() is { Count: 1 } only ? only[0] : null);
+        if (picture is null)
+        {
+            HintChanged?.Invoke(this, "Select the picture to crop first.");
+            return false;
+        }
+
+        Select(picture);
+        _imageCrop = (picture, null);
+        HintChanged?.Invoke(this, "Click one corner of the part of the picture to keep. Esc stops.");
+        return true;
+    }
+
+    /// <summary>A click while cropping a picture - public so tests can drive it: the first corner, then the opposite one, cropping it as one step to undo.</summary>
+    public bool ImageCropAt(Point2D raw)
+    {
+        if (_imageCrop is not var (picture, first)) return false;
+        if (first is not { } from)
+        {
+            _imageCrop = (picture, raw);
+            HintChanged?.Invoke(this, "Now click the opposite corner.");
+            return true;
+        }
+
+        if (ImageUnderlays.CropTo(picture, from, raw) is not { } crop)
+        {
+            HintChanged?.Invoke(this, "Click the opposite corner across the picture: the two leave none of it between them.");
+            return true;
+        }
+
+        _imageCrop = null;
+        var before = picture.Crop;
+        Apply(new DelegateCommand("Crop Image", () => picture.Crop = crop, () => picture.Crop = before));
+        ModelChanged?.Invoke(this, EventArgs.Empty);
+        Select(picture);
+        HintChanged?.Invoke(this, $"Cropped to {Units.FormatLength(crop.Width * picture.Scale)} by {Units.FormatLength(crop.Height * picture.Scale)}. Uncrop shows all of it again.");
+        InvalidateVisual();
+        return true;
+    }
+
+    private bool CancelImageCrop()
+    {
+        if (_imageCrop is null) return false;
+        _imageCrop = null;
+        HintChanged?.Invoke(this, "Cropping the picture stopped.");
         InvalidateVisual();
         return true;
     }

@@ -43,7 +43,20 @@ public sealed partial class PlanRenderer
     /// </summary>
     private void DrawImage(DrawingContext dc, ImageUnderlay picture)
     {
-        if (picture.PixelWidth <= 0 || picture.PixelHeight <= 0 || picture.Data.Length == 0) return;
+        if (picture.PixelWidth <= 0 || picture.PixelHeight <= 0) return;
+
+        // A linked picture whose file was not found: where it goes, crossed, to be reloaded.
+        if (picture.Data.Length == 0)
+        {
+            var corners = picture.Corners.Select(ModelToScreen).ToList();
+            var missing = new Pen(new SolidColorBrush(Color.FromRgb(0xB0, 0x40, 0x40)), IsSelected(picture) ? 2 : 1) { DashStyle = DashStyles.Dash };
+            missing.Freeze();
+            for (var i = 0; i < 4; i++) dc.DrawLine(missing, corners[i], corners[(i + 1) % 4]);
+            dc.DrawLine(missing, corners[0], corners[2]);
+            dc.DrawLine(missing, corners[1], corners[3]);
+            return;
+        }
+
         System.Windows.Media.Imaging.BitmapSource bitmap;
         try
         {
@@ -70,8 +83,13 @@ public sealed partial class PlanRenderer
         var along = (topRight - topLeft) / width;
         var down = (bottomLeft - topLeft) / height;
         dc.PushTransform(new MatrixTransform(along.X, along.Y, down.X, down.Y, topLeft.X, topLeft.Y));
+
+        // Cropped: only the part kept, its pixels counted down from the top as the picture's are here.
+        var shown = picture.Shown;
+        dc.PushClip(new RectangleGeometry(new Rect(shown.Left, height - shown.Top, shown.Width, shown.Height)));
         dc.PushOpacity(picture.Halftone ? ImageFade : 1);
         dc.DrawImage(bitmap, new Rect(0, 0, width, height));
+        dc.Pop();
         dc.Pop();
         dc.Pop();
 

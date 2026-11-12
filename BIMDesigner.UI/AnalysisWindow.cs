@@ -81,6 +81,8 @@ internal sealed class AnalysisWindow : System.Windows.Window
         var again = new Button { Content = "Analyse Again", ToolTip = "The model analysed again as it now stands" };
         again.Click += (_, e) => _main.OnAnalyse(this, e);
         _report.Click += (_, _) => SaveReport();
+        var notes = new Button { Content = "Notes...", ToolTip = "The engineer's own notes for the calculations - the basis taken, what was assumed, what is to be confirmed on site - and who checked and approved them" };
+        notes.Click += (_, _) => EditNotes();
         var close = new Button { Content = "Close", IsCancel = true, IsDefault = true };
         close.Click += (_, _) => Close();
 
@@ -154,7 +156,7 @@ internal sealed class AnalysisWindow : System.Windows.Window
         tabs.Items.Add(new TabItem { Header = "Notes", Content = _notes });
 
         var root = new DockPanel();
-        root.Children.Add(DialogLook.Footer(_said, _report, again, close));
+        root.Children.Add(DialogLook.Footer(_said, notes, _report, again, close));
         root.Children.Add(DialogLook.Intro("The structure analysed here, linear and elastic: its members as beams and its plates as shell triangles about the mesh size apart, sharing their nodes where they meet, " +
                                            "held at its footings and piles and by the ground under a raft, each load case solved and each combination added up. Forces are kN and kNm, deflections mm. " +
                                            "Its members are checked for strength on the Strength tab, on second-order forces where the Sway tab says the structure needs them, masonry, stud and concrete walls on the Walls tab, concrete floors and rafts on the Slabs tab, joints and bearings on the Joints tab, the period it must stand in a fire on the Fire tab, what an accident asks of it on the Robustness tab and the ground on the Foundations tab."));
@@ -414,6 +416,58 @@ internal sealed class AnalysisWindow : System.Windows.Window
     }
 
     /// <summary>The calculations saved where asked.</summary>
+    /// <summary>
+    /// The engineer's own notes for the calculations - each paragraph a blank line apart - and who checked and approved them,
+    /// asked for and kept with the project as one step to undo.
+    /// </summary>
+    private void EditNotes()
+    {
+        var project = _main.Document.ProjectInformation;
+        var notes = new TextBox
+        {
+            Text = project.EngineerNotes, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Height = 240, Width = 560, Margin = new Thickness(0, 4, 0, 10), Padding = new Thickness(4)
+        };
+        var checkedBy = new TextBox { Text = project.CheckedBy, Width = 260, Margin = new Thickness(0, 0, 0, 6) };
+        var approvedBy = new TextBox { Text = project.ApprovedBy, Width = 260, Margin = new Thickness(0, 0, 0, 10) };
+        var ok = new Button { Content = "OK", Padding = new Thickness(20, 5, 20, 5), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancel = new Button { Content = "Cancel", Padding = new Thickness(14, 5, 14, 5), IsCancel = true };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        var content = new StackPanel { Margin = new Thickness(16) };
+        content.Children.Add(new TextBlock { Text = "Notes for the calculations - the design basis taken, what was assumed, what is to be confirmed on site. A blank line starts a new paragraph. Each member's, wall's and slab's own Comments are put in too, under its check.", TextWrapping = TextWrapping.Wrap, Width = 560 });
+        content.Children.Add(notes);
+        content.Children.Add(new TextBlock { Text = "Checked by" });
+        content.Children.Add(checkedBy);
+        content.Children.Add(new TextBlock { Text = "Approved by" });
+        content.Children.Add(approvedBy);
+        content.Children.Add(buttons);
+        var dialog = new System.Windows.Window
+        {
+            Title = "Engineer's Notes", Content = content, Owner = this, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, Background = Background, Foreground = Foreground
+        };
+        ok.Click += (_, _) => dialog.DialogResult = true;
+        if (dialog.ShowDialog() != true) return;
+        SetNotes(notes.Text.Trim(), checkedBy.Text.Trim(), approvedBy.Text.Trim());
+    }
+
+    /// <summary>The notes and names set as one step to undo - internal so tests and the harness can set them without the dialog.</summary>
+    internal void SetNotes(string notes, string checkedBy, string approvedBy)
+    {
+        var project = _main.Document.ProjectInformation;
+        var before = (project.EngineerNotes, project.CheckedBy, project.ApprovedBy);
+        var after = (notes, checkedBy, approvedBy);
+        if (before == after) return;
+        _main.History.Execute(new Core.Views.DelegateCommand("Engineer's Notes",
+            () => (project.EngineerNotes, project.CheckedBy, project.ApprovedBy) = after,
+            () => (project.EngineerNotes, project.CheckedBy, project.ApprovedBy) = before));
+        DialogLook.Say(_said, Paragraphs(notes) is var paragraphs && paragraphs > 0 ? $"{paragraphs} paragraph{(paragraphs == 1 ? "" : "s")} of notes, put in the calculations after their status." : "No notes of the engineer's own.");
+    }
+
+    private static int Paragraphs(string text) => Export.CalculationReport.Paragraphs(text).Count;
+
     private void SaveReport()
     {
         var dialog = new Microsoft.Win32.SaveFileDialog

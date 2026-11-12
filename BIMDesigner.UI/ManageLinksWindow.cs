@@ -59,13 +59,19 @@ internal sealed class ManageLinksWindow : System.Windows.Window
             var dialog = new OpenFileDialog { Title = "Link a DWG or DXF Drawing", Filter = "CAD drawings (*.dwg;*.dxf)|*.dwg;*.dxf" };
             if (dialog.ShowDialog(this) == true && _main.ImportCad(dialog.FileName, quiet: false, linked: true) is { } underlay) Select(underlay);
         };
+        var linkPicture = new Button { Content = "Link Image...", ToolTip = "Link a PNG or JPEG onto the storey shown - a map, an aerial photograph: read again from its file as the project opens and when reloaded, its pixels not kept in the project" };
+        linkPicture.Click += (_, _) =>
+        {
+            var dialog = new OpenFileDialog { Title = "Link a Picture to Work Over", Filter = "Pictures (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg" };
+            if (dialog.ShowDialog(this) == true && _main.ImportImage(dialog.FileName, quiet: false, linked: true) is { } picture) Select(picture);
+        };
         _reload.Click += (_, _) => Reload(null);
         _reloadFrom.Click += (_, _) =>
         {
             var dialog = new OpenFileDialog
             {
                 Title = "Reload From",
-                Filter = Picked is CadUnderlay ? "CAD drawings (*.dwg;*.dxf)|*.dwg;*.dxf" : LinkFiles.Filter
+                Filter = Picked is CadUnderlay ? "CAD drawings (*.dwg;*.dxf)|*.dwg;*.dxf" : Picked is ImageUnderlay ? "Pictures (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg" : LinkFiles.Filter
             };
             if (dialog.ShowDialog(this) == true) Reload(dialog.FileName);
         };
@@ -89,14 +95,14 @@ internal sealed class ManageLinksWindow : System.Windows.Window
         close.Click += (_, _) => Close();
 
         var buttons = new WrapPanel { Margin = new Thickness(16, 6, 16, 6) };
-        foreach (var button in new[] { linkModel, linkDrawing, _reload, _reloadFrom, _unload, _remove, copyMonitor })
+        foreach (var button in new[] { linkModel, linkDrawing, linkPicture, _reload, _reloadFrom, _unload, _remove, copyMonitor })
         {
             button.Margin = new Thickness(0, 0, 8, 0);
             button.Padding = new Thickness(10, 4, 10, 4);
             buttons.Children.Add(button);
         }
 
-        var intro = DialogLook.Intro("Models and drawings linked in, read from their own files: a project or an IFC file drawn with this one in 3D and cut on its plans, clash tested against it; a DWG or DXF under a storey. Each file is looked at every few seconds - reload what has changed. Pick one to select it: its place and turn are in its Properties.");
+        var intro = DialogLook.Intro("Models, drawings and pictures linked in, read from their own files: a project or an IFC file drawn with this one in 3D and cut on its plans, clash tested against it; a DWG or DXF, a PNG or a JPEG under a storey. Each file is looked at every few seconds - reload what has changed. Pick one to select it: its place and turn are in its Properties.");
         var root = new DockPanel();
         DockPanel.SetDock(buttons, Dock.Top);
         root.Children.Add(DialogLook.Footer(_problem, close));
@@ -135,6 +141,9 @@ internal sealed class ManageLinksWindow : System.Windows.Window
             case CadUnderlay underlay:
                 _main.ReloadUnderlay(underlay, from);
                 break;
+            case ImageUnderlay picture:
+                _main.ReloadImage(picture, from);
+                break;
         }
 
         if (Picked is { } picked) Select(picked);
@@ -161,8 +170,17 @@ internal sealed class ManageLinksWindow : System.Windows.Window
             _list.Items.Add(Row(underlay, $"{Path.GetFileName(underlay.Source)}  -  DWG on {document.FindLevel(underlay.LevelId)?.Name ?? "a storey"}", status, underlay.Source, !found || changed));
         }
 
+        foreach (var picture in document.All<ImageUnderlay>().Where(picture => picture.Linked).OrderBy(picture => Path.GetFileName(picture.Source), StringComparer.CurrentCultureIgnoreCase))
+        {
+            var found = File.Exists(picture.Source);
+            var changed = _main.Changed(picture);
+            var status = !found ? (picture.Data.Length == 0 ? "Not found - only its outline is drawn" : "Not found - the pixels read before are drawn until the project is closed")
+                : changed ? "Its file has changed since: reload it" : $"{picture.PixelWidth:#,0} x {picture.PixelHeight:#,0} pixels";
+            _list.Items.Add(Row(picture, $"{Path.GetFileName(picture.Source)}  -  picture on {document.FindLevel(picture.LevelId)?.Name ?? "a storey"}", status, picture.Source, !found || changed));
+        }
+
         if (_list.Items.Count == 0)
-            _list.Items.Add(new ListBoxItem { Content = new TextBlock { Text = "Nothing linked yet: Link Model... or Link DWG... above.", Opacity = 0.7, Margin = new Thickness(6) }, IsEnabled = false });
+            _list.Items.Add(new ListBoxItem { Content = new TextBlock { Text = "Nothing linked yet: Link Model..., Link DWG... or Link Image... above.", Opacity = 0.7, Margin = new Thickness(6) }, IsEnabled = false });
         if (keep is { } id) _list.SelectedItem = _list.Items.OfType<ListBoxItem>().FirstOrDefault(item => (item.Tag as Element)?.Id == id);
     }
 

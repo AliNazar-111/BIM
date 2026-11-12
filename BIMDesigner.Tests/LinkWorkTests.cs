@@ -190,7 +190,7 @@ public class LinkWorkTests : IDisposable
         Assert.Equal("Column C1", moved.Name);
         Assert.Contains("moved 500", moved.Said.Replace(" mm", string.Empty));
         Assert.Contains("top 300 higher", findings.Single(finding => finding.Change == MonitorChange.Resized).Said.Replace(" mm", string.Empty));
-        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked columns and walls changed");
+        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked columns, walls, floors and openings changed");
 
         // Each matched: the column to where it now is, W2 to its new top, W3 to this project's partition; W4 let go.
         foreach (var finding in findings.Where(finding => finding.Change != MonitorChange.Gone)) history.Execute(CopyMonitor.Match(host, finding)!);
@@ -209,6 +209,80 @@ public class LinkWorkTests : IDisposable
     }
 
     private static Point2D Rounded(Point2D point) => new(Math.Round(point.X, 6), Math.Round(point.Y, 6));
+
+    /// <summary>The framed structure with a ground floor slab F1 over its box, a door D1 1500 along W1, and a window WN1 2000 along W2 with a 900 sill.</summary>
+    private static BimDocument Fitted(double doorAlong = 1500, double windowSill = 900, double corner = 4000)
+    {
+        var document = Framed();
+        var floor = new Floor { LevelId = document.Levels[0].Id, TypeId = document.TypesOf<FloorType>().First().Id, Mark = "F1" };
+        floor.SetBoundary(new[] { new Point2D(0, 0), new Point2D(6000, 0), new Point2D(6000, corner), new Point2D(0, 4000) });
+        document.Add(floor);
+        var walls = document.Walls.OrderBy(wall => wall.Mark).ToList();
+        document.Add(new Door { TypeId = document.TypesOf<DoorType>().First().Id, LevelId = document.Levels[0].Id, HostWallId = walls[0].Id, DistanceAlongWall = doorAlong, Mark = "D1" });
+        document.Add(new Window { TypeId = document.TypesOf<WindowType>().First().Id, LevelId = document.Levels[0].Id, HostWallId = walls[1].Id, DistanceAlongWall = 2000, SillHeight = windowSill, Mark = "WN1" });
+        return document;
+    }
+
+    [Fact]
+    public void FloorsDoorsAndWindowsCopiedFollowTheirOriginals()
+    {
+        // Linked turned a quarter and a metre east: (x, y) there is (1000 - y, x) here.
+        var file = Path.Combine(_folder, "fitted.bimx");
+        ProjectFile.Save(Fitted(), file);
+        var host = BimDocument.CreateDefault();
+        var link = new ModelLink { Path = file, Offset = new Vector2D(1000, 0), Rotation = 90 };
+        host.Add(link);
+        ModelLinks.Load(link);
+
+        var (copy, said) = CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Walls | CopyMonitorKinds.Floors | CopyMonitorKinds.Openings);
+        var history = new UndoStack();
+        history.Execute(copy!);
+        Assert.Contains("1 floor", said);
+        Assert.Contains("2 doors and windows", said);
+
+        // The floor's outline where the link puts it, at the ground floor; the door 1500 along the copy of W1, which runs from (1000, 0) the same way.
+        var floor = host.All<Floor>().Single();
+        Assert.Equal(new[] { new Point2D(1000, 0), new Point2D(1000, 6000), new Point2D(-3000, 6000), new Point2D(-3000, 0) }, floor.Boundary.Select(Rounded));
+        Assert.Equal((host.Levels[0].Id, 0.0, "F1"), (floor.LevelId, Math.Round(floor.HeightOffset, 6), floor.Mark));
+        var w1 = host.Walls.Single(wall => wall.Mark == "W1");
+        var door = host.All<Door>().Single();
+        Assert.Equal((w1.Id, 1500.0, "D1"), (door.HostWallId, Math.Round(door.DistanceAlongWall, 6), door.Mark));
+        Assert.Equal(new Point2D(1000, 1500), Rounded(door.GetCentre(w1)));
+        var window = host.All<Window>().Single();
+        Assert.Equal((host.Walls.Single(wall => wall.Mark == "W2").Id, 900.0), (window.HostWallId, window.SillHeight));
+        Assert.Empty(CopyMonitor.Review(host));
+        var back = ProjectFile.FromJson(ProjectFile.ToJson(host));
+        Assert.Equal(4, back.All<Floor>().Single().Monitor!.Outline!.Count);
+        Assert.NotNull(back.All<Door>().Single().Monitor);
+
+        // Issued again, made afresh: the door 600 further along, the window's sill 150 higher, a corner of the floor a metre out.
+        ProjectFile.Save(Fitted(doorAlong: 2100, windowSill: 1050, corner: 5000), file);
+        ModelLinks.Load(link);
+        var findings = CopyMonitor.Review(host);
+        Assert.Equal(3, findings.Count);
+        Assert.Contains("moved 600", findings.Single(finding => finding.Datum is Door).Said.Replace(" mm", string.Empty));
+        Assert.Contains("sill 150 higher", findings.Single(finding => finding.Datum is Window).Said.Replace(" mm", string.Empty));
+        Assert.Contains("changed its outline", findings.Single(finding => finding.Datum is Floor).Said);
+        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked columns, walls, floors and openings changed");
+
+        // Each matched: the door 2100 along, the window's sill 1050, the floor's corner where it now is.
+        foreach (var finding in findings) history.Execute(CopyMonitor.Match(host, finding)!);
+        Assert.Equal(2100, door.DistanceAlongWall, 6);
+        Assert.Equal(1050, window.SillHeight, 6);
+        Assert.Contains(new Point2D(-4000, 6000), floor.Boundary.Select(Rounded));
+        Assert.Empty(CopyMonitor.Review(host));
+        history.Undo();
+        Assert.Single(CopyMonitor.Review(host));
+    }
+
+    [Fact]
+    public void ADoorInAWallNotFollowedHereIsLeft()
+    {
+        var (host, link, _) = Linked(Fitted());
+        var (copy, said) = CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Openings);
+        Assert.Null(copy);
+        Assert.Contains("2 doors or windows in a wall not followed here", said);
+    }
 
     [Fact]
     public void AFrameWrittenAgainFromScratchIsFollowedByItsMarks()

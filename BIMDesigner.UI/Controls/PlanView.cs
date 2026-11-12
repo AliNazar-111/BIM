@@ -1513,6 +1513,7 @@ public partial class PlanView : FrameworkElement
     {
         var changed = CloseTypedLength()
                       | CancelImageScale()
+                      | CancelImageCrop()
                       | CancelStair()
                       | CancelRamp()
                       | CancelRailing()
@@ -2131,7 +2132,7 @@ public partial class PlanView : FrameworkElement
         }
 
         // While a picture is being scaled, the clicks are its two points.
-        if (ImageScaleAt(raw)) return;
+        if (ImageScaleAt(raw) || ImageCropAt(raw)) return;
 
         // A double-click on a callout's box opens its view.
         if (ActiveTool == PlanTool.Select && e.ClickCount == 2 && OpenCalloutAt(raw)) return;

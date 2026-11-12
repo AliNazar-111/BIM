@@ -46,7 +46,10 @@ public enum MeshKind
     Pipe,
 
     /// <summary>A duct of the services, in its system's colour.</summary>
-    Duct
+    Duct,
+
+    /// <summary>A picture under a plan - a map, an aerial photograph - lying on its storey in 3D: drawn by the 3D view itself, not made into a mesh.</summary>
+    Picture
 }
 
 /// <summary>

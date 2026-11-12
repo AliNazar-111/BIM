@@ -78,6 +78,9 @@ public abstract class Opening : Element, IHostedElement
 
     public double? HeightOverride { get; set; }
 
+    /// <summary>The linked model's door or window this one follows, as last agreed: none for one of this project's own.</summary>
+    public Coordination.ElementMonitor? Monitor { get; set; }
+
     /// <summary>How wide this opening actually is: its own width if it has one, else its type's.</summary>
     public double WidthOf(OpeningType? type) => WidthOverride ?? type?.Width ?? 0;
 
@@ -251,6 +254,8 @@ public abstract class Opening : Element, IHostedElement
 
         // Over a drop: whether it is guarded as its rules ask - a Juliet balcony, a rail, laminated glass.
         yield return ParameterValue.ReadOnly(OpeningParameters.Guarding, () => OpeningGuarding.Verdict(document, this));
+        if (Monitor is not null)
+            yield return ParameterValue.ReadOnly(Coordination.ElementMonitorParameters.Monitors, () => Coordination.CopyMonitor.Said(document, Monitor));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
     }

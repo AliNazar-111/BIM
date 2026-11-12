@@ -5390,6 +5390,7 @@ public partial class MainWindow : Window
         ShowRampsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Ramp);
         ShowBeamsBox.IsChecked = Model3D.IsKindVisible(MeshKind.Beam);
         ShowTerrainBox.IsChecked = Model3D.IsKindVisible(MeshKind.Terrain);
+        ShowPicturesBox.IsChecked = Model3D.IsKindVisible(MeshKind.Picture);
         ShowGroundBox.IsChecked = view.ShowGround;
         ShowEdgesBox.IsChecked = view.ShowEdges;
         _loadingOptions = false;
@@ -5827,6 +5828,7 @@ public partial class MainWindow : Window
         Model3D.SetKindVisible(MeshKind.Ramp, ShowRampsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Beam, ShowBeamsBox.IsChecked == true);
         Model3D.SetKindVisible(MeshKind.Terrain, ShowTerrainBox.IsChecked == true);
+        Model3D.SetKindVisible(MeshKind.Picture, ShowPicturesBox.IsChecked == true);
         Model3D.ShowGround = ShowGroundBox.IsChecked == true;
         Model3D.ShowEdges = ShowEdgesBox.IsChecked == true;
     }

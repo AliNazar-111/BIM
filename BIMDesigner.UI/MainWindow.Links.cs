@@ -122,7 +122,7 @@ public partial class MainWindow
         var changed = CopyMonitor.Review(_document).Count(finding => finding.Link?.Id == link.Id);
         if (changed > 0)
         {
-            StatusHint.Text += $" {changed} change{(changed == 1 ? string.Empty : "s")} to the levels, gridlines, columns and walls followed from it - Coordination Review.";
+            StatusHint.Text += $" {changed} change{(changed == 1 ? string.Empty : "s")} to what is followed from it - Coordination Review.";
             _reviewWindow?.Refresh();
         }
     }
@@ -142,7 +142,9 @@ public partial class MainWindow
             (CopyMonitorKinds.Levels, new CheckBox { Content = "Levels", ToolTip = "Its storeys: copied in, or paired with this project's at the same height" }),
             (CopyMonitorKinds.Grids, new CheckBox { Content = "Gridlines", ToolTip = "Its grid: copied in, or paired with this project's on the same line" }),
             (CopyMonitorKinds.Columns, new CheckBox { Content = "Columns", ToolTip = "Its columns, structural and architectural: copied in with their types, or paired with this project's standing there" }),
-            (CopyMonitorKinds.Walls, new CheckBox { Content = "Walls", ToolTip = "Its straight and curved walls - not curtain, stacked, elliptical or spline walls: copied in with their types, or paired with this project's on the same line" })
+            (CopyMonitorKinds.Walls, new CheckBox { Content = "Walls", ToolTip = "Its straight and curved walls - not curtain, stacked, elliptical or spline walls: copied in with their types, or paired with this project's on the same line" }),
+            (CopyMonitorKinds.Floors, new CheckBox { Content = "Floors", ToolTip = "Its floors: their outlines and holes copied in with their types, at their tops, or paired with this project's of the same outline" }),
+            (CopyMonitorKinds.Openings, new CheckBox { Content = "Doors and windows", ToolTip = "The doors and windows in its walls that this project's follow - walls ticked with them, or followed already: copied into them with their types, as far along and as high" })
         };
         var content = new StackPanel { Margin = new Thickness(16) };
         content.Children.Add(new TextBlock { Text = "Copy from the linked model, each to follow its original:", Margin = new Thickness(0, 0, 0, 8) });
@@ -193,7 +195,7 @@ public partial class MainWindow
         if (link is null)
         {
             StatusHint.Text = links.Count == 0
-                ? "Link a model first - Manage → Link Model - to copy its levels, gridlines, columns or walls."
+                ? "Link a model first - Manage → Link Model - to copy its levels, gridlines, columns, walls, floors, doors or windows."
                 : "Pick the linked model to copy from - on the plan, in 3D or in Manage Links - then Copy/Monitor.";
             return;
         }
@@ -267,6 +269,10 @@ public partial class MainWindow
     internal bool Changed(CadUnderlay underlay) =>
         underlay.Linked && File.Exists(underlay.Source) && _underlayRead.TryGetValue(underlay.Id, out var read) && File.GetLastWriteTimeUtc(underlay.Source) > read;
 
+    /// <summary>Whether a linked picture's file has been written since it was read.</summary>
+    internal bool Changed(ImageUnderlay picture) =>
+        picture.Linked && File.Exists(picture.Source) && _underlayRead.TryGetValue(picture.Id, out var read) && File.GetLastWriteTimeUtc(picture.Source) > read;
+
     /// <summary>Each link's file looked at: anything written since it was read said once, to be reloaded.</summary>
     private void WatchLinks()
     {
@@ -279,6 +285,13 @@ public partial class MainWindow
             var written = File.GetLastWriteTimeUtc(underlay.Source);
             if (!_underlayRead.ContainsKey(underlay.Id)) _underlayRead[underlay.Id] = written;
             else if (Changed(underlay) && _announced.Add((underlay.Id, written))) changed.Add(Path.GetFileName(underlay.Source));
+        }
+
+        foreach (var picture in _document.All<ImageUnderlay>().Where(picture => picture.Linked && File.Exists(picture.Source)))
+        {
+            var written = File.GetLastWriteTimeUtc(picture.Source);
+            if (!_underlayRead.ContainsKey(picture.Id)) _underlayRead[picture.Id] = written;
+            else if (Changed(picture) && _announced.Add((picture.Id, written))) changed.Add(Path.GetFileName(picture.Source));
         }
 
         if (changed.Count == 0) return;

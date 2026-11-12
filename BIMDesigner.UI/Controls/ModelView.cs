@@ -383,6 +383,7 @@ public partial class ModelView : Border
         var root = new Model3DGroup();
         AddLights(root);
         AddGround(root);
+        AddPictures(root);
         root.Children.Add(solid);
         root.Children.Add(_previewGroup);
         root.Children.Add(_edgeGroup);

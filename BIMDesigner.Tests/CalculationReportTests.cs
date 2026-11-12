@@ -169,4 +169,33 @@ public class CalculationReportTests
         document.ProjectInformation.Name = "Mill Lane: House";
         Assert.Equal("Mill Lane House - Structural Calculations.pdf", CalculationReport.SuggestedFileName(document));
     }
+
+    [Fact]
+    public void TheEngineersOwnNotesAndWhoCheckedThemAreInThem() => OnUiThread(() =>
+    {
+        // Two paragraphs of the engineer's, the checker named, and a note on the beam and on a wall in their Comments.
+        var document = House();
+        var project = document.ProjectInformation;
+        project.EngineerNotes = "Ground taken as firm clay, to be confirmed\nby a trial pit before the footings are dug.\n\nTimber C24 throughout.";
+        project.CheckedBy = "A Checker";
+        document.All<Beam>().Single().Comments = "Bearing on the padstone to be seen on site";
+        document.Walls.First().Comments = "Lintels by others";
+        var pages = Report(document).Drawings().Select(Words).ToList();
+        var all = string.Concat(pages);
+
+        // Its paragraphs as written, a line break inside one run on; the checker in the status table on the front page.
+        foreach (var said in new[] { "Engineer'snotes", "Groundtakenasfirmclay,tobeconfirmedbyatrialpitbeforethefootingsaredug.", "TimberC24throughout.", "Notesonmembers,wallsandslabs", "Bearingonthepadstonetobeseenonsite", "Lintelsbyothers" })
+            Assert.Contains(said, all);
+        Assert.Contains("CheckedbyAChecker", pages[0]);
+
+        // Kept with the project.
+        var back = BIMDesigner.Infrastructure.Serialization.ProjectFile.FromJson(BIMDesigner.Infrastructure.Serialization.ProjectFile.ToJson(document)).ProjectInformation;
+        Assert.Equal((project.EngineerNotes, "A Checker", string.Empty), (back.EngineerNotes, back.CheckedBy, back.ApprovedBy));
+
+        // Without any, no such part.
+        var plain = string.Concat(Report(House()).Drawings().Select(Words));
+        Assert.DoesNotContain("Engineer'snotes", plain);
+        Assert.Equal(new[] { "one two", "three" }, CalculationReport.Paragraphs("one\r\ntwo\r\n\r\n\r\nthree\n"));
+        return 0;
+    });
 }

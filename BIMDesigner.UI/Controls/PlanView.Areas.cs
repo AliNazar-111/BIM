@@ -56,20 +56,20 @@ public partial class PlanView
         // occupants is measured (BOMA 2017; IPMS 3.2's demising walls).
         if (AreaBoundariesOnWalls)
         {
-            if (HitTestWall(at) is not { } wall || wall.IsCurved || Document.GetWallType(wall) is not { } type)
+            if (HitTestWall(at) is not { } wall || wall.IsElliptical || wall.IsSpline || Document.GetWallType(wall) is not { } type)
             {
-                HintChanged?.Invoke(this, "Click a straight wall: a boundary goes along its middle.");
+                HintChanged?.Invoke(this, "Click a straight or curved wall - not an elliptical or spline one: a boundary goes along its middle.");
                 return false;
             }
 
-            var (from, to) = wall.GetBodyCentreline(type.Structure);
+            var (from, to, bulge) = Areas.Along(wall, type.Structure);
             if (AreaBoundariesShown.Any(line => (line.Start.DistanceTo(from) < 1 && line.End.DistanceTo(to) < 1) || (line.Start.DistanceTo(to) < 1 && line.End.DistanceTo(from) < 1)))
             {
                 HintChanged?.Invoke(this, "That wall has a boundary along it already.");
                 return false;
             }
 
-            var picked = new AreaBoundary { LevelId = ActiveLevelId, Scheme = scheme, Start = from, End = to, WallId = wall.Id };
+            var picked = new AreaBoundary { LevelId = ActiveLevelId, Scheme = scheme, Start = from, End = to, Bulge = bulge, WallId = wall.Id };
             Apply(new AddElementCommand(Document, picked, "Area Boundary"));
             HintChanged?.Invoke(this, $"Area boundary along the wall's middle, {Core.Units.FormatLength(picked.Length)}. Click the next wall; untick Pick Walls to draw one.");
             ModelChanged?.Invoke(this, EventArgs.Empty);
@@ -147,7 +147,7 @@ public partial class PlanView
     private IEnumerable<Element> AreasAt(Point2D model)
     {
         foreach (var line in AreaBoundariesShown)
-            if (DistanceToSegment(model, line.Start, line.End) <= 6 / PixelsPerMm) yield return line;
+            if (line.Pieces().Any(piece => DistanceToSegment(model, piece.From, piece.To) <= 6 / PixelsPerMm)) yield return line;
         foreach (var area in AreasShown)
             if (area.Location.DistanceTo(model) <= 18 / PixelsPerMm) yield return area;
     }

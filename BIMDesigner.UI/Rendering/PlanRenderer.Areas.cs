@@ -116,7 +116,10 @@ public sealed partial class PlanRenderer
         var pen = new Pen(Brush(BoundaryColour), Math.Max(1.4, 0.45 * PixelsPerPaperMm));
         pen.Freeze();
         foreach (var boundary in Areas.Boundaries(Document, ActiveLevelId, scheme))
-            CadLayers.Draw(dc, boundary, d => d.DrawLine(IsSelected(boundary) ? _selectedPen : pen, ModelToScreen(boundary.Start), ModelToScreen(boundary.End)));
+            CadLayers.Draw(dc, boundary, d =>
+            {
+                foreach (var (from, to) in boundary.Pieces()) d.DrawLine(IsSelected(boundary) ? _selectedPen : pen, ModelToScreen(from), ModelToScreen(to));
+            });
     }
 
     private void DrawHandArea(DrawingContext dc, Area area, int index, AreaScheme scheme)

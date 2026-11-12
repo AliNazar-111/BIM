@@ -31,7 +31,7 @@ internal sealed class CoordinationReviewWindow : System.Windows.Window
 
         var root = new DockPanel();
         root.Children.Add(DialogLook.Footer(_said, copy, close));
-        root.Children.Add(DialogLook.Intro("The levels, gridlines, columns and walls copied from a linked model, or paired with one there, follow their originals. "
+        root.Children.Add(DialogLook.Intro("The levels, gridlines, columns, walls, floors, doors and windows copied from a linked model, or paired with one there, follow their originals. "
                                            + "Where an original has changed since it was last agreed, it is listed here: move this project's to match it, accept it as it now is, or stop following it."));
         root.Children.Add(new ScrollViewer { Content = _rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
@@ -49,7 +49,8 @@ internal sealed class CoordinationReviewWindow : System.Windows.Window
         var document = _main.Document;
         var findings = CopyMonitor.Review(document);
         var followed = document.Levels.Count(level => level.Monitor is not null) + document.All<Core.Datums.Grid>().Count(grid => grid.Monitor is not null)
-                       + document.All<Core.Architecture.Column>().Count(column => column.Monitor is not null) + document.All<Core.Architecture.Wall>().Count(wall => wall.Monitor is not null);
+                       + document.All<Core.Architecture.Column>().Count(column => column.Monitor is not null) + document.All<Core.Architecture.Wall>().Count(wall => wall.Monitor is not null)
+                       + document.All<Core.Architecture.Floor>().Count(floor => floor.Monitor is not null) + document.All<Core.Architecture.Opening>().Count(opening => opening.Monitor is not null);
         foreach (var finding in findings) _rows.Children.Add(Row(finding));
 
         DialogLook.Say(_said, followed == 0
@@ -78,7 +79,7 @@ internal sealed class CoordinationReviewWindow : System.Windows.Window
                 {
                     MonitorChange.Moved => "Move to Match",
                     MonitorChange.Renamed => "Rename to Match",
-                    MonitorChange.Resized => "Match Height",
+                    MonitorChange.Resized => finding.Datum is Core.Architecture.Opening ? "Match Size" : "Match Height",
                     _ => "Change Type to Match"
                 }, "Bring this project's to where its original now is, or as it now is", () => CopyMonitor.Match(_main.Document, finding));
             Add("Accept", "Leave this project's as it is, and agree its original as it now is", () => CopyMonitor.Accept(_main.Document, finding));

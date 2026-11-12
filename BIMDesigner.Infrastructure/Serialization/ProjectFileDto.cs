@@ -911,6 +911,9 @@ internal sealed class SlabTypeDto
 internal sealed class SlabDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The linked model's floor it follows; none in older files, or for one of its own.</summary>
+    public ElementMonitorDto? Monitor { get; set; }
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }
     public string Kind { get; set; } = "Floor";
@@ -1465,6 +1468,11 @@ internal sealed class ProjectInformationDto
 
     /// <summary>Where the model's origin is in the coordinates of the IFC it came from, mm east and north; none in older files.</summary>
     public string? PlanningMapNote { get; set; }
+
+    /// <summary>The engineer's notes for the structural calculations, and who checked and approved them; none in older files.</summary>
+    public string? EngineerNotes { get; set; }
+    public string? CheckedBy { get; set; }
+    public string? ApprovedBy { get; set; }
     public double SurveyOffsetX { get; set; }
     public double SurveyOffsetY { get; set; }
 
@@ -1654,17 +1662,24 @@ internal sealed class ElementMonitorDto
     public double Top { get; set; }
     public string? Mark { get; set; }
 
+    /// <summary>A floor's outline, x and y in turn; a door's or window's width.</summary>
+    public List<double>? Outline { get; set; }
+    public double? Width { get; set; }
+
     public static ElementMonitorDto? Of(BIMDesigner.Core.Coordination.ElementMonitor? monitor) => monitor is null ? null : new ElementMonitorDto
     {
         LinkId = monitor.LinkId, SourceId = monitor.SourceId, SourceName = monitor.SourceName, TypeName = monitor.TypeName,
         StartX = monitor.Start.X, StartY = monitor.Start.Y, EndX = monitor.End.X, EndY = monitor.End.Y,
-        Rotation = monitor.Rotation, Bulge = monitor.Bulge, Bottom = monitor.Bottom, Top = monitor.Top, Mark = monitor.Mark.Length > 0 ? monitor.Mark : null
+        Rotation = monitor.Rotation, Bulge = monitor.Bulge, Bottom = monitor.Bottom, Top = monitor.Top, Mark = monitor.Mark.Length > 0 ? monitor.Mark : null,
+        Outline = monitor.Outline?.SelectMany(point => new[] { point.X, point.Y }).ToList(), Width = monitor.Width != 0 ? monitor.Width : null
     };
 
     public BIMDesigner.Core.Coordination.ElementMonitor? ToMonitor() =>
         new[] { StartX, StartY, EndX, EndY, Rotation, Bulge, Bottom, Top }.All(double.IsFinite)
             ? new(LinkId, SourceId, SourceName ?? string.Empty, TypeName ?? string.Empty, new BIMDesigner.Core.Geometry.Point2D(StartX, StartY),
-                new BIMDesigner.Core.Geometry.Point2D(EndX, EndY), Rotation, Bulge, Bottom, Top, Mark ?? string.Empty)
+                new BIMDesigner.Core.Geometry.Point2D(EndX, EndY), Rotation, Bulge, Bottom, Top, Mark ?? string.Empty,
+                Outline is { Count: >= 6 } outline && outline.All(double.IsFinite) ? Enumerable.Range(0, outline.Count / 2).Select(i => new BIMDesigner.Core.Geometry.Point2D(outline[2 * i], outline[2 * i + 1])).ToList() : null,
+                Width is { } width && double.IsFinite(width) ? width : 0)
             : null;
 }
 
@@ -1991,6 +2006,9 @@ internal sealed class WindowTypeDto : OpeningTypeDto
 internal abstract class OpeningDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The linked model's door or window it follows; none in older files, or for one of its own.</summary>
+    public ElementMonitorDto? Monitor { get; set; }
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }
     public Guid HostWallId { get; set; }
@@ -2809,6 +2827,12 @@ internal sealed class ImageUnderlayDto
     public bool Halftone { get; set; }
     public string? Mark { get; set; }
     public string? Comments { get; set; }
+
+    /// <summary>Whether it is read from its file rather than kept - its Data then none; none in a file from before.</summary>
+    public bool? Linked { get; set; }
+
+    /// <summary>The part of it shown, pixels from its bottom left: left, bottom, right, top; none for all of it.</summary>
+    public double[]? Crop { get; set; }
 }
 
 internal sealed class CadUnderlayDto
@@ -3134,6 +3158,9 @@ internal sealed class AreaBoundaryDto
     public double EndX { get; set; }
     public double EndY { get; set; }
     public string Comments { get; set; } = string.Empty;
+
+    /// <summary>How far an arc boundary bows; none for a straight one, and in a file from before.</summary>
+    public double? Bulge { get; set; }
 }
 
 internal sealed class AreaDto

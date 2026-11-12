@@ -239,6 +239,7 @@ public partial class MainWindow
     private void ForgetViewTabs()
     {
         _viewTabs.Clear();
+        ClosePlanWindows();
         _tabsDrawn = string.Empty;
         DockModel();
         QueueViewTabs();

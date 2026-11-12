@@ -147,6 +147,17 @@ public sealed class ProjectInformation
     /// </summary>
     public string PlanningMapNote { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The engineer's own notes for the structural calculations: the design basis taken, what was assumed, what is to be
+    /// confirmed on site - each paragraph a blank line apart - put in them after their status.
+    /// </summary>
+    public string EngineerNotes { get; set; } = string.Empty;
+
+    /// <summary>Who checked the structural calculations, and who approved them, as their status table names them.</summary>
+    public string CheckedBy { get; set; } = string.Empty;
+
+    public string ApprovedBy { get; set; } = string.Empty;
+
     /// <summary>Where a US house's heating and cooling ducts run, their insulation (R, h·ft²·°F/Btu) and whether sealed to 5% of the fan's flow - none outside what is conditioned to start.</summary>
     public Mep.DuctRun DuctRun { get; set; } = Mep.DuctRun.ConditionedSpace;
 
