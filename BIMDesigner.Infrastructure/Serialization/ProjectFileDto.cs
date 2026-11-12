@@ -1272,6 +1272,9 @@ internal sealed class ComponentTypeDto
 internal sealed class ComponentDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>The linked model's fixture it follows; none in older files, or for one of its own.</summary>
+    public ElementMonitorDto? Monitor { get; set; }
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }
 

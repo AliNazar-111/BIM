@@ -236,5 +236,10 @@ public class ClashGroupTests
 
         // In the spreadsheet and the report, each clash with its group.
         Assert.Contains(group.Name, ClashReports.Html(document, new[] { test }));
+
+        // In the report, each group a row with a picture taking all its clashes in.
+        var pictured = ClashReports.Html(document, new[] { test }, groupSnapshot: clashes => clashes.Count == 3 ? new byte[] { 0x89, 0x50, 0x4E, 0x47 } : null);
+        Assert.Contains("<th>Group</th>", pictured);
+        Assert.Contains("data:image/png;base64,iVBORw==", pictured);
     }
 }

@@ -74,6 +74,9 @@ public class IfcStairsBackTests
         Assert.Equal(before.Top, after.Top, 0);
         Assert.InRange(Polygon2D.Centroid(after.Outline, after.Outline[0]).DistanceTo(Polygon2D.Centroid(before.Outline, before.Outline[0])), 0, 40);
         Assert.Empty(result.Document.All<Component>());
+
+        // Its landing taken in with it, not again as a floor of its own.
+        Assert.Empty(result.Document.All<Floor>());
     }
 
     [Fact]
@@ -112,5 +115,59 @@ public class IfcStairsBackTests
         var back = Back(winding);
         Assert.Empty(back.Document.All<Stair>());
         Assert.NotEmpty(back.Document.All<Component>());
+    }
+
+    /// <summary>A stair along a walking line - 15 risers of 200 at 225 goings, 900 wide - of these stretches and turns.</summary>
+    private static (BimDocument Document, Stair Stair) Drawn(double[] legs, double[] turns)
+    {
+        var (document, stair) = Straight(StairShape.Custom);
+        stair.Corner = StairCorner.Landing;
+        stair.PathLengths.AddRange(legs);
+        stair.PathTurns.AddRange(turns);
+        return (document, stair);
+    }
+
+    /// <summary>Two stairs' landings - their tops and middles - and how many treads each flight between them has.</summary>
+    private static void SameLandingsAndFlights(BimDocument was, Stair before, BimDocument now, Stair after)
+    {
+        var (a, b) = (Stairs.Layout(was, before), Stairs.Layout(now, after));
+        Assert.Equal(a.Risers, b.Risers);
+        var (one, two) = (a.Steps.Where(step => step.Kind == StairStepKind.Landing).ToList(), b.Steps.Where(step => step.Kind == StairStepKind.Landing).ToList());
+        Assert.Equal(one.Select(step => step.Number), two.Select(step => step.Number));
+        foreach (var (x, y) in one.Zip(two))
+        {
+            Assert.Equal(x.Top, y.Top, 0);
+            Assert.InRange(Polygon2D.Centroid(y.Outline, y.Outline[0]).DistanceTo(Polygon2D.Centroid(x.Outline, x.Outline[0])), 0, 40);
+        }
+    }
+
+    [Fact]
+    public void AStraightRunBrokenByALandingComesBackAlongItsWalkingLine()
+    {
+        // 13 treads and a landing: 7 then 6 - stretches of 7 x 225 + 450 and 6 x 225 + 450, straight on.
+        var (document, original) = Drawn(new[] { 2025.0, 1800.0 }, new[] { 0.0 });
+        var result = Back(document);
+        var stair = Assert.Single(result.Document.All<Stair>());
+        Assert.Equal((StairShape.Custom, StairCorner.Landing), (stair.Shape, stair.Corner));
+        Assert.Equal(new[] { 0.0 }, stair.PathTurns);
+        Assert.Equal(new[] { 2025.0, 1800.0 }, stair.PathLengths.Select(length => Math.Round(length, 1)));
+        Assert.InRange(stair.Start.DistanceTo(original.Start), 0, 30);
+        SameLandingsAndFlights(document, original, result.Document, stair);
+        Assert.Empty(result.Document.All<Component>());
+    }
+
+    [Theory]
+    [InlineData(90.0)]
+    [InlineData(-90.0)]
+    public void AThreeQuarterTurnComesBackOnItsLandings(double turn)
+    {
+        // 12 treads and two landings, four to each flight - right round, or left round.
+        var (document, original) = Drawn(new[] { 1350.0, 1800.0, 1350.0 }, new[] { turn, turn });
+        var result = Back(document);
+        var stair = Assert.Single(result.Document.All<Stair>());
+        Assert.Equal(StairShape.Custom, stair.Shape);
+        Assert.Equal(new[] { turn, turn }, stair.PathTurns);
+        SameLandingsAndFlights(document, original, result.Document, stair);
+        Assert.Empty(result.Document.All<Floor>());
     }
 }

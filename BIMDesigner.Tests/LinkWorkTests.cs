@@ -190,7 +190,7 @@ public class LinkWorkTests : IDisposable
         Assert.Equal("Column C1", moved.Name);
         Assert.Contains("moved 500", moved.Said.Replace(" mm", string.Empty));
         Assert.Contains("top 300 higher", findings.Single(finding => finding.Change == MonitorChange.Resized).Said.Replace(" mm", string.Empty));
-        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked columns, walls, floors and openings changed");
+        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked elements changed");
 
         // Each matched: the column to where it now is, W2 to its new top, W3 to this project's partition; W4 let go.
         foreach (var finding in findings.Where(finding => finding.Change != MonitorChange.Gone)) history.Execute(CopyMonitor.Match(host, finding)!);
@@ -211,14 +211,14 @@ public class LinkWorkTests : IDisposable
     private static Point2D Rounded(Point2D point) => new(Math.Round(point.X, 6), Math.Round(point.Y, 6));
 
     /// <summary>The framed structure with a ground floor slab F1 over its box, a door D1 1500 along W1, and a window WN1 2000 along W2 with a 900 sill.</summary>
-    private static BimDocument Fitted(double doorAlong = 1500, double windowSill = 900, double corner = 4000)
+    private static BimDocument Fitted(double doorAlong = 1500, double windowSill = 900, double corner = 4000, int doorWall = 0)
     {
         var document = Framed();
         var floor = new Floor { LevelId = document.Levels[0].Id, TypeId = document.TypesOf<FloorType>().First().Id, Mark = "F1" };
         floor.SetBoundary(new[] { new Point2D(0, 0), new Point2D(6000, 0), new Point2D(6000, corner), new Point2D(0, 4000) });
         document.Add(floor);
         var walls = document.Walls.OrderBy(wall => wall.Mark).ToList();
-        document.Add(new Door { TypeId = document.TypesOf<DoorType>().First().Id, LevelId = document.Levels[0].Id, HostWallId = walls[0].Id, DistanceAlongWall = doorAlong, Mark = "D1" });
+        document.Add(new Door { TypeId = document.TypesOf<DoorType>().First().Id, LevelId = document.Levels[0].Id, HostWallId = walls[doorWall].Id, DistanceAlongWall = doorAlong, Mark = "D1" });
         document.Add(new Window { TypeId = document.TypesOf<WindowType>().First().Id, LevelId = document.Levels[0].Id, HostWallId = walls[1].Id, DistanceAlongWall = 2000, SillHeight = windowSill, Mark = "WN1" });
         return document;
     }
@@ -263,7 +263,7 @@ public class LinkWorkTests : IDisposable
         Assert.Contains("moved 600", findings.Single(finding => finding.Datum is Door).Said.Replace(" mm", string.Empty));
         Assert.Contains("sill 150 higher", findings.Single(finding => finding.Datum is Window).Said.Replace(" mm", string.Empty));
         Assert.Contains("changed its outline", findings.Single(finding => finding.Datum is Floor).Said);
-        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked columns, walls, floors and openings changed");
+        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked elements changed");
 
         // Each matched: the door 2100 along, the window's sill 1050, the floor's corner where it now is.
         foreach (var finding in findings) history.Execute(CopyMonitor.Match(host, finding)!);
@@ -273,6 +273,101 @@ public class LinkWorkTests : IDisposable
         Assert.Empty(CopyMonitor.Review(host));
         history.Undo();
         Assert.Single(CopyMonitor.Review(host));
+    }
+
+    /// <summary>The fitted structure with a ceiling CL1 at 2400 over its box, a basin B1 at (1000, 1000), a wall light L1 on W1 at 2000, and a desk.</summary>
+    private static BimDocument Serviced(double basinX = 1000, double ceiling = 2400)
+    {
+        var document = Fitted();
+        var level = document.Levels[0].Id;
+        var over = new Ceiling { LevelId = level, TypeId = document.TypesOf<CeilingType>().First().Id, HeightOffset = ceiling, Mark = "CL1" };
+        over.SetBoundary(new[] { new Point2D(0, 0), new Point2D(6000, 0), new Point2D(6000, 4000), new Point2D(0, 4000) });
+        document.Add(over);
+        var basin = document.TypesOf<ComponentType>().First(type => type.Kind == BuiltInCategory.PlumbingFixtures);
+        var light = document.TypesOf<ComponentType>().First(type => type.Kind == BuiltInCategory.LightingFixtures);
+        var desk = document.TypesOf<ComponentType>().First(type => type.Kind == BuiltInCategory.Furniture);
+        var w1 = document.Walls.Single(wall => wall.Mark == "W1");
+        document.Add(new Component { TypeId = basin.Id, TypeKind = basin.Kind, LevelId = level, Location = new Point2D(basinX, 1000), Mark = "B1" });
+        document.Add(new Component { TypeId = light.Id, TypeKind = light.Kind, LevelId = level, Location = new Point2D(3000, 0), Elevation = 2000, HostId = w1.Id, Mark = "L1" });
+        document.Add(new Component { TypeId = desk.Id, TypeKind = desk.Kind, LevelId = level, Location = new Point2D(4000, 2000), Mark = "DK1" });
+        document.Add(new Component { TypeId = light.Id, TypeKind = light.Kind, LevelId = level, Location = new Point2D(2000, 2000), HostId = over.Id, FlipFacing = true, Mark = "DL1" });
+        return document;
+    }
+
+    [Fact]
+    public void CeilingsAndFixturesCopiedFollowTheirOriginals()
+    {
+        // Linked turned a quarter and a metre east: (x, y) there is (1000 - y, x) here.
+        var file = Path.Combine(_folder, "serviced.bimx");
+        ProjectFile.Save(Serviced(), file);
+        var host = BimDocument.CreateDefault();
+        var link = new ModelLink { Path = file, Offset = new Vector2D(1000, 0), Rotation = 90 };
+        host.Add(link);
+        ModelLinks.Load(link);
+
+        var (copy, said) = CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Walls | CopyMonitorKinds.Ceilings | CopyMonitorKinds.Fixtures);
+        var history = new UndoStack();
+        history.Execute(copy!);
+        Assert.Contains("1 ceiling", said);
+        Assert.Contains("3 fixtures", said);
+
+        // The ceiling's outline where the link puts it, 2400 over the ground floor; the basin turned a quarter at (0, 1000); the light on the copy of W1; no desk.
+        var ceiling = host.All<Ceiling>().Single();
+        Assert.Equal((host.Levels[0].Id, 2400.0), (ceiling.LevelId, Math.Round(ceiling.HeightOffset, 6)));
+        Assert.Contains(new Point2D(-3000, 6000), ceiling.Boundary.Select(Rounded));
+        var basin = host.All<Component>().Single(component => component.Mark == "B1");
+        Assert.Equal((new Point2D(0, 1000), 90.0, 0.0), (Rounded(basin.Location), Math.Round(basin.Rotation, 6), Math.Round(basin.Elevation, 6)));
+        var light = host.All<Component>().Single(component => component.Mark == "L1");
+        Assert.Equal((host.Walls.Single(wall => wall.Mark == "W1").Id, 2000.0), (light.HostId, Math.Round(light.Elevation, 6)));
+        Assert.DoesNotContain(host.All<Component>(), component => component.Mark == "DK1");
+
+        // The downlight fixed under the ceiling here, its foot where it was there.
+        var downlight = host.All<Component>().Single(component => component.Mark == "DL1");
+        Assert.Equal((ceiling.Id, true), (downlight.HostId, downlight.FlipFacing));
+        Assert.Equal(downlight.Monitor!.Bottom, ComponentHosting.BaseElevation(host, downlight, host.FindType<ComponentType>(downlight.TypeId)!), 6);
+        Assert.Empty(CopyMonitor.Review(host));
+        Assert.NotNull(ProjectFile.FromJson(ProjectFile.ToJson(host)).All<Component>().Single(component => component.Mark == "B1").Monitor);
+
+        // Issued again, made afresh: the basin 300 along, the ceiling 200 higher - and the downlight under it with it. Matched, each as it now is:
+        // the ceiling first, as the review lists it, carrying the downlight up, so the downlight's own is nothing more.
+        ProjectFile.Save(Serviced(basinX: 1300, ceiling: 2600), file);
+        ModelLinks.Load(link);
+        var findings = CopyMonitor.Review(host);
+        Assert.Equal(3, findings.Count);
+        Assert.Contains("moved 300", findings.Single(finding => finding.Datum == basin).Said.Replace(" mm", string.Empty));
+        Assert.Contains("top 200 higher", findings.Single(finding => finding.Datum is Ceiling).Said.Replace(" mm", string.Empty));
+        Assert.Contains("bottom 200 higher", findings.Single(finding => finding.Datum == downlight).Said.Replace(" mm", string.Empty));
+        Assert.True(findings.ToList().IndexOf(findings.Single(finding => finding.Datum is Ceiling)) < findings.ToList().IndexOf(findings.Single(finding => finding.Datum == downlight)));
+        Assert.Contains(Warnings.Of(host), warning => warning.Heading == "Linked elements changed");
+        var foot = ComponentHosting.BaseElevation(host, downlight, host.FindType<ComponentType>(downlight.TypeId)!);
+        foreach (var finding in findings) history.Execute(CopyMonitor.Match(host, finding)!);
+        Assert.Equal(new Point2D(0, 1300), Rounded(basin.Location));
+        Assert.Equal(2600, ceiling.HeightOffset, 6);
+        Assert.Equal(foot + 200, ComponentHosting.BaseElevation(host, downlight, host.FindType<ComponentType>(downlight.TypeId)!), 6);
+        Assert.Empty(CopyMonitor.Review(host));
+    }
+
+    [Fact]
+    public void ADoorMovedIntoAnotherWallThereIsMovedIntoTheOneFollowingItHere()
+    {
+        var (host, link, file) = Linked(Fitted());
+        var history = new UndoStack();
+        history.Execute(CopyMonitor.Copy(host, link, kinds: CopyMonitorKinds.Walls | CopyMonitorKinds.Openings).Command!);
+        var door = host.All<Door>().Single();
+        var (w1, w3) = (host.Walls.Single(wall => wall.Mark == "W1"), host.Walls.Single(wall => wall.Mark == "W3"));
+        Assert.Equal(w1.Id, door.HostWallId);
+
+        // Issued again with the door 1000 along W3 - the far wall, from (6000, 4000) to (0, 4000): its middle at (5000, 4000).
+        ProjectFile.Save(Fitted(doorAlong: 1000, doorWall: 2), file);
+        ModelLinks.Load(link);
+        var finding = Assert.Single(CopyMonitor.Review(host));
+        Assert.Contains("into the wall followed here by Wall W3", finding.Said);
+        history.Execute(CopyMonitor.Match(host, finding)!);
+        Assert.Equal((w3.Id, 1000.0), (door.HostWallId, Math.Round(door.DistanceAlongWall, 6)));
+        Assert.Equal(new Point2D(5000, 4000), Rounded(door.GetCentre(w3)));
+        Assert.Empty(CopyMonitor.Review(host));
+        history.Undo();
+        Assert.Equal(w1.Id, door.HostWallId);
     }
 
     [Fact]

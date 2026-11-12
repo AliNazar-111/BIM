@@ -844,6 +844,9 @@ public sealed class Component : Element, IHostedElement
     /// </summary>
     public bool FlipHand { get; set; }
 
+    /// <summary>The linked model's fixture this one follows, as last agreed: none for one of this project's own.</summary>
+    public Coordination.ElementMonitor? Monitor { get; set; }
+
     /// <summary>Whether a face is carrying it at the moment.</summary>
     public bool IsHosted => HostId != Guid.Empty;
 
@@ -987,6 +990,9 @@ public sealed class Component : Element, IHostedElement
         yield return ParameterValue.ReadOnly(
             ComponentParameters.Host,
             () => ComponentHosting.Describe(document, this, type));
+
+        if (Monitor is not null)
+            yield return ParameterValue.ReadOnly(Coordination.ElementMonitorParameters.Monitors, () => Coordination.CopyMonitor.Said(document, Monitor));
 
         // Only something fixed to a face has a side to be turned to.
         if (type?.IsHosted == true && IsHosted)

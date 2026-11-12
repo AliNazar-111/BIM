@@ -180,11 +180,12 @@ public class CalculationReportTests
         project.CheckedBy = "A Checker";
         document.All<Beam>().Single().Comments = "Bearing on the padstone to be seen on site";
         document.Walls.First().Comments = "Lintels by others";
+        document.Elements.First(element => element.Category == BIMDesigner.Core.Elements.BuiltInCategory.StructuralFoundations).Comments = "Stepped down to the trial pit's clay";
         var pages = Report(document).Drawings().Select(Words).ToList();
         var all = string.Concat(pages);
 
         // Its paragraphs as written, a line break inside one run on; the checker in the status table on the front page.
-        foreach (var said in new[] { "Engineer'snotes", "Groundtakenasfirmclay,tobeconfirmedbyatrialpitbeforethefootingsaredug.", "TimberC24throughout.", "Notesonmembers,wallsandslabs", "Bearingonthepadstonetobeseenonsite", "Lintelsbyothers" })
+        foreach (var said in new[] { "Engineer'snotes", "Groundtakenasfirmclay,tobeconfirmedbyatrialpitbeforethefootingsaredug.", "TimberC24throughout.", "Notesonmembers,walls,slabsandfootings", "Bearingonthepadstonetobeseenonsite", "Lintelsbyothers", "Steppeddowntothetrialpit'sclay", "Engineer'snote" })
             Assert.Contains(said, all);
         Assert.Contains("CheckedbyAChecker", pages[0]);
 

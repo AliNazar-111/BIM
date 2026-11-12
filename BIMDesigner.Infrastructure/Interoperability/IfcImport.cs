@@ -206,6 +206,8 @@ public static class IfcImport
         /// <summary>One element read as itself, or - where that fails - left for the shapes.</summary>
         private void Try<T>(T product, Func<T, bool> import) where T : IIfcProduct
         {
+            // Taken in already as part of another - a stair's landing, a curtain wall's panel - not taken in again as itself.
+            if (_handled.Contains(product.EntityLabel)) return;
             bool done;
             try { done = import(product); }
             catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -1245,12 +1247,14 @@ public static class IfcImport
             var parts = stair.IsDecomposedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcProduct>().ToList();
             var flights = parts.OfType<IIfcStairFlight>().ToList();
             var landings = parts.OfType<IIfcSlab>().ToList();
-            if (flights.Count is < 1 or > 2 || landings.Count > flights.Count - 1) return false;
+            if (flights.Count is < 1 or > 8 || landings.Count > flights.Count - 1) return false;
             if (flights.Any(flight => flight.PredefinedType is { } shape && shape is not (IfcStairFlightTypeEnum.STRAIGHT or IfcStairFlightTypeEnum.NOTDEFINED))) return false;
             var shapes = flights.Select(MeasureFlight).ToList();
             if (shapes.Any(shape => shape is null)) return false;
             var measured = shapes.Select(shape => shape!).OrderBy(shape => shape.Bottom).ToList();
-            return measured.Count == 1 ? ImportStraightStair(stair, parts, measured[0]) : ImportTurningStair(stair, parts, measured, landings);
+            if (measured.Count == 1) return ImportStraightStair(stair, parts, measured[0]);
+            if (measured.Count == 2 && ImportTurningStair(stair, parts, measured, landings)) return true;
+            return ImportPathStair(stair, parts, measured, landings);
         }
 
         /// <summary>A flight's points, placed.</summary>
@@ -1388,6 +1392,90 @@ public static class IfcImport
         /// out again, it is kept only where its flights fall within 100 mm of where the file has them in plan and its landing within
         /// 30 mm of the height.
         /// </summary>
+        /// <summary>
+        /// A stair of straight flights with a landing between each two - a straight run broken by a landing, a three-quarter turn, a
+        /// stair turning round a well on landings at its corners - back as a stair laid along its walking line: a stretch for each
+        /// flight, as long as its treads at its going and half a landing at each end that turns, so each flight comes out with the
+        /// treads it has; a turn at each landing, straight on or a right angle either way, as the next flight goes from the last.
+        /// Laid out again, it is kept only where each flight falls within 100 mm of where the file has it in plan and each landing
+        /// within 30 mm of its height; a turn of any other angle, or a landing deeper than the stair is wide, leaves it its shape.
+        /// </summary>
+        private bool ImportPathStair(IIfcStair stair, IReadOnlyList<IIfcProduct> parts, IReadOnlyList<FlightShape> flights, IReadOnlyList<IIfcSlab> landings)
+        {
+            var k = flights.Count;
+            if (landings.Count != k - 1) return false;
+            var rises = flights.Where(flight => flight.Rise > 0).Select(flight => flight.Rise).ToList();
+            if (rises.Count == 0) return false;
+            var rise = rises.Average();
+            var goings = flights.Select(flight => flight.Going).OfType<double>().ToList();
+            if (goings.Count == 0) return false;
+            var going = goings.Average();
+
+            // Each landing's top, lowest first; the turns, each the way the next flight goes from the last - right positive.
+            var tops = landings.Select(landing => PointsOf(landing) is { Count: > 0 } points ? points.Max(p => p.Z) : double.NaN).OrderBy(z => z).ToList();
+            if (tops.Any(double.IsNaN)) return false;
+            var turns = new List<double>();
+            for (var j = 0; j + 1 < k; j++)
+            {
+                var anticlockwise = Math.Atan2(flights[j].Up.Cross(flights[j + 1].Up), flights[j].Up.Dot(flights[j + 1].Up)) * 180 / Math.PI;
+                var square = Math.Round(anticlockwise / 90) * 90;
+                if (Math.Abs(anticlockwise - square) > 10 || Math.Abs(square) > 90) return false;
+                turns.Add(-square + 0.0);
+            }
+
+            var foot = LevelOf(stair, flights[0].Bottom);
+            if (HeadOf(flights[^1], foot) is not { } head) return false;
+            if (StairTypeFor(stair, going, rise, head.Elevation - flights[0].Bottom) is not { } type) return false;
+
+            // Each flight's treads: one fewer than its risers, from its foot to the landing or the floor it rises onto.
+            var bottoms = new[] { flights[0].Bottom }.Concat(tops).ToList();
+            var heads = tops.Append(head.Elevation).ToList();
+            var counts = Enumerable.Range(0, k).Select(j => (int)Math.Round((heads[j] - bottoms[j]) / rise) - 1).ToList();
+            if (counts.Any(count => count < 0)) return false;
+
+            var width = flights.Min(flight => flight.Width);
+            var legs = Enumerable.Range(0, k).Select(j => Math.Round(counts[j] * type.Going + (j > 0 ? width / 2 : 0) + (j < k - 1 ? width / 2 : 0), 3)).ToList();
+            var made = new Stair
+            {
+                Id = IdOf(stair), TypeId = type.Id, LevelId = foot.Id, TopLevelId = head.Id, Shape = StairShape.Custom, Corner = StairCorner.Landing,
+                Start = flights[0].Start, Angle = Math.Round(Math.Atan2(flights[0].Up.Y, flights[0].Up.X) * 180 / Math.PI, 4), Width = Math.Round(width, 1),
+                BaseOffset = Math.Round(flights[0].Bottom - foot.Elevation, 3), Mark = stair.Tag?.ToString() ?? string.Empty
+            };
+            made.PathLengths.AddRange(legs);
+            made.PathTurns.AddRange(turns);
+            _document.Add(made);
+
+            // Laid out again: each landing at its height, each flight's treads where the file's flight is.
+            var layout = Stairs.Layout(_document, made);
+            var steps = layout.Steps.OrderBy(step => step.Number).ToList();
+            var laid = steps.Where(step => step.Kind == StairStepKind.Landing).ToList();
+            bool Within(FlightShape flight, IEnumerable<StairStep> treads)
+            {
+                var outline = treads.SelectMany(step => step.Outline).ToList();
+                return outline.Count == 0 ? flight.Treads.Count <= 1
+                    : Math.Abs(outline.Min(p => p.X) - flight.MinX) <= 100 && Math.Abs(outline.Max(p => p.X) - flight.MaxX) <= 100
+                      && Math.Abs(outline.Min(p => p.Y) - flight.MinY) <= 100 && Math.Abs(outline.Max(p => p.Y) - flight.MaxY) <= 100;
+            }
+
+            var fits = laid.Count == k - 1 && laid.Zip(tops, (landing, top) => Math.Abs(landing.Top - top) <= 30).All(near => near);
+            for (var j = 0; fits && j < k; j++)
+            {
+                var (from, to) = (j == 0 ? 0 : laid[j - 1].Number, j == k - 1 ? int.MaxValue : laid[j].Number);
+                fits = Within(flights[j], steps.Where(step => step.Kind == StairStepKind.Tread && step.Number > from && step.Number < to));
+            }
+
+            if (!fits)
+            {
+                _document.Remove(made);
+                return false;
+            }
+
+            foreach (var part in parts) _handled.Add(part.EntityLabel);
+            _made[stair.EntityLabel] = made;
+            _result.Count("Stairs");
+            return true;
+        }
+
         private bool ImportTurningStair(IIfcStair stair, IReadOnlyList<IIfcProduct> parts, IReadOnlyList<FlightShape> flights, IReadOnlyList<IIfcSlab> landings)
         {
             var (first, second) = (flights[0], flights[1]);

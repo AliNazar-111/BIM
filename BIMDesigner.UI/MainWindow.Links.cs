@@ -144,6 +144,8 @@ public partial class MainWindow
             (CopyMonitorKinds.Columns, new CheckBox { Content = "Columns", ToolTip = "Its columns, structural and architectural: copied in with their types, or paired with this project's standing there" }),
             (CopyMonitorKinds.Walls, new CheckBox { Content = "Walls", ToolTip = "Its straight and curved walls - not curtain, stacked, elliptical or spline walls: copied in with their types, or paired with this project's on the same line" }),
             (CopyMonitorKinds.Floors, new CheckBox { Content = "Floors", ToolTip = "Its floors: their outlines and holes copied in with their types, at their tops, or paired with this project's of the same outline" }),
+            (CopyMonitorKinds.Ceilings, new CheckBox { Content = "Ceilings", ToolTip = "Its ceilings: their outlines copied in with their types, at their heights, or paired with this project's of the same outline" }),
+            (CopyMonitorKinds.Fixtures, new CheckBox { Content = "Fixtures and equipment", ToolTip = "Its sanitary fittings, lights, sockets and switches, boards, plant, air terminals, sprinklers, alarms and specialty equipment: copied in with their types where they stand, turned with the link, or paired with this project's standing there" }),
             (CopyMonitorKinds.Openings, new CheckBox { Content = "Doors and windows", ToolTip = "The doors and windows in its walls that this project's follow - walls ticked with them, or followed already: copied into them with their types, as far along and as high" })
         };
         var content = new StackPanel { Margin = new Thickness(16) };

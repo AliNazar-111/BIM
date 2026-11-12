@@ -1125,7 +1125,7 @@ public static partial class ProjectFile
                 Boundary = slab.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
                 Holes = slab.Holes.Count > 0 ? slab.Holes.Select(hole => hole.SelectMany(point => new[] { point.X, point.Y }).ToList()).ToList() : null,
                 SpanDirection = (slab as Floor)?.SpanDirection,
-                Monitor = ElementMonitorDto.Of((slab as Floor)?.Monitor),
+                Monitor = ElementMonitorDto.Of(slab.Monitor),
                 AnalyseAs = slab is Floor { AnalyseAs: not FloorAnalysis.Automatic } analysed ? analysed.AnalyseAs.ToString() : null,
                 RoofEdges = slab is Roof roof
                     ? roof.Edges.Select(edge => new RoofEdgeDto
@@ -1409,6 +1409,7 @@ public static partial class ProjectFile
             dto.Components.Add(new ComponentDto
             {
                 Id = component.Id,
+                Monitor = ElementMonitorDto.Of(component.Monitor),
                 TypeId = component.TypeId,
                 LevelId = component.LevelId,
                 LocationX = component.Location.X,
@@ -2580,7 +2581,7 @@ public static partial class ProjectFile
                 element.SetHoles(sketchedHoles.Select(hole => Enumerable.Range(0, hole.Count / 2).Select(i => new Point2D(hole[2 * i], hole[2 * i + 1]))));
             if (element is Floor spanned && slab.SpanDirection is { } span && double.IsFinite(span)) spanned.SpanDirection = Floors.Normalised(span);
             if (element is Floor analysed && slab.AnalyseAs is { } analysis) analysed.AnalyseAs = ParseEnum(analysis, FloorAnalysis.Automatic);
-            if (element is Floor followed) followed.Monitor = slab.Monitor?.ToMonitor();
+            element.Monitor = slab.Monitor?.ToMonitor();
 
             // The edges come after the outline, since it is the outline that says how many
             // there are. A roof from a file that predates pitched roofs has none, and reads
@@ -3415,6 +3416,7 @@ public static partial class ProjectFile
             document.Add(new Component
             {
                 Id = component.Id,
+                Monitor = component.Monitor?.ToMonitor(),
                 TypeId = component.TypeId,
                 TypeKind = family.Kind,
                 LevelId = component.LevelId,

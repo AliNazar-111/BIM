@@ -40,6 +40,8 @@ public sealed record MonitorFinding(object Datum, ModelLink? Link, MonitorChange
         Column column => string.IsNullOrWhiteSpace(column.Mark) ? "Column" : $"Column {column.Mark}",
         Wall wall => string.IsNullOrWhiteSpace(wall.Mark) ? "Wall" : $"Wall {wall.Mark}",
         Floor floor => string.IsNullOrWhiteSpace(floor.Mark) ? "Floor" : $"Floor {floor.Mark}",
+        Ceiling ceiling => string.IsNullOrWhiteSpace(ceiling.Mark) ? "Ceiling" : $"Ceiling {ceiling.Mark}",
+        Component fixture => string.IsNullOrWhiteSpace(fixture.Mark) ? "Fixture" : $"Fixture {fixture.Mark}",
         Door door => string.IsNullOrWhiteSpace(door.Mark) ? "Door" : $"Door {door.Mark}",
         Window window => string.IsNullOrWhiteSpace(window.Mark) ? "Window" : $"Window {window.Mark}",
         _ => "?"
@@ -132,13 +134,14 @@ public static partial class CopyMonitor
             copied.Add($"grid {name}");
         }
 
-        if ((kinds & (CopyMonitorKinds.Columns | CopyMonitorKinds.Walls | CopyMonitorKinds.Floors | CopyMonitorKinds.Openings)) != 0)
+        if ((kinds & (CopyMonitorKinds.Columns | CopyMonitorKinds.Walls | CopyMonitorKinds.Floors | CopyMonitorKinds.Openings | CopyMonitorKinds.Ceilings | CopyMonitorKinds.Fixtures)) != 0)
             CopyElements(host, link, linked, kinds, levelFor, steps, copied, paired, passed);
 
         var left = passed.GroupBy(what => what).Select(what => $"{what.Count()} {(what.Count() == 1 ? what.Key : Plural(what.Key))}").ToList();
         var what = string.Join(", ", new[] { kinds.HasFlag(CopyMonitorKinds.Levels) ? "levels" : null, kinds.HasFlag(CopyMonitorKinds.Grids) ? "gridlines" : null,
             kinds.HasFlag(CopyMonitorKinds.Columns) ? "columns" : null, kinds.HasFlag(CopyMonitorKinds.Walls) ? "walls" : null,
-            kinds.HasFlag(CopyMonitorKinds.Floors) ? "floors" : null, kinds.HasFlag(CopyMonitorKinds.Openings) ? "doors and windows" : null }.OfType<string>());
+            kinds.HasFlag(CopyMonitorKinds.Floors) ? "floors" : null, kinds.HasFlag(CopyMonitorKinds.Ceilings) ? "ceilings" : null,
+            kinds.HasFlag(CopyMonitorKinds.Openings) ? "doors and windows" : null, kinds.HasFlag(CopyMonitorKinds.Fixtures) ? "fixtures" : null }.OfType<string>());
         if (steps.Count == 0) return (null, $"Nothing more to copy from {link.Title}: its {what} are followed already{(left.Count > 0 ? $" - but for {string.Join(", ", left)}, which cannot be followed" : string.Empty)}.");
         var said = $"From {link.Title}: " + string.Join("; ", new[]
         {
@@ -254,7 +257,7 @@ public static partial class CopyMonitor
     /// </summary>
     public static IUndoableCommand? Match(BimDocument host, MonitorFinding finding)
     {
-        if (finding.Datum is Column or Wall or Floor or Opening) return MatchElement(host, finding, (Element)finding.Datum);
+        if (FollowsElements(finding.Datum)) return MatchElement(host, finding, (Element)finding.Datum);
         if (finding.Link is not { } link || ModelLinks.Of(link) is not { Document: { } linked } || MonitorOf(finding.Datum) is not { } monitor) return null;
         switch (finding.Datum)
         {
@@ -286,7 +289,7 @@ public static partial class CopyMonitor
     /// <summary>A change accepted as it now is: this project's datum left where it is, its original agreed where it now stands. One step to undo.</summary>
     public static IUndoableCommand? Accept(BimDocument host, MonitorFinding finding)
     {
-        if (finding.Datum is Column or Wall or Floor or Opening) return AcceptElement(host, finding, (Element)finding.Datum);
+        if (FollowsElements(finding.Datum)) return AcceptElement(host, finding, (Element)finding.Datum);
         if (finding.Link is not { } link || ModelLinks.Of(link) is not { Document: { } linked } || MonitorOf(finding.Datum) is not { } monitor) return null;
         return finding.Datum switch
         {
@@ -302,7 +305,7 @@ public static partial class CopyMonitor
     public static IUndoableCommand Stop(MonitorFinding finding) => Stop(finding.Datum);
 
     /// <summary>A datum, column or wall no longer following its original, from its Properties. One step to undo.</summary>
-    public static IUndoableCommand Stop(object datum) => datum is Column or Wall or Floor or Opening ? Following((Element)datum, null) : Monitoring(datum, null);
+    public static IUndoableCommand Stop(object datum) => FollowsElements(datum) ? Following((Element)datum, null) : Monitoring(datum, null);
 
     /// <summary>What a datum follows, as its Properties say it.</summary>
     public static string Said(BimDocument host, DatumMonitor? monitor) =>

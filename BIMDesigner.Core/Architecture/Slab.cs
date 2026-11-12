@@ -51,6 +51,9 @@ public abstract class Slab : Element
     /// </summary>
     public double HeightOffset { get; set; }
 
+    /// <summary>The linked model's floor or ceiling this one follows, as last agreed: none for one of this project's own.</summary>
+    public Coordination.ElementMonitor? Monitor { get; set; }
+
     public virtual void SetBoundary(IEnumerable<Point2D> points)
     {
         // Read before clearing: the points may be worked out from this slab's own.
@@ -118,7 +121,7 @@ public abstract class Slab : Element
             yield return ParameterValue.ReadOnly(SlabParameters.Regulations, () => SlabRules.Verdict(document, this));
 
         foreach (var parameter in ExtraParameters(document)) yield return parameter;
-        if (this is Floor { Monitor: { } followed })
+        if (Monitor is { } followed)
             yield return ParameterValue.ReadOnly(Coordination.ElementMonitorParameters.Monitors, () => Coordination.CopyMonitor.Said(document, followed));
 
         foreach (var parameter in GetCommonParameters(document)) yield return parameter;
@@ -143,8 +146,6 @@ public sealed class Floor : Slab
     /// <summary>How it goes into the analytical model: by its build-up - a plate where its structure is concrete, spanning one way where it is not - or as set.</summary>
     public FloorAnalysis AnalyseAs { get; set; }
 
-    /// <summary>The linked model's floor this one follows, as last agreed: none for a floor of this project's own.</summary>
-    public Coordination.ElementMonitor? Monitor { get; set; }
 
     protected override IEnumerable<ParameterValue> ExtraParameters(BimDocument document)
     {

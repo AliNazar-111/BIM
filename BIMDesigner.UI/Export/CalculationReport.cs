@@ -77,6 +77,7 @@ public static class CalculationReport
         var paragraphs = Paragraphs(project.EngineerNotes);
         var noted = members.Select(check => (check.Member.Name, check.Member.Element)).Concat(walls.Select(check => (check.Panel.Name, check.Panel.Element)))
             .Concat(plates.Select(check => (check.Panel.Name, check.Panel.Element)))
+            .Concat(footings.Select(check => (check.Name, Element: check.Foundation)))
             .Where(each => !string.IsNullOrWhiteSpace(each.Element.Comments)).DistinctBy(each => each.Element.Id).ToList();
         if (paragraphs.Count > 0 || noted.Count > 0)
         {
@@ -84,7 +85,7 @@ public static class CalculationReport
             foreach (var note in paragraphs) report.Paragraph(note);
             if (noted.Count > 0)
             {
-                report.Heading("Notes on members, walls and slabs", 2);
+                report.Heading("Notes on members, walls, slabs and footings", 2);
                 report.Table(new[] { new ReportColumn("Of", 1), new ReportColumn("Note", 4) }, noted.Select(each => new ReportCell[] { each.Name, each.Element.Comments.Trim() }));
             }
         }
@@ -736,7 +737,8 @@ public static class CalculationReport
             report.Paragraph($"Their bearing and piles under all loads but wind, their concrete under the worst ultimate combination. {FoundationDesign.Said}", ReportTone.Muted);
             report.Table(new[] { new ReportColumn("Support", 0.6), new ReportColumn("Checked", 0.8), new ReportColumn("It has", 0.8, true), new ReportColumn("It can take", 0.9, true), new ReportColumn("Of it", 0.6, true), new ReportColumn("Note", 3) },
                 footings.SelectMany(check => check.Checks.OrderByDescending(item => item.Ratio).Select(each => new ReportCell[] { check.Name, each.Name, Amount(each.Demand, each.Unit), Amount(each.Capacity, each.Unit), Share(each.Ratio), $"{each.Note} ({each.Clause})" })
-                    .Concat(check.Limits.Length > 0 ? new[] { new ReportCell[] { check.Name, check.Checks.Count > 0 ? "Note" : "Not checked", "-", "-", "-", check.Limits } } : Array.Empty<ReportCell[]>())));
+                    .Concat(check.Limits.Length > 0 ? new[] { new ReportCell[] { check.Name, check.Checks.Count > 0 ? "Note" : "Not checked", "-", "-", "-", check.Limits } } : Array.Empty<ReportCell[]>())
+                    .Concat(string.IsNullOrWhiteSpace(check.Foundation.Comments) ? Array.Empty<ReportCell[]>() : new[] { new ReportCell[] { check.Name, "Engineer's note", "-", "-", "-", check.Foundation.Comments.Trim() } })));
         }
 
         if (designs.Count > 0)

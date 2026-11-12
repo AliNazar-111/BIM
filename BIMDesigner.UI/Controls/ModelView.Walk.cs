@@ -390,6 +390,22 @@ public partial class ModelView
         return bitmap;
     }
 
+    /// <summary>The view as a picture of the model alone: its grips - for editing, not for a record of it - left out.</summary>
+    public System.Windows.Media.Imaging.BitmapSource RenderPicture()
+    {
+        var was = _gripOverlay?.Visibility;
+        if (_gripOverlay is not null) _gripOverlay.Visibility = System.Windows.Visibility.Hidden;
+        try
+        {
+            UpdateLayout();
+            return RenderFrame();
+        }
+        finally
+        {
+            if (_gripOverlay is not null && was is { } shown) _gripOverlay.Visibility = shown;
+        }
+    }
+
     /// <summary>The eye put where a camera is, looking where it looks.</summary>
     private void ShowCamera(Camera3D camera)
     {

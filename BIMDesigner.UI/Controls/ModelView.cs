@@ -781,6 +781,20 @@ public partial class ModelView : Border
         CompositionTarget.Rendering -= OnTurnFrame;
     }
 
+    /// <summary>Looks from a direction at once - no easing - round the same point: for a picture taken straight after.</summary>
+    public void Aim(double yaw, double pitch)
+    {
+        if (_elevation is not null || _walking) return;
+        if (_turn is not null)
+        {
+            _turn = null;
+            CompositionTarget.Rendering -= OnTurnFrame;
+        }
+
+        (_yaw, _pitch) = (yaw, Math.Clamp(pitch, -MaxPitch, MaxPitch));
+        UpdateCamera();
+    }
+
     /// <summary>Turns the camera round the model by this much, as dragging does.</summary>
     public void Orbit(double yawDegrees, double pitchDegrees)
     {

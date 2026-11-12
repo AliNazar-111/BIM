@@ -91,7 +91,7 @@ public static class Warnings
 
         // Levels and gridlines following a linked model's whose originals have changed.
         foreach (var finding in Coordination.CopyMonitor.Review(document))
-            yield return new Warning(WarningKind.Model, finding.Datum is Architecture.Column or Architecture.Wall or Architecture.Floor or Architecture.Opening ? "Linked columns, walls, floors and openings changed" : "Linked levels and grids changed",
+            yield return new Warning(WarningKind.Model, Coordination.CopyMonitor.FollowsElements(finding.Datum) ? "Linked elements changed" : "Linked levels and grids changed",
                 finding.Said + " Coordination Review moves it to match, accepts it, or stops following it.",
                 finding.Datum is Element element ? new[] { element } : Array.Empty<Element>());
         foreach (var warning in DuplicateMarks(document)) yield return warning;

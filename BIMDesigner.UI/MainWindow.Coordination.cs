@@ -68,6 +68,7 @@ public partial class MainWindow : ICoordinationHost
         if (elements.Count > 0) Plan.SelectMany(elements);
         if (ModelPanel.Visibility != Visibility.Visible) Show3D();
         Model3D.SetSelection(elements.Select(element => element.Id));
+        AimAt(new[] { clash });
         Model3D.LookAt(clash.Point, 5000);
         RefreshProperties();
         StatusHint.Text = $"{clash.Name}: {clash.Description}";
@@ -82,23 +83,58 @@ public partial class MainWindow : ICoordinationHost
         Model3D.SetSelection(elements.Select(element => element.Id));
         var (middle, min, max) = ClashGroups.Extent(clashes);
         var across = Math.Sqrt(Math.Pow(max.X - min.X, 2) + Math.Pow(max.Y - min.Y, 2) + Math.Pow(max.Z - min.Z, 2));
-        Model3D.LookAt(middle, Math.Max(5000, across * 1.2));
+        AimAt(clashes, clashes.Count > 1 ? 65 : 50);
+        Model3D.LookAt(middle, Math.Max(6000, across * 1.6));
         RefreshProperties();
         StatusHint.Text = $"{clashes.Count} clashes: {string.Join(", ", clashes.Select(clash => clash.Name))}";
     }
 
-    byte[]? ICoordinationHost.Snapshot(Clash clash) => Picture(() => ((ICoordinationHost)this).ShowClash(clash));
-
-    byte[]? ICoordinationHost.SnapshotOf(IReadOnlyList<Clash> clashes) => Picture(() => ((ICoordinationHost)this).ShowClashes(clashes));
-
-    /// <summary>The 3D view as a PNG once it has been turned to something.</summary>
-    private byte[]? Picture(Action show)
+    /// <summary>
+    /// The 3D view turned to look down on clashes from the side their first elements stand out to - a desk pushed into a wall from
+    /// the room, seen from in the room rather than from behind the wall: the way each clash's first element's middle lies from
+    /// where it clashes, taken together. So far down - 50° for one, more for a group - that what is inside the other is seen over it.
+    /// </summary>
+    private void AimAt(IReadOnlyList<Clash> clashes, double pitch = 50)
     {
+        var meshes = Model3D.ShownMeshes();
+        var (x, y) = (0.0, 0.0);
+        foreach (var clash in clashes)
+            if (Core.Views.ModelMeshBuilder.Bounds(meshes.Where(mesh => mesh.ElementId == clash.ElementA || mesh.OwnerId == clash.ElementA)) is { } box)
+            {
+                var (dx, dy) = ((box.Min.X + box.Max.X) / 2 - clash.Point.X, (box.Min.Y + box.Max.Y) / 2 - clash.Point.Y);
+                var length = Math.Sqrt(dx * dx + dy * dy);
+                if (length > 1) (x, y) = (x + dx / length, y + dy / length);
+            }
+
+        var yaw = Math.Sqrt(x * x + y * y) > 0.5 ? Math.Atan2(y, x) * 180 / Math.PI : -135;
+        Model3D.Aim(yaw, pitch);
+    }
+
+    byte[]? ICoordinationHost.Snapshot(Clash clash) => Picture(() => ((ICoordinationHost)this).ShowClash(clash), new[] { clash.ElementA, clash.ElementB });
+
+    byte[]? ICoordinationHost.SnapshotOf(IReadOnlyList<Clash> clashes) =>
+        Picture(() => ((ICoordinationHost)this).ShowClashes(clashes), clashes.SelectMany(clash => new[] { clash.ElementA, clash.ElementB }).ToList());
+
+    /// <summary>
+    /// The 3D view as a PNG once it has been turned to something - cut, for the picture only, by a section box round what it is
+    /// of, so a wall or floor between it and the eye is taken away; the view's own box, or none, put back after.
+    /// </summary>
+    private byte[]? Picture(Action show, IReadOnlyCollection<Guid>? around = null)
+    {
+        var view = Model3D.View;
+        var (box, on) = (view.SectionBox, view.SectionBoxOn);
+        var cut = false;
         try
         {
             show();
+            if (around is { Count: > 0 } && Model3D.BoxAround(around.ToHashSet()) is { } tight)
+            {
+                (view.SectionBox, view.SectionBoxOn, cut) = (tight, true, true);
+                Model3D.Rebuild();
+            }
+
             Model3D.UpdateLayout();
-            var picture = Model3D.RenderFrame();
+            var picture = Model3D.RenderPicture();
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(picture));
             using var stream = new MemoryStream();
@@ -108,6 +144,14 @@ public partial class MainWindow : ICoordinationHost
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
         {
             return null;
+        }
+        finally
+        {
+            if (cut)
+            {
+                (view.SectionBox, view.SectionBoxOn) = (box, on);
+                Model3D.Rebuild();
+            }
         }
     }
 

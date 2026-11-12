@@ -21,6 +21,8 @@ public enum CopyMonitorKinds
     Walls = 8,
     Floors = 16,
     Openings = 32,
+    Ceilings = 64,
+    Fixtures = 128,
     Datums = Levels | Grids
 }
 
@@ -49,6 +51,18 @@ public static class ElementMonitorParameters
 /// </summary>
 public static partial class CopyMonitor
 {
+    /// <summary>The fixtures and equipment Copy/Monitor follows: the services' - what is plumbed, lit, wired, ducted or sprinkled - and specialty equipment.</summary>
+    public static readonly IReadOnlySet<BuiltInCategory> FixtureCategories = new HashSet<BuiltInCategory>
+    {
+        BuiltInCategory.PlumbingFixtures, BuiltInCategory.LightingFixtures, BuiltInCategory.LightingDevices, BuiltInCategory.ElectricalFixtures,
+        BuiltInCategory.ElectricalEquipment, BuiltInCategory.MechanicalEquipment, BuiltInCategory.SpecialtyEquipment, BuiltInCategory.AirTerminals,
+        BuiltInCategory.Sprinklers, BuiltInCategory.FireAlarmDevices
+    };
+
+    /// <summary>Whether something can follow a linked model's element: a column, wall, floor, ceiling, door, window or fixture.</summary>
+    public static bool FollowsElements(object datum) =>
+        datum is Column or Wall or Floor or Ceiling or Opening || datum is Component component && FixtureCategories.Contains(component.Category);
+
     /// <summary>A column or wall of a linked model as the link puts it in this project; none for one that cannot be followed - a curtain wall, an elliptical or spline wall.</summary>
     public static ElementMonitor? StateOf(BimDocument host, ModelLink link, BimDocument linked, Element element)
     {
@@ -68,13 +82,22 @@ public static partial class CopyMonitor
                 return new ElementMonitor(link.Id, wall.Id, Called(linked, wall, type.Name), type.Name, At(wall.Start), At(wall.End), 0, wall.Bulge,
                     wall.GetBaseElevation(linked) + up, wall.GetTopElevation(linked) + up, wall.Mark ?? string.Empty);
 
-            // A floor: its outline where the link puts it, its middle, its underside and top.
-            case Floor floor when floor.Boundary.Count >= 3 && linked.FindType<FloorType>(floor.TypeId) is { } type:
+            // A floor or ceiling: its outline where the link puts it, its middle, its underside and top.
+            case Slab floor when floor is Floor or Ceiling && floor.Boundary.Count >= 3 && linked.FindType<SlabType>(floor.TypeId) is { } type:
             {
                 var outline = floor.Boundary.Select(At).ToList();
                 var middle = new Point2D(outline.Average(point => point.X), outline.Average(point => point.Y));
                 return new ElementMonitor(link.Id, floor.Id, Called(linked, floor, type.Name), type.Name, middle, middle, 0, 0,
                     floor.GetBottomElevation(linked) + up, floor.GetTopElevation(linked) + up, floor.Mark ?? string.Empty, outline);
+            }
+
+            // A fixture: where it stands, turned with the link, its foot and its top.
+            case Component fixture when FixtureCategories.Contains(fixture.Category) && linked.FindType<ComponentType>(fixture.TypeId) is { } type:
+            {
+                var at = At(fixture.Location);
+                var foot = ComponentHosting.BaseElevation(linked, fixture, type) + up;
+                return new ElementMonitor(link.Id, fixture.Id, Called(linked, fixture, type.Name), type.Name, at, at, Turned(fixture.Rotation + link.Rotation), 0,
+                    foot, foot + type.Height, fixture.Mark ?? string.Empty);
             }
 
             // A door or window: its middle on its wall's line, its sill and head, how wide.
@@ -97,6 +120,8 @@ public static partial class CopyMonitor
         : said.StartsWith("door or window", StringComparison.Ordinal) ? "doors or windows" + said["door or window".Length..]
         : said.StartsWith("column", StringComparison.Ordinal) ? "columns" + said["column".Length..]
         : said.StartsWith("floor", StringComparison.Ordinal) ? "floors" + said["floor".Length..]
+        : said.StartsWith("ceiling", StringComparison.Ordinal) ? "ceilings" + said["ceiling".Length..]
+        : said.StartsWith("fixture", StringComparison.Ordinal) ? "fixtures" + said["fixture".Length..]
         : said;
 
     /// <summary>What a kind of element is called, in what is said of it.</summary>
@@ -105,6 +130,8 @@ public static partial class CopyMonitor
         Column => "column",
         Wall => "wall",
         Floor => "floor",
+        Ceiling => "ceiling",
+        Component => "fixture",
         Door => "door",
         _ => "window"
     };
@@ -143,8 +170,10 @@ public static partial class CopyMonitor
             Turned(column.Rotation), 0, column.GetBaseElevation(host), column.GetTopElevation(host)),
         Wall wall when !wall.IsElliptical && !wall.IsSpline => new ElementMonitor(Guid.Empty, wall.Id, string.Empty, host.FindType<ElementType>(wall.TypeId)?.Name ?? string.Empty,
             wall.Start, wall.End, 0, wall.Bulge, wall.GetBaseElevation(host), wall.GetTopElevation(host)),
-        Floor floor when floor.Boundary.Count >= 3 => new ElementMonitor(Guid.Empty, floor.Id, string.Empty, host.FindType<ElementType>(floor.TypeId)?.Name ?? string.Empty,
+        Slab floor when floor is Floor or Ceiling && floor.Boundary.Count >= 3 => new ElementMonitor(Guid.Empty, floor.Id, string.Empty, host.FindType<ElementType>(floor.TypeId)?.Name ?? string.Empty,
             Middle(floor.Boundary), Middle(floor.Boundary), 0, 0, floor.GetBottomElevation(host), floor.GetTopElevation(host), string.Empty, floor.Boundary.ToList()),
+        Component fixture when host.FindType<ComponentType>(fixture.TypeId) is { } type && ComponentHosting.BaseElevation(host, fixture, type) is var foot =>
+            new ElementMonitor(Guid.Empty, fixture.Id, string.Empty, type.Name, fixture.Location, fixture.Location, Turned(fixture.Rotation), 0, foot, foot + type.Height),
         Opening opening when host.Find<Wall>(opening.HostWallId) is { } wall && host.FindType<OpeningType>(opening.TypeId) is { } type =>
             new ElementMonitor(Guid.Empty, opening.Id, string.Empty, type.Name, opening.GetCentre(wall), opening.GetCentre(wall), 0, 0,
                 wall.GetBaseElevation(host) + opening.SillHeight, wall.GetBaseElevation(host) + opening.SillHeight + opening.HeightOf(type), string.Empty, null, opening.WidthOf(type)),
@@ -157,8 +186,9 @@ public static partial class CopyMonitor
     {
         Column column => column.Monitor,
         Wall wall => wall.Monitor,
-        Floor floor => floor.Monitor,
+        Slab floor => floor.Monitor,
         Opening opening => opening.Monitor,
+        Component fixture => fixture.Monitor,
         _ => null
     };
 
@@ -168,8 +198,9 @@ public static partial class CopyMonitor
         {
             case Column column: column.Monitor = monitor; break;
             case Wall wall: wall.Monitor = monitor; break;
-            case Floor floor: floor.Monitor = monitor; break;
+            case Slab floor: floor.Monitor = monitor; break;
             case Opening opening: opening.Monitor = monitor; break;
+            case Component fixture: fixture.Monitor = monitor; break;
         }
     }
 
@@ -192,16 +223,24 @@ public static partial class CopyMonitor
         if (kinds.HasFlag(CopyMonitorKinds.Columns)) sources.AddRange(linked.All<Column>());
         if (kinds.HasFlag(CopyMonitorKinds.Walls)) sources.AddRange(linked.All<Wall>());
         if (kinds.HasFlag(CopyMonitorKinds.Floors)) sources.AddRange(linked.All<Floor>());
+        if (kinds.HasFlag(CopyMonitorKinds.Ceilings)) sources.AddRange(linked.All<Ceiling>());
         if (kinds.HasFlag(CopyMonitorKinds.Openings)) sources.AddRange(linked.All<Opening>());
+        if (kinds.HasFlag(CopyMonitorKinds.Fixtures)) sources.AddRange(linked.All<Component>().Where(component => FixtureCategories.Contains(component.Category)));
         var levels = host.Levels.Concat(levelFor.Values).Distinct().OrderBy(level => level.Elevation).ToList();
         var brought = new Dictionary<string, ElementType>(StringComparer.OrdinalIgnoreCase);
         var broughtMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
         var (columns, walls, floors, openings) = (0, 0, 0, 0);
+        var (ceilings, fixtures) = (0, 0);
 
         // This project's wall each linked wall is: the one following it already, or paired or copied here - where a door or window goes.
         var wallFor = host.All<Wall>().Where(wall => wall.Monitor is { } monitor && monitor.LinkId == link.Id)
             .Select(wall => (Source: SourceOf(linked, wall.Monitor!, wall), Wall: wall)).Where(each => each.Source is not null)
             .GroupBy(each => each.Source!.Id).ToDictionary(group => group.Key, group => group.First().Wall);
+
+        // And each linked floor or ceiling: where a fixture fixed to one goes.
+        var slabFor = host.All<Slab>().Where(slab => slab.Monitor is { } monitor && monitor.LinkId == link.Id)
+            .Select(slab => (Source: SourceOf(linked, slab.Monitor!, slab), Slab: slab)).Where(each => each.Source is not null)
+            .GroupBy(each => each.Source!.Id).ToDictionary(group => group.Key, group => group.First().Slab);
 
         // The storey of this project a linked level is: the one following it, or being copied from it; none where there is neither.
         Level? LevelFollowing(Guid? sourceLevel) =>
@@ -221,6 +260,8 @@ public static partial class CopyMonitor
                 {
                     Wall => "curtain, stacked, elliptical or spline wall",
                     Floor => "floor of no type or outline",
+                    Ceiling => "ceiling of no type or outline",
+                    Component => "fixture of no type",
                     Opening => "door or window of no type",
                     _ => "column of no type"
                 });
@@ -247,6 +288,7 @@ public static partial class CopyMonitor
                 steps.Add(Following(here, state));
                 paired.Add(state.SourceName);
                 if (source is Wall && here is Wall pairedWall) wallFor[source.Id] = pairedWall;
+                if (source is Slab && here is Slab pairedSlab) slabFor[source.Id] = pairedSlab;
                 continue;
             }
 
@@ -264,22 +306,45 @@ public static partial class CopyMonitor
                 continue;
             }
 
-            // A floor onto this project's storey following its own - or at its top - its outline and holes where the link puts them.
-            if (source is Floor floor)
+            // A floor or ceiling onto this project's storey following its own - or at its top - its outline and holes where the link puts them.
+            if (source is Slab slab)
             {
-                var type = TypeFor(host, linked, linked.FindType<FloorType>(floor.TypeId)!, steps, brought, broughtMaterials);
-                var storey = LevelFollowing(floor.LevelId) is { } own && own.Elevation <= state.Top + Tolerance ? own : StoreyAt(state.Top);
+                SlabType type = slab is Ceiling
+                    ? TypeFor(host, linked, linked.FindType<CeilingType>(slab.TypeId)!, steps, brought, broughtMaterials)
+                    : TypeFor(host, linked, linked.FindType<FloorType>(slab.TypeId)!, steps, brought, broughtMaterials);
+                var storey = LevelFollowing(slab.LevelId) is { } own && own.Elevation <= state.Top + Tolerance ? own : StoreyAt(state.Top);
                 var place = ModelLinks.Placement(host, link, linked);
                 Point2D Placed(Point2D point) => place(new Point3D(point.X, point.Y, 0)) is var moved ? new Point2D(moved.X, moved.Y) : point;
-                var made = new Floor
-                {
-                    TypeId = type.Id, LevelId = storey.Id, HeightOffset = state.Top - storey.Elevation, AnalyseAs = floor.AnalyseAs,
-                    SpanDirection = floor.SpanDirection is { } span ? Turned(span + link.Rotation) : null, Monitor = state, Mark = floor.Mark
-                };
+                Slab made = slab is Floor floor
+                    ? new Floor { AnalyseAs = floor.AnalyseAs, SpanDirection = floor.SpanDirection is { } span ? Turned(span + link.Rotation) : null }
+                    : new Ceiling();
+                (made.TypeId, made.LevelId, made.HeightOffset, made.Monitor, made.Mark) = (type.Id, storey.Id, state.Top - storey.Elevation, state, slab.Mark);
                 made.SetBoundary(state.Outline!);
-                made.SetHoles(floor.Holes.Select(hole => hole.Select(Placed)));
-                steps.Add(new AddElementCommand(host, made, "Copy Floor"));
-                floors++;
+                made.SetHoles(slab.Holes.Select(hole => hole.Select(Placed)));
+                slabFor[slab.Id] = made;
+                steps.Add(new AddElementCommand(host, made, slab is Ceiling ? "Copy Ceiling" : "Copy Floor"));
+                if (slab is Ceiling) ceilings++;
+                else floors++;
+                continue;
+            }
+
+            // A fixture onto this project's storey following its own - or the one at its foot - turned with the link; on the wall following the one it hangs on there, where there is one.
+            if (source is Component fixture)
+            {
+                var type = TypeFor(host, linked, linked.FindType<ComponentType>(fixture.TypeId)!, steps, brought, broughtMaterials);
+                var storey = LevelFollowing(fixture.LevelId) is { } own && own.Elevation <= state.Bottom + Tolerance ? own : StoreyAt(state.Bottom);
+                var made = new Component
+                {
+                    TypeId = type.Id, TypeKind = fixture.TypeKind ?? type.Kind, LevelId = storey.Id, Location = state.Start, Rotation = state.Rotation,
+                    Elevation = state.Bottom - storey.Elevation, FlipHand = fixture.FlipHand, Monitor = state, Mark = fixture.Mark
+                };
+                if (linked.Find<Wall>(fixture.HostId) is not null && wallFor.TryGetValue(fixture.HostId, out var hangsOn)) (made.HostId, made.FlipFacing) = (hangsOn.Id, fixture.FlipFacing);
+
+                // Fixed to a floor or ceiling there - a downlight, a floor box - fixed to the one following it here, as far off its face.
+                if (linked.Find<Slab>(fixture.HostId) is not null && slabFor.TryGetValue(fixture.HostId, out var fixedTo))
+                    (made.HostId, made.FlipFacing, made.Elevation, made.LevelId) = (fixedTo.Id, fixture.FlipFacing, fixture.Elevation, fixedTo.LevelId);
+                steps.Add(new AddElementCommand(host, made, "Copy Fixture"));
+                fixtures++;
                 continue;
             }
 
@@ -336,6 +401,8 @@ public static partial class CopyMonitor
         if (columns > 0) copied.Add($"{columns} column{(columns == 1 ? "" : "s")}");
         if (walls > 0) copied.Add($"{walls} wall{(walls == 1 ? "" : "s")}");
         if (floors > 0) copied.Add($"{floors} floor{(floors == 1 ? "" : "s")}");
+        if (ceilings > 0) copied.Add($"{ceilings} ceiling{(ceilings == 1 ? "" : "s")}");
+        if (fixtures > 0) copied.Add($"{fixtures} fixture{(fixtures == 1 ? "" : "s")}");
         if (openings > 0) copied.Add($"{openings} door{(openings == 1 ? "" : "s")} and window{(openings == 1 ? "" : "s")}".Replace("1 door and window", "1 door or window"));
         if (brought.Count > 0) copied.Add($"the type{(brought.Count == 1 ? "" : "s")} {string.Join(", ", brought.Keys)}");
     }
@@ -375,13 +442,14 @@ public static partial class CopyMonitor
             case ColumnType column:
                 copy = column.Duplicate(column.Name);
                 break;
-            case FloorType floor:
-                var layered = new FloorType(floor.Name, floor.Structure.Clone());
-                CopySettings(floor, layered);
+            case FloorType or CeilingType:
+                var slabType = (SlabType)(ElementType)source;
+                SlabType layered = slabType is CeilingType ? new CeilingType(slabType.Name, slabType.Structure.Clone()) : new FloorType(slabType.Name, slabType.Structure.Clone());
+                CopySettings(slabType, layered);
                 copy = layered;
                 break;
-            case OpeningType opening when TypeDuplicates.Duplicate(opening, opening.Name) is { } doorOrWindow:
-                copy = doorOrWindow;
+            case OpeningType or ComponentType when TypeDuplicates.Duplicate(source, source.Name) is { } duplicated:
+                copy = duplicated;
                 break;
             default:
                 throw new ArgumentException("Only column, wall, floor, door and window types are brought across.", nameof(source));
@@ -408,7 +476,7 @@ public static partial class CopyMonitor
             case ColumnType column:
                 column.MaterialId = Material(column.MaterialId);
                 break;
-            case FloorType floor:
+            case SlabType floor:
                 foreach (var layer in floor.Structure.Layers) layer.MaterialId = Material(layer.MaterialId);
                 break;
         }
@@ -436,7 +504,7 @@ public static partial class CopyMonitor
     /// <summary>What has changed in the linked models' columns, walls, floors, doors and windows since each following one was last agreed.</summary>
     private static IEnumerable<MonitorFinding> ReviewElements(BimDocument host)
     {
-        foreach (var element in host.Elements.Where(element => element is Column or Wall or Floor or Opening))
+        foreach (var element in host.Elements.Where(FollowsElements))
         {
             if (ElementMonitorOf(element) is not { } monitor) continue;
             var name = NameOf(element);
@@ -455,10 +523,11 @@ public static partial class CopyMonitor
 
             if (!SamePlace(now, monitor) && (now.Outline is not null || element is Opening))
             {
-                // A floor reshaped or moved; a door or window moved along its wall.
+                // A floor reshaped or moved; a door or window moved along its wall - or into another.
                 var by = now.Start.DistanceTo(monitor.Start);
+                var into = element is Opening opening && source is Opening moved && Follower(host, link, linked, moved.HostWallId) is { } wall && wall.Id != opening.HostWallId ? wall : null;
                 yield return new MonitorFinding(element, link, MonitorChange.Moved, element is Opening
-                    ? $"The {now.SourceName} of {link.Title} has moved {Units.FormatLength(by)} along its wall: {name} follows it."
+                    ? $"The {now.SourceName} of {link.Title} has moved {Units.FormatLength(by)} {(into is null ? "along its wall" : $"into the wall followed here by {NameOf(into)}")}: {name} follows it."
                     : $"The {now.SourceName} of {link.Title} has {(SameOutline(Shifted(monitor.Outline!, now.Start - monitor.Start), now.Outline) ? $"moved {Units.FormatLength(by)}" : "changed its outline")}: {name} follows it.");
             }
             else if (!SamePlace(now, monitor))
@@ -500,6 +569,10 @@ public static partial class CopyMonitor
 
     private static IReadOnlyList<Point2D> Shifted(IReadOnlyList<Point2D> outline, Vector2D by) => outline.Select(point => point + by).ToList();
 
+    /// <summary>The wall of this project following a linked wall; none where none does.</summary>
+    private static Wall? Follower(BimDocument host, ModelLink link, BimDocument linked, Guid linkedWall) =>
+        host.All<Wall>().FirstOrDefault(wall => wall.Monitor is { } monitor && monitor.LinkId == link.Id && SourceOf(linked, monitor, wall)?.Id == linkedWall);
+
     /// <summary>
     /// A change to a linked column or wall answered by bringing this project's to it: moved and turned
     /// where it now is, its bottom and top where they now are, or of the type it now is - and agreed
@@ -524,7 +597,14 @@ public static partial class CopyMonitor
                     var (wasStart, wasEnd, wasBulge) = (wall.Start, wall.End, wall.Bulge);
                     steps.Add(new DelegateCommand("Move Wall to Match", () => (wall.Start, wall.End, wall.Bulge) = (now.Start, now.End, now.Bulge), () => (wall.Start, wall.End, wall.Bulge) = (wasStart, wasEnd, wasBulge)));
                 }
-                else if (element is Floor floor && source is Floor original)
+                else if (element is Component fixture)
+                {
+                    // Where it now is - fixed to the wall following the one it now hangs on there, where it has moved to another.
+                    var (wasAt, wasTurn, wasHost) = (fixture.Location, fixture.Rotation, fixture.HostId);
+                    var toHost = source is Component linkedFixture && linked.Find<Wall>(linkedFixture.HostId) is not null && Follower(host, link, linked, linkedFixture.HostId) is { } hangsOn ? hangsOn.Id : wasHost;
+                    steps.Add(new DelegateCommand("Move Fixture to Match", () => (fixture.Location, fixture.Rotation, fixture.HostId) = (now.Start, now.Rotation, toHost), () => (fixture.Location, fixture.Rotation, fixture.HostId) = (wasAt, wasTurn, wasHost)));
+                }
+                else if (element is Slab floor && source is Slab original)
                 {
                     // Its outline and holes as the linked floor's now are, where the link puts them.
                     var place = ModelLinks.Placement(host, link, linked);
@@ -533,12 +613,18 @@ public static partial class CopyMonitor
                     var (toOutline, toHoles) = (now.Outline!.ToList(), original.Holes.Select(hole => hole.Select(Placed).ToList()).ToList());
                     steps.Add(new DelegateCommand("Move Floor to Match", () => { floor.SetBoundary(toOutline); floor.SetHoles(toHoles); }, () => { floor.SetBoundary(wasOutline); floor.SetHoles(wasHoles); }));
                 }
-                else if (element is Opening opening && host.Find<Wall>(opening.HostWallId) is { } hostWall && source is Opening linkedOpening && linked.Find<Wall>(linkedOpening.HostWallId) is { } originalWall)
+                else if (element is Opening opening && source is Opening linkedOpening && linked.Find<Wall>(linkedOpening.HostWallId) is { } originalWall
+                         && (Follower(host, link, linked, originalWall.Id) ?? host.Find<Wall>(opening.HostWallId)) is { } hostWall)
                 {
-                    var (along, _) = AlongWall(hostWall, now.Start, originalWall, host, link, linked);
-                    var was = opening.DistanceAlongWall;
-                    var to = Math.Max(0, along);
-                    steps.Add(new DelegateCommand("Move to Match", () => opening.DistanceAlongWall = to, () => opening.DistanceAlongWall = was));
+                    // As far along the wall following the one it is now in there - into another of this project's where it has moved to another.
+                    var (along, flipped) = AlongWall(hostWall, now.Start, originalWall, host, link, linked);
+                    var was = (opening.HostWallId, opening.LevelId, opening.DistanceAlongWall, opening.FlipFacing, opening.FlipHand);
+                    var to = hostWall.Id == opening.HostWallId
+                        ? (opening.HostWallId, opening.LevelId, Math.Max(0, along), opening.FlipFacing, opening.FlipHand)
+                        : (hostWall.Id, hostWall.LevelId, Math.Max(0, along), linkedOpening.FlipFacing != flipped, linkedOpening.FlipHand != flipped);
+                    steps.Add(new DelegateCommand("Move to Match",
+                        () => (opening.HostWallId, opening.LevelId, opening.DistanceAlongWall, opening.FlipFacing, opening.FlipHand) = to,
+                        () => (opening.HostWallId, opening.LevelId, opening.DistanceAlongWall, opening.FlipFacing, opening.FlipHand) = was));
                 }
 
                 steps.Add(Following(element, monitor with { SourceId = source.Id, Start = now.Start, End = now.End, Rotation = now.Rotation, Bulge = now.Bulge, Outline = now.Outline, SourceName = now.SourceName }));
@@ -559,6 +645,8 @@ public static partial class CopyMonitor
                     Column linkedColumn when linked.FindType<ColumnType>(linkedColumn.TypeId) is { } kind => TypeFor(host, linked, kind, made, brought, materials),
                     Wall linkedWall when linked.FindType<WallType>(linkedWall.TypeId) is { } kind => TypeFor(host, linked, kind, made, brought, materials),
                     Floor linkedFloor when linked.FindType<FloorType>(linkedFloor.TypeId) is { } kind => TypeFor(host, linked, kind, made, brought, materials),
+                    Ceiling linkedCeiling when linked.FindType<CeilingType>(linkedCeiling.TypeId) is { } kind => TypeFor(host, linked, kind, made, brought, materials),
+                    Component linkedFixture when linked.FindType<ComponentType>(linkedFixture.TypeId) is { } kind => TypeFor(host, linked, kind, made, brought, materials),
                     Opening linkedOpening when linked.FindType<OpeningType>(linkedOpening.TypeId) is { } kind => TypeFor(host, linked, kind, made, brought, materials),
                     _ => null
                 };
@@ -610,8 +698,8 @@ public static partial class CopyMonitor
                 return new DelegateCommand("Match Height", () => (wall.BaseOffset, wall.TopOffset, wall.UnconnectedHeight) = to, () => (wall.BaseOffset, wall.TopOffset, wall.UnconnectedHeight) = was);
             }
 
-            // A floor by its top: its offset from its storey.
-            case Floor floor:
+            // A floor or ceiling by its top: its offset from its storey.
+            case Slab floor:
             {
                 var was = floor.HeightOffset;
                 var to = top - (host.FindLevel(floor.LevelId)?.Elevation ?? 0);
@@ -629,8 +717,25 @@ public static partial class CopyMonitor
                 return new DelegateCommand("Match Size", () => (opening.SillHeight, opening.HeightOverride, opening.WidthOverride) = to, () => (opening.SillHeight, opening.HeightOverride, opening.WidthOverride) = was);
             }
 
+            // A fixture by its foot: its elevation moved so its foot comes where it is to - the other way for one fixed under a slab.
+            case Component fixture:
+            {
+                var was = fixture.Elevation;
+                var to = was;
+                if (host.FindType<ComponentType>(fixture.TypeId) is { } kind)
+                {
+                    var foot = ComponentHosting.BaseElevation(host, fixture, kind);
+                    fixture.Elevation = was + 1;
+                    var rate = ComponentHosting.BaseElevation(host, fixture, kind) - foot;
+                    fixture.Elevation = was;
+                    if (Math.Abs(rate) > 1e-9) to = was + (bottom - foot) / rate;
+                }
+
+                return new DelegateCommand("Match Height", () => fixture.Elevation = to, () => fixture.Elevation = was);
+            }
+
             default:
-                throw new ArgumentException("Only columns, walls, floors, doors and windows follow linked ones.", nameof(element));
+                throw new ArgumentException("Only columns, walls, floors, ceilings, doors, windows and fixtures follow linked ones.", nameof(element));
         }
     }
 

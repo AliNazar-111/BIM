@@ -627,7 +627,8 @@ internal sealed class ClashDetectiveWindow : System.Windows.Window
         if (dialog.ShowDialog(this) != true) return;
         try
         {
-            File.WriteAllText(dialog.FileName, ClashReports.Html(Document, Document.ClashTests, clash => clash.IsOpen ? _host.Snapshot(clash) : null));
+            File.WriteAllText(dialog.FileName, ClashReports.Html(Document, Document.ClashTests, clash => clash.IsOpen ? _host.Snapshot(clash) : null,
+                groupSnapshot: members => members.Any(clash => clash.IsOpen) ? _host.SnapshotOf(members) : null));
             _problem.Text = $"Saved {Path.GetFileName(dialog.FileName)}.";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { _problem.Text = exception.Message; }

@@ -54,7 +54,8 @@ public static class ClashReports
     private static string GroupOf(ClashTest test, Clash clash) => test.Groups.FirstOrDefault(group => group.Id == clash.GroupId)?.Name ?? string.Empty;
 
     /// <summary>The clashes as a web page: each test, what it checks and when it ran, and each clash with what it is between, where, its status and who has it - a picture of it where one is given.</summary>
-    public static string Html(BimDocument document, IEnumerable<ClashTest> tests, Func<Clash, byte[]?>? snapshot = null, bool openOnly = false)
+    public static string Html(BimDocument document, IEnumerable<ClashTest> tests, Func<Clash, byte[]?>? snapshot = null, bool openOnly = false,
+        Func<IReadOnlyList<Clash>, byte[]?>? groupSnapshot = null)
     {
         static string E(string? text) => WebUtility.HtmlEncode(text ?? string.Empty);
         var html = new StringBuilder();
@@ -78,9 +79,29 @@ public static class ClashReports
                 .Append(test.Kind == ClashKind.Clearance ? $", {test.Tolerance:0} mm clear" : test.Kind == ClashKind.Hard ? $", tolerance {test.Tolerance:0} mm" : string.Empty)
                 .Append(" - ").Append(E(string.Join(", ", test.SelectionA.Distinct()))).Append(" against ").Append(E(string.Join(", ", test.SelectionB.Distinct())))
                 .Append(". Run ").Append(E(test.LastRun?.ToString("d MMM yyyy HH:mm", CultureInfo.InvariantCulture) ?? "never")).Append(": ").Append(E(counts.Length == 0 ? "no clashes" : counts)).Append(".</p>");
-            if (test.Groups.Count > 0)
-                html.Append("<p>Grouped: ").Append(E(string.Join("; ", test.Groups.Select(group =>
-                    $"{group.Name} - {ClashGroups.Members(test, group).Count} clashes, {ClashGroups.Status(test, group).ToString().ToLowerInvariant()}")))).Append(".</p>");
+            // Its groups: each with how many clashes, where it stands, who has it - and a picture taking them all in, where one is given.
+            var groups = test.Groups.Where(group => !openOnly || ClashGroups.IsOpen(test, group)).ToList();
+            if (groups.Count > 0)
+            {
+                html.Append("<table><tr><th>Group</th><th>Clashes</th><th>Status</th><th>Assigned to</th><th>Priority</th><th>Due</th><th>Comments</th>");
+                if (groupSnapshot is not null) html.Append("<th>View</th>");
+                html.Append("</tr>");
+                foreach (var group in groups)
+                {
+                    var members = ClashGroups.Members(test, group);
+                    var status = ClashGroups.Status(test, group);
+                    html.Append("<tr><td>").Append(E(group.Name)).Append("</td><td class=\"n\">").Append(members.Count)
+                        .Append("</td><td class=\"").Append(status).Append("\">").Append(status)
+                        .Append("</td><td>").Append(E(ClashGroups.AssignedTo(test, group))).Append("</td><td>").Append(ClashGroups.Priority(test, group))
+                        .Append("</td><td>").Append(E(ClashGroups.Due(test, group)?.ToString("d MMM yyyy", CultureInfo.InvariantCulture)))
+                        .Append("</td><td>").Append(string.Join("<br>", group.Comments.Select(comment => $"{E(comment.Author)}, {comment.Date:d MMM}: {E(comment.Text)}"))).Append("</td>");
+                    if (groupSnapshot is not null)
+                        html.Append("<td>").Append(groupSnapshot(members) is { } png ? $"<img src=\"data:image/png;base64,{Convert.ToBase64String(png)}\">" : string.Empty).Append("</td>");
+                    html.Append("</tr>");
+                }
+
+                html.Append("</table><p></p>");
+            }
             if (clashes.Count == 0) continue;
 
             html.Append("<table><tr><th>Clash</th><th>Group</th><th>Status</th><th>Distance (mm)</th><th>Level</th><th>Grid</th><th>Element 1</th><th>Element 2</th><th>Description</th><th>Found</th><th>Assigned to</th><th>Priority</th><th>Due</th><th>Comments</th>");
