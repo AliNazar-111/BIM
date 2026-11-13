@@ -740,7 +740,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.RoofShape or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.AreaBoundary or PlanTool.Area or PlanTool.Pipe or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.AreaBoundary or PlanTool.Area or PlanTool.Pipe or PlanTool.Valve or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -2453,7 +2453,7 @@ public partial class MainWindow : Window
     private RadioButton[] ToolButtons() =>
     [
         SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, DetailLineTool, FilledRegionTool, RepeatingDetailTool, AreaBoundaryTool, AreaTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
-        FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, DuctTool, TerrainTool,
+        FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, ValveTool, DuctTool, TerrainTool,
         StructuralColumnTool, WallFootingTool, PadFootingTool, RaftTool, PilesTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
         SectionTool, DimensionTool, TagTool, TextTool, SplitTool, SplitGapTool, TrimTool, AlignTool, OffsetTool, MirrorTool, ArrayTool,
@@ -2564,6 +2564,7 @@ public partial class MainWindow : Window
             : RailingTool.IsChecked == true ? PlanTool.Railing
             : BeamTool.IsChecked == true ? PlanTool.Beam
             : PipeTool.IsChecked == true ? PlanTool.Pipe
+            : ValveTool.IsChecked == true ? PlanTool.Valve
             : DuctTool.IsChecked == true ? PlanTool.Duct
             : TerrainTool.IsChecked == true ? PlanTool.Terrain
             : RegionTool.IsChecked == true ? PlanTool.Region

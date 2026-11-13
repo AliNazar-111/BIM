@@ -687,6 +687,9 @@
                                              Content="Pipe" Checked="OnToolChanged"
                                              ToolTip="Pipe: click a fitting's connector, the end of a pipe or a point along one, then where the pipe goes. It runs level at the height on the option bar, rises or drops to the fitting or pipe it ends at, and puts the fitting on its system. Copper, PE-X, stainless or galvanised steel, in their sizes - and for gas in the US, Schedule 40 steel"/>
                                 <StackPanel>
+                                    <RadioButton x:Name="ValveTool" Style="{StaticResource RibbonSmallTool}" Tag="{StaticResource Icon.Valve}"
+                                                 Content="Valve" Checked="OnToolChanged"
+                                                 ToolTip="Valve: click a pipe and a servicing valve goes on it where you click - in Properties a stopvalve, a double check valve or a drain-off tap. It stays on its pipe. A WC's cistern wants a servicing valve on its inlet pipe, and each flat of a block a stopvalve of its own (the Water Supply (Water Fittings) Regulations 1999, Schedule 2, 16(2) and 10(1))"/>
                                     <Button Style="{StaticResource RibbonSmallButton}" Tag="{StaticResource Icon.SizePipes}"
                                             Content="Size Pipes" Click="OnSizePipes"
                                             ToolTip="Size the pipes: cold and hot water as BS EN 806-3 asks - each section by the loading units of the draw-offs beyond it, read off Table 3 for its material - heating for the heat beyond each, the water kept to 1.0 m/s and 300 Pa a metre; and gas for the appliances beyond each, within BS 6891's 1 mbar from the meter to every appliance - in the US by the IRC's branch length method on Table G2413.4(1); and sprinklers so the valve set's supply gives the most demanding room's sprinklers their listed flow"/>

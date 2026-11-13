@@ -196,6 +196,9 @@ public enum PlanTool
     /// <summary>Puts a downpipe on the gutter clicked, down the wall under it.</summary>
     Downpipe,
 
+    /// <summary>Puts a valve on the pipe clicked, where it is clicked.</summary>
+    Valve,
+
     /// <summary>Puts a drain in the flat roof clicked; the roof falls to it.</summary>
     RoofDrain,
 
@@ -1325,6 +1328,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.RepeatingDetail => "Click where the repeating detail starts, then where it ends - or type its length: the detail on the option bar is drawn along it, to its left, at its true size. Esc to stop.",
         PlanTool.AreaBoundary => "On an area plan, click where the area boundary starts, then where it ends - or type its length: the next starts where it ended. Areas are measured within the boundaries and the storey's outline. Esc to stop.",
         PlanTool.Area => "On an area plan, click in each space its area boundaries close round to place an area there: it is named and numbered on, and measured as the plan measures the storey.",
+        PlanTool.Valve => "Click a pipe where the valve goes: a servicing valve, to be made a stopvalve, a double check valve or a drain-off tap in Properties.",
         PlanTool.Pipe => "Click a fitting's connector, the end of a pipe or a point along one - or anywhere - where the pipe starts; then where it goes. It runs level at the height on the option bar and rises or drops to the fitting or pipe it ends at.",
         PlanTool.Duct => "Click a spigot - a heat recovery unit's, a valve's, an outside terminal's - the end of a duct or a point along one, or anywhere, where the duct starts; then where it goes. It runs level at the height on the option bar and rises or drops to the spigot or duct it ends at.",
         PlanTool.Terrain => "Click where each spot level goes, at the elevation on the option bar - three make the ground, and each one after adds to it. Or read a points file in with Import Points.",
@@ -2473,6 +2477,10 @@ public partial class PlanView : FrameworkElement
                 ClickPipe(raw);
                 return;
 
+            case PlanTool.Valve:
+                PlaceValveAt(raw);
+                return;
+
             case PlanTool.EditSystem:
                 ClickSystemMember(raw);
                 return;
@@ -3000,6 +3008,9 @@ public partial class PlanView : FrameworkElement
     /// <summary>What a move drag carries: the selection, and whatever is locked to it.</summary>
     private readonly List<Element> _moveSet = new();
 
+    /// <summary>The pipes and ducts meeting what a drag carries, following it as it goes.</summary>
+    private Core.Mep.RunsFollowing? _runsFollowing;
+
     /// <summary>
     /// Works out what a move carries, whether it is dragged or nudged with the arrow keys.
     /// </summary>
@@ -3039,6 +3050,7 @@ public partial class PlanView : FrameworkElement
 
         _dragging = GripKind.Move;
         CollectMoveSet();
+        _runsFollowing = Document is null ? null : Core.Mep.RunsFollowing.For(Document, _moveSet.Where(ElementTransforms.CanMove));
 
         _dragAnchor = raw;
         _dragLastPoint = SnapToGrid(raw);
@@ -3156,6 +3168,7 @@ public partial class PlanView : FrameworkElement
                 else follower.End += follows.For(step);
             }
 
+            _runsFollowing?.Follow();
             _dragLastPoint = target;
             _dragTotal += step;
 
@@ -3272,6 +3285,7 @@ public partial class PlanView : FrameworkElement
             {
                 foreach (var element in _moveSet.Where(ElementTransforms.CanMove)) ElementTransforms.Move(element, -_dragTotal);
                 foreach (var (follower, _, start, end, _) in _followers) (follower.Start, follower.End) = (start, end);
+                _runsFollowing?.Follow();
 
                 _dragTotal = default;
                 HintChanged?.Invoke(this, misplaced);
@@ -3290,16 +3304,21 @@ public partial class PlanView : FrameworkElement
             if (against is not null)
                 HintChanged?.Invoke(this, "Set against the wall, facing the room.");
 
+            // The pipes and ducts meeting what moved follow it to where it was set, against a wall too - and back with Undo.
+            _runsFollowing?.Follow();
+            IUndoableCommand Following(IUndoableCommand moved) =>
+                _runsFollowing is { IsEmpty: false } runs ? new Core.Mep.FollowingRunsCommand(moved, runs) : moved;
+
             if (_followers.Count > 0 || fitted is not null || against is not null)
             {
                 var steps = FollowerMoves().Prepend(command).ToList();
                 if (fitted is not null) steps.Add(fitted);
                 if (against is not null) steps.Add(against);
-                History?.Record(new CompositeCommand("Move", steps));
+                History?.Record(Following(new CompositeCommand("Move", steps)));
             }
             else if (!command.IsEmpty)
             {
-                History?.Record(command);
+                History?.Record(Following(command));
             }
 
             _dragTotal = default;
@@ -6503,6 +6522,15 @@ public partial class PlanView : FrameworkElement
                 return;
             }
 
+            case Core.Mep.PipeValve valve:
+                if (Core.Mep.PipeValves.At(Document, valve) is { } valveAt && Document.Find<Core.Mep.Pipe>(valve.PipeId) is { } valvePipe)
+                {
+                    var radius = Math.Max(valvePipe.Diameter * 2, 10 / PixelsPerMm) * PixelsPerMm;
+                    dc.DrawEllipse(null, _hoverPen, ModelToScreen(new Point2D(valveAt.X, valveAt.Y)), radius, radius);
+                }
+
+                return;
+
             case Downpipe pipe:
                 if (Downpipes.Path(Document, pipe) is { } pipePath)
                     DrawModelPolyline(dc, _hoverPen, pipePath.Footprint.Append(pipePath.Footprint[0]).ToList());
@@ -6646,6 +6674,7 @@ public partial class PlanView : FrameworkElement
         foreach (var railing in RailingsAt(model)) yield return railing;
         foreach (var beam in BeamsAt(model)) yield return beam;
         foreach (var separator in RoomSeparatorsAt(model)) yield return separator;
+        foreach (var valve in ValvesAt(model)) yield return valve;
         foreach (var pipe in PipesAt(model)) yield return pipe;
         foreach (var duct in DuctsAt(model)) yield return duct;
 

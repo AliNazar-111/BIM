@@ -454,6 +454,12 @@ public static partial class ProjectFile
                 Mark = pipe.Mark, Comments = pipe.Comments
             });
 
+        foreach (var valve in document.All<PipeValve>())
+            (dto.PipeValves ??= new List<PipeValveDto>()).Add(new PipeValveDto
+            {
+                Id = valve.Id, PipeId = valve.PipeId, LevelId = valve.LevelId, Along = valve.Along, Kind = valve.Kind.ToString(), Mark = valve.Mark, Comments = valve.Comments
+            });
+
         foreach (var type in document.TypesOf<BeamType>())
             dto.BeamTypes.Add(new BeamTypeDto
             {
@@ -1444,7 +1450,7 @@ public static partial class ProjectFile
             Method = system.Kind == SystemKind.Power ? system.Method.ToString() : null,
             Grouped = system.Kind == SystemKind.Power && system.Grouped > 1 ? system.Grouped : null,
             CableLength = system.Kind == SystemKind.Power && system.CableLength > 0 ? system.CableLength : null,
-            Phase = system.Kind == SystemKind.Power && system.Phase is >= 1 and <= 3 ? system.Phase : null,
+            Phase = system.Kind == SystemKind.Power && system.Phase is >= 1 and <= MepSystem.AllPhases ? system.Phase : null,
             Mark = system.Mark, Comments = system.Comments
         }).ToList();
         dto.Systems = systems.Count > 0 ? systems : null;
@@ -3456,7 +3462,7 @@ public static partial class ProjectFile
                 Method = ParseEnum(saved.Method, CableMethod.ClippedDirect),
                 Grouped = saved.Grouped is >= 1 and <= 100 ? saved.Grouped.Value : 1,
                 CableLength = saved.CableLength is > 0 and < 100000 ? saved.CableLength.Value : 0,
-                Phase = saved.Phase is >= 1 and <= 3 ? saved.Phase.Value : 0
+                Phase = saved.Phase is >= 1 and <= MepSystem.AllPhases ? saved.Phase.Value : 0
             };
             foreach (var id in (saved.Members ?? new List<Guid>()).Distinct())
                 if (document.Find<Component>(id) is { } member && MepSystems.WhyNotMember(document, member, system) is null) system.Members.Add(id);
@@ -3481,6 +3487,15 @@ public static partial class ProjectFile
             pipe.SystemId = document.Find<MepSystem>(saved.SystemId) is { } on && on.Kind == pipe.Kind ? on.Id : null;
             document.Add(pipe);
         }
+
+        // The valves on them; one whose pipe is gone has nothing to sit on.
+        foreach (var saved in (dto.PipeValves ?? new List<PipeValveDto>()).Where(saved => double.IsFinite(saved.Along)))
+            if (document.Find<Pipe>(saved.PipeId) is { } host)
+                document.Add(new PipeValve
+                {
+                    Id = saved.Id, PipeId = host.Id, LevelId = host.LevelId, Along = Math.Clamp(saved.Along, 0, host.Length), Kind = ParseEnum(saved.Kind, ValveKind.Servicing),
+                    Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                });
 
         // The ducts, on their systems; one with no length is nothing.
         foreach (var saved in (dto.Ducts ?? new List<DuctDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null

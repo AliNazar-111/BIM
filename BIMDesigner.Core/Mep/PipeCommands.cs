@@ -17,6 +17,10 @@ public sealed class SplitPipeCommand : IUndoableCommand
     private readonly Point2D _at;
     private readonly double _atOffset;
 
+    /// <summary>How far along the pipe it is cut, mm - the valves past it go onto the second part - and how to put them back.</summary>
+    private readonly double _cut;
+    private Action? _valvesBack;
+
     /// <param name="height">For an upright pipe - a stack - the height above its level it is cut at; a pipe along the storey is cut where it passes the point.</param>
     public SplitPipeCommand(BimDocument document, Pipe pipe, Point2D at, double? height = null)
     {
@@ -30,6 +34,7 @@ public sealed class SplitPipeCommand : IUndoableCommand
             : length < 1e-9 ? 0 : Math.Clamp(pipe.Start.DistanceTo(at) / length, 0, 1);
         _at = pipe.Start + (pipe.End - pipe.Start) * t;
         _atOffset = pipe.StartOffset + (pipe.EndOffset - pipe.StartOffset) * t;
+        _cut = pipe.Length * t;
         Second = new Pipe
         {
             TypeId = pipe.TypeId, LevelId = pipe.LevelId, Start = _at, End = _end, StartOffset = _atOffset, EndOffset = _endOffset,
@@ -50,10 +55,13 @@ public sealed class SplitPipeCommand : IUndoableCommand
     {
         (_pipe.End, _pipe.EndOffset) = (_at, _atOffset);
         _document.Add(Second);
+        _valvesBack = PipeValves.Split(_document, _pipe, Second, _cut);
     }
 
     public void Undo()
     {
+        _valvesBack?.Invoke();
+        _valvesBack = null;
         _document.Remove(Second);
         (_pipe.End, _pipe.EndOffset) = (_end, _endOffset);
     }

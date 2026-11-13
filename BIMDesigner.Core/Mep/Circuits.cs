@@ -14,7 +14,7 @@ public enum BreakerCurve
     D
 }
 
-/// <summary>How a circuit's flat twin and earth cable is installed, as BS 7671's Table 4D5 rates it.</summary>
+/// <summary>How a circuit's cable is installed, as BS 7671 rates it: flat twin and earth by Table 4D5, armoured cable by Table 4D4A.</summary>
 public enum CableMethod
 {
     /// <summary>Reference method C: clipped direct to a surface, or buried in plaster.</summary>
@@ -33,19 +33,36 @@ public enum CableMethod
     StudWallTouching,
 
     /// <summary>Method 103: in a stud wall filled with insulation, not touching its lining.</summary>
-    StudWall
+    StudWall,
+
+    /// <summary>Reference method E: in free air, or on a perforated cable tray - armoured cable.</summary>
+    InFreeAir,
+
+    /// <summary>Reference method D1: in ducts in the ground, in or around buildings - armoured cable.</summary>
+    InDucts,
+
+    /// <summary>Reference method D2: direct in the ground, in or around buildings - armoured cable.</summary>
+    InGround
 }
 
 /// <summary>
 /// A size of cable a circuit may be wired in: in the UK flat twin and earth (6242Y) - its line
 /// and protective conductors, mm², its voltage drop, mV/A/m, and what it carries by how it is
-/// installed (BS 7671 Table 4D5); in the US, NM-B copper - its circular mils, what it carries
+/// installed (BS 7671 Table 4D5) - or steel wire armoured, three-core for one phase or five-core
+/// for three (Table 4D4A and 4D4B); in the US, NM-B copper - its circular mils, what it carries
 /// at 60 °C (Table 310.16, 334.80) and at 90 °C, which bunching is taken from, and the most a
 /// breaker may protect it at (240.4(D)).
 /// </summary>
-public sealed record CableSize(string Name, double Line, double Cpc, double MilliVolts, double[] Ratings, double CircularMils = 0, double MostBreaker = 0, double Ninety = 0)
+public sealed record CableSize(string Name, double Line, double Cpc, double MilliVolts, double[] Ratings, double CircularMils = 0, double MostBreaker = 0, double Ninety = 0, int Cores = 0)
 {
-    public double Rating(CableMethod method) => Ratings.Length == 1 ? Ratings[0] : Ratings[(int)method];
+    /// <summary>What it carries installed so, A: none where its table does not rate it so - twin and earth in the ground, armoured cable in thermal insulation.</summary>
+    public double Rating(CableMethod method) => Ratings.Length == 1 ? Ratings[0] : (int)method < Ratings.Length ? Ratings[(int)method] : 0;
+
+    /// <summary>Whether it is steel wire armoured multicore, rated by Table 4D4A; else twin and earth by Table 4D5 - or, in the US, NM-B.</summary>
+    public bool Armoured => Cores > 0;
+
+    /// <summary>The table of BS 7671's Appendix 4 that rates it.</summary>
+    public string Table => Armoured ? "Table 4D4A" : "Table 4D5";
 }
 
 /// <summary>
@@ -85,6 +102,9 @@ public sealed record CircuitDesign(
     public bool BreakerChosen { get; init; }
 
     public bool CableChosen { get; init; }
+
+    /// <summary>Whether it runs across all three phases of its board at 400 V - its current each line's, P / (√3 × 400).</summary>
+    public bool ThreePhase { get; init; }
 }
 
 /// <summary>What a consumer unit's circuits come to: its ways, its supply, and the most it is drawn after diversity, A.</summary>
@@ -125,6 +145,9 @@ public static class Circuits
     /// <summary>The UK's supply voltage, and the US's two.</summary>
     public const double Uk = 230, Us = 120, UsTwo = 240;
 
+    /// <summary>The UK's voltage between the lines of a three-phase supply: 400 V, √3 times 230.</summary>
+    public const double UkThree = 400;
+
     /// <summary>How high over its storey's level a circuit's cable runs between its fittings: in the void over the ceiling, mm.</summary>
     public const double RunHeight = 2500;
 
@@ -151,6 +174,37 @@ public static class Circuits
         new("16 mm²", 16, 6, 2.8, new double[] { 85, 57, 57, 46, 63, 42.5 })
     };
 
+    // Steel wire armoured multicore cable, 70 °C thermoplastic (BS 6346), as BS 7671's Table 4D4A rates it - clipped direct (C), in free
+    // air (E), in ducts in the ground (D1), direct in it (D2); it rates none in thermal insulation - and Table 4D4B's voltage drop. Three-
+    // core for one phase - line, neutral and a protective core the line's size - rated as Table 4D4A's two-core cable, the protective core
+    // carrying no current; five-core for three phases - three lines, neutral and a protective core - rated as its three- or four-core
+    // cable, its drop the three-phase column's. The armour may be the protective conductor instead, by its makers' resistance: not taken here.
+    private static double[] Swa(double c, double e, double d1, double d2) => new[] { c, 0, 0, 0, 0, 0, e, d1, d2 };
+
+    private static readonly CableSize[] UkSingleSwa =
+    {
+        new("1.5 mm² 3-core SWA", 1.5, 1.5, 29, Swa(21, 22, 22, 22), Cores: 3),
+        new("2.5 mm² 3-core SWA", 2.5, 2.5, 18, Swa(28, 31, 29, 28), Cores: 3),
+        new("4 mm² 3-core SWA", 4, 4, 11, Swa(38, 41, 37, 38), Cores: 3),
+        new("6 mm² 3-core SWA", 6, 6, 7.3, Swa(49, 53, 46, 48), Cores: 3),
+        new("10 mm² 3-core SWA", 10, 10, 4.4, Swa(67, 72, 60, 64), Cores: 3),
+        new("16 mm² 3-core SWA", 16, 16, 2.8, Swa(89, 97, 78, 83), Cores: 3),
+        new("25 mm² 3-core SWA", 25, 25, 1.75, Swa(118, 128, 99, 110), Cores: 3)
+    };
+
+    private static readonly CableSize[] UkThreeSwa =
+    {
+        new("1.5 mm² 5-core SWA", 1.5, 1.5, 25, Swa(18, 19, 18, 19), Cores: 5),
+        new("2.5 mm² 5-core SWA", 2.5, 2.5, 15, Swa(25, 26, 24, 24), Cores: 5),
+        new("4 mm² 5-core SWA", 4, 4, 9.5, Swa(33, 35, 30, 33), Cores: 5),
+        new("6 mm² 5-core SWA", 6, 6, 6.4, Swa(42, 45, 38, 41), Cores: 5),
+        new("10 mm² 5-core SWA", 10, 10, 3.8, Swa(58, 62, 50, 54), Cores: 5),
+        new("16 mm² 5-core SWA", 16, 16, 2.4, Swa(77, 83, 64, 70), Cores: 5),
+        new("25 mm² 5-core SWA", 25, 25, 1.50, Swa(102, 110, 82, 92), Cores: 5)
+    };
+
+    private static readonly CableSize[] UkSingle = UkSizes.Concat(UkSingleSwa).ToArray();
+
     private static readonly CableSize[] UsSizes =
     {
         new("14 AWG", 0, 0, 0, new double[] { 15 }, 4110, 15, 25),
@@ -161,8 +215,29 @@ public static class Circuits
         new("4 AWG", 0, 0, 0, new double[] { 70 }, 41740, 0, 95)
     };
 
-    /// <summary>The cables a circuit may be wired in.</summary>
-    public static IReadOnlyList<CableSize> Sizes(bool us) => us ? UsSizes : UkSizes;
+    /// <summary>The cables a circuit of one phase may be wired in: in the UK twin and earth, or three-core armoured; in the US NM-B.</summary>
+    public static IReadOnlyList<CableSize> Sizes(bool us) => us ? UsSizes : UkSingle;
+
+    /// <summary>The cables a circuit may be wired in: a three-phase circuit's five-core armoured, another's as <see cref="Sizes(bool)"/>.</summary>
+    public static IReadOnlyList<CableSize> Sizes(BimDocument document, MepSystem circuit) =>
+        ThreePhase(document, circuit) ? UkThreeSwa : Sizes(document.ProjectInformation.ClearanceStandard.IsUs());
+
+    /// <summary>
+    /// The cables Size Circuits chooses among, the smallest first: a three-phase circuit's five-core armoured; in the ground or in free air,
+    /// three-core armoured, which Table 4D4A rates there and Table 4D5 does not rate twin and earth; otherwise twin and earth - armoured
+    /// cable clipped direct is there to be set, not chosen.
+    /// </summary>
+    private static IReadOnlyList<CableSize> Candidates(BimDocument document, MepSystem circuit)
+    {
+        if (document.ProjectInformation.ClearanceStandard.IsUs()) return UsSizes;
+        if (ThreePhase(document, circuit)) return UkThreeSwa;
+        return circuit.Method is CableMethod.InFreeAir or CableMethod.InDucts or CableMethod.InGround ? UkSingleSwa : UkSizes;
+    }
+
+    /// <summary>Whether a circuit runs across all three phases: set to them, on a three-phase board, in the UK.</summary>
+    public static bool ThreePhase(BimDocument document, MepSystem circuit) =>
+        circuit.Phase == MepSystem.AllPhases && !document.ProjectInformation.ClearanceStandard.IsUs()
+        && MepSystems.SourceOf(document, circuit) is { } board && TypeOf(document, board) is { Phases: 3 };
 
     /// <summary>
     /// NEC Table 250.122: the least copper equipment grounding conductor for the rating of the breaker ahead of a circuit, and its
@@ -208,7 +283,8 @@ public static class Circuits
         <= 4 => 4.61,
         <= 6 => 3.08,
         <= 10 => 1.83,
-        _ => 1.15
+        <= 16 => 1.15,
+        _ => 0.727
     };
 
     /// <summary>Table 4C1's factor for cables bunched with others, by how many circuits there are - between its columns, the next more.</summary>
@@ -247,7 +323,10 @@ public static class Circuits
         CableMethod.UnderInsulation => "Under up to 100 mm of loft insulation (100)",
         CableMethod.UnderDeepInsulation => "Under more than 100 mm of loft insulation (101)",
         CableMethod.StudWallTouching => "In an insulated stud wall, touching its lining (102)",
-        _ => "In an insulated stud wall, not touching its lining (103)"
+        CableMethod.StudWall => "In an insulated stud wall, not touching its lining (103)",
+        CableMethod.InFreeAir => "In free air or on a perforated tray (E)",
+        CableMethod.InDucts => "In ducts in the ground (D1)",
+        _ => "Direct in the ground (D2)"
     };
 
     // ---- what fittings draw -------------------------------------------------------
@@ -368,10 +447,10 @@ public static class Circuits
 
     private static double Smallest(IEnumerable<double> ratings, double atLeast) => ratings.Where(rating => rating >= atLeast - 1e-9).DefaultIfEmpty(ratings.Max()).Min();
 
-    /// <summary>The voltage a circuit runs at: 230 V in the UK; in the US 240 V for a range, a water heater or a heat pump, 120 V otherwise.</summary>
+    /// <summary>The voltage a circuit runs at: 230 V in the UK, 400 V between the lines of a three-phase one; in the US 240 V for a range, a water heater or a heat pump, 120 V otherwise.</summary>
     public static double VoltageOf(BimDocument document, MepSystem circuit)
     {
-        if (!document.ProjectInformation.ClearanceStandard.IsUs()) return Uk;
+        if (!document.ProjectInformation.ClearanceStandard.IsUs()) return ThreePhase(document, circuit) ? UkThree : Uk;
         return circuit.Use is CircuitUse.Cooker or CircuitUse.ImmersionHeater
                || MepSystems.MembersOf(document, circuit).Any(member => TypeOf(document, member)?.Form is ComponentForm.HeatPump or ComponentForm.Shower)
             ? UsTwo
@@ -405,11 +484,14 @@ public static class Circuits
 
         if (OfSockets(document, members))
             return circuit.Use == CircuitUse.RingFinal || area > 50 ? 32 : 20;
+
+        // Each line's current: on three phases P / (√3 × 400).
+        var line = load / (ThreePhase(document, circuit) ? Math.Sqrt(3) * voltage : voltage);
         return circuit.Use switch
         {
-            CircuitUse.Cooker => Smallest(ratings, Math.Max(32, CookerCurrent(load / voltage))),
-            CircuitUse.ImmersionHeater => Smallest(ratings, Math.Max(16, load / voltage)),
-            _ => Smallest(ratings, Math.Max(6, load / voltage))
+            CircuitUse.Cooker => Smallest(ratings, Math.Max(32, CookerCurrent(line))),
+            CircuitUse.ImmersionHeater => Smallest(ratings, Math.Max(16, line)),
+            _ => Smallest(ratings, Math.Max(6, line))
         };
     }
 
@@ -439,7 +521,7 @@ public static class Circuits
     {
         if (circuit.Kind != SystemKind.Power || MepSystems.MembersOf(document, circuit).Count == 0) return null;
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
-        var set = Sizes(us).FirstOrDefault(size => size.Name == circuit.Cable);
+        var set = Sizes(document, circuit).FirstOrDefault(size => size.Name == circuit.Cable);
         if (circuit.Breaker > 0 && set is not null) return Evaluate(document, circuit, circuit.Breaker, set);
         var chosen = Choose(document, circuit, circuit.Breaker > 0 ? circuit.Breaker : null, set);
         return chosen with { BreakerChosen = circuit.Breaker <= 0, CableChosen = set is null };
@@ -458,7 +540,8 @@ public static class Circuits
         var load = members.Sum(member => TypeOf(document, member) is { } type ? LoadOf(type) : 0);
         var rating = breaker ?? UsualBreaker(document, circuit, members, load, AreaServed(document, members));
         CircuitDesign? last = null;
-        foreach (var size in cable is not null ? new[] { cable } : Sizes(us))
+        var candidates = Candidates(document, circuit);
+        foreach (var size in cable is not null ? new[] { cable } : candidates)
         {
             if (!us && OfSockets(document, members) && size.Line < (rating > 20 && circuit.Use != CircuitUse.RingFinal ? 4 : 2.5) - 1e-9) continue;
             if (us && OfSockets(document, members) && size.MostBreaker > 0 && size.MostBreaker < rating - 1e-9) continue;
@@ -466,7 +549,7 @@ public static class Circuits
             if (Faults(document, last).Count == 0) return last;
         }
 
-        return last ?? Evaluate(document, circuit, rating, cable ?? Sizes(us)[^1]);
+        return last ?? Evaluate(document, circuit, rating, cable ?? candidates[^1]);
     }
 
     /// <summary>The floor a circuit's sockets serve: the rooms they are in, m².</summary>
@@ -485,8 +568,9 @@ public static class Circuits
         var sockets = OfSockets(document, members);
         var use = us && circuit.Use == CircuitUse.RingFinal ? CircuitUse.Radial : circuit.Use;
 
-        // The current it is designed for.
-        var full = connected / voltage;
+        // The current it is designed for - on three phases, each line's: P / (√3 × 400).
+        var three = ThreePhase(document, circuit);
+        var full = connected / (three ? Math.Sqrt(3) * voltage : voltage);
         var current = us
             ? sockets ? 0.8 * breaker
               : use == CircuitUse.Cooker ? RangeDemand(connected / 1000) / voltage
@@ -540,10 +624,10 @@ public static class Circuits
         }
 
         var design = new CircuitDesign(circuit, use, voltage, connected, current, breaker, circuit.Curve, cable, circuit.Method, capacity, length,
-            circuit.CableLength <= 0, drop, dropLimit, impedance, impedanceLimit, along) { Fault = fault, FaultTime = time, CpcNeeded = cpcNeeded };
+            circuit.CableLength <= 0, drop, dropLimit, impedance, impedanceLimit, along) { Fault = fault, FaultTime = time, CpcNeeded = cpcNeeded, ThreePhase = three };
 
         // The On-Site Guide's standard socket circuits: the floor they serve and how far they go.
-        if (!us && sockets && circuit.Curve == BreakerCurve.B && circuit.Method == CableMethod.ClippedDirect)
+        if (!us && sockets && !cable.Armoured && circuit.Curve == BreakerCurve.B && circuit.Method == CableMethod.ClippedDirect)
         {
             var tns = impedance > 0 && MepSystems.SourceOf(document, circuit) is { } unit && TypeOf(document, unit) is { ExternalImpedance: > 0.35 + 1e-9 };
             var standard = (ring, breaker, cable.Line) switch
@@ -591,8 +675,12 @@ public static class Circuits
         else
         {
             // A ring's two legs share its current: 433.1.204 asks 20 A of its cable rather than its breaker's rating.
-            if (design.Use != CircuitUse.RingFinal && design.Capacity < design.Breaker - 1e-6)
-                faults.Add($"its {design.Cable.Name} cable carries {design.Capacity:0.#} A {Lower(design.Method.Title())}{(design.Circuit.Grouped > 1 ? $", grouped with {design.Circuit.Grouped - 1} more" : string.Empty)} - less than its {name} breaker; BS 7671 (433.1.1, Table 4D5) asks In ≤ Iz");
+            if (design.Cable.Rating(design.Method) <= 0)
+                faults.Add(design.Cable.Armoured
+                    ? $"BS 7671 Table 4D4A rates armoured cable clipped direct, in free air or in the ground, not {Lower(design.Method.Title())}"
+                    : $"BS 7671 Table 4D5 rates twin and earth on a surface or in plaster and insulation, not {Lower(design.Method.Title())} - wire it in armoured cable");
+            else if (design.Use != CircuitUse.RingFinal && design.Capacity < design.Breaker - 1e-6)
+                faults.Add($"its {design.Cable.Name} cable carries {design.Capacity:0.#} A {Lower(design.Method.Title())}{(design.Circuit.Grouped > 1 ? $", grouped with {design.Circuit.Grouped - 1} more" : string.Empty)} - less than its {name} breaker; BS 7671 (433.1.1, {design.Cable.Table}) asks In ≤ Iz");
             if (design.Use == CircuitUse.RingFinal && (design.Capacity < 20 - 1e-6 || design.Cable.Line < 2.5 - 1e-9))
                 faults.Add($"a ring final's cable carries 20 A at least and is 2.5 mm² at least (433.1.204) - its {design.Cable.Name} carries {design.Capacity:0.#} A as installed");
         }
@@ -634,12 +722,14 @@ public static class Circuits
         var breaker = us ? $"{design.Breaker:0} A {protection}".Trim() : $"{design.Curve}{design.Breaker:0} {protection}";
         var cable = us
             ? $"{design.Cable.Name} NM-B, {design.Capacity:0} A"
-            : $"{design.Cable.Name.Replace(" mm²", string.Empty)}/{design.Cable.Cpc:0.0#} mm² twin and earth {Lower(design.Method.Title())}, carrying {design.Capacity:0.#} A";
+            : design.Cable.Armoured
+                ? $"{design.Cable.Name}{(design.ThreePhase ? " across three phases" : string.Empty)} {Lower(design.Method.Title())}, its protective core {design.Cable.Cpc:0.#} mm², carrying {design.Capacity:0.#} A"
+                : $"{design.Cable.Name.Replace(" mm²", string.Empty)}/{design.Cable.Cpc:0.0#} mm² twin and earth {Lower(design.Method.Title())}, carrying {design.Capacity:0.#} A";
         var current = design.Standard
             ? $"designed for {design.Current:0} A as a standard {(design.Use == CircuitUse.RingFinal ? "ring" : "radial")}"
             : us && OfSockets(document, MepSystems.MembersOf(document, circuit))
                 ? $"designed for {design.Current:0.#} A, 80% of it (210.23(B)(1))"
-                : $"designed for {design.Current:0.#} A{(design.Connected > 0 ? $" ({design.Connected:#,0} W at {design.Voltage:0} V)" : string.Empty)}";
+                : $"designed for {design.Current:0.#} A{(design.ThreePhase ? " a line" : string.Empty)}{(design.Connected > 0 ? $" ({design.Connected:#,0} W at {design.Voltage:0} V{(design.ThreePhase ? " three-phase" : string.Empty)})" : string.Empty)}";
         var run = us ? $"{design.Length * 3.28084:0} ft" : $"{design.Length:0.#} m";
         var rest = design.Standard
             ? $"{run} of {design.LengthLimit:0}, serving {Units.OfSquareMetres(design.Area, "0")} of {design.AreaLimit:0} (On-Site Guide)"
@@ -676,12 +766,14 @@ public static class Circuits
         var (all, lines) = Diversity(document, designs);
         if (type.Phases != 3) return new BoardDemand(board, designs, ways, supply, all, lines);
 
-        // Three phases: the circuits set to a phase on it, then the rest shared across them, the largest first onto the least loaded;
-        // each phase's demand after the same diversity.
+        // Three phases: a three-phase circuit on each, its line current on every one; the circuits set to a phase on it; then the rest
+        // shared across them, the largest first onto the least loaded; each phase's demand after the same diversity.
         var phases = Enumerable.Range(0, 3).Select(_ => new List<CircuitDesign>()).ToArray();
-        foreach (var design in designs.Where(design => design.Circuit.Phase is >= 1 and <= 3))
+        foreach (var design in designs.Where(design => design.ThreePhase))
+            foreach (var phase in phases) phase.Add(design);
+        foreach (var design in designs.Where(design => !design.ThreePhase && design.Circuit.Phase is >= 1 and <= 3))
             phases[design.Circuit.Phase - 1].Add(design);
-        foreach (var design in designs.Where(design => design.Circuit.Phase is not (>= 1 and <= 3)).OrderByDescending(design => design.Current))
+        foreach (var design in designs.Where(design => !design.ThreePhase && design.Circuit.Phase is not (>= 1 and <= 3)).OrderByDescending(design => design.Current))
             phases.MinBy(phase => phase.Sum(each => each.Current))!.Add(design);
         var each = phases.Select(phase => ((IReadOnlyList<CircuitDesign>)phase, Diversity(document, phase).Demand)).ToList();
         var most = each.Max(phase => phase.Item2);
@@ -713,7 +805,7 @@ public static class Circuits
         Add("lighting at 66%", Sum(lighting) * 0.66);
         var power = Sum(rest);
         Add("heating and power - 10 A and half the rest", Math.Min(power, 10) + Math.Max(power - 10, 0) * 0.5);
-        var cookers = cooking.Sum(design => design.Connected / design.Voltage);
+        var cookers = cooking.Sum(design => design.Connected / (design.ThreePhase ? Math.Sqrt(3) * design.Voltage : design.Voltage));
         Add("cooking - 10 A and 30% of the rest", CookerCurrent(cookers));
         Add("showers - the largest two and a quarter of the rest", showers.Select((design, i) => design.Current * (i < 2 ? 1 : 0.25)).Sum());
         Add("immersion heaters", Sum(immersion));
@@ -803,6 +895,14 @@ public static class Circuits
             var members = MepSystems.MembersOf(document, circuit);
             if (!us)
             {
+                // Three phases: only on a three-phase board, and for three-phase equipment - sockets and lights take one.
+                if (circuit.Phase == MepSystem.AllPhases && !design.ThreePhase)
+                    yield return new MepProblem(circuit, "it is set to run across three phases, but its board has one");
+                if (design.ThreePhase && (design.Use == CircuitUse.RingFinal || members.Any(member => IsSocket(document, member))))
+                    yield return new MepProblem(circuit, "its sockets take one phase - set it to one, or keep the three-phase circuit for three-phase equipment");
+                else if (design.ThreePhase && members.Any(member => TypeOf(document, member)?.Kind is BuiltInCategory.LightingFixtures or BuiltInCategory.LightingDevices))
+                    yield return new MepProblem(circuit, "its lights take one phase - set it to one, or keep the three-phase circuit for three-phase equipment");
+
                 // A 30 mA RCD: on sockets, on a home's lighting, on anything in a bathroom.
                 if (!circuit.Rcd)
                 {
@@ -937,11 +1037,16 @@ public static class Circuits
     /// </summary>
     public static (decimal Cable, decimal Breaker) Rates(bool us, CircuitDesign design)
     {
-        var sizes = Sizes(us);
-        var index = Math.Max(0, sizes.ToList().FindIndex(size => size.Name == design.Cable.Name));
+        var sizes = us ? UsSizes : design.Cable.Cores switch { 3 => UkSingleSwa, 5 => UkThreeSwa, _ => UkSizes };
+        var index = Math.Max(0, Array.FindIndex(sizes, size => size.Name == design.Cable.Name));
         var cable = us
             ? new[] { 2.10m, 3.10m, 5.25m, 8.50m, 13.80m, 19.70m }[Math.Min(index, 5)]
-            : new[] { 0.90m, 1.10m, 1.60m, 2.60m, 3.80m, 6.40m, 9.80m }[Math.Min(index, 6)];
+            : design.Cable.Cores switch
+            {
+                3 => new[] { 2.20m, 2.80m, 3.60m, 4.80m, 7.00m, 10.50m, 15.00m }[Math.Min(index, 6)],
+                5 => new[] { 3.00m, 3.90m, 5.30m, 7.20m, 10.80m, 16.50m, 24.00m }[Math.Min(index, 6)],
+                _ => new[] { 0.90m, 1.10m, 1.60m, 2.60m, 3.80m, 6.40m, 9.80m }[Math.Min(index, 6)]
+            };
         var breaker = us
             ? design.Circuit.Rcd && design.Circuit.ArcFault ? 55m : design.Circuit.Rcd || design.Circuit.ArcFault ? 45m : 12m
             : (design.Circuit.Rcd ? 32m : 8m) + (design.Circuit.ArcFault ? 60m : 0m);

@@ -625,6 +625,13 @@
         <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M13,21 L19,21 L19,27 L13,27 Z M13,5 L19,5 L19,11 L13,11 Z"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <DrawingImage x:Key="Icon.Valve"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M3,19 L9,19 M23,19 L29,19"/>
+        <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke}" Geometry="M9,13 L23,25 L23,13 L9,25 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M16,19 L16,7 M12,7 L20,7"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <DrawingImage x:Key="Icon.Duct"><DrawingImage.Drawing><DrawingGroup>
         <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
         <GeometryDrawing Brush="{StaticResource Ink.Paper}" Pen="{StaticResource Stroke.Blue}" Geometry="M3,19 L19,19 L19,7 L29,7 L29,13 L25,13 L25,25 L3,25 Z"/>

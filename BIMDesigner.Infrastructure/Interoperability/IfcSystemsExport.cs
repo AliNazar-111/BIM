@@ -84,6 +84,12 @@ public static partial class IfcExport
                 });
             }
 
+            // The valves on the pipes, each an IfcValve on its pipe, in its pipe's system.
+            var valves = new Dictionary<Guid, List<IfcProduct>>();
+            foreach (var valve in _document.All<PipeValve>())
+                if (_document.Find<Pipe>(valve.PipeId) is { } pipe && ExportValve(valve, pipe) is { } product && pipe.SystemId is { } systemId)
+                    (valves.TryGetValue(systemId, out var list) ? list : valves[systemId] = new List<IfcProduct>()).Add(product);
+
             // The ducts likewise, each a segment with a port at each end - and a damper where one keeps a fire wall it passes through.
             var ducts = new HashSet<Guid>();
             foreach (var duct in _document.All<Duct>())
@@ -224,6 +230,7 @@ public static partial class IfcExport
                     .Concat(PipeNetworks.PipesOf(_document, system).Select(pipe => segments.GetValueOrDefault(pipe.Id)).OfType<IfcProduct>())
                     .Concat(DuctNetworks.DuctsOf(_document, system).Select(duct => segments.GetValueOrDefault(duct.Id)).OfType<IfcProduct>())
                     .Concat(junctions.GetValueOrDefault(system.Id) ?? new List<IfcProduct>())
+                    .Concat(valves.GetValueOrDefault(system.Id) ?? new List<IfcProduct>())
                     .ToList();
                 IfcDistributionSystem group = system.Kind == SystemKind.Power ? New<IfcDistributionCircuit>() : New<IfcDistributionSystem>();
                 group.GlobalId = system.Id.ToIfc();
@@ -410,6 +417,36 @@ public static partial class IfcExport
                 each.Representation = TessellatedBody(new[] { mesh }, point => new BIMDesigner.Core.Geometry.Point3D(point.X, point.Y, point.Z - elevation));
             });
             Contain(duct, damper);
+        }
+
+        /// <summary>A valve on a pipe as an IfcValve: its barrel on the pipe, what it does as IFC's predefined types name it.</summary>
+        private IfcProduct? ExportValve(PipeValve valve, Pipe pipe)
+        {
+            if (PipeValves.Mesh(_document, valve) is not { } mesh) return null;
+            var storey = StoreyOf(pipe);
+            var elevation = _document.FindLevel(pipe.LevelId)?.Elevation ?? 0;
+            var product = New<Xbim.Ifc4.HvacDomain.IfcValve>(each =>
+            {
+                each.GlobalId = valve.Id.ToIfc();
+                each.Name = $"{valve.Kind.Title()} {pipe.SizeName(_document.FindType<PipeType>(pipe.TypeId))}";
+                each.ObjectType = pipe.Kind.Title();
+                each.Tag = valve.Mark;
+                each.PredefinedType = valve.Kind switch
+                {
+                    ValveKind.Stop => IfcValveTypeEnum.STOPCOCK,
+                    ValveKind.DoubleCheck => IfcValveTypeEnum.DOUBLECHECK,
+                    ValveKind.DrainOff => IfcValveTypeEnum.DRAWOFFCOCK,
+                    _ => IfcValveTypeEnum.ISOLATING
+                };
+                each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
+                {
+                    placement.PlacementRelTo = storey?.ObjectPlacement;
+                    placement.RelativePlacement = New<IfcAxis2Placement3D>(axis => axis.Location = Point3D(0, 0, 0));
+                });
+                each.Representation = TessellatedBody(new[] { mesh }, point => new BIMDesigner.Core.Geometry.Point3D(point.X, point.Y, point.Z - elevation));
+            });
+            Contain(valve, product);
+            return product;
         }
 
         /// <summary>One connector of a fitting as a port, placed in the fitting's own frame.</summary>

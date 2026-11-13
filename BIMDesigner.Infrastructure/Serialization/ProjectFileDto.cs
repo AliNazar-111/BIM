@@ -68,6 +68,9 @@ internal sealed class ProjectFileDto
     public List<PipeTypeDto>? PipeTypes { get; set; }
     public List<PipeDto>? Pipes { get; set; }
 
+    /// <summary>The valves on the pipes; none in older files.</summary>
+    public List<PipeValveDto>? PipeValves { get; set; }
+
     /// <summary>The ventilation's duct types and ducts. Missing from older files.</summary>
     public List<DuctTypeDto>? DuctTypes { get; set; }
     public List<DuctDto>? Ducts { get; set; }
@@ -2724,6 +2727,18 @@ internal sealed class PipeTypeDto
     public string Material { get; set; } = "Copper";
     public decimal Cost { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+/// <summary>A valve on a pipe: the pipe, how far along it, and what it does.</summary>
+internal sealed class PipeValveDto
+{
+    public Guid Id { get; set; }
+    public Guid PipeId { get; set; }
+    public Guid LevelId { get; set; }
+    public double Along { get; set; }
+    public string? Kind { get; set; }
+    public string? Mark { get; set; }
+    public string? Comments { get; set; }
 }
 
 internal sealed class PipeDto

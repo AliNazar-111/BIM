@@ -298,6 +298,7 @@ public static class ElementCopy
         Eave eave => CarryRoofEdgeSweep(new Eave { FireStopped = eave.FireStopped, FireBlocked = eave.FireBlocked }, eave),
         RoofWindow roofWindow => CarryCommon(new RoofWindow { RoofId = roofWindow.RoofId, Location = roofWindow.Location, Own = roofWindow.Own }, roofWindow),
         Downpipe pipe => CarryCommon(new Downpipe { GutterId = pipe.GutterId, Location = pipe.Location, Distributor = pipe.Distributor }, pipe),
+        Mep.PipeValve valve => CarryCommon(new Mep.PipeValve { PipeId = valve.PipeId, Along = valve.Along, Kind = valve.Kind }, valve),
         SlabEdge slabEdge => CloneSlabEdge(slabEdge),
         RoofDrain drain => CarryCommon(new RoofDrain { RoofId = drain.RoofId, Location = drain.Location, OutletDiameter = drain.OutletDiameter, Discharge = drain.Discharge }, drain),
         PolygonWall shaped => CarryCommon(new PolygonWall
@@ -700,6 +701,9 @@ public static class ElementCopy
         // A pipe copied with its system is on the copy of it; copied without it, on none until it is joined to one.
         if (copy is Mep.Pipe run) run.SystemId = run.SystemId is { } on && replacements.TryGetValue(on, out var copiedSystem) ? copiedSystem : null;
         if (copy is Mep.Duct airway) airway.SystemId = airway.SystemId is { } through && replacements.TryGetValue(through, out var copiedAirSystem) ? copiedAirSystem : null;
+
+        // A valve copied with its pipe is on the copy.
+        if (copy is Mep.PipeValve valve && replacements.TryGetValue(valve.PipeId, out var copiedPipe)) valve.PipeId = copiedPipe;
 
         // Walls copied with the roof they stand on or carry go with the copy of it.
         if (copy is Wall attached)

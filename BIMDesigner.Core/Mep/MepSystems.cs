@@ -273,6 +273,7 @@ public static class MepSystems
         problems.AddRange(PipeNetworks.Problems(document));
         problems.AddRange(Drainage.Problems(document));
         problems.AddRange(WaterUse.Problems(document));
+        problems.AddRange(PipeValves.Problems(document));
         problems.AddRange(Heating.Problems(document));
         problems.AddRange(Ventilation.Problems(document));
         problems.AddRange(DuctNetworks.Problems(document));
@@ -303,6 +304,7 @@ public static class MepSystems
                 break;
             case SystemKind.ColdWater:
                 found.AddRange(WaterUse.Problems(document));
+                found.AddRange(PipeValves.Problems(document));
                 break;
             case SystemKind.Power:
                 found.AddRange(Circuits.Problems(document, system));

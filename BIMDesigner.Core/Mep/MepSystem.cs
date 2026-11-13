@@ -59,8 +59,17 @@ public sealed class MepSystem : Element
     /// <summary>For a circuit, its cable's length, m - none set at 0, measured along its run from the board.</summary>
     public double CableLength { get; set; }
 
-    /// <summary>For a circuit on a three-phase board, the phase it is on, 1 to 3 - L1, L2, L3 - or 0, shared out with the rest, the largest first onto the least loaded.</summary>
+    /// <summary>
+    /// For a circuit on a three-phase board, the phase it is on, 1 to 3 - L1, L2, L3 - or 0, shared out with the rest, the largest first onto the
+    /// least loaded; or <see cref="AllPhases"/>, across all three at 400 V, for three-phase equipment.
+    /// </summary>
     public int Phase { get; set; }
+
+    /// <summary>A circuit's <see cref="Phase"/> where it runs across all three phases.</summary>
+    public const int AllPhases = 4;
+
+    /// <summary>How a circuit across all three phases is offered.</summary>
+    public const string AllPhasesSaid = "L1, L2 and L3 (400 V)";
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)
     {
@@ -77,10 +86,10 @@ public sealed class MepSystem : Element
 
             // Its breaker, protection and cable: as set, or as Size Circuits would choose them - worked out again once any of them is changed.
             CircuitDesign? design = null;
-            (CircuitUse, double, BreakerCurve, bool, bool, string, CableMethod, int, double)? designedFor = null;
+            (CircuitUse, double, BreakerCurve, bool, bool, string, CableMethod, int, double, int)? designedFor = null;
             CircuitDesign? Designed()
             {
-                var now = (Use, Breaker, Curve, Rcd, ArcFault, Cable, Method, Grouped, CableLength);
+                var now = (Use, Breaker, Curve, Rcd, ArcFault, Cable, Method, Grouped, CableLength, Phase);
                 if (designedFor != now) (design, designedFor) = (Circuits.Design(document, this), now);
                 return design;
             }
@@ -98,16 +107,16 @@ public sealed class MepSystem : Element
             yield return ParameterValue.Bind(us ? MepSystemParameters.Gfci : MepSystemParameters.Rcd, () => Rcd, v => Rcd = v);
             yield return ParameterValue.Bind(us ? MepSystemParameters.Afci : MepSystemParameters.Afdd, () => ArcFault, v => ArcFault = v);
             yield return ParameterValue.BindChoice(MepSystemParameters.Cable, () => Designed()?.Cable.Name ?? Cable,
-                v => { if (Circuits.Sizes(us).Any(size => size.Name == v)) Cable = v; },
-                Circuits.Sizes(us).Select(size => size.Name).ToArray());
+                v => { if (Circuits.Sizes(document, this).Any(size => size.Name == v)) Cable = v; },
+                Circuits.Sizes(document, this).Select(size => size.Name).ToArray());
             if (!us)
                 yield return ParameterValue.BindChoice(MepSystemParameters.Method, () => Method.Title(),
                     v => { foreach (var method in Enum.GetValues<CableMethod>()) if (method.Title() == v) Method = method; },
                     Enum.GetValues<CableMethod>().Select(method => method.Title()).ToArray());
             if (MepSystems.SourceOf(document, this) is { } board && document.FindType<ComponentType>(board.TypeId) is { Phases: 3 })
-                yield return ParameterValue.BindChoice(MepSystemParameters.Phase, () => Phase is >= 1 and <= 3 ? $"L{Phase}" : "Shared out",
-                    v => Phase = v switch { "L1" => 1, "L2" => 2, "L3" => 3, _ => 0 },
-                    new[] { "Shared out", "L1", "L2", "L3" });
+                yield return ParameterValue.BindChoice(MepSystemParameters.Phase, () => Phase switch { >= 1 and <= 3 => $"L{Phase}", AllPhases => AllPhasesSaid, _ => "Shared out" },
+                    v => Phase = v switch { "L1" => 1, "L2" => 2, "L3" => 3, AllPhasesSaid => AllPhases, _ => 0 },
+                    new[] { "Shared out", "L1", "L2", "L3", AllPhasesSaid });
             yield return ParameterValue.BindValidated(MepSystemParameters.Grouped, () => (double)Grouped, v =>
             {
                 if (v is < 1 or > 20) return false;

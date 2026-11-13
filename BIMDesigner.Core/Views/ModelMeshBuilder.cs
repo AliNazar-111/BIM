@@ -133,6 +133,10 @@ public static class ModelMeshBuilder
         {
             if (Mep.PipeModel.Mesh(document, pipe) is { } pipeMesh) meshes.Add(pipeMesh);
         });
+        Each(document.All<Mep.PipeValve>(), valve =>
+        {
+            if (Mep.PipeValves.Mesh(document, valve) is { } valveMesh) meshes.Add(valveMesh);
+        });
         Each(document.All<Mep.Duct>(), duct =>
         {
             if (Mep.DuctModel.Mesh(document, duct) is { } ductMesh) meshes.Add(ductMesh);

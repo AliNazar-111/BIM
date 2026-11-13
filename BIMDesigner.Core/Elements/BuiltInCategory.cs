@@ -160,7 +160,10 @@ public enum BuiltInCategory
     DetailComponents,
 
     /// <summary>Pictures brought in to work over - a map, an aerial photograph, a scanned survey: underlays, not built.</summary>
-    RasterImages
+    RasterImages,
+
+    /// <summary>Pipe accessories: the valves on pipes - servicing, stop, double check and drain-off.</summary>
+    PipeAccessories
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

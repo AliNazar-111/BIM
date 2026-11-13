@@ -1,6 +1,7 @@
 using BIMDesigner.Core.Architecture;
 using BIMDesigner.Core.Elements;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Mep;
 
 namespace BIMDesigner.Core.Documents.Commands;
 
@@ -197,6 +198,9 @@ public sealed class MoveElementsCommand : IUndoableCommand
     private readonly List<Element> _elements;
     private readonly Vector2D _delta;
 
+    /// <summary>The pipes and ducts meeting what moves, which follow it.</summary>
+    private readonly RunsFollowing? _runs;
+
     public MoveElementsCommand(IEnumerable<Element> elements, Vector2D delta, string? name = null, BimDocument? document = null)
     {
         _elements = elements.Where(ElementTransforms.CanMove).ToList();
@@ -213,6 +217,7 @@ public sealed class MoveElementsCommand : IUndoableCommand
         if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
         if (document is not null) _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
 
+        _runs = document is null ? null : RunsFollowing.For(document, _elements);
         Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
 
@@ -223,11 +228,13 @@ public sealed class MoveElementsCommand : IUndoableCommand
     public void Redo()
     {
         foreach (var element in _elements) ElementTransforms.Move(element, _delta);
+        _runs?.Follow();
     }
 
     public void Undo()
     {
         foreach (var element in _elements) ElementTransforms.Move(element, -_delta);
+        _runs?.Follow();
     }
 }
 
@@ -245,6 +252,9 @@ public sealed class MoveElementsCommand : IUndoableCommand
 /// </summary>
 public sealed class NudgeElementsCommand : IUndoableCommand
 {
+    /// <summary>The pipes and ducts meeting what moves, which follow it.</summary>
+    private readonly RunsFollowing? _runs;
+
     private readonly List<Element> _elements;
     private readonly List<WallFollower> _stretched;
     private Vector2D _delta;
@@ -294,6 +304,7 @@ public sealed class NudgeElementsCommand : IUndoableCommand
         if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
         if (document is not null) _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
 
+        _runs = document is null ? null : RunsFollowing.For(document, _elements);
         Name = named == 1 ? "Move" : "Move " + named + " Elements";
     }
 
@@ -339,6 +350,7 @@ public sealed class NudgeElementsCommand : IUndoableCommand
             else follower.Wall.End += follower.For(step);
         }
 
+        _runs?.Follow();
         _applied += step;
 
         // A wall stretched keeps its openings where they stand; one carried whole takes them with it.
@@ -367,6 +379,7 @@ public sealed class MirrorElementsCommand : IUndoableCommand
 {
     private readonly List<Element> _elements;
     private readonly Line2D _axis;
+    private readonly RunsFollowing? _runs;
 
     public MirrorElementsCommand(IEnumerable<Element> elements, Line2D axis, BimDocument? document = null)
     {
@@ -382,6 +395,7 @@ public sealed class MirrorElementsCommand : IUndoableCommand
             _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
         }
 
+        _runs = document is null ? null : RunsFollowing.For(document, _elements);
         Name = _elements.Count == 1 ? "Mirror" : $"Mirror {_elements.Count} Elements";
     }
 
@@ -392,6 +406,7 @@ public sealed class MirrorElementsCommand : IUndoableCommand
     public void Redo()
     {
         foreach (var element in _elements) ElementTransforms.Mirror(element, _axis);
+        _runs?.Follow();
     }
 
     public void Undo() => Redo();
@@ -406,6 +421,7 @@ public sealed class RotateElementsCommand : IUndoableCommand
     private readonly List<Element> _elements;
     private readonly Point2D _centre;
     private readonly double _degrees;
+    private readonly RunsFollowing? _runs;
 
     public RotateElementsCommand(IEnumerable<Element> elements, Point2D centre, double degrees, BimDocument? document = null)
     {
@@ -413,6 +429,7 @@ public sealed class RotateElementsCommand : IUndoableCommand
         _centre = centre;
         _degrees = degrees;
         if (document is not null) _elements.AddRange(Carried(document, _elements));
+        _runs = document is null ? null : RunsFollowing.For(document, _elements);
 
         Name = _elements.Count == 1 ? "Rotate" : $"Rotate {_elements.Count} Elements";
     }
@@ -439,11 +456,13 @@ public sealed class RotateElementsCommand : IUndoableCommand
     public void Redo()
     {
         foreach (var element in _elements) ElementTransforms.Rotate(element, _centre, _degrees);
+        _runs?.Follow();
     }
 
     public void Undo()
     {
         foreach (var element in _elements) ElementTransforms.Rotate(element, _centre, -_degrees);
+        _runs?.Follow();
     }
 }
 
@@ -457,6 +476,7 @@ public sealed class ScaleElementsCommand : IUndoableCommand
     private readonly Point2D _centre;
     private readonly double _factor;
     private readonly BimDocument? _document;
+    private readonly RunsFollowing? _runs;
 
     public ScaleElementsCommand(IEnumerable<Element> elements, Point2D centre, double factor, BimDocument? document = null)
     {
@@ -467,6 +487,7 @@ public sealed class ScaleElementsCommand : IUndoableCommand
         _factor = factor;
         _document = document;
         if (document is not null) _elements.AddRange(RotateElementsCommand.Carried(document, _elements));
+        _runs = document is null ? null : RunsFollowing.For(document, _elements);
 
         Name = _elements.Count == 1 ? "Scale" : $"Scale {_elements.Count} Elements";
     }
@@ -486,6 +507,7 @@ public sealed class ScaleElementsCommand : IUndoableCommand
         // A component on a wall stays against its face: the wall moved, its thickness did not.
         if (_document is not null)
             foreach (var component in _elements.OfType<Component>().Where(component => component.IsHosted)) component.FollowHost(_document);
+        _runs?.Follow();
     }
 }
 
