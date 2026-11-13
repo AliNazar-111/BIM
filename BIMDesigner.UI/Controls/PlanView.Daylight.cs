@@ -33,9 +33,23 @@ public partial class PlanView
 
     private static readonly Brush[] DaylightBrushes = DaylightBands.Select(band => Frozen(new SolidColorBrush(Color.FromArgb(0x90, band.Colour.R, band.Colour.G, band.Colour.B)))).ToArray();
 
+    private static readonly Brush SunnyGround = Frozen(new SolidColorBrush(Color.FromArgb(0x90, 0xF2, 0xC9, 0x3A)));
+    private static readonly Brush ShadedGround = Frozen(new SolidColorBrush(Color.FromArgb(0x90, 0x5A, 0x62, 0x70)));
+
     private void DrawDaylight(DrawingContext dc)
     {
         if (_daylight is not { } result || Document is null) return;
+
+        // The gardens and amenity areas: yellow where a point has two hours of sun or more, grey where it has less.
+        var step = Core.Energy.AmenitySun.Spacing / 2;
+        foreach (var garden in result.Gardens.Where(garden => garden.Region.LevelId == ActiveLevelId))
+            foreach (var (at, hours) in garden.Points)
+            {
+                var a = ModelToScreen(new Core.Geometry.Point2D(at.X - step, at.Y - step));
+                var b = ModelToScreen(new Core.Geometry.Point2D(at.X + step, at.Y + step));
+                dc.DrawRectangle(hours >= Core.Energy.AmenitySun.Hours - 1e-9 ? SunnyGround : ShadedGround, null, new Rect(a, b));
+            }
+
         var half = result.Spacing / 2;
         foreach (var room in result.Rooms.Where(room => room.Room.LevelId == ActiveLevelId))
             foreach (var point in room.Points)

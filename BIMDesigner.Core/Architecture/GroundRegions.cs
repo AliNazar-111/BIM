@@ -55,6 +55,12 @@ public sealed class GroundRegion : Element
     /// </summary>
     public bool Approach { get; set; }
 
+    /// <summary>
+    /// Whether it is a garden or amenity space whose sunlight BRE 209 asks after - as said; none to take a lawn or planting as one, and
+    /// anything else as not.
+    /// </summary>
+    public bool? Amenity { get; set; }
+
     private readonly List<Point2D> _pathLine = new();
 
     /// <summary>A path's middle, as it was drawn along - empty for a region drawn by its outline.</summary>
@@ -99,6 +105,7 @@ public sealed class GroundRegion : Element
             return true;
         });
         yield return ParameterValue.Bind(GroundRegionParameters.Approach, () => Approach, v => Approach = v);
+        yield return ParameterValue.Bind(GroundRegionParameters.Amenity, () => Energy.AmenitySun.IsAmenity(this), v => Amenity = v);
         if (_pathLine.Count >= 2)
         {
             yield return ParameterValue.BindValidated(GroundRegionParameters.PathWidth, () => PathWidth, (double v) =>
@@ -124,6 +131,7 @@ public static class GroundRegionParameters
     public static readonly ParameterDefinition Surface = new("Surface", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Material = new("Material", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition Approach = new("Approach to Entrance", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
+    public static readonly ParameterDefinition Amenity = new("Amenity Space (BRE 209)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Constraints);
     public static readonly ParameterDefinition PathWidth = new("Path Width", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition PathLength = new("Path Length", ParameterDataType.Length, ParameterBinding.Instance, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition CrossFall = new("Steepest Cross-fall", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);

@@ -184,7 +184,13 @@ public enum ComponentForm
     /// A trapped gully at the ground: a grating over a trap, where a ground floor appliance's waste or a rainwater pipe
     /// discharges into the drain - the branch ending between the grating and the trap's water (Approved Document H, H1 1.13).
     /// </summary>
-    Gully
+    Gully,
+
+    /// <summary>
+    /// A package pumping station (BS EN 12050-1): a receiving chamber the foul drains run into, and a pump lifting it up a rising main
+    /// to the sewer - where the drains cannot fall to it, or a basement is kept from its surcharge (Approved Document H 2.36 to 2.39).
+    /// </summary>
+    PumpingStation
 }
 
 /// <summary>
@@ -632,6 +638,9 @@ public sealed class ComponentType : ElementType
         }
         if (Form == ComponentForm.Bath)
             yield return ParameterValue.BindScaled(ComponentTypeParameters.Capacity, ComponentTypeParameters.CapacityGallons, ComponentTypeParameters.GallonsPerLitre, 1,
+                () => Capacity, v => NotNegative(v, x => Capacity = x));
+        if (Form == ComponentForm.PumpingStation)
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.ReceivingChamber, ComponentTypeParameters.ReceivingChamberGallons, ComponentTypeParameters.GallonsPerLitre, 0,
                 () => Capacity, v => NotNegative(v, x => Capacity = x));
         if (Form is ComponentForm.Dishwasher or ComponentForm.WashingMachine)
             yield return ParameterValue.BindValidated(Form == ComponentForm.Dishwasher ? ComponentTypeParameters.DishwasherWater : ComponentTypeParameters.WasherWater,
@@ -1099,6 +1108,10 @@ public static class ComponentTypeParameters
     public static readonly ParameterDefinition FlushVolumeGallons = new("Flush Volume (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition PartFlushVolumeGallons = new("Part Flush Volume (gal, 0 = single flush)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition CapacityGallons = new("Capacity to Overflow (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    /// <summary>A pumping station's receiving chamber: what it holds before the pump has to run, litres.</summary>
+    public static readonly ParameterDefinition ReceivingChamber = new("Receiving Chamber (l)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition ReceivingChamberGallons = new("Receiving Chamber (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition RatedOutputBtu = new("Heat Output at ΔT50 (Btu/h)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition FloorOutputIp = new("Floor Output (Btu/h·sq ft·°F over the room)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition FloorOutputLimitIp = new("Most Floor Output (Btu/h·sq ft)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);

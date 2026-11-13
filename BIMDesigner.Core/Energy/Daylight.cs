@@ -77,6 +77,9 @@ public sealed record DaylightResult(
 {
     /// <summary>Whether a habitable room - the main living room, preferably - has the 1.5 hours of sun the UK annex and BRE 209 ask one room of a home to have.</summary>
     public bool Sunlit => Rooms.Any(room => room.SunHours >= Daylight.SunHours(DaylightLevel.Minimum) - 1e-9);
+
+    /// <summary>The gardens' and amenity areas' sunlight on the same day (BRE 209 3.3).</summary>
+    public IReadOnlyList<AmenitySunlight> Gardens { get; init; } = Array.Empty<AmenitySunlight>();
 }
 
 /// <summary>
@@ -445,8 +448,10 @@ public static class Daylight
                 hours, SunLevelOf(hours), sun.Count));
         }
 
+        // The gardens and amenity areas round the home, on the same day.
+        var gardens = only is null ? AmenitySun.Assess(document, settings.SunlightDate, cancel) : Array.Empty<AmenitySunlight>();
         progress?.Report(1);
-        return new DaylightResult(results, outside, from, settings.SunlightDate, LeastAltitude(latitude), latitude, spacing);
+        return new DaylightResult(results, outside, from, settings.SunlightDate, LeastAltitude(latitude), latitude, spacing) { Gardens = gardens };
     }
 }
 

@@ -100,7 +100,9 @@ public partial class PlanView
     /// <summary>The system of a kind a fitting is on or feeds - or a pipe's. Equipment feeding several - a boiler's zones - says none: the run's other end tells which.</summary>
     private MepSystem? SystemAt(PipeTarget target, SystemKind kind) =>
         target.Fitting is { } fitting
-            ? MepSystems.MemberOf(Document!, fitting, kind) ?? (MepSystems.FedBy(Document!, fitting, kind) is { Count: 1 } fed ? fed[0] : null)
+            ? target.Connector is { Feeds: true } && MepSystems.FedBy(Document!, fitting, kind) is { Count: 1 } feeding
+                ? feeding[0]
+                : MepSystems.MemberOf(Document!, fitting, kind) ?? (MepSystems.FedBy(Document!, fitting, kind) is { Count: 1 } fed ? fed[0] : null)
             : Document!.Find<MepSystem>((target.End ?? target.Along)?.SystemId);
 
     private static SystemKind? KindOf(PipeTarget target) => target.Connector?.Kind ?? (target.End ?? target.Along)?.Kind;

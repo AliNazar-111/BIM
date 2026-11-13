@@ -306,12 +306,35 @@ public static class Drainage
             var network = PipeNetworks.Trace(document, system);
             foreach (var downpipe in network.Downpipes) drained.Add(downpipe.Id);
 
+            // Pumped: the chamber the drains run into holds a day's inflow (2.39); the rising main from a pump runs as it is pumped.
+            var rising = system.Kind == SystemKind.Foul ? RisingMain(document, network) : new HashSet<Pipe>();
+            if (!us && system.Kind == SystemKind.Foul && MepSystems.SourceOf(document, system) is { } source
+                && document.FindType<ComponentType>(source.TypeId) is { Form: ComponentForm.PumpingStation } station
+                && DailyInflow(document, network.FirstPipe.Keys) is { Heads: > 0 } inflow && station.Capacity < inflow.Litres - 0.5)
+                yield return new MepProblem(source, $"its receiving chamber holds {station.Capacity:#,0} l - Approved Document H (2.39) holds 24 hours' inflow, 150 l a head a day: {inflow.Said}, {inflow.Litres:#,0} l");
+
+            // A basement's appliances drained by gravity: pumped where the sewer's surcharge is a high risk, through an anti-flooding valve where low (2.9).
+            var gravity = MepSystems.SourceOf(document, system) is not { } root || document.FindType<ComponentType>(root.TypeId)?.Form != ComponentForm.PumpingStation;
+            if (!us && system.Kind == SystemKind.Foul && gravity)
+                foreach (var fitting in network.FirstPipe.Keys.Where(fitting => document.FindType<ComponentType>(fitting.TypeId) is { } type && TrapSize(type.Form) > 0 && InBasement(document, fitting)))
+                    if (!PathOf(network, fitting).Any(pipe => PipeValves.On(document, pipe).Any(valve => valve.Kind == ValveKind.AntiFlooding)))
+                        yield return new MepProblem(fitting, "it drains from the basement by gravity - Approved Document H (2.9) pumps a basement's drainage where the sewerage undertaker judges the risk of the sewer surcharging high, and puts an anti-flooding valve on it where low (2.11: double valve type, with a manual closure)");
+
             // Every pipe: the right way, and - below the ground - big enough and steep enough.
             var shrunk = new HashSet<Pipe>();
             foreach (var (pipe, load) in network.Loads)
             {
                 var fall = Fall(load);
                 var bore = Bore(document, pipe);
+
+                // A rising main is pumped: uphill as it must, its size the pump's, not a gravity drain's - laid as a drain is where it is under the ground.
+                if (rising.Contains(pipe))
+                {
+                    if (!us && BelowGround(document, pipe))
+                        foreach (var problem in Laid(document, pipe, bore, floor)) yield return problem;
+                    continue;
+                }
+
                 if (fall < -0.5)
                 {
                     yield return new MepProblem(pipe, $"it runs uphill, {Units.Fall(-fall, "0")}, to where it drains");
@@ -352,6 +375,11 @@ public static class Drainage
                 if (!us)
                     foreach (var problem in Laid(document, pipe, bore, floor)) yield return problem;
             }
+
+            // Its branch ventilating pipes, and the branches each joins within 750 mm of their traps (Approved Document H 1.20, 1.22).
+            var vents = system.Kind == SystemKind.Foul && !us ? VentRuns(document, system, network) : new List<VentRun>();
+            var served = vents.ToDictionary(run => run, run => Served(network, run));
+            var ventilated = served.Values.SelectMany(on => on).Where(entry => entry.From <= VentReach + 1).Select(entry => entry.Fitting).ToHashSet();
 
             // Each appliance's branch, from its trap to where it meets a stack, a drain or another branch.
             foreach (var (fitting, first) in network.FirstPipe)
@@ -396,7 +424,7 @@ public static class Drainage
                     ComponentForm.Toilet or ComponentForm.WallHungToilet => 6000,
                     _ => null
                 };
-                if (longest is { } limit && length > limit + 1)
+                if (longest is { } limit && length > limit + 1 && !ventilated.Contains(fitting))
                     yield return new MepProblem(fitting, $"its branch runs {Units.Metres(length, "0.00")} - unventilated, Approved Document H (Diagram 3, Table 2) keeps it to {Units.Metres(limit, "0.0")} at {bore:0} falling up to {Units.Millimetres(most, "0")} a metre: vent it, or fit an air admittance valve (1.20)");
 
                 var (flattestBranch, steepest) = type.Form == ComponentForm.Basin && bore < 40 - 1 ? (18.0, 87.0) : (18.0, wc ? double.PositiveInfinity : 90.0);
@@ -420,8 +448,9 @@ public static class Drainage
 
             if (system.Kind == SystemKind.Foul)
             {
+                foreach (var problem in VentProblems(document, network, vents, served, valves)) yield return problem;
                 foreach (var problem in Stacks(document, network, valves, us)) yield return problem;
-                foreach (var problem in us ? UsCleanouts(document, network, accesses) : Access(document, network, accesses)) yield return problem;
+                foreach (var problem in us ? UsCleanouts(document, network, accesses) : Access(document, network, accesses, rising)) yield return problem;
             }
             else if (!us)
                 foreach (var problem in Access(document, network, accesses)) yield return problem;
@@ -716,22 +745,283 @@ public static class Drainage
 
             if (us) continue;
 
-            // Openings into the building: windows and doors in its outside walls - not a door between rooms.
-            foreach (var opening in document.Openings)
+            if (OpeningBelow(document, stack.At, stack.Top) is { } near)
+                yield return new MepProblem(stack.Pipes[0],
+                    $"its vent finishes {Units.Metres(stack.Top - near.Head, "0.00")} above the head of {near.Name}, {Units.Metres(near.Reach, "0.0")} away - Approved Document H (1.31) asks 900 mm above any opening within 3 m");
+        }
+    }
+
+    /// <summary>
+    /// The first opening into the building - a window or door in an outside wall, not a door between rooms - within 3 m of a vent's
+    /// top in plan whose head is less than 900 mm under it (Approved Document H 1.23, 1.31); null where there is none.
+    /// </summary>
+    private static (string Name, double Reach, double Head)? OpeningBelow(BimDocument document, Point2D at, double top)
+    {
+        foreach (var opening in document.Openings)
+        {
+            if (document.Find<Wall>(opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type) continue;
+            if (document.GetWallType(wall)?.Function != WallFunction.Exterior && document.FindType<CurtainWallType>(wall.TypeId) is null) continue;
+            var reach = Math.Max(0, opening.GetCentre(wall).DistanceTo(at) - opening.WidthOf(type) / 2);
+            var head = (document.FindLevel(opening.LevelId)?.Elevation ?? 0) + wall.BaseOffset + opening.SillHeight + opening.HeightOf(type);
+            if (reach < 3000 && top < head + 900) return (string.IsNullOrEmpty(opening.Mark) ? type.Name : opening.Mark, reach, head);
+        }
+
+        return null;
+    }
+
+    // ---- pumped drainage and basements ----------------------------------------------------------------------------------------
+
+    /// <summary>A day's foul discharge from a home, litres a head: Approved Document H 2.39.</summary>
+    public const double DailyFlowPerHead = 150;
+
+    /// <summary>
+    /// The rising mains on a drainage system: from each pumping station on it - its rising main's connector - on toward the outfall while
+    /// the pipes carry nothing but what it pumps.
+    /// </summary>
+    private static HashSet<Pipe> RisingMain(BimDocument document, PipeNetwork network)
+    {
+        var rising = new HashSet<Pipe>();
+        foreach (var (pump, first) in network.FirstPipe.Where(entry => document.FindType<ComponentType>(entry.Key.TypeId)?.Form == ComponentForm.PumpingStation))
+            for (Pipe? pipe = first; pipe is not null && network.Loads.TryGetValue(pipe, out var load) && load.Fittings == 1 && rising.Add(pipe); pipe = load.Toward)
             {
-                if (document.Find<Wall>(opening.HostWallId) is not { } wall || document.FindType<OpeningType>(opening.TypeId) is not { } type) continue;
-                if (document.GetWallType(wall)?.Function != WallFunction.Exterior && document.FindType<CurtainWallType>(wall.TypeId) is null) continue;
-                var centre = opening.GetCentre(wall);
-                var reach = Math.Max(0, centre.DistanceTo(stack.At) - opening.WidthOf(type) / 2);
-                var head = (document.FindLevel(opening.LevelId)?.Elevation ?? 0) + wall.BaseOffset + opening.SillHeight + opening.HeightOf(type);
-                if (reach < 3000 && stack.Top < head + 900)
+            }
+
+        return rising;
+    }
+
+    /// <summary>The pipes from a fitting back to its system's source.</summary>
+    private static IEnumerable<Pipe> PathOf(PipeNetwork network, Component fitting)
+    {
+        var steps = 0;
+        for (Pipe? pipe = network.FirstPipe.GetValueOrDefault(fitting); pipe is not null && network.Loads.TryGetValue(pipe, out var load) && steps++ < 10_000; pipe = load.Toward)
+            yield return pipe;
+    }
+
+    /// <summary>Whether a fitting is in a basement: on a storey a metre or more below the ground floor - the project's base - or in a room called a basement or cellar.</summary>
+    public static bool InBasement(BimDocument document, Component fitting) =>
+        (document.FindLevel(fitting.LevelId)?.Elevation ?? 0) <= -1000
+        || RoomsOf.Of(document, fitting) is { } room && (room.Name.Contains("basement", StringComparison.OrdinalIgnoreCase) || room.Name.Contains("cellar", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The day's inflow to a pumping station from the appliances draining to it, litres (Approved Document H 2.39): 150 l a head a day for each
+    /// home - its heads its bedspaces, by its beds - pro rata where only some of a home's appliances drain to it, by how many. The rooms named
+    /// into dwellings are each a home; rooms of none, the house. Null where no appliance drains to it.
+    /// </summary>
+    public static (double Litres, int Heads, string Said)? DailyInflow(BimDocument document, IEnumerable<Component> pumped)
+    {
+        static bool Appliance(BimDocument document, Component piece) => document.FindType<ComponentType>(piece.TypeId) is { } type && TrapSize(type.Form) > 0;
+        var draining = pumped.Where(piece => Appliance(document, piece)).ToList();
+        if (draining.Count == 0) return null;
+
+        using var outlines = new RoomsOf.Outlines();
+        var homes = document.All<Component>().GroupBy(piece => Dwellings.Of(document, piece), StringComparer.OrdinalIgnoreCase).ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var litres = 0.0;
+        var heads = 0;
+        var said = new List<string>();
+        foreach (var home in draining.GroupBy(piece => Dwellings.Of(document, piece), StringComparer.OrdinalIgnoreCase).OrderBy(group => group.Key, NaturalOrder.Instance))
+        {
+            var pieces = homes.GetValueOrDefault(home.Key) ?? new List<Component>();
+            var bedspaces = Kitchens.Bedspaces(document, pieces);
+            var all = pieces.Count(piece => Appliance(document, piece));
+            var share = all == 0 ? 1 : Math.Min(1, home.Count() / (double)all);
+            litres += bedspaces * DailyFlowPerHead * share;
+            heads += bedspaces;
+            var who = home.Key.Length > 0 ? $"{home.Key} " : string.Empty;
+            said.Add(share < 1 - 1e-9
+                ? $"{who}{bedspaces} bedspace{(bedspaces == 1 ? string.Empty : "s")}, {home.Count()} of its {all} appliances pumped"
+                : $"{who}{bedspaces} bedspace{(bedspaces == 1 ? string.Empty : "s")}");
+        }
+
+        return (litres, heads, string.Join("; ", said));
+    }
+
+    // ---- branch ventilating pipes ---------------------------------------------------------------------------------------------
+
+    /// <summary>How near its trap a branch ventilating pipe joins the discharge pipe, mm (Approved Document H 1.22).</summary>
+    public const double VentReach = 750;
+
+    /// <summary>A branch ventilating pipe: its pipes in order from where it leaves the discharge pipework - its foot - to where it ends.</summary>
+    private sealed record VentRun(IReadOnlyList<Pipe> Pipes, Point3D Foot, Point3D Top);
+
+    private static double Apart(Point3D a, Point3D b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y) + (a.Z - b.Z) * (a.Z - b.Z));
+
+    /// <summary>
+    /// A system's ventilating pipes as runs: those meeting end to end taken together; each from its lowest loose end on the discharge
+    /// pipework up to its highest other loose end. One that meets no discharge pipe is left out.
+    /// </summary>
+    private static List<VentRun> VentRuns(BimDocument document, MepSystem system, PipeNetwork network)
+    {
+        var vents = PipeNetworks.PipesOf(document, system).Where(pipe => pipe.Vent).ToList();
+        var runs = new List<VentRun>();
+        if (vents.Count == 0) return runs;
+        var drained = network.Loads.Values.SelectMany(load => new[] { load.Near, load.Far }).ToList();
+        bool OnDischarge(Point3D point) => drained.Any(node => Apart(node, point) <= PipeNetworks.Touch);
+        var ends = vents.ToDictionary(pipe => pipe, pipe => pipe.Ends(document));
+        bool Meet(Point3D a, Point3D b) => Apart(a, b) <= PipeNetworks.Touch;
+
+        var left = vents.ToHashSet();
+        while (left.Count > 0)
+        {
+            // Those meeting end to end.
+            var group = new List<Pipe> { left.First() };
+            left.Remove(group[0]);
+            for (var i = 0; i < group.Count; i++)
+            {
+                var (a, b) = ends[group[i]];
+                foreach (var other in left.Where(other => Meet(ends[other].Start, a) || Meet(ends[other].Start, b) || Meet(ends[other].End, a) || Meet(ends[other].End, b)).ToList())
                 {
-                    yield return new MepProblem(stack.Pipes[0],
-                        $"its vent finishes {Units.Metres((stack.Top - head), "0.00")} above the head of {(string.IsNullOrEmpty(opening.Mark) ? type.Name : opening.Mark)}, {Units.Metres(reach, "0.0")} away - Approved Document H (1.31) asks 900 mm above any opening within 3 m");
-                    break;
+                    group.Add(other);
+                    left.Remove(other);
                 }
             }
+
+            // Its loose ends: met by no other of its pipes. Its foot the lowest on the discharge pipework; its top the highest other.
+            var loose = group.SelectMany(pipe => new[] { ends[pipe].Start, ends[pipe].End })
+                .Where(point => group.Count(pipe => Meet(ends[pipe].Start, point) || Meet(ends[pipe].End, point)) == 1).ToList();
+            if (loose.Where(OnDischarge).OrderBy(point => point.Z).Cast<Point3D?>().FirstOrDefault() is not { } foot) continue;
+            if (loose.Where(point => !Meet(point, foot)).OrderByDescending(point => point.Z).Cast<Point3D?>().FirstOrDefault() is not { } top) continue;
+
+            // In order from the foot.
+            var ordered = new List<Pipe>();
+            var at = foot;
+            var rest = group.ToList();
+            while (rest.FirstOrDefault(pipe => Meet(ends[pipe].Start, at) || Meet(ends[pipe].End, at)) is { } next)
+            {
+                ordered.Add(next);
+                rest.Remove(next);
+                at = Meet(ends[next].Start, at) ? ends[next].End : ends[next].Start;
+            }
+
+            runs.Add(new VentRun(ordered, foot, top));
         }
+
+        return runs;
+    }
+
+    /// <summary>The fittings a vent's foot is on the discharge pipework of, each with how far along it from its trap, mm.</summary>
+    private static List<(Component Fitting, double From)> Served(PipeNetwork network, VentRun run)
+    {
+        var on = new List<(Component, double)>();
+        foreach (var (fitting, first) in network.FirstPipe)
+        {
+            if (!network.Loads.TryGetValue(first, out var at)) continue;
+            if (Apart(at.Far, run.Foot) <= PipeNetworks.Touch)
+            {
+                on.Add((fitting, 0));
+                continue;
+            }
+
+            var from = 0.0;
+            for (Pipe? pipe = first; pipe is not null && network.Loads.TryGetValue(pipe, out var load) && from < 1e7; pipe = load.Toward)
+            {
+                from += pipe.Length;
+                if (Apart(load.Near, run.Foot) > PipeNetworks.Touch) continue;
+                on.Add((fitting, from));
+                break;
+            }
+        }
+
+        return on;
+    }
+
+    /// <summary>A fitting's branch, from its trap until it meets a stack, a drain or another branch - as the branch checks take it.</summary>
+    private static List<Pipe> BranchOf(BimDocument document, PipeNetwork network, Component fitting)
+    {
+        var branch = new List<Pipe>();
+        for (Pipe? pipe = network.FirstPipe.GetValueOrDefault(fitting); pipe is not null && network.Loads.TryGetValue(pipe, out var load) && load.Fittings == 1 && !BelowGround(document, pipe) && branch.Count < 10_000; pipe = load.Toward)
+        {
+            branch.Add(pipe);
+            if (load.NearJoins > 2) break;
+        }
+
+        return branch;
+    }
+
+    /// <summary>
+    /// Branch ventilating pipes as Approved Document H has them (1.20 to 1.24): joined to the discharge pipe within 750 mm of the trap;
+    /// rising all the way; ending at the stack above the highest spillover level of the appliances it serves - taken as their tops - or in
+    /// the open air 900 mm above any opening within 3 m, or closed inside with an air admittance valve; 25 mm at least, 32 where the branch
+    /// is longer than 15 m or has more than five bends.
+    /// </summary>
+    private static IEnumerable<MepProblem> VentProblems(BimDocument document, PipeNetwork network, IReadOnlyList<VentRun> runs,
+        IReadOnlyDictionary<VentRun, List<(Component Fitting, double From)>> served, IReadOnlyList<Component> valves)
+    {
+        foreach (var run in runs)
+        {
+            var vent = run.Pipes[0];
+            var on = served[run];
+            var near = on.Where(entry => entry.From <= VentReach + 1).Select(entry => entry.Fitting).ToList();
+            if (on.Count > 0 && near.Count == 0)
+            {
+                var nearest = on.MinBy(entry => entry.From);
+                yield return new MepProblem(vent, $"it joins the discharge pipe {Units.Metres(nearest.From, "0.00")} from the trap of {document.FindType<ComponentType>(nearest.Fitting.TypeId)?.Name ?? "its appliance"} - Approved Document H (1.22) joins a branch ventilating pipe within 750 mm of the trap");
+            }
+
+            // Rising all the way from the discharge pipe.
+            var at = run.Foot;
+            foreach (var pipe in run.Pipes)
+            {
+                var (start, end) = pipe.Ends(document);
+                var (from, to) = Apart(start, at) <= PipeNetworks.Touch ? (start, end) : (end, start);
+                if (!pipe.Upright && to.Z <= from.Z + 0.5)
+                {
+                    yield return new MepProblem(pipe, $"it {(to.Z < from.Z - 0.5 ? "falls" : "runs level")} along its {Units.Metres(pipe.Length, "0.00")} away from the discharge pipe - Approved Document H (1.22) lays a branch ventilating pipe on a continuous incline up from it");
+                    break;
+                }
+
+                at = to;
+            }
+
+            // Its size, by the branches it serves.
+            var branches = near.Select(fitting => BranchOf(document, network, fitting)).ToList();
+            var bends = branches.Select(branch => branch.Zip(branch.Skip(1), (a, b) => (a, b)).Count(pair => Turns(document, pair.a, pair.b))).DefaultIfEmpty(0).Max();
+            var longest = branches.Select(branch => branch.Sum(pipe => pipe.Length)).DefaultIfEmpty(0).Max();
+            var least = longest > 15000 || bends > 5 ? 32 : 25;
+            var bore = run.Pipes.Min(pipe => Bore(document, pipe));
+            if (bore < least - 1)
+                yield return new MepProblem(vent, least == 32
+                    ? $"a branch ventilating pipe of {bore:0} - Approved Document H (1.24) asks 32 at least where the branch is longer than 15 m or has more than five bends"
+                    : $"a branch ventilating pipe of {bore:0} - Approved Document H (1.24) asks 25 at least");
+
+            // Where it ends: at the stack above the appliances' spillover, closed with an air admittance valve, or open to the air outside.
+            var top = new Point2D(run.Top.X, run.Top.Y);
+            var spillover = near.Select(fitting => document.FindType<ComponentType>(fitting.TypeId) is { } type ? ComponentHosting.BaseElevation(document, fitting, type) + type.Height : double.MinValue).DefaultIfEmpty(double.MinValue).Max();
+            var stack = network.Loads.Keys.FirstOrDefault(pipe => pipe.Upright && pipe.Start.DistanceTo(top) <= Bore(document, pipe) / 2 + 50
+                                                               && run.Top.Z >= Math.Min(pipe.Ends(document).Start.Z, pipe.Ends(document).End.Z) - PipeNetworks.Touch
+                                                               && run.Top.Z <= Math.Max(pipe.Ends(document).Start.Z, pipe.Ends(document).End.Z) + PipeNetworks.Touch);
+            if (stack is not null)
+            {
+                if (run.Top.Z < spillover - 0.5)
+                    yield return new MepProblem(vent, $"it joins the stack {Units.Metres(spillover - run.Top.Z, "0.00")} below the spillover level of the appliance it serves - Approved Document H (1.22) joins it above the highest");
+                continue;
+            }
+
+            if (valves.Any(each => each.Location.DistanceTo(top) <= 200 && Math.Abs(ComponentHosting.BaseElevation(document, each, document.FindType<ComponentType>(each.TypeId)!) - run.Top.Z) <= 500))
+                continue;
+
+            var roof = document.All<Roof>().Where(each => Polygon2D.Contains(each.Boundary, top)).Select(each => (double?)each.Surface(document).HeightAt(top)).Max();
+            if (roof is { } under && run.Top.Z < under + 150)
+            {
+                yield return new MepProblem(vent, "it ends inside the building, open - Approved Document H (1.20, 1.22) takes a branch ventilating pipe to the stack above the spillover level, out to the open air, or closes it with an air admittance valve");
+                continue;
+            }
+
+            if (OpeningBelow(document, top, run.Top.Z) is { } opening)
+                yield return new MepProblem(vent, $"it finishes {Units.Metres(run.Top.Z - opening.Head, "0.00")} above the head of {opening.Name}, {Units.Metres(opening.Reach, "0.0")} away - Approved Document H (1.23) takes a branch ventilating pipe open to the air 900 mm above any opening within 3 m");
+        }
+    }
+
+    /// <summary>Whether one pipe turns from the last by more than 10° - a bend between them.</summary>
+    private static bool Turns(BimDocument document, Pipe a, Pipe b)
+    {
+        var (a0, a1) = a.Ends(document);
+        var (b0, b1) = b.Ends(document);
+        var (ux, uy, uz) = (a1.X - a0.X, a1.Y - a0.Y, a1.Z - a0.Z);
+        var (vx, vy, vz) = (b1.X - b0.X, b1.Y - b0.Y, b1.Z - b0.Z);
+        var lengths = Math.Sqrt(ux * ux + uy * uy + uz * uz) * Math.Sqrt(vx * vx + vy * vy + vz * vz);
+        if (lengths < 1e-9) return false;
+        var cos = Math.Abs(ux * vx + uy * vy + uz * vz) / lengths;
+        return cos < Math.Cos(10 * Math.PI / 180);
     }
 
     /// <summary>
@@ -739,9 +1029,10 @@ public static class Drainage
     /// head, at each bend, change of gradient or of size (Approved Document H 2.49), and no further
     /// apart than Table 13.
     /// </summary>
-    private static IEnumerable<MepProblem> Access(BimDocument document, PipeNetwork network, IReadOnlyList<Component> accesses)
+    private static IEnumerable<MepProblem> Access(BimDocument document, PipeNetwork network, IReadOnlyList<Component> accesses, IReadOnlySet<Pipe>? rising = null)
     {
-        var drains = network.Loads.Where(entry => BelowGround(document, entry.Key)).ToDictionary(entry => entry.Key, entry => entry.Value);
+        // A rising main is no gravity drain to be rodded: where it discharges into one, that drain's head wants its chamber.
+        var drains = network.Loads.Where(entry => BelowGround(document, entry.Key) && rising?.Contains(entry.Key) != true).ToDictionary(entry => entry.Key, entry => entry.Value);
         if (drains.Count == 0) yield break;
 
         AccessClass? At(Point3D where)

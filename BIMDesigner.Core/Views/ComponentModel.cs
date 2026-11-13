@@ -1203,6 +1203,12 @@ public static class ComponentModel
                 Add(-halfW + Math.Min(40, w * 0.1), halfW - Math.Min(40, w * 0.1), -halfD + Math.Min(40, d * 0.1), halfD - Math.Min(40, d * 0.1), h, h + 3, PartFinish.Dark);
                 break;
 
+            case ComponentForm.PumpingStation:
+                // Its round chamber in the ground, and its lid at the top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h, PartFinish.Body, PartShape.Upright);
+                Add(-halfW * 0.7, halfW * 0.7, -halfD * 0.7, halfD * 0.7, h, h + 5, PartFinish.Dark, PartShape.Upright);
+                break;
+
             case ComponentForm.AirAdmittanceValve:
                 // The valve on top of its stack: its body, and its cap with the air slots under it.
                 Add(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 0, h * 0.5, PartFinish.Body, PartShape.Upright);
@@ -1641,6 +1647,12 @@ public static class ComponentModel
                 shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
                 break;
 
+            case ComponentForm.PumpingStation:
+                // Its round chamber, and its lid inside it.
+                shapes.Add(frame.Ellipse(-halfW, halfW, -halfD, halfD, 24));
+                shapes.Add(frame.Ellipse(-halfW * 0.7, halfW * 0.7, -halfD * 0.7, halfD * 0.7, 24));
+                break;
+
             case ComponentForm.Gully:
                 // Its grating: the bars across it, inside its frame.
                 Inside(-halfW * 0.8, halfW * 0.8, -halfD * 0.8, halfD * 0.8);
@@ -1875,6 +1887,7 @@ public static class ComponentModel
         ComponentForm.FoulOutfall => "FS",
         ComponentForm.SurfaceWaterOutfall => "SW",
         ComponentForm.Soakaway => "SA",
+        ComponentForm.PumpingStation => "PS",
         ComponentForm.AirAdmittanceValve => "AAV",
         ComponentForm.HeatPump => "HP",
         ComponentForm.HeatRecoveryUnit => "MVHR",

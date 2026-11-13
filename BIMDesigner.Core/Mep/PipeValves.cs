@@ -18,7 +18,10 @@ public enum ValveKind
     Servicing,
     Stop,
     DoubleCheck,
-    DrainOff
+    DrainOff,
+
+    /// <summary>On a foul drain: lets it out and keeps the sewer's surcharge from backing up into the building (Approved Document H 2.9 to 2.11).</summary>
+    AntiFlooding
 }
 
 /// <summary>
@@ -84,6 +87,7 @@ public static class PipeValves
         ValveKind.Stop => "Stopvalve",
         ValveKind.DoubleCheck => "Double check valve",
         ValveKind.DrainOff => "Drain-off tap",
+        ValveKind.AntiFlooding => "Anti-flooding valve",
         _ => "Servicing valve"
     };
 
@@ -216,6 +220,26 @@ public static class PipeValves
                     yield return new MepProblem(system, $"{dwelling.Key} cannot be shut off on its own - the Water Supply (Water Fittings) Regulations 1999 (Schedule 2, 10(1)) fit a stopvalve on the pipe to each of separate premises, shutting off its supply without shutting off the others'");
             }
         }
+    }
+}
+
+/// <summary>Valves slid along their pipes - dragged in plan - as one step to undo.</summary>
+public sealed class SlideValvesCommand : IUndoableCommand
+{
+    private readonly IReadOnlyList<(PipeValve Valve, double From, double To)> _slides;
+
+    public SlideValvesCommand(IEnumerable<(PipeValve Valve, double From, double To)> slides) => _slides = slides.ToList();
+
+    public string Name => _slides.Count == 1 ? "Slide Valve" : "Slide Valves";
+
+    public void Redo()
+    {
+        foreach (var (valve, _, to) in _slides) valve.Along = to;
+    }
+
+    public void Undo()
+    {
+        foreach (var (valve, from, _) in _slides) valve.Along = from;
     }
 }
 

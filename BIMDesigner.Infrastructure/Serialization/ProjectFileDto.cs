@@ -2550,6 +2550,9 @@ internal sealed class GroundRegionDto
     public string Surface { get; set; } = "Lawn";
     public Guid MaterialId { get; set; }
     public bool Approach { get; set; }
+
+    /// <summary>Whether it is amenity space, as said; none to take it by its surface - and in older files.</summary>
+    public bool? Amenity { get; set; }
     public double Offset { get; set; }
 
     /// <summary>A path's middle, x, y, x, y, and its width; none for a region drawn by its outline.</summary>
@@ -2743,6 +2746,9 @@ internal sealed class PipeValveDto
 
 internal sealed class PipeDto
 {
+    /// <summary>Whether it is a ventilating pipe; none in older files.</summary>
+    public bool? Vent { get; set; }
+
     public Guid Id { get; set; }
     public Guid TypeId { get; set; }
     public Guid LevelId { get; set; }

@@ -198,7 +198,8 @@ internal sealed class DaylightWindow : System.Windows.Window
         var us = _main.Document.ProjectInformation.ClearanceStandard.IsUs();
         if (result.Rooms.Count == 0)
         {
-            _summary.Text = "No habitable room enclosed by walls to work out: a living room, kitchen, dining room, study or bedroom.";
+            _summary.Text = "No habitable room enclosed by walls to work out: a living room, kitchen, dining room, study or bedroom." + Gardens(result);
+            ShowGardens(result);
             return;
         }
 
@@ -215,7 +216,7 @@ internal sealed class DaylightWindow : System.Windows.Window
             $"Sunlight on {result.Date.ToString("d MMMM", CultureInfo.CurrentCulture)}, counted above {result.LeastAltitude:0}° at latitude {result.Latitude:0.0}°: " +
             (result.Sunlit
                 ? $"the {sunniest.Room.Name} has {sunniest.SunHours:0.0} hours - a home is asked one habitable room with 1.5 at least, the main living room preferably."
-                : $"no habitable room has the 1.5 hours a home is asked one to have, the main living room preferably - the most is {sunniest.SunHours:0.0} in the {sunniest.Room.Name}.");
+                : $"no habitable room has the 1.5 hours a home is asked one to have, the main living room preferably - the most is {sunniest.SunHours:0.0} in the {sunniest.Room.Name}.") + Gardens(result);
         _summary.Foreground = result.Sunlit && (us || meeting == result.Rooms.Count) ? (Brush)FindResource("Text") : Unmet;
 
         foreach (var room in result.Rooms)
@@ -240,6 +241,41 @@ internal sealed class DaylightWindow : System.Windows.Window
                 Header = room.Windows == 0 ? "No window to the outside in its walls" : $"{room.Windows} window{(room.Windows == 1 ? string.Empty : "s")} counted for its sun, at their middles inside the glass",
                 Tag = room.Room
             });
+            _tree.Items.Add(item);
+        }
+
+        ShowGardens(result);
+    }
+
+    /// <summary>What the gardens and amenity areas come to, as the summary says it: none said where there is none.</summary>
+    private static string Gardens(DaylightResult result)
+    {
+        if (result.Gardens.Count == 0) return string.Empty;
+        var meeting = result.Gardens.Count(garden => garden.Meets && garden.Kept);
+        return $"\n{result.Gardens.Count} garden{(result.Gardens.Count == 1 ? string.Empty : "s")} or amenity area{(result.Gardens.Count == 1 ? string.Empty : "s")}: {meeting} with half at least in 2 hours of sun or more, as BRE 209 (3.3) asks" +
+               (result.Gardens.Any(garden => garden.Before is not null) ? ", and no existing one left with less than 0.8 times its former sunny area." : ".");
+    }
+
+    /// <summary>Each garden or amenity area: the share of it with two hours of sun, and before the work, where it was there.</summary>
+    private void ShowGardens(DaylightResult result)
+    {
+        foreach (var garden in result.Gardens)
+        {
+            var name = string.IsNullOrEmpty(garden.Region.Mark) ? $"{garden.Region.Surface}" : garden.Region.Mark;
+            var area = Core.Geometry.Polygon2D.Area(garden.Region.Boundary) / 1e6;
+            var before = garden.Before is { } was
+                ? $"; before the work {was:0%} - {(garden.Kept ? "kept" : "less than 0.8 times")} ({garden.Share / Math.Max(was, 1e-9):0.00} times)"
+                : string.Empty;
+            var item = new TreeViewItem
+            {
+                Header = new TextBlock
+                {
+                    Text = $"{name} ({area:0.0} m²)  -  {garden.Share:0%} with 2 hours of sun or more on {result.Date.ToString("d MMMM", CultureInfo.CurrentCulture)}: {(garden.Meets ? "half at least" : "less than half")}{before}",
+                    TextWrapping = TextWrapping.Wrap, Foreground = garden.Meets && garden.Kept ? Met : Unmet
+                },
+                Tag = garden.Region
+            };
+            item.Items.Add(new TreeViewItem { Header = $"{garden.Points.Count} points every {AmenitySun.Spacing:0} mm, from {garden.Points.Min(point => point.Hours):0.0} to {garden.Points.Max(point => point.Hours):0.0} hours, counted from sunrise", Tag = garden.Region });
             _tree.Items.Add(item);
         }
     }

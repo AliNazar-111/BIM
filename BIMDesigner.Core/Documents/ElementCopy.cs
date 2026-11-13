@@ -342,7 +342,7 @@ public static class ElementCopy
             ClosedUnderneath = ramp.ClosedUnderneath
         }, ramp),
         Toposurface ground => CarryCommon(Points(new Toposurface { MaterialId = ground.MaterialId, ContourInterval = ground.ContourInterval }, ground.Points, ground.ExistingPoints), ground),
-        GroundRegion region => CarryCommon(CopyPath(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset }, region.Boundary), region), region),
+        GroundRegion region => CarryCommon(CopyPath(Outline(new GroundRegion { Surface = region.Surface, MaterialId = region.MaterialId, Approach = region.Approach, Amenity = region.Amenity, Offset = region.Offset }, region.Boundary), region), region),
         SitePad pad => CarryCommon(Outline(new SitePad
         {
             HeightOffset = pad.HeightOffset, Fall = pad.Fall, FallDirection = pad.FallDirection, Batter = pad.Batter, Surface = pad.Surface, MaterialId = pad.MaterialId
@@ -385,7 +385,7 @@ public static class ElementCopy
         Mep.Pipe pipe => CarryCommon(new Mep.Pipe
         {
             Start = pipe.Start, End = pipe.End, StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind, SystemId = pipe.SystemId,
-            Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal, Protection = pipe.Protection
+            Return = pipe.Return, Insulation = pipe.Insulation, Seal = pipe.Seal, Protection = pipe.Protection, Vent = pipe.Vent
         }, pipe),
         Mep.Duct duct => CarryCommon(new Mep.Duct
         {

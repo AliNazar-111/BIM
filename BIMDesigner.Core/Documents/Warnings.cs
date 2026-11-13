@@ -291,6 +291,12 @@ public static class Warnings
         foreach (var problem in OpeningGuarding.CurtainProblems(document, wall))
             yield return For(wall, Named(wall, problem));
 
+        // Means of escape: inner rooms, a flat's walk from its entrance door, the common parts' to a stair (Approved Document B Volume 1).
+        foreach (var problem in Escape.Problems(document))
+            yield return For(problem.Room, Named(problem.Room, problem.Said));
+        foreach (var problem in FireAccess.Problems(document))
+            yield return For(problem.Element, Named(problem.Element, problem.Said));
+
         // The site.
         foreach (var region in document.All<GroundRegion>())
         foreach (var problem in GroundRegions.Problems(document, region))

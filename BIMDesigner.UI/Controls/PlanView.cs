@@ -3011,6 +3011,23 @@ public partial class PlanView : FrameworkElement
     /// <summary>The pipes and ducts meeting what a drag carries, following it as it goes.</summary>
     private Core.Mep.RunsFollowing? _runsFollowing;
 
+    /// <summary>What a drag carries that cannot be moved on its own: the components fixed to the walls it moves.</summary>
+    private readonly List<Element> _carried = new();
+
+    /// <summary>The valves a drag slides along their pipes: each, how far along it was, and where it stood in plan.</summary>
+    private readonly List<(Core.Mep.PipeValve Valve, double Along, Point2D At)> _slidingValves = new();
+
+    private bool Carried(Element element) => ElementTransforms.CanMove(element) || _carried.Contains(element);
+
+    /// <summary>Each valve slid to where the drag has taken the point it stood at, along its pipe.</summary>
+    private void SlideValves()
+    {
+        if (Document is null) return;
+        foreach (var (valve, _, at) in _slidingValves)
+            if (Document.Find<Core.Mep.Pipe>(valve.PipeId) is { } pipe)
+                valve.Along = Core.Mep.PipeValves.For(pipe, at + _dragTotal, valve.Kind).Along;
+    }
+
     /// <summary>
     /// Works out what a move carries, whether it is dragged or nudged with the arrow keys.
     /// </summary>
@@ -3029,6 +3046,15 @@ public partial class PlanView : FrameworkElement
         if (Document is not null) _moveSet.AddRange(Downpipes.Following(Document, _moveSet));
         if (Document is not null) _moveSet.AddRange(RoofDrainage.Following(Document, _moveSet));
 
+        // What is fixed to a wall that moves goes with it: a wall-hung basin, a wall cupboard.
+        _carried.Clear();
+        if (Document is not null)
+        {
+            var walls = _moveSet.OfType<Wall>().Select(wall => wall.Id).ToHashSet();
+            _carried.AddRange(Document.All<Core.Architecture.Component>().Where(component => component.IsHosted && walls.Contains(component.HostId) && !_moveSet.Contains(component)));
+            _moveSet.AddRange(_carried);
+        }
+
         // At the locked corners of what moves, and where walls are teed into its sides, the walls
         // staying put stretch to keep meeting it.
         _followers.Clear();
@@ -3039,7 +3065,7 @@ public partial class PlanView : FrameworkElement
 
     private void BeginMoveDrag(Point2D raw)
     {
-        if (!_selection.Any(ElementTransforms.CanMove)) return;
+        if (!_selection.Any(element => ElementTransforms.CanMove(element) || element is Core.Mep.PipeValve)) return;
 
         // A pinned element in the selection holds it all: nothing of it moves.
         if (_selection.Any(IsLocked))
@@ -3050,7 +3076,12 @@ public partial class PlanView : FrameworkElement
 
         _dragging = GripKind.Move;
         CollectMoveSet();
-        _runsFollowing = Document is null ? null : Core.Mep.RunsFollowing.For(Document, _moveSet.Where(ElementTransforms.CanMove));
+        _runsFollowing = Document is null ? null : Core.Mep.RunsFollowing.For(Document, _moveSet.Where(Carried));
+        _slidingValves.Clear();
+        if (Document is not null)
+            foreach (var valve in _selection.OfType<Core.Mep.PipeValve>())
+                if (Core.Mep.PipeValves.At(Document, valve) is { } at)
+                    _slidingValves.Add((valve, valve.Along, new Point2D(at.X, at.Y)));
 
         _dragAnchor = raw;
         _dragLastPoint = SnapToGrid(raw);
@@ -3159,7 +3190,7 @@ public partial class PlanView : FrameworkElement
             }
 
             foreach (var element in _moveSet)
-                if (ElementTransforms.CanMove(element))
+                if (Carried(element))
                     ElementTransforms.Move(element, step);
 
             foreach (var (follower, atStart, _, _, follows) in _followers)
@@ -3168,9 +3199,10 @@ public partial class PlanView : FrameworkElement
                 else follower.End += follows.For(step);
             }
 
-            _runsFollowing?.Follow();
             _dragLastPoint = target;
             _dragTotal += step;
+            SlideValves();
+            _runsFollowing?.Follow();
 
             // A roof window dragged off its slope says so as it goes; let go there, it goes back.
             if (Document is not null && RoofWindows.Misplaced(Document, _moveSet) is { } misplaced)
@@ -3283,8 +3315,9 @@ public partial class PlanView : FrameworkElement
             // opening - goes back to where it was, and says why.
             if (Document is not null && RoofWindows.Misplaced(Document, _moveSet) is { } misplaced)
             {
-                foreach (var element in _moveSet.Where(ElementTransforms.CanMove)) ElementTransforms.Move(element, -_dragTotal);
+                foreach (var element in _moveSet.Where(Carried)) ElementTransforms.Move(element, -_dragTotal);
                 foreach (var (follower, _, start, end, _) in _followers) (follower.Start, follower.End) = (start, end);
+                foreach (var (valve, along, _) in _slidingValves) valve.Along = along;
                 _runsFollowing?.Follow();
 
                 _dragTotal = default;
@@ -3309,16 +3342,27 @@ public partial class PlanView : FrameworkElement
             IUndoableCommand Following(IUndoableCommand moved) =>
                 _runsFollowing is { IsEmpty: false } runs ? new Core.Mep.FollowingRunsCommand(moved, runs) : moved;
 
-            if (_followers.Count > 0 || fitted is not null || against is not null)
+            // Valves slid along their pipes.
+            var slid = _slidingValves.Where(entry => Math.Abs(entry.Valve.Along - entry.Along) > 1e-6).Select(entry => (entry.Valve, entry.Along, entry.Valve.Along)).ToList();
+            var slide = slid.Count == 0 ? null : new Core.Mep.SlideValvesCommand(slid);
+            if (slide is not null && command.IsEmpty)
+                HintChanged?.Invoke(this, slid.Count == 1 ? $"Slid along its pipe: {Units.FormatLength(slid[0].Item3)} from its start." : $"{slid.Count} valves slid along their pipes.");
+
+            if (_followers.Count > 0 || fitted is not null || against is not null || slide is not null && !command.IsEmpty)
             {
                 var steps = FollowerMoves().Prepend(command).ToList();
                 if (fitted is not null) steps.Add(fitted);
                 if (against is not null) steps.Add(against);
+                if (slide is not null) steps.Add(slide);
                 History?.Record(Following(new CompositeCommand("Move", steps)));
             }
             else if (!command.IsEmpty)
             {
                 History?.Record(Following(command));
+            }
+            else if (slide is not null)
+            {
+                History?.Record(slide);
             }
 
             _dragTotal = default;

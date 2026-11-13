@@ -217,7 +217,9 @@ public static class PipeNetworks
     public static PipeNetwork Trace(BimDocument document, MepSystem system)
     {
         using var cache = system.Kind == SystemKind.Heating ? ModelCache.Begin(document) : null;
-        var pipes = PipesOf(document, system);
+
+        // A ventilating pipe carries air, not what the system does: it is no way for the water to go.
+        var pipes = PipesOf(document, system).Where(pipe => !pipe.Vent).ToList();
         var nodes = new Nodes();
         var links = new Dictionary<int, List<(Pipe Pipe, int To)>>();
         void Link(int from, Pipe pipe, int to)

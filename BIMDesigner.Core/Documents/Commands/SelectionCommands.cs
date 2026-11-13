@@ -217,6 +217,9 @@ public sealed class MoveElementsCommand : IUndoableCommand
         if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
         if (document is not null) _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
 
+        // What is fixed to a wall that moves goes with it: a wall-hung basin, a wall cupboard.
+        if (document is not null) _elements.AddRange(FixedTo(document, _elements));
+
         _runs = document is null ? null : RunsFollowing.For(document, _elements);
         Name = name ?? (named == 1 ? "Move" : $"Move {named} Elements");
     }
@@ -224,6 +227,15 @@ public sealed class MoveElementsCommand : IUndoableCommand
     public string Name { get; }
 
     public bool IsEmpty => _elements.Count == 0;
+
+    /// <summary>The components fixed to the walls among some elements and not among them themselves - carried by their walls.</summary>
+    internal static IEnumerable<Element> FixedTo(BimDocument document, IReadOnlyCollection<Element> elements)
+    {
+        var walls = elements.OfType<Wall>().Select(wall => wall.Id).ToHashSet();
+        if (walls.Count == 0) return Enumerable.Empty<Element>();
+        var set = elements.ToHashSet();
+        return document.All<Component>().Where(component => component.IsHosted && walls.Contains(component.HostId) && !set.Contains(component)).ToList();
+    }
 
     public void Redo()
     {
@@ -303,6 +315,7 @@ public sealed class NudgeElementsCommand : IUndoableCommand
         if (document is not null) _elements.AddRange(Downpipes.Following(document, _elements));
         if (document is not null) _elements.AddRange(RoofDrainage.Following(document, _elements));
         if (document is not null) _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
+        if (document is not null) _elements.AddRange(MoveElementsCommand.FixedTo(document, _elements));
 
         _runs = document is null ? null : RunsFollowing.For(document, _elements);
         Name = named == 1 ? "Move" : "Move " + named + " Elements";
@@ -393,6 +406,7 @@ public sealed class MirrorElementsCommand : IUndoableCommand
             _elements.AddRange(Downpipes.Following(document, _elements));
             _elements.AddRange(RoofDrainage.Following(document, _elements));
             _elements.AddRange(SlabEdgeRuns.Following(document, _elements));
+            _elements.AddRange(MoveElementsCommand.FixedTo(document, _elements));
         }
 
         _runs = document is null ? null : RunsFollowing.For(document, _elements);

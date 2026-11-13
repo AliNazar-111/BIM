@@ -372,7 +372,7 @@ public static partial class ProjectFile
             dto.GroundRegions.Add(new GroundRegionDto
             {
                 Id = region.Id, LevelId = region.LevelId, Boundary = region.Boundary.SelectMany(point => new[] { point.X, point.Y }).ToList(),
-                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Offset = region.Offset, Mark = region.Mark, Comments = region.Comments,
+                Surface = region.Surface.ToString(), MaterialId = region.MaterialId, Approach = region.Approach, Amenity = region.Amenity, Offset = region.Offset, Mark = region.Mark, Comments = region.Comments,
                 PathLine = region.PathLine.Count >= 2 ? region.PathLine.SelectMany(point => new[] { point.X, point.Y }).ToList() : null,
                 PathWidth = region.PathWidth
             });
@@ -450,7 +450,7 @@ public static partial class ProjectFile
                 StartOffset = pipe.StartOffset, EndOffset = pipe.EndOffset, Diameter = pipe.Diameter, Kind = pipe.Kind.ToString(),
                 SystemId = document.Find<MepSystem>(pipe.SystemId)?.Id, Return = pipe.Kind == SystemKind.Heating && pipe.Return ? true : null,
                 Insulation = pipe.Insulation > 0 ? pipe.Insulation : null, Seal = pipe.Seal != PipeSeal.None ? pipe.Seal.ToString() : null,
-                Protection = pipe.Protection != DrainProtection.None ? pipe.Protection.ToString() : null,
+                Protection = pipe.Protection != DrainProtection.None ? pipe.Protection.ToString() : null, Vent = pipe.Vent ? true : null,
                 Mark = pipe.Mark, Comments = pipe.Comments
             });
 
@@ -2901,7 +2901,7 @@ public static partial class ProjectFile
             var region = new GroundRegion
             {
                 Id = saved.Id, LevelId = saved.LevelId, Surface = ParseEnum(saved.Surface, GroundSurface.Lawn), MaterialId = saved.MaterialId,
-                Approach = saved.Approach, Offset = Within(saved.Offset, -3000, 3000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+                Approach = saved.Approach, Amenity = saved.Amenity, Offset = Within(saved.Offset, -3000, 3000, 0), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             };
             if (saved.PathLine is { Count: >= 4 } path && double.IsFinite(saved.PathWidth) && saved.PathWidth >= 300)
                 region.SetPath(Enumerable.Range(0, path.Count / 2).Select(i => new Point2D(path[2 * i], path[2 * i + 1])), saved.PathWidth);
@@ -3480,7 +3480,7 @@ public static partial class ProjectFile
                 StartOffset = saved.StartOffset, EndOffset = saved.EndOffset, Diameter = saved.Diameter > 0 ? saved.Diameter : 15,
                 Kind = ParseEnum(saved.Kind, SystemKind.ColdWater), Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty, Return = saved.Return == true,
                 Insulation = saved.Insulation is > 0 and <= 200 ? saved.Insulation.Value : 0, Seal = ParseEnum(saved.Seal, PipeSeal.None),
-                Protection = ParseEnum(saved.Protection, DrainProtection.None),
+                Protection = ParseEnum(saved.Protection, DrainProtection.None), Vent = saved.Vent == true,
                 TypeId = document.FindType<PipeType>(saved.TypeId)?.Id ?? document.TypesOf<PipeType>().FirstOrDefault()?.Id ?? Guid.Empty
             };
             if (pipe.Length < 1) continue;

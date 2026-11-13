@@ -87,6 +87,7 @@ public sealed class Room : Element
             if (!document.ProjectInformation.ClearanceStandard.IsUs())
                 yield return ParameterValue.ReadOnly(RoomParameters.DwellingSize, () => Dwellings.Verdict(document, dwelling) ?? "No bedroom with a bed in it to size it by");
         }
+        yield return ParameterValue.ReadOnly(RoomParameters.Escape, () => Escape.Describe(document, this));
         yield return ParameterValue.Bind(RoomParameters.Occupancy, () => Occupancy, v => Occupancy = v);
         yield return ParameterValue.Bind(
             RoomParameters.OccupantCount,
@@ -241,6 +242,10 @@ public static class RoomParameters
     /// <summary>The dwelling a room is in against the Nationally Described Space Standard: its bedrooms, bedspaces, storeys and rooms' area against Table 1.</summary>
     public static readonly ParameterDefinition DwellingSize =
         new("Dwelling Size (NDSS)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    /// <summary>Its means of escape, as Approved Document B Volume 1 has them: an inner room, a flat's walk from its entrance door, the common parts' to a stair.</summary>
+    public static readonly ParameterDefinition Escape =
+        new("Means of Escape (AD B)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition Occupancy =
         new("Occupancy", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);

@@ -74,8 +74,9 @@ public static class MepSystems
         var name = document.FindType<ComponentType>(component.TypeId)?.Name ?? "It";
         if (connectors.Count == 0) return $"{name} has no {system.Kind.Title().ToLowerInvariant()} connection";
 
-        // Equipment feeding the kind - a boiler, with its return as well as its flow - is a system's source, not on it.
-        if (connectors.Any(connector => connector.Feeds)) return $"{name} feeds {system.Kind.Title().ToLowerInvariant()} - make it the system's source";
+        // Equipment feeding the kind - a boiler, with its return as well as its flow - is a system's source, not on it. A pumping station takes
+        // the drains running into it, and is on the system its rising main runs to.
+        if (connectors.Any(connector => connector.Feeds) && document.FindType<ComponentType>(component.TypeId)?.Form != ComponentForm.PumpingStation) return $"{name} feeds {system.Kind.Title().ToLowerInvariant()} - make it the system's source";
         if (MemberOf(document, component, system.Kind) is { } other && !ReferenceEquals(other, system)) return $"{name} is on {other.Name} already";
         return null;
     }
@@ -130,17 +131,19 @@ public static class MepSystems
     public static (MepSystem? System, string? Refusal) Make(BimDocument document, SystemKind kind, IReadOnlyList<Component> picked)
     {
         var system = new MepSystem { Kind = kind, Name = NextName(document, kind) };
-        var sources = picked.Where(component => WhyNotSource(document, component, system) is null).ToList();
+        // A pumping station picked with an outfall is on the outfall's system, its rising main running to it; picked with appliances, it takes them.
+        bool Pumping(Component component) => document.FindType<ComponentType>(component.TypeId)?.Form == ComponentForm.PumpingStation;
+        var sources = picked.Where(component => WhyNotSource(document, component, system) is null).OrderBy(Pumping).ToList();
         var members = picked.Where(component => WhyNotMember(document, component, system) is null).ToList();
         if (members.Count == 0 && sources.Count == 0)
             return (null, picked.Count == 1
                 ? WhyNotMember(document, picked[0], system)
                 : $"None of these has a {kind.Title().ToLowerInvariant()} connection free to go on a new system");
 
-        system.Members.AddRange(members.Select(member => member.Id));
         var source = sources.Count >= 1 ? sources[0] : null;
         if (source is null && kind.Fed() is not null && SourcesFor(document, kind) is { Count: 1 } only && WhyNotSource(document, only[0], system) is null)
             source = only[0];
+        system.Members.AddRange(members.Where(member => !ReferenceEquals(member, source)).Select(member => member.Id));
         system.SourceId = source?.Id;
         system.Use = UseOf(document, kind, members);
 

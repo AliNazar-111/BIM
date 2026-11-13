@@ -164,6 +164,7 @@ public static partial class IfcExport
         Exporter.ComponentClass.HeatRecovery => "IfcAirToAirHeatRecovery",
         Exporter.ComponentClass.AirTerminal => "IfcAirTerminal",
         Exporter.ComponentClass.Sprinkler => "IfcFireSuppressionTerminal",
+        Exporter.ComponentClass.Pump => "IfcPump",
         _ => "IfcBuildingElementProxy"
     };
 
@@ -2343,7 +2344,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2375,6 +2376,7 @@ public static partial class IfcExport
             ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway => ComponentClass.Chamber,
             ComponentForm.AirAdmittanceValve => ComponentClass.AirValve,
             ComponentForm.Gully => ComponentClass.Gully,
+            ComponentForm.PumpingStation => ComponentClass.Pump,
             _ => type.Kind switch
             {
                 BuiltInCategory.Furniture or BuiltInCategory.Casework => ComponentClass.Furniture,
@@ -2514,6 +2516,8 @@ public static partial class IfcExport
                     valve.PredefinedType = Xbim.Ifc4.Interfaces.IfcValveTypeEnum.AIRRELEASE),
                 ComponentClass.Gully => ComponentProduct<IfcWasteTerminal>(component, type, meshes, gully =>
                     gully.PredefinedType = Xbim.Ifc4.Interfaces.IfcWasteTerminalTypeEnum.GULLYTRAP),
+                ComponentClass.Pump => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcPump>(component, type, meshes, pump =>
+                    pump.PredefinedType = Xbim.Ifc4.Interfaces.IfcPumpTypeEnum.SUMPPUMP),
                 _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
             };
 
@@ -2539,6 +2543,7 @@ public static partial class IfcExport
                 ComponentClass.Chamber => "Pset_DistributionChamberElementTypeCommon",
                 ComponentClass.AirValve => "Pset_ValveTypeCommon",
                 ComponentClass.Gully => "Pset_WasteTerminalTypeCommon",
+                ComponentClass.Pump => "Pset_PumpTypeCommon",
                 ComponentClass.HeatPump or ComponentClass.ExtractUnit => "Pset_UnitaryEquipmentTypeCommon",
                 ComponentClass.HeatRecovery => "Pset_AirToAirHeatRecoveryTypeCommon",
                 ComponentClass.AirTerminal => "Pset_AirTerminalTypeCommon",

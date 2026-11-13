@@ -4719,6 +4719,18 @@ public partial class MainWindow : Window
         var commands = e.Changes.Select(change => new ParameterChangeCommand(change.Parameter, change.OldValue, change.NewValue)).ToList();
         IUndoableCommand change = commands.Count == 1 ? commands[0] : new CompositeCommand(commands[0].Name, commands);
 
+        // A fitting, pipe or duct moved by its Properties - its elevation, its offsets, its level - takes the ends of the pipes and ducts
+        // meeting it with it: found as they met it before the change, followed to where it is after, and back with Undo.
+        var moving = Plan.SelectedElements.Where(element => element is Core.Architecture.Component or Core.Mep.Pipe or Core.Mep.Duct).ToList();
+        if (moving.Count > 0)
+        {
+            change.Undo();
+            var runs = Core.Mep.RunsFollowing.For(_document, moving);
+            change.Redo();
+            runs.Follow();
+            if (!runs.IsEmpty) change = new Core.Mep.FollowingRunsCommand(change, runs);
+        }
+
         // A floor moved, or a wall raised, through one another - its height or its level changed,
         // nothing else: the wall split at the floor, and a floor with a room over it made a storey,
         // in the same step.

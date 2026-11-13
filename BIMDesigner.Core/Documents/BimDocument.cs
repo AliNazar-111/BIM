@@ -2383,6 +2383,11 @@ public sealed class BimDocument
                 { TypeMark = "D4", Colour = new ColourRgb(0x5A, 0x5E, 0x63), Cost = 1450m, Access = DrainAccessKind.Manhole },
             new ComponentType("Outfall - Foul Sewer", BuiltInCategory.Drainage, ComponentForm.FoulOutfall, 600, 600, 60)
                 { TypeMark = "D5", Colour = new ColourRgb(0x7A, 0x5A, 0x3E), Cost = 1200m, Description = "The connection to the public foul sewer" },
+            new ComponentType("Pumping Station - Package 600 l", BuiltInCategory.Drainage, ComponentForm.PumpingStation, 900, 900, 1300)
+                {
+                    TypeMark = "D17", Colour = new ColourRgb(0x5A, 0x62, 0x6E), Cost = 3800m, Capacity = 600, Load = 1100,
+                    Description = "A package pumping station to BS EN 12050-1: a 600 l receiving chamber and a pump lifting the foul water up a 50 mm rising main"
+                },
             new ComponentType("Outfall - Surface Water Sewer", BuiltInCategory.Drainage, ComponentForm.SurfaceWaterOutfall, 600, 600, 60)
                 { TypeMark = "D6", Colour = new ColourRgb(0x3E, 0x6E, 0x7A), Cost = 1200m, Description = "The connection to the public surface water sewer" },
             new ComponentType("Soakaway - 1 m Crate", BuiltInCategory.Drainage, ComponentForm.Soakaway, 1000, 1000, 60)

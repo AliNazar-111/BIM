@@ -90,6 +90,7 @@ public sealed partial class PlanRenderer
         // A heating return dashed, as drawings tell it from the flow.
         var pen = new Pen(brush, Math.Max(Page(2), pipe.Diameter * PixelsPerMm)) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
         if (pipe.Kind == SystemKind.Heating && pipe.Return) pen.DashStyle = new DashStyle(new[] { 3.0, 2.0 }, 0);
+        if (pipe.Vent) pen.DashStyle = new DashStyle(new[] { 1.0, 1.5 }, 0);
         var (start, end) = (ModelToScreen(pipe.Start), ModelToScreen(pipe.End));
         dc.DrawLine(pen, start, end);
         if (selected) dc.DrawLine(_selectedPen, start, end);

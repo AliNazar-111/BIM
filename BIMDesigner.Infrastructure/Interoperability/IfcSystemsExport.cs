@@ -328,7 +328,7 @@ public static partial class IfcExport
             {
                 each.GlobalId = pipe.Id.ToIfc();
                 each.Name = $"{(type is null ? "Pipe" : type.Name)} {pipe.SizeName(type)}";
-                each.ObjectType = pipe.Kind.Title();
+                each.ObjectType = pipe.Vent ? "Ventilating pipe" : pipe.Kind.Title();
                 each.Tag = pipe.Mark;
                 each.PredefinedType = type?.Material.Like() == PipeMaterial.PeX ? IfcPipeSegmentTypeEnum.FLEXIBLESEGMENT : IfcPipeSegmentTypeEnum.RIGIDSEGMENT;
                 each.ObjectPlacement = New<IfcLocalPlacement>(placement =>
@@ -436,6 +436,7 @@ public static partial class IfcExport
                     ValveKind.Stop => IfcValveTypeEnum.STOPCOCK,
                     ValveKind.DoubleCheck => IfcValveTypeEnum.DOUBLECHECK,
                     ValveKind.DrainOff => IfcValveTypeEnum.DRAWOFFCOCK,
+                    ValveKind.AntiFlooding => IfcValveTypeEnum.CHECK,
                     _ => IfcValveTypeEnum.ISOLATING
                 };
                 each.ObjectPlacement = New<IfcLocalPlacement>(placement =>

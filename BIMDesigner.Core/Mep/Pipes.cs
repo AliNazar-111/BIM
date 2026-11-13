@@ -371,6 +371,9 @@ public sealed class Pipe : Element
     /// <summary>A drain's protection below the ground: a concrete slab over it, or its trench filled with concrete.</summary>
     public DrainProtection Protection { get; set; }
 
+    /// <summary>On a foul system, whether it is a ventilating pipe - carrying air to and from the discharge pipework, not what drains.</summary>
+    public bool Vent { get; set; }
+
     /// <summary>Whether it runs up or down rather than along: its ends one over the other.</summary>
     public bool Upright => Start.DistanceTo(End) < 1;
 
@@ -411,6 +414,8 @@ public sealed class Pipe : Element
         yield return ParameterValue.BindChoice(PipeParameters.Seal, () => Seal.Title(),
             v => { foreach (var seal in Enum.GetValues<PipeSeal>()) if (seal.Title() == v) Seal = seal; },
             Enum.GetValues<PipeSeal>().Select(seal => seal.Title()).ToArray());
+        if (Kind == SystemKind.Foul)
+            yield return ParameterValue.Bind(PipeParameters.Vent, () => Vent, v => Vent = v);
         if (Drainage.IsDrainage(Kind))
             yield return ParameterValue.BindChoice(PipeParameters.Protection, () => Protection.Title(),
                 v => { foreach (var protection in Enum.GetValues<DrainProtection>()) if (protection.Title() == v) Protection = protection; },
@@ -459,4 +464,5 @@ public static class PipeParameters
     public static readonly ParameterDefinition Protection = new("Protection", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Seal = new("Fire Stopping", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
     public static readonly ParameterDefinition Supports = new("Supports", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Construction);
+    public static readonly ParameterDefinition Vent = new("Ventilating Pipe", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.IdentityData);
 }

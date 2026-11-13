@@ -249,6 +249,15 @@ public static class Connectors
                     Cable("Immersion Heater", 0, halfD, h * 0.6, Front)
                 };
 
+            case ComponentForm.PumpingStation:
+                // The drains run into its chamber, which takes them as an outfall would; the rising main leaves its top; its pump's supply.
+                return new[]
+                {
+                    Pipe("Inlet", SystemKind.Foul, ConnectorFlow.In, 100, 0, -halfD, h * 0.6, Back) with { Feeds = true },
+                    Pipe("Rising Main", SystemKind.Foul, ConnectorFlow.Out, 50, Math.Min(150, halfW * 0.5), 0, h, Up),
+                    Cable("Pump", -Math.Min(150, halfW * 0.5), 0, h, Up)
+                };
+
             case ComponentForm.FoulOutfall:
                 // Where the foul drain meets the sewer: the root its drains run to.
                 return new[] { Pipe("Sewer", SystemKind.Foul, ConnectorFlow.In, 100, 0, 0, 0, Down) with { Feeds = true } };
