@@ -200,8 +200,11 @@ public static class Kitchens
     }
 
     /// <summary>The bedspaces a project has, by its beds: two in a double or a bunk bed, one in a single.</summary>
-    public static int Bedspaces(BimDocument document) =>
-        document.All<Component>()
+    public static int Bedspaces(BimDocument document) => Bedspaces(document, document.All<Component>());
+
+    /// <summary>The bedspaces these beds give: a bunk two, a bed 1200 wide or more two, a narrower one one.</summary>
+    public static int Bedspaces(BimDocument document, IEnumerable<Component> pieces) =>
+        pieces
             .Select(piece => document.FindType<ComponentType>(piece.TypeId))
             .Sum(type => type?.Form switch
             {

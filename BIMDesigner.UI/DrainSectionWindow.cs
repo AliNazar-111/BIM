@@ -22,9 +22,10 @@ internal sealed class DrainSectionWindow : System.Windows.Window
         MinHeight = 400;
 
         var table = new TextBlock { Margin = new Thickness(16, 6, 16, 12), FontFamily = new FontFamily("Consolas"), Opacity = 0.85 };
-        var lines = new List<string> { $"{"Length",-10}{"From",10}{"To",10}{"Size",8}{"Gradient",12}{"Upper invert",15}{"Lower invert",15}" };
+        var lines = new List<string> { $"{"Length",-10}{"From",10}{"To",10}{"Size",8}{"Gradient",12}{"Flow",10}{"Dwellings",11}{"Upper invert",15}{"Lower invert",15}" };
         foreach (var pipe in section.Pipes)
-            lines.Add($"{pipe.Pipe.Mark,-10}{pipe.From / 1000,9:0.00}m{pipe.To / 1000,9:0.00}m{pipe.Bore,8:0}{(pipe.Fall > 0 && double.IsFinite(pipe.Fall) ? $"1:{1000 / pipe.Fall:0}" : "-"),12}{Units.FormatLength(pipe.UpperInvert),15}{Units.FormatLength(pipe.LowerInvert),15}");
+            lines.Add($"{pipe.Pipe.Mark,-10}{pipe.From / 1000,9:0.00}m{pipe.To / 1000,9:0.00}m{pipe.Bore,8:0}{(pipe.Fall > 0 && double.IsFinite(pipe.Fall) ? $"1:{1000 / pipe.Fall:0}" : "-"),12}" +
+                      $"{(pipe.Flow is { } flow ? $"{flow:0.0} l/s" : "-"),10}{(pipe.Dwellings > 0 ? pipe.Dwellings.ToString() : "-"),11}{Units.FormatLength(pipe.UpperInvert),15}{Units.FormatLength(pipe.LowerInvert),15}");
         foreach (var access in section.Accesses)
             lines.Add($"{access.Name} at {access.At / 1000:0.00} m: cover {Units.FormatLength(access.Cover)}, invert {Units.FormatLength(access.Invert)}, depth {Units.FormatLength(access.Cover - access.Invert)}");
         table.Text = string.Join(Environment.NewLine, lines);
@@ -66,14 +67,25 @@ internal sealed class DrainSectionWindow : System.Windows.Window
             var groundLabel = Label($"Ground {Units.FormatLength(section.Ground)}");
             dc.DrawText(groundLabel, At(section.Length / 2, section.Ground) + new Vector(-groundLabel.Width / 2, 4));
 
-            foreach (var pipe in section.Pipes)
+            // Each length's size, gradient and flow - under the pipe and over it by turns, and left out where it would still run
+            // into the last one on its side: the table under the drawing gives every length.
+            var clear = new[] { double.MinValue, double.MinValue };
+            for (var i = 0; i < section.Pipes.Count; i++)
             {
+                var pipe = section.Pipes[i];
                 var pen = new Pen(brush, 2);
                 dc.DrawLine(pen, At(pipe.From, pipe.UpperInvert), At(pipe.To, pipe.LowerInvert));
                 dc.DrawLine(new Pen(brush, 1), At(pipe.From, pipe.UpperInvert + pipe.Bore), At(pipe.To, pipe.LowerInvert + pipe.Bore));
-                var middle = At((pipe.From + pipe.To) / 2, (pipe.UpperInvert + pipe.LowerInvert) / 2);
-                var said = $"{pipe.Bore:0} at {(pipe.Fall > 0 && double.IsFinite(pipe.Fall) ? $"1:{1000 / pipe.Fall:0}" : "-")}";
-                dc.DrawText(Label(said), middle + new Vector(-20, 8));
+                var said = $"{pipe.Bore:0} at {(pipe.Fall > 0 && double.IsFinite(pipe.Fall) ? $"1:{1000 / pipe.Fall:0}" : "-")}" +
+                           (pipe.Flow is { } flow ? $"\n{flow:0.0} l/s{(pipe.Dwellings > 1 ? $", {pipe.Dwellings} dwellings" : string.Empty)}" : string.Empty);
+                var label = Label(said);
+                var side = i % 2;
+                var middle = side == 0
+                    ? At((pipe.From + pipe.To) / 2, (pipe.UpperInvert + pipe.LowerInvert) / 2) + new Vector(-label.Width / 2, 8)
+                    : At((pipe.From + pipe.To) / 2, (pipe.UpperInvert + pipe.LowerInvert) / 2 + pipe.Bore) + new Vector(-label.Width / 2, -label.Height - 6);
+                if (middle.X < clear[side] + 6) continue;
+                dc.DrawText(label, middle);
+                clear[side] = middle.X + label.Width;
             }
 
             foreach (var access in section.Accesses)

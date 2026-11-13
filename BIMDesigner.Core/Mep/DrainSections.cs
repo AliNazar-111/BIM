@@ -4,8 +4,11 @@ using BIMDesigner.Core.Geometry;
 
 namespace BIMDesigner.Core.Mep;
 
-/// <summary>One length of a drain along its long section: where it starts and ends along the run, its inverts there, its bore and its fall.</summary>
-public sealed record SectionPipe(Pipe Pipe, double From, double To, double UpperInvert, double LowerInvert, double Bore, double Fall);
+/// <summary>
+/// One length of a drain along its long section: where it starts and ends along the run, its inverts there, its bore and its fall - and
+/// what it carries, l/s, as Approved Document H has it, and on a foul drain how many dwellings it serves.
+/// </summary>
+public sealed record SectionPipe(Pipe Pipe, double From, double To, double UpperInvert, double LowerInvert, double Bore, double Fall, double? Flow = null, int Dwellings = 0);
 
 /// <summary>An access point along a long section: how far along, its cover and the invert under it.</summary>
 public sealed record SectionAccess(Component Access, string Name, double At, double Cover, double Invert);
@@ -44,7 +47,7 @@ public static class DrainSections
         {
             var bore = Drainage.Bore(document, each);
             var plan = new Point2D(load.Far.X, load.Far.Y).DistanceTo(new Point2D(load.Near.X, load.Near.Y));
-            run.Add(new SectionPipe(each, along, along + plan, load.Far.Z - bore / 2, load.Near.Z - bore / 2, bore, Drainage.Fall(load)));
+            run.Add(new SectionPipe(each, along, along + plan, load.Far.Z - bore / 2, load.Near.Z - bore / 2, bore, Drainage.Fall(load), Drainage.Flow(system.Kind, load), load.Dwellings));
             along += plan;
         }
 

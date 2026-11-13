@@ -148,6 +148,7 @@ public static class IfcImport
             foreach (var roof in _model.Instances.OfType<IIfcRoof>()) Try(roof, ImportRoof);
             foreach (var covering in _model.Instances.OfType<IIfcCovering>()) Try(covering, ImportCovering);
             foreach (var space in _model.Instances.OfType<IIfcSpace>()) Try(space, ImportSpace);
+            ReadDwellings();
             foreach (var grid in _model.Instances.OfType<IIfcGrid>()) Try(grid, ImportGrid);
 
             // Pipes and ducts as pipes and ducts, on the systems they are assigned to.
@@ -1644,6 +1645,24 @@ public static class IfcImport
             if (outline is not null) _spaces[room] = outline;
             _result.Count("Rooms");
             return true;
+        }
+
+        /// <summary>
+        /// The dwellings of a block or a terrace: each IfcZone the file calls a dwelling, an apartment or a flat names its spaces' rooms
+        /// into it. Zones of other kinds - a fire compartment, a heating zone - are left alone.
+        /// </summary>
+        private void ReadDwellings()
+        {
+            foreach (var zone in _model.Instances.OfType<IIfcZone>())
+            {
+                var kind = zone.ObjectType?.ToString() ?? string.Empty;
+                if (!new[] { "Dwelling", "Apartment", "Flat" }.Contains(kind.Trim(), StringComparer.OrdinalIgnoreCase)) continue;
+                var name = zone.Name?.ToString()?.Trim() ?? string.Empty;
+                if (name.Length == 0) continue;
+                foreach (var space in zone.IsGroupedBy.SelectMany(relation => relation.RelatedObjects).OfType<IIfcSpace>())
+                    if (_made.GetValueOrDefault(space.EntityLabel) is Room room)
+                        room.Dwelling = name;
+            }
         }
 
         /// <summary>

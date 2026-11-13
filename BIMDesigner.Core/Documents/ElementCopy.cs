@@ -224,6 +224,7 @@ public static class ElementCopy
             Name = room.Name,
             Number = room.Number,
             Department = room.Department,
+            Dwelling = room.Dwelling,
             Occupancy = room.Occupancy,
             OccupantCount = room.OccupantCount,
             BaseOffset = room.BaseOffset,

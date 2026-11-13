@@ -33,7 +33,9 @@ public enum AccessClass
 ///
 /// Below ground (section 2): a foul drain 75 at least, 100 where it carries a WC (2.33), laid no
 /// flatter than Table 6 - 1:40 for a flow under 1 l/s, 1:80 over it with a WC, 1:150 for a 150
-/// with five WCs - a dwelling's flow being 2.5 l/s (Table 5); access at the head of each run, at
+/// with five WCs - the flow 2.5 l/s from one dwelling, 3.5 from five, 4.1 from ten, on to 5.8 from
+/// thirty (Table 5), each flat told by the Dwelling of the room its fittings stand in; a sewer -
+/// a drain serving more than one dwelling - 100 at least, 150 serving more than ten (2.30); access at the head of each run, at
 /// bends, changes of gradient and of size (2.49), and no further apart than Table 13. Rainwater
 /// (H3): every downpipe to the ground taken by a drain to an outfall - a soakaway, a watercourse
 /// or a sewer; drains 75 at least (3.14), 75 and 100 no flatter than 1:100, 150 than 1:150 (3.15);
@@ -128,19 +130,20 @@ public static class Drainage
     public const double Bedding = 100;
 
     /// <summary>
-    /// What a drain carries, l/s: a foul drain a dwelling's 2.5 with a WC on it (Approved Document H Table 5), under 1 l/s without, taken at 1; a rainwater drain its roofs' effective area by
-    /// the rainfall; none for one carrying nothing.
+    /// What a drain carries, l/s: a foul drain with a WC on it the flow Approved Document H Table 5 gives the dwellings it serves - 2.5 from one, 3.5 from
+    /// five, 4.1 from ten, on to 5.8 from thirty - under 1 l/s without, taken at 1; a rainwater drain its roofs' effective area by the rainfall; none for one
+    /// carrying nothing.
     /// </summary>
     public static double? Flow(SystemKind kind, PipeLoad load) => kind == SystemKind.Rainwater
         ? load.Load > 0 ? load.Load * Rainfall : null
-        : load.Wcs > 0 ? 2.5 : load.Fittings > 0 ? 1.0 : null;
+        : load.Wcs > 0 ? Dwellings.Flow(Math.Max(1, load.Dwellings)) : load.Fittings > 0 ? 1.0 : null;
 
     /// <summary>How flat a drain may be laid, as a fall in mm a metre: Approved Document H Table 6 for foul water, 3.15 for rainwater.</summary>
     public static (double Fall, string Said) Flattest(SystemKind kind, double bore, int wcs) => kind == SystemKind.Rainwater
         ? bore <= 100 + 1 ? (10, "1:100 (Approved Document H, 3.15)") : bore <= 150 + 1 ? (1000.0 / 150, "1:150 (Approved Document H, 3.15)") : (1000.0 / 225, "1:225 (Approved Document H, 3.15)")
         : wcs == 0 ? (25, "1:40 for a flow under 1 l/s (Approved Document H, Table 6)")
         : bore >= 150 - 1 && wcs >= 5 ? (1000.0 / 150, "1:150 with 5 WCs or more (Approved Document H, Table 6)")
-        : (12.5, "1:80 for a dwelling's 2.5 l/s with a WC (Approved Document H, Tables 5 and 6)");
+        : (12.5, "1:80 for a flow over 1 l/s with a WC (Approved Document H, Table 6)");
 
     /// <summary>How far a trap's arm may run to its vent, mm: IRC Table P3105.1 by the trap's size.</summary>
     public static double TrapArm(double trap) => trap switch
@@ -328,8 +331,12 @@ public static class Drainage
 
                 if (!us && system.Kind == SystemKind.Foul && bore < 75 - 1)
                     yield return new MepProblem(pipe, $"a foul drain of {bore:0} - Approved Document H (2.33) asks 75 at least");
+                else if (!us && system.Kind == SystemKind.Foul && load.Dwellings > 10 && bore < 150 - 1)
+                    yield return new MepProblem(pipe, $"a sewer serving {load.Dwellings} dwellings at {bore:0} - Approved Document H (2.30) asks one serving more than 10 dwellings 150 at least");
                 else if (!us && system.Kind == SystemKind.Foul && load.Wcs > 0 && bore < 100 - 1)
                     yield return new MepProblem(pipe, $"it carries {(load.Wcs == 1 ? "a WC" : $"{load.Wcs} WCs")} at {bore:0} - Approved Document H (2.33) asks 100 at least");
+                else if (!us && system.Kind == SystemKind.Foul && load.Dwellings > 1 && bore < 100 - 1)
+                    yield return new MepProblem(pipe, $"a sewer serving {load.Dwellings} dwellings at {bore:0} - Approved Document H (2.30) asks 100 at least");
                 else if (!us && system.Kind == SystemKind.Rainwater && bore < 75 - 1)
                     yield return new MepProblem(pipe, $"a rainwater drain of {bore:0} - Approved Document H (3.14) asks 75 at least");
 

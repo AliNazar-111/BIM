@@ -136,6 +136,13 @@ public static class CobieExport
                      .GroupBy(entry => entry.Department.Trim(), StringComparer.OrdinalIgnoreCase)
                      .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
             zone.Add(department.Key, by, on, "Department", string.Join(",", department.Select(entry => entry.Name)), System, "IfcZone", None, department.Key);
+
+        // ...and of each dwelling - a flat of a block, a house of a terrace - as the export to IFC zones them.
+        foreach (var dwelling in rooms.Select((entry, i) => (Dwelling: Dwellings.Of(entry.Room), Name: roomNames[i]))
+                     .Where(entry => entry.Dwelling.Length > 0)
+                     .GroupBy(entry => entry.Dwelling, StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(group => group.Key, NaturalOrder.Instance))
+            zone.Add(dwelling.First().Dwelling, by, on, "Dwelling", string.Join(",", dwelling.Select(entry => entry.Name)), System, "IfcZone", None, dwelling.First().Dwelling);
         sheets.Add(zone);
 
         // ---- Type and Component: what is kept up ----

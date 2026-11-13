@@ -16,6 +16,9 @@ public sealed record PipeLoad(double Load, double Highest, double Downstream, do
 
     public int Wcs { get; init; }
 
+    /// <summary>On a foul drain, how many dwellings the fittings it serves are in - each flat named in its rooms' Dwelling one, a house of none named one.</summary>
+    public int Dwellings { get; init; }
+
     /// <summary>Its end nearer the source - downstream, on a drain - and its other end.</summary>
     public Point3D Near { get; init; }
 
@@ -247,6 +250,15 @@ public static class PipeNetworks
             if (!supplied.TryGetValue(node, out var known)) supplied[node] = known = new Dictionary<Component, Supply>();
             known[fixture] = known.GetValueOrDefault(fixture) | supply;
         }
+        // On a foul drain, the dwellings each node's fittings are in - by the rooms they stand in - and, back from the
+        // furthest, the dwellings of all the fittings behind it: what Approved Document H Table 5 gives the flow by.
+        var foul = system.Kind == SystemKind.Foul;
+        using var outlines = foul ? new RoomsOf.Outlines() : null;
+        var homesAt = new Dictionary<int, HashSet<string>>();
+        var homesBehind = new Dictionary<int, HashSet<string>>();
+        static HashSet<string> Homes(Dictionary<int, HashSet<string>> homes, int node) =>
+            homes.TryGetValue(node, out var known) ? known : homes[node] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var member in members)
         {
             var heat = system.Kind == SystemKind.Heating ? HeatOf(document, member) : system.Kind == SystemKind.Gas ? GasPipes.InputOf(document, member) : 0;
@@ -275,6 +287,7 @@ public static class PipeNetworks
                 var known = draws.GetValueOrDefault(node);
                 draws[node] = (known.Load + load, Math.Max(known.Highest, highest), known.Units + units, known.Fittings + 1,
                     known.Wcs + (form is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 1 : 0), known.Heat + heat);
+                if (foul) Homes(homesAt, node).Add(Dwellings.Of(document, member));
             }
         }
 
@@ -335,6 +348,13 @@ public static class PipeNetworks
                 Fittings: beyond.Fittings + own.Fittings, Wcs: beyond.Wcs + own.Wcs, Heat: beyond.Heat + own.Heat);
             if (us) all.Units = FixtureUnits(document, supplied.GetValueOrDefault(node));
             behind[node] = all;
+            HashSet<string>? homes = null;
+            if (foul)
+            {
+                homes = Homes(homesBehind, node);
+                if (homesAt.TryGetValue(node, out var here)) homes.UnionWith(here);
+            }
+
             if (!parent.TryGetValue(node, out var up)) continue;
             if (us && supplied.TryGetValue(node, out var going))
                 foreach (var (fixture, supply) in going)
@@ -343,8 +363,10 @@ public static class PipeNetworks
             loads[up.Pipe] = new PipeLoad(all.Load, all.Highest, all.Downstream + up.Pipe.Length, distance[up.From], all.Units)
             {
                 Fittings = all.Fittings, Wcs = all.Wcs, Near = nodes.Points[up.From], Far = nodes.Points[node],
-                Toward = parent.TryGetValue(up.From, out var on) ? on.Pipe : null, NearJoins = links.GetValueOrDefault(up.From)?.Count ?? 0, Heat = all.Heat
+                Toward = parent.TryGetValue(up.From, out var on) ? on.Pipe : null, NearJoins = links.GetValueOrDefault(up.From)?.Count ?? 0, Heat = all.Heat,
+                Dwellings = homes is null ? 0 : Dwellings.Count(homes)
             };
+            if (homes is not null) Homes(homesBehind, up.From).UnionWith(homes);
             var above = behind.GetValueOrDefault(up.From);
             behind[up.From] = (above.Load + all.Load, Math.Max(above.Highest, all.Highest), Math.Max(above.Downstream, all.Downstream + up.Pipe.Length),
                 above.Units + all.Units, above.Fittings + all.Fittings, above.Wcs + all.Wcs, above.Heat + all.Heat);

@@ -227,6 +227,7 @@ public static partial class IfcExport
             foreach (var roofWindow in _document.All<RoofWindow>()) ExportRoofWindow(roofWindow);
             foreach (var opening in _document.Openings) ExportOpening(opening);
             foreach (var room in _document.All<Room>()) ExportRoom(room);
+            ExportDwellings();
             ExportGrids();
             ExportClassifications();
             ExportProgramme();
@@ -1105,7 +1106,7 @@ public static partial class IfcExport
             var height = room.UpperLimitOffset - room.BaseOffset;
             if (height <= 0) height = Levels.DefaultStoreyHeight;
 
-            var space = New<IfcSpace>(s =>
+            var space = _spaces[room.Id] = New<IfcSpace>(s =>
             {
                 s.GlobalId = room.Id.ToIfc();
                 s.Name = room.Number;
@@ -1144,6 +1145,33 @@ public static partial class IfcExport
 
         /// <summary>The building's heat loss, worked out once for every room's space.</summary>
         private Lazy<Core.Mep.BuildingHeatLoss?>? _heatLoss;
+
+        /// <summary>The space each room went out as.</summary>
+        private readonly Dictionary<Guid, IfcSpace> _spaces = new();
+
+        /// <summary>
+        /// Each dwelling named in the rooms - a flat of a block, a house of a terrace - an <c>IfcZone</c> of its rooms' spaces,
+        /// its ObjectType "Dwelling", as a zone groups spaces by what they are for.
+        /// </summary>
+        private void ExportDwellings()
+        {
+            foreach (var (name, rooms) in Dwellings.Named(_document))
+            {
+                var spaces = rooms.Select(room => _spaces.GetValueOrDefault(room.Id)).OfType<IfcSpace>().ToList();
+                if (spaces.Count == 0) continue;
+                var zone = New<IfcZone>(z =>
+                {
+                    z.GlobalId = PartId(rooms[0].Id, 0xD3, 0x11).ToIfc();
+                    z.Name = name;
+                    z.ObjectType = "Dwelling";
+                });
+                New<IfcRelAssignsToGroup>(relation =>
+                {
+                    relation.RelatingGroup = zone;
+                    relation.RelatedObjects.AddRange(spaces);
+                });
+            }
+        }
 
         // ---- materials, types and properties -------------------------------------
 

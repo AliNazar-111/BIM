@@ -1319,6 +1319,9 @@ internal sealed class RoomDto
     public string Name { get; set; } = "Room";
     public string Number { get; set; } = string.Empty;
     public string Department { get; set; } = string.Empty;
+
+    /// <summary>The dwelling the room is in; none in older files.</summary>
+    public string? Dwelling { get; set; }
     public string Occupancy { get; set; } = string.Empty;
     public int OccupantCount { get; set; }
 

@@ -49,7 +49,7 @@ public class CobieClassificationTests
     }
 
     /// <summary>A workbook's sheets, each a list of rows of its cells' text.</summary>
-    private static Dictionary<string, List<List<string>>> Read(string path)
+    internal static Dictionary<string, List<List<string>>> Read(string path)
     {
         using var zip = ZipFile.OpenRead(path);
         XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";

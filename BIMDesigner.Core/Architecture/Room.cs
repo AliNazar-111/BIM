@@ -29,6 +29,9 @@ public sealed class Room : Element
 
     public string Department { get; set; } = string.Empty;
 
+    /// <summary>The dwelling it is in - a flat of a block, a house of a terrace - by name: "Flat 3". None for one in a house of one dwelling, or in a block's common parts.</summary>
+    public string Dwelling { get; set; } = string.Empty;
+
     public string Occupancy { get; set; } = string.Empty;
 
     public int OccupantCount { get; set; }
@@ -77,6 +80,13 @@ public sealed class Room : Element
         yield return ParameterValue.Bind(RoomParameters.Name, () => Name, v => Name = v);
         yield return ParameterValue.Bind(RoomParameters.Number, () => Number, v => Number = v);
         yield return ParameterValue.Bind(RoomParameters.Department, () => Department, v => Department = v);
+        yield return ParameterValue.Bind(RoomParameters.Dwelling, () => Dwelling, v => Dwelling = v?.Trim() ?? string.Empty);
+        if (Dwellings.Of(this) is { Length: > 0 } dwelling)
+        {
+            yield return ParameterValue.ReadOnly(RoomParameters.DwellingArea, () => Dwellings.Area(document, document.All<Room>().Where(room => string.Equals(Dwellings.Of(room), dwelling, StringComparison.OrdinalIgnoreCase))));
+            if (!document.ProjectInformation.ClearanceStandard.IsUs())
+                yield return ParameterValue.ReadOnly(RoomParameters.DwellingSize, () => Dwellings.Verdict(document, dwelling) ?? "No bedroom with a bed in it to size it by");
+        }
         yield return ParameterValue.Bind(RoomParameters.Occupancy, () => Occupancy, v => Occupancy = v);
         yield return ParameterValue.Bind(
             RoomParameters.OccupantCount,
@@ -220,6 +230,17 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition Department =
         new("Department", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    /// <summary>The dwelling a room is in - "Flat 3" - and that dwelling's floor area, its rooms' together.</summary>
+    public static readonly ParameterDefinition Dwelling =
+        new("Dwelling", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition DwellingArea =
+        new("Dwelling Area", ParameterDataType.Area, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    /// <summary>The dwelling a room is in against the Nationally Described Space Standard: its bedrooms, bedspaces, storeys and rooms' area against Table 1.</summary>
+    public static readonly ParameterDefinition DwellingSize =
+        new("Dwelling Size (NDSS)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition Occupancy =
         new("Occupancy", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.IdentityData);

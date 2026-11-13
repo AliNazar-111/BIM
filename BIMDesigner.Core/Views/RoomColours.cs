@@ -7,14 +7,15 @@ using BIMDesigner.Core.Sheets;
 
 namespace BIMDesigner.Core.Views;
 
-/// <summary>What a plan's rooms are coloured by: nothing, their name, department, occupancy, or how big they are.</summary>
+/// <summary>What a plan's rooms are coloured by: nothing, their name, department, occupancy, how big they are, or the dwelling they are in.</summary>
 public enum RoomColourBy
 {
     None,
     Name,
     Department,
     Occupancy,
-    Area
+    Area,
+    Dwelling
 }
 
 /// <summary>One colour of a scheme: what it stands for, the colour, and how many rooms and how much floor have it on the view.</summary>
@@ -45,6 +46,7 @@ public static class RoomColours
         RoomColourBy.Name => "Name",
         RoomColourBy.Department => "Department",
         RoomColourBy.Occupancy => "Occupancy",
+        RoomColourBy.Dwelling => "Dwelling",
         _ => "Area"
     };
 
@@ -54,6 +56,7 @@ public static class RoomColours
         RoomColourBy.Name => Blank(room.Name),
         RoomColourBy.Department => Blank(room.Department),
         RoomColourBy.Occupancy => Blank(room.Occupancy),
+        RoomColourBy.Dwelling => Blank(Dwellings.Of(room)),
         RoomColourBy.Area => Band(room.GetBoundary(document).Area),
         _ => string.Empty
     };
@@ -82,6 +85,7 @@ public static class RoomColours
     private static IEnumerable<string> Ordered(IEnumerable<string> values, RoomColourBy by)
     {
         var distinct = values.Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
+        if (by == RoomColourBy.Dwelling) return distinct.OrderBy(value => value == "(none)").ThenBy(value => value, NaturalOrder.Instance);
         if (by != RoomColourBy.Area) return distinct.OrderBy(value => value == "(none)").ThenBy(value => value, StringComparer.CurrentCultureIgnoreCase);
         var order = Bands();
         return distinct.OrderBy(value => order.IndexOf(value) is var at && at >= 0 ? at : int.MaxValue);
