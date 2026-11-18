@@ -201,6 +201,17 @@ public static class Doors
                     "Approved Document B (2.5a, Table C1 item 11b) asks for the doors from habitable rooms onto a house's protected stair to be fire doors, FD20.");
         }
 
+        // In a block of flats: entrance doors, doors into the common stair, across the common corridors and off them (Table C1, round 94).
+        if (!standard.IsUs())
+            foreach (var (said, rule) in FireSeparation.Problems(document, door, type)) Add(said, rule);
+
+        // Its security: a secure doorset, its letter plate, a viewer and limiter on the main door (Approved Document Q, round 97).
+        foreach (var (said, rule) in Security.Problems(document, door, type)) Add(said, rule);
+
+        // Its glass, where it does not insulate (Table B5, round 96).
+        if (!standard.IsUs())
+            foreach (var (said, rule) in FireGlazing.Problems(document, door, type)) Add(said, rule);
+
         // Its glass, and how much heat it lets out.
         if (Glazed(type) && !type.SafetyGlazing)
             Add("its glass is not safety glass.",

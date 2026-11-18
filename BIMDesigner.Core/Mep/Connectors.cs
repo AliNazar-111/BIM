@@ -161,11 +161,12 @@ public static class Connectors
                 var connectors = new List<Connector>
                 {
                     Pipe("Heating Flow", SystemKind.Heating, ConnectorFlow.Out, 22, -Math.Min(150, halfW * 0.7), forward, 0, Down) with { Feeds = true },
-                    Pipe("Gas", SystemKind.Gas, ConnectorFlow.In, 22, 0, forward, 0, Down),
                     Pipe("Heating Return", SystemKind.Heating, ConnectorFlow.In, 22, Math.Min(150, halfW * 0.7), forward, 0, Down),
                     Pipe("Condensate", SystemKind.Foul, ConnectorFlow.Out, 22, halfW - Math.Min(40, halfW * 0.2), forward, 0, Down) with { Optional = true },
                     Cable("Power", halfW - Math.Min(60, halfW * 0.3), -halfD, 40, Back)
                 };
+                if (type.Fuel == ApplianceFuel.Gas)
+                    connectors.Insert(1, Pipe("Gas", SystemKind.Gas, ConnectorFlow.In, 22, 0, forward, 0, Down));
                 if (combi)
                 {
                     connectors.Insert(1, Pipe("Hot Water", SystemKind.HotWater, ConnectorFlow.Out, 15, -Math.Min(75, halfW * 0.35), forward, 0, Down) with { Feeds = true });

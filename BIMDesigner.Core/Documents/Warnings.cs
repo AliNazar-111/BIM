@@ -329,7 +329,7 @@ public static class Warnings
         if (Bedrooms.Verdict(document, room) is { } bedroom && !bedroom.EndsWith("big enough", StringComparison.Ordinal))
             yield return bedroom;
 
-        foreach (var verdict in new[] { Kitchens.Verdict(document, room), Bathrooms.Verdict(document, room), Architecture.Services.Verdict(document, room), Architecture.Alarms.Verdict(document, room), WindowRules.Verdict(document, room) })
+        foreach (var verdict in new[] { Kitchens.Verdict(document, room), Bathrooms.Verdict(document, room), Architecture.Services.Verdict(document, room), Architecture.Alarms.Verdict(document, room), WindowRules.Verdict(document, room), Combustibility.LiningVerdict(document, room) })
         {
             if (verdict is null) continue;
 

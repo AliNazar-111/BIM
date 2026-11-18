@@ -139,6 +139,9 @@ public static class Dwellings
     /// <summary>The dwelling a room is in, its name trimmed; none for one in the common parts, or a house's.</summary>
     public static string Of(Room room) => room.Dwelling.Trim();
 
+    /// <summary>Whether two rooms are in the same dwelling, its name told case aside - both in one, not both in none.</summary>
+    public static bool Same(Room a, Room b) => Of(a).Length > 0 && string.Equals(Of(a), Of(b), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The dwelling a fitting serves: the one the room it stands in is in; none where it is in no room, or a room in none.</summary>
     public static string Of(BimDocument document, Component fitting) => RoomsOf.Of(document, fitting) is { } room ? Of(room) : string.Empty;
 

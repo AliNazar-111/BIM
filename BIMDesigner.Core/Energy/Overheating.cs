@@ -306,7 +306,7 @@ public static class Overheating
     private static bool Sunny(double? bearing) => bearing is not { } way || way is >= 45 and <= 315;
 
     /// <summary>An opening's lights as Appendix D takes them: each light's hinge length and width across, m, how far it opens, and whether it slides - up, or across.</summary>
-    private static IEnumerable<(double Hinge, double Across, double Angle, int Slides)> Lights(BimDocument document, Element element)
+    internal static IEnumerable<(double Hinge, double Across, double Angle, int Slides)> Lights(BimDocument document, Element element)
     {
         switch (element)
         {

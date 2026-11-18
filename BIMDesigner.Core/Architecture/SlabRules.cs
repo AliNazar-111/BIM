@@ -141,7 +141,12 @@ public static class SlabRules
         {
             if (type.AcousticRating > 0 && type.AcousticRating < 40 - 0.05)
                 Add($"it keeps sound in to Rw {type.AcousticRating:0} dB.", "Approved Document E (Table 0.2) asks for Rw 40 dB from a floor between the storeys of a house.");
-            if (Doors.FireMinutes(type.FireRating) < 30)
+            if (slab is Floor separating && FireSeparation.Covers(document))
+            {
+                // A block of flats: a compartment floor, or one within a flat (7.1a, Table B4, round 94).
+                if (FireSeparation.Problem(document, separating, type) is var (said, rule)) Add(said, rule);
+            }
+            else if (Doors.FireMinutes(type.FireRating) < 30)
                 Add($"it resists fire for {(Doors.FireMinutes(type.FireRating) is > 0 and var minutes ? $"{minutes} minutes" : "no time stated")}.",
                     "Approved Document B (Table B2) asks for 30 minutes from the floors of a house.");
         }
@@ -159,6 +164,15 @@ public static class SlabRules
 
             if (roof.SlopeDegrees > 0.5 && document.FindType<RoofType>(roof.TypeId) is { } roofType && CoveringPitch(document, roofType) is var (least, covering) && roof.SlopeDegrees < least - 0.05)
                 Add($"it is pitched {roof.SlopeDegrees:0.#}°, too flat for {covering}.", $"BS 5534 lays {covering} at {least:0}° at the least, to shed the rain.");
+
+            // Its covering, by how near the boundary it is (Approved Document B Table 12.1).
+            foreach (var (said, rule) in RoofCoverings.Problems(document, roof)) Add(said, rule);
+
+            // Its plastic rooflights (Approved Document B 4.14, Tables 4.2, 12.2, 12.3, Diagram 12.1; round 95).
+            foreach (var (said, rule) in Rooflights.Problems(document, roof)) Add(said, rule);
+
+            // Its easily accessible rooflights secure (Approved Document Q 2.1, round 97).
+            foreach (var (said, rule) in Security.Problems(document, roof)) Add(said, rule);
         }
 
         return problems;

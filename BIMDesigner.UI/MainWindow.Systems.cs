@@ -41,7 +41,9 @@ public partial class MainWindow
             var types = _document.TypesOf<ComponentType>()
                 .Where(type => type.Kind == category && ProjectTemplates.Fits(_document, type)
                                                      && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage
-                                                         || type.Form is ComponentForm.AirAdmittanceValve or ComponentForm.BackgroundVentilator or ComponentForm.DuctSmokeDetector))
+                                                         || type.Form is ComponentForm.AirAdmittanceValve or ComponentForm.BackgroundVentilator or ComponentForm.DuctSmokeDetector
+                                                             or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.OilTank
+                                                             or ComponentForm.LpgTank or ComponentForm.LpgCylinders or ComponentForm.SmokeOutlet))
                 .OrderBy(type => type.Name).ToList();
             if (types.Count == 0) continue;
             var group = new MenuItem { Header = EnumText.Humanise(category) };
@@ -63,7 +65,9 @@ public partial class MainWindow
         ComponentTool.IsChecked = true;
         ComponentTypePicker.SelectedItem = ComponentTypePicker.Items.OfType<ComponentFamilyChoice>().FirstOrDefault(choice => choice.Type == type);
         var kinds = Connectors.Of(type).Select(connector => connector.Kind.Title().ToLowerInvariant()).Distinct().ToList();
-        StatusHint.Text = $"{type.Name}: click in the plan to put one down. Its connections - {string.Join(", ", kinds)} - are joined by making a system of it.";
+        StatusHint.Text = kinds.Count == 0
+            ? $"{type.Name}: click in the plan to put one down."
+            : $"{type.Name}: click in the plan to put one down. Its connections - {string.Join(", ", kinds)} - are joined by making a system of it.";
     }
 
     /// <summary>Make System: a system of the fittings selected - of the one kind they can make, or the kind picked from a menu.</summary>

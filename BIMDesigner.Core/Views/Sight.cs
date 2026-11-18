@@ -319,7 +319,7 @@ public static class ViewOut
         var floor = Architecture.FloorSurfaces.FloorUnder(document, levelId, at) is { } slab ? slab.GetTopElevation(document) : document.FindLevel(levelId)?.Elevation ?? 0;
         var eyeZ = floor + eyeHeight;
         var eye = new Point3D(at.X, at.Y, eyeZ);
-        var ground = Wind.Ground(document);
+        var ground = Wind.Grade(document);
         var angles = new List<(double From, double To)>();
         var (distance, sky, landscape, groundSeen, seen) = (0.0, false, false, false, 0);
 

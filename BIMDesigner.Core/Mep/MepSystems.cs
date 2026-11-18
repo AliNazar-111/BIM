@@ -285,6 +285,9 @@ public static class MepSystems
         problems.AddRange(AlarmSiting.Problems(document));
         problems.AddRange(Sprinklers.Problems(document));
         problems.AddRange(GasPipes.AirSupplyProblems(document));
+        problems.AddRange(OilHeating.Problems(document));
+        problems.AddRange(FlueOutlets.Problems(document));
+        problems.AddRange(LpgStorage.Problems(document));
         problems.AddRange(Penetrations.Problems(document));
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));

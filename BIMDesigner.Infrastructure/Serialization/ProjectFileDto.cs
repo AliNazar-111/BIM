@@ -1233,6 +1233,10 @@ internal sealed class ComponentTypeDto
     /// <summary>A surface water outfall to a combined sewer; missing for any other.</summary>
     public bool? CombinedSewer { get; set; }
 
+    /// <summary>A boiler's fuel - none for gas; an oil tank's being bunded.</summary>
+    public string? Fuel { get; set; }
+    public bool? Bunded { get; set; }
+
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
 
@@ -1719,6 +1723,15 @@ internal sealed class MaterialDto
     public double WaterAbsorption { get; set; }
     public string? Group { get; set; }
     public string? Category { get; set; }
+
+    /// <summary>Its reaction to fire class as its maker declares it - none in older files, then what its name says.</summary>
+    public string? ReactionToFire { get; set; }
+
+    /// <summary>As a roof covering, its external fire performance as its maker declares it - none in older files, then what its name says.</summary>
+    public string? RoofCovering { get; set; }
+
+    /// <summary>As a thermoplastic, its class - TP(a) rigid, TP(a) flexible, TP(b) - none in older files, then what its name says.</summary>
+    public string? Thermoplastic { get; set; }
 }
 
 internal sealed class MaterialLayerDto
@@ -1959,10 +1972,18 @@ internal abstract class OpeningTypeDto
 
     /// <summary>Whether its glass is safety glass; none in a file from before.</summary>
     public bool? SafetyGlazing { get; set; }
+
+    /// <summary>The security standard it is made to; none in a file from before, or where none is given.</summary>
+    public string? Security { get; set; }
 }
 
 internal sealed class DoorTypeDto : OpeningTypeDto
 {
+    /// <summary>Its door viewer, door chain or limiter and letter plate (Approved Document Q); none in a file from before.</summary>
+    public bool? DoorViewer { get; set; }
+    public bool? DoorLimiter { get; set; }
+    public string? LetterPlate { get; set; }
+
     public string Operation { get; set; } = "Swing";
     public int LeafCount { get; set; } = 1;
     public string PanelMaterial { get; set; } = string.Empty;
@@ -1999,6 +2020,10 @@ internal sealed class WindowTypeDto : OpeningTypeDto
 
     /// <summary>Its trickle vent's equivalent area, mm²; none in a file from before, or without one.</summary>
     public double? TrickleVent { get; set; }
+
+    /// <summary>Whether it is a smoke vent and how it opens, and its declared free area, m²; none where it is not one.</summary>
+    public string? SmokeVent { get; set; }
+    public double? SmokeVentArea { get; set; }
 
     /// <summary>Its lights side by side, which open, its transom and fanlights, and its mullions' width; absent in files from before divided windows.</summary>
     public int? Lights { get; set; }
@@ -3054,6 +3079,13 @@ internal sealed class RoofWindowTypeDto
     /// <summary>Its U-value as fitted and its g-value; none in a file from before.</summary>
     public double? HeatTransferCoefficient { get; set; }
     public double? SolarHeatGainCoefficient { get; set; }
+
+    /// <summary>Whether it is a smoke vent and how it opens, and its declared free area, m²; none where it is not one.</summary>
+    public string? SmokeVent { get; set; }
+    public double? SmokeVentArea { get; set; }
+
+    /// <summary>The security standard it is made to; none in a file from before, or where none is given.</summary>
+    public string? Security { get; set; }
 }
 
 internal sealed class RoofWindowDto

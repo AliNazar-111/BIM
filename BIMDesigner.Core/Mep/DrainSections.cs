@@ -70,7 +70,7 @@ public static class DrainSections
             }
         }
 
-        var ground = document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
+        var ground = Escape.Ground(document);
         return new DrainSection(system, run, accesses.OrderBy(access => access.At).ToList(), ground);
     }
 }

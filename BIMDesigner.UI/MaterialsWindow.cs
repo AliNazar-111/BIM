@@ -42,6 +42,12 @@ internal sealed class MaterialsWindow : System.Windows.Window
     private readonly ComboBox _group = new() { Width = 80, ItemsSource = new[] { "Group 1", "Group 2" } };
     private readonly ComboBox _category = new() { Width = 80, ItemsSource = new[] { "Category I", "Category II" } };
     private readonly TextBlock _masonrySaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
+    private readonly TextBox _fire = new() { Width = 92 };
+    private readonly TextBlock _fireSaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
+    private readonly TextBox _roof = new() { Width = 92 };
+    private readonly TextBlock _roofSaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
+    private readonly TextBox _plastic = new() { Width = 92 };
+    private readonly TextBlock _plasticSaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
     private readonly Border _surfaceSwatch = Swatch(), _cutSwatch = Swatch(), _jointSwatch = Swatch();
     private readonly Rectangle _preview = new() { Width = PreviewPx, Height = PreviewPx, Stroke = Brushes.Gray, StrokeThickness = 1 };
     private readonly TextBlock _lengthLabel = new() { VerticalAlignment = VerticalAlignment.Center }, _heightLabel = new() { VerticalAlignment = VerticalAlignment.Center }, _jointLabel = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -104,11 +110,17 @@ internal sealed class MaterialsWindow : System.Windows.Window
         Row(Label("Mortar"), _mortar, "The mortar it is laid in: what its strength in compression, bending and shear are worked from");
         Row(Label("Water absorption, %"), _absorption, "A clay unit's: under 7%, 7% to 12% or over 12% set its bending strength (Table NA.6)");
         Row(Label("Group"), _group, "Its holes by BS EN 1996-1-1 Table 3.1, as its maker declares: what K takes in fk (Table NA.4)");
+        Row(Label("Reaction to fire"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _fire, _fireSaid } },
+            "Its class by BS EN 13501-1 as its maker declares it - A1, A2-s1, d0, B-s3, d2 and so on - or empty to take it from its name where it is classed without testing: what a room's linings and an outside wall are checked by (Approved Document B Table 4.1, Section 10)");
+        Row(Label("As a roof covering"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _roof, _roofSaid } },
+            "Its external fire performance by BS EN 13501-5 as its maker declares it - BROOF(t4) to FROOF(t4) - or empty to take it from its name where Approved Document B gives it without testing: how near the boundary a roof covered with it may be (Table 12.1)");
+        Row(Label("As a thermoplastic"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _plastic, _plasticSaid } },
+            "A plastic's class by Approved Document B's B13 - TP(a) rigid, TP(a) flexible or TP(b) - or empty to take it from its name: how big, how far apart and how near the boundary rooflights glazed with it may be (Tables 4.2 and 12.3)");
         Row(Label("Category"), _category, "Its maker's control of its strength, Category I or II: what γM takes with the project's class of execution (Table NA.1)");
         var caption = new TextBlock { Text = $"A {Units.FormatLength(PreviewMm)} square of it", Opacity = 0.7, Margin = new Thickness(0, 4, 0, 0) };
         var preview = new StackPanel { Margin = new Thickness(6, 12, 16, 8), Children = { _preview, caption } };
 
-        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _strength, _absorption })
+        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _strength, _absorption, _fire, _roof, _plastic })
         {
             box.LostFocus += (_, _) => Commit();
             box.KeyDown += (_, args) =>
@@ -188,7 +200,19 @@ internal sealed class MaterialsWindow : System.Windows.Window
         if (_filling) return;
         var material = Selected;
         _filling = true;
-        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance }) box.IsEnabled = material is not null;
+        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _fire, _roof, _plastic }) box.IsEnabled = material is not null;
+        _plastic.Text = material?.Thermoplastic ?? string.Empty;
+        _plasticSaid.Text = material is null ? string.Empty
+            : Thermoplastic.Of(material) is { } plastic ? material.Thermoplastic.Length > 0 ? "as given" : $"{Thermoplastic.Said(plastic.Class)}, as its name has it - {plastic.By}"
+            : "not a thermoplastic by its name - its class to be put in, where it is one";
+        _roof.Text = material?.RoofCovering ?? string.Empty;
+        _roofSaid.Text = material is null ? string.Empty
+            : RoofDesignation.Of(material, 10) is { } roofing ? material.RoofCovering.Length > 0 ? "as its maker declares" : $"{roofing.Designation}, as its name has it - {roofing.By}"
+            : "not given - its maker's designation to be put in, where it covers a roof";
+        _fire.Text = material?.ReactionToFire ?? string.Empty;
+        _fireSaid.Text = material is null ? string.Empty
+            : Euroclass.Of(material) is { } fire ? material.ReactionToFire.Length > 0 ? "as its maker declares" : $"{fire.Class}, as its name has it - {fire.By}"
+            : "not given - its maker's class to be put in";
         _pattern.IsEnabled = material is not null;
         var masonry = material is not null && AnalyticalModel.MaterialOf(_main.Document, material).Kind == AnalyticalMaterialKind.Masonry;
         _strength.IsEnabled = _mortar.IsEnabled = _group.IsEnabled = _category.IsEnabled = masonry;
@@ -285,6 +309,21 @@ internal sealed class MaterialsWindow : System.Windows.Window
             if (_absorption.IsEnabled && double.TryParse(_absorption.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var absorption) && absorption is > 0 and <= 100)
                 look = look with { WaterAbsorption = Math.Abs(absorption - named.Absorption) < 1e-9 ? 0 : absorption };
         }
+
+        var fireText = _fire.Text.Trim();
+        if (fireText.Length == 0) look = look with { ReactionToFire = string.Empty };
+        else if (Euroclass.TryParse(fireText, out var fireClass)) look = look with { ReactionToFire = fireClass.ToString() };
+        else DialogLook.Warn(_problem, $"{fireText} is no class by BS EN 13501-1 - A1, A2-s1, d0, B-s3, d2, C-s2, d0, E, F and so on.");
+
+        var roofText = _roof.Text.Trim();
+        if (roofText.Length == 0) look = look with { RoofCovering = string.Empty };
+        else if (RoofDesignation.TryParse(roofText, out var roofing)) look = look with { RoofCovering = roofing.ToString() };
+        else DialogLook.Warn(_problem, $"{roofText} is no designation by BS EN 13501-5 - BROOF(t4), CROOF(t4), DROOF(t4), EROOF(t4) or FROOF(t4).");
+
+        var plasticText = _plastic.Text.Trim();
+        if (plasticText.Length == 0) look = look with { Thermoplastic = string.Empty };
+        else if (Thermoplastic.TryParse(plasticText, out var plasticClass)) look = look with { Thermoplastic = Thermoplastic.Said(plasticClass) };
+        else DialogLook.Warn(_problem, $"{plasticText} is no class by Approved Document B's B13 - TP(a) rigid, TP(a) flexible or TP(b).");
 
         Apply(material, look with { Finish = finish });
         ShowSelected();

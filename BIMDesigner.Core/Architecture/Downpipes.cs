@@ -305,7 +305,7 @@ public static class Downpipes
 
         if (wall is not null) return (wall.GetBaseElevation(document), false);
 
-        return (document.Levels.Count > 0 ? document.Levels.Min(level => level.Elevation) : 0, false);
+        return (Escape.Ground(document), false);
     }
 
     /// <summary>

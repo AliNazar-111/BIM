@@ -101,7 +101,20 @@ public static partial class Escape
 
         // The common parts of a block whose flats are more than 4.5 m up: from each entrance door to a common stair.
         problems.AddRange(Galleries(plan, named));
-        if (named) problems.AddRange(CommonParts(plan, homes));
+        if (named)
+        {
+            problems.AddRange(CommonParts(plan, homes));
+
+            // Smoke control of the common parts, and smoke outlets from basements (round 93).
+            problems.AddRange(SmokeControl(plan, homes));
+            problems.AddRange(BasementSmoke(plan));
+
+            // Sprinklers in a block over 11 m (round 95).
+            problems.AddRange(FireSeparation.Sprinklers(document));
+
+            // Refuse stores, final exits from the stairs, an only stair down to a basement (round 96).
+            problems.AddRange(FireSeparation.CommonParts(document));
+        }
         return problems;
     }
 
@@ -246,8 +259,7 @@ public static partial class Escape
         var toStair = new Dictionary<(Room, Point2D), Func<Room, Point2D, double?>>();
 
         // A small single stair building (3.28): its top storey 11 m up at most, no more than three storeys over the ground storey.
-        var storeys = outlines.Keys.Where(room => plan.Above(room) > 0.5).Select(room => room.LevelId).Distinct().Count();
-        var small = outlines.Keys.Max(plan.Above) <= SmallTop + 0.5 && storeys <= 3;
+        var small = SmallBuilding(plan);
 
         foreach (var (name, own) in homes.Where(home => home.Rooms.Max(plan.Above) > High + 0.5))
         foreach (var entrance in links.Where(link => common.Contains(link.Room) && link.Other is { } flat && own.Contains(flat)))

@@ -63,8 +63,18 @@ public sealed class RoofWindowType : ElementType
     {
         Width = Width, Height = Height, FrameWidth = FrameWidth, Upstand = Upstand, Operation = Operation,
         FrameMaterialId = FrameMaterialId, GlassMaterialId = GlassMaterialId, Description = Description, Cost = Cost,
-        HeatTransferCoefficient = HeatTransferCoefficient, SolarHeatGainCoefficient = SolarHeatGainCoefficient
+        HeatTransferCoefficient = HeatTransferCoefficient, SolarHeatGainCoefficient = SolarHeatGainCoefficient,
+        SmokeVent = SmokeVent, SmokeVentArea = SmokeVentArea, Security = Security
     };
+
+    /// <summary>The security standard it is made to, as written - "PAS 24:2016" - what makes an easily accessible rooflight secure (Approved Document Q 2.1, 2.2).</summary>
+    public string Security { get; set; } = string.Empty;
+
+    /// <summary>Whether it is a smoke vent - at the head of a common stair, say - and how it is opened (Approved Document B 3.28e, 3.52, 3.53).</summary>
+    public SmokeVentKind SmokeVent { get; set; }
+
+    /// <summary>A smoke vent's declared aerodynamic free area, m² (Appendix D5 a); at 0 its geometric free area is worked out from how it opens (D5 b).</summary>
+    public double SmokeVentArea { get; set; }
 
     public override IEnumerable<ParameterValue> GetTypeParameters(BimDocument? document = null)
     {
@@ -84,6 +94,12 @@ public sealed class RoofWindowType : ElementType
             () => HeatTransferCoefficient, v => Set(v > 0, () => HeatTransferCoefficient = v));
         yield return ParameterValue.BindValidated(WindowTypeParameters.SolarHeatGain, () => SolarHeatGainCoefficient,
             (double v) => Set(v is >= 0 and <= 1, () => SolarHeatGainCoefficient = v));
+        if (document?.ProjectInformation.ClearanceStandard.IsUs() != true)
+        {
+            foreach (var parameter in SmokeVents.Parameters(() => SmokeVent, kind => SmokeVent = kind, () => SmokeVentArea, area => SmokeVentArea = area))
+                yield return parameter;
+            yield return ParameterValue.Bind(OpeningTypeParameters.Security, () => Security, v => Security = (v ?? string.Empty).Trim());
+        }
 
         if (document is not null)
         {
@@ -174,7 +190,8 @@ public sealed class RoofWindow : Element, IHostedElement
                 Width = Width ?? type.Width, Height = Height ?? type.Height,
                 FrameWidth = FrameWidth ?? type.FrameWidth, Upstand = Upstand ?? type.Upstand,
                 FrameMaterialId = FrameMaterialId ?? type.FrameMaterialId, GlassMaterialId = GlassMaterialId ?? type.GlassMaterialId,
-                HeatTransferCoefficient = type.HeatTransferCoefficient, SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
+                HeatTransferCoefficient = type.HeatTransferCoefficient, SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                SmokeVent = type.SmokeVent, SmokeVentArea = type.SmokeVentArea, Security = type.Security
             };
 
     public override IEnumerable<ParameterValue> GetInstanceParameters(BimDocument document)

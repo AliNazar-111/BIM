@@ -1001,6 +1001,7 @@ public sealed class StructuralLoading
             if (outside.Count == 0) return;
             var corners = outside.SelectMany(wall => new[] { wall.Start, wall.End }).ToList();
             var heightMm = Architecture.Wind.Height(_document);
+            var grade = Architecture.Wind.Grade(_document);
             var height = heightMm / 1000;
 
             // BS EN 1991-1-4 Table 7.4a's and 7.5's lesser values on a windward slope of 5° to 45°, or ASCE 7-16 Figure 27.3-1's from 10°, which draw it off where the greater press it: a case of their
@@ -1038,7 +1039,9 @@ public sealed class StructuralLoading
                 // average over its length; ASCE 7-16 Figure 27.3-1's -0.7.
                 var windward = corners.Min(p => (p - default(Point2D)).Dot(way));
                 var e = Math.Min(breadth, 2 * height) * 1000;
-                foreach (var panel in _model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Element is Wall wall && _document.GetWallType(wall) is { Function: WallFunction.Exterior }))
+                // A wall wholly below the ground outside - a basement's - takes the ground's pressure, not the wind's.
+                foreach (var panel in _model.Panels.Where(panel => panel.Kind == AnalyticalPanelKind.Wall && panel.Element is Wall wall && _document.GetWallType(wall) is { Function: WallFunction.Exterior }
+                                                                  && wall.GetTopElevation(_document) > grade + 1))
                 {
                     var normal = Outward((Wall)panel.Element, outside);
                     var facing = normal.Dot(way);

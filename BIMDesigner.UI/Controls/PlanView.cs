@@ -3017,7 +3017,14 @@ public partial class PlanView : FrameworkElement
     /// <summary>The valves a drag slides along their pipes: each, how far along it was, and where it stood in plan.</summary>
     private readonly List<(Core.Mep.PipeValve Valve, double Along, Point2D At)> _slidingValves = new();
 
+    /// <summary>The wall-hung components a drag slides along their walls: each, where it was and how it was turned.</summary>
+    private readonly List<(Core.Architecture.Component Component, Point2D Location, double Rotation)> _slidingHung = new();
+
     private bool Carried(Element element) => ElementTransforms.CanMove(element) || _carried.Contains(element);
+
+    /// <summary>Whether an element is a component hung on a wall, which a drag slides along it.</summary>
+    private bool WallHungOn(Element element) =>
+        element is Core.Architecture.Component { IsHosted: true } component && Document?.Find<Wall>(component.HostId) is not null;
 
     /// <summary>Each valve slid to where the drag has taken the point it stood at, along its pipe.</summary>
     private void SlideValves()
@@ -3026,6 +3033,8 @@ public partial class PlanView : FrameworkElement
         foreach (var (valve, _, at) in _slidingValves)
             if (Document.Find<Core.Mep.Pipe>(valve.PipeId) is { } pipe)
                 valve.Along = Core.Mep.PipeValves.For(pipe, at + _dragTotal, valve.Kind).Along;
+        foreach (var (component, location, _) in _slidingHung)
+            WallHung.Slide(Document, component, location, _dragTotal);
     }
 
     /// <summary>
@@ -3065,7 +3074,7 @@ public partial class PlanView : FrameworkElement
 
     private void BeginMoveDrag(Point2D raw)
     {
-        if (!_selection.Any(element => ElementTransforms.CanMove(element) || element is Core.Mep.PipeValve)) return;
+        if (!_selection.Any(element => ElementTransforms.CanMove(element) || element is Core.Mep.PipeValve || WallHungOn(element))) return;
 
         // A pinned element in the selection holds it all: nothing of it moves.
         if (_selection.Any(IsLocked))
@@ -3082,6 +3091,9 @@ public partial class PlanView : FrameworkElement
             foreach (var valve in _selection.OfType<Core.Mep.PipeValve>())
                 if (Core.Mep.PipeValves.At(Document, valve) is { } at)
                     _slidingValves.Add((valve, valve.Along, new Point2D(at.X, at.Y)));
+        _slidingHung.Clear();
+        foreach (var component in _selection.OfType<Core.Architecture.Component>().Where(WallHungOn))
+            _slidingHung.Add((component, component.Location, component.Rotation));
 
         _dragAnchor = raw;
         _dragLastPoint = SnapToGrid(raw);
@@ -3318,6 +3330,7 @@ public partial class PlanView : FrameworkElement
                 foreach (var element in _moveSet.Where(Carried)) ElementTransforms.Move(element, -_dragTotal);
                 foreach (var (follower, _, start, end, _) in _followers) (follower.Start, follower.End) = (start, end);
                 foreach (var (valve, along, _) in _slidingValves) valve.Along = along;
+                foreach (var (component, location, rotation) in _slidingHung) (component.Location, component.Rotation) = (location, rotation);
                 _runsFollowing?.Follow();
 
                 _dragTotal = default;
@@ -3344,9 +3357,19 @@ public partial class PlanView : FrameworkElement
 
             // Valves slid along their pipes.
             var slid = _slidingValves.Where(entry => Math.Abs(entry.Valve.Along - entry.Along) > 1e-6).Select(entry => (entry.Valve, entry.Along, entry.Valve.Along)).ToList();
-            var slide = slid.Count == 0 ? null : new Core.Mep.SlideValvesCommand(slid);
+            IUndoableCommand? slide = slid.Count == 0 ? null : new Core.Mep.SlideValvesCommand(slid);
             if (slide is not null && command.IsEmpty)
                 HintChanged?.Invoke(this, slid.Count == 1 ? $"Slid along its pipe: {Units.FormatLength(slid[0].Item3)} from its start." : $"{slid.Count} valves slid along their pipes.");
+
+            // Wall-hung components slid along their walls.
+            var hung = _slidingHung.Where(entry => entry.Component.Location.DistanceTo(entry.Location) > 1e-6)
+                .Select(entry => (entry.Component, entry.Location, entry.Rotation, entry.Component.Location, entry.Component.Rotation)).ToList();
+            if (hung.Count > 0)
+            {
+                var along = new SlideOnWallCommand(hung);
+                slide = slide is null ? along : new CompositeCommand("Slide", new IUndoableCommand[] { slide, along });
+                if (command.IsEmpty) HintChanged?.Invoke(this, hung.Count == 1 ? "Slid along its wall." : $"{hung.Count} slid along their walls.");
+            }
 
             if (_followers.Count > 0 || fitted is not null || against is not null || slide is not null && !command.IsEmpty)
             {

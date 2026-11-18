@@ -53,12 +53,15 @@ public static class Wind
     /// <summary>Whether the wind is worked out from the site: a basic wind speed set for it.</summary>
     public static bool FromSite(BimDocument document) => document.ProjectInformation.BasicWindSpeed > 0;
 
-    /// <summary>The ground: the lowest storey.</summary>
+    /// <summary>The structure's base: the lowest storey, which its foundations go down from - a basement's, where it has one.</summary>
     public static double Ground(BimDocument document) => document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
 
-    /// <summary>How tall the building is over the ground, mm: the top of its highest wall - at least 3 m.</summary>
+    /// <summary>The ground outside: the ground floor's level - the lowest storey that is not a basement, more than 1.2 m under the project's base.</summary>
+    public static double Grade(BimDocument document) => Escape.Ground(document);
+
+    /// <summary>How tall the building is over the ground, mm: the top of its highest wall - at least 3 m - from the ground outside, not a basement's floor.</summary>
     public static double Height(BimDocument document) =>
-        Math.Max(3000, document.Walls.Select(wall => wall.GetTopElevation(document)).DefaultIfEmpty(0).Max() - Ground(document));
+        Math.Max(3000, document.Walls.Select(wall => wall.GetTopElevation(document)).DefaultIfEmpty(0).Max() - Grade(document));
 
     /// <summary>
     /// The UK's peak velocity pressure at a height over the ground, kPa: the map's wind speed, m/s,

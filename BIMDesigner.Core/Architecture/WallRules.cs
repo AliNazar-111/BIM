@@ -135,7 +135,7 @@ public static class WallRules
         // A party wall: a compartment wall between the homes, 60 minutes, up to the roof.
         if (!us && type.Separating)
         {
-            if (Doors.FireMinutes(type.FireRating) < 60)
+            if (Doors.FireMinutes(type.FireRating) < 60 && !FireSeparation.Covers(document))
                 Add($"it separates two homes, {(Doors.FireMinutes(type.FireRating) is > 0 and var rated ? $"rated {rated} minutes" : "not fire-rated")}.",
                     "Approved Document B (5.8, Table B4) asks for a wall separating dwellings to be a compartment wall resisting fire for 60 minutes (REI 60).");
             if (ShortOfRoof(document, wall) is { } gap)
@@ -145,6 +145,17 @@ public static class WallRules
 
         // Fire spreading over the property line: how near it the wall stands, and how much of its side is open.
         foreach (var (said, rule) in SpaceSeparation.Problems(document, wall, standard)) Add(said, rule);
+
+        // Fire spreading over it: its outside face, its insulation, and in a relevant building every material (Section 10, Regulation 7(2)).
+        foreach (var (said, rule) in Combustibility.Problems(document, wall, standard)) Add(said, rule);
+
+        // In a block of flats: compartment walls, the common stair's protected shaft, protected corridors, places of special fire hazard (Table B3, round 94).
+        if (!us)
+            foreach (var (said, rule) in FireSeparation.Problems(document, wall, type)) Add(said, rule);
+
+        // Its doors, no more than a quarter of a compartment wall (C8, round 96).
+        if (!us)
+            foreach (var (said, rule) in FireGlazing.Problems(document, wall)) Add(said, rule);
 
         return problems;
     }

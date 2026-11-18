@@ -3,14 +3,18 @@ using BIMDesigner.Core.Documents.Commands;
 
 namespace BIMDesigner.Core.Materials;
 
-/// <summary>What the Materials window changes of a material: its name, its cut colour, its face, and as masonry its strength and mortar.</summary>
+/// <summary>What the Materials window changes of a material: its name, its cut colour, its face, as masonry its strength and mortar, and its reaction to fire.</summary>
 public readonly record struct MaterialLook(string Name, ColourRgb CutColour, SurfaceFinish Finish, double UnitStrength = 0, MortarClass Mortar = MortarClass.M4, double WaterAbsorption = 0,
-    MasonryGroup Group = MasonryGroup.Group1, UnitCategory Category = UnitCategory.CategoryII)
+    MasonryGroup Group = MasonryGroup.Group1, UnitCategory Category = UnitCategory.CategoryII, string ReactionToFire = "", string RoofCovering = "", string Thermoplastic = "")
 {
-    public static MaterialLook Of(Material material) => new(material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category);
+    public static MaterialLook Of(Material material) =>
+        new(material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category, material.ReactionToFire, material.RoofCovering,
+            material.Thermoplastic);
 
     public void ApplyTo(Material material) =>
-        (material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category) = (Name, CutColour, Finish, UnitStrength, Mortar, WaterAbsorption, Group, Category);
+        (material.Name, material.CutColour, material.Finish, material.UnitStrength, material.Mortar, material.WaterAbsorption, material.Group, material.Category, material.ReactionToFire, material.RoofCovering,
+            material.Thermoplastic) =
+        (Name, CutColour, Finish, UnitStrength, Mortar, WaterAbsorption, Group, Category, ReactionToFire, RoofCovering, Thermoplastic);
 }
 
 /// <summary>A material's name, colours and face changed as one step to undo.</summary>
@@ -60,7 +64,10 @@ public static class MaterialCopies
         Mortar = original.Mortar,
         WaterAbsorption = original.WaterAbsorption,
         Group = original.Group,
-        Category = original.Category
+        Category = original.Category,
+        ReactionToFire = original.ReactionToFire,
+        RoofCovering = original.RoofCovering,
+        Thermoplastic = original.Thermoplastic
     };
 
     /// <summary>A name like the one given that no material of the project has yet: "Brick, Common 2".</summary>

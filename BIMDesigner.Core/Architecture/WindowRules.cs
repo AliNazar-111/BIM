@@ -240,6 +240,13 @@ public static class WindowRules
         if (!us && type.HeatTransferCoefficient > 1.6 + 0.005 && document.GetWallType(wall) is { Function: WallFunction.Exterior })
             Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.", "Approved Document L (Table 4.1) limits a window in a new dwelling to a U-value of 1.6 W/m²K.");
 
+        // Easily accessible, a secure window (Approved Document Q, round 97).
+        foreach (var (said, rule) in Security.Problems(document, window, type)) Add(said, rule);
+
+        // Glass in a fire resisting wall between rooms, where it does not insulate (Table B5, round 96).
+        if (!us)
+            foreach (var (said, rule) in FireGlazing.Problems(document, window, type)) Add(said, rule);
+
         return problems;
     }
 

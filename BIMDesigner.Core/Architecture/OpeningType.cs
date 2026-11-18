@@ -105,6 +105,12 @@ public abstract class OpeningType : ElementType
     /// </summary>
     public bool SafetyGlazing { get; set; }
 
+    /// <summary>
+    /// The security standard it is made to, as written - "PAS 24:2016", "LPS 1175 SR2", "STS 204" - what makes an easily accessible door or
+    /// window secure (Approved Document Q 1.2, 2.2); empty where none is given.
+    /// </summary>
+    public string Security { get; set; } = string.Empty;
+
     /// <summary>Gives a copy of this type what every door and window has: its frame's depth and material, and its ratings.</summary>
     protected T WithOpeningOf<T>(T copy) where T : OpeningType
     {
@@ -114,6 +120,7 @@ public abstract class OpeningType : ElementType
         copy.AcousticRating = AcousticRating;
         copy.HeatTransferCoefficient = HeatTransferCoefficient;
         copy.SafetyGlazing = SafetyGlazing;
+        copy.Security = Security;
         return copy;
     }
 
@@ -144,8 +151,18 @@ public sealed class DoorType : OpeningType
     {
         Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign, SelfClosing = SelfClosing,
         GlazingRows = GlazingRows, GlazingColumns = GlazingColumns, Function = Function, CurtainPanel = CurtainPanel,
-        TrimWidth = TrimWidth, TrimProjectionExterior = TrimProjectionExterior, TrimProjectionInterior = TrimProjectionInterior
+        TrimWidth = TrimWidth, TrimProjectionExterior = TrimProjectionExterior, TrimProjectionInterior = TrimProjectionInterior,
+        DoorViewer = DoorViewer, DoorLimiter = DoorLimiter, LetterPlate = LetterPlate
     }));
+
+    /// <summary>Whether it has a door viewer - a spyhole - to see callers by (Approved Document Q 1.4).</summary>
+    public bool DoorViewer { get; set; }
+
+    /// <summary>Whether it has a door chain or a door limiter (Approved Document Q 1.4).</summary>
+    public bool DoorLimiter { get; set; }
+
+    /// <summary>Its letter plate's aperture as written, width by height - "260 x 40" - or empty with none (Approved Document Q 1.3).</summary>
+    public string LetterPlate { get; set; } = string.Empty;
 
     public override BuiltInCategory Category => BuiltInCategory.Doors;
 
@@ -217,6 +234,21 @@ public sealed class DoorType : OpeningType
         yield return ParameterValue.Bind(DoorTypeParameters.TrimProjectionExterior, () => TrimProjectionExterior, v => { if (v >= 0) TrimProjectionExterior = v; });
         yield return ParameterValue.Bind(DoorTypeParameters.TrimProjectionInterior, () => TrimProjectionInterior, v => { if (v >= 0) TrimProjectionInterior = v; });
 
+        // Its security, for Approved Document Q: the standard it is made to, a viewer, a chain or limiter, its letter plate.
+        if (document?.ProjectInformation.ClearanceStandard.IsUs() != true)
+        {
+            yield return ParameterValue.Bind(OpeningTypeParameters.Security, () => Security, v => Security = (v ?? string.Empty).Trim());
+            yield return ParameterValue.Bind(DoorTypeParameters.DoorViewer, () => DoorViewer, v => DoorViewer = v);
+            yield return ParameterValue.Bind(DoorTypeParameters.DoorLimiter, () => DoorLimiter, v => DoorLimiter = v);
+            yield return ParameterValue.BindValidated(DoorTypeParameters.LetterPlate, () => LetterPlate, (string v) =>
+            {
+                var text = (v ?? string.Empty).Trim();
+                if (text.Length > 0 && Architecture.Security.LetterPlate(text) is null) return false;
+                LetterPlate = text;
+                return true;
+            });
+        }
+
         // The hole the wall is left with, for ordering and export: the opening, as it is here.
         yield return ParameterValue.ReadOnly(DoorTypeParameters.RoughWidth, () => Width);
         yield return ParameterValue.ReadOnly(DoorTypeParameters.RoughHeight, () => Height);
@@ -233,11 +265,18 @@ public sealed class WindowType : OpeningType
     {
         Operation = Operation, GlazingType = GlazingType, GlazingRows = GlazingRows, GlazingColumns = GlazingColumns,
         SolarHeatGainCoefficient = SolarHeatGainCoefficient, LightTransmittance = LightTransmittance, TrickleVent = TrickleVent,
-        Lights = Lights, LightPattern = LightPattern, TransomHeight = TransomHeight, Fanlight = Fanlight, MullionWidth = MullionWidth
+        Lights = Lights, LightPattern = LightPattern, TransomHeight = TransomHeight, Fanlight = Fanlight, MullionWidth = MullionWidth,
+        SmokeVent = SmokeVent, SmokeVentArea = SmokeVentArea
     }));
 
     /// <summary>Its trickle ventilator's equivalent area, mm² - a background ventilator in its frame (Approved Document F, Table 1.7); none at 0.</summary>
     public double TrickleVent { get; set; }
+
+    /// <summary>Whether it is a smoke vent, and how it is opened (Approved Document B 3.28e, 3.50 to 3.53).</summary>
+    public SmokeVentKind SmokeVent { get; set; }
+
+    /// <summary>A smoke vent's free area, m² - its declared aerodynamic free area (BS EN 12101-2, Appendix D5 a); at 0 its geometric free area is worked out from the lights that open (D5 b).</summary>
+    public double SmokeVentArea { get; set; }
 
     public override BuiltInCategory Category => BuiltInCategory.Windows;
 
@@ -333,6 +372,13 @@ public sealed class WindowType : OpeningType
         });
         yield return ParameterValue.BindScaled(OpeningTypeParameters.TrickleVent, OpeningTypeParameters.TrickleVentSquareInches, 1 / (Units.MillimetresPerInch * Units.MillimetresPerInch), 1,
             () => TrickleVent, v => { if (v < 0) return false; TrickleVent = v; return true; });
+
+        // A smoke vent for the common parts of flats - Approved Document B's - and the standard it is secure to, Approved Document Q's: not in a US project.
+        if (document?.ProjectInformation.ClearanceStandard.IsUs() != true)
+            yield return ParameterValue.Bind(OpeningTypeParameters.Security, () => Security, v => Security = (v ?? string.Empty).Trim());
+        if (document?.ProjectInformation.ClearanceStandard.IsUs() != true)
+            foreach (var parameter in SmokeVents.Parameters(() => SmokeVent, kind => SmokeVent = kind, () => SmokeVentArea, area => SmokeVentArea = area))
+                yield return parameter;
     }
 }
 
@@ -368,6 +414,10 @@ public static class OpeningTypeParameters
     public static readonly ParameterDefinition SafetyGlazing =
         new("Safety Glazing (BS EN 12600)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
+    /// <summary>The security standard a door or window is made to (Approved Document Q).</summary>
+    public static readonly ParameterDefinition Security =
+        new("Security (PAS 24)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
     // The same in a US project: a U-factor in Btu/h·sq ft·°F, a vent in square inches, safety glazing as the IRC (R308.1) has it.
     public static readonly ParameterDefinition UFactor =
         new("U-Factor (Btu/h·sq ft·°F)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
@@ -395,6 +445,15 @@ public static class DoorTypeParameters
 
     public static readonly ParameterDefinition SelfClosing =
         new("Self-Closing", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition DoorViewer =
+        new("Door Viewer", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition DoorLimiter =
+        new("Door Chain or Limiter", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LetterPlate =
+        new("Letter Plate (aperture, mm)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition ClearWidth =
         new("Clear Opening Width", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);

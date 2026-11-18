@@ -314,7 +314,8 @@ public static class FireDesign
     /// <summary>How many storeys stand on or above the ground, and how high the floor of the top one is, m: a floor makes a storey as much as the walls on it, and a level with neither does not.</summary>
     public static (int Storeys, double TopFloor) HeightOf(BimDocument document)
     {
-        var ground = Wind.Ground(document);
+        // From the ground outside: a basement's storeys are Table B4's basement storeys, not counted here.
+        var ground = Wind.Grade(document);
         var feet = document.Walls.Select(wall => wall.GetBaseElevation(document))
             .Concat(document.All<Column>().Select(column => document.FindLevel(column.LevelId)?.Elevation ?? ground))
             .Concat(document.All<Floor>().Select(floor => floor.GetTopElevation(document)))

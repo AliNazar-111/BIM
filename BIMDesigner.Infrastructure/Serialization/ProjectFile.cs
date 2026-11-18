@@ -150,6 +150,9 @@ public static partial class ProjectFile
                 WaterAbsorption = material.WaterAbsorption,
                 Group = material.Group.ToString(),
                 Category = material.Category.ToString(),
+                ReactionToFire = material.ReactionToFire.Length == 0 ? null : material.ReactionToFire,
+                RoofCovering = material.RoofCovering.Length == 0 ? null : material.RoofCovering,
+                Thermoplastic = material.Thermoplastic.Length == 0 ? null : material.Thermoplastic,
                 JointColour = material.JointColour.ToString(),
                 Reflectance = material.Reflectance
             });
@@ -600,7 +603,9 @@ public static partial class ProjectFile
                 Id = type.Id, Name = type.Name, TypeMark = type.TypeMark, Width = type.Width, Height = type.Height,
                 FrameWidth = type.FrameWidth, Upstand = type.Upstand, Operation = type.Operation.ToString(),
                 FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description,
-                HeatTransferCoefficient = type.HeatTransferCoefficient, SolarHeatGainCoefficient = type.SolarHeatGainCoefficient
+                HeatTransferCoefficient = type.HeatTransferCoefficient, SolarHeatGainCoefficient = type.SolarHeatGainCoefficient,
+                SmokeVent = type.SmokeVent == SmokeVentKind.None ? null : type.SmokeVent.ToString(), SmokeVentArea = type.SmokeVentArea > 0 ? type.SmokeVentArea : null,
+                Security = type.Security.Length == 0 ? null : type.Security
             });
 
         foreach (var window in document.All<RoofWindow>())
@@ -791,7 +796,10 @@ public static partial class ProjectFile
                 TrimWidth = type.TrimWidth,
                 TrimProjectionExterior = type.TrimProjectionExterior,
                 TrimProjectionInterior = type.TrimProjectionInterior,
-                SelfClosing = type.SelfClosing
+                SelfClosing = type.SelfClosing,
+                DoorViewer = type.DoorViewer ? true : null,
+                DoorLimiter = type.DoorLimiter ? true : null,
+                LetterPlate = type.LetterPlate.Length == 0 ? null : type.LetterPlate
             };
 
             WriteOpeningType(doorType, type);
@@ -813,7 +821,9 @@ public static partial class ProjectFile
                 LightPattern = type.LightPattern,
                 TransomHeight = type.TransomHeight,
                 Fanlight = type.Fanlight.ToString(),
-                MullionWidth = type.MullionWidth
+                MullionWidth = type.MullionWidth,
+                SmokeVent = type.SmokeVent == SmokeVentKind.None ? null : type.SmokeVent.ToString(),
+                SmokeVentArea = type.SmokeVentArea > 0 ? type.SmokeVentArea : null
             };
 
             WriteOpeningType(windowType, type);
@@ -1383,6 +1393,8 @@ public static partial class ProjectFile
                 ExternalImpedance = type.Form == ComponentForm.ConsumerUnit && type.ExternalImpedance > 0 ? type.ExternalImpedance : null,
                 SurgeProtection = type.Form == ComponentForm.ConsumerUnit ? type.SurgeProtection : null,
                 CombinedSewer = type.Form == ComponentForm.SurfaceWaterOutfall && type.CombinedSewer ? true : null,
+                Fuel = type.Fuel == ApplianceFuel.Gas ? null : type.Fuel.ToString(),
+                Bunded = type.Bunded ? true : null,
                 Phases = type.Form == ComponentForm.ConsumerUnit && type.Phases == 3 ? 3 : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
@@ -1600,6 +1612,7 @@ public static partial class ProjectFile
         dto.AcousticRating = type.AcousticRating;
         dto.HeatTransferCoefficient = type.HeatTransferCoefficient;
         dto.SafetyGlazing = type.SafetyGlazing;
+        dto.Security = type.Security.Length == 0 ? null : type.Security;
     }
 
     private static void WriteOpening(OpeningDto dto, Opening opening)
@@ -1930,6 +1943,9 @@ public static partial class ProjectFile
                 read.WaterAbsorption = Finite(material.WaterAbsorption, 0, 100);
                 read.Group = ParseEnum(material.Group, MasonryGroup.Group1);
                 read.Category = ParseEnum(material.Category, UnitCategory.CategoryII);
+                read.ReactionToFire = Euroclass.TryParse(material.ReactionToFire, out var fire) ? fire.ToString() : string.Empty;
+                read.RoofCovering = RoofDesignation.TryParse(material.RoofCovering, out var roof) ? roof.ToString() : string.Empty;
+                read.Thermoplastic = Core.Materials.Thermoplastic.TryParse(material.Thermoplastic, out var plastic) ? Core.Materials.Thermoplastic.Said(plastic) : string.Empty;
                 read.JointColour = ParseColour(material.JointColour, new ColourRgb(0xC8, 0xC2, 0xB4));
                 read.Reflectance = Finite(material.Reflectance, 0, 1);
             }
@@ -2075,7 +2091,9 @@ public static partial class ProjectFile
                 Operation = ParseEnum(type.Operation, RoofWindowOperation.CentrePivot),
                 FrameMaterialId = type.FrameMaterialId, GlassMaterialId = type.GlassMaterialId, Cost = type.Cost, Description = type.Description,
                 HeatTransferCoefficient = type.HeatTransferCoefficient is > 0 and < 20 ? type.HeatTransferCoefficient.Value : 1.4,
-                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient is >= 0 and <= 1 ? type.SolarHeatGainCoefficient.Value : 0.5
+                SolarHeatGainCoefficient = type.SolarHeatGainCoefficient is >= 0 and <= 1 ? type.SolarHeatGainCoefficient.Value : 0.5,
+                SmokeVent = ParseEnum(type.SmokeVent, SmokeVentKind.None), SmokeVentArea = type.SmokeVentArea is > 0 and < 100 ? type.SmokeVentArea.Value : 0,
+                Security = type.Security ?? string.Empty
             });
 
         foreach (var type in dto.StairTypes)
@@ -2346,7 +2364,12 @@ public static partial class ProjectFile
                 TrimWidth = type.TrimWidth is >= 0 and var trim ? trim : 70,
                 TrimProjectionExterior = type.TrimProjectionExterior is >= 0 and var outside ? outside : 20,
                 TrimProjectionInterior = type.TrimProjectionInterior is >= 0 and var inside ? inside : 20,
-                SelfClosing = type.SelfClosing ?? false
+                SelfClosing = type.SelfClosing ?? false,
+
+                // Saved before Approved Document Q's hardware: none said.
+                DoorViewer = type.DoorViewer ?? false,
+                DoorLimiter = type.DoorLimiter ?? false,
+                LetterPlate = type.LetterPlate ?? string.Empty
             };
 
             ReadOpeningType(doorType, type);
@@ -2376,7 +2399,11 @@ public static partial class ProjectFile
                 LightPattern = type.LightPattern ?? string.Empty,
                 TransomHeight = double.IsFinite(type.TransomHeight) && type.TransomHeight > 0 ? type.TransomHeight : 0,
                 Fanlight = ParseEnum(type.Fanlight, FanlightOperation.Fixed),
-                MullionWidth = type.MullionWidth is >= 20 and <= 250 ? type.MullionWidth.Value : 70
+                MullionWidth = type.MullionWidth is >= 20 and <= 250 ? type.MullionWidth.Value : 70,
+
+                // Saved before smoke vents: not one.
+                SmokeVent = ParseEnum(type.SmokeVent, SmokeVentKind.None),
+                SmokeVentArea = type.SmokeVentArea is > 0 and < 100 ? type.SmokeVentArea.Value : 0
             };
 
             ReadOpeningType(windowType, type);
@@ -3378,6 +3405,8 @@ public static partial class ProjectFile
                 ExternalImpedance = type.ExternalImpedance is >= 0 and < 1000 ? type.ExternalImpedance.Value : TemplateElectric(type.Name, type.Form)?.ExternalImpedance ?? 0,
                 SurgeProtection = type.SurgeProtection ?? TemplateElectric(type.Name, type.Form)?.SurgeProtection ?? false,
                 CombinedSewer = type.CombinedSewer == true,
+                Fuel = ParseEnum(type.Fuel, ApplianceFuel.Gas),
+                Bunded = type.Bunded == true,
                 Phases = type.Phases == 3 ? 3 : 1,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),
@@ -3986,6 +4015,7 @@ public static partial class ProjectFile
         type.AcousticRating = dto.AcousticRating;
         type.HeatTransferCoefficient = dto.HeatTransferCoefficient;
         type.SafetyGlazing = dto.SafetyGlazing ?? false;
+        type.Security = dto.Security ?? string.Empty;
     }
 
     private static void ReadOpening(Opening opening, OpeningDto dto)

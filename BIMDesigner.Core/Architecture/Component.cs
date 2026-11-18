@@ -44,6 +44,13 @@ public enum ApplianceFlue
     Flueless
 }
 
+/// <summary>What a boiler burns: mains gas or LPG, or heating oil - kerosene or gas oil (Approved Document J Section 4).</summary>
+public enum ApplianceFuel
+{
+    Gas,
+    Oil
+}
+
 public enum ComponentForm
 {
     Box,
@@ -190,7 +197,37 @@ public enum ComponentForm
     /// A package pumping station (BS EN 12050-1): a receiving chamber the foul drains run into, and a pump lifting it up a rising main
     /// to the sewer - where the drains cannot fall to it, or a basement is kept from its surcharge (Approved Document H 2.36 to 2.39).
     /// </summary>
-    PumpingStation
+    PumpingStation,
+
+    /// <summary>
+    /// A dry fire main's inlet, in its box on the face of the building: the fire and rescue service's pumping appliance connects its hoses
+    /// to it, within 18 m of it and in sight of it (Approved Document B 13.5).
+    /// </summary>
+    FireMainInlet,
+
+    /// <summary>
+    /// A fire main's outlet - a landing valve - on a storey of a protected stair: the hose is taken from it to the flats, 45 m at most to
+    /// the furthest point of each (Approved Document B 14.3, 14.4).
+    /// </summary>
+    FireMainOutlet,
+
+    /// <summary>
+    /// A heating oil tank standing outside, 3500 litres or less - its capacity and whether it is bunded its type's - kept from the building
+    /// and the boundary, on a hard base and bunded where the oil could pollute (Approved Document J Section 5, Table 10).
+    /// </summary>
+    OilTank,
+
+    /// <summary>An LPG tank standing in the open air, 1.1 tonnes or less - how much it holds its type's, kg - kept from buildings, the boundary and sources of ignition (Approved Document J 5.14 to 5.18, Table 11).</summary>
+    LpgTank,
+
+    /// <summary>LPG cylinders standing against a wall outside, their valves kept from openings, flues and drains (Approved Document J 5.19, 5.20, Diagram 44).</summary>
+    LpgCylinders,
+
+    /// <summary>
+    /// A basement's smoke outlet at high level - a grille in a stallboard, or a pavement light over a shaft - letting heat and smoke out to the
+    /// open air, its clear area its type's (Approved Document B 16.2 to 16.10, Diagram 16.1).
+    /// </summary>
+    SmokeOutlet
 }
 
 /// <summary>
@@ -401,6 +438,12 @@ public sealed class ComponentType : ElementType
     /// <summary>For a gas appliance, how it takes its air and gives its fumes; as usual for its kind where not said - a boiler and a water heater room-sealed, a gas fire open-flued, a cooker flueless.</summary>
     public ApplianceFlue Flue { get; set; }
 
+    /// <summary>For a boiler, what it burns: gas, or heating oil.</summary>
+    public ApplianceFuel Fuel { get; set; }
+
+    /// <summary>For an oil tank, whether it is bunded - its own secondary containment, 110% of what it holds (Approved Document J 5.10, 5.11).</summary>
+    public bool Bunded { get; set; }
+
     /// <summary>Its flue as set, or as usual for its kind.</summary>
     public ApplianceFlue FlueOf => Flue != ApplianceFlue.Usual ? Flue : Form switch
     {
@@ -410,8 +453,11 @@ public sealed class ComponentType : ElementType
     };
 
     /// <summary>Whether it burns gas: a boiler or a gas fire always, a cooker, a water heater or a dryer with a gas input.</summary>
-    public bool BurnsGas => Form is ComponentForm.Boiler or ComponentForm.GasFire
+    public bool BurnsGas => Form == ComponentForm.Boiler && Fuel == ApplianceFuel.Gas || Form == ComponentForm.GasFire
                             || GasInput > 0 && Form is ComponentForm.Cooker or ComponentForm.HotWaterCylinder or ComponentForm.TumbleDryer;
+
+    /// <summary>Whether it burns heating oil: a boiler set to.</summary>
+    public bool BurnsOil => Form == ComponentForm.Boiler && Fuel == ApplianceFuel.Oil;
 
     /// <summary>
     /// For a radiator or a towel rail, how its output falls with the water's temperature: its
@@ -525,7 +571,9 @@ public sealed class ComponentType : ElementType
         Airflow = Airflow, AvailablePressure = AvailablePressure, HeatRecovery = HeatRecovery, PressureLoss = PressureLoss, RatedAirflow = RatedAirflow,
         ContinuousRate = ContinuousRate, VentArea = VentArea, Load = Load, Lumens = Lumens, Distribution = Distribution, Photometry = Photometry,
         Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance, SurgeProtection = SurgeProtection, Phases = Phases,
-        CombinedSewer = CombinedSewer
+        CombinedSewer = CombinedSewer,
+        Fuel = Fuel,
+        Bunded = Bunded
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -670,9 +718,23 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.SpaceEfficiency, () => SpaceEfficiency, v => { if (v is < 0 or > 1000) return false; SpaceEfficiency = v; return true; });
             yield return ParameterValue.BindValidated(ComponentTypeParameters.WaterEfficiency, () => WaterEfficiency, v => { if (v is < 0 or > 1000) return false; WaterEfficiency = v; return true; });
         }
-        // What it burns: the gas its pipes are sized for, in kW gross - in the US, Btu/h.
+        // What it burns: a boiler gas or oil; the gas its pipes are sized for, in kW gross - in the US, Btu/h.
+        if (Form == ComponentForm.Boiler)
+            yield return ParameterValue.BindChoice(ComponentTypeParameters.Fuel, () => EnumText.Humanise(Fuel),
+                v => Fuel = EnumText.TryParse<ApplianceFuel>(v, out var fuel) ? fuel : Fuel, Enum.GetValues<ApplianceFuel>().Select(each => EnumText.Humanise(each)).ToArray());
+        if (Form is ComponentForm.LpgTank or ComponentForm.LpgCylinders)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.LpgCapacity, () => Capacity, v => NotNegative(v, x => Capacity = x));
+        if (Form == ComponentForm.SmokeOutlet)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.SmokeOutletArea, () => Capacity, v => NotNegative(v, x => Capacity = x));
+        if (Form == ComponentForm.OilTank)
+        {
+            yield return ParameterValue.BindScaled(ComponentTypeParameters.OilCapacity, ComponentTypeParameters.OilCapacityGallons, ComponentTypeParameters.GallonsPerLitre, 0,
+                () => Capacity, v => NotNegative(v, x => Capacity = x));
+            yield return ParameterValue.Bind(ComponentTypeParameters.Bunded, () => Bunded, v => Bunded = v);
+        }
         if (Form is ComponentForm.Boiler or ComponentForm.GasFire or ComponentForm.Cooker or ComponentForm.HotWaterCylinder or ComponentForm.TumbleDryer)
         {
+            if (!BurnsOil)
             yield return ParameterValue.BindScaled(ComponentTypeParameters.GasInput, ComponentTypeParameters.GasInputBtu, Units.BtuPerHourPerWatt * 1000, 0,
                 () => GasInput / 1000, v => NotNegative(v, x => GasInput = x * 1000));
             yield return ParameterValue.BindChoice(ComponentTypeParameters.Flue, () => Flue == ApplianceFlue.Usual ? $"As usual ({EnumText.Humanise(FlueOf)})" : EnumText.Humanise(Flue),
@@ -1257,6 +1319,20 @@ public static class ComponentTypeParameters
 
     public static readonly ParameterDefinition CombinedSewer =
         new("Combined Sewer", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Fuel = new("Fuel", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition OilCapacity = new("Oil Capacity (l)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition OilCapacityGallons = new("Oil Capacity (gal)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition LpgCapacity = new("LPG Capacity (kg)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    /// <summary>A basement smoke outlet's clear cross-sectional area, m² (Approved Document B 16.6).</summary>
+    public static readonly ParameterDefinition SmokeOutletArea = new("Smoke Outlet Clear Area (m²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Bunded =
+        new("Bunded (Secondary Containment)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition Phases =
         new("Phases (1 or 3)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);

@@ -1092,7 +1092,7 @@ public static class Ramps
 
     /// <summary>The ground at a point: the ground modelled there, or - with none - the lowest level's, which the building stands on.</summary>
     public static double GroundUnder(BimDocument document, Point2D at) =>
-        Terrains.GroundAt(document, at) ?? (document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation));
+        Terrains.GroundAt(document, at) ?? Escape.Ground(document);
 
     /// <summary>The surface of a ramp on a storey over a point - the highest, where one passes over another - if any.</summary>
     public static double? SurfaceOn(BimDocument document, Guid levelId, Point2D at)

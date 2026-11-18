@@ -99,6 +99,26 @@ public sealed class Material
     /// <summary>How much of the light it reflects as a mirror would, looked at square on, 0 to 1: matt brick none, glass 0.04 rising at a glancing angle, polished metal more.</summary>
     public double Reflectance { get; set; }
 
+    // --- Fire -------------------------------------------------------------------
+
+    /// <summary>
+    /// Its reaction to fire class by BS EN 13501-1 as its maker declares it - "A2-s1, d0" - or empty, its class then taken from its name where
+    /// it is classed without testing (<see cref="Euroclass.Typical"/>).
+    /// </summary>
+    public string ReactionToFire { get; set; } = string.Empty;
+
+    /// <summary>
+    /// As a roof covering, its external fire performance by BS EN 13501-5 as its maker declares it - "BROOF(t4)" - or empty, taken then from its
+    /// name where Approved Document B gives it without testing (<see cref="RoofDesignation.Typical"/>).
+    /// </summary>
+    public string RoofCovering { get; set; } = string.Empty;
+
+    /// <summary>
+    /// As a thermoplastic, its class for Approved Document B's B2 and B4 (B13) - "TP(a) rigid", "TP(a) flexible", "TP(b)" - or empty, taken then
+    /// from its name where B13 gives it (<see cref="Materials.Thermoplastic.Typical"/>): what a plastic rooflight is checked by (Tables 4.2, 12.3).
+    /// </summary>
+    public string Thermoplastic { get; set; } = string.Empty;
+
     // --- Identity ---------------------------------------------------------------
 
     public string Manufacturer { get; set; } = string.Empty;

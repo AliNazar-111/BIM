@@ -2332,6 +2332,21 @@ public sealed class BimDocument
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
             },
 
+            // Oil boilers, burning kerosene from a tank outside: a room-sealed condensing one on its balanced flue, and an open-flued one
+            // in a utility room, wanting its air from outside (Approved Document J Section 4).
+            new ComponentType("Boiler - Oil Combi, Room-Sealed", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 450, 600, 850)
+            {
+                TypeMark = "M25", Colour = white, Cost = 3200m, Fuel = ApplianceFuel.Oil, Flue = ApplianceFlue.RoomSealed, HeatOutput = 26000,
+                Description = "26 kW heating and hot water, condensing, burning kerosene; its flue balanced through the wall",
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 0
+            },
+            new ComponentType("Boiler - Oil System, Open-Flued", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 450, 600, 850)
+            {
+                TypeMark = "M26", Colour = white, Cost = 2400m, Fuel = ApplianceFuel.Oil, Flue = ApplianceFlue.OpenFlued, HotWater = BoilerHotWater.Cylinder, HeatOutput = 21000,
+                Description = "21 kW heating, a cylinder's hot water through its coil, burning kerosene; its flue up a chimney, its air through a vent from outside",
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 0
+            },
+
             // A system boiler, which heats a cylinder's hot water through its coil rather than as it is drawn.
             new ComponentType("Boiler - Gas System", BuiltInCategory.MechanicalEquipment, ComponentForm.Boiler, 440, 340, 700)
             {
@@ -2521,6 +2536,70 @@ public sealed class BimDocument
                 Description = "Stop valve, check valve, flow switch and test and drain valve where the sprinklers' supply comes in"
             },
 
+            // Heating oil tanks standing outside on their bases: bunded - a tank in a tank holding 110% of it - and single-skinned.
+            new ComponentType("Oil Tank - Bunded 1225 l", BuiltInCategory.MechanicalEquipment, ComponentForm.OilTank, 1850, 1150, 1550)
+            {
+                TypeMark = "OT1", Colour = new ColourRgb(0x2E, 0x5E, 0x3A), Cost = 1450m, Capacity = 1225, Bunded = true,
+                Description = "A bunded polyethylene tank of 1225 l to OFS T100, its outer skin holding 110% of it"
+            },
+            new ComponentType("Oil Tank - Bunded 2500 l", BuiltInCategory.MechanicalEquipment, ComponentForm.OilTank, 2500, 1500, 1800)
+            {
+                TypeMark = "OT2", Colour = new ColourRgb(0x2E, 0x5E, 0x3A), Cost = 2300m, Capacity = 2500, Bunded = true,
+                Description = "A bunded polyethylene tank of 2500 l to OFS T100, its outer skin holding 110% of it"
+            },
+            new ComponentType("Oil Tank - Single Skin 2700 l", BuiltInCategory.MechanicalEquipment, ComponentForm.OilTank, 2500, 1500, 1900)
+            {
+                TypeMark = "OT3", Colour = new ColourRgb(0x2E, 0x5E, 0x3A), Cost = 1100m, Capacity = 2700,
+                Description = "A single-skinned tank of 2700 l, with no bund of its own"
+            },
+
+            // LPG: tanks standing in the open air, of a quarter and of 1.1 tonnes, and a pair of 47 kg cylinders chained to a wall.
+            new ComponentType("LPG Tank - 0.25 t", BuiltInCategory.MechanicalEquipment, ComponentForm.LpgTank, 1600, 800, 1050)
+            {
+                TypeMark = "LP1", Colour = new ColourRgb(0xF2, 0xF2, 0xF0), Cost = 0m, Capacity = 250,
+                Description = "A tank holding 0.25 tonnes of LPG, its pressure relief valve on top"
+            },
+            new ComponentType("LPG Tank - 1.1 t", BuiltInCategory.MechanicalEquipment, ComponentForm.LpgTank, 3100, 1100, 1400)
+            {
+                TypeMark = "LP2", Colour = new ColourRgb(0xF2, 0xF2, 0xF0), Cost = 0m, Capacity = 1100,
+                Description = "A tank holding 1.1 tonnes of LPG, its pressure relief valve on top"
+            },
+            new ComponentType("LPG Cylinders - 2 x 47 kg", BuiltInCategory.MechanicalEquipment, ComponentForm.LpgCylinders, 820, 400, 1300)
+            {
+                TypeMark = "LP3", Colour = new ColourRgb(0xB8, 0x2A, 0x2A), Cost = 120m, Capacity = 94,
+                Description = "Two 47 kg propane cylinders upright, chained to a wall, their valves on top"
+            },
+
+            // A basement's smoke outlets (Approved Document B Section 16, Diagram 16.1): a louvred grille at high level in the outside wall,
+            // up a shaft to a stallboard, and a pavement light over a shaft in the basement's ceiling that can be broken out.
+            new ComponentType("Smoke Outlet - Stallboard Grille 1200 x 450", BuiltInCategory.AirTerminals, ComponentForm.SmokeOutlet, 1200, 150, 450)
+            {
+                TypeMark = "SO1", Colour = new ColourRgb(0x5A, 0x5A, 0x5A), Cost = 650m, Capacity = 0.4,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2000,
+                Description = "A class A1 louvred grille at high level in the outside wall, up a fire-resisting shaft to a stallboard; 0.40 m² clear"
+            },
+            new ComponentType("Smoke Outlet - Pavement Light 900 x 900", BuiltInCategory.AirTerminals, ComponentForm.SmokeOutlet, 900, 900, 150)
+            {
+                TypeMark = "SO2", Colour = new ColourRgb(0x9A, 0xB8, 0xC8), Cost = 1200m, Capacity = 0.6,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2400,
+                Description = "A pavement light over a fire-resisting shaft in the basement's ceiling, broken out or opened by the fire and rescue service; 0.60 m² clear"
+            },
+
+            // A dry fire main for a block of flats: its inlet in a box on the face of the building, and an outlet - a landing valve - on
+            // each storey of the protected stair (Approved Document B 13.5, 14.3, 14.4; BS 9990).
+            new ComponentType("Fire Main Inlet - Dry, 2 Way", BuiltInCategory.Sprinklers, ComponentForm.FireMainInlet, 610, 330, 460)
+            {
+                TypeMark = "FM1", Colour = new ColourRgb(0xC0, 0x2A, 0x2A), Cost = 850m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 450,
+                Description = "A dry fire main's two-way inlet in its box on the face of the building, a pumping appliance's hoses connected to it"
+            },
+            new ComponentType("Fire Main Outlet - Landing Valve", BuiltInCategory.Sprinklers, ComponentForm.FireMainOutlet, 250, 250, 350)
+            {
+                TypeMark = "FM2", Colour = new ColourRgb(0xC0, 0x2A, 0x2A), Cost = 420m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 750,
+                Description = "A fire main's landing valve in the protected stair, the fire and rescue service's hose taken from it to the flats"
+            },
+
             // Trees at their mature heights, with how much water they draw as NHBC Standards
             // Table 3 sorts them - which is how far round them a clay soil is dried - and their
             // stems' diameters, which their root protection areas are measured from (BS 5837).
@@ -2694,6 +2773,12 @@ public sealed class BimDocument
         {
             document.AddType(type);
         }
+
+        // Approved Document Q: the library's windows and roof windows made to PAS 24, as new homes' are sold; the front door and the fire
+        // door - a flat's entrance - secure doorsets with a viewer and a limiter.
+        foreach (var window in document.TypesOf<WindowType>()) window.Security = "PAS 24:2016";
+        foreach (var roofLight in document.TypesOf<RoofWindowType>()) roofLight.Security = "PAS 24:2016";
+        foreach (var door in new[] { frontDoor, fireDoor }) (door.Security, door.DoorViewer, door.DoorLimiter) = ("PAS 24:2016", true, true);
 
         foreach (var curtain in document.TypesOf<CurtainWallType>()) curtain.TakeDepth(document);
 

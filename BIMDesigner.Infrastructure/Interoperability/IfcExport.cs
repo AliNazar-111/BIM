@@ -2359,7 +2359,7 @@ public static partial class IfcExport
             ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating or ComponentForm.GasFire => ComponentClass.Heater,
             ComponentForm.HeatPump => ComponentClass.HeatPump,
             ComponentForm.HeatRecoveryUnit => ComponentClass.HeatRecovery,
-            ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal or ComponentForm.BackgroundVentilator => ComponentClass.AirTerminal,
+            ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal or ComponentForm.BackgroundVentilator or ComponentForm.SmokeOutlet => ComponentClass.AirTerminal,
             ComponentForm.ExtractUnit => ComponentClass.ExtractUnit,
             ComponentForm.DuctSmokeDetector => ComponentClass.Sensor,
             ComponentForm.Socket or ComponentForm.ShaverSocket => ComponentClass.Outlet,
@@ -2369,9 +2369,9 @@ public static partial class IfcExport
             ComponentForm.ConsumerUnit => ComponentClass.Board,
             ComponentForm.Thermostat => ComponentClass.Control,
             ComponentForm.Boiler => ComponentClass.Boiler,
-            ComponentForm.HotWaterCylinder => ComponentClass.Tank,
+            ComponentForm.HotWaterCylinder or ComponentForm.OilTank or ComponentForm.LpgTank or ComponentForm.LpgCylinders => ComponentClass.Tank,
             ComponentForm.StopValve or ComponentForm.SprinklerValve => ComponentClass.Valve,
-            ComponentForm.Sprinkler => ComponentClass.Sprinkler,
+            ComponentForm.Sprinkler or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet => ComponentClass.Sprinkler,
             ComponentForm.GasMeter => ComponentClass.Meter,
             ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway => ComponentClass.Chamber,
             ComponentForm.AirAdmittanceValve => ComponentClass.AirValve,
@@ -2460,11 +2460,12 @@ public static partial class IfcExport
                 {
                     terminal.PredefinedType = type.Form switch
                     {
-                        ComponentForm.OutsideTerminal => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.LOUVRE,
+                        ComponentForm.OutsideTerminal or ComponentForm.SmokeOutlet => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.LOUVRE,
                         ComponentForm.BackgroundVentilator => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.USERDEFINED,
                         _ => Xbim.Ifc4.Interfaces.IfcAirTerminalTypeEnum.DIFFUSER
                     };
                     if (type.Form == ComponentForm.BackgroundVentilator) terminal.ObjectType = "Background ventilator";
+                    if (type.Form == ComponentForm.SmokeOutlet) terminal.ObjectType = "Basement smoke outlet";
                 }),
                 ComponentClass.ExtractUnit => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcUnitaryEquipment>(component, type, meshes, unit =>
                 {
@@ -2493,11 +2494,16 @@ public static partial class IfcExport
                 ComponentClass.Boiler => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcBoiler>(component, type, meshes, boiler =>
                     boiler.PredefinedType = Xbim.Ifc4.Interfaces.IfcBoilerTypeEnum.WATER),
                 ComponentClass.Tank => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcTank>(component, type, meshes, tank =>
-                    tank.PredefinedType = Xbim.Ifc4.Interfaces.IfcTankTypeEnum.STORAGE),
+                    tank.PredefinedType = type.Form is ComponentForm.LpgTank or ComponentForm.LpgCylinders ? Xbim.Ifc4.Interfaces.IfcTankTypeEnum.PRESSUREVESSEL : Xbim.Ifc4.Interfaces.IfcTankTypeEnum.STORAGE),
                 ComponentClass.Valve => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcValve>(component, type, meshes, valve =>
                     valve.PredefinedType = type.Form == ComponentForm.SprinklerValve ? Xbim.Ifc4.Interfaces.IfcValveTypeEnum.ISOLATING : Xbim.Ifc4.Interfaces.IfcValveTypeEnum.STOPCOCK),
                 ComponentClass.Sprinkler => ComponentProduct<IfcFireSuppressionTerminal>(component, type, meshes, sprinkler =>
-                    sprinkler.PredefinedType = IfcFireSuppressionTerminalTypeEnum.SPRINKLER),
+                    sprinkler.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.FireMainInlet => IfcFireSuppressionTerminalTypeEnum.BREECHINGINLET,
+                        ComponentForm.FireMainOutlet => IfcFireSuppressionTerminalTypeEnum.FIREHYDRANT,
+                        _ => IfcFireSuppressionTerminalTypeEnum.SPRINKLER
+                    }),
                 ComponentClass.Meter => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcFlowMeter>(component, type, meshes, meter =>
                     meter.PredefinedType = Xbim.Ifc4.Interfaces.IfcFlowMeterTypeEnum.GASMETER),
                 ComponentClass.Chamber => ComponentProduct<Xbim.Ifc4.SharedBldgServiceElements.IfcDistributionChamberElement>(component, type, meshes, chamber =>

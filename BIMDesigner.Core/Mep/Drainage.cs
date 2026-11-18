@@ -84,14 +84,25 @@ public static class Drainage
         return plan < 1 ? (load.Far.Z >= load.Near.Z ? double.PositiveInfinity : double.NegativeInfinity) : (load.Far.Z - load.Near.Z) / plan * 1000;
     }
 
-    /// <summary>The level the building stands at: its lowest storey's.</summary>
-    private static double GroundFloor(BimDocument document) => document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
+    /// <summary>The level the building stands at: its ground floor's - the lowest storey that is not a basement.</summary>
+    private static double GroundFloor(BimDocument document) => Escape.Ground(document);
 
-    /// <summary>Whether a pipe is below the ground: both its ends more than 150 mm below its lowest storey's floor - the ground being at least that far below a floor's damp-proof course.</summary>
+    /// <summary>
+    /// Whether a pipe is below the ground: both its ends more than 150 mm below the ground floor - the ground being at least that far below
+    /// a floor's damp-proof course - and neither in a basement, over its floor: there it is drainage inside the building.
+    /// </summary>
     public static bool BelowGround(BimDocument document, Pipe pipe)
     {
         var (start, end) = pipe.Ends(document);
-        return Math.Max(start.Z, end.Z) < GroundFloor(document) - 150;
+        return Math.Max(start.Z, end.Z) < GroundFloor(document) - 150 && !InBasement(document, start) && !InBasement(document, end);
+    }
+
+    /// <summary>Whether a point is in a basement's room, over its floor: the storey under the ground floor with a room there, its floor at or under the point.</summary>
+    internal static bool InBasement(BimDocument document, Point3D at)
+    {
+        var ground = GroundFloor(document);
+        var storey = document.Levels.Where(level => level.Elevation < ground - 1 && level.Elevation <= at.Z + 150).OrderByDescending(level => level.Elevation).FirstOrDefault();
+        return storey is not null && RoomsOf.Containing(document, storey.Id, new Point2D(at.X, at.Y)) is not null;
     }
 
     /// <summary>Water's kinematic viscosity at 15 °C, m²/s, as HR Wallingford's tables take it.</summary>
@@ -434,7 +445,7 @@ public static class Drainage
                     yield return new MepProblem(fitting, $"its branch falls {Units.Millimetres(most, "0")} a metre - Approved Document H (Table 2) lays it no steeper than {steepest:0}");
 
                 // A ground floor WC straight to a drain: only where the drain is within 1.3 m of the floor.
-                if (wc && network.Loads[branch[^1]].Toward is { } into && BelowGround(document, into) && fitting.LevelId == document.Levels.OrderBy(level => level.Elevation).First().Id)
+                if (wc && network.Loads[branch[^1]].Toward is { } into && BelowGround(document, into) && Math.Abs((document.FindLevel(fitting.LevelId)?.Elevation ?? double.NaN) - floor) < 1)
                 {
                     var depth = floor - (network.Loads[branch[^1]].Near.Z - Bore(document, into) / 2);
                     if (depth > 1300 + 1)

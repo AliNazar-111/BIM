@@ -332,12 +332,12 @@ public static class GasPipes
     {
         if (network.System.Kind != SystemKind.Gas) yield break;
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
-        var ground = document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
+        var ground = Escape.Ground(document);
 
         foreach (var pipe in PipeNetworks.PipesOf(document, network.System))
         {
             var (start, end) = pipe.Ends(document);
-            if (Plastic(MaterialOf(document, pipe)) && Math.Max(start.Z, end.Z) > ground - 150)
+            if (Plastic(MaterialOf(document, pipe)) && (Math.Max(start.Z, end.Z) > ground - 150 || Drainage.InBasement(document, start) || Drainage.InBasement(document, end)))
                 yield return new MepProblem(pipe, us
                     ? "gas in plastic pipe above the ground - the IRC (G2414) runs it in steel pipe, copper tubing or CSST, plastic only underground outside the building"
                     : "gas in plastic pipe above the ground - BS 6891 runs it in copper, steel or corrugated stainless steel, polyethylene only below the ground outside the building");

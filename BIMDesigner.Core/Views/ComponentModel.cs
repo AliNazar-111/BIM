@@ -1080,6 +1080,25 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.FireMainInlet:
+            {
+                // The inlet box on the wall, its glazed door's frame facing out, and its two inlets behind it.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW + 30, halfW - 30, halfD - 1, halfD + 5, 30, h - 30, PartFinish.White, PartShape.Facing);
+                Add(-halfW * 0.6, -halfW * 0.1, halfD - 60, halfD, h * 0.35, h * 0.65, PartFinish.Metal, PartShape.Facing);
+                Add(halfW * 0.1, halfW * 0.6, halfD - 60, halfD, h * 0.35, h * 0.65, PartFinish.Metal, PartShape.Facing);
+                break;
+            }
+
+            case ComponentForm.FireMainOutlet:
+            {
+                // The main up the wall behind, and the landing valve off it, its outlet facing out.
+                Add(-40, 40, -halfD, -halfD + 80, 0, h, PartFinish.Metal, PartShape.Upright);
+                Add(-halfW, halfW, -halfD + 80, halfD, h * 0.3, h * 0.7, PartFinish.Body, PartShape.Upright);
+                Add(-35, 35, halfD - 1, halfD + 30, h * 0.4, h * 0.6, PartFinish.Metal, PartShape.Facing);
+                break;
+            }
+
             case ComponentForm.SprinklerValve:
             {
                 // The valve set on the wall, its gauge facing out, and its main up out of the top.
@@ -1186,6 +1205,53 @@ public static class ComponentModel
                 Add(-halfW, halfW, -halfD, halfD, 0, h, PartFinish.Body, PartShape.Upright);
                 Add(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, h, h + 5, PartFinish.Dark, PartShape.Upright);
                 break;
+
+            case ComponentForm.LpgTank:
+            {
+                // The tank lying on its legs, its valves' shroud on top.
+                Add(-halfW * 0.85, -halfW * 0.7, -halfD * 0.6, halfD * 0.6, 0, h * 0.25, PartFinish.Dark);
+                Add(halfW * 0.7, halfW * 0.85, -halfD * 0.6, halfD * 0.6, 0, h * 0.25, PartFinish.Dark);
+                Add(-halfW, halfW, -halfD, halfD, h * 0.2, h * 0.9, PartFinish.Body, PartShape.Upright);
+                Add(-120, 120, -120, 120, h * 0.9, h, PartFinish.Metal, PartShape.Upright);
+                break;
+            }
+
+            case ComponentForm.SmokeOutlet:
+            {
+                // Its frame, and dark slats across it: a louvred grille, or the bars of a pavement light seen from under it.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                var slats = Math.Max(2, (int)(type.Width / 150));
+                for (var i = 1; i < slats; i++)
+                {
+                    var at = -halfW + i * 2 * halfW / slats;
+                    Add(at - 10, at + 10, -halfD - 1, halfD + 1, h * 0.15, h * 0.85, PartFinish.Dark);
+                }
+
+                break;
+            }
+
+            case ComponentForm.LpgCylinders:
+            {
+                // Two cylinders side by side, their valves on top.
+                foreach (var side in new[] { -1.0, 1.0 })
+                {
+                    var middle = side * halfW / 2;
+                    Add(middle - halfW / 2 + 10, middle + halfW / 2 - 10, -halfD, halfD, 0, h * 0.9, PartFinish.Body, PartShape.Upright);
+                    Add(middle - 40, middle + 40, -40, 40, h * 0.9, h, PartFinish.Metal, PartShape.Upright);
+                }
+
+                break;
+            }
+
+            case ComponentForm.OilTank:
+            {
+                // The tank on the ground, its top a little narrower - an inner tank in its bund - and its fill and gauge on top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h * 0.85);
+                Add(-halfW * 0.92, halfW * 0.92, -halfD * 0.9, halfD * 0.9, h * 0.85, h - 40);
+                Add(-halfW * 0.6, -halfW * 0.45, -60, 60, h - 40, h, PartFinish.Dark, PartShape.Upright);
+                Add(halfW * 0.4, halfW * 0.55, -60, 60, h - 40, h, PartFinish.Dark, PartShape.Upright);
+                break;
+            }
 
             case ComponentForm.Gully:
                 // Its grating in its frame, flush with the ground, its bars across it.
@@ -1552,6 +1618,17 @@ public static class ComponentModel
                 shapes.Add(frame.Ellipse(-16, 16, -16, 16, 12));
                 break;
 
+            case ComponentForm.FireMainInlet:
+                // Its two inlets, side by side in the box.
+                shapes.Add(frame.Ellipse(-halfW * 0.55, -halfW * 0.15, -halfD * 0.4, halfD * 0.4, 12));
+                shapes.Add(frame.Ellipse(halfW * 0.15, halfW * 0.55, -halfD * 0.4, halfD * 0.4, 12));
+                break;
+
+            case ComponentForm.FireMainOutlet:
+                // The main it stands on, seen from above.
+                shapes.Add(frame.Ellipse(-40, 40, -halfD, -halfD + 80, 12));
+                break;
+
             case ComponentForm.GasFire:
                 // The fire against the breast, its hearth in front of it.
                 Inside(-halfW * 0.8, halfW * 0.8, -halfD, -halfD + FireDepth(type));
@@ -1619,6 +1696,36 @@ public static class ComponentModel
 
             case ComponentForm.StopValve:
                 shapes.Add(frame.Ellipse(-15, 15, -15, 15, 12));
+                break;
+
+            case ComponentForm.LpgTank:
+                // Its valves' shroud on top.
+                shapes.Add(frame.Ellipse(-120, 120, -120, 120, 16));
+                break;
+
+            case ComponentForm.SmokeOutlet:
+            {
+                // Its slats across it.
+                var slats = Math.Max(2, (int)(type.Width / 150));
+                for (var i = 1; i < slats; i++)
+                {
+                    var at = -halfW + i * 2 * halfW / slats;
+                    Inside(at - 10, at + 10, -halfD, halfD);
+                }
+
+                break;
+            }
+
+            case ComponentForm.LpgCylinders:
+                // The two cylinders from above.
+                shapes.Add(frame.Ellipse(-halfW + 10, -10, -halfD, halfD, 16));
+                shapes.Add(frame.Ellipse(10, halfW - 10, -halfD, halfD, 16));
+                break;
+
+            case ComponentForm.OilTank:
+                // Its inner tank within its bund, and its fill on top.
+                Inside(-halfW * 0.92, halfW * 0.92, -halfD * 0.9, halfD * 0.9);
+                shapes.Add(frame.Ellipse(-halfW * 0.6, -halfW * 0.45, -60, 60, 12));
                 break;
 
             case ComponentForm.GasMeter:
@@ -1873,6 +1980,8 @@ public static class ComponentModel
         ComponentForm.Boiler => "B",
         ComponentForm.GasFire => "GF",
         ComponentForm.SprinklerValve => "SVS",
+        ComponentForm.FireMainInlet => "FMI",
+        ComponentForm.FireMainOutlet => "LV",
         ComponentForm.HotWaterCylinder => type.BurnsGas ? "WH" : "HWC",
         ComponentForm.StopValve => "SV",
         ComponentForm.GasMeter => "GM",
@@ -1888,6 +1997,9 @@ public static class ComponentModel
         ComponentForm.SurfaceWaterOutfall => "SW",
         ComponentForm.Soakaway => "SA",
         ComponentForm.PumpingStation => "PS",
+        ComponentForm.OilTank => "OT",
+        ComponentForm.LpgTank or ComponentForm.LpgCylinders => "LPG",
+        ComponentForm.SmokeOutlet => "SO",
         ComponentForm.AirAdmittanceValve => "AAV",
         ComponentForm.HeatPump => "HP",
         ComponentForm.HeatRecoveryUnit => "MVHR",
@@ -1911,7 +2023,8 @@ public static class ComponentModel
         type.Form is not (ComponentForm.CeilingLight or ComponentForm.WallLight or ComponentForm.Socket or ComponentForm.Switch
             or ComponentForm.ExtractFan or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm
             or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler
-            or ComponentForm.StopValve or ComponentForm.GasMeter or ComponentForm.Sprinkler or ComponentForm.SprinklerValve);
+            or ComponentForm.StopValve or ComponentForm.GasMeter or ComponentForm.Sprinkler or ComponentForm.SprinklerValve
+            or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet);
 
     /// <summary>How far a gas fire stands out from the wall behind its hearth, mm.</summary>
     public static double FireDepth(ComponentType type) => Math.Min(150, type.Depth * 0.5);
@@ -1974,9 +2087,10 @@ public static class ComponentModel
     /// <summary>How wide a person is across the body either side of the middle, and how thick an arm is.</summary>
     private static (double Torso, double Arm) PersonOf(ComponentType type) => (type.Width * 0.36, type.Width * 0.1);
 
-    /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, a smoke, heat or carbon monoxide alarm, or a sprinkler.</summary>
+    /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, a smoke, heat or carbon monoxide alarm, a sprinkler, or a smoke outlet in the ceiling - a pavement light.</summary>
     public static bool HangsFromCeiling(ComponentType type) =>
-        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.Sprinkler;
+        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.Sprinkler
+        || type.Form == ComponentForm.SmokeOutlet && type.Placement != ComponentPlacement.FaceBased;
 
     /// <summary>An armchair's arms and back, how thick, and the height of its seat - 450 or so on a 950 chair.</summary>
     private static (double Arm, double Back, double Seat) ArmchairOf(ComponentType type) =>

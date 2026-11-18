@@ -169,6 +169,10 @@ public sealed class Room : Element
         if (Architecture.WindowRules.Verdict(document, this) is { } windows)
             yield return ParameterValue.ReadOnly(RoomParameters.Windows, () => windows);
 
+        // Its linings: how readily its walls' faces and its ceiling burn (Approved Document B Table 4.1).
+        if (Combustibility.LiningVerdict(document, this) is { } linings)
+            yield return ParameterValue.ReadOnly(RoomParameters.Linings, () => linings);
+
         // Its view out, seated in its middle, as BS EN 17037 grades it.
         yield return ParameterValue.ReadOnly(RoomParameters.ViewOut, () => Views.ViewOut.OfRoom(document, this)?.Said ?? string.Empty);
 
@@ -322,6 +326,9 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition Windows =
         new("Windows", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Linings =
+        new("Linings", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     /// <summary>The room's view out, seated in its middle, as BS EN 17037 grades it.</summary>
     public static readonly ParameterDefinition ViewOut =
