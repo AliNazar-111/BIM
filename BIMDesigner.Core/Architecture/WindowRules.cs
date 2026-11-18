@@ -285,7 +285,7 @@ public static class WindowRules
         var (windows, doors) = Of(document, room, boundary.Polygon);
         var floor = boundary.Area / 1e6;
         var level = document.FindLevel(room.LevelId);
-        var ground = document.Levels.Count == 0 ? 0 : document.Levels.Min(other => other.Elevation);
+        var ground = Escape.Ground(document);
         var above = (level?.Elevation ?? 0) - ground;
         var bedroom = pieces.Any(type => type.Form is ComponentForm.Bed or ComponentForm.BunkBed);
         var said = new List<string>();

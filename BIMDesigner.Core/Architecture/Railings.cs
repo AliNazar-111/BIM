@@ -1026,7 +1026,7 @@ public static class Railings
 
         var walls = StairModel.WallBands(document);
         var limit = GuardedDrop(document, building);
-        var lowest = document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
+        var lowest = Escape.Ground(document);
         var arrivals = document.All<Stair>()
             .SelectMany(stair => Stairs.Flights(document, stair))
             .SelectMany(flight => flight.Layout.Arrivals.Select(arrival => (arrival.From, arrival.To, flight.Layout.Top)))

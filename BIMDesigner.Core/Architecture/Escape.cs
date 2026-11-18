@@ -21,12 +21,20 @@ public sealed record EscapeProblem(Room Room, string Said);
 /// the habitable rooms fire doors (FD20 at least; its walls' REI 30 taken as built), or it has another way out.
 ///
 /// The common parts of a block whose flats are more than 4.5 m up (3.25, Table 3.1): from each flat's entrance door to the nearest common
-/// stair, as it is walked through the common parts, 7.5 m at most where there is only one stair to go to, 30 m where there are more.
+/// stair, as it is walked through the common parts, 30 m at most where escape is in more than one direction - routes to two stairs leaving
+/// the door 45 degrees or more apart, as Volume 2 (2.10, Diagram 2.2) tells them - and 7.5 m where it is in one direction only, to the only
+/// stair or out of a dead end (3.27b); and no flat opening straight onto the only stair (3.27a, Diagram 3.7).
+///
+/// Storeys (round 87): a house with a storey more than 7.5 m above the ground - and a flat with its own entrance at the ground (3.20) - an
+/// alternative escape route from each, or sprinklers throughout (2.6); a flat over more than one storey entered from the common parts, a
+/// storey of it more than 4.5 m up, one of the four approaches of 3.21; a basement with habitable rooms, an escape window or door out of it, or
+/// a protected stairway up to a final exit (2.16, 3.9); a gallery, an alternative exit, an escape window, or Diagram 2.6's conditions (2.15,
+/// 3.13).
 ///
 /// A flat is the rooms named into one dwelling (round 77); its entrance door, a door from them into rooms of no dwelling - the common parts -
 /// or outside. A house - no dwellings named - is all the rooms, its ways out its outside doors and, upstairs, its stair.
 /// </summary>
-public static class Escape
+public static partial class Escape
 {
     /// <summary>The highest a storey may be above the ground before the rules for higher storeys apply, mm.</summary>
     public const double High = 4500;
@@ -50,7 +58,7 @@ public static class Escape
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs() || document.Levels.Count == 0) return Array.Empty<EscapeProblem>();
         using var outlines = new RoomsOf.Outlines();
-        var ground = document.Levels.Min(level => level.Elevation);
+        var ground = Ground(document);
         var rooms = document.All<Room>().Select(room => (Room: room, Boundary: room.GetBoundary(document)))
             .Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToDictionary(entry => entry.Room, entry => entry.Boundary.Polygon);
         if (rooms.Count == 0) return Array.Empty<EscapeProblem>();
@@ -61,6 +69,7 @@ public static class Escape
         double Above(Room room) => (document.FindLevel(room.LevelId)?.Elevation ?? 0) - ground;
         bool Circulation(Room room) => stairRooms.Contains(room) || Lighting.KindOf(document, room, rooms[room]) is LitRoom.Hall or LitRoom.Stairs
                                       || Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch");
+        var plan = new Plan(document, rooms, links, Flights(document, rooms), Circulation, Above);
 
         // The homes: each dwelling named, or - none named - the house; their rooms storey by storey.
         var named = rooms.Keys.Any(room => Dwellings.Of(room).Length > 0);
@@ -78,6 +87,12 @@ public static class Escape
                 problems.AddRange(InnerRooms(document, rooms, links, here, exits, Circulation, Above));
             }
 
+            // Its storeys: more than 7.5 m up in a house, or a flat with its own entrance at the ground; a flat over storeys, entered from
+            // the common parts; and basements.
+            if (!named || OwnEntrance(plan, own)) problems.AddRange(HighStoreys(plan, own, name));
+            else if (MultiStorey(plan, own, name) is { } storeys) problems.Add(storeys);
+            problems.AddRange(Basements(plan, own, name));
+
             // A flat on one storey more than 4.5 m up: 9 m from its entrance door, unless its hall is protected or it has another way out.
             if (named && own.Select(room => room.LevelId).Distinct().Count() == 1 && own.Max(Above) > High + 0.5
                 && FlatTravel(document, rooms, links, own, name, Circulation) is { } far)
@@ -85,7 +100,8 @@ public static class Escape
         }
 
         // The common parts of a block whose flats are more than 4.5 m up: from each entrance door to a common stair.
-        if (named) problems.AddRange(CommonParts(document, rooms, links, homes, stairRooms, Above));
+        problems.AddRange(Galleries(plan, named));
+        if (named) problems.AddRange(CommonParts(plan, homes));
         return problems;
     }
 
@@ -199,11 +215,7 @@ public static class Escape
         if (entrances.Count != 1) return null;
         var entrance = entrances[0];
 
-        // Its hall protected: the room the door opens into a hall, and every door off it to a habitable room a fire door.
-        var hall = entrance.Room;
-        if (circulation(hall) && links.Where(link => link.Room == hall && link.Other is { } other && own.Contains(other) && Habitable(document, outlines, other))
-                .All(link => document.FindType<DoorType>(link.Door.TypeId) is { } type && Doors.FireMinutes(type.FireRating) >= 20))
-            return null;
+        if (HallProtected(document, outlines, links, own, entrance.Room, circulation)) return null;
 
         var walk = new Walk(outlines, links.Where(link => own.Contains(link.Room) && link.Other is { } other && own.Contains(other)).ToList());
         var from = walk.From(entrance.Room, entrance.Inside);
@@ -220,37 +232,77 @@ public static class Escape
     private static bool Habitable(BimDocument document, IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> outlines, Room room) =>
         !Excused(room) && Lighting.KindOf(document, room, outlines[room]) is not (LitRoom.Hall or LitRoom.Stairs or LitRoom.Bathroom or LitRoom.Utility or LitRoom.Garage);
 
-    /// <summary>From each flat's entrance door into the common parts, to the nearest common stair on that storey (Table 3.1).</summary>
-    private static IEnumerable<EscapeProblem> CommonParts(BimDocument document, IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> outlines, List<Link> links,
-        List<(string Name, HashSet<Room> Rooms)> homes, HashSet<Room> stairRooms, Func<Room, double> above)
+    /// <summary>
+    /// From each flat's entrance door into the common parts, to the nearest common stair on that storey (Table 3.1): 30 m where escape is in
+    /// more than one direction - the routes to two stairs leaving the door 45 degrees or more apart (Volume 2, 2.10, Diagram 2.2) - else 7.5 m,
+    /// to the only stair or out of a dead end (3.27b); and, with only one stair, no flat's door opening straight onto it (3.27a).
+    /// </summary>
+    private static IEnumerable<EscapeProblem> CommonParts(Plan plan, List<(string Name, HashSet<Room> Rooms)> homes)
     {
+        var (document, outlines, links) = (plan.Document, plan.Outlines, plan.Links);
         var common = outlines.Keys.Where(room => Dwellings.Of(room).Length == 0).ToHashSet();
         if (common.Count == 0) yield break;
         var walk = new Walk(outlines, links.Where(link => common.Contains(link.Room) && link.Other is { } other && common.Contains(other)).ToList());
+        var toStair = new Dictionary<(Room, Point2D), Func<Room, Point2D, double?>>();
 
-        foreach (var (name, own) in homes.Where(home => home.Rooms.Max(above) > High + 0.5))
+        // A small single stair building (3.28): its top storey 11 m up at most, no more than three storeys over the ground storey.
+        var storeys = outlines.Keys.Where(room => plan.Above(room) > 0.5).Select(room => room.LevelId).Distinct().Count();
+        var small = outlines.Keys.Max(plan.Above) <= SmallTop + 0.5 && storeys <= 3;
+
+        foreach (var (name, own) in homes.Where(home => home.Rooms.Max(plan.Above) > High + 0.5))
         foreach (var entrance in links.Where(link => common.Contains(link.Room) && link.Other is { } flat && own.Contains(flat)))
         {
             // The common stairs on its storey: where each stair's walk starts or ends there, in the common parts.
+            var level = entrance.Room.LevelId;
             var stairs = new List<(Room Room, Point2D At)>();
-            foreach (var stair in document.All<Stair>())
+            foreach (var flight in plan.Flights)
             {
-                var line = Stairs.Layout(document, stair).WalkingLine;
-                if (line.Count < 2) continue;
-                var at = stair.LevelId == entrance.Room.LevelId ? line[0] : stair.TopLevelId == entrance.Room.LevelId ? line[^1] : (Point2D?)null;
-                if (at is { } point && common.FirstOrDefault(room => room.LevelId == entrance.Room.LevelId && Polygon2D.Contains(outlines[room], point)) is { } room)
-                    stairs.Add((room, point));
+                var (room, at) = flight.Stair.LevelId == level ? (flight.Foot, flight.FootAt) : flight.Stair.TopLevelId == level ? (flight.Head, flight.HeadAt) : (null, default);
+                if (room is not null && common.Contains(room)) stairs.Add((room, at));
             }
 
             if (stairs.Count == 0) continue;
             var from = walk.From(entrance.Room, entrance.Inside);
-            var reached = stairs.Select(stair => from(stair.Room, stair.At)).OfType<double>().ToList();
+            var reached = stairs.Select(stair => (Stair: stair, Distance: from(stair.Room, stair.At))).Where(entry => entry.Distance is not null).ToList();
             if (reached.Count == 0) continue;
-            var nearest = reached.Min();
-            var limit = reached.Count > 1 ? MoreWays : OneWay;
+
+            // With only one stair, a protected lobby or corridor between it and each flat - in a small building of two flats a storey, or
+            // their entrance halls protected (Diagram 3.9b).
+            if (reached.Count == 1 && reached[0].Stair.Room == entrance.Room)
+            {
+                var two = small && homes.Count(home => home.Rooms.Any(room => room.LevelId == level)) <= 2;
+                if (!(two && HallProtected(document, outlines, links, own, entrance.Other!, plan.Circulation)))
+                    yield return new EscapeProblem(entrance.Room, $"{name}'s entrance door opens straight onto the only common stair - Approved Document B (3.27a, Diagram 3.7) asks a protected lobby or protected corridor between each flat and it{(two ? ", or - in a small single stair building of two flats a storey - the flat's entrance hall protected (Diagram 3.9b)" : string.Empty)}");
+            }
+
+            // In more than one direction: the first steps toward two of the stairs 45 degrees or more apart.
+            var headings = reached.Select(entry =>
+            {
+                if (!toStair.TryGetValue(entry.Stair, out var to)) toStair[entry.Stair] = to = walk.From(entry.Stair.Room, entry.Stair.At);
+                return Heading(to, entrance.Room, entrance.Inside, outlines[entrance.Room]);
+            }).OfType<Vector2D>().ToList();
+            var ways = headings.Any(one => headings.Any(other => one.Dot(other) <= Math.Cos(Math.PI / 4) + 1e-9));
+            var nearest = reached.Min(entry => entry.Distance!.Value);
+            var limit = ways ? MoreWays : OneWay;
             if (nearest > limit + 0.5)
-                yield return new EscapeProblem(entrance.Room, $"{name}'s entrance door is {Units.Metres(nearest, "0.0")} from the common stair, walked - Approved Document B (Table 3.1) allows {Units.Metres(limit, "0.0")} where escape is {(reached.Count > 1 ? "in more than one direction" : "in one direction only")}");
+                yield return new EscapeProblem(entrance.Room, $"{name}'s entrance door is {Units.Metres(nearest, "0.0")} from the common stair, walked - Approved Document B (Table 3.1) allows {Units.Metres(limit, "0.0")} where escape is {(ways ? "in more than one direction" : reached.Count > 1 ? "in one direction only, out of a dead end (3.27b)" : "in one direction only")}");
         }
+    }
+
+    /// <summary>Which way the walk to somewhere sets off from a point: of the points 300 mm round it, the one nearest it, walked; null where none is nearer.</summary>
+    private static Vector2D? Heading(Func<Room, Point2D, double?> to, Room room, Point2D at, IReadOnlyList<Point2D> outline)
+    {
+        if (to(room, at) is not { } here) return null;
+        Vector2D? best = null;
+        for (var k = 0; k < 72; k++)
+        {
+            var way = new Vector2D(Math.Cos(k * Math.PI / 36), Math.Sin(k * Math.PI / 36));
+            var probe = at + way * 300;
+            if (Polygon2D.Contains(outline, probe) && to(room, probe) is { } there && there < here - 1e-6)
+                (here, best) = (there, way);
+        }
+
+        return best;
     }
 
     /// <summary>Points of a room to measure to: a grid every 500 mm, and its corners a little inside it.</summary>

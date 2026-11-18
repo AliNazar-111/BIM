@@ -54,7 +54,8 @@ public static class FireAccess
         }
 
         var sources = ways.Select(link => (link.Room, link.Inside, Nearest(drives, link.Beyond) + link.Inside.DistanceTo(link.Beyond))).ToList();
-        var walk = new Escape.Walk(rooms, links, Stairways(document, rooms));
+        var walk = new Escape.Walk(rooms, links, Escape.Flights(document, rooms).Where(flight => flight.Foot is not null && flight.Head is not null)
+            .Select(flight => (flight.Foot!, flight.FootAt, flight.Head!, flight.HeadAt, flight.Length)));
         var from = walk.From(sources);
 
         // Every point inside the house - or each flat, where the rooms are named into flats - within 45 m along the hose.
@@ -69,27 +70,6 @@ public static class FireAccess
         }
 
         return problems;
-    }
-
-    /// <summary>The stairs between rooms: the room at each one's foot and the point it starts at, the room at its head and the point it ends at, and how long it is walked, rise and all.</summary>
-    private static List<(Room Foot, Point2D FootAt, Room Head, Point2D HeadAt, double Length)> Stairways(BimDocument document, IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> rooms)
-    {
-        var stairways = new List<(Room, Point2D, Room, Point2D, double)>();
-        foreach (var stair in document.All<Stair>().Where(stair => stair.TopLevelId is not null))
-        {
-            StairLayout layout;
-            try { layout = Stairs.Layout(document, stair); }
-            catch (Exception) { continue; }
-            var line = layout.WalkingLine;
-            if (line.Count < 2) continue;
-            Room? In(Guid level, Point2D at) => rooms.FirstOrDefault(entry => entry.Key.LevelId == level && Polygon2D.Contains(entry.Value, at)).Key;
-            if (In(stair.LevelId, line[0]) is not { } foot || In(stair.TopLevelId!.Value, line[^1]) is not { } head) continue;
-            var plan = line.Zip(line.Skip(1), (a, b) => a.DistanceTo(b)).Sum();
-            var rise = (document.FindLevel(stair.TopLevelId.Value)?.Elevation ?? 0) - (document.FindLevel(stair.LevelId)?.Elevation ?? 0);
-            stairways.Add((foot, line[0], head, line[^1], Math.Sqrt(plan * plan + rise * rise)));
-        }
-
-        return stairways;
     }
 
     /// <summary>How far a point is from the nearest drive: none inside one, else to the nearest of its edges.</summary>

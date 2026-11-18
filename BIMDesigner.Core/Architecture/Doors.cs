@@ -99,7 +99,7 @@ public static class Doors
     {
         var withRooms = document.Levels.Where(level => document.All<Room>().Any(room => room.LevelId == level.Id)).ToList();
         if (withRooms.Count == 0) return false;
-        var ground = document.Levels.Min(level => level.Elevation);
+        var ground = Escape.Ground(document);
         return withRooms.Any(level => level.Elevation - ground > 4500 + 0.5);
     }
 

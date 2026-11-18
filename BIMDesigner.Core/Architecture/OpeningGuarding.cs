@@ -32,7 +32,7 @@ public static class OpeningGuarding
         if (document.GetWallType(wall) is not { } body) return (0, 1);
 
         var floor = wall.GetBaseElevation(document);
-        var lowest = document.Levels.Count == 0 ? 0 : document.Levels.Min(level => level.Elevation);
+        var lowest = Escape.Ground(document);
         double DropOn(double side)
         {
             var beside = wall.PointAt(body.Structure, Math.Clamp(along, 0, wall.Length), side * (body.Structure.TotalWidth / 2 + 600));
