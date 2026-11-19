@@ -153,6 +153,7 @@ public static partial class ProjectFile
                 ReactionToFire = material.ReactionToFire.Length == 0 ? null : material.ReactionToFire,
                 RoofCovering = material.RoofCovering.Length == 0 ? null : material.RoofCovering,
                 Thermoplastic = material.Thermoplastic.Length == 0 ? null : material.Thermoplastic,
+                SoundAbsorption = material.SoundAbsorption.Length == 0 ? null : material.SoundAbsorption,
                 JointColour = material.JointColour.ToString(),
                 Reflectance = material.Reflectance
             });
@@ -737,6 +738,7 @@ public static partial class ProjectFile
                 FireRating = type.FireRating,
                 AcousticRating = type.AcousticRating,
                 Separating = type.Separating,
+                RobustDetail = type.RobustDetail.Length == 0 ? null : type.RobustDetail,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 WrapAtInserts = type.WrapAtInserts != WallWrapping.None,
@@ -1110,6 +1112,7 @@ public static partial class ProjectFile
                 Function = type.Function.ToString(),
                 FireRating = type.FireRating,
                 Separating = type.Separating ? true : null,
+                RobustDetail = type.RobustDetail.Length == 0 ? null : type.RobustDetail,
                 AcousticRating = type.AcousticRating,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 CoarseScaleFillColour = type.CoarseScaleFillColour.ToString(),
@@ -1397,6 +1400,7 @@ public static partial class ProjectFile
                 Bunded = type.Bunded ? true : null,
                 Outlets = type.Outlets > 1 ? type.Outlets : null,
                 Tethered = type.Tethered ? true : null,
+                SeatHeight = type.SeatHeight > 0 ? type.SeatHeight : null,
                 Phases = type.Form == ComponentForm.ConsumerUnit && type.Phases == 3 ? 3 : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
@@ -1948,6 +1952,7 @@ public static partial class ProjectFile
                 read.ReactionToFire = Euroclass.TryParse(material.ReactionToFire, out var fire) ? fire.ToString() : string.Empty;
                 read.RoofCovering = RoofDesignation.TryParse(material.RoofCovering, out var roof) ? roof.ToString() : string.Empty;
                 read.Thermoplastic = Core.Materials.Thermoplastic.TryParse(material.Thermoplastic, out var plastic) ? Core.Materials.Thermoplastic.Said(plastic) : string.Empty;
+                read.SoundAbsorption = Core.Materials.SoundAbsorption.TryParse(material.SoundAbsorption, out var absorber) ? Core.Materials.SoundAbsorption.Said(absorber) : string.Empty;
                 read.JointColour = ParseColour(material.JointColour, new ColourRgb(0xC8, 0xC2, 0xB4));
                 read.Reflectance = Finite(material.Reflectance, 0, 1);
             }
@@ -1977,6 +1982,7 @@ public static partial class ProjectFile
                 FireRating = type.FireRating,
                 AcousticRating = type.AcousticRating,
                 Separating = type.Separating,
+                RobustDetail = type.RobustDetail?.Trim() ?? string.Empty,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
                 // Older files said only yes or no: yes meant both sides at openings and the
@@ -2581,6 +2587,7 @@ public static partial class ProjectFile
             slabType.Function = ParseEnum(type.Function, SlabFunction.Architectural);
             slabType.FireRating = type.FireRating;
             slabType.Separating = type.Separating == true;
+            slabType.RobustDetail = type.RobustDetail?.Trim() ?? string.Empty;
             slabType.AcousticRating = type.AcousticRating;
             slabType.HeatTransferCoefficient = type.HeatTransferCoefficient;
             slabType.CoarseScaleFillColour = ParseColour(type.CoarseScaleFillColour, new ColourRgb(0x7A, 0x82, 0x8E));
@@ -3411,6 +3418,7 @@ public static partial class ProjectFile
                 Bunded = type.Bunded == true,
                 Outlets = type.Outlets is > 1 and <= 12 ? type.Outlets.Value : 1,
                 Tethered = type.Tethered == true,
+                SeatHeight = type.SeatHeight is > 0 and < 1000 ? type.SeatHeight.Value : 0,
                 Phases = type.Phases == 3 ? 3 : 1,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),

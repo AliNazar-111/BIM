@@ -59,7 +59,7 @@ public static class Drainage
     public static double TrapSize(ComponentForm form) => form switch
     {
         ComponentForm.Basin => 32,
-        ComponentForm.Bath or ComponentForm.Shower or ComponentForm.Sink or ComponentForm.WashingMachine or ComponentForm.Dishwasher => 40,
+        ComponentForm.Bath or ComponentForm.Shower or ComponentForm.Sink or ComponentForm.WashingMachine or ComponentForm.Dishwasher or ComponentForm.Urinal => 40,
         ComponentForm.Toilet or ComponentForm.WallHungToilet => 100,
         _ => 0
     };
@@ -433,6 +433,7 @@ public static class Drainage
                     ComponentForm.Sink or ComponentForm.Bath => bore >= 50 - 1 ? 4000 : 3000,
                     ComponentForm.Basin => bore >= 50 - 1 ? 4000 : bore >= 40 - 1 ? 3000 : most <= 22 ? 1700 : most <= 44 ? 1100 : most <= 87 ? 700 : 0,
                     ComponentForm.Toilet or ComponentForm.WallHungToilet => 6000,
+                    ComponentForm.Urinal => 3000,
                     _ => null
                 };
                 if (longest is { } limit && length > limit + 1 && !ventilated.Contains(fitting))

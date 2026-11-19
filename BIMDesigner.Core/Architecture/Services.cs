@@ -50,6 +50,24 @@ public static class Services
     }
 
     /// <summary>
+    /// The heights and corner distance for a fitting in the model: in a building other than a dwelling, Approved Document M Volume 2's 4.30 - socket
+    /// outlets 400 to 1000 above the floor and 350 from a room's corner (a, g), light switches for the public 900 to 1100, in line with the door
+    /// handles (h), controls that need close vision 1200 to 1400, a thermostat at the top (f), a consumer unit's not given (round 104); else the
+    /// project's dwelling standard's.
+    /// </summary>
+    public static (double Least, double Most, double Corner, string Rule)? Reach(BimDocument document, ComponentType type, ClearanceStandard standard)
+    {
+        if (standard.IsUs() || !Toilets.Applies(document)) return Reach(type, standard);
+        return type.Form switch
+        {
+            ComponentForm.Socket or ComponentForm.ShaverSocket => (400, 1000, 350, "Approved Document M Volume 2 (4.30a, g) puts socket outlets 400 to 1000 above the floor, the lower end preferred, no nearer than 350 to a room's corner."),
+            ComponentForm.Switch => (900, 1100, 0, "Approved Document M Volume 2 (4.30h) puts light switches for the public 900 to 1100 above the floor, in line with the door handles."),
+            ComponentForm.Thermostat => (1200, 1400, 0, "Approved Document M Volume 2 (4.30f) puts controls that need close vision 1200 to 1400 above the floor, a thermostat at the top of the range."),
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// How far a fitting on a wall is from an inside corner: along the wall's face either way from
     /// its edge to where another wall stands in front of it. Null for one not on a wall, or with
     /// no corner within a metre.
@@ -109,7 +127,7 @@ public static class Services
         var footprint = ComponentModel.Footprint(type, ComponentModel.FrameOf(piece, 0));
         var problems = new List<PlacementProblem>();
 
-        if (Reach(type, standard) is var (least, most, corner, rule))
+        if (Reach(document, type, standard) is var (least, most, corner, rule))
         {
             var middle = piece.Elevation + type.Height / 2;
             if (middle < least - 0.5 || middle > most + 0.5)

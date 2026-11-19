@@ -211,7 +211,7 @@ public class EaveTests
     public void AnEaveOverAPartyWallIsFireStoppedAsApprovedDocumentBAsks()
     {
         var (document, roof) = House(hip: false);
-        var party = document.TypesOf<WallType>().Single(type => type.Separating);
+        var party = document.TypesOf<WallType>().Single(type => type.Name == "Party Wall - Cavity Blockwork 300mm");
         document.Add(new Wall { Start = new Point2D(5000, 0), End = new Point2D(5000, 8000), TypeId = party.Id, LevelId = roof.LevelId, UnconnectedHeight = 3000 });
         var eave = AddEave(document, roof, "Eave - Box Cornice, Frieze and Bed Moulding");
 

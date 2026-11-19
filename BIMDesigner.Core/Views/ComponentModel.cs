@@ -1225,6 +1225,42 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.Urinal:
+                // The bowl on the wall, its dark mouth to the front, and its flush pipe up the wall behind it.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.6, halfW * 0.6, halfD - 1, halfD + 2, h * 0.25, h * 0.85, PartFinish.Dark);
+                Add(-15, 15, -halfD, -halfD + 30, h, h + 300, PartFinish.Metal, PartShape.Upright);
+                break;
+
+            case ComponentForm.Locker:
+            {
+                // Its carcass, and its doors' joints dark down its front, a door every 300 or so.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                var doors = Math.Max(1, (int)Math.Round(type.Width / 300));
+                for (var i = 1; i < doors; i++)
+                {
+                    var x = -halfW + type.Width * i / doors;
+                    Add(x - 3, x + 3, halfD - 1, halfD + 2, 20, h - 20, PartFinish.Dark);
+                }
+
+                Add(-halfW, halfW, halfD - 1, halfD + 2, h / 2 - 3, h / 2 + 3, PartFinish.Dark);
+                break;
+            }
+
+            case ComponentForm.AssistanceAlarm:
+                // Its pull switch high on the wall, its cord down to 100 above the floor, and the cord's bangles - one at the bottom, one at 800 to 1000.
+                Add(-halfW, halfW, -halfD, halfD, Math.Max(h - 90, h * 0.8), h);
+                Add(-4, 4, -4, 4, Math.Min(100, h * 0.1), Math.Max(h - 90, h * 0.8), PartFinish.Dark, PartShape.Upright);
+                Add(-15, 15, -15, 15, Math.Min(100, h * 0.1), Math.Min(140, h * 0.15), PartFinish.Dark, PartShape.Upright);
+                Add(-15, 15, -15, 15, Math.Min(900, h * 0.5), Math.Min(940, h * 0.55), PartFinish.Dark, PartShape.Upright);
+                break;
+
+            case ComponentForm.HandDryer:
+                // Its casing, and the dark slot under its front that the air blows from.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.6, halfW * 0.6, halfD - 1, halfD + 2, h * 0.05, h * 0.2, PartFinish.Dark);
+                break;
+
             case ComponentForm.EvFutureConnection:
                 // A capped duct end in its own colour, its label plate dark on it and the cap on top.
                 Add(-halfW, halfW, -halfD, halfD, 0, h);
@@ -1724,6 +1760,26 @@ public static class ComponentModel
                 Inside(-halfW * 0.6, halfW * 0.6, halfD - 20, halfD);
                 break;
 
+            case ComponentForm.Urinal:
+                // Its bowl's mouth.
+                Inside(-halfW * 0.6, halfW * 0.6, -halfD * 0.2, halfD * 0.8);
+                break;
+
+            case ComponentForm.Locker:
+                // Its doors along its front.
+                Inside(-halfW, halfW, halfD - 30, halfD);
+                break;
+
+            case ComponentForm.AssistanceAlarm:
+                // Its cord.
+                shapes.Add(frame.Ellipse(-15, 15, -15, 15, 12));
+                break;
+
+            case ComponentForm.HandDryer:
+                // Its slot along its front.
+                Inside(-halfW * 0.6, halfW * 0.6, halfD - 20, halfD);
+                break;
+
             case ComponentForm.EvFutureConnection:
                 // Its capped duct.
                 shapes.Add(frame.Ellipse(-halfW * 0.5, halfW * 0.5, -halfD * 0.5, halfD * 0.5, 16));
@@ -2058,7 +2114,7 @@ public static class ComponentModel
     public static double FireDepth(ComponentType type) => Math.Min(150, type.Depth * 0.5);
 
     /// <summary>How high a WC's seat is: 420 or so, as a WC's is - the ADA's 17 to 19 in, 430 to 485, on an accessible one made taller.</summary>
-    public static double SeatOf(ComponentType type) => Math.Min(type.Height * 0.55, 420);
+    public static double SeatOf(ComponentType type) => type.SeatHeight > 0 ? Math.Min(type.SeatHeight, type.Height) : Math.Min(type.Height * 0.55, 420);
 
     /// <summary>
     /// A bed's headboard, how thick; the height of the top of its mattress - 550 or so, as the

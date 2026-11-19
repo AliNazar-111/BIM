@@ -239,7 +239,22 @@ public enum ComponentForm
     /// A future connection location for an electric vehicle charge point: the labelled end of the cable routes from a metered supply, where
     /// one may be put later to serve its parking spaces (Approved Document S 6.5, 6.7 to 6.12).
     /// </summary>
-    EvFutureConnection
+    EvFutureConnection,
+
+    /// <summary>A urinal bowl hung on the wall, flushed from the cold supply - in men's toilets only (Approved Document T 2.2), its trap 40 mm (Approved Document H Table 1).</summary>
+    Urinal,
+
+    /// <summary>A hand dryer, or a paper towel dispenser where it draws no load: the hand-drying a universal toilet has within it (Approved Document T T1(2), Tables 3.1, 4.1).</summary>
+    HandDryer,
+
+    /// <summary>
+    /// An emergency assistance alarm: its pull cord from the ceiling to near the floor, reachable from the WC and the floor by it, with its reset
+    /// and the call signal outside - a wheelchair-accessible toilet's (Approved Document M Volume 2 5.4h, 5.10m to o).
+    /// </summary>
+    AssistanceAlarm,
+
+    /// <summary>A bank of lockers, in tiers - a changing area's, with 1500 clear in front of it (Approved Document M Volume 2 5.18j).</summary>
+    Locker
 }
 
 /// <summary>
@@ -462,6 +477,9 @@ public sealed class ComponentType : ElementType
     /// <summary>For an electric vehicle charge point, whether its cable is fixed to it - tethered - rather than a universal socket (Approved Document S 6.2c).</summary>
     public bool Tethered { get; set; }
 
+    /// <summary>For a WC, the height of its seat, mm - 480 a wheelchair-accessible toilet's (Approved Document M Volume 2 Diagram 19); none to take it from its size.</summary>
+    public double SeatHeight { get; set; }
+
     /// <summary>Its flue as set, or as usual for its kind.</summary>
     public ApplianceFlue FlueOf => Flue != ApplianceFlue.Usual ? Flue : Form switch
     {
@@ -593,7 +611,8 @@ public sealed class ComponentType : ElementType
         Fuel = Fuel,
         Bunded = Bunded,
         Outlets = Outlets,
-        Tethered = Tethered
+        Tethered = Tethered,
+        SeatHeight = SeatHeight
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -746,6 +765,13 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.LpgCapacity, () => Capacity, v => NotNegative(v, x => Capacity = x));
         if (Form == ComponentForm.SmokeOutlet)
             yield return ParameterValue.BindValidated(ComponentTypeParameters.SmokeOutletArea, () => Capacity, v => NotNegative(v, x => Capacity = x));
+        if (Form is ComponentForm.Toilet or ComponentForm.WallHungToilet)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.SeatHeight, () => Views.ComponentModel.SeatOf(this), (double v) =>
+            {
+                if (v is < 200 or > 700) return false;
+                SeatHeight = v;
+                return true;
+            });
         if (Form == ComponentForm.EvChargePoint)
         {
             yield return ParameterValue.BindValidated(ComponentTypeParameters.ChargeOutput, () => Load / 1000, (double v) => NotNegative(v, x => Load = x * 1000));
@@ -1366,6 +1392,8 @@ public static class ComponentTypeParameters
     /// <summary>An electric vehicle charge point's nominal rated output, kW (Approved Document S 6.2b); its outlets, the spaces it serves at once; and its cable fixed to it.</summary>
     public static readonly ParameterDefinition ChargeOutput = new("Rated Output (kW)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
     public static readonly ParameterDefinition Outlets = new("Outlets (spaces served at once)", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition SeatHeight = new("Seat Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+
     public static readonly ParameterDefinition Tethered = new("Tethered Cable", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition Bunded =

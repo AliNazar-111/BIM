@@ -205,6 +205,9 @@ public static class Doors
         if (!standard.IsUs())
             foreach (var (said, rule) in FireSeparation.Problems(document, door, type)) Add(said, rule);
 
+        // A flat's entrance door from the common parts: sealed, and Rw 29 dB (Approved Document E 2.26, round 99).
+        if (SoundInsulation.Problem(document, door, type) is var (heard, asked)) Add(heard, asked);
+
         // Its security: a secure doorset, its letter plate, a viewer and limiter on the main door (Approved Document Q, round 97).
         foreach (var (said, rule) in Security.Problems(document, door, type)) Add(said, rule);
 

@@ -44,6 +44,9 @@ public abstract class SlabType : ElementType
     /// <summary>Whether it separates one dwelling from another - a compartment floor between flats: a duct through it keeps it fire-separating (Approved Document B 9.12).</summary>
     public bool Separating { get; set; }
 
+    /// <summary>The Robust Detail it is built to, as a separating floor - "E-FC-1" - or empty: taken as that detail in place of Approved Document E's Section 3 (0.2, Annex E).</summary>
+    public string RobustDetail { get; set; } = string.Empty;
+
     /// <summary>Weighted sound reduction index Rw, in decibels.</summary>
     public double AcousticRating { get; set; }
 
@@ -67,7 +70,18 @@ public abstract class SlabType : ElementType
             EnumText.Choices<SlabFunction>());
 
         yield return ParameterValue.Bind(SlabTypeParameters.FireRating, () => FireRating, v => FireRating = v);
-        if (this is FloorType) yield return ParameterValue.Bind(SlabTypeParameters.Separating, () => Separating, v => Separating = v);
+        if (this is FloorType floorType)
+        {
+            yield return ParameterValue.Bind(SlabTypeParameters.Separating, () => Separating, v => Separating = v);
+            yield return ParameterValue.Bind(SlabTypeParameters.RobustDetail, () => RobustDetail, v => RobustDetail = v.Trim());
+            if (document is not null)
+            {
+                yield return ParameterValue.ReadOnly(SlabTypeParameters.Mass, () => Math.Round(SoundInsulation.Mass(document, Structure)));
+                if (Separating && RobustDetail.Length == 0 && SoundInsulation.Floor(document, floorType) is var built)
+                    yield return ParameterValue.ReadOnly(SlabTypeParameters.SeparatingType, () => built.Group == 0 ? $"none - {string.Join("; ", built.Short)}"
+                        : built.Met ? $"{built.Type}, {built.Name}" : $"{built.Type} short of {string.Join("; ", built.Short)}");
+            }
+        }
         yield return ParameterValue.Bind(SlabTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
         yield return ParameterValue.BindScaled(SlabTypeParameters.HeatTransferCoefficient, OpeningTypeParameters.UFactor, Units.UFactorPerUValue, 3,
             () => HeatTransferCoefficient, v => { HeatTransferCoefficient = v; return true; });
@@ -205,6 +219,15 @@ public static class SlabTypeParameters
 
     public static readonly ParameterDefinition Function =
         new("Function", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition RobustDetail =
+        new("Robust Detail (E-FC-, E-FT-)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Mass =
+        new("Mass per Unit Area (kg/m²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition SeparatingType =
+        new("Separating Floor Type (Approved Document E)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition Separating =
         new("Separates Dwellings (Compartment Floor)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);

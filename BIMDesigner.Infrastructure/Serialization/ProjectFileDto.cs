@@ -893,6 +893,9 @@ internal sealed class SlabTypeDto
 
     /// <summary>A floor separating dwellings - a compartment floor; none in a file from before.</summary>
     public bool? Separating { get; set; }
+
+    /// <summary>The Robust Detail a separating floor is built to - none in older files.</summary>
+    public string? RobustDetail { get; set; }
     public double AcousticRating { get; set; }
     public double HeatTransferCoefficient { get; set; }
     public string CoarseScaleFillColour { get; set; } = "#7A828E";
@@ -1240,6 +1243,9 @@ internal sealed class ComponentTypeDto
     /// <summary>An electric vehicle charge point's or future connection's outlets, and a charge point's tethered cable; none in a file from before.</summary>
     public int? Outlets { get; set; }
     public bool? Tethered { get; set; }
+
+    /// <summary>A WC's seat height; none in a file from before, or where it is taken from its size.</summary>
+    public double? SeatHeight { get; set; }
 
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
@@ -1736,6 +1742,9 @@ internal sealed class MaterialDto
 
     /// <summary>As a thermoplastic, its class - TP(a) rigid, TP(a) flexible, TP(b) - none in older files, then what its name says.</summary>
     public string? Thermoplastic { get; set; }
+
+    /// <summary>As a sound absorber, its class by BS EN ISO 11654 - none in older files, then not classed.</summary>
+    public string? SoundAbsorption { get; set; }
 }
 
 internal sealed class MaterialLayerDto
@@ -1926,6 +1935,9 @@ internal sealed class WallTypeDto
 
     /// <summary>Whether it is a party wall, separating dwellings.</summary>
     public bool Separating { get; set; }
+
+    /// <summary>The Robust Detail a separating wall is built to - none in older files.</summary>
+    public string? RobustDetail { get; set; }
     public string FireRating { get; set; } = string.Empty;
     public double AcousticRating { get; set; }
     public double ThermalResistance { get; set; }

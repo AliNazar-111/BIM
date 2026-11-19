@@ -294,6 +294,9 @@ public static class Warnings
         // Means of escape: inner rooms, a flat's walk from its entrance door, the common parts' to a stair (Approved Document B Volume 1).
         foreach (var problem in Escape.Problems(document))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
+        // Reverberation in the common parts of a block of flats (Approved Document E, E3, Section 7).
+        foreach (var problem in SoundInsulation.Reverberation(document))
+            yield return For(problem.Room, Named(problem.Room, problem.Said));
         foreach (var problem in FireAccess.Problems(document))
             yield return For(problem.Element, Named(problem.Element, problem.Said));
 
@@ -329,7 +332,7 @@ public static class Warnings
         if (Bedrooms.Verdict(document, room) is { } bedroom && !bedroom.EndsWith("big enough", StringComparison.Ordinal))
             yield return bedroom;
 
-        foreach (var verdict in new[] { Kitchens.Verdict(document, room), Bathrooms.Verdict(document, room), Architecture.Services.Verdict(document, room), Architecture.Alarms.Verdict(document, room), WindowRules.Verdict(document, room), Combustibility.LiningVerdict(document, room) })
+        foreach (var verdict in new[] { Kitchens.Verdict(document, room), Bathrooms.Verdict(document, room), Toilets.Verdict(document, room), Lodging.Verdict(document, room), Architecture.Services.Verdict(document, room), Architecture.Alarms.Verdict(document, room), WindowRules.Verdict(document, room), Combustibility.LiningVerdict(document, room) })
         {
             if (verdict is null) continue;
 

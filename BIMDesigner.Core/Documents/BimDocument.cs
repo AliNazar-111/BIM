@@ -526,8 +526,9 @@ public sealed class BimDocument
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType or EaveType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
-                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
-                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
+                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" or "Ceiling - Acoustic Mineral Fibre Tile 15mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" or "Party Wall - Dense Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
+                     FloorType { Name: "Floor - Separating Slab, Floating 278mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      FootingType => !footingTypes.Contains(type.Name),
                      ChimneyType => !chimneyTypes.Contains(type.Name),
@@ -2134,6 +2135,39 @@ public sealed class BimDocument
                 { TypeMark = "P3", Colour = white, Cost = 260m, FlushVolume = 6, PartFlushVolume = 4 },
             new ComponentType("WC - Wall Hung", BuiltInCategory.PlumbingFixtures, ComponentForm.WallHungToilet, 360, 540, 1000)
                 { TypeMark = "P12", Colour = white, Cost = 420m, FlushVolume = 6, PartFlushVolume = 3, Description = "Concealed cistern in a frame in the wall" },
+            // A urinal bowl, hung on the wall, for men's toilets; and hand-drying for a toilet's room: a dryer on its own circuit, or towels.
+            new ComponentType("Urinal - Wall Hung Bowl", BuiltInCategory.PlumbingFixtures, ComponentForm.Urinal, 360, 340, 620)
+            {
+                TypeMark = "P19", Colour = white, Cost = 290m,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 300, Description = "Its rim about 610 above the floor, flushed from a cistern or valve; a 40 trap"
+            },
+            // A wheelchair-accessible toilet's fittings (Approved Document M Volume 2 Diagrams 18 to 20): a WC with its seat at 480, a finger rinse
+            // basin its rim at 730 by it, and the emergency assistance alarm's pull cord.
+            new ComponentType("WC - Close Coupled, 480 Seat", BuiltInCategory.PlumbingFixtures, ComponentForm.Toilet, 380, 700, 820)
+                { TypeMark = "P20", Colour = white, Cost = 340m, FlushVolume = 6, PartFlushVolume = 4, SeatHeight = 480, Description = "Its pan to BS EN 997, its seat 480 high for a wheelchair-accessible toilet; its flush on the transfer side" },
+            new ComponentType("Basin - Finger Rinse 350", BuiltInCategory.PlumbingFixtures, ComponentForm.Basin, 350, 250, 250)
+            {
+                TypeMark = "P21", Colour = white, Cost = 140m, FlowRate = 4,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 480, Description = "Its rim at 730, reachable from the WC (Approved Document M Volume 2 Diagram 19)"
+            },
+            new ComponentType("Lockers - Bank of 4, 2 Tier", BuiltInCategory.Furniture, ComponentForm.Locker, 1200, 450, 1800)
+                { TypeMark = "F33", Colour = new ColourRgb(0x6E, 0x7B, 0x8B), Cost = 520m, AgainstWall = true, Description = "Steel lockers, four wide and two high, 300 x 450 x 900 each" },
+            new ComponentType("Emergency Assistance Alarm - Pull Cord", BuiltInCategory.ElectricalEquipment, ComponentForm.AssistanceAlarm, 90, 50, 2300)
+            {
+                TypeMark = "E16", Colour = white, Cost = 260m, Load = 5, AgainstWall = true,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 0,
+                Description = "A toilet alarm kit: the ceiling pull switch, its red cord with two bangles to 100 above the floor, the reset by the WC and the over-door light and sounder outside"
+            },
+            new ComponentType("Hand Dryer - Wall Mounted", BuiltInCategory.ElectricalEquipment, ComponentForm.HandDryer, 280, 180, 300)
+            {
+                TypeMark = "E14", Colour = white, Cost = 320m, Load = 1100, AgainstWall = true,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1000, Description = "A high-speed warm air dryer, 1.1 kW, on a fused spur"
+            },
+            new ComponentType("Paper Towel Dispenser", BuiltInCategory.SpecialtyEquipment, ComponentForm.HandDryer, 300, 120, 400)
+            {
+                TypeMark = "E15", Colour = white, Cost = 45m, AgainstWall = true,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 1100
+            },
             new ComponentType("Bath - 1700 x 700", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1700, 700, 550)
                 { TypeMark = "P4", Colour = white, Cost = 340m, Capacity = 180 },
             new ComponentType("Bath - 1800 x 800", BuiltInCategory.PlumbingFixtures, ComponentForm.Bath, 1800, 800, 560)
@@ -2763,6 +2797,54 @@ public sealed class BimDocument
             CoarseScaleFillColour = ColourRgb.FromHex("F2F2EE")
         };
 
+        // Sound between homes (Approved Document E, round 99): a party wall of dense block, wall type 2.1 - 445 kg/m², asking no least mass of
+        // the outside walls' inner leaves (2.75); a floor between flats, type 2.1C - a 150 slab of 360 kg/m², 65 of screed floating on 25 of
+        // mineral wool of 36 kg/m³, plasterboard on battens under it; and a ceiling of mineral fibre tiles, Class C, for the common parts (7.10).
+        var denseBlock = new Material("Concrete Block, Dense Aggregate")
+        {
+            Density = 1990, ThermalConductivity = 1.13, SurfaceColour = ColourRgb.FromHex("8F948A"), CutColour = ColourRgb.FromHex("80857B"), CostPerCubicMetre = 105m
+        };
+        var screed = new Material("Sand and Cement Screed")
+        {
+            Density = 2000, ThermalConductivity = 1.4, SurfaceColour = ColourRgb.FromHex("B5B1A8"), CutColour = ColourRgb.FromHex("A5A198"), CostPerCubicMetre = 130m
+        };
+        var resilientWool = new Material("Mineral Wool, Resilient Layer 36 kg/m³")
+        {
+            Density = 36, ThermalConductivity = 0.034, SurfaceColour = ColourRgb.FromHex("D9C38A"), CutColour = ColourRgb.FromHex("C9B37A"), CostPerCubicMetre = 75m
+        };
+        var ceilingTile = new Material("Mineral Fibre Ceiling Tile")
+        {
+            Density = 300, ThermalConductivity = 0.052, SurfaceColour = ColourRgb.FromHex("F0EEE8"), CutColour = ColourRgb.FromHex("E0DED8"), CostPerCubicMetre = 900m,
+            SoundAbsorption = "Class C"
+        };
+        foreach (var material in new[] { denseBlock, screed, resilientWool, ceilingTile }) document.AddMaterial(material);
+        var densePartyWall = new WallType("Party Wall - Dense Cavity Blockwork 300mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
+            new MaterialLayer(LayerFunction.Structure, denseBlock.Id, 100),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 75, wraps: false),
+            new MaterialLayer(LayerFunction.Structure, denseBlock.Id, 100),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
+        {
+            Function = WallFunction.Interior, Separating = true, TypeMark = "PW2", AssemblyCode = "C1010", FireRating = "60 min", Cost = 124m,
+            CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var separatingFloor = new FloorType("Floor - Separating Slab, Floating 278mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish1, screed.Id, 65),
+            new MaterialLayer(LayerFunction.ThermalAir, resilientWool.Id, 25),
+            new MaterialLayer(LayerFunction.Structure, concrete.Id, 150),
+            new MaterialLayer(LayerFunction.ThermalAir, cavity.Id, 25),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "F3", AssemblyCode = "B1010", Function = SlabFunction.Structural, FireRating = "60 min", Separating = true, Cost = 168m,
+            CoarseScaleFillColour = ColourRgb.FromHex("8E8E8E")
+        };
+        var acousticCeiling = new CeilingType("Ceiling - Acoustic Mineral Fibre Tile 15mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, ceilingTile.Id, 15)))
+        {
+            TypeMark = "C4", AssemblyCode = "C3030", Function = SlabFunction.Architectural, Cost = 38m, Description = "Class C absorber by BS EN ISO 11654, for the common parts of a block of flats",
+            CoarseScaleFillColour = ColourRgb.FromHex("F0EEE8")
+        };
+
         // Slab edges: a thickened edge to a ground-bearing slab, an edge beam, a kerb along a floor's edge.
         var thickenedEdge = new SlabEdgeType("Slab Edge - Thickened 450 x 450")
             { Shape = SlabEdgeShape.Thickened, Width = 450, Depth = 450, FootWidth = 250, MaterialId = concrete.Id, TypeMark = "SE1", Cost = 85m };
@@ -2797,7 +2879,7 @@ public sealed class BimDocument
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
-                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling
+                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling
                  })
         {
             document.AddType(type);

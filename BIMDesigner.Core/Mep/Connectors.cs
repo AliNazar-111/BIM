@@ -293,6 +293,22 @@ public static class Connectors
             case ComponentForm.EvChargePoint:
                 return new[] { Cable("Power", 0, -halfD, Math.Min(150, h / 4), Back) };
 
+            case ComponentForm.AssistanceAlarm:
+                // Its controller on a fused spur, the cable into the pull switch's back.
+                return new[] { Cable("Power", 0, -halfD, h - 45, Back) };
+
+            case ComponentForm.HandDryer when type.Load > 0:
+                // A dryer on its own spur, its cable into its back.
+                return new[] { Cable("Power", 0, -halfD, h * 0.8, Back) };
+
+            case ComponentForm.Urinal:
+                // The flush from the cold supply into its top, behind; its waste out of the wall behind its foot.
+                return new[]
+                {
+                    Pipe("Cold Supply", SystemKind.ColdWater, ConnectorFlow.In, 15, 0, -halfD, h + 150, Back),
+                    Pipe("Waste", SystemKind.Foul, ConnectorFlow.Out, 40, 0, -halfD, Math.Min(60, h / 4), Back)
+                };
+
             // A switch on its lighting circuit, and the switch wire to the lights it turns on; a light on
             // its circuit and on what switches it.
             case ComponentForm.Switch:

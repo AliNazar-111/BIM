@@ -60,6 +60,8 @@ public static class Bedrooms
     /// </summary>
     public static string? Verdict(BimDocument document, Room room)
     {
+        // A dwelling's bedroom: a hotel's or hall of residence's is Approved Document M Volume 2's (Lodging, round 104).
+        if (Toilets.Applies(document)) return null;
         var boundary = room.GetBoundary(document);
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
         if (Of(document, room, boundary.Polygon) is not { } kind) return null;

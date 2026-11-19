@@ -106,9 +106,11 @@ public static class Clearances
     /// The fitting's zones in its own frame: across it and front to back, the front +. Where one
     /// may go either side, both are offered. <paramref name="sideWall"/> says how far the face of
     /// a wall beside it is, to its left (-1) or right (+1), where there is one near; <paramref name="principal"/>
-    /// whether a double bed is the principal bedroom's.
+    /// whether a double bed is the principal bedroom's; <paramref name="place"/>, for a WC or a basin in a building other than a dwelling, the
+    /// toilet accommodation it is in - whose zones are Approved Document T's and Approved Document M Volume 2's, not the dwelling standard's.
     /// </summary>
-    private static IEnumerable<Zone> ZonesOf(ComponentType type, ClearanceStandard standard, Func<int, double?>? sideWall = null, bool principal = true)
+    private static IEnumerable<Zone> ZonesOf(ComponentType type, ClearanceStandard standard, Func<int, double?>? sideWall = null, bool principal = true,
+        Toilets.Place place = Toilets.Place.None)
     {
         var (halfW, halfD) = (type.Width / 2, type.Depth / 2);
         var ada = standard == ClearanceStandard.Ada;
@@ -124,6 +126,48 @@ public static class Clearances
 
         switch (type.Form)
         {
+            // In a building other than a dwelling (round 101). A wheelchair-accessible unisex toilet's WC: the space beside it to transfer from a
+            // wheelchair, clear to the back wall, 1000 from its centreline to the wall on its open side (Diagram 18) - its basin within reach of
+            // the WC, not given a space of its own.
+            case ComponentForm.Toilet or ComponentForm.WallHungToilet when place == Toilets.Place.Accessible:
+                yield return new Zone("the transfer space beside the WC",
+                    WallSides().Select(side => side < 0 ? new Area(halfW, 1000, -halfD, -halfD + 750) : new Area(-1000, -halfW, -halfD, -halfD + 750)).ToArray(),
+                    "Approved Document M Volume 2 (5.8, 5.10i, Diagram 18) asks the transfer space beside a wheelchair-accessible toilet's WC kept clear to the back wall, 1000 from the WC's centreline to the wall on its open side.");
+                break;
+
+            case ComponentForm.Basin when place is Toilets.Place.Accessible or Toilets.Place.Washroom or Toilets.Place.Changing:
+                break;
+
+            case ComponentForm.Bath or ComponentForm.Shower when place != Toilets.Place.None:
+                break;
+
+            // A wheelchair-accessible bedroom's bed: 1500 clear beside it, its length, either side (Approved Document M Volume 2 4.24l, Diagram 17).
+            case ComponentForm.Bed or ComponentForm.BunkBed when place == Toilets.Place.Accessible:
+                yield return new Zone("the transfer space beside the bed", new[] { new Area(-halfW - 1500, -halfW, -halfD, halfD), new Area(halfW, halfW + 1500, -halfD, halfD) },
+                    "Approved Document M Volume 2 (4.24l, Diagram 17) asks 1500 clear beside a wheelchair-accessible bedroom's bed, along it, for a wheelchair user to manoeuvre and transfer to it.");
+                break;
+
+            case ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Wardrobe or ComponentForm.Drawers or ComponentForm.Cot when place != Toilets.Place.None:
+                break;
+
+            // Lockers in a changing area: 1500 deep clear in front of them to manoeuvre (Approved Document M Volume 2 5.18j).
+            case ComponentForm.Locker when place == Toilets.Place.Changing:
+                yield return new Zone("the manoeuvring space in front of the lockers", new[] { new Area(-halfW, halfW, halfD, halfD + 1500) },
+                    "Approved Document M Volume 2 (5.18j) asks a manoeuvring space 1500 deep in front of lockers in self-contained or communal changing areas.");
+                break;
+
+            // A universal toilet's, a cubicle's or a single-sex toilet's: an activity space 800 wide by 600 deep in front of the WC and of a
+            // self-contained toilet's basin, clear of the door's swing (Tables 3.1 to 6.1, 2.5).
+            case ComponentForm.Toilet or ComponentForm.WallHungToilet when place is Toilets.Place.Toilet or Toilets.Place.Washroom:
+                yield return new Zone("the activity space in front of the WC", new[] { new Area(-400, 400, halfD, halfD + 600) },
+                    "Approved Document T (Tables 3.1 to 6.1, 2.5) asks an activity space 800 wide by 600 deep in front of a WC, its 465 column of clearance with it, clear of the fittings and of the door's swing.");
+                break;
+
+            case ComponentForm.Basin when place == Toilets.Place.Toilet:
+                yield return new Zone("the activity space in front of the basin", new[] { new Area(-400, 400, halfD, halfD + 600) },
+                    "Approved Document T (Tables 3.1, 4.1, 2.5) asks an activity space 800 wide by 600 deep in front of a 250 by 400 washbasin - more for a bigger one - clear of the door's swing.");
+                break;
+
             case ComponentForm.Toilet or ComponentForm.WallHungToilet when ada:
             {
                 // Measured from the side wall beside it - or, with none near, from where one would
@@ -393,9 +437,28 @@ public static class Clearances
             return null;
         }
 
+        // A WC or basin in a building other than a dwelling: the toilet accommodation it is in, and the doors' swings kept clear of its activity space (Approved Document T 2.5).
+        var place = type.Form is ComponentForm.Toilet or ComponentForm.WallHungToilet or ComponentForm.Basin or ComponentForm.Bath or ComponentForm.Shower or ComponentForm.Locker
+                        or ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Wardrobe or ComponentForm.Drawers or ComponentForm.Cot
+                    && !standard.IsUs()
+            ? Toilets.PlaceOf(document, RoomsOf.Containing(document, component.LevelId, component.Location)) : Toilets.Place.None;
+
+        // A bath or shower in a building other than a dwelling: no dwelling's zone - a wheelchair user's bathroom or shower room has its turning
+        // space checked as the room it is (Approved Document M Volume 2 Diagrams 23 to 25, round 103).
+        if (type.Form is ComponentForm.Bath or ComponentForm.Shower && place == Toilets.Place.None && !standard.IsUs() && Toilets.Applies(document)) place = Toilets.Place.Washroom;
+
+        // A bed, wardrobe or chest in a building other than a dwelling: no dwelling's spaces round it - a wheelchair-accessible bedroom's bed its
+        // transfer space (Approved Document M Volume 2 4.24l, Diagram 17, round 104).
+        if (type.Form is ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Wardrobe or ComponentForm.Drawers or ComponentForm.Cot && place == Toilets.Place.None
+            && !standard.IsUs() && Toilets.Applies(document)) place = Toilets.Place.Bedroom;
+        if (place != Toilets.Place.None)
+            foreach (var door in document.All<Door>().Where(door => document.Find<Wall>(door.HostWallId)?.LevelId == component.LevelId))
+            foreach (var sweep in DoorSwing.Sweeps(document, door))
+                obstacles.Add(new Obstacle("the door's swing", sweep, null));
+
         var principal = type.Form == ComponentForm.Bed && PrincipalBed(document) == component;
         var zones = new List<(ClearanceZone, IReadOnlyList<string>)>();
-        foreach (var zone in ZonesOf(type, standard, SideWall, principal))
+        foreach (var zone in ZonesOf(type, standard, SideWall, principal, place))
         {
             IReadOnlyList<Point2D> Shape(Area area) => zone.Round
                 ? frame.Ellipse(area.From, area.To, area.Back, area.Front, 32)

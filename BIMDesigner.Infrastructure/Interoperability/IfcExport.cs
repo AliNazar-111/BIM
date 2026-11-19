@@ -153,6 +153,7 @@ public static partial class IfcExport
         Exporter.ComponentClass.Planting => "IfcGeographicElement",
         Exporter.ComponentClass.Fan => "IfcFan",
         Exporter.ComponentClass.Sensor => "IfcSensor",
+        Exporter.ComponentClass.Alarm => "IfcAlarm",
         Exporter.ComponentClass.Board => "IfcElectricDistributionBoard",
         Exporter.ComponentClass.Control => "IfcUnitaryControlElement",
         Exporter.ComponentClass.Boiler => "IfcBoiler",
@@ -2344,7 +2345,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Alarm, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2354,8 +2355,8 @@ public static partial class IfcExport
         internal static ComponentClass ClassOf(ComponentType type) => type.Form switch
         {
             ComponentForm.Fridge or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
-                or ComponentForm.TumbleDryer or ComponentForm.CookerHood => ComponentClass.Appliance,
-            ComponentForm.Sink or ComponentForm.Shower => ComponentClass.Sanitary,
+                or ComponentForm.TumbleDryer or ComponentForm.CookerHood or ComponentForm.HandDryer => ComponentClass.Appliance,
+            ComponentForm.Sink or ComponentForm.Shower or ComponentForm.Urinal => ComponentClass.Sanitary,
             ComponentForm.Radiator or ComponentForm.TowelRail or ComponentForm.UnderfloorHeating or ComponentForm.GasFire => ComponentClass.Heater,
             ComponentForm.HeatPump => ComponentClass.HeatPump,
             ComponentForm.HeatRecoveryUnit => ComponentClass.HeatRecovery,
@@ -2366,6 +2367,7 @@ public static partial class IfcExport
             ComponentForm.Switch => ComponentClass.Switch,
             ComponentForm.ExtractFan => ComponentClass.Fan,
             ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm => ComponentClass.Sensor,
+            ComponentForm.AssistanceAlarm => ComponentClass.Alarm,
             ComponentForm.ConsumerUnit => ComponentClass.Board,
             ComponentForm.Thermostat => ComponentClass.Control,
             ComponentForm.Boiler => ComponentClass.Boiler,
@@ -2425,6 +2427,7 @@ public static partial class IfcExport
                         ComponentForm.Bath => IfcSanitaryTerminalTypeEnum.BATH,
                         ComponentForm.Sink => IfcSanitaryTerminalTypeEnum.SINK,
                         ComponentForm.Shower => IfcSanitaryTerminalTypeEnum.SHOWER,
+                        ComponentForm.Urinal => IfcSanitaryTerminalTypeEnum.URINAL,
                         _ => IfcSanitaryTerminalTypeEnum.USERDEFINED
                     }),
                 ComponentClass.Appliance => ComponentProduct<IfcElectricAppliance>(component, type, meshes, appliance =>
@@ -2436,6 +2439,7 @@ public static partial class IfcExport
                         ComponentForm.Dishwasher => IfcElectricApplianceTypeEnum.DISHWASHER,
                         ComponentForm.WashingMachine => IfcElectricApplianceTypeEnum.WASHINGMACHINE,
                         ComponentForm.TumbleDryer => IfcElectricApplianceTypeEnum.TUMBLEDRYER,
+                        ComponentForm.HandDryer => IfcElectricApplianceTypeEnum.HANDDRYER,
                         _ => IfcElectricApplianceTypeEnum.USERDEFINED
                     };
                     // A gas cooker is no electric cooker, as IFC4 has one: an appliance of its own kind.
@@ -2490,6 +2494,8 @@ public static partial class IfcExport
                         ComponentForm.CarbonMonoxideAlarm => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.COSENSOR,
                         _ => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.SMOKESENSOR
                     }),
+                ComponentClass.Alarm => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcAlarm>(component, type, meshes, alarm =>
+                    alarm.PredefinedType = Xbim.Ifc4.Interfaces.IfcAlarmTypeEnum.MANUALPULLBOX),
                 ComponentClass.Board => ComponentProduct<Xbim.Ifc4.ElectricalDomain.IfcElectricDistributionBoard>(component, type, meshes, board =>
                     board.PredefinedType = Xbim.Ifc4.Interfaces.IfcElectricDistributionBoardTypeEnum.CONSUMERUNIT),
                 ComponentClass.Control => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcUnitaryControlElement>(component, type, meshes, control =>
@@ -2543,6 +2549,7 @@ public static partial class IfcExport
                 ComponentClass.Planting => "Pset_GeographicElementCommon",
                 ComponentClass.Fan => "Pset_FanTypeCommon",
                 ComponentClass.Sensor => "Pset_SensorTypeCommon",
+                ComponentClass.Alarm => "Pset_AlarmTypeCommon",
                 ComponentClass.Board => "Pset_ElectricDistributionBoardTypeCommon",
                 ComponentClass.Control => "Pset_UnitaryControlElementTypeCommon",
                 ComponentClass.Boiler => "Pset_BoilerTypeCommon",

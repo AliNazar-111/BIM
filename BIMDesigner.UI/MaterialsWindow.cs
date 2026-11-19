@@ -48,6 +48,8 @@ internal sealed class MaterialsWindow : System.Windows.Window
     private readonly TextBlock _roofSaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
     private readonly TextBox _plastic = new() { Width = 92 };
     private readonly TextBlock _plasticSaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
+    private readonly TextBox _absorber = new() { Width = 92 };
+    private readonly TextBlock _absorberSaid = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Opacity = 0.7 };
     private readonly Border _surfaceSwatch = Swatch(), _cutSwatch = Swatch(), _jointSwatch = Swatch();
     private readonly Rectangle _preview = new() { Width = PreviewPx, Height = PreviewPx, Stroke = Brushes.Gray, StrokeThickness = 1 };
     private readonly TextBlock _lengthLabel = new() { VerticalAlignment = VerticalAlignment.Center }, _heightLabel = new() { VerticalAlignment = VerticalAlignment.Center }, _jointLabel = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -116,11 +118,13 @@ internal sealed class MaterialsWindow : System.Windows.Window
             "Its external fire performance by BS EN 13501-5 as its maker declares it - BROOF(t4) to FROOF(t4) - or empty to take it from its name where Approved Document B gives it without testing: how near the boundary a roof covered with it may be (Table 12.1)");
         Row(Label("As a thermoplastic"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _plastic, _plasticSaid } },
             "A plastic's class by Approved Document B's B13 - TP(a) rigid, TP(a) flexible or TP(b) - or empty to take it from its name: how big, how far apart and how near the boundary rooflights glazed with it may be (Tables 4.2 and 12.3)");
+        Row(Label("As a sound absorber"), new StackPanel { Orientation = Orientation.Horizontal, Children = { _absorber, _absorberSaid } },
+            "Its class by BS EN ISO 11654 as its maker declares it - A to E, or its weighted absorption coefficient 03B1w, 0.70 for Class C - or empty where it is not classed: what lines the common parts of a block of flats against reverberation (Approved Document E 7.10, 7.11)");
         Row(Label("Category"), _category, "Its maker's control of its strength, Category I or II: what γM takes with the project's class of execution (Table NA.1)");
         var caption = new TextBlock { Text = $"A {Units.FormatLength(PreviewMm)} square of it", Opacity = 0.7, Margin = new Thickness(0, 4, 0, 0) };
         var preview = new StackPanel { Margin = new Thickness(6, 12, 16, 8), Children = { _preview, caption } };
 
-        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _strength, _absorption, _fire, _roof, _plastic })
+        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _strength, _absorption, _fire, _roof, _plastic, _absorber })
         {
             box.LostFocus += (_, _) => Commit();
             box.KeyDown += (_, args) =>
@@ -200,7 +204,11 @@ internal sealed class MaterialsWindow : System.Windows.Window
         if (_filling) return;
         var material = Selected;
         _filling = true;
-        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _fire, _roof, _plastic }) box.IsEnabled = material is not null;
+        foreach (var box in new[] { _name, _surface, _cut, _length, _height, _joint, _jointColour, _reflectance, _fire, _roof, _plastic, _absorber }) box.IsEnabled = material is not null;
+        _absorber.Text = material?.SoundAbsorption ?? string.Empty;
+        _absorberSaid.Text = material is null ? string.Empty
+            : SoundAbsorption.Of(material) is { } absorbing ? $"{SoundAbsorption.Said(absorbing)}, as its maker declares"
+            : "not classed - plaster, concrete, plasterboard and glass absorb too little to be";
         _plastic.Text = material?.Thermoplastic ?? string.Empty;
         _plasticSaid.Text = material is null ? string.Empty
             : Thermoplastic.Of(material) is { } plastic ? material.Thermoplastic.Length > 0 ? "as given" : $"{Thermoplastic.Said(plastic.Class)}, as its name has it - {plastic.By}"
@@ -324,6 +332,11 @@ internal sealed class MaterialsWindow : System.Windows.Window
         if (plasticText.Length == 0) look = look with { Thermoplastic = string.Empty };
         else if (Thermoplastic.TryParse(plasticText, out var plasticClass)) look = look with { Thermoplastic = Thermoplastic.Said(plasticClass) };
         else DialogLook.Warn(_problem, $"{plasticText} is no class by Approved Document B's B13 - TP(a) rigid, TP(a) flexible or TP(b).");
+
+        var absorberText = _absorber.Text.Trim();
+        if (absorberText.Length == 0) look = look with { SoundAbsorption = string.Empty };
+        else if (SoundAbsorption.TryParse(absorberText, out var absorbing)) look = look with { SoundAbsorption = SoundAbsorption.Said(absorbing) };
+        else DialogLook.Warn(_problem, $"{absorberText} is no class by BS EN ISO 11654 - A, B, C, D or E, or an 03B1w of 0.15 or more.");
 
         Apply(material, look with { Finish = finish });
         ShowSelected();

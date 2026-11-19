@@ -157,6 +157,14 @@ public sealed class Room : Element
         if (Bathrooms.Verdict(document, this) is { } sanitary)
             yield return ParameterValue.ReadOnly(RoomParameters.Sanitary, () => sanitary);
 
+        // As a bedroom of a building other than a dwelling - a hotel's - what Approved Document M Volume 2 asks of it (round 104).
+        if (Lodging.Verdict(document, this) is { } lodging)
+            yield return ParameterValue.ReadOnly(RoomParameters.Lodging, () => lodging);
+
+        // As toilet accommodation in a building other than a dwelling: which of Approved Document T's types it is, and what it lacks.
+        if (Toilets.Verdict(document, this) is { } toilet)
+            yield return ParameterValue.ReadOnly(RoomParameters.Toilet, () => toilet);
+
         // Its extract, and in the US its lights and receptacles - only for a room that asks something of them.
         if (Architecture.Services.Verdict(document, this) is { } services)
             yield return ParameterValue.ReadOnly(RoomParameters.Services, () => services);
@@ -317,6 +325,12 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition Sanitary =
         new("WC or Bathroom", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Lodging =
+        new("Bedroom (Approved Document M Volume 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Toilet =
+        new("Toilet (Approved Document T)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition Services =
         new("Services", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);

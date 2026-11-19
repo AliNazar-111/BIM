@@ -2981,12 +2981,13 @@ public partial class MainWindow : Window
 
         _blockedClearances.Clear();
         var blocked = RefreshClearances(announce: false);
-        var standard = Clearances.Label(_document.ProjectInformation.ClearanceStandard);
+        var standard = $"{Clearances.Label(_document.ProjectInformation.ClearanceStandard)} asks"
+                       + (Toilets.Applies(_document) ? " - in the toilets, Approved Document T and Approved Document M Volume 2" : string.Empty);
         StatusHint.Text = !show
             ? "Clearances hidden."
             : blocked.Count == 0
-                ? $"Clearances shown as {standard} asks: nothing is in the way."
-                : $"Clearances shown as {standard} asks: {blocked.Count} with something in the way, in red. {blocked[0].Message}";
+                ? $"Clearances shown as {standard}: nothing is in the way."
+                : $"Clearances shown as {standard}: {blocked.Count} with something in the way, in red. {blocked[0].Message}";
     }
 
     /// <summary>

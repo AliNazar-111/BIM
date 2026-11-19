@@ -65,6 +65,7 @@ public sealed class WallType : ElementType
         FireRating = FireRating,
         AcousticRating = AcousticRating,
         Separating = Separating,
+        RobustDetail = RobustDetail,
         ThermalResistance = ThermalResistance,
         HeatTransferCoefficient = HeatTransferCoefficient,
         WrapAtInserts = WrapAtInserts,
@@ -94,6 +95,12 @@ public sealed class WallType : ElementType
     /// resist fire for 60 minutes and run up to the roof covering (Approved Document B 5.8, 5.11).
     /// </summary>
     public bool Separating { get; set; }
+
+    /// <summary>
+    /// The Robust Detail it is built to, as a separating wall - "E-WM-1" - or empty: built so, it is taken as that detail, which Approved Document E
+    /// lets stand for pre-completion testing (0.2, Annex E), in place of Section 2's constructions and junctions.
+    /// </summary>
+    public string RobustDetail { get; set; } = string.Empty;
 
     /// <summary>Thermal resistance R, in m²K/W.</summary>
     public double ThermalResistance { get; set; }
@@ -139,6 +146,14 @@ public sealed class WallType : ElementType
         yield return ParameterValue.Bind(WallTypeParameters.FireRating, () => FireRating, v => FireRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.Separating, () => Separating, v => Separating = v);
+        yield return ParameterValue.Bind(WallTypeParameters.RobustDetail, () => RobustDetail, v => RobustDetail = v.Trim());
+        if (document is not null && Log is null)
+        {
+            yield return ParameterValue.ReadOnly(WallTypeParameters.Mass, () => Math.Round(SoundInsulation.Mass(document, Structure)));
+            if (Separating && RobustDetail.Length == 0 && SoundInsulation.Wall(document, this) is var built)
+                yield return ParameterValue.ReadOnly(WallTypeParameters.SeparatingType, () => built.Group == 0 ? $"none - {string.Join("; ", built.Short)}"
+                    : built.Met ? $"{built.Type}, {built.Name}" : $"{built.Type} short of {string.Join("; ", built.Short)}");
+        }
         yield return ParameterValue.Bind(WallTypeParameters.ExteriorTaperAngle, () => ExteriorTaperAngle, v => ExteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.InteriorTaperAngle, () => InteriorTaperAngle, v => InteriorTaperAngle = Math.Clamp(v, -WallLean.MaxAngle, WallLean.MaxAngle));
         yield return ParameterValue.Bind(WallTypeParameters.ThermalResistance, () => ThermalResistance, v => ThermalResistance = v);
@@ -213,6 +228,15 @@ public static class WallTypeParameters
 
     public static readonly ParameterDefinition Separating =
         new("Party Wall (separates dwellings)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition RobustDetail =
+        new("Robust Detail (E-WM-)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Mass =
+        new("Mass per Unit Area (kg/m²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+
+    public static readonly ParameterDefinition SeparatingType =
+        new("Separating Wall Type (Approved Document E)", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition AcousticRating =
         new("Acoustic Rating (Rw)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);

@@ -119,6 +119,12 @@ public sealed class Material
     /// </summary>
     public string Thermoplastic { get; set; } = string.Empty;
 
+    /// <summary>
+    /// As a sound absorber, its class by BS EN ISO 11654 - "Class C" - as its maker declares it, or empty where it is not classed: what Approved
+    /// Document E's Method A asks the common parts of a block of flats to be lined with (7.10, 7.11).
+    /// </summary>
+    public string SoundAbsorption { get; set; } = string.Empty;
+
     // --- Identity ---------------------------------------------------------------
 
     public string Manufacturer { get; set; } = string.Empty;

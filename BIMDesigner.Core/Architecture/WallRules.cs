@@ -26,6 +26,14 @@ public static class WallRules
             RoomsOf.Containing(document, wall.LevelId, wall.PointAt(type.Structure, wall.Length / 2, -reach)));
     }
 
+    /// <summary>
+    /// Whether Approved Document E's E2 reaches the building's internal walls and floors: a dwelling-house, flats, or a building with rooms for
+    /// residential purposes - beds in it, a hotel's or a hostel's; not an office's or a shop's toilets (round 101).
+    /// </summary>
+    public static bool Residential(BimDocument document) =>
+        FireDesign.UseOf(document) is BuildingUse.House or BuildingUse.Flats
+        || document.All<Component>().Any(piece => document.FindType<ComponentType>(piece.TypeId)?.Form is ComponentForm.Bed or ComponentForm.BunkBed);
+
     /// <summary>Whether a room is a bedroom or has a WC in it: one whose walls keep sound in.</summary>
     private static bool Quiet(BimDocument document, Room room) =>
         room.GetBoundary(document) is { IsEnclosed: true } boundary && document.All<Component>()
@@ -127,7 +135,8 @@ public static class WallRules
                 Add("it stands between the house and its garage, with no gypsum board on it.",
                     $"IRC R302.6 asks for 1/2 in{Units.MetricAside("12.7")} gypsum board on the garage side of the wall between a garage and the house.");
 
-            if (!us && !garage && type.Function == WallFunction.Interior && (Quiet(document, one) || Quiet(document, other)) && type.AcousticRating < 40 - 0.05)
+            if (!us && !garage && type.Function == WallFunction.Interior && Residential(document) && (!Toilets.Applies(document) || Lodging.WithinRoom(document, one, other))
+                && (Quiet(document, one) || Quiet(document, other)) && type.AcousticRating < 40 - 0.05)
                 Add($"it keeps sound in to Rw {type.AcousticRating:0} dB, round a bedroom or a room with a WC.",
                     "Approved Document E (E2, Table 0.2) asks for Rw 40 dB from an internal wall round a bedroom or a room with a WC.");
         }
@@ -152,6 +161,9 @@ public static class WallRules
         // In a block of flats: compartment walls, the common stair's protected shaft, protected corridors, places of special fire hazard (Table B3, round 94).
         if (!us)
             foreach (var (said, rule) in FireSeparation.Problems(document, wall, type)) Add(said, rule);
+
+        // Between dwellings: one of Approved Document E's separating walls, and its junctions (round 99).
+        foreach (var (said, rule) in SoundInsulation.Problems(document, wall, type)) Add(said, rule);
 
         // Its doors, no more than a quarter of a compartment wall (C8, round 96).
         if (!us)

@@ -139,7 +139,7 @@ public static class SlabRules
 
         if (slab is Floor && !OnTheGround(document, slab))
         {
-            if (type.AcousticRating > 0 && type.AcousticRating < 40 - 0.05)
+            if (type.AcousticRating > 0 && type.AcousticRating < 40 - 0.05 && WallRules.Residential(document))
                 Add($"it keeps sound in to Rw {type.AcousticRating:0} dB.", "Approved Document E (Table 0.2) asks for Rw 40 dB from a floor between the storeys of a house.");
             if (slab is Floor separating && FireSeparation.Covers(document))
             {
@@ -150,6 +150,10 @@ public static class SlabRules
                 Add($"it resists fire for {(Doors.FireMinutes(type.FireRating) is > 0 and var minutes ? $"{minutes} minutes" : "no time stated")}.",
                     "Approved Document B (Table B2) asks for 30 minutes from the floors of a house.");
         }
+
+        // Between dwellings: one of Approved Document E's separating floors, and its junctions (round 99).
+        if (slab is Floor between && type is FloorType floorType)
+            foreach (var (said, rule) in SoundInsulation.Problems(document, between, floorType)) Add(said, rule);
 
         if (slab is Roof roof)
         {
