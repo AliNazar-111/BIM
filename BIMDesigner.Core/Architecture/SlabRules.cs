@@ -139,7 +139,8 @@ public static class SlabRules
 
         if (slab is Floor && !OnTheGround(document, slab))
         {
-            if (type.AcousticRating > 0 && type.AcousticRating < 40 - 0.05 && WallRules.Residential(document))
+            // E2's internal floors: a home's, or within a room for residential purposes - a hotel's floors between rooms are E1's (round 105).
+            if (type.AcousticRating > 0 && type.AcousticRating < 40 - 0.05 && WallRules.Residential(document) && (!Toilets.Applies(document) || slab is Floor inner && SoundInsulation.WithinSuite(document, inner)))
                 Add($"it keeps sound in to Rw {type.AcousticRating:0} dB.", "Approved Document E (Table 0.2) asks for Rw 40 dB from a floor between the storeys of a house.");
             if (slab is Floor separating && FireSeparation.Covers(document))
             {

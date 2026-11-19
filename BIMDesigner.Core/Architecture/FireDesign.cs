@@ -308,6 +308,8 @@ public static class FireDesign
         bool Is(params string[] names) => words.Any(word => names.Any(name => word.StartsWith(name, StringComparison.Ordinal)));
         if (Is("office")) return BuildingUse.Office;
         if (Is("flat", "apartment")) return BuildingUse.Flats;
+        // A residential or nursing home, a boarding or guest house: its rooms are rooms for residential purposes, not a dwelling's (Regulation 2).
+        if (Is("care", "nursing", "residential") && Is("home") || Is("boarding", "guest", "lodging") && Is("house") || Is("guesthouse")) return BuildingUse.Other;
         return type.Trim().Length == 0 || Is("house", "home", "dwelling", "bungalow", "extension") ? BuildingUse.House : BuildingUse.Other;
     }
 

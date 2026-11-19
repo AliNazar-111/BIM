@@ -127,6 +127,36 @@ public class CurvedWallViewTests
     }
 
     [Fact]
+    public void ACurvedWallCutAllButAlongItsLengthStillDrawsAsAWall()
+    {
+        // A triangle the random rooms below once drew (round 105): the curved partition and the curved timber frame leave their corner at so fine
+        // an angle that the frame's face cuts the partition's 12.5 plasterboard nearly a metre apart along it - a straight end between the two
+        // crossings bowed out of the layer and folded its outline over itself.
+        var document = BimDocument.CreateDefault();
+        WallType Type(string name) => document.TypesOf<WallType>().First(type => type.Name == name);
+        foreach (var (from, to, bulge, flipped, type) in new[]
+                 {
+                     (new Point2D(4381, 470), new Point2D(-3149, 3381), -0.3163127459195968, false, "Timber Frame - Siding 183mm"),
+                     (new Point2D(-3149, 3381), new Point2D(-513, -3421), -0.24679494083244116, true, "Interior - Partition 125mm"),
+                     (new Point2D(-513, -3421), new Point2D(4381, 470), 0.0, false, "Log Wall - D-Log 200")
+                 })
+            document.Add(new Wall { Start = from, End = to, Bulge = bulge, Flipped = flipped, TypeId = Type(type).Id, LevelId = document.Levels[0].Id });
+
+        foreach (var wall in document.Walls)
+        {
+            var type = document.GetWallType(wall)!;
+            var half = type.Width / 2;
+            foreach (var slice in WallSlices.Solid(document, wall, type))
+            foreach (var (_, start, end) in type.Structure.GetLayerOffsets().Append((null!, 0, type.Width)))
+            {
+                var outline = WallJoins.GetBandOutline(wall, type, half - start, half - end, slice.CutFrom, slice.CutTo);
+                Assert.False(OutlineChecks.IsSelfIntersecting(outline), $"wall {wall.Start}-{wall.End}, band {start}-{end} of {type.Name}, folds over itself.");
+                Assert.True(Polygon2D.Area(outline) > 0.5);
+            }
+        }
+    }
+
+    [Fact]
     public void RandomRoomsWithCurvedSidesAlwaysDrawAsWalls()
     {
         var random = new Random(11);

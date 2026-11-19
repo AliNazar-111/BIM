@@ -49,7 +49,7 @@ public partial class PlanView
         foreach (var problem in Document.All<Component>().Where(component => component.LevelId == ActiveLevelId && _shows(component))
                      .SelectMany(component => Kitchens.Problems(Document, component, standard).Concat(Bathrooms.Problems(Document, component, standard))
                          .Concat(Services.Problems(Document, component, standard)).Concat(Alarms.Problems(Document, component, standard))
-                         .Concat(Outside.Problems(Document, component, standard))))
+                         .Concat(Outside.Problems(Document, component, standard)).Concat(Lifts.Problems(Document, component, standard))))
             dc.DrawGeometry(BlockedFill, BlockedPen, Outline(problem.Outline));
 
         // A floor or roof short of its rules, outlined: its U-value, its sound, its fire, its pitch.

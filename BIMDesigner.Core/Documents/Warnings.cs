@@ -297,6 +297,9 @@ public static class Warnings
         // Reverberation in the common parts of a block of flats (Approved Document E, E3, Section 7).
         foreach (var problem in SoundInsulation.Reverberation(document))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
+        // A building other than a dwelling on two storeys or more with no lift (Approved Document M Volume 2 3.24a, round 107).
+        foreach (var problem in Lifts.Missing(document))
+            yield return For(problem.Room, Named(problem.Room, problem.Said));
         foreach (var problem in FireAccess.Problems(document))
             yield return For(problem.Element, Named(problem.Element, problem.Said));
 
@@ -332,7 +335,7 @@ public static class Warnings
         if (Bedrooms.Verdict(document, room) is { } bedroom && !bedroom.EndsWith("big enough", StringComparison.Ordinal))
             yield return bedroom;
 
-        foreach (var verdict in new[] { Kitchens.Verdict(document, room), Bathrooms.Verdict(document, room), Toilets.Verdict(document, room), Lodging.Verdict(document, room), Architecture.Services.Verdict(document, room), Architecture.Alarms.Verdict(document, room), WindowRules.Verdict(document, room), Combustibility.LiningVerdict(document, room) })
+        foreach (var verdict in new[] { Kitchens.Verdict(document, room), Bathrooms.Verdict(document, room), Toilets.Verdict(document, room), Lodging.Verdict(document, room), Circulation.Verdict(document, room), Facilities.Verdict(document, room), Architecture.Services.Verdict(document, room), Architecture.Alarms.Verdict(document, room), WindowRules.Verdict(document, room), Combustibility.LiningVerdict(document, room) })
         {
             if (verdict is null) continue;
 

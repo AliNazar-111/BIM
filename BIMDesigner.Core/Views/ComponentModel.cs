@@ -1232,6 +1232,43 @@ public static class ComponentModel
                 Add(-15, 15, -halfD, -halfD + 30, h, h + 300, PartFinish.Metal, PartShape.Upright);
                 break;
 
+            case ComponentForm.AudienceSeat:
+                // A tip-up seat: its seat at 450, its back, the arms either side on their standards.
+                Add(-halfW + 40, halfW - 40, -halfD + 120, halfD - 80, 420, 470);
+                Add(-halfW + 40, halfW - 40, -halfD, -halfD + 80, 420, h);
+                Add(-halfW, -halfW + 40, -halfD, halfD - 120, 0, 650, PartFinish.Dark);
+                Add(halfW - 40, halfW, -halfD, halfD - 120, 0, 650, PartFinish.Dark);
+                break;
+
+            case ComponentForm.WheelchairSpace:
+                // A marking on the floor, in its own colour.
+                Add(-halfW, halfW, -halfD, halfD, 0, Math.Max(2, h));
+                break;
+
+            case ComponentForm.ServiceCounter:
+            {
+                // Its top over its body, the knee recess under its front left open.
+                var recess = Math.Clamp(type.KneeRecess, 0, d - 50);
+                Add(-halfW, halfW, -halfD, halfD, h - 40, h);
+                Add(-halfW, halfW, -halfD, halfD - recess, 0, h - 40);
+                break;
+            }
+
+            case ComponentForm.HearingLoop:
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.6, halfW * 0.6, halfD - 1, halfD + 2, h * 0.6, h * 0.85, PartFinish.Dark);
+                break;
+
+            case ComponentForm.Lift or ComponentForm.LiftingPlatform:
+                // Its car: floor, walls round three sides and its roof, its door's opening at the front left dark.
+                Add(-halfW, halfW, -halfD, halfD, 0, 20, PartFinish.Metal);
+                Add(-halfW, -halfW + 20, -halfD, halfD, 20, h);
+                Add(halfW - 20, halfW, -halfD, halfD, 20, h);
+                Add(-halfW, halfW, -halfD, -halfD + 20, 20, h);
+                Add(-halfW, halfW, -halfD, halfD, h - 20, h, PartFinish.Metal);
+                Add(-halfW + 20, halfW - 20, halfD - 2, halfD, 20, h - 20, PartFinish.Dark);
+                break;
+
             case ComponentForm.Locker:
             {
                 // Its carcass, and its doors' joints dark down its front, a door every 300 or so.
@@ -1763,6 +1800,37 @@ public static class ComponentModel
             case ComponentForm.Urinal:
                 // Its bowl's mouth.
                 Inside(-halfW * 0.6, halfW * 0.6, -halfD * 0.2, halfD * 0.8);
+                break;
+
+            case ComponentForm.AudienceSeat:
+                // Its back, and its seat's front edge.
+                Inside(-halfW + 40, halfW - 40, -halfD, -halfD + 80);
+                Inside(-halfW, -halfW + 40, -halfD, halfD - 120);
+                Inside(halfW - 40, halfW, -halfD, halfD - 120);
+                break;
+
+            case ComponentForm.WheelchairSpace:
+                // A wheelchair's outline marked within it.
+                Inside(-halfW + 50, halfW - 50, -halfD + 50, halfD - 50);
+                shapes.Add(frame.Ellipse(-halfW * 0.45, halfW * 0.45, -halfD * 0.2, halfD * 0.45, 20));
+                break;
+
+            case ComponentForm.ServiceCounter:
+                // Its front edge, and its knee recess under it dashed in by a line.
+                Inside(-halfW, halfW, halfD - 30, halfD);
+                if (type.KneeRecess > 0) shapes.Add(frame.Line(-halfW, halfD - type.KneeRecess, halfW, halfD - type.KneeRecess));
+                break;
+
+            case ComponentForm.HearingLoop:
+                // Its grille.
+                Inside(-halfW * 0.6, halfW * 0.6, halfD - 20, halfD);
+                break;
+
+            case ComponentForm.Lift or ComponentForm.LiftingPlatform:
+                // A lift's car crossed, as drawings show a lift, its door's side marked.
+                shapes.Add(frame.Line(-halfW, -halfD, halfW, halfD));
+                shapes.Add(frame.Line(-halfW, halfD, halfW, -halfD));
+                Inside(-halfW, halfW, halfD - 40, halfD);
                 break;
 
             case ComponentForm.Locker:

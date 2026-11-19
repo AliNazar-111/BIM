@@ -58,7 +58,7 @@ public static partial class Toilets
     [GeneratedRegex(@"[a-z]+")]
     private static partial Regex Words();
 
-    private static HashSet<string> WordsOf(string name) => Words().Matches(name.ToLowerInvariant()).Select(match => match.Value).ToHashSet();
+    internal static HashSet<string> WordsOf(string name) => Words().Matches(name.ToLowerInvariant()).Select(match => match.Value).ToHashSet();
 
     /// <summary>Whom a room's name says it is for: women - female, women, ladies, girls - or men - male, men, gents, boys - or neither.</summary>
     public static Sex SexOf(Room room)
@@ -494,6 +494,9 @@ public static partial class Toilets
     public enum Place
     {
         None,
+
+        /// <summary>Anywhere in a building other than a dwelling: a counter's space in front of it (Approved Document M Volume 2 3.6d, round 108).</summary>
+        Public,
 
         /// <summary>A room with a WC: a universal toilet, a cubicle, a single-sex toilet - Approved Document T's activity spaces.</summary>
         Toilet,

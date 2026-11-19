@@ -526,8 +526,8 @@ public sealed class BimDocument
                      ColumnType column => !columnTypes.Contains(column.Name),
                      FasciaType or GutterType or SoffitType or EaveType => !roofEdgeTypes.Contains(type.Name),
                      RoofType => !roofTypes.Contains(type.Name),
-                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" or "Ceiling - Acoustic Mineral Fibre Tile 15mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
-                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" or "Party Wall - Dense Cavity Blockwork 300mm" } => !wallTypeNames.Contains(type.Name),
+                     CeilingType { Name: "Ceiling - Plasterboard under 270mm Mineral Wool" or "Ceiling - Soffit Board, uPVC 10mm" or "Ceiling - Acoustic Mineral Fibre Tile 15mm" or "Ceiling - Two Layers Plasterboard under 200mm Mineral Wool" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
+                     WallType { Log: not null } or WallType { Name: "Stud Wall - Acoustic 125mm" or "Timber Frame - Brick Clad 315mm" or "Timber Frame - Siding 183mm" or "Party Wall - Cavity Blockwork 300mm" or "Party Wall - Dense Cavity Blockwork 300mm" or "Separating Wall - Dense Blockwork 215mm" } => !wallTypeNames.Contains(type.Name),
                      FloorType { Name: "Floor - Separating Slab, Floating 278mm" } => !_types.Values.Any(own => string.Equals(own.Name, type.Name, StringComparison.OrdinalIgnoreCase)),
                      RoofWindowType => !roofWindowTypes.Contains(type.Name),
                      FootingType => !footingTypes.Contains(type.Name),
@@ -1014,6 +1014,13 @@ public sealed class BimDocument
             TypeMark = "D11", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.Panelled,
             PanelMaterial = "Timber, Painted", FrameMaterial = "Timber", FireRating = "30 min", Cost = 360m,
             Description = "850 clear and more, for a wheelchair user's dwelling"
+        };
+        // A passenger lift's landing door: power-operated, sliding, 800 clear (Approved Document M Volume 2 3.34e).
+        var liftDoor = new DoorType("Lift Landing Door - Sliding 900 x 2100", 900, 2100)
+        {
+            TypeMark = "D18", AssemblyCode = "D1010", Operation = DoorOperation.Sliding, LeafCount = 1, LeafDesign = DoorLeafDesign.Flush,
+            PanelMaterial = "Stainless Steel", FrameMaterial = "Steel", FireRating = "E 30", Cost = 2400m,
+            Description = "A lift's landing door, power-operated and sliding, 800 clear: Approved Document M Volume 2 3.34e"
         };
         var garageDoor = new DoorType("Garage Door - Sectional 2400 x 2100", 2400, 2100)
         {
@@ -2150,6 +2157,38 @@ public sealed class BimDocument
                 TypeMark = "P21", Colour = white, Cost = 140m, FlowRate = 4,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 480, Description = "Its rim at 730, reachable from the WC (Approved Document M Volume 2 Diagram 19)"
             },
+            new ComponentType("Passenger Lift - 8 Person, Car 1100 x 1400", BuiltInCategory.GenericModels, ComponentForm.Lift, 1100, 1400, 2200)
+            {
+                TypeMark = "L1", Description = "The least car Approved Document M Volume 2 (3.34c, Diagram 11) asks: a wheelchair user and a companion", Cost = 38000m
+            },
+            new ComponentType("Passenger Lift - 17 Person, Car 2000 x 1400", BuiltInCategory.GenericModels, ComponentForm.Lift, 2000, 1400, 2200)
+            {
+                TypeMark = "L2", Description = "A car a wheelchair user can turn round in, with other passengers (Approved Document M Volume 2 3.29)", Cost = 52000m
+            },
+            new ComponentType("Lifting Platform - Enclosed, 1100 x 1400", BuiltInCategory.GenericModels, ComponentForm.LiftingPlatform, 1100, 1400, 2000)
+            {
+                TypeMark = "L3", Description = "A vertical lifting platform in its enclosure, for an accompanied wheelchair user (Approved Document M Volume 2 3.43g)", Cost = 21000m
+            },
+            // Audience seating, counters and a hearing loop in a building other than a dwelling (Approved Document M Volume 2 3.6, 4.12, 4.16, 4.36, round 108).
+            new ComponentType("Seat - Auditorium, Tip-up 500", BuiltInCategory.Furniture, ComponentForm.AudienceSeat, 500, 600, 850)
+                { TypeMark = "F34", Colour = new ColourRgb(0x8B, 0x2E, 0x3A), Cost = 240m, Description = "A fixed tip-up seat for a lecture theatre, cinema or auditorium" },
+            new ComponentType("Wheelchair Space - 900 x 1400", BuiltInCategory.GenericModels, ComponentForm.WheelchairSpace, 900, 1400, 2)
+                { TypeMark = "F35", Colour = new ColourRgb(0x2E, 0x5E, 0xAA), Cost = 40m, Description = "A permanent wheelchair space in audience seating, its floor level (Approved Document M Volume 2 4.12g, h)" },
+            new ComponentType("Wheelchair Space - Removable Seats 900 x 1400", BuiltInCategory.GenericModels, ComponentForm.WheelchairSpace, 900, 1400, 2)
+                { TypeMark = "F36", Colour = new ColourRgb(0x5E, 0x8E, 0xCA), Cost = 40m, Description = "A wheelchair space made by taking out seats (Approved Document M Volume 2 Table 3)" },
+            new ComponentType("Reception Counter - 1800 at 1050", BuiltInCategory.Furniture, ComponentForm.ServiceCounter, 1800, 700, 1050)
+                { TypeMark = "F37", Colour = new ColourRgb(0xC9, 0xB8, 0x9A), Cost = 1600m, Description = "A reception counter at a standing height" },
+            new ComponentType("Reception Counter - Lowered 1500 at 760, Knee Recess", BuiltInCategory.Furniture, ComponentForm.ServiceCounter, 1500, 700, 760)
+                { TypeMark = "F38", Colour = new ColourRgb(0xC9, 0xB8, 0x9A), Cost = 1400m, KneeRecess = 500, Description = "Its surface at 760, a knee recess 700 high and 500 deep under it (Approved Document M Volume 2 3.6d, e)" },
+            new ComponentType("Bar Counter - 2400 at 1050", BuiltInCategory.Furniture, ComponentForm.ServiceCounter, 2400, 600, 1050)
+                { TypeMark = "F39", Colour = new ColourRgb(0x6B, 0x4A, 0x32), Cost = 2600m, Description = "A bar or serving counter at a standing height" },
+            new ComponentType("Bar Counter - Lowered 1200 at 850", BuiltInCategory.Furniture, ComponentForm.ServiceCounter, 1200, 600, 850)
+                { TypeMark = "F40", Colour = new ColourRgb(0x6B, 0x4A, 0x32), Cost = 1500m, KneeRecess = 400, Description = "The part of a bar a wheelchair user can use, at 850 (Approved Document M Volume 2 4.16b)" },
+            new ComponentType("Induction Loop - Room Amplifier", BuiltInCategory.ElectricalEquipment, ComponentForm.HearingLoop, 250, 80, 300)
+            {
+                TypeMark = "E17", Colour = new ColourRgb(0x3A, 0x3E, 0x44), Cost = 650m, AgainstWall = true, Placement = ComponentPlacement.FaceBased, DefaultElevation = 1200,
+                Description = "An audio frequency induction loop's amplifier and its loop round the room, to BS EN 60118-4 (Approved Document M Volume 2 4.36b)"
+            },
             new ComponentType("Lockers - Bank of 4, 2 Tier", BuiltInCategory.Furniture, ComponentForm.Locker, 1200, 450, 1800)
                 { TypeMark = "F33", Colour = new ColourRgb(0x6E, 0x7B, 0x8B), Cost = 520m, AgainstWall = true, Description = "Steel lockers, four wide and two high, 300 x 450 x 900 each" },
             new ComponentType("Emergency Assistance Alarm - Pull Cord", BuiltInCategory.ElectricalEquipment, ComponentForm.AssistanceAlarm, 90, 50, 2300)
@@ -2845,6 +2884,27 @@ public sealed class BimDocument
             CoarseScaleFillColour = ColourRgb.FromHex("F0EEE8")
         };
 
+        // Rooms for residential purposes (Approved Document E Section 6, round 105): a solid wall of dense block, wall type 1.1, and the ceiling a
+        // solid wall between them may stop at under a roof or a floor - two layers of plasterboard, 20 kg/m², under 200 of mineral wool (6.14).
+        var solidSeparating = new WallType("Separating Wall - Dense Blockwork 215mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
+            new MaterialLayer(LayerFunction.Structure, denseBlock.Id, 215),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
+        {
+            Function = WallFunction.Interior, TypeMark = "PW3", AssemblyCode = "C1010", FireRating = "60 min", Cost = 96m,
+            Description = "Approved Document E wall type 1.1, solid dense block plastered both faces - between rooms for residential purposes (6.4)",
+            CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
+        };
+        var doubleBoardCeiling = new CeilingType("Ceiling - Two Layers Plasterboard under 200mm Mineral Wool", new CompoundStructure(
+            new MaterialLayer(LayerFunction.ThermalAir, mineralWool.Id, 200),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5),
+            new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
+        {
+            TypeMark = "C5", AssemblyCode = "C3030", Function = SlabFunction.Architectural, FireRating = "30 min", Cost = 52m,
+            Description = "Approved Document E Diagram 6.1: the ceiling a solid separating wall between rooms for residential purposes may stop at (6.14)",
+            CoarseScaleFillColour = ColourRgb.FromHex("D9C38A")
+        };
+
         // Slab edges: a thickened edge to a ground-bearing slab, an edge beam, a kerb along a floor's edge.
         var thickenedEdge = new SlabEdgeType("Slab Edge - Thickened 450 x 450")
             { Shape = SlabEdgeShape.Thickened, Width = 450, Depth = 450, FootWidth = 250, MaterialId = concrete.Id, TypeMark = "SE1", Cost = 85m };
@@ -2874,12 +2934,12 @@ public sealed class BimDocument
                      mullions[0], mullions[1], mullions[2], mullions[3], mullions[4], mullions[5], mullions[6], mullions[7], mullions[8],
                      mullions[9], mullions[10], stickSystem,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
-                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
+                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, liftDoor, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
-                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling
+                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling
                  })
         {
             document.AddType(type);

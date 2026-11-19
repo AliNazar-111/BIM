@@ -36,10 +36,54 @@ public static class WallRules
 
     /// <summary>Whether a room is a bedroom or has a WC in it: one whose walls keep sound in.</summary>
     private static bool Quiet(BimDocument document, Room room) =>
-        room.GetBoundary(document) is { IsEnclosed: true } boundary && document.All<Component>()
-            .Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location))
-            .Select(piece => document.FindType<ComponentType>(piece.TypeId))
-            .Any(type => type is not null && (Bathrooms.IsWc(type) || type.Form is ComponentForm.Bed or ComponentForm.BunkBed));
+        Fittings(document, room).Any(type => Bathrooms.IsWc(type) || type.Form is ComponentForm.Bed or ComponentForm.BunkBed);
+
+    /// <summary>The types of the components in a room.</summary>
+    private static IEnumerable<ComponentType> Fittings(BimDocument document, Room room) =>
+        room.GetBoundary(document) is { IsEnclosed: true } boundary
+            ? document.All<Component>().Where(piece => piece.LevelId == room.LevelId && Polygon2D.Contains(boundary.Polygon, piece.Location))
+                .Select(piece => document.FindType<ComponentType>(piece.TypeId)).OfType<ComponentType>()
+            : Enumerable.Empty<ComponentType>();
+
+    /// <summary>The rooms each room's doors open into - none, outside - kept while the model does not change.</summary>
+    private static IReadOnlyDictionary<Room, List<Room?>> Openings(BimDocument document)
+    {
+        IReadOnlyDictionary<Room, List<Room?>> Work()
+        {
+            var openings = new Dictionary<Room, List<Room?>>();
+            void Add(Room room, Room? other)
+            {
+                if (!openings.TryGetValue(room, out var list)) openings[room] = list = new List<Room?>();
+                list.Add(other);
+            }
+
+            foreach (var door in document.All<Door>())
+            {
+                var (a, b) = Doors.RoomsBeside(document, door);
+                if (a == b) continue;
+                if (a is not null) Add(a, b);
+                if (b is not null) Add(b, a);
+            }
+
+            return openings;
+        }
+
+        return ModelCache.Of(document) is { } cache ? cache.Keep("walls: openings", document, null, null, Work) : Work();
+    }
+
+    /// <summary>
+    /// Whether Regulation E2 leaves an internal wall alone by its own exceptions: one with a door in it (a), or the wall between an en-suite toilet
+    /// - a room with a WC whose doors all open into a bedroom - and the bedroom it belongs to (b).
+    /// </summary>
+    internal static bool Unasked(BimDocument document, Wall wall, Room one, Room other)
+    {
+        if (document.All<Door>().Any(door => door.HostWallId == wall.Id)) return true;
+        var openings = Openings(document);
+        bool EnSuite(Room toilet, Room bedroom) =>
+            openings.TryGetValue(toilet, out var leads) && leads.Count > 0 && leads.All(room => room == bedroom) && Fittings(document, toilet).Any(Bathrooms.IsWc)
+            && (bedroom.Name.Contains("bedroom", StringComparison.OrdinalIgnoreCase) || Fittings(document, bedroom).Any(type => type.Form is ComponentForm.Bed or ComponentForm.BunkBed));
+        return EnSuite(one, other) || EnSuite(other, one);
+    }
 
     /// <summary>
     /// What a curtain wall falls short of: its U-value (Approved Document L's 1.6 for curtain
@@ -136,9 +180,9 @@ public static class WallRules
                     $"IRC R302.6 asks for 1/2 in{Units.MetricAside("12.7")} gypsum board on the garage side of the wall between a garage and the house.");
 
             if (!us && !garage && type.Function == WallFunction.Interior && Residential(document) && (!Toilets.Applies(document) || Lodging.WithinRoom(document, one, other))
-                && (Quiet(document, one) || Quiet(document, other)) && type.AcousticRating < 40 - 0.05)
+                && (Quiet(document, one) || Quiet(document, other)) && type.AcousticRating < 40 - 0.05 && !Unasked(document, wall, one, other))
                 Add($"it keeps sound in to Rw {type.AcousticRating:0} dB, round a bedroom or a room with a WC.",
-                    "Approved Document E (E2, Table 0.2) asks for Rw 40 dB from an internal wall round a bedroom or a room with a WC.");
+                    "Approved Document E (E2, Table 0.2) asks for Rw 40 dB from an internal wall round a bedroom or a room with a WC - not one with a door in it, nor the wall between an en-suite toilet and its bedroom (E2 a, b).");
         }
 
         // A party wall: a compartment wall between the homes, 60 minutes, up to the roof.

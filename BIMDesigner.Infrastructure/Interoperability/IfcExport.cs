@@ -166,6 +166,8 @@ public static partial class IfcExport
         Exporter.ComponentClass.AirTerminal => "IfcAirTerminal",
         Exporter.ComponentClass.Sprinkler => "IfcFireSuppressionTerminal",
         Exporter.ComponentClass.Pump => "IfcPump",
+        Exporter.ComponentClass.Transport => "IfcTransportElement",
+        Exporter.ComponentClass.AudioVisual => "IfcAudioVisualAppliance",
         _ => "IfcBuildingElementProxy"
     };
 
@@ -2345,7 +2347,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Alarm, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Alarm, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Transport, AudioVisual, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2368,6 +2370,9 @@ public static partial class IfcExport
             ComponentForm.ExtractFan => ComponentClass.Fan,
             ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm => ComponentClass.Sensor,
             ComponentForm.AssistanceAlarm => ComponentClass.Alarm,
+            ComponentForm.Lift or ComponentForm.LiftingPlatform => ComponentClass.Transport,
+            ComponentForm.HearingLoop => ComponentClass.AudioVisual,
+            ComponentForm.AudienceSeat or ComponentForm.ServiceCounter => ComponentClass.Furniture,
             ComponentForm.ConsumerUnit => ComponentClass.Board,
             ComponentForm.Thermostat => ComponentClass.Control,
             ComponentForm.Boiler => ComponentClass.Boiler,
@@ -2411,7 +2416,7 @@ public static partial class IfcExport
                 ComponentClass.Furniture => ComponentProduct<IfcFurniture>(component, type, meshes, furniture =>
                     furniture.PredefinedType = type.Form switch
                     {
-                        ComponentForm.Chair or ComponentForm.Armchair => IfcFurnitureTypeEnum.CHAIR,
+                        ComponentForm.Chair or ComponentForm.Armchair or ComponentForm.AudienceSeat => IfcFurnitureTypeEnum.CHAIR,
                         ComponentForm.Table or ComponentForm.CoffeeTable or ComponentForm.RoundTable => IfcFurnitureTypeEnum.TABLE,
                         ComponentForm.Desk => IfcFurnitureTypeEnum.DESK,
                         ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Cot => IfcFurnitureTypeEnum.BED,
@@ -2533,6 +2538,16 @@ public static partial class IfcExport
                     gully.PredefinedType = Xbim.Ifc4.Interfaces.IfcWasteTerminalTypeEnum.GULLYTRAP),
                 ComponentClass.Pump => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcPump>(component, type, meshes, pump =>
                     pump.PredefinedType = Xbim.Ifc4.Interfaces.IfcPumpTypeEnum.SUMPPUMP),
+                ComponentClass.AudioVisual => ComponentProduct<Xbim.Ifc4.ElectricalDomain.IfcAudioVisualAppliance>(component, type, meshes, loop =>
+                {
+                    loop.PredefinedType = Xbim.Ifc4.Interfaces.IfcAudioVisualApplianceTypeEnum.AMPLIFIER;
+                    loop.ObjectType = "Hearing enhancement system";
+                }),
+                ComponentClass.Transport => ComponentProduct<Xbim.Ifc4.ProductExtension.IfcTransportElement>(component, type, meshes, lift =>
+                {
+                    lift.PredefinedType = type.Form == ComponentForm.Lift ? Xbim.Ifc4.Interfaces.IfcTransportElementTypeEnum.ELEVATOR : Xbim.Ifc4.Interfaces.IfcTransportElementTypeEnum.USERDEFINED;
+                    if (type.Form == ComponentForm.LiftingPlatform) lift.ObjectType = "Lifting platform";
+                }),
                 _ => ComponentProduct<IfcBuildingElementProxy>(component, type, meshes, _ => { })
             };
 

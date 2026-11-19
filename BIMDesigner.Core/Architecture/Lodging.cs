@@ -21,16 +21,68 @@ namespace BIMDesigner.Core.Architecture;
 public static class Lodging
 {
     /// <summary>
-    /// Whether two rooms are within one room for residential purposes - a hotel's bedroom and its own en-suite - where Approved Document E's E2
-    /// reaches the wall between them; the walls between such rooms and to the corridor are E1's separating walls (Section 6, Table 0.1b), not
-    /// worked out here.
+    /// Whether two rooms are within one room for residential purposes - a hotel's bedroom and its own en-suite, a suite's sitting room - where
+    /// Approved Document E's E2 reaches the wall between them; the walls between such rooms, and between one and the corridor or any other part of
+    /// the building, are E1's separating walls (Section 6, Table 0.1b, round 105).
     /// </summary>
-    public static bool WithinRoom(BimDocument document, Room one, Room other)
+    public static bool WithinRoom(BimDocument document, Room one, Room other) =>
+        Suites(document) is var suites && suites.TryGetValue(one, out var a) && suites.TryGetValue(other, out var b) && a == b;
+
+    /// <summary>Whether a building's bedrooms are a hospital's or the like, its patients' - not rooms for residential purposes (Regulation 2).</summary>
+    private static bool Hospital(BimDocument document) =>
+        Toilets.WordsOf(document.ProjectInformation.BuildingType).Overlaps(new[] { "hospital", "hospice", "infirmary", "clinic", "sanatorium" });
+
+    /// <summary>A room as a room for residential purposes is called: its name, with its number where the name does not have it.</summary>
+    internal static string Called(Room room) =>
+        room.Number.Trim() is { Length: > 0 } number && !room.Name.Contains(number, StringComparison.OrdinalIgnoreCase) ? $"{room.Name.Trim()} {number}" : room.Name.Trim();
+
+    /// <summary>
+    /// The rooms for residential purposes of a building other than a dwelling (Regulation 2: a room, or a suite of rooms, used to live and sleep in -
+    /// a hotel's, a hostel's, a hall of residence's, a residential home's), kept while the model does not change: each bedroom with the rooms its
+    /// doors join it to, not through a corridor, hall, landing, lobby or stair - its en-suite, a suite's sitting room - by its bedroom's name, the
+    /// first by number where a suite has more than one. None in a hospital, nor of a flat's rooms.
+    /// </summary>
+    public static IReadOnlyDictionary<Room, string> Suites(BimDocument document)
     {
-        var plan = Toilets.Plan(document);
-        if (!plan.TryGetValue(one, out var a) || !plan.TryGetValue(other, out var b)) return false;
-        bool Suite(Toilets.Fitted suite, Room bedroom) => Toilets.EnSuite(plan, suite) && suite.Doors.Any(door => door.Other == bedroom);
-        return Suite(a, other) || Suite(b, one);
+        IReadOnlyDictionary<Room, string> Work()
+        {
+            var plan = Toilets.Plan(document);
+            if (plan.Count == 0 || Hospital(document)) return new Dictionary<Room, string>();
+            bool Joins(Room room) => !FireSeparation.Circulation(room) && Dwellings.Of(room).Length == 0;
+            var parent = plan.Keys.Where(Joins).ToDictionary(room => room, room => room);
+            Room Find(Room room)
+            {
+                while (parent[room] != room) room = parent[room] = parent[parent[room]];
+                return room;
+            }
+
+            foreach (var fitted in plan.Values.Where(each => parent.ContainsKey(each.Room)))
+            foreach (var (_, other) in fitted.Doors)
+                if (other is not null && parent.ContainsKey(other))
+                    parent[Find(fitted.Room)] = Find(other);
+
+            var suites = new Dictionary<Room, string>();
+            foreach (var group in parent.Keys.GroupBy(Find))
+            {
+                var bedroom = group.Where(room => IsBedroom(plan[room])).OrderBy(room => room.Number, StringComparer.Ordinal).ThenBy(room => room.Name, StringComparer.Ordinal).FirstOrDefault();
+                if (bedroom is null) continue;
+                foreach (var room in group) suites[room] = Called(bedroom);
+            }
+
+            return suites;
+        }
+
+        return ModelCache.Of(document) is { } cache ? cache.Keep("lodging: suites", document, null, null, Work) : Work();
+    }
+
+    /// <summary>Which room for residential purposes a room is part of - "Bedroom 101, with En-suite 101" - for Properties; null where it is none's.</summary>
+    public static string? Residence(BimDocument document, Room room)
+    {
+        var suites = Suites(document);
+        if (!suites.TryGetValue(room, out var name)) return null;
+        var others = suites.Where(entry => entry.Value == name && entry.Key != room).Select(entry => Called(entry.Key)).OrderBy(each => each, StringComparer.Ordinal).ToList();
+        var own = Called(room) == name;
+        return own ? others.Count == 0 ? name : $"{name}, with {string.Join(", ", others)}" : $"part of {name}";
     }
 
     /// <summary>A door's least effective clear width at right angles to an access route, by its width (Table 2, new buildings).</summary>

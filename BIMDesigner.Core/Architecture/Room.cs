@@ -161,6 +161,18 @@ public sealed class Room : Element
         if (Lodging.Verdict(document, this) is { } lodging)
             yield return ParameterValue.ReadOnly(RoomParameters.Lodging, () => lodging);
 
+        // As a corridor or a lobby of a building other than a dwelling: its clear width and passing places, its length between its doors (round 106).
+        if (Architecture.Circulation.Verdict(document, this) is { } circulation)
+            yield return ParameterValue.ReadOnly(RoomParameters.Circulation, () => circulation);
+
+        // Its audience seating, counters and hearing enhancement, in a building other than a dwelling (round 108).
+        if (Architecture.Facilities.Verdict(document, this) is { } facilities)
+            yield return ParameterValue.ReadOnly(RoomParameters.Facilities, () => facilities);
+
+        // Which room for residential purposes it is part of - a hotel's bedroom and its en-suite - whose walls and floors to the rest separate (round 105).
+        if (Lodging.Residence(document, this) is { } residence)
+            yield return ParameterValue.ReadOnly(RoomParameters.Residence, () => residence);
+
         // As toilet accommodation in a building other than a dwelling: which of Approved Document T's types it is, and what it lacks.
         if (Toilets.Verdict(document, this) is { } toilet)
             yield return ParameterValue.ReadOnly(RoomParameters.Toilet, () => toilet);
@@ -328,6 +340,15 @@ public static class RoomParameters
 
     public static readonly ParameterDefinition Lodging =
         new("Bedroom (Approved Document M Volume 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Facilities =
+        new("Facilities (Approved Document M Volume 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Circulation =
+        new("Corridor or Lobby (Approved Document M Volume 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
+
+    public static readonly ParameterDefinition Residence =
+        new("Room for Residential Purposes (Approved Document E)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition Toilet =
         new("Toilet (Approved Document T)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);

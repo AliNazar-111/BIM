@@ -1247,6 +1247,9 @@ internal sealed class ComponentTypeDto
     /// <summary>A WC's seat height; none in a file from before, or where it is taken from its size.</summary>
     public double? SeatHeight { get; set; }
 
+    /// <summary>A counter's knee recess under its front; none in a file from before, or where it has none.</summary>
+    public double? KneeRecess { get; set; }
+
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
 

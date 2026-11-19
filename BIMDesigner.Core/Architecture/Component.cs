@@ -254,7 +254,31 @@ public enum ComponentForm
     AssistanceAlarm,
 
     /// <summary>A bank of lockers, in tiers - a changing area's, with 1500 clear in front of it (Approved Document M Volume 2 5.18j).</summary>
-    Locker
+    Locker,
+
+    /// <summary>
+    /// A passenger lift: its car, its width across its door and its depth from it, in its shaft - one placed for the lift, serving each storey
+    /// where a landing door stands by it (Approved Document M Volume 2 3.24, 3.28, 3.34).
+    /// </summary>
+    Lift,
+
+    /// <summary>A vertical lifting platform: where a passenger lift cannot be accommodated, its platform's width and depth (Approved Document M Volume 2 3.22, 3.43).</summary>
+    LiftingPlatform,
+
+    /// <summary>A fixed seat in an audience or spectator seating area - a tip-up theatre seat - counted for its capacity (Approved Document M Volume 2 Table 3).</summary>
+    AudienceSeat,
+
+    /// <summary>
+    /// A space for a wheelchair user in audience seating, 900 by 1400 (Approved Document M Volume 2 4.12g): permanent, or made by taking out
+    /// seats where its type's name says removable (Table 3).
+    /// </summary>
+    WheelchairSpace,
+
+    /// <summary>A reception desk, a bar or a serving counter: its height its surface's, its knee recess under its front (Approved Document M Volume 2 3.6, 4.16).</summary>
+    ServiceCounter,
+
+    /// <summary>A hearing enhancement system: an induction loop's amplifier, or an infrared or radio system's (Approved Document M Volume 2 3.6f, 4.12m, 4.36b).</summary>
+    HearingLoop
 }
 
 /// <summary>
@@ -480,6 +504,9 @@ public sealed class ComponentType : ElementType
     /// <summary>For a WC, the height of its seat, mm - 480 a wheelchair-accessible toilet's (Approved Document M Volume 2 Diagram 19); none to take it from its size.</summary>
     public double SeatHeight { get; set; }
 
+    /// <summary>For a reception desk or a counter, how deep the knee recess under its front is, mm - none for 0 (Approved Document M Volume 2 3.6d, e).</summary>
+    public double KneeRecess { get; set; }
+
     /// <summary>Its flue as set, or as usual for its kind.</summary>
     public ApplianceFlue FlueOf => Flue != ApplianceFlue.Usual ? Flue : Form switch
     {
@@ -612,7 +639,8 @@ public sealed class ComponentType : ElementType
         Bunded = Bunded,
         Outlets = Outlets,
         Tethered = Tethered,
-        SeatHeight = SeatHeight
+        SeatHeight = SeatHeight,
+        KneeRecess = KneeRecess
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -770,6 +798,13 @@ public sealed class ComponentType : ElementType
             {
                 if (v is < 200 or > 700) return false;
                 SeatHeight = v;
+                return true;
+            });
+        if (Form == ComponentForm.ServiceCounter)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.KneeRecess, () => KneeRecess, (double v) =>
+            {
+                if (v < 0 || v > Depth) return false;
+                KneeRecess = v;
                 return true;
             });
         if (Form == ComponentForm.EvChargePoint)
@@ -1393,6 +1428,7 @@ public static class ComponentTypeParameters
     public static readonly ParameterDefinition ChargeOutput = new("Rated Output (kW)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
     public static readonly ParameterDefinition Outlets = new("Outlets (spaces served at once)", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Analytical);
     public static readonly ParameterDefinition SeatHeight = new("Seat Height", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
+    public static readonly ParameterDefinition KneeRecess = new("Knee Recess Depth", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
 
     public static readonly ParameterDefinition Tethered = new("Tethered Cable", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Analytical);
 

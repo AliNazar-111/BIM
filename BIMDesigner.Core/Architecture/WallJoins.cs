@@ -288,6 +288,21 @@ public static class WallJoins
         }
 
         result.Add(Hit(innerOffset));
+
+        // A line all but tangent to a curved wall meets its band's two edges far apart along it, and a straight end between them bows out of
+        // the band and folds its outline over: the end is squared there instead, half way between the two.
+        if (wall.IsCurved && result.Count == 2)
+        {
+            var (outer, inner) = (wall.Locate(structure, result[0]), wall.Locate(structure, result[1]));
+            var leaves = new[] { 0.25, 0.5, 0.75 }.Select(t => Across(new Point2D(result[0].X + (result[1].X - result[0].X) * t, result[0].Y + (result[1].Y - result[0].Y) * t)))
+                .Any(across => across > Math.Max(outerOffset, innerOffset) + Epsilon || across < Math.Min(outerOffset, innerOffset) - Epsilon);
+            if (leaves)
+            {
+                var along = (outer.Along + inner.Along) / 2;
+                return new[] { wall.PointAt(structure, along, outerOffset), wall.PointAt(structure, along, innerOffset) };
+            }
+        }
+
         return result;
     }
 

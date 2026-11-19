@@ -144,7 +144,9 @@ public static class Doors
         var swings = type.Operation is DoorOperation.Swing or DoorOperation.DoubleSwing;
         var pair = type.Operation == DoorOperation.DoubleSwing || type.LeafCount >= 2;
 
-        // Wide enough.
+        // Wide enough: a dwelling's by M4, a building's other than a dwelling by Approved Document M Volume 2's Table 2 (round 106, below).
+        var homes = !Circulation.Applies(document);
+        if (homes)
         switch (standard)
         {
             case ClearanceStandard.ApprovedDocumentM when external && clear < 850 - 0.5:
@@ -176,11 +178,14 @@ public static class Doors
             .Select(other => document.Find<Wall>(other.HostWallId)?.LevelId)
             .FirstOrDefault());
         var wantsNib = standard == ClearanceStandard.ApprovedDocumentM3 || standard == ClearanceStandard.ApprovedDocumentM && (external || wall.LevelId == entranceStorey);
-        if (wantsNib && swings && !pair && Nib(document, door, type) is { } nib && nib < 300 - 0.5)
+        if (homes && wantsNib && swings && !pair && Nib(document, door, type) is { } nib && nib < 300 - 0.5)
             Add($"its leading edge is {nib:0} from the wall beside it.",
                 standard == ClearanceStandard.ApprovedDocumentM3
                     ? "Approved Document M (M4(3) 3.22, 3.24) asks for a 300 nib beside every door's leading edge, on the side it opens to."
                     : "Approved Document M (M4(2) 2.20f, 2.22) asks for a 300 nib beside the leading edge of an external door, and of every door on the entrance storey, on the side it opens to.");
+
+        // In a building other than a dwelling: Table 2's widths, the space beside its leading edge, and not standing into a corridor (round 106).
+        foreach (var (said, rule) in Circulation.Problems(document, door, type)) Add(said, rule);
 
         // Fire doors: into an integral garage, and onto the stair of a house with a storey over 4.5 m.
         var (swingRoom, otherRoom) = RoomsBeside(document, door);

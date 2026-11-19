@@ -1401,6 +1401,7 @@ public static partial class ProjectFile
                 Outlets = type.Outlets > 1 ? type.Outlets : null,
                 Tethered = type.Tethered ? true : null,
                 SeatHeight = type.SeatHeight > 0 ? type.SeatHeight : null,
+                KneeRecess = type.KneeRecess > 0 ? type.KneeRecess : null,
                 Phases = type.Form == ComponentForm.ConsumerUnit && type.Phases == 3 ? 3 : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
@@ -3419,6 +3420,7 @@ public static partial class ProjectFile
                 Outlets = type.Outlets is > 1 and <= 12 ? type.Outlets.Value : 1,
                 Tethered = type.Tethered == true,
                 SeatHeight = type.SeatHeight is > 0 and < 1000 ? type.SeatHeight.Value : 0,
+                KneeRecess = type.KneeRecess is > 0 and < 5000 ? type.KneeRecess.Value : 0,
                 Phases = type.Phases == 3 ? 3 : 1,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),

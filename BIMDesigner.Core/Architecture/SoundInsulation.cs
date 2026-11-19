@@ -17,16 +17,29 @@ namespace BIMDesigner.Core.Architecture;
 /// holds up and weighs little; plasterboard; other boards; wet plaster or render; and gaps - cavities and what fills them. A separating wall is a
 /// party wall type, or one with rooms of different dwellings either side, or a flat on one side and another part of a block of two dwellings or
 /// more - a corridor (2.25) - on the other; a separating floor likewise, with rooms over it and under it. A type naming the Robust Detail it is
-/// built to is taken as that detail - not checked here, nor tested before completion (0.2, Annex E).
+/// built to is taken as that detail - not checked here, nor tested before completion (0.2, Annex E). A separating wall runs up to the roof over
+/// it (2.55, 2.91, 2.133, 2.160 - round 105).
+///
+/// Rooms for residential purposes (round 105, Section 6): a hotel's, a hostel's, a hall of residence's, a residential home's bedroom with the
+/// rooms it opens into, not through a corridor - its en-suite, a suite's sitting room - separated from each other and from every other part of
+/// the building by Section 6's walls - solid masonry, types 1.1 to 1.3, a solid core between panels, 3.1 and 3.2, cavity masonry and timber
+/// frames, types 2 and 4, with care - to Table 0.1b's DnT,w + Ctr 43 dB, and its floors - 1.1C and 1.2B, or 2 and 3 where their floating floors
+/// and ceilings do not run on from room to room (6.8); a solid wall stopped at a ceiling under a roof or floor by Diagram 6.1 (6.14); its door from
+/// the corridor (6.6); the corridors, halls and stairs giving access to it absorbing as a block of flats' (Section 7). No Robust Details there:
+/// they stand in for testing in new houses and flats only (Regulation 41).
 ///
 /// Not done: steps in elevation for wall types 2.3 and 2.4 - only staggers in plan; wall ties, flexible closers, sockets, hangers and blocking;
 /// flue blocks and refuse chutes; floating floors (c), resilient layers by their dynamic stiffness and soft coverings by their ΔLw; floor
-/// penetrations' enclosures; rooms for residential purposes (Table 0.1b), material change of use (Section 4) and schools (E4); Method B.
+/// penetrations' enclosures; noisy rooms' lobbies (6.7) and room layout (6.16 to 6.18); a ceiling's perforations (6.14c); material change of
+/// use (Section 4, 6.9, 6.10) and schools (E4); Method B.
 /// </summary>
 public static class SoundInsulation
 {
     /// <summary>Annex A's mortar, kg/m³; the least mass of an inner leaf or an internal masonry wall without its finish (2.38, 2.44, 2.75, 2.81, 3.32, 3.40), and of a sheet of plasterboard, kg/m²; a flat's entrance door's least Rw (2.26).</summary>
     public const double MortarDensity = 1800, LeastLeaf = 120, LeastSheet = 10, LeastDoor = 29;
+
+    /// <summary>Table 0.1b's least DnT,w + Ctr of a wall between rooms for residential purposes, dB - their floors' as Table 0.1a's, 45 and L'nT,w 62.</summary>
+    public const double LodgingWall = 43;
 
     /// <summary>What a layer is, as Approved Document E reads a construction.</summary>
     internal enum Part
@@ -174,7 +187,7 @@ public static class SoundInsulation
         public bool Met => Group > 0 && Short.Count == 0;
     }
 
-    public static WallConstruction Wall(BimDocument document, WallType type, bool separatingFloor = false, bool? staggered = null)
+    public static WallConstruction Wall(BimDocument document, WallType type, bool separatingFloor = false, bool? staggered = null, bool lodging = false)
     {
         var pieces = Pieces(document, type.Structure);
         var mass = pieces.Sum(piece => piece.Mass);
@@ -242,6 +255,9 @@ public static class SoundInsulation
             var shortOf = new List<string>();
             if (mass < asked - 0.5) shortOf.Add($"{Kg(asked)} at least with its plaster, not {Kg(mass)} ({paragraph})");
             if (!finished) shortOf.Add($"plaster on both room faces ({paragraph})");
+            // Between rooms for residential purposes plasterboard may finish it in place of plaster, a sheet of 10 kg/m² on each room face (6.4).
+            else if (lodging && new[] { outerFace, innerFace }.Any(face => !face.Any(piece => piece.Part == Part.Plaster) && face.Where(piece => piece.Part == Part.Plasterboard).Max(piece => piece.Mass) < LeastSheet - 0.05))
+                shortOf.Add($"a sheet of plasterboard of {Kg(LeastSheet)} at least on each room face it boards in place of plaster (6.4)");
             return new(1, code, name, $"a solid wall of {(unit == Unit.Brick ? "brick" : unit == Unit.Concrete ? "concrete" : "dense block")}, {Kg(mass)} with its finishes", mass, shortOf);
         }
 
@@ -300,35 +316,58 @@ public static class SoundInsulation
     private static Room? RoomAt(IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> outlines, Guid level, Point2D point) =>
         outlines.FirstOrDefault(entry => entry.Key.LevelId == level && Polygon2D.Contains(entry.Value, point)).Key;
 
-    /// <summary>What a wall or floor between two rooms separates, said - "Flat 1 from Flat 2", "Flat 1 from the Corridor" - or null where it separates no dwelling from another part.</summary>
-    private static string? Separates(BimDocument document, Room one, Room other)
+    /// <summary>
+    /// What a wall or floor between two rooms separates, said - "Flat 1 from Flat 2", "Flat 1 from the Corridor", "Bedroom 101 from Bedroom 102" -
+    /// and whether it is rooms for residential purposes it separates (Section 6, round 105), not dwellings; null where it separates no dwelling or
+    /// room for residential purposes from another part.
+    /// </summary>
+    private static (string Said, bool Lodging)? Separates(BimDocument document, Room one, Room other)
     {
         if (one == other) return null;
         var (a, b) = (Dwellings.Of(one), Dwellings.Of(other));
-        if (a.Length == 0 && b.Length == 0 || Dwellings.Same(one, other)) return null;
-        if (a.Length > 0 && b.Length > 0) return $"{a} from {b}";
-        return Dwellings.Named(document).Count >= 2 ? $"{(a.Length > 0 ? a : b)} from the {(a.Length > 0 ? other : one).Name}" : null;
+        if (a.Length > 0 || b.Length > 0)
+        {
+            if (Dwellings.Same(one, other)) return null;
+            if (a.Length > 0 && b.Length > 0) return ($"{a} from {b}", false);
+            return Dwellings.Named(document).Count >= 2 ? ($"{(a.Length > 0 ? a : b)} from the {(a.Length > 0 ? other : one).Name}", false) : null;
+        }
+
+        // A hotel's, a hostel's: a room for residential purposes from another, or from any other part of the building (E1).
+        var suites = Lodging.Suites(document);
+        var (c, d) = (suites.GetValueOrDefault(one), suites.GetValueOrDefault(other));
+        if (c is null && d is null || c == d) return null;
+        return c is not null && d is not null ? ($"{c} from {d}", true) : ($"{c ?? d} from the {(c is not null ? other : one).Name}", true);
     }
 
     /// <summary>
     /// What a wall separates (E1, 2.25): a party wall type's two homes, or the dwellings - or a flat and another part of a block - whose rooms are
     /// either side of it along its length; null where it separates none.
     /// </summary>
-    public static string? Between(BimDocument document, Wall wall, WallType type)
+    public static string? Between(BimDocument document, Wall wall, WallType type) => Separation(document, wall, type)?.Said;
+
+    /// <summary>
+    /// What a wall separates, and whether that is rooms for residential purposes rather than dwellings. A party wall type with nothing either side
+    /// to tell by is taken as between two homes - in a building with rooms for residential purposes, only with one of them on one side and no room
+    /// drawn on the other: the building next to it.
+    /// </summary>
+    private static (string Said, bool Lodging)? Separation(BimDocument document, Wall wall, WallType type)
     {
         if (type.Function is WallFunction.Exterior or WallFunction.Retaining or WallFunction.Foundation or WallFunction.Soffit || document.IsCurtainWall(wall) || wall.Length < 1) return null;
         var outlines = Outlines(document);
+        var suites = Lodging.Suites(document);
         var reach = type.Structure.TotalWidth / 2 + 150;
         var count = Math.Max(1, (int)Math.Ceiling(wall.Length / 500));
+        string? beside = null;
         for (var i = 0; i < count; i++)
         {
             var along = wall.Length * (i + 0.5) / count;
-            if (RoomAt(outlines, wall.LevelId, wall.PointAt(type.Structure, along, reach)) is { } left && RoomAt(outlines, wall.LevelId, wall.PointAt(type.Structure, along, -reach)) is { } right
-                && Separates(document, left, right) is { } said)
-                return said;
+            var (left, right) = (RoomAt(outlines, wall.LevelId, wall.PointAt(type.Structure, along, reach)), RoomAt(outlines, wall.LevelId, wall.PointAt(type.Structure, along, -reach)));
+            if (left is not null && right is not null && Separates(document, left, right) is { } said) return said;
+            if ((left is null) != (right is null)) beside ??= suites.GetValueOrDefault((left ?? right)!);
         }
 
-        return type.Separating ? "two homes" : null;
+        if (!type.Separating) return null;
+        return suites.Count == 0 ? ("two homes", false) : beside is null ? null : ($"{beside} from the building next to it", true);
     }
 
     /// <summary>The rooms over a floor - on its storey, inside it - and under it, on the storey below.</summary>
@@ -343,7 +382,10 @@ public static class SoundInsulation
     }
 
     /// <summary>What a floor separates: the dwellings - or a flat and another part of a block - over and under it; a separating floor type's two homes where there are rooms under it; else null.</summary>
-    public static string? Between(BimDocument document, Floor floor, FloorType type)
+    public static string? Between(BimDocument document, Floor floor, FloorType type) => Separation(document, floor, type)?.Said;
+
+    /// <summary>What a floor separates, and whether that is rooms for residential purposes rather than dwellings.</summary>
+    private static (string Said, bool Lodging)? Separation(BimDocument document, Floor floor, FloorType type)
     {
         if (floor.Boundary.Count < 3) return null;
         var (over, under) = Rooms(document, floor);
@@ -351,7 +393,16 @@ public static class SoundInsulation
         foreach (var bottom in under)
             if (Separates(document, top, bottom) is { } said)
                 return said;
-        return type.Separating && over.Count > 0 && under.Count > 0 ? "two homes" : null;
+        return type.Separating && over.Count > 0 && under.Count > 0 && Lodging.Suites(document).Count == 0 ? ("two homes", false) : null;
+    }
+
+    /// <summary>Whether the rooms over a floor and under it are all one room for residential purposes', a suite's over two storeys - where E2, not E1, reaches it.</summary>
+    internal static bool WithinSuite(BimDocument document, Floor floor)
+    {
+        var (over, under) = Rooms(document, floor);
+        var suites = Lodging.Suites(document);
+        var names = over.Concat(under).Select(room => suites.GetValueOrDefault(room)).Distinct().ToList();
+        return over.Count > 0 && under.Count > 0 && names.Count == 1 && names[0] is not null;
     }
 
     /// <summary>
@@ -569,22 +620,103 @@ public static class SoundInsulation
     /// <summary>What a separating wall falls short of: being one of Section 2's constructions, and its junctions with the outside walls, the internal walls and the floors.</summary>
     internal static IEnumerable<(string Said, string Rule)> Problems(BimDocument document, Wall wall, WallType type)
     {
-        if (document.ProjectInformation.ClearanceStandard.IsUs() || Between(document, wall, type) is not { } between || type.RobustDetail.Trim().Length > 0) yield break;
+        if (document.ProjectInformation.ClearanceStandard.IsUs() || Separation(document, wall, type) is not (var between, var lodging)) yield break;
+
+        // A Robust Detail stands in for testing in a new house or a block of flats only (Regulation 41, Annex E) - a hotel's walls are tested.
+        if (!lodging && type.RobustDetail.Trim().Length > 0) yield break;
         var floors = SeparatingFloorAt(document, wall, type);
-        var built = Wall(document, type, floors, Staggered(document, wall, type));
+        var built = Wall(document, type, floors, Staggered(document, wall, type), lodging);
+        var otherwise = lodging
+            ? $"or show by pre-completion testing that it reaches DnT,w + Ctr {LodgingWall:0} dB (Table 0.1b, Section 1){(type.RobustDetail.Trim().Length > 0 ? " - a Robust Detail stands for that in a new house or flat only (Regulation 41, Annex E)" : string.Empty)}"
+            : "name the Robust Detail it is built to in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB (Table 0.1a, Section 1)";
         if (built.Group == 0)
         {
-            yield return ($"it separates {between}: {built.What}.",
-                $"Approved Document E (E1, Section 2, Diagram 2.1) gives four kinds of separating wall - solid masonry, cavity masonry, masonry between independent panels, and timber frames with absorbent material - and this is none of them: {string.Join("; ", built.Short)}. Build it as one, name the Robust Detail it is built to in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB (Table 0.1a, Section 1).");
+            yield return ($"it separates {between}: {built.What}.", lodging
+                ? $"Approved Document E (E1, 6.4) gives, between rooms for residential purposes, solid masonry walls - type 1 - and a solid masonry core between independent panels - types 3.1 and 3.2 - or with care to keep their leaves apart cavity masonry and timber frames, types 2 and 4; this is none of them: {string.Join("; ", built.Short)}. Build it as one, {otherwise}."
+                : $"Approved Document E (E1, Section 2, Diagram 2.1) gives four kinds of separating wall - solid masonry, cavity masonry, masonry between independent panels, and timber frames with absorbent material - and this is none of them: {string.Join("; ", built.Short)}. Build it as one, {otherwise}.");
+            yield break;
+        }
+
+        // Of Section 2's walls, Section 6 gives these between rooms for residential purposes - 2 and 4 with care (6.4).
+        if (lodging && built.Type == "3.3")
+        {
+            yield return ($"it separates {between}: {built.What}, wall type 3.3.",
+                $"Approved Document E (6.4) gives, of Section 2's walls, solid masonry - types 1.1, 1.2 and 1.3 - and a solid masonry core between independent panels - types 3.1 and 3.2 - between rooms for residential purposes, and cavity masonry and timber frames - types 2 and 4 - with care to keep their leaves apart; not a cavity core between panels, type 3.3. Build it as one of them, {otherwise}.");
             yield break;
         }
 
         // Its junctions once it is one of them: until then, what it is made of comes first.
         if (built.Short.Count > 0)
             yield return ($"it separates {between}: {built.What}.",
-                $"Approved Document E (E1) asks wall type {built.Type}, {built.Name}, for {string.Join("; ", built.Short)} - or build it as another of Section 2's walls, name its Robust Detail in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB (Table 0.1a, Section 1).");
+                $"Approved Document E (E1{(lodging ? ", 6.4" : string.Empty)}) asks wall type {built.Type}, {built.Name}, for {string.Join("; ", built.Short)} - or build it as another of {(lodging ? "Section 6's" : "Section 2's")} walls, {otherwise}.");
         else
+        {
             foreach (var problem in Junctions(document, wall, type, built, floors)) yield return problem;
+            if (Top(document, wall, type, built, between, lodging) is { } top) yield return top;
+        }
+    }
+
+    /// <summary>
+    /// What a separating wall falls short of at its head: up to the underside of the roof over it (2.55, 2.91, 2.133, 2.160); between rooms for
+    /// residential purposes a solid masonry wall may stop at a ceiling under the roof or the floor over it - two layers of plasterboard or more of
+    /// 20 kg/m², 200 of mineral wool of 10 kg/m³ over it, neither joists nor boards run on over the wall (6.14, Diagram 6.1). A party wall type's
+    /// own gap to the roof is Approved Document B's to say (5.11), not said twice.
+    /// </summary>
+    private static (string Said, string Rule)? Top(BimDocument document, Wall wall, WallType type, WallConstruction built, string between, bool lodging)
+    {
+        var middle = wall.Start.MidpointTo(wall.End);
+        var top = wall.GetTopElevation(document);
+
+        // A wall on the same line going on up from its head: it is that one's head that counts.
+        var way = (wall.End - wall.Start).NormalisedOrDefault(Vector2D.UnitX);
+        if (document.Walls.Any(other => other != wall && Math.Abs(way.Cross(other.Start.MidpointTo(other.End) - wall.Start)) < 50 && Math.Abs(way.Cross((other.End - other.Start).NormalisedOrDefault(way))) < 0.02
+                                        && other.GetTopElevation(document) > top + 1 && other.GetBaseElevation(document) <= top + 1 && Line2D.DistanceFromSegment(middle, other.Start, other.End) < 50))
+            return null;
+
+        // What is over it: the floor of the storey above, or the roof.
+        var levels = document.Levels.OrderBy(level => level.Elevation).ToList();
+        var at = levels.FindIndex(level => level.Id == wall.LevelId);
+        var next = at >= 0 && at + 1 < levels.Count ? levels[at + 1].Id : Guid.Empty;
+        var floors = document.All<Floor>().Where(floor => floor.LevelId == next && floor.Contains(middle)).Select(floor => floor.GetBottomElevation(document)).Where(bottom => bottom > top - 1).ToList();
+        var roofs = document.All<Roof>().Where(roof => !roof.IsExtrusion && roof.Contains(middle)).Select(roof => roof.UndersideAt(document, middle)).Where(underside => underside > top - 1).ToList();
+        var (over, what) = floors.Count > 0 ? (floors.Min(), "floor") : roofs.Count > 0 ? (roofs.Min(), "roof") : (double.NaN, string.Empty);
+        if (double.IsNaN(over) || over - top <= 50 || !lodging && (what == "floor" || type.Separating)) return null;
+        var gap = over - top;
+        var paragraph = built.Group switch { 1 => "2.55, 2.56", 2 => "2.91, 2.92", 3 => "2.133, 2.134", _ => "2.160, 2.161" };
+        var upTo = $"run it up to the underside of the {what}, its joint with it filled with a flexible closer that also stops fire";
+        if (!lodging)
+            return ($"it separates {between} and stops {gap:0} below the roof over it.",
+                $"Approved Document E ({paragraph}) asks a separating wall {(built.Group == 4 ? "preferably " : string.Empty)}to be continuous to the underside of the roof - {upTo}; a lighter wall over a ceiling of {Kg(LeastSheet)} with sealed joints is drawn as a wall of its own.");
+        if (built.Group != 1)
+            return ($"it separates {between} and stops {gap:0} below the {what} over it.",
+                $"Approved Document E (6.14, {paragraph}) lets only a solid masonry separating wall, type 1, stop at a ceiling between rooms for residential purposes - {upTo}.");
+
+        // A solid wall stopped at a ceiling: the ceilings either side of it, by Diagram 6.1.
+        var reach = type.Structure.TotalWidth / 2 + 150;
+        var sides = new[] { wall.PointAt(type.Structure, wall.Length / 2, reach), wall.PointAt(type.Structure, wall.Length / 2, -reach) };
+        var ceilings = document.All<Ceiling>().Where(ceiling => ceiling.LevelId == wall.LevelId && ceiling.Boundary.Count >= 3).ToList();
+        var wanting = new List<string>();
+        var under = sides.Select(side => ceilings.Where(ceiling => ceiling.Contains(side)).OrderBy(ceiling => ceiling.GetBottomElevation(document)).FirstOrDefault()).ToList();
+        if (under.Any(ceiling => ceiling is null)) wanting.Add("no ceiling drawn on both sides of it");
+        else
+        {
+            foreach (var ceiling in under.Distinct())
+            {
+                var kind = document.FindType<CeilingType>(ceiling!.TypeId);
+                var layers = kind is null ? new List<Piece>() : Pieces(document, kind.Structure);
+                var boards = layers.Where(piece => piece.Part == Part.Plasterboard).ToList();
+                var wool = layers.Where(piece => piece.Wool && piece.Density >= 10 - 0.5).Sum(piece => piece.Thickness);
+                var name = kind?.Name ?? "a ceiling";
+                if (boards.Count < 2 || boards.Sum(piece => piece.Mass) < 20 - 0.05) wanting.Add($"{name} is not two layers of plasterboard or more of {Kg(20)} together");
+                if (wool < 200 - 0.5) wanting.Add($"{name} has {wool:0} of mineral wool of 10 kg/m³ over it, not 200");
+                if (ceiling.GetBottomElevation(document) > top + 50) wanting.Add($"it stops {ceiling.GetBottomElevation(document) - top:0} short of {name}");
+            }
+
+            if (under[0] == under[1]) wanting.Add($"{document.FindType<CeilingType>(under[0]!.TypeId)?.Name ?? "the ceiling"} runs on over it from one room to the other");
+        }
+
+        return wanting.Count == 0 ? null : ($"it separates {between} and stops {gap:0} below the {what} over it at a ceiling: {string.Join("; ", wanting)}.",
+            $"Approved Document E (6.14, Diagram 6.1) lets a solid masonry wall between rooms for residential purposes stop at a ceiling of two layers of plasterboard or more, {Kg(20)} together, not perforated, with a layer of mineral wool 200 thick at least, of 10 kg/m³, over it, and neither the ceiling's joists nor its boards running on from one room to the other - else {upTo} ({paragraph}). Part B must allow it too (6.15).");
     }
 
     // --- Separating floors (Section 3) -------------------------------------------
@@ -726,15 +858,46 @@ public static class SoundInsulation
         }
     }
 
+    /// <summary>
+    /// Where a floating floor or its ceiling runs on from one room for residential purposes to the next (6.8): the floor itself over two of them or
+    /// more, its own ceiling layers under two or more, a ceiling drawn under it under two or more - each said.
+    /// </summary>
+    private static List<string> Continuous(BimDocument document, Floor floor, FloorType type)
+    {
+        var suites = Lodging.Suites(document);
+        var (over, under) = Rooms(document, floor);
+        string? Names(IEnumerable<Room> rooms)
+        {
+            var names = rooms.Select(room => suites.GetValueOrDefault(room)).OfType<string>().Distinct().OrderBy(name => name, StringComparer.Ordinal).ToList();
+            return names.Count < 2 ? null : names.Count > 3 ? $"{string.Join(", ", names.Take(3))} and {names.Count - 3} more" : $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}";
+        }
+
+        var said = new List<string>();
+        if (Names(over) is { } floating) said.Add($"its floating floor runs on over {floating}");
+        var (pieces, _, to, _) = Parse(document, type);
+        if (pieces.Skip(to + 1).Any(piece => piece.Part == Part.Plasterboard) && Names(under) is { } below) said.Add($"its own ceiling runs on under {below}");
+        foreach (var ceiling in document.All<Ceiling>().Where(ceiling => ceiling.Boundary.Count >= 3))
+            if (Names(under.Where(room => room.LevelId == ceiling.LevelId && ceiling.Contains(room.Location))) is { } spans)
+                said.Add($"{document.FindType<CeilingType>(ceiling.TypeId)?.Name ?? "a ceiling"} under it runs on under {spans}");
+        return said;
+    }
+
     /// <summary>What a separating floor falls short of: being one of Section 3's floors, and its junctions with the outside walls and the masonry walls under it.</summary>
     internal static IEnumerable<(string Said, string Rule)> Problems(BimDocument document, Floor floor, FloorType type)
     {
-        if (document.ProjectInformation.ClearanceStandard.IsUs() || Between(document, floor, type) is not { } between || type.RobustDetail.Trim().Length > 0) yield break;
+        if (document.ProjectInformation.ClearanceStandard.IsUs() || Separation(document, floor, type) is not (var between, var lodging)) yield break;
+
+        // A Robust Detail stands in for testing in a new house or a block of flats only (Regulation 41, Annex E) - a hotel's floors are tested.
+        if (!lodging && type.RobustDetail.Trim().Length > 0) yield break;
         var built = Floor(document, type, floor);
+        var otherwise = lodging
+            ? $"or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB and L'nT,w 62 dB (Table 0.1b, Section 1){(type.RobustDetail.Trim().Length > 0 ? " - a Robust Detail stands for that in a new house or flat only (Regulation 41, Annex E)" : string.Empty)}"
+            : "name the Robust Detail it is built to in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB and L'nT,w 62 dB (Table 0.1a, Section 1)";
         if (built.Group == 0)
         {
-            yield return ($"it separates {between}: {built.What}.",
-                "Approved Document E (E1, Section 3, Diagram 3.1) gives three kinds of separating floor - a concrete base with a ceiling and a soft floor covering, a concrete base with a ceiling and a floating floor, and a timber frame base with a ceiling and a platform floor - and this is none of them. Build it as one, name the Robust Detail it is built to in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB and L'nT,w 62 dB (Table 0.1a, Section 1).");
+            yield return ($"it separates {between}: {built.What}.", lodging
+                ? $"Approved Document E (E1, 6.8) gives, between rooms for residential purposes, a concrete slab or concrete planks with a soft floor covering and a ceiling - floor types 1.1C and 1.2B - or, their floating floors and ceilings not running on from one room to the next, floor types 2 and 3; this is none of them. Build it as one, {otherwise}."
+                : $"Approved Document E (E1, Section 3, Diagram 3.1) gives three kinds of separating floor - a concrete base with a ceiling and a soft floor covering, a concrete base with a ceiling and a floating floor, and a timber frame base with a ceiling and a platform floor - and this is none of them. Build it as one, {otherwise}.");
             yield break;
         }
 
@@ -742,9 +905,14 @@ public static class SoundInsulation
         if (built.Short.Count > 0)
         {
             yield return ($"it separates {between}: {built.What}.",
-                $"Approved Document E (E1) asks floor type {built.Type}, {built.Name}, for {string.Join("; ", built.Short)} - or build it as another of Section 3's floors, name its Robust Detail in Edit Type, or show by pre-completion testing that it reaches DnT,w + Ctr 45 dB and L'nT,w 62 dB (Table 0.1a, Section 1).");
+                $"Approved Document E (E1{(lodging ? ", 6.8" : string.Empty)}) asks floor type {built.Type}, {built.Name}, for {string.Join("; ", built.Short)} - or build it as another of Section 3's floors, {otherwise}.");
             yield break;
         }
+
+        // Between rooms for residential purposes a floating floor and its ceiling are not to run on from one room to the next (6.8).
+        if (lodging && built.Group is 2 or 3 && Continuous(document, floor, type) is { Count: > 0 } running)
+            yield return ($"it separates {between}: {string.Join("; ", running)}.",
+                $"Approved Document E (6.8) lets floor types 2 and 3 - floating floors - be used between rooms for residential purposes only where their floating floors and ceilings do not run on from one room for residential purposes to the next: draw floor type {built.Type}'s floor and its ceiling room by room, or build floor type 1.1C or 1.2B, a soft covering on concrete. Specialist advice may be needed.");
 
         // The outside walls round it, on its storey and the one under it (3.31 to 3.37, 3.69 to 3.75, 3.103 to 3.113).
         var timber = built.Group == 3;
@@ -810,7 +978,20 @@ public static class SoundInsulation
     /// <summary>What a flat's entrance door from the common corridor, hall or stair falls short of: good perimeter seals and 25 kg/m² or Rw 29 dB (2.26).</summary>
     internal static (string Said, string Rule)? Problem(BimDocument document, Door door, DoorType type)
     {
-        if (document.ProjectInformation.ClearanceStandard.IsUs() || type.AcousticRating >= LeastDoor - 0.05 || Dwellings.Named(document).Count < 2) return null;
+        if (document.ProjectInformation.ClearanceStandard.IsUs() || type.AcousticRating >= LeastDoor - 0.05) return null;
+
+        // A room for residential purposes' door from the corridor (6.5, 6.6).
+        var suites = Lodging.Suites(document);
+        if (suites.Count > 0 && Doors.RoomsBeside(document, door) is ({ } one, { } two) && one != two && suites.ContainsKey(one) != suites.ContainsKey(two))
+        {
+            var (inside, outside) = suites.ContainsKey(one) ? (one, two) : (two, one);
+            return FireSeparation.Circulation(outside)
+                ? ($"it is {suites[inside]}'s door from the {outside.Name}, {(type.AcousticRating > 0 ? $"Rw {type.AcousticRating:0} dB" : "its sound reduction not given")}.",
+                    $"Approved Document E (6.5, 6.6) asks a door from a corridor into a room for residential purposes for good perimeter sealing - its threshold too, where practical - and 25 kg/m² at least or a doorset of Rw {LeastDoor:0} dB, as well as what Part B asks of it: put its Acoustic Rating (Rw) in Edit Type.")
+                : null;
+        }
+
+        if (Dwellings.Named(document).Count < 2) return null;
         var (a, b) = Doors.RoomsBeside(document, door);
         if (a is null || b is null || a == b || Dwellings.Of(a).Length > 0 == Dwellings.Of(b).Length > 0) return null;
         var (flat, other) = Dwellings.Of(a).Length > 0 ? (a, b) : (b, a);
@@ -869,33 +1050,67 @@ public static class SoundInsulation
     }
 
     /// <summary>
-    /// What the common parts of a block of flats fall short of in absorption, by Method A (E3, 7.10, 7.11): an entrance hall, corridor or hallway
-    /// covered over its floor area with a Class C absorber or better; a stairwell over its stair treads, landings above the ground and top
-    /// ceiling - taken as its floor area on each storey but the lowest and its ceiling on the top - with Class D, or half of it with Class C.
+    /// The common parts whose absorption E3 asks for (7.1): a block of flats' corridors, halls and stairs; else those of a building with rooms for
+    /// residential purposes that give access to them - the corridors, halls, landings and lobbies their doors open into, and those reached from
+    /// them, and the stairs joining them (round 105) - with the outlines of the rooms, and what the building is, said.
+    /// </summary>
+    private static (IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> Outlines, List<Room> Halls, List<List<Room>> Stacks, string What)? CommonParts(BimDocument document)
+    {
+        if (FireSeparation.Of(document) is { } block)
+        {
+            var stacked = block.Stacks.SelectMany(stack => stack).ToHashSet();
+            return (block.Outlines, block.Common.Where(room => FireSeparation.Circulation(room) && !stacked.Contains(room) && !block.Stairs.Contains(room)).ToList(), block.Stacks, "a block of flats");
+        }
+
+        var suites = Lodging.Suites(document);
+        if (suites.Count == 0) return null;
+        var plan = Toilets.Plan(document);
+        var outlines = plan.ToDictionary(entry => entry.Key, entry => entry.Value.Outline);
+        var reached = new HashSet<Room>();
+        var queue = new Queue<Room>();
+        foreach (var room in suites.Keys)
+        foreach (var (_, other) in plan[room].Doors)
+            if (other is not null && FireSeparation.Circulation(other) && !suites.ContainsKey(other) && reached.Add(other))
+                queue.Enqueue(other);
+        while (queue.Count > 0)
+            foreach (var (_, other) in plan[queue.Dequeue()].Doors)
+                if (other is not null && plan.ContainsKey(other) && FireSeparation.Circulation(other) && !suites.ContainsKey(other) && reached.Add(other))
+                    queue.Enqueue(other);
+
+        var flights = Escape.Flights(document, outlines).Where(flight => flight.Foot is { } foot && reached.Contains(foot) && flight.Head is { } head && reached.Contains(head)).ToList();
+        var stacks = flights.Count == 0 ? new List<List<Room>>() : Escape.Stacks(flights);
+        var stairs = stacks.SelectMany(stack => stack).ToHashSet();
+        return (outlines, reached.Where(room => !stairs.Contains(room)).OrderBy(room => room.Number, StringComparer.Ordinal).ToList(), stacks, "a building with rooms for residential purposes");
+    }
+
+    /// <summary>
+    /// What the common parts of a block of flats, or of a building with rooms for residential purposes, fall short of in absorption, by Method A
+    /// (E3, 7.10, 7.11): an entrance hall, corridor or hallway covered over its floor area with a Class C absorber or better; a stairwell over its
+    /// stair treads, landings above the ground and top ceiling - taken as its floor area on each storey but the lowest and its ceiling on the top -
+    /// with Class D, or half of it with Class C.
     /// </summary>
     public static IEnumerable<EscapeProblem> Reverberation(BimDocument document)
     {
-        if (FireSeparation.Of(document) is not { } block) yield break;
-        var stairs = block.Stacks.SelectMany(stack => stack).ToHashSet();
-        double Area(Room room) => Polygon2D.Area(block.Outlines[room]) / 1e6;
-        foreach (var room in block.Common.Where(room => FireSeparation.Circulation(room) && !stairs.Contains(room) && !block.Stairs.Contains(room)))
+        if (document.ProjectInformation.ClearanceStandard.IsUs() || CommonParts(document) is not (var outlines, var halls, var stacks, var what)) yield break;
+        double Area(Room room) => Polygon2D.Area(outlines[room]) / 1e6;
+        foreach (var room in halls)
         {
             var area = Area(room);
-            var (atC, _) = Absorbing(document, room, block.Outlines[room]);
+            var (atC, _) = Absorbing(document, room, outlines[room]);
             if (atC >= area - 0.05) continue;
-            var corridor = Corridor(block.Outlines[room]);
+            var corridor = Corridor(outlines[room]);
             yield return new EscapeProblem(room,
-                $"it is {(corridor ? "a common corridor" : "an entrance hall")} of a block of flats, {area:0.0} m² of floor with {atC:0.0} m² of a Class C absorber or better over it - Approved Document E (E3, {(corridor ? "7.2" : "7.3")}, 7.10) asks an area as large as its floor covered with one, a ceiling of acoustic tiles or the like: draw a ceiling of a type whose lowest layer's material has its class in the Materials window. Method B (7.13 to 7.21), worked by hand, may ask less.");
+                $"it is {(corridor ? "a common corridor" : "an entrance hall")} of {what}, {area:0.0} m² of floor with {atC:0.0} m² of a Class C absorber or better over it - Approved Document E (E3, {(corridor ? "7.2" : "7.3")}, 7.10) asks an area as large as its floor covered with one, a ceiling of acoustic tiles or the like: draw a ceiling of a type whose lowest layer's material has its class in the Materials window. Method B (7.13 to 7.21), worked by hand, may ask less.");
         }
 
-        foreach (var stack in block.Stacks.Where(stack => stack.Count > 0))
+        foreach (var stack in stacks.Where(stack => stack.Count > 0))
         {
             var ordered = stack.OrderBy(room => document.FindLevel(room.LevelId)?.Elevation ?? 0).ToList();
             var asked = ordered.Skip(1).Sum(Area) + Area(ordered[^1]);
-            var (atC, atD) = ordered.Aggregate((C: 0.0, D: 0.0), (sum, room) => Absorbing(document, room, block.Outlines[room]) is var (c, d) ? (sum.C + c, sum.D + d) : sum);
+            var (atC, atD) = ordered.Aggregate((C: 0.0, D: 0.0), (sum, room) => Absorbing(document, room, outlines[room]) is var (c, d) ? (sum.C + c, sum.D + d) : sum);
             if (atD >= asked - 0.05 || atC >= asked / 2 - 0.05) continue;
             yield return new EscapeProblem(ordered[^1],
-                $"it is the head of a common stair of a block of flats, its treads, landings above the ground and top ceiling taken as {asked:0.0} m² - its floor on each storey but the lowest and its ceiling at the top - with {atD:0.0} m² of a Class D absorber or better and {atC:0.0} m² of Class C - Approved Document E (E3, 7.11) asks that area covered with Class D, or half of it with Class C or better, shared between its storeys: under its landings and on its top ceiling.");
+                $"it is the head of a common stair of {what}, its treads, landings above the ground and top ceiling taken as {asked:0.0} m² - its floor on each storey but the lowest and its ceiling at the top - with {atD:0.0} m² of a Class D absorber or better and {atC:0.0} m² of Class C - Approved Document E (E3, 7.11) asks that area covered with Class D, or half of it with Class C or better, shared between its storeys: under its landings and on its top ceiling.");
         }
     }
 }

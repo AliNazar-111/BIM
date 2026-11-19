@@ -148,10 +148,11 @@ public class LodgingTests
         Assert.Equal("the transfer space beside the WC", space.Zone.What);
         Assert.Empty(space.In);
 
-        // Approved Document E's E2 on the wall between the bedroom and its en-suite - within the room for residential purposes - not on the
-        // partition between two bedrooms, which is E1's (Table 0.1b).
+        // Approved Document E's E2 not on the walls between the bedroom and its en-suite toilet - one with its door in it, both its own (E2 a, b,
+        // round 105) - nor on the partition between two bedrooms, which is E1's (Table 0.1b).
         bool E2(Wall wall) => WallRules.Problems(document, wall, standard).Any(problem => problem.Rule.Contains("(E2, Table 0.2)"));
-        Assert.True(E2(document.Walls.Single(wall => wall.Start == new Point2D(5800, 5300) && wall.End == new Point2D(8500, 5300))));
+        Assert.False(E2(document.Walls.Single(wall => wall.Start == new Point2D(5800, 5300) && wall.End == new Point2D(8500, 5300))));
+        Assert.False(E2(document.Walls.Single(wall => wall.Start == new Point2D(5800, 5300) && wall.End == new Point2D(5800, 8000))));
         Assert.False(E2(document.Walls.Single(wall => wall.Start == new Point2D(4000, 2000) && wall.End == new Point2D(4000, 8000))));
 
         // Its corridor door moved west, to 100 off the partition, opening in: with its latch by the partition, 38 to the wall - 300 asked (3.10c).

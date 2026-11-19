@@ -213,6 +213,28 @@ public class SoundInsulationTests
     }
 
     [Fact]
+    public void ASeparatingWallRunsUpToTheRoof()
+    {
+        // The top flat's wall to the corridor built solid, wall type 1.1 - under a flat roof 500 over its head: continuous to the roof asked (2.55).
+        var (document, storeys) = Block();
+        var wall = storeys[1].FlatWall;
+        wall.TypeId = document.TypesOf<WallType>().Single(type => type.Name == "Separating Wall - Dense Blockwork 215mm").Id;
+        var roofType = document.TypesOf<RoofType>().First(type => type.Name == "Roof - Warm Flat 320mm");
+        var roof = new Roof { LevelId = storeys[1].Level.Id, TypeId = roofType.Id, HeightOffset = 3000 + 500 };
+        roof.SetBoundary(new[] { new Point2D(0, 0), new Point2D(12000, 0), new Point2D(12000, 6000), new Point2D(0, 6000) });
+        document.Add(roof);
+        List<PlacementProblem> Head() => E(document, wall).Where(problem => problem.Rule.Contains("(2.55, 2.56)")).ToList();
+        var said = Assert.Single(Head());
+        Assert.Equal("it separates Flat 2 from the Corridor and stops 500 below the roof over it.", said.Said);
+        Assert.StartsWith("Approved Document E (2.55, 2.56) asks a separating wall to be continuous to the underside of the roof", said.Rule);
+
+        // The roof down on its head: nothing to say; the storey below, under a floor, not asked here.
+        roof.HeightOffset = 3000;
+        Assert.Empty(Head());
+        Assert.DoesNotContain(E(document, storeys[0].FlatWall), problem => problem.Rule.Contains("(2.55, 2.56)"));
+    }
+
+    [Fact]
     public void AFlatsDoorIsSealedAndTheCommonPartsAbsorbSound()
     {
         var (document, storeys) = Block();

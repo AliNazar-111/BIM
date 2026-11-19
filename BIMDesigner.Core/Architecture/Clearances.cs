@@ -150,6 +150,16 @@ public static class Clearances
             case ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Wardrobe or ComponentForm.Drawers or ComponentForm.Cot when place != Toilets.Place.None:
                 break;
 
+            // A reception desk's or counter's part low enough for a wheelchair user: 1200 deep and 1800 wide clear in front of it with a knee
+            // recess 500 deep, 1400 by 2200 without (Approved Document M Volume 2 3.6d).
+            case ComponentForm.ServiceCounter when place == Toilets.Place.Public && type.Height <= 850 + 0.5:
+            {
+                var (wide, deep) = type.KneeRecess >= 500 - 0.5 ? (1800.0, 1200.0) : (2200.0, 1400.0);
+                yield return new Zone("the manoeuvring space in front of the counter", new[] { new Area(-wide / 2, wide / 2, halfD, halfD + deep) },
+                    $"Approved Document M Volume 2 (3.6d) asks {deep:0} deep and {wide:0} wide clear in front of a reception desk or counter {(type.KneeRecess >= 500 - 0.5 ? "with a knee recess 500 deep" : "without a knee recess 500 deep - 1200 by 1800 with one")}.");
+                break;
+            }
+
             // Lockers in a changing area: 1500 deep clear in front of them to manoeuvre (Approved Document M Volume 2 5.18j).
             case ComponentForm.Locker when place == Toilets.Place.Changing:
                 yield return new Zone("the manoeuvring space in front of the lockers", new[] { new Area(-halfW, halfW, halfD, halfD + 1500) },
@@ -447,6 +457,11 @@ public static class Clearances
         // space checked as the room it is (Approved Document M Volume 2 Diagrams 23 to 25, round 103).
         if (type.Form is ComponentForm.Bath or ComponentForm.Shower && place == Toilets.Place.None && !standard.IsUs() && Toilets.Applies(document)) place = Toilets.Place.Washroom;
 
+        // A reception counter in a building other than a dwelling: the space in front of its low part (Approved Document M Volume 2 3.6d, round
+        // 108) - not a bar's or a café's, which 4.16 asks no such space of.
+        if (type.Form == ComponentForm.ServiceCounter && Circulation.Applies(document) && !(RoomsOf.Containing(document, component.LevelId, component.Location) is { } counterRoom && Facilities.Serving(counterRoom)))
+            place = Toilets.Place.Public;
+
         // A bed, wardrobe or chest in a building other than a dwelling: no dwelling's spaces round it - a wheelchair-accessible bedroom's bed its
         // transfer space (Approved Document M Volume 2 4.24l, Diagram 17, round 104).
         if (type.Form is ComponentForm.Bed or ComponentForm.BunkBed or ComponentForm.Wardrobe or ComponentForm.Drawers or ComponentForm.Cot && place == Toilets.Place.None
@@ -502,6 +517,7 @@ public static class Clearances
             .Concat(Services.Blocked(document, levelId, standard))
             .Concat(Alarms.Blocked(document, levelId, standard))
             .Concat(Outside.Blocked(document, levelId, standard))
+            .Concat(Lifts.Blocked(document, levelId, standard))
             .Concat(Doors.Blocked(document, levelId, standard))
             .Concat(WindowRules.Blocked(document, levelId, standard))
             .Concat(WallRules.Blocked(document, levelId, standard))
