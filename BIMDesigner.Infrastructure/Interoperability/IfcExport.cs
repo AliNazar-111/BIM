@@ -2362,7 +2362,7 @@ public static partial class IfcExport
             ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.OutsideTerminal or ComponentForm.BackgroundVentilator or ComponentForm.SmokeOutlet => ComponentClass.AirTerminal,
             ComponentForm.ExtractUnit => ComponentClass.ExtractUnit,
             ComponentForm.DuctSmokeDetector => ComponentClass.Sensor,
-            ComponentForm.Socket or ComponentForm.ShaverSocket => ComponentClass.Outlet,
+            ComponentForm.Socket or ComponentForm.ShaverSocket or ComponentForm.EvChargePoint => ComponentClass.Outlet,
             ComponentForm.Switch => ComponentClass.Switch,
             ComponentForm.ExtractFan => ComponentClass.Fan,
             ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm => ComponentClass.Sensor,
@@ -2473,7 +2473,10 @@ public static partial class IfcExport
                     unit.ObjectType = "Mechanical extract unit";
                 }),
                 ComponentClass.Outlet => ComponentProduct<IfcOutlet>(component, type, meshes, outlet =>
-                    outlet.PredefinedType = IfcOutletTypeEnum.POWEROUTLET),
+                {
+                    outlet.PredefinedType = type.Form == ComponentForm.EvChargePoint ? IfcOutletTypeEnum.USERDEFINED : IfcOutletTypeEnum.POWEROUTLET;
+                    if (type.Form == ComponentForm.EvChargePoint) outlet.ObjectType = "Electric vehicle charge point";
+                }),
                 ComponentClass.Switch => ComponentProduct<IfcSwitchingDevice>(component, type, meshes, device =>
                     device.PredefinedType = IfcSwitchingDeviceTypeEnum.TOGGLESWITCH),
                 ComponentClass.Planting => ComponentProduct<Xbim.Ifc4.ProductExtension.IfcGeographicElement>(component, type, meshes, planting =>

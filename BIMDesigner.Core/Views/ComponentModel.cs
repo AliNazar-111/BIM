@@ -1216,6 +1216,22 @@ public static class ComponentModel
                 break;
             }
 
+            case ComponentForm.EvChargePoint:
+            {
+                // Its body, its screen - the charging status light - and its socket under it.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.6, halfW * 0.6, halfD - 1, halfD + 2, h * 0.7, h * 0.88, PartFinish.Dark);
+                Add(-halfW * 0.25, halfW * 0.25, halfD - 1, halfD + 15, h * 0.45, h * 0.58, PartFinish.Metal);
+                break;
+            }
+
+            case ComponentForm.EvFutureConnection:
+                // A capped duct end in its own colour, its label plate dark on it and the cap on top.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.8, halfW * 0.8, halfD - 1, halfD + 2, h * 0.2, h * 0.8, PartFinish.Dark);
+                Add(-halfW * 0.5, halfW * 0.5, -halfD * 0.5, halfD * 0.5, h, h + 10, PartFinish.Metal, PartShape.Upright);
+                break;
+
             case ComponentForm.SmokeOutlet:
             {
                 // Its frame, and dark slats across it: a louvred grille, or the bars of a pavement light seen from under it.
@@ -1703,6 +1719,16 @@ public static class ComponentModel
                 shapes.Add(frame.Ellipse(-120, 120, -120, 120, 16));
                 break;
 
+            case ComponentForm.EvChargePoint:
+                // Its screen along its front.
+                Inside(-halfW * 0.6, halfW * 0.6, halfD - 20, halfD);
+                break;
+
+            case ComponentForm.EvFutureConnection:
+                // Its capped duct.
+                shapes.Add(frame.Ellipse(-halfW * 0.5, halfW * 0.5, -halfD * 0.5, halfD * 0.5, 16));
+                break;
+
             case ComponentForm.SmokeOutlet:
             {
                 // Its slats across it.
@@ -2000,6 +2026,8 @@ public static class ComponentModel
         ComponentForm.OilTank => "OT",
         ComponentForm.LpgTank or ComponentForm.LpgCylinders => "LPG",
         ComponentForm.SmokeOutlet => "SO",
+        ComponentForm.EvChargePoint => "EV",
+        ComponentForm.EvFutureConnection => "EVF",
         ComponentForm.AirAdmittanceValve => "AAV",
         ComponentForm.HeatPump => "HP",
         ComponentForm.HeatRecoveryUnit => "MVHR",

@@ -1395,6 +1395,8 @@ public static partial class ProjectFile
                 CombinedSewer = type.Form == ComponentForm.SurfaceWaterOutfall && type.CombinedSewer ? true : null,
                 Fuel = type.Fuel == ApplianceFuel.Gas ? null : type.Fuel.ToString(),
                 Bunded = type.Bunded ? true : null,
+                Outlets = type.Outlets > 1 ? type.Outlets : null,
+                Tethered = type.Tethered ? true : null,
                 Phases = type.Form == ComponentForm.ConsumerUnit && type.Phases == 3 ? 3 : null,
                 Solids = type.Solids.Count == 0 ? null : type.Solids.Select(solid => new ComponentSolidDto
                 {
@@ -3407,6 +3409,8 @@ public static partial class ProjectFile
                 CombinedSewer = type.CombinedSewer == true,
                 Fuel = ParseEnum(type.Fuel, ApplianceFuel.Gas),
                 Bunded = type.Bunded == true,
+                Outlets = type.Outlets is > 1 and <= 12 ? type.Outlets.Value : 1,
+                Tethered = type.Tethered == true,
                 Phases = type.Phases == 3 ? 3 : 1,
                 FlowRate = Water(type.FlowRate, ParseEnum(type.Form, ComponentForm.Box) switch { ComponentForm.Basin => 6, ComponentForm.Sink => 8, ComponentForm.Shower => 10, _ => 0 }),
                 FlushVolume = Water(type.FlushVolume, ParseEnum(type.Form, ComponentForm.Box) is ComponentForm.Toilet or ComponentForm.WallHungToilet ? 6 : 0),

@@ -2585,6 +2585,35 @@ public sealed class BimDocument
                 Description = "A pavement light over a fire-resisting shaft in the basement's ceiling, broken out or opened by the fire and rescue service; 0.60 m² clear"
             },
 
+            // Electric vehicle charging (Approved Document S): 7.4 kW Mode 3 charge points with a universal socket - on a wall, and on a
+            // pedestal with one outlet or two between two spaces - and the labelled end of cable routes for one to be put later.
+            new ComponentType("EV Charge Point - 7.4 kW Wall", BuiltInCategory.ElectricalEquipment, ComponentForm.EvChargePoint, 250, 120, 400)
+            {
+                TypeMark = "EV1", Colour = new ColourRgb(0x2B, 0x2F, 0x36), Cost = 950m, Load = 7400, Outlets = 1,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 900,
+                Description = "A 7.4 kW Mode 3 charge point to BS EN IEC 61851-1 on a wall, a universal socket and a charging status light, on a dedicated 32 A circuit"
+            },
+            new ComponentType("EV Charge Point - 7.4 kW Pedestal", BuiltInCategory.ElectricalEquipment, ComponentForm.EvChargePoint, 300, 300, 1300)
+            {
+                TypeMark = "EV2", Colour = new ColourRgb(0x2B, 0x2F, 0x36), Cost = 1500m, Load = 7400, Outlets = 1,
+                Description = "A 7.4 kW Mode 3 charge point on a pedestal at a parking space, a universal socket and a charging status light"
+            },
+            new ComponentType("EV Charge Point - 2 x 7.4 kW Pedestal", BuiltInCategory.ElectricalEquipment, ComponentForm.EvChargePoint, 400, 300, 1300)
+            {
+                TypeMark = "EV3", Colour = new ColourRgb(0x2B, 0x2F, 0x36), Cost = 2400m, Load = 14800, Outlets = 2,
+                Description = "Two 7.4 kW Mode 3 outlets on one pedestal between two parking spaces, charging both at once (Approved Document S 6.6)"
+            },
+            new ComponentType("EV Future Connection Location", BuiltInCategory.ElectricalEquipment, ComponentForm.EvFutureConnection, 300, 300, 100)
+            {
+                TypeMark = "EVF1", Colour = new ColourRgb(0x6A, 0x6E, 0x74), Cost = 180m, Outlets = 1,
+                Description = "The labelled end of a duct with a drawstring from the metered supply, room left for a charge point to be put later (Approved Document S 6.7 to 6.12)"
+            },
+            new ComponentType("EV Future Connection Location - 2 Spaces", BuiltInCategory.ElectricalEquipment, ComponentForm.EvFutureConnection, 300, 300, 100)
+            {
+                TypeMark = "EVF2", Colour = new ColourRgb(0x6A, 0x6E, 0x74), Cost = 240m, Outlets = 2,
+                Description = "A future connection location between two parking spaces, its cable routes enough for a twin charge point (Approved Document S 6.5)"
+            },
+
             // A dry fire main for a block of flats: its inlet in a box on the face of the building, and an outlet - a landing valve - on
             // each storey of the protected stair (Approved Document B 13.5, 14.3, 14.4; BS 9990).
             new ComponentType("Fire Main Inlet - Dry, 2 Way", BuiltInCategory.Sprinklers, ComponentForm.FireMainInlet, 610, 330, 460)

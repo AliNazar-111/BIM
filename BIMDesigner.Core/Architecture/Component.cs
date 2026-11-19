@@ -227,7 +227,19 @@ public enum ComponentForm
     /// A basement's smoke outlet at high level - a grille in a stallboard, or a pavement light over a shaft - letting heat and smoke out to the
     /// open air, its clear area its type's (Approved Document B 16.2 to 16.10, Diagram 16.1).
     /// </summary>
-    SmokeOutlet
+    SmokeOutlet,
+
+    /// <summary>
+    /// An electric vehicle charge point - on a wall or a pedestal at a parking space - its rated output its Load, its outlets how many spaces it
+    /// charges at once, and whether its cable is tethered (Approved Document S 6.2, 6.6).
+    /// </summary>
+    EvChargePoint,
+
+    /// <summary>
+    /// A future connection location for an electric vehicle charge point: the labelled end of the cable routes from a metered supply, where
+    /// one may be put later to serve its parking spaces (Approved Document S 6.5, 6.7 to 6.12).
+    /// </summary>
+    EvFutureConnection
 }
 
 /// <summary>
@@ -444,6 +456,12 @@ public sealed class ComponentType : ElementType
     /// <summary>For an oil tank, whether it is bunded - its own secondary containment, 110% of what it holds (Approved Document J 5.10, 5.11).</summary>
     public bool Bunded { get; set; }
 
+    /// <summary>For an electric vehicle charge point or future connection location, how many parking spaces it serves at once - its outlets (Approved Document S 6.5, 6.6); at least one.</summary>
+    public int Outlets { get; set; } = 1;
+
+    /// <summary>For an electric vehicle charge point, whether its cable is fixed to it - tethered - rather than a universal socket (Approved Document S 6.2c).</summary>
+    public bool Tethered { get; set; }
+
     /// <summary>Its flue as set, or as usual for its kind.</summary>
     public ApplianceFlue FlueOf => Flue != ApplianceFlue.Usual ? Flue : Form switch
     {
@@ -573,7 +591,9 @@ public sealed class ComponentType : ElementType
         Ways = Ways, SupplyRating = SupplyRating, ExternalImpedance = ExternalImpedance, SurgeProtection = SurgeProtection, Phases = Phases,
         CombinedSewer = CombinedSewer,
         Fuel = Fuel,
-        Bunded = Bunded
+        Bunded = Bunded,
+        Outlets = Outlets,
+        Tethered = Tethered
     }.WithSolids(Solids));
 
     /// <summary>This type, drawn with these solids as well as any it has.</summary>
@@ -726,6 +746,18 @@ public sealed class ComponentType : ElementType
             yield return ParameterValue.BindValidated(ComponentTypeParameters.LpgCapacity, () => Capacity, v => NotNegative(v, x => Capacity = x));
         if (Form == ComponentForm.SmokeOutlet)
             yield return ParameterValue.BindValidated(ComponentTypeParameters.SmokeOutletArea, () => Capacity, v => NotNegative(v, x => Capacity = x));
+        if (Form == ComponentForm.EvChargePoint)
+        {
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.ChargeOutput, () => Load / 1000, (double v) => NotNegative(v, x => Load = x * 1000));
+            yield return ParameterValue.Bind(ComponentTypeParameters.Tethered, () => Tethered, v => Tethered = v);
+        }
+        if (Form is ComponentForm.EvChargePoint or ComponentForm.EvFutureConnection)
+            yield return ParameterValue.BindValidated(ComponentTypeParameters.Outlets, () => Outlets, (int v) =>
+            {
+                if (v is < 1 or > 12) return false;
+                Outlets = v;
+                return true;
+            });
         if (Form == ComponentForm.OilTank)
         {
             yield return ParameterValue.BindScaled(ComponentTypeParameters.OilCapacity, ComponentTypeParameters.OilCapacityGallons, ComponentTypeParameters.GallonsPerLitre, 0,
@@ -1330,6 +1362,11 @@ public static class ComponentTypeParameters
 
     /// <summary>A basement smoke outlet's clear cross-sectional area, m² (Approved Document B 16.6).</summary>
     public static readonly ParameterDefinition SmokeOutletArea = new("Smoke Outlet Clear Area (m²)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Construction);
+
+    /// <summary>An electric vehicle charge point's nominal rated output, kW (Approved Document S 6.2b); its outlets, the spaces it serves at once; and its cable fixed to it.</summary>
+    public static readonly ParameterDefinition ChargeOutput = new("Rated Output (kW)", ParameterDataType.Number, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition Outlets = new("Outlets (spaces served at once)", ParameterDataType.Integer, ParameterBinding.Type, ParameterGroup.Analytical);
+    public static readonly ParameterDefinition Tethered = new("Tethered Cable", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Analytical);
 
     public static readonly ParameterDefinition Bunded =
         new("Bunded (Secondary Containment)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);

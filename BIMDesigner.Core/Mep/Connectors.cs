@@ -289,6 +289,10 @@ public static class Connectors
             case ComponentForm.ShaverSocket:
                 return new[] { Cable("Power", 0, -halfD, h / 2, Back) };
 
+            // A charge point on its own circuit, its cable in at its back near the foot (Approved Document S 6.2e).
+            case ComponentForm.EvChargePoint:
+                return new[] { Cable("Power", 0, -halfD, Math.Min(150, h / 4), Back) };
+
             // A switch on its lighting circuit, and the switch wire to the lights it turns on; a light on
             // its circuit and on what switches it.
             case ComponentForm.Switch:

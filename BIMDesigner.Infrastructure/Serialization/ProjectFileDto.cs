@@ -1237,6 +1237,10 @@ internal sealed class ComponentTypeDto
     public string? Fuel { get; set; }
     public bool? Bunded { get; set; }
 
+    /// <summary>An electric vehicle charge point's or future connection's outlets, and a charge point's tethered cable; none in a file from before.</summary>
+    public int? Outlets { get; set; }
+    public bool? Tethered { get; set; }
+
     /// <summary>What it heats with: its heat output, a radiator's exponent, a floor's output and pipe spacing; none in a file from before.</summary>
     public double? HeatOutput { get; set; }
 

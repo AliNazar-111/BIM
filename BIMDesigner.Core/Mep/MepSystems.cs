@@ -288,6 +288,9 @@ public static class MepSystems
         problems.AddRange(OilHeating.Problems(document));
         problems.AddRange(FlueOutlets.Problems(document));
         problems.AddRange(LpgStorage.Problems(document));
+
+        // Charging electric vehicles at the parking spaces (Approved Document S, round 98).
+        problems.AddRange(EvCharging.Problems(document));
         problems.AddRange(Penetrations.Problems(document));
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));
