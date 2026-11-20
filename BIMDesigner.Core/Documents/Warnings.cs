@@ -298,7 +298,7 @@ public static class Warnings
         foreach (var problem in SoundInsulation.Reverberation(document))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
         // A storey of a building other than a dwelling: its storey exits' number and width (Approved Document B Volume 2, round 109).
-        foreach (var problem in HorizontalEscape.Problems(document).Concat(VerticalEscape.Problems(document)).Concat(FireCompartments.Problems(document)).Concat(EscapeRoutes.Problems(document)))
+        foreach (var problem in HorizontalEscape.Problems(document).Concat(VerticalEscape.Problems(document)).Concat(FireCompartments.Problems(document)).Concat(EscapeRoutes.Problems(document)).Concat(FirefightingShafts.Problems(document)))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
         // A building other than a dwelling on two storeys or more with no lift (Approved Document M Volume 2 3.24a, round 107).
         foreach (var problem in Lifts.Missing(document))

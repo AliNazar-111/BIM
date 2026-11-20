@@ -1047,6 +1047,15 @@ public sealed class BimDocument
             Description = "A fire door with a vision panel, dividing a corridor on an escape route: Approved Document B Volume 2 2.26, 5.14a"
         };
         liftDoor.Automatic = true;
+
+        // Into a firefighting lobby from the accommodation: E 60 Sa, self-closing (Approved Document B Volume 2 Diagram 17.1, round 116).
+        var fd60 = new DoorType("Fire Door FD60S - 1000 x 2100", 1000, 2100)
+        {
+            TypeMark = "D22", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.Flush,
+            PanelMaterial = "Timber, Painted", FrameMaterial = "Hardwood", FireRating = "60 min (FD60S)", SelfClosing = true,
+            HardwareSet = "Overhead closer, intumescent strips and smoke seals", Cost = 780m,
+            Description = "A fire door E 60 Sa, into a firefighting lobby from the accommodation: Approved Document B Volume 2 Diagram 17.1"
+        };
         var garageDoor = new DoorType("Garage Door - Sectional 2400 x 2100", 2400, 2100)
         {
             TypeMark = "D12", AssemblyCode = "C1020", Operation = DoorOperation.Overhead, LeafDesign = DoorLeafDesign.Flush,
@@ -2190,6 +2199,10 @@ public sealed class BimDocument
             {
                 TypeMark = "L2", Description = "A car a wheelchair user can turn round in, with other passengers (Approved Document M Volume 2 3.29)", Cost = 52000m
             },
+            new ComponentType("Firefighting Lift - Car 1100 x 1400, BS EN 81-72", BuiltInCategory.GenericModels, ComponentForm.Lift, 1100, 1400, 2200)
+            {
+                TypeMark = "L4", Description = "A firefighting lift to BS EN 81-72 and BS EN 81-20, in a firefighting shaft (Approved Document B Volume 2 17.2, 17.11)", Cost = 85000m
+            },
             new ComponentType("Lifting Platform - Enclosed, 1100 x 1400", BuiltInCategory.GenericModels, ComponentForm.LiftingPlatform, 1100, 1400, 2000)
             {
                 TypeMark = "L3", Description = "A vertical lifting platform in its enclosure, for an accompanied wheelchair user (Approved Document M Volume 2 3.43g)", Cost = 21000m
@@ -2737,6 +2750,14 @@ public sealed class BimDocument
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 450,
                 Description = "A dry fire main's two-way inlet in its box on the face of the building, a pumping appliance's hoses connected to it"
             },
+            // A fire hydrant on the main in the road or the site: an underground hydrant to BS 750 under its cover, its plate to BS 3251 by it -
+            // put in as Existing where it is the public one nearest, New where it is the building's own (Approved Document B Volume 2 16.8 to 16.10).
+            new ComponentType("Fire Hydrant - Underground, BS 750", BuiltInCategory.Sprinklers, ComponentForm.FireHydrant, 430, 280, 60)
+            {
+                TypeMark = "FM3", Colour = new ColourRgb(0xE8, 0xC2, 0x1A), Cost = 1800m,
+                Placement = ComponentPlacement.WorkPlaneBased,
+                Description = "An underground fire hydrant under its cover, its BS 3251 indicator plate by it: Approved Document B Volume 2 16.8 to 16.10"
+            },
             new ComponentType("Fire Main Outlet - Landing Valve", BuiltInCategory.Sprinklers, ComponentForm.FireMainOutlet, 250, 250, 350)
             {
                 TypeMark = "FM2", Colour = new ColourRgb(0xC0, 0x2A, 0x2A), Cost = 420m,
@@ -2937,6 +2958,16 @@ public sealed class BimDocument
             Description = "Approved Document E wall type 1.1, solid dense block plastered both faces - between rooms for residential purposes (6.4)",
             CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
         };
+        // A firefighting shaft's enclosure (Approved Document B Volume 2 Diagram 17.1, round 116): reinforced concrete 200 plastered, REI 120.
+        var shaftWall = new WallType("Firefighting Shaft - Reinforced Concrete 200mm", new CompoundStructure(
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13),
+            new MaterialLayer(LayerFunction.Structure, concrete.Id, 200),
+            new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
+        {
+            Function = WallFunction.Interior, TypeMark = "FS1", AssemblyCode = "C1010", FireRating = "120 min", AcousticRating = 50, Cost = 140m,
+            Description = "A firefighting shaft's enclosure, REI 120 from the accommodation: Approved Document B Volume 2 Diagram 17.1",
+            CoarseScaleFillColour = ColourRgb.FromHex("8A93A1"), WrapAtEnds = WallWrapping.Exterior
+        };
         var doubleBoardCeiling = new CeilingType("Ceiling - Two Layers Plasterboard under 200mm Mineral Wool", new CompoundStructure(
             new MaterialLayer(LayerFunction.ThermalAir, mineralWool.Id, 200),
             new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5),
@@ -2976,12 +3007,12 @@ public sealed class BimDocument
                      mullions[0], mullions[1], mullions[2], mullions[3], mullions[4], mullions[5], mullions[6], mullions[7], mullions[8],
                      mullions[9], mullions[10], stickSystem,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
-                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, liftDoor, panicDoor, autoEntrance, visionDoor, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
+                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, liftDoor, panicDoor, autoEntrance, visionDoor, fd60, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
                      logRound, logD, logSquare, acousticPartition, timberFrame, sidedFrame, warmRoof, loftCeiling, plainTileRoof, interlockingRoof, slopedGlazing,
-                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling
+                     thickenedEdge, edgeBeam, kerb, partyWall, soffitCeiling, densePartyWall, separatingFloor, acousticCeiling, solidSeparating, doubleBoardCeiling, shaftWall
                  })
         {
             document.AddType(type);

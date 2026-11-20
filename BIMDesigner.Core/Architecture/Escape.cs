@@ -50,11 +50,14 @@ public static partial class Escape
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return "Not checked under the US's codes";
 
+        // A storey walked once for all that is said here, not again for each rule that asks it - while nothing changes (round 116).
+        using var kept = ModelCache.Begin(document);
+
         // A building other than a dwelling, no dwelling in it: Volume 2's occupants, exits and travel distances (round 109).
         if (HorizontalEscape.Applies(document) && !document.All<Room>().Any(each => Dwellings.Of(each).Length > 0))
         {
             var verdict = HorizontalEscape.Verdict(document, room) ?? VerticalEscape.Verdict(document, room) ?? "Not walked: a stair or a lift shaft, or not enclosed";
-            var wanting = EscapeRoutes.RoomWanting(document, room);
+            var wanting = EscapeRoutes.RoomWanting(document, room).Concat(FirefightingShafts.Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said)).ToList();
             return wanting.Count == 0 ? verdict : $"{verdict}; {string.Join("; ", wanting)}";
         }
         var said = Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said).ToList();

@@ -262,6 +262,9 @@ public static class Doors
     public static string Verdict(BimDocument document, Door door)
     {
         if (document.FindType<DoorType>(door.TypeId) is not { } type) return string.Empty;
+
+        // The storeys walked once for all its rules, not again for each - while nothing changes (round 116).
+        using var kept = ModelCache.Begin(document);
         var problems = Problems(document, door, document.ProjectInformation.ClearanceStandard);
         var clear = $"{Units.Bare(ClearWidth(type))} clear";
         return problems.Count == 0 ? $"{clear} - meets {Clearances.Label(document.ProjectInformation.ClearanceStandard)}"

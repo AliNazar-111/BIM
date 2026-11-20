@@ -1266,6 +1266,12 @@ public static class ComponentModel
                 Add(halfW * 0.85 - 14, halfW * 0.85 - 4, -5, 5, 0, 2, PartFinish.Dark);
                 break;
 
+            case ComponentForm.FireHydrant:
+                // Its cover's frame in the ground, painted yellow, and the lid in it dark.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW + 30, halfW - 30, -halfD + 30, halfD - 30, h - 2, h, PartFinish.Dark);
+                break;
+
             case ComponentForm.ExitSign:
                 // Its green case on the wall, the running man and the arrow white on its face.
                 Add(-halfW, halfW, -halfD, halfD - 2, 0, h);
@@ -1845,6 +1851,11 @@ public static class ComponentModel
                 Inside(-halfW * 0.8, halfW * 0.8, -halfD * 0.6, halfD * 0.6);
                 break;
 
+            case ComponentForm.FireHydrant:
+                // Its lid within its frame, lettered.
+                Inside(-halfW + 30, halfW - 30, -halfD + 30, halfD - 30);
+                break;
+
             case ComponentForm.ExitSign:
                 // Its face, lettered.
                 Inside(-halfW, halfW, halfD - Math.Min(10, d * 0.3), halfD);
@@ -2190,6 +2201,7 @@ public static class ComponentModel
         ComponentForm.TelevisionUnit => "TV",
         ComponentForm.EmergencyLight => "EL",
         ComponentForm.ExitSign => "EXIT",
+        ComponentForm.FireHydrant => "FH",
         _ => null
     };
 

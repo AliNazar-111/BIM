@@ -23,7 +23,7 @@ public sealed record AccessProblem(Element Element, string Said);
 /// sight of it (13.5); its outlets in the stair's enclosure (14.4), the hose taken from them 45 m at most to the furthest point of each flat
 /// (14.3). Checked only once a drive is drawn; not under the US's codes.
 /// </summary>
-public static class FireAccess
+public static partial class FireAccess
 {
     /// <summary>How far the hose may run from the appliance, or from a fire main's outlet, to any point inside, mm (13.1, 13.2a, 14.3).</summary>
     public const double Hose = 45000;
@@ -56,13 +56,18 @@ public static class FireAccess
         var problems = new List<AccessProblem>();
         var ground = Escape.Ground(document);
         var groundLevels = document.Levels.Where(level => Math.Abs(level.Elevation - ground) < 0.5).Select(level => level.Id).ToHashSet();
+        // A building other than a dwelling: Volume 2's Section 15 - a high reach appliance's route where its top storey is over 11 m (round 115).
+        var v2 = Volume2(document);
+        var high = v2 && Table151(document).HighReach;
         foreach (var drive in drives)
         {
             if (Narrowest(drive.Boundary) is var width && width < RoadWidth - 1)
-                problems.Add(new AccessProblem(drive, $"it is {Units.Metres(width, "0.0")} wide - Approved Document B (Table 13.1) gives a pumping appliance's access route 3.7 m between kerbs"));
-            Turning(document, drive, groundLevels, problems);
-            Gateways(document, drive, groundLevels, problems);
-            Overhead(document, drive, ground, problems);
+                problems.Add(new AccessProblem(drive, v2
+                    ? $"it is {Units.Metres(width, "0.0")} wide - Approved Document B Volume 2 (Table 15.2) gives a fire appliance's access route 3.7 m between kerbs"
+                    : $"it is {Units.Metres(width, "0.0")} wide - Approved Document B (Table 13.1) gives a pumping appliance's access route 3.7 m between kerbs"));
+            Turning(document, drive, groundLevels, problems, v2, high);
+            Gateways(document, drive, groundLevels, problems, v2);
+            Overhead(document, drive, ground, problems, v2, high);
         }
 
         using var outlines = new RoomsOf.Outlines();
@@ -74,7 +79,18 @@ public static class FireAccess
         // A dry fire main, where there is one: in a block of flats, the hose taken from its outlets instead (13.2b).
         var inlets = Of(document, ComponentForm.FireMainInlet);
         var outlets = Of(document, ComponentForm.FireMainOutlet);
-        if (inlets.Count + outlets.Count > 0) FireMains(document, drives, rooms, flights, inlets, outlets, problems);
+        if (inlets.Count + outlets.Count > 0) FireMains(document, drives, rooms, flights, inlets, outlets, problems, v2);
+
+        // A building other than a dwelling: a door in every elevation reached, Table 15.1's share of its perimeter or fire mains, hydrants (round 115).
+        if (v2)
+        {
+            Elevations(document, drives, rooms, groundLevels, true, problems, true);
+            if (inlets.Count + outlets.Count == 0) VehicleAccess(document, drives, groundLevels, problems);
+            else Mains(document, rooms, Escape.Links(document, rooms.Keys.ToHashSet()), flights, inlets, outlets, problems);
+            Hydrants(document, drives, groundLevels, inlets, problems);
+            return problems;
+        }
+
         var mains = named && outlets.Count > 0;
 
         // Each elevation the drive runs along with a door in; in a block of flats without a fire main, 60 m apart at most.
@@ -122,8 +138,10 @@ public static class FireAccess
     /// past 20 m, a place a turning circle 16.8 m between kerbs fits in it (Table 13.1) within 20 m of the far end - the appliance reversing
     /// no further to it.
     /// </summary>
-    private static void Turning(BimDocument document, GroundRegion drive, HashSet<Guid> groundLevels, List<AccessProblem> problems)
+    private static void Turning(BimDocument document, GroundRegion drive, HashSet<Guid> groundLevels, List<AccessProblem> problems, bool v2 = false, bool high = false)
     {
+        var circle = high ? HighTurningCircle : TurningCircle;
+        var appliance = high ? "a high reach appliance" : "a pumping appliance";
         var outline = drive.Boundary;
         var points = Escape.Points(outline).ToList();
         if (points.Count == 0) return;
@@ -133,17 +151,21 @@ public static class FireAccess
         var (far, length) = reached.MaxBy(entry => entry.Length!.Value);
         if (length <= Reverse + 0.5) return;
 
-        var places = TurningPlaces(outline);
+        var places = TurningPlaces(outline, circle);
         if (places.Count == 0)
         {
-            problems.Add(new AccessProblem(drive, $"it runs {Units.Metres(length!.Value, "0.0")} from where it is come into, a dead end with nowhere a pumping appliance can turn - Approved Document B (13.4, Diagram 13.1) asks a turning circle 16.8 m between kerbs (Table 13.1), a hammerhead or another place to turn on a dead end longer than 20 m"));
+            problems.Add(new AccessProblem(drive, v2
+                ? $"it runs {Units.Metres(length!.Value, "0.0")} from where it is come into, a dead end with nowhere {appliance} can turn - Approved Document B Volume 2 (15.10, Diagram 15.3) asks a turning circle {circle / 1000:0.0} m between kerbs (Table 15.2), a hammerhead or another place to turn on a dead end longer than 20 m"
+                : $"it runs {Units.Metres(length!.Value, "0.0")} from where it is come into, a dead end with nowhere a pumping appliance can turn - Approved Document B (13.4, Diagram 13.1) asks a turning circle 16.8 m between kerbs (Table 13.1), a hammerhead or another place to turn on a dead end longer than 20 m"));
             return;
         }
 
         var fromFar = Across(outline, far);
-        var reverse = places.Select(place => fromFar(place)).OfType<double>().Select(distance => Math.Max(0, distance - TurningCircle / 2)).DefaultIfEmpty(double.PositiveInfinity).Min();
+        var reverse = places.Select(place => fromFar(place)).OfType<double>().Select(distance => Math.Max(0, distance - circle / 2)).DefaultIfEmpty(double.PositiveInfinity).Min();
         if (reverse > Reverse + 0.5)
-            problems.Add(new AccessProblem(drive, $"its far end is {Units.Metres(reverse, "0.0")} from where a pumping appliance can turn - Approved Document B (13.4, Diagram 13.1) asks it reverse no more than 20 m"));
+            problems.Add(new AccessProblem(drive, v2
+                ? $"its far end is {Units.Metres(reverse, "0.0")} from where {appliance} can turn - Approved Document B Volume 2 (15.10, Diagram 15.3) asks it reverse no more than 20 m"
+                : $"its far end is {Units.Metres(reverse, "0.0")} from where a pumping appliance can turn - Approved Document B (13.4, Diagram 13.1) asks it reverse no more than 20 m"));
     }
 
     /// <summary>Where a drive is come into from the road: its point nearest the site's property line, where one is drawn; else its point furthest from the walls of the ground floor.</summary>
@@ -169,10 +191,10 @@ public static class FireAccess
     /// The middles of the turning circles 16.8 m between kerbs that fit in an outline: points 8.4 m at least from all its sides - found on a
     /// grid every 500 mm, and looked for again every 25 mm round each grid point that could be within 354 mm of one.
     /// </summary>
-    public static List<Point2D> TurningPlaces(IReadOnlyList<Point2D> outline)
+    public static List<Point2D> TurningPlaces(IReadOnlyList<Point2D> outline, double circle = TurningCircle)
     {
         double Clear(Point2D at) => outline.Select((point, i) => Line2D.DistanceFromSegment(at, point, outline[(i + 1) % outline.Count])).Min();
-        var half = TurningCircle / 2;
+        var half = circle / 2;
         var places = new List<Point2D>();
         foreach (var point in Energy.Daylight.Grid(outline, 500))
         {
@@ -199,7 +221,7 @@ public static class FireAccess
     /// Walls and fences on the ground the drive passes through - running across it, the drive going on more than half a metre either side of
     /// them - and the widest way left through them across it, between their ends and through the gates in them: 3.1 m at least (Table 13.1).
     /// </summary>
-    private static void Gateways(BimDocument document, GroundRegion drive, HashSet<Guid> groundLevels, List<AccessProblem> problems)
+    private static void Gateways(BimDocument document, GroundRegion drive, HashSet<Guid> groundLevels, List<AccessProblem> problems, bool v2 = false)
     {
         var outline = drive.Boundary;
         var grid = Escape.Points(outline).ToList();
@@ -275,16 +297,18 @@ public static class FireAccess
 
                 widest = Math.Max(widest, hi - from);
                 if (widest >= Gateway - 0.5) continue;
+                var rule = v2 ? "Approved Document B Volume 2 (Table 15.2) asks gateways 3.1 m wide on a fire appliance's route" : "Approved Document B (Table 13.1) asks gateways 3.1 m wide on a pumping appliance's route";
                 problems.Add(new AccessProblem(element, widest < 1
-                    ? "it runs across the drive with no way through - Approved Document B (Table 13.1) asks a gateway 3.1 m wide on a pumping appliance's route"
-                    : $"the drive passes through a gateway {Units.Metres(widest, "0.0")} wide in it - Approved Document B (Table 13.1) asks gateways 3.1 m wide on a pumping appliance's route"));
+                    ? $"it runs across the drive with no way through - {rule}"
+                    : $"the drive passes through a gateway {Units.Metres(widest, "0.0")} wide in it - {rule}"));
             }
         }
     }
 
     /// <summary>A floor or roof over the drive less than 3.7 m above the ground under it - Table 13.1's clearance height - the lowest.</summary>
-    private static void Overhead(BimDocument document, GroundRegion drive, double ground, List<AccessProblem> problems)
+    private static void Overhead(BimDocument document, GroundRegion drive, double ground, List<AccessProblem> problems, bool v2 = false, bool high = false)
     {
+        var clearance = high ? HighClearance : Clearance;
         var grid = Escape.Points(drive.Boundary).ToList();
         (Slab Slab, double Clear)? lowest = null;
         foreach (var slab in document.All<Slab>().Where(slab => (slab is Floor || slab is Roof { IsExtrusion: false }) && slab.Boundary.Count >= 3))
@@ -292,11 +316,11 @@ public static class FireAccess
             {
                 var under = slab is Roof roof ? roof.UndersideAt(document, point) : slab.GetBottomElevation(document);
                 var clear = under - (Terrains.GroundAt(document, point) ?? ground);
-                if (clear > 500 && clear < Clearance - 0.5 && (lowest is null || clear < lowest.Value.Clear)) lowest = (slab, clear);
+                if (clear > 500 && clear < clearance - 0.5 && (lowest is null || clear < lowest.Value.Clear)) lowest = (slab, clear);
             }
 
         if (lowest is { } low)
-            problems.Add(new AccessProblem(drive, $"it passes under {(low.Slab is Roof ? "a roof" : "a floor")} {Units.Metres(low.Clear, "0.0")} above it - Approved Document B (Table 13.1) asks 3.7 m clear over a pumping appliance's route"));
+            problems.Add(new AccessProblem(drive, $"it passes under {(low.Slab is Roof ? "a roof" : "a floor")} {Units.Metres(low.Clear, "0.0")} above it - {(v2 ? $"Approved Document B Volume 2 (Table 15.2) asks {clearance / 1000:0.0} m clear over {(high ? "a high reach" : "a pump")} appliance's route" : "Approved Document B (Table 13.1) asks 3.7 m clear over a pumping appliance's route")}"));
     }
 
     /// <summary>
@@ -305,7 +329,7 @@ public static class FireAccess
     /// its end (13.2a).
     /// </summary>
     private static void Elevations(BimDocument document, List<GroundRegion> drives, IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> rooms, HashSet<Guid> groundLevels,
-        bool flats, List<AccessProblem> problems)
+        bool flats, List<AccessProblem> problems, bool v2 = false)
     {
         // The building's outside walls - a room behind them - not a wall round the garden.
         bool Building(Wall wall) => document.GetWallType(wall) is { Function: WallFunction.Exterior } && Combustibility.BoundsARoom(document, wall);
@@ -338,7 +362,9 @@ public static class FireAccess
 
             if (doors.Count == 0)
             {
-                problems.Add(new AccessProblem(wall, "the drive runs along this elevation, and no door 750 mm wide at least goes into the building from it - Approved Document B (13.1, 13.2a) asks one in every elevation a pumping appliance gets to"));
+                problems.Add(new AccessProblem(wall, v2
+                    ? "the drive runs along this elevation, and no door 750 mm wide at least goes into the building from it - Approved Document B Volume 2 (15.3) asks one in every elevation vehicle access is provided to"
+                    : "the drive runs along this elevation, and no door 750 mm wide at least goes into the building from it - Approved Document B (13.1, 13.2a) asks one in every elevation a pumping appliance gets to"));
                 continue;
             }
 
@@ -346,7 +372,7 @@ public static class FireAccess
             var stops = doors.Append(t0).Append(t1).OrderBy(t => t).ToList();
             var gap = stops.Zip(stops.Skip(1), (x, y) => y - x).Max();
             if (gap > DoorSpacing + 0.5)
-                problems.Add(new AccessProblem(wall, $"along this elevation its doors in are {Units.Metres(gap, "0.0")} apart, or from its end - Approved Document B (13.2a) asks no more than 60 m between doors or to the end of the elevation"));
+                problems.Add(new AccessProblem(wall, $"along this elevation its doors in are {Units.Metres(gap, "0.0")} apart, or from its end - Approved Document B {(v2 ? "Volume 2 (15.3)" : "(13.2a)")} asks no more than 60 m between doors or to the end of the elevation"));
         }
     }
 
@@ -355,24 +381,25 @@ public static class FireAccess
     /// sight of it - no wall between; each outlet in a stair's enclosure; and an inlet to feed the outlets.
     /// </summary>
     private static void FireMains(BimDocument document, List<GroundRegion> drives, IReadOnlyDictionary<Room, IReadOnlyList<Point2D>> rooms, List<Escape.Flight> flights,
-        List<Component> inlets, List<Component> outlets, List<AccessProblem> problems)
+        List<Component> inlets, List<Component> outlets, List<AccessProblem> problems, bool v2 = false)
     {
+        string Cite(string one, string two) => v2 ? $"Approved Document B Volume 2 ({two})" : $"Approved Document B ({one})";
         if (inlets.Count == 0)
-            problems.Add(new AccessProblem(outlets[0], "a fire main's outlet with no inlet to feed it - Approved Document B (13.5) asks one on the face of the building, a pumping appliance within 18 m of it"));
+            problems.Add(new AccessProblem(outlets[0], $"a fire main's outlet with no inlet to feed it - {Cite("13.5", "15.4")} asks one on the face of the building, a pumping appliance within 18 m of it"));
 
         foreach (var inlet in inlets)
         {
             var at = inlet.Location;
             var reach = Nearest(drives, at);
             if (reach > InletReach + 0.5)
-                problems.Add(new AccessProblem(inlet, $"it is {Units.Metres(reach, "0.0")} from the drive - Approved Document B (13.5a) asks access for a pumping appliance within 18 m of each fire main inlet"));
+                problems.Add(new AccessProblem(inlet, $"it is {Units.Metres(reach, "0.0")} from the drive - {Cite("13.5a", "15.4a")} asks access for a pumping appliance within 18 m of each fire main inlet"));
 
             var inside = rooms.Any(entry => entry.Key.LevelId == inlet.LevelId && Polygon2D.Contains(entry.Value, at));
             var face = document.Walls.Where(wall => wall.LevelId == inlet.LevelId && document.GetWallType(wall) is { Function: WallFunction.Exterior })
                 .Any(wall => Line2D.DistanceFromSegment(at, wall.Start, wall.End) <= document.GetWallType(wall)!.Structure.TotalWidth / 2 + 500);
             if (inside || !face)
             {
-                problems.Add(new AccessProblem(inlet, "it is not on the face of the building - Approved Document B (13.5a) asks fire main inlets there"));
+                problems.Add(new AccessProblem(inlet, $"it is not on the face of the building - {Cite("13.5a", "15.4a")} asks fire main inlets there"));
                 continue;
             }
 
@@ -381,16 +408,17 @@ public static class FireAccess
                     : drive.Boundary.Select((point, i) => Line2D.ClosestPointOnSegment(at, point, drive.Boundary[(i + 1) % drive.Boundary.Count])).MinBy(point => point.DistanceTo(at)))
                 .MinBy(point => point.DistanceTo(at));
             if (document.Walls.Where(wall => wall.LevelId == inlet.LevelId).Any(wall => Crosses(parked, at, wall.Start, wall.End)))
-                problems.Add(new AccessProblem(inlet, "a wall stands between it and the drive - Approved Document B (13.5b) asks it visible from where the pumping appliance parks"));
+                problems.Add(new AccessProblem(inlet, $"a wall stands between it and the drive - {Cite("13.5b", "15.4b")} asks it visible from where the pumping appliance parks"));
         }
 
         foreach (var outlet in outlets)
         {
             var room = rooms.FirstOrDefault(entry => entry.Key.LevelId == outlet.LevelId && Polygon2D.Contains(entry.Value, outlet.Location)).Key;
-            if (room is not null && (flights.Any(flight => flight.Foot == room || flight.Head == room) || room.Name.Contains("stair", StringComparison.OrdinalIgnoreCase))) continue;
+            if (room is not null && (flights.Any(flight => flight.Foot == room || flight.Head == room) || room.Name.Contains("stair", StringComparison.OrdinalIgnoreCase) || v2 && Circulation.IsLobby(room))) continue;
+            var asked = v2 ? "Approved Document B Volume 2 (16.4) asks fire main outlets in the protected stairway or protected lobby" : "Approved Document B (14.4) asks fire main outlets in the protected stairway";
             problems.Add(new AccessProblem(outlet, room is null
-                ? "it is in no room - Approved Document B (14.4) asks fire main outlets in the protected stairway"
-                : $"it is in the {room.Name}, not a stair's enclosure - Approved Document B (14.4) asks fire main outlets in the protected stairway"));
+                ? $"it is in no room - {asked}"
+                : $"it is in the {room.Name}, not a stair's enclosure{(v2 ? " or lobby" : string.Empty)} - {asked}"));
         }
     }
 

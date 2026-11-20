@@ -287,7 +287,13 @@ public enum ComponentForm
     EmergencyLight,
 
     /// <summary>An exit sign over a door out: the running man and arrow, white on green, lit, to BS ISO 3864-1 and BS 5499-4 (Approved Document B Volume 2 5.28).</summary>
-    ExitSign
+    ExitSign,
+
+    /// <summary>
+    /// A fire hydrant on the water main: an underground hydrant under its cover in the ground, its plate to BS 3251 by it - an existing one, its
+    /// phase Existing, or the building's own (Approved Document B Volume 2 16.8 to 16.10).
+    /// </summary>
+    FireHydrant
 }
 
 /// <summary>

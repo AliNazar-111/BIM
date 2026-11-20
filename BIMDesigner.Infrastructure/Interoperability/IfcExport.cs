@@ -2380,7 +2380,7 @@ public static partial class IfcExport
             ComponentForm.Boiler => ComponentClass.Boiler,
             ComponentForm.HotWaterCylinder or ComponentForm.OilTank or ComponentForm.LpgTank or ComponentForm.LpgCylinders => ComponentClass.Tank,
             ComponentForm.StopValve or ComponentForm.SprinklerValve => ComponentClass.Valve,
-            ComponentForm.Sprinkler or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet => ComponentClass.Sprinkler,
+            ComponentForm.Sprinkler or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.FireHydrant => ComponentClass.Sprinkler,
             ComponentForm.GasMeter => ComponentClass.Meter,
             ComponentForm.DrainAccess or ComponentForm.FoulOutfall or ComponentForm.SurfaceWaterOutfall or ComponentForm.Soakaway => ComponentClass.Chamber,
             ComponentForm.AirAdmittanceValve => ComponentClass.AirValve,
@@ -2517,7 +2517,7 @@ public static partial class IfcExport
                     sprinkler.PredefinedType = type.Form switch
                     {
                         ComponentForm.FireMainInlet => IfcFireSuppressionTerminalTypeEnum.BREECHINGINLET,
-                        ComponentForm.FireMainOutlet => IfcFireSuppressionTerminalTypeEnum.FIREHYDRANT,
+                        ComponentForm.FireMainOutlet or ComponentForm.FireHydrant => IfcFireSuppressionTerminalTypeEnum.FIREHYDRANT,
                         _ => IfcFireSuppressionTerminalTypeEnum.SPRINKLER
                     }),
                 ComponentClass.Meter => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcFlowMeter>(component, type, meshes, meter =>
