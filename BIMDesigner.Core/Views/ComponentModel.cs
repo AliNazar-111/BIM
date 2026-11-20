@@ -1259,6 +1259,20 @@ public static class ComponentModel
                 Add(-halfW * 0.6, halfW * 0.6, halfD - 1, halfD + 2, h * 0.6, h * 0.85, PartFinish.Dark);
                 break;
 
+            case ComponentForm.EmergencyLight:
+                // Its base against the ceiling, its diffuser under it, and the green charge light at one end.
+                Add(-halfW, halfW, -halfD, halfD, h * 0.4, h);
+                Add(-halfW * 0.85, halfW * 0.85, -halfD * 0.75, halfD * 0.75, 2, h * 0.4, PartFinish.Glass);
+                Add(halfW * 0.85 - 14, halfW * 0.85 - 4, -5, 5, 0, 2, PartFinish.Dark);
+                break;
+
+            case ComponentForm.ExitSign:
+                // Its green case on the wall, the running man and the arrow white on its face.
+                Add(-halfW, halfW, -halfD, halfD - 2, 0, h);
+                Add(-halfW * 0.7, -halfW * 0.15, halfD - 2, halfD, h * 0.2, h * 0.8, PartFinish.White);
+                Add(halfW * 0.05, halfW * 0.7, halfD - 2, halfD, h * 0.42, h * 0.58, PartFinish.White);
+                break;
+
             case ComponentForm.Lift or ComponentForm.LiftingPlatform:
                 // Its car: floor, walls round three sides and its roof, its door's opening at the front left dark.
                 Add(-halfW, halfW, -halfD, halfD, 0, 20, PartFinish.Metal);
@@ -1826,6 +1840,16 @@ public static class ComponentModel
                 Inside(-halfW * 0.6, halfW * 0.6, halfD - 20, halfD);
                 break;
 
+            case ComponentForm.EmergencyLight:
+                // A luminaire within its outline, lettered.
+                Inside(-halfW * 0.8, halfW * 0.8, -halfD * 0.6, halfD * 0.6);
+                break;
+
+            case ComponentForm.ExitSign:
+                // Its face, lettered.
+                Inside(-halfW, halfW, halfD - Math.Min(10, d * 0.3), halfD);
+                break;
+
             case ComponentForm.Lift or ComponentForm.LiftingPlatform:
                 // A lift's car crossed, as drawings show a lift, its door's side marked.
                 shapes.Add(frame.Line(-halfW, -halfD, halfW, halfD));
@@ -2164,6 +2188,8 @@ public static class ComponentModel
         ComponentForm.UnderfloorHeating => "UFH",
         ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay => "P",
         ComponentForm.TelevisionUnit => "TV",
+        ComponentForm.EmergencyLight => "EL",
+        ComponentForm.ExitSign => "EXIT",
         _ => null
     };
 
@@ -2176,7 +2202,7 @@ public static class ComponentModel
             or ComponentForm.ExtractFan or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm
             or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler
             or ComponentForm.StopValve or ComponentForm.GasMeter or ComponentForm.Sprinkler or ComponentForm.SprinklerValve
-            or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet);
+            or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.EmergencyLight or ComponentForm.ExitSign);
 
     /// <summary>How far a gas fire stands out from the wall behind its hearth, mm.</summary>
     public static double FireDepth(ComponentType type) => Math.Min(150, type.Depth * 0.5);
@@ -2241,7 +2267,7 @@ public static class ComponentModel
 
     /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, a smoke, heat or carbon monoxide alarm, a sprinkler, or a smoke outlet in the ceiling - a pavement light.</summary>
     public static bool HangsFromCeiling(ComponentType type) =>
-        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.Sprinkler
+        type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.Sprinkler or ComponentForm.EmergencyLight
         || type.Form == ComponentForm.SmokeOutlet && type.Placement != ComponentPlacement.FaceBased;
 
     /// <summary>An armchair's arms and back, how thick, and the height of its seat - 450 or so on a 950 chair.</summary>

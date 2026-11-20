@@ -42,6 +42,20 @@ public enum DoorFunction
     Exterior
 }
 
+/// <summary>
+/// What holds a door shut, as Approved Document B Volume 2 (5.7 to 5.9) asks of a door on an escape route: a latch - a simple fastening, worked
+/// by its lever handle from the side escaped from without a key - by default; none at all, a push plate and pull handle; a panic exit device to
+/// BS EN 1125, a push bar across the leaf, for crowds and the public; an emergency exit device to BS EN 179, a lever or push pad, for those who
+/// know the building.
+/// </summary>
+public enum DoorFastening
+{
+    Latch,
+    None,
+    PanicBar,
+    EmergencyLever
+}
+
 /// <summary>How a window opens (specification section 3.5).</summary>
 public enum WindowOperation
 {
@@ -152,8 +166,14 @@ public sealed class DoorType : OpeningType
         Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign, SelfClosing = SelfClosing,
         GlazingRows = GlazingRows, GlazingColumns = GlazingColumns, Function = Function, CurtainPanel = CurtainPanel,
         TrimWidth = TrimWidth, TrimProjectionExterior = TrimProjectionExterior, TrimProjectionInterior = TrimProjectionInterior,
-        DoorViewer = DoorViewer, DoorLimiter = DoorLimiter, LetterPlate = LetterPlate
+        DoorViewer = DoorViewer, DoorLimiter = DoorLimiter, LetterPlate = LetterPlate, Fastening = Fastening, Automatic = Automatic
     }));
+
+    /// <summary>What holds it shut: a latch, none, a panic bar or an emergency lever (Approved Document B Volume 2 5.7 to 5.9). See <see cref="DoorFastening"/>.</summary>
+    public DoorFastening Fastening { get; set; } = DoorFastening.Latch;
+
+    /// <summary>Whether it is power-operated, opening as one comes to it and failing safe open when the power fails (Approved Document B Volume 2 5.15a).</summary>
+    public bool Automatic { get; set; }
 
     /// <summary>Whether it has a door viewer - a spyhole - to see callers by (Approved Document Q 1.4).</summary>
     public bool DoorViewer { get; set; }
@@ -215,6 +235,12 @@ public sealed class DoorType : OpeningType
         yield return ParameterValue.Bind(DoorTypeParameters.PanelMaterial, () => PanelMaterial, v => PanelMaterial = v);
         yield return ParameterValue.Bind(DoorTypeParameters.HardwareSet, () => HardwareSet, v => HardwareSet = v);
         yield return ParameterValue.Bind(DoorTypeParameters.SelfClosing, () => SelfClosing, v => SelfClosing = v);
+        yield return ParameterValue.BindChoice(
+            DoorTypeParameters.Fastening,
+            () => EnumText.Humanise(Fastening),
+            v => { if (EnumText.TryParse<DoorFastening>(v, out var f)) Fastening = f; },
+            EnumText.Choices<DoorFastening>());
+        yield return ParameterValue.Bind(DoorTypeParameters.Automatic, () => Automatic, v => Automatic = v);
         yield return ParameterValue.ReadOnly(DoorTypeParameters.ClearWidth, () => Doors.ClearWidth(this));
 
         yield return ParameterValue.BindChoice(
@@ -448,6 +474,12 @@ public static class DoorTypeParameters
 
     public static readonly ParameterDefinition DoorViewer =
         new("Door Viewer", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Fastening =
+        new("Fastening", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
+
+    public static readonly ParameterDefinition Automatic =
+        new("Automatic (fails safe open)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition DoorLimiter =
         new("Door Chain or Limiter", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);

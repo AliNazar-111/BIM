@@ -104,14 +104,14 @@ public class HorizontalEscapeTests
         var office = Build();
         var document = office.Document;
         var said = Escape.Describe(document, office.West);
-        Assert.Matches(@"; \d+\.\d m from a storey exit at most, \d+\.\d m one way$", said);
+        Assert.Matches(@"; \d+\.\d m from a storey exit at most, \d+\.\d m one way(;|$)", said);
         Assert.DoesNotContain("Table 2.1", said);
 
         // Office A's door moved to its east end: its far corner 25 m from it, one way - more than 18 - and 49 m from the west exit in all, more
         // than 45 (Table 2.1, Diagram 2.1).
         office.WestDoor.DistanceAlongWall = 24000;
         said = Escape.Describe(document, office.West);
-        Assert.Matches(@"; 24\.\d m in one direction only and 48\.\d m from a storey exit in all, walked - Approved Document B Volume 2 \(Table 2\.1, 2\.7, Diagram 2\.1\) allows 18 m in one direction only and 45 m where escape is possible in more than one, for an office$", said);
+        Assert.Matches(@"; 24\.\d m in one direction only and 48\.\d m from a storey exit in all, walked - Approved Document B Volume 2 \(Table 2\.1, 2\.7, Diagram 2\.1\) allows 18 m in one direction only and 45 m where escape is possible in more than one, for an office(;|$)", said);
         office.WestDoor.DistanceAlongWall = 12500;
 
         // The east exit taken away: the corridor a dead end 50 m long, Office B beyond 18 m one way.
@@ -123,6 +123,79 @@ public class HorizontalEscapeTests
         foreach (var door in document.All<Door>().Where(door => Doors.External(document, door, document.FindType<DoorType>(door.TypeId)!)).ToList()) document.Remove(door);
         Assert.Contains("no way from it to a storey exit, walked through the doors - Approved Document B Volume 2 (2.1)", Escape.Describe(document, office.West));
         Assert.Contains(HorizontalEscape.Problems(document), problem => problem.Said.StartsWith($"the {document.Levels[0].Name} holds 66 people and has 0 storey exits - Approved Document B Volume 2 (2.3, 2.9, Table 2.2) asks 2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnInnerRoomHasAVisionPanelOrDetectionAndIsNoBedroom()
+    {
+        // A manager's office in Office A's north west corner, 4 m square, its only door into Office A - an inner room, 3 people (2.11).
+        var office = Build();
+        var document = office.Document;
+        var front = Wall(document, new Point2D(0, 6000), new Point2D(4000, 6000));
+        Wall(document, new Point2D(4000, 6000), new Point2D(4000, 10000));
+        var inner = Room(document, "Manager's Office", 2000, 8000);
+        var door = Door(document, front, 2000);
+        var said = Escape.Describe(document, inner);
+        Assert.Contains("an inner room, reached only through the Office A, with no vision panel in its door and no fire detection in the Office A - Approved Document B Volume 2 (2.11g)", said);
+
+        // A half glazed door - a vision panel: met; a smoke alarm in Office A instead: met.
+        var glazed = new DoorType("Single Half Glazed - 1000 x 2100", 1000, 2100) { LeafDesign = DoorLeafDesign.HalfGlazed };
+        document.AddType(glazed);
+        var plain = door.TypeId;
+        door.TypeId = glazed.Id;
+        Assert.DoesNotContain("(2.11", Escape.Describe(document, inner));
+        door.TypeId = plain;
+        var alarm = document.TypesOf<ComponentType>().First(type => type.Form == ComponentForm.SmokeAlarm);
+        document.Add(new Component { TypeId = alarm.Id, TypeKind = alarm.Kind, LevelId = document.Levels[0].Id, Location = new Point2D(12500, 6000), Elevation = alarm.DefaultElevation });
+        Assert.DoesNotContain("(2.11", Escape.Describe(document, inner));
+
+        // A bedroom there: no inner room may be one (2.11b). Office A a boiler room: no place of special fire hazard as its access room (2.11f).
+        inner.Name = "Bedroom";
+        Assert.Contains("a bedroom - Approved Document B Volume 2 (2.11b)", Escape.Describe(document, inner));
+        inner.Name = "Manager's Office";
+        office.West.Name = "Boiler Room";
+        Assert.Contains("a place of special fire hazard - Approved Document B Volume 2 (2.11f)", Escape.Describe(document, inner));
+    }
+
+    [Fact]
+    public void ACorridorIsProtectedDividedAndItsDeadEndsSeparated()
+    {
+        // Between its two final exits, 49.7 m long, not divided by a fire door (2.26).
+        var office = Build();
+        var document = office.Document;
+        Assert.Contains("49.7 m long between 2 storey exits, not divided - Approved Document B Volume 2 (2.26, Diagram 2.9)", Escape.Describe(document, office.Corridor));
+
+        // Divided at x 25 m by a wall with a self-closing fire door: two corridors, a storey exit each - met.
+        office.Corridor.Location = new Point2D(12000, 1000);
+        var across = Wall(document, new Point2D(25000, 0), new Point2D(25000, 2000));
+        Door(document, across, 1000, "Fire Door FD30S - 900 x 2100");
+        var east = Room(document, "Corridor East", 40000, 1000);
+        foreach (var half in new[] { office.Corridor, east })
+        {
+            var halfSaid = Escape.Describe(document, half);
+            Assert.StartsWith("An office: ", halfSaid);
+            Assert.DoesNotContain("(2.26", halfSaid);
+            Assert.DoesNotContain("no way from it", halfSaid);
+        }
+
+        Assert.DoesNotContain("no way from it", Escape.Describe(document, office.West));
+        document.Remove(east);
+        document.Remove(document.All<Door>().Single(each => each.HostWallId == across.Id));
+        document.Remove(across);
+        office.Corridor.Location = new Point2D(25000, 1000);
+
+        // The east exit moved into the south wall at x 30 m: 20 m of corridor past it a dead end, not separated from the rest (2.28), and not
+        // protected - the offices' doors no fire doors with closers (2.24b).
+        office.EastExit.HostWallId = document.Walls.Single(wall => wall.Start == new Point2D(0, 0)).Id;
+        office.EastExit.DistanceAlongWall = 30000;
+        var said = Escape.Describe(document, office.Corridor);
+        Assert.Matches(@"its dead end 1[89]\.\d m long opens straight into where escape is in two directions - Approved Document B Volume 2 \(2\.28, Diagram 2\.10\)", said);
+        Assert.Contains("a protected corridor, a dead end", said);
+        Assert.Contains("the Office A's, the Office B's doors not E 20 Sa and self-closing - Approved Document B Volume 2 (2.24, Tables B1, C1)", said);
+
+        // The offices' doors made self-closing fire doors: protected.
+        document.FindType<DoorType>(office.WestDoor.TypeId)!.SelfClosing = true;
+        Assert.DoesNotContain("(2.24", Escape.Describe(document, office.Corridor));
     }
 
     [Fact]

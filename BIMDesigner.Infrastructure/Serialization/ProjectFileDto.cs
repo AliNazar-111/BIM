@@ -2003,6 +2003,10 @@ internal sealed class DoorTypeDto : OpeningTypeDto
     public bool? DoorLimiter { get; set; }
     public string? LetterPlate { get; set; }
 
+    /// <summary>What holds it shut, and whether it is automatic (Approved Document B Volume 2 5.7 to 5.15); none in a file from before - a latch, by hand.</summary>
+    public string? Fastening { get; set; }
+    public bool? Automatic { get; set; }
+
     public string Operation { get; set; } = "Swing";
     public int LeafCount { get; set; } = 1;
     public string PanelMaterial { get; set; } = string.Empty;

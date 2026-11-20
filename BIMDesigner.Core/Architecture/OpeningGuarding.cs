@@ -97,9 +97,10 @@ public static class OpeningGuarding
         var (from, to) = (opening.DistanceAlongWall - opening.WidthOf(type) / 2, opening.DistanceAlongWall + opening.WidthOf(type) / 2);
         var guarded = GuardAcross(document, wall, from, to, opening) is not null;
 
-        if (opening is Door)
+        if (opening is Door door)
         {
-            if (guarded || opening.SillHeight > 600 || drop <= (us ? 762 : 600)) return Array.Empty<string>();
+            // A lift's landing door opens onto its car, the shaft beneath it closed off by the door's interlock - no drop to guard (round 114).
+            if (guarded || opening.SillHeight > 600 || drop <= (us ? 762 : 600) || Lifts.IsLanding(document, door)) return Array.Empty<string>();
             return new[]
             {
                 us ? $"It opens onto a drop of {Units.Bare(drop)} with nothing outside it: the IRC asks for a guard {Units.Figure("914", "36 in")} high across it."

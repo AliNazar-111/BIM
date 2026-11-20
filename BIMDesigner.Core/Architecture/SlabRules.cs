@@ -147,6 +147,21 @@ public static class SlabRules
                 // A block of flats: a compartment floor, or one within a flat (7.1a, Table B4, round 94).
                 if (FireSeparation.Problem(document, separating, type) is var (said, rule)) Add(said, rule);
             }
+            else if (slab is Floor storey && HorizontalEscape.Applies(document))
+            {
+                // A building other than a dwelling: Table B2's period, the floor over a basement the more of two, a compartment floor where 8.8 to 8.11 ask (round 112).
+                var group = HorizontalEscape.Purpose(document);
+                var asked = FireCompartments.Minutes(document);
+                var ground = Escape.Ground(document);
+                var lowest = document.Levels.Select(each => each.Elevation).DefaultIfEmpty(0).Min();
+                var level = document.FindLevel(storey.LevelId)?.Elevation ?? 0;
+                if (level <= ground + 100 && lowest < ground - Escape.Basement - 0.5)
+                    asked = Math.Max(asked, FireDesign.BasementPeriod(group, (ground - lowest) / 1000, document.ProjectInformation.Sprinklered));
+                var compartment = FireCompartments.CompartmentFloor(document, storey);
+                if (asked > 0 && Doors.FireMinutes(type.FireRating) < asked)
+                    Add($"it resists fire for {(Doors.FireMinutes(type.FireRating) is > 0 and var minutes ? $"{minutes} minutes" : "no time stated")}.",
+                        $"Approved Document B Volume 2 (Tables B1, B2{(compartment is null ? string.Empty : ", Section 8")}) asks REI {asked} of a floor of {HorizontalEscape.Said(group)}{(compartment is null ? string.Empty : $" - {compartment}")}.");
+            }
             else if (Doors.FireMinutes(type.FireRating) < 30)
                 Add($"it resists fire for {(Doors.FireMinutes(type.FireRating) is > 0 and var minutes ? $"{minutes} minutes" : "no time stated")}.",
                     "Approved Document B (Table B2) asks for 30 minutes from the floors of a house.");

@@ -160,9 +160,10 @@ public static class MepSystems
         var forms = members.Select(member => document.FindType<ComponentType>(member.TypeId)?.Form).ToHashSet();
         bool Only(params ComponentForm[] allowed) => forms.All(form => form is { } f && allowed.Contains(f));
 
-        if (Only(ComponentForm.CeilingLight, ComponentForm.WallLight, ComponentForm.Switch, ComponentForm.ExtractFan)) return CircuitUse.Lighting;
-        if (forms.Any(form => form is ComponentForm.CeilingLight or ComponentForm.WallLight)
-            && Only(ComponentForm.CeilingLight, ComponentForm.WallLight, ComponentForm.Switch, ComponentForm.ExtractFan, ComponentForm.SmokeAlarm, ComponentForm.HeatAlarm, ComponentForm.CarbonMonoxideAlarm))
+        if (Only(ComponentForm.CeilingLight, ComponentForm.WallLight, ComponentForm.Switch, ComponentForm.ExtractFan, ComponentForm.EmergencyLight, ComponentForm.ExitSign)) return CircuitUse.Lighting;
+        if (forms.Any(form => form is ComponentForm.CeilingLight or ComponentForm.WallLight or ComponentForm.EmergencyLight or ComponentForm.ExitSign)
+            && Only(ComponentForm.CeilingLight, ComponentForm.WallLight, ComponentForm.Switch, ComponentForm.ExtractFan, ComponentForm.SmokeAlarm, ComponentForm.HeatAlarm, ComponentForm.CarbonMonoxideAlarm,
+                ComponentForm.EmergencyLight, ComponentForm.ExitSign))
             return CircuitUse.Lighting;
         if (Only(ComponentForm.Socket, ComponentForm.ShaverSocket)) return CircuitUse.RingFinal;
         if (Only(ComponentForm.Cooker, ComponentForm.OvenHousing, ComponentForm.CookerHood)) return CircuitUse.Cooker;

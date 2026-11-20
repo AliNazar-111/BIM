@@ -278,7 +278,16 @@ public enum ComponentForm
     ServiceCounter,
 
     /// <summary>A hearing enhancement system: an induction loop's amplifier, or an infrared or radio system's (Approved Document M Volume 2 3.6f, 4.12m, 4.36b).</summary>
-    HearingLoop
+    HearingLoop,
+
+    /// <summary>
+    /// A self-contained emergency light on the ceiling: lit off its own battery for three hours when the mains fail, lighting the way out to
+    /// BS 5266-1 (Approved Document B Volume 2 5.25 to 5.27, Table 5.1).
+    /// </summary>
+    EmergencyLight,
+
+    /// <summary>An exit sign over a door out: the running man and arrow, white on green, lit, to BS ISO 3864-1 and BS 5499-4 (Approved Document B Volume 2 5.28).</summary>
+    ExitSign
 }
 
 /// <summary>

@@ -206,6 +206,12 @@ public static class WallRules
         if (!us)
             foreach (var (said, rule) in FireSeparation.Problems(document, wall, type)) Add(said, rule);
 
+        // Round a place of special fire hazard in a building other than a dwelling: REI 30 (Approved Document B Volume 2 8.7, round 112).
+        if (FireCompartments.Problem(document, wall, type) is var (hazard, hazardRule)) Add(hazard, hazardRule);
+
+        // Round a refuse store, or a shop's walk-in store room: REI 30 or 60 (Approved Document B Volume 2 5.43a, 5.46, round 114).
+        if (EscapeRoutes.Problem(document, wall, type) is var (enclosed, enclosedRule)) Add(enclosed, enclosedRule);
+
         // Between dwellings: one of Approved Document E's separating walls, and its junctions (round 99).
         foreach (var (said, rule) in SoundInsulation.Problems(document, wall, type)) Add(said, rule);
 

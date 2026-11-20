@@ -801,7 +801,9 @@ public static partial class ProjectFile
                 SelfClosing = type.SelfClosing,
                 DoorViewer = type.DoorViewer ? true : null,
                 DoorLimiter = type.DoorLimiter ? true : null,
-                LetterPlate = type.LetterPlate.Length == 0 ? null : type.LetterPlate
+                LetterPlate = type.LetterPlate.Length == 0 ? null : type.LetterPlate,
+                Fastening = type.Fastening == DoorFastening.Latch ? null : type.Fastening.ToString(),
+                Automatic = type.Automatic ? true : null
             };
 
             WriteOpeningType(doorType, type);
@@ -2378,7 +2380,11 @@ public static partial class ProjectFile
                 // Saved before Approved Document Q's hardware: none said.
                 DoorViewer = type.DoorViewer ?? false,
                 DoorLimiter = type.DoorLimiter ?? false,
-                LetterPlate = type.LetterPlate ?? string.Empty
+                LetterPlate = type.LetterPlate ?? string.Empty,
+
+                // Saved before Approved Document B Volume 2's doors on escape routes: a latch, opened by hand.
+                Fastening = type.Fastening is { } fastening ? ParseEnum(fastening, DoorFastening.Latch) : DoorFastening.Latch,
+                Automatic = type.Automatic ?? false
             };
 
             ReadOpeningType(doorType, type);

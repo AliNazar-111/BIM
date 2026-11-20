@@ -293,6 +293,13 @@ public static class Connectors
             case ComponentForm.EvChargePoint:
                 return new[] { Cable("Power", 0, -halfD, Math.Min(150, h / 4), Back) };
 
+            case ComponentForm.EmergencyLight:
+                // Fed unswitched from the lighting circuit of where it lights, as BS 5266-1 asks, so it lights when that circuit fails.
+                return new[] { Cable("Power", 0, 0, h, Up) };
+
+            case ComponentForm.ExitSign:
+                return new[] { Cable("Power", 0, -halfD, h / 2, Back) };
+
             case ComponentForm.AssistanceAlarm:
                 // Its controller on a fused spur, the cable into the pull switch's back.
                 return new[] { Cable("Power", 0, -halfD, h - 45, Back) };

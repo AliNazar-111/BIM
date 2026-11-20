@@ -142,6 +142,10 @@ public static class Lifts
                     $"Approved Document M Volume 2 (3.28a) asks an unobstructed space of {Landing:0} by {Landing:0} in front of a {what}'s landing door - or a straight route 900 wide to it - clear of walls, fittings and doors' swings.", space.Outline);
         }
 
+        // Its well: enclosed, a protected shaft through compartment floors, lobbied in a basement (Approved Document B Volume 2 5.34 to 5.40, round 114).
+        if (!standard.IsUs())
+            foreach (var (said, rule) in EscapeRoutes.LiftProblems(document, lift)) Add(said, rule);
+
         return problems;
     }
 

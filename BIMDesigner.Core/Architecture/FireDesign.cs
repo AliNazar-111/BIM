@@ -325,6 +325,37 @@ public static class FireDesign
         return feet.Count == 0 ? (0, 0) : (feet.Count, (feet.Max() - ground) / 1000);
     }
 
+    /// <summary>
+    /// Approved Document B Volume 2's Table B2 period for a building other than a dwelling (round 112): its ground and upper storeys' elements of
+    /// structure by its purpose group, the height of its top floor, m, and its sprinklers - over 30 m without sprinklers taken as 120, which note 6
+    /// does not allow at all.
+    /// </summary>
+    public static FirePeriod Period(PurposeGroup group, int storeys, double topFloor, bool sprinklered)
+    {
+        const string table = "Approved Document B Volume 2 Table B2";
+        var height = $"{storeys} storey{(storeys == 1 ? "" : "s")}, its top floor {topFloor:0.0} m up";
+        var (five, eighteen, thirty, over) = group switch
+        {
+            PurposeGroup.ResidentialInstitutional or PurposeGroup.ResidentialOther => (30, 60, 90, 120),
+            PurposeGroup.Office => sprinklered ? (30, 30, 60, 120) : (30, 60, 90, 0),
+            PurposeGroup.ShopAndCommercial or PurposeGroup.AssemblyAndRecreation => sprinklered ? (30, 60, 60, 120) : (60, 60, 90, 0),
+            _ => sprinklered ? (30, 60, 90, 120) : (60, 90, 120, 0)
+        };
+        var minutes = topFloor <= 5 + 1e-9 ? five : topFloor <= 18 + 1e-9 ? eighteen : topFloor <= 30 + 1e-9 ? thirty : over;
+        var said = HorizontalEscape.Said(group);
+        return minutes == 0
+            ? new FirePeriod(120, $"120 minutes: {said} of {height} - over 30 m it is not allowed without sprinklers throughout, {table} note 6")
+            : new FirePeriod(minutes, $"{minutes} minutes: {said} of {height}{(sprinklered ? ", with sprinklers" : "")}, {table}");
+    }
+
+    /// <summary>Table B2's period for a basement storey of a building other than a dwelling by its depth, m, and its floor over it.</summary>
+    public static int BasementPeriod(PurposeGroup group, double depth, bool sprinklered) => group switch
+    {
+        PurposeGroup.ResidentialInstitutional or PurposeGroup.ResidentialOther => depth > 10 ? 90 : 60,
+        PurposeGroup.Office or PurposeGroup.ShopAndCommercial or PurposeGroup.AssemblyAndRecreation => depth > 10 ? sprinklered ? 60 : 90 : 60,
+        _ => depth > 10 ? sprinklered ? 90 : 120 : sprinklered ? 60 : 90
+    };
+
     /// <summary>Table B4's period for a building, with note 5's 30 minutes for a three storey house.</summary>
     public static FirePeriod Period(BuildingUse use, int storeys, double topFloor, bool sprinklered)
     {
@@ -381,6 +412,9 @@ public static class FireDesign
         }
 
         var (storeys, top) = HeightOf(document);
+
+        // A building other than a dwelling: Volume 2's Table B2 by its purpose group (round 112).
+        if (HorizontalEscape.Applies(document)) return Period(HorizontalEscape.Purpose(document), storeys, top, document.ProjectInformation.Sprinklered);
         return Period(UseOf(document), storeys, top, document.ProjectInformation.Sprinklered);
     }
 

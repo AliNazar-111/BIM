@@ -23,8 +23,8 @@ public static class Doors
 
     /// <summary>
     /// The clear width a door gives when open: between its frame's stops, less the leaf open in the
-    /// way - for a pair, its main leaf's; for a slider, the opening its leaf runs clear of; for a
-    /// bi-fold, less its leaves folded back.
+    /// way - for a pair, its main leaf's; for a slider, the opening its leaf runs clear of - an
+    /// automatic pair's both, as they part; for a bi-fold, less its leaves folded back.
     /// </summary>
     public static double ClearWidth(DoorType type)
     {
@@ -33,12 +33,21 @@ public static class Doors
         {
             DoorOperation.Swing when type.LeafCount < 2 => inside - Leaf,
             DoorOperation.Swing or DoorOperation.DoubleSwing => inside / 2 - Leaf,
-            DoorOperation.Sliding when type.LeafCount >= 2 => inside / 2,
+            DoorOperation.Sliding when type.LeafCount >= 2 && !type.Automatic => inside / 2,
             DoorOperation.Sliding or DoorOperation.Overhead => inside,
             DoorOperation.Folding => inside - Math.Max(4, type.LeafCount * 2) * Math.Max(20, Math.Min(type.Thickness, 60)) / 2,
             _ => inside - Leaf
         });
     }
+
+    /// <summary>
+    /// The clear width a doorway gives with its doors open, as Approved Document B measures it for escape (Volume 2 Appendix D, D4a, Diagram
+    /// D1): a pair's leaves both open, from leaf to leaf - not its main leaf alone, as a wheelchair user's width is; otherwise its clear width.
+    /// </summary>
+    public static double EscapeWidth(DoorType type) =>
+        type.Operation is DoorOperation.Swing or DoorOperation.DoubleSwing && (type.Operation == DoorOperation.DoubleSwing || type.LeafCount >= 2)
+            ? Math.Max(0, type.Width - 2 * Frame - 2 * Leaf)
+            : ClearWidth(type);
 
     /// <summary>A rating's minutes, as it is written: "30 min", "FD30", "E 30 Sa" all 30; none, 0.</summary>
     public static int FireMinutes(string rating)
@@ -209,6 +218,14 @@ public static class Doors
         // In a block of flats: entrance doors, doors into the common stair, across the common corridors and off them (Table C1, round 94).
         if (!standard.IsUs())
             foreach (var (said, rule) in FireSeparation.Problems(document, door, type)) Add(said, rule);
+
+        // Into a place of special fire hazard in a building other than a dwelling: E 30 (Approved Document B Volume 2 Table C1, round 112).
+        if (!standard.IsUs() && FireCompartments.Problem(document, door, type) is var (hazard, hazardRule)) Add(hazard, hazardRule);
+
+        // On an escape route of a building other than a dwelling: its direction of opening, its fastening, its vision panel, its exit sign
+        // (Approved Document B Volume 2 Section 5, round 113).
+        if (!standard.IsUs())
+            foreach (var (said, rule) in EscapeRoutes.Problems(document, door, type)) Add(said, rule);
 
         // A flat's entrance door from the common parts: sealed, and Rw 29 dB (Approved Document E 2.26, round 99).
         if (SoundInsulation.Problem(document, door, type) is var (heard, asked)) Add(heard, asked);

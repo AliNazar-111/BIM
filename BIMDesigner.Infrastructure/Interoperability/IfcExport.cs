@@ -1086,7 +1086,9 @@ public static partial class IfcExport
                     ["ThermalTransmittance"] = type.HeatTransferCoefficient > 0
                         ? new IfcThermalTransmittanceMeasure(type.HeatTransferCoefficient)
                         : null,
-                    ["SillHeight"] = new IfcLengthMeasure(sill)
+                    ["SillHeight"] = new IfcLengthMeasure(sill),
+                    ["HasDrive"] = type is DoorType { Automatic: true } ? new IfcBoolean(true) : null,
+                    ["SelfClosing"] = type is DoorType doorType ? new IfcBoolean(doorType.SelfClosing) : null
                 });
         }
 
@@ -2451,7 +2453,7 @@ public static partial class IfcExport
                     if (type.Form == ComponentForm.Cooker && type.BurnsGas) appliance.ObjectType = "Gas cooker";
                 }),
                 ComponentClass.Light => ComponentProduct<IfcLightFixture>(component, type, meshes, light =>
-                    light.PredefinedType = IfcLightFixtureTypeEnum.POINTSOURCE),
+                    light.PredefinedType = type.Form is ComponentForm.EmergencyLight or ComponentForm.ExitSign ? IfcLightFixtureTypeEnum.SECURITYLIGHTING : IfcLightFixtureTypeEnum.POINTSOURCE),
                 ComponentClass.Heater => ComponentProduct<IfcSpaceHeater>(component, type, meshes, heater =>
                 {
                     heater.PredefinedType = type.Form is ComponentForm.UnderfloorHeating or ComponentForm.GasFire ? IfcSpaceHeaterTypeEnum.USERDEFINED : IfcSpaceHeaterTypeEnum.RADIATOR;

@@ -1022,6 +1022,31 @@ public sealed class BimDocument
             PanelMaterial = "Stainless Steel", FrameMaterial = "Steel", FireRating = "E 30", Cost = 2400m,
             Description = "A lift's landing door, power-operated and sliding, 800 clear: Approved Document M Volume 2 3.34e"
         };
+        // Doors on escape routes in buildings other than homes (Approved Document B Volume 2 5.9 to 5.15): a pair of fire exit doors with panic
+        // bars to BS EN 1125, for a crowd or the public; an automatic sliding entrance, its leaves parting and failing safe open; an FD30S with a
+        // vision panel, to divide a corridor. A lift's landing doors are power-operated too.
+        var panicDoor = new DoorType("Fire Exit Double - Panic Bars 1800 x 2100", 1800, 2100)
+        {
+            TypeMark = "D19", AssemblyCode = "C1020", Operation = DoorOperation.DoubleSwing, LeafCount = 2, LeafDesign = DoorLeafDesign.Flush,
+            PanelMaterial = "Steel", FrameMaterial = "Steel", Function = DoorFunction.Exterior, HeatTransferCoefficient = 1.6, SelfClosing = true,
+            Fastening = DoorFastening.PanicBar, HardwareSet = "Push bars to BS EN 1125, overhead closers", Cost = 1900m,
+            Description = "A pair of fire exit doors with panic bars to BS EN 1125: Approved Document B Volume 2 5.9"
+        };
+        var autoEntrance = new DoorType("Automatic Sliding Entrance - 2000 x 2200", 2000, 2200)
+        {
+            TypeMark = "D20", AssemblyCode = "C1020", Operation = DoorOperation.Sliding, LeafCount = 2, LeafDesign = DoorLeafDesign.FullGlass,
+            PanelMaterial = "Glass, Toughened", FrameMaterial = "Aluminium", Function = DoorFunction.Exterior, HeatTransferCoefficient = 1.6,
+            Automatic = true, Fastening = DoorFastening.None, Cost = 7800m,
+            Description = "An automatic bi-parting sliding entrance, failing safe open when the power fails: Approved Document B Volume 2 5.15a"
+        };
+        var visionDoor = new DoorType("Fire Door FD30S Vision Panel - 1000 x 2100", 1000, 2100)
+        {
+            TypeMark = "D21", AssemblyCode = "C1020", Operation = DoorOperation.Swing, LeafDesign = DoorLeafDesign.HalfGlazed,
+            PanelMaterial = "Timber, Painted", FrameMaterial = "Timber", FireRating = "30 min (FD30S)", SelfClosing = true,
+            HardwareSet = "Overhead closer, intumescent strips and smoke seals, fire-resisting glass", Cost = 620m,
+            Description = "A fire door with a vision panel, dividing a corridor on an escape route: Approved Document B Volume 2 2.26, 5.14a"
+        };
+        liftDoor.Automatic = true;
         var garageDoor = new DoorType("Garage Door - Sectional 2400 x 2100", 2400, 2100)
         {
             TypeMark = "D12", AssemblyCode = "C1020", Operation = DoorOperation.Overhead, LeafDesign = DoorLeafDesign.Flush,
@@ -1055,7 +1080,7 @@ public sealed class BimDocument
         };
 
         // Glass in a door is safety glass, as it is sold: Approved Document K and the IRC ask it.
-        foreach (var door in new[] { singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, curtainSingle, curtainDouble, curtainSlider, frontDoor, usExterior, usInterior30, usInterior32, usGarageEntry })
+        foreach (var door in new[] { singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance, curtainSingle, curtainDouble, curtainSlider, frontDoor, usExterior, usInterior30, usInterior32, usGarageEntry, panicDoor, autoEntrance, visionDoor })
             door.SafetyGlazing = Doors.Glazed(door);
 
         var casement = new WindowType("Casement - 1200 x 1200", 1200, 1200)
@@ -2174,6 +2199,8 @@ public sealed class BimDocument
                 { TypeMark = "F34", Colour = new ColourRgb(0x8B, 0x2E, 0x3A), Cost = 240m, Description = "A fixed tip-up seat for a lecture theatre, cinema or auditorium" },
             new ComponentType("Wheelchair Space - 900 x 1400", BuiltInCategory.GenericModels, ComponentForm.WheelchairSpace, 900, 1400, 2)
                 { TypeMark = "F35", Colour = new ColourRgb(0x2E, 0x5E, 0xAA), Cost = 40m, Description = "A permanent wheelchair space in audience seating, its floor level (Approved Document M Volume 2 4.12g, h)" },
+            new ComponentType("Refuge - Wheelchair Space 900 x 1400", BuiltInCategory.GenericModels, ComponentForm.WheelchairSpace, 900, 1400, 2)
+                { TypeMark = "F41", Colour = new ColourRgb(0x2E, 0x5E, 0xAA), Cost = 1800m, Description = "A refuge by an escape stair, its 'Refuge - keep clear' sign and its emergency voice communication outstation to BS 5839-9 (Approved Document B Volume 2 3.4 to 3.8)" },
             new ComponentType("Wheelchair Space - Removable Seats 900 x 1400", BuiltInCategory.GenericModels, ComponentForm.WheelchairSpace, 900, 1400, 2)
                 { TypeMark = "F36", Colour = new ColourRgb(0x5E, 0x8E, 0xCA), Cost = 40m, Description = "A wheelchair space made by taking out seats (Approved Document M Volume 2 Table 3)" },
             new ComponentType("Reception Counter - 1800 at 1050", BuiltInCategory.Furniture, ComponentForm.ServiceCounter, 1800, 700, 1050)
@@ -2277,6 +2304,21 @@ public sealed class BimDocument
             {
                 TypeMark = "L5", Colour = white, Cost = 40m, Efficacy = 139, Load = 18, Lumens = 2500,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2340
+            },
+
+            // Escape lighting (Approved Document B Volume 2 5.25 to 5.28): a self-contained, non-maintained LED emergency light, three hours off
+            // its battery, to BS 5266-1 and BS EN 60598-2-22 - giving no light while the mains are on - and a maintained exit sign over a door out.
+            new ComponentType("Emergency Light - Non-maintained LED 3 h", BuiltInCategory.LightingFixtures, ComponentForm.EmergencyLight, 300, 110, 50)
+            {
+                TypeMark = "L6", Colour = white, Cost = 85m, Load = 3,
+                Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2350,
+                Description = "Self-contained, non-maintained, three hours: escape lighting by Approved Document B Volume 2 Table 5.1 and BS 5266-1"
+            },
+            new ComponentType("Exit Sign - Running Man, Maintained", BuiltInCategory.LightingFixtures, ComponentForm.ExitSign, 360, 30, 160)
+            {
+                TypeMark = "L7", Colour = new ColourRgb(0x00, 0x8A, 0x3E), Cost = 95m, Load = 3,
+                Placement = ComponentPlacement.FaceBased, DefaultElevation = 2200,
+                Description = "A maintained exit sign over a door out, to BS ISO 3864-1 and BS 5499-4: Approved Document B Volume 2 5.28"
             },
 
             // Radiators on the wall, 150 off the floor on their valves - double panel double
@@ -2934,7 +2976,7 @@ public sealed class BimDocument
                      mullions[0], mullions[1], mullions[2], mullions[3], mullions[4], mullions[5], mullions[6], mullions[7], mullions[8],
                      mullions[9], mullions[10], stickSystem,
                      singleDoor, doubleDoor, twinSlider, singleSlider, frenchDoor, glazedDoor, bifold, entrance,
-                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, liftDoor, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
+                     curtainSingle, curtainDouble, curtainSlider, frontDoor, fireDoor, wideDoor, liftDoor, panicDoor, autoEntrance, visionDoor, garageDoor, usExterior, usInterior30, usInterior32, usGarageEntry,
                      casement, picture, casementDouble, georgian, awning, hopper, slidingWindow,
                      tiltAndTurn, doubleHung, louvred, bay, rooflight, threeLight, fanlights, fixedFanlight, twinDoubleHung, usDoubleHung, usCasement,
                      screedFloor, timberFloor, plasterboardCeiling, flatRoof, pitchedRoof,
