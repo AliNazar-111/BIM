@@ -49,6 +49,10 @@ public static partial class Escape
     public static string Describe(BimDocument document, Room room)
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return "Not checked under the US's codes";
+
+        // A building other than a dwelling, no dwelling in it: Volume 2's occupants, exits and travel distances (round 109).
+        if (HorizontalEscape.Applies(document) && !document.All<Room>().Any(each => Dwellings.Of(each).Length > 0))
+            return HorizontalEscape.Verdict(document, room) ?? "Not walked: a stair or a lift shaft, or not enclosed";
         var said = Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said).ToList();
         return said.Count == 0 ? "Nothing wanting" : string.Join("; ", said);
     }
@@ -71,8 +75,10 @@ public static partial class Escape
                                       || Named(room, "hall", "landing", "corridor", "lobby", "stair", "entrance", "porch");
         var plan = new Plan(document, rooms, links, Flights(document, rooms), Circulation, Above);
 
-        // The homes: each dwelling named, or - none named - the house; their rooms storey by storey.
+        // The homes: each dwelling named, or - none named - the house; their rooms storey by storey. A building other than a dwelling with no
+        // dwelling in it is Volume 2's (HorizontalEscape, round 109), not a house.
         var named = rooms.Keys.Any(room => Dwellings.Of(room).Length > 0);
+        if (!named && HorizontalEscape.Applies(document)) return problems;
         var homes = named
             ? rooms.Keys.Where(room => Dwellings.Of(room).Length > 0).GroupBy(Dwellings.Of, StringComparer.OrdinalIgnoreCase).Select(group => (Name: group.Key, Rooms: group.ToHashSet())).ToList()
             : new List<(string Name, HashSet<Room> Rooms)> { (string.Empty, rooms.Keys.ToHashSet()) };

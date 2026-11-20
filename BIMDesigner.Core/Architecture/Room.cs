@@ -267,7 +267,7 @@ public static class RoomParameters
     public static readonly ParameterDefinition DwellingSize =
         new("Dwelling Size (NDSS)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Dimensions);
 
-    /// <summary>Its means of escape, as Approved Document B Volume 1 has them: an inner room, a flat's walk from its entrance door, the common parts' to a stair.</summary>
+    /// <summary>Its means of escape, as Approved Document B Volume 1 has them: an inner room, a flat's walk from its entrance door, the common parts' to a stair - or in a building other than a dwelling Volume 2's: its occupants, exits and travel distances (round 109).</summary>
     public static readonly ParameterDefinition Escape =
         new("Means of Escape (AD B)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Analytical);
 
