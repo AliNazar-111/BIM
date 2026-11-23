@@ -908,7 +908,7 @@ public static class Circuits
                 {
                     if (members.Any(member => IsSocket(document, member)) && design.Breaker <= 32)
                         yield return new MepProblem(circuit, "its sockets have no RCD - BS 7671 (411.3.3) protects sockets up to 32 A with a 30 mA RCD");
-                    else if (members.Any(member => TypeOf(document, member)?.Kind == BuiltInCategory.LightingFixtures))
+                    else if (members.Any(member => TypeOf(document, member)?.Kind == BuiltInCategory.LightingFixtures && Architecture.Domestic.Rules(document, member)))
                         yield return new MepProblem(circuit, "its lights have no RCD - BS 7671 (411.3.4) protects a home's lighting circuits with a 30 mA RCD");
                     if (members.Any(member => InBathroom(document, member)))
                         yield return new MepProblem(circuit, "it serves a bathroom with no RCD - BS 7671 (701.411.3.3) protects every circuit of a room with a bath or shower with a 30 mA RCD");

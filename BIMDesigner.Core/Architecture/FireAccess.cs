@@ -59,13 +59,16 @@ public static partial class FireAccess
         // A building other than a dwelling: Volume 2's Section 15 - a high reach appliance's route where its top storey is over 11 m (round 115).
         var v2 = Volume2(document);
         var high = v2 && Table151(document).HighReach;
+        // Where a dead end is, and where to turn: the drives as roads, those whose regions overlap or meet taken as one (round 122).
+        foreach (var road in Roads(drives))
+            Turning(document, road.Outline, road.Members, groundLevels, problems, v2, high);
+
         foreach (var drive in drives)
         {
             if (Narrowest(drive.Boundary) is var width && width < RoadWidth - 1)
                 problems.Add(new AccessProblem(drive, v2
                     ? $"it is {Units.Metres(width, "0.0")} wide - Approved Document B Volume 2 (Table 15.2) gives a fire appliance's access route 3.7 m between kerbs"
                     : $"it is {Units.Metres(width, "0.0")} wide - Approved Document B (Table 13.1) gives a pumping appliance's access route 3.7 m between kerbs"));
-            Turning(document, drive, groundLevels, problems, v2, high);
             Gateways(document, drive, groundLevels, problems, v2);
             Overhead(document, drive, ground, problems, v2, high);
         }
@@ -88,13 +91,15 @@ public static partial class FireAccess
             if (inlets.Count + outlets.Count == 0) VehicleAccess(document, drives, groundLevels, problems);
             else Mains(document, rooms, Escape.Links(document, rooms.Keys.ToHashSet()), flights, inlets, outlets, problems);
             Hydrants(document, drives, groundLevels, inlets, problems);
-            return problems;
+
+            // Flats in it: each still reached by the hose within 45 m, as Volume 1 asks (13.2a; Volume 2 0.23, round 121).
+            if (!named) return problems;
         }
 
         var mains = named && outlets.Count > 0;
 
         // Each elevation the drive runs along with a door in; in a block of flats without a fire main, 60 m apart at most.
-        if (!mains) Elevations(document, drives, rooms, groundLevels, named, problems);
+        if (!mains && !v2) Elevations(document, drives, rooms, groundLevels, named, problems);
         if (rooms.Count == 0) return problems;
 
         // The doors in: outside doors 750 mm wide at least, the hose run to each from the nearest of a drive.
@@ -134,15 +139,50 @@ public static partial class FireAccess
         document.All<Component>().Where(piece => document.FindType<ComponentType>(piece.TypeId)?.Form == form).ToList();
 
     /// <summary>
-    /// A dead end longer than 20 m with nowhere to turn (13.4, Diagram 13.1): the drive walked from where it is come into to its far end;
-    /// past 20 m, a place a turning circle 16.8 m between kerbs fits in it (Table 13.1) within 20 m of the far end - the appliance reversing
-    /// no further to it.
+    /// The drives as the roads they make: regions that overlap or meet joined into one outline - a drive and the turning head drawn as a region
+    /// of its own at its end, a spur off it - each with the regions in it (round 122). A road round an island is taken by its outside edge.
     /// </summary>
-    private static void Turning(BimDocument document, GroundRegion drive, HashSet<Guid> groundLevels, List<AccessProblem> problems, bool v2 = false, bool high = false)
+    public static List<(IReadOnlyList<Point2D> Outline, List<GroundRegion> Members)> Roads(IReadOnlyList<GroundRegion> drives)
+    {
+        var roads = drives.Select(drive => (Outline: (IReadOnlyList<Point2D>)drive.Boundary.ToList(), Members: new List<GroundRegion> { drive })).ToList();
+        for (var merged = true; merged;)
+        {
+            merged = false;
+            for (var i = 0; i < roads.Count && !merged; i++)
+                for (var j = i + 1; j < roads.Count && !merged; j++)
+                {
+                    if (!Meet(roads[i].Outline, roads[j].Outline)) continue;
+                    var union = PolygonBoolean.Combine(roads[i].Outline, roads[j].Outline, BooleanOperation.Union);
+                    if (union.Count != 1) continue;
+                    roads[i] = (union[0].Outer, roads[i].Members.Concat(roads[j].Members).ToList());
+                    roads.RemoveAt(j);
+                    merged = true;
+                }
+        }
+
+        return roads;
+    }
+
+    /// <summary>Whether two outlines overlap or touch: a corner of one in or on the other, or their sides crossing or meeting.</summary>
+    private static bool Meet(IReadOnlyList<Point2D> a, IReadOnlyList<Point2D> b)
+    {
+        bool On(Point2D point, IReadOnlyList<Point2D> outline) =>
+            Polygon2D.Contains(outline, point) || outline.Select((corner, i) => Line2D.DistanceFromSegment(point, corner, outline[(i + 1) % outline.Count])).Min() <= 1;
+        return a.Any(point => On(point, b)) || b.Any(point => On(point, a)) || Distance(a, b) <= 1;
+    }
+
+    /// <summary>The least distance between two outlines' sides, mm.</summary>
+    private static double Distance(IReadOnlyList<Point2D> a, IReadOnlyList<Point2D> b) => RoofCoverings.Distance(a, b);
+
+    /// <summary>
+    /// A dead end longer than 20 m with nowhere to turn (13.4, Diagram 13.1): the road walked from where it is come into to its far end;
+    /// past 20 m, a place a turning circle 16.8 m between kerbs fits in it (Table 13.1) within 20 m of the far end - the appliance reversing
+    /// no further to it. Said on the region its far end is in.
+    /// </summary>
+    private static void Turning(BimDocument document, IReadOnlyList<Point2D> outline, IReadOnlyList<GroundRegion> members, HashSet<Guid> groundLevels, List<AccessProblem> problems, bool v2 = false, bool high = false)
     {
         var circle = high ? HighTurningCircle : TurningCircle;
         var appliance = high ? "a high reach appliance" : "a pumping appliance";
-        var outline = drive.Boundary;
         var points = Escape.Points(outline).ToList();
         if (points.Count == 0) return;
         var fromEntry = Across(outline, Entry(document, points, groundLevels));
@@ -150,6 +190,7 @@ public static partial class FireAccess
         if (reached.Count == 0) return;
         var (far, length) = reached.MaxBy(entry => entry.Length!.Value);
         if (length <= Reverse + 0.5) return;
+        var drive = members.FirstOrDefault(member => Polygon2D.Contains(member.Boundary, far)) ?? members[0];
 
         var places = TurningPlaces(outline, circle);
         if (places.Count == 0)

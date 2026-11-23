@@ -2504,7 +2504,7 @@ public sealed class BimDocument
             },
             new ComponentType("Stop Valve - Incoming Main", BuiltInCategory.PlumbingFixtures, ComponentForm.StopValve, 100, 80, 150)
             {
-                TypeMark = "P15", Colour = new ColourRgb(0xB8, 0x8A, 0x3C), Cost = 25m,
+                TypeMark = "P22", Colour = new ColourRgb(0xB8, 0x8A, 0x3C), Cost = 25m,
                 Placement = ComponentPlacement.FaceBased, DefaultElevation = 300
             },
             new ComponentType("Gas Meter Box - Surface", BuiltInCategory.MechanicalEquipment, ComponentForm.GasMeter, 470, 240, 540)
@@ -2638,6 +2638,39 @@ public sealed class BimDocument
             {
                 TypeMark = "FA3", Colour = white, Cost = 30m,
                 Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2355
+            },
+
+            // A fire detection and alarm system for a building other than a dwelling, to BS 5839-1 (Approved Document B Volume 2 1.3 to 1.10):
+            // call points on the walls, sounders and beacons, point detectors on the ceilings, and the panel they are wired back to.
+            new ComponentType("Manual Call Point - BS EN 54-11 Type A", BuiltInCategory.FireAlarmDevices, ComponentForm.FireAlarmCallPoint, 90, 60, 90)
+            {
+                TypeMark = "FA5", Colour = new ColourRgb(0xD0, 0x22, 0x1C), Cost = 45m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 1355,
+                Description = "A manual call point, direct operation, to BS EN 54-11 Type A: pressed to raise the alarm (Approved Document B Volume 2 1.10)"
+            },
+            new ComponentType("Fire Alarm Sounder - BS EN 54-3", BuiltInCategory.FireAlarmDevices, ComponentForm.FireAlarmSounder, 110, 90, 110)
+            {
+                TypeMark = "FA6", Colour = new ColourRgb(0xD0, 0x22, 0x1C), Cost = 60m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 2300,
+                Description = "A fire alarm sounder to BS EN 54-3, the warning heard throughout (Approved Document B Volume 2 1.2, 1.3)"
+            },
+            new ComponentType("Visual Alarm Beacon - BS EN 54-23", BuiltInCategory.FireAlarmDevices, ComponentForm.VisualAlarm, 110, 90, 110)
+            {
+                TypeMark = "FA7", Colour = new ColourRgb(0xD0, 0x22, 0x1C), Cost = 75m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 2300,
+                Description = "A visual alarm device to BS EN 54-23, for people with impaired hearing (Approved Document B Volume 2 1.15)"
+            },
+            new ComponentType("Smoke Detector - Optical, BS EN 54-7", BuiltInCategory.FireAlarmDevices, ComponentForm.SmokeDetector, 110, 110, 55)
+            {
+                TypeMark = "FA8", Colour = white, Cost = 55m, Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2345,
+                Description = "An optical point smoke detector to BS EN 54-7 on its base, wired to the panel: automatic fire detection (Approved Document B Volume 2 1.3 to 1.6)"
+            },
+            new ComponentType("Heat Detector - BS EN 54-5", BuiltInCategory.FireAlarmDevices, ComponentForm.HeatDetector, 110, 110, 55)
+            {
+                TypeMark = "FA9", Colour = white, Cost = 50m, Placement = ComponentPlacement.WorkPlaneBased, DefaultElevation = 2345,
+                Description = "A point heat detector to BS EN 54-5 on its base, wired to the panel - for a kitchen, where smoke or steam would set a smoke detector off"
+            },
+            new ComponentType("Fire Alarm Panel - BS EN 54-2", BuiltInCategory.FireAlarmDevices, ComponentForm.FireAlarmPanel, 420, 120, 340)
+            {
+                TypeMark = "FA10", Colour = new ColourRgb(0xB8, 0x1E, 0x1A), Cost = 1450m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 1300,
+                Description = "Control and indicating equipment to BS EN 54-2 with its power supply to BS EN 54-4: the panel the call points, detectors and sounders are wired back to"
             },
 
             // Fire sprinklers: residential pendents hanging from a 2400 ceiling - their listing's coverage, flow and

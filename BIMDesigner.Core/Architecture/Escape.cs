@@ -53,11 +53,13 @@ public static partial class Escape
         // A storey walked once for all that is said here, not again for each rule that asks it - while nothing changes (round 116).
         using var kept = ModelCache.Begin(document);
 
-        // A building other than a dwelling, no dwelling in it: Volume 2's occupants, exits and travel distances (round 109).
-        if (HorizontalEscape.Applies(document) && !document.All<Room>().Any(each => Dwellings.Of(each).Length > 0))
+        // A building other than a dwelling: Volume 2's occupants, exits and travel distances (round 109) - in a building of mixed use, for all
+        // but its homes, with what Volume 1 says of the room as well, a stair serving both (round 121).
+        if (HorizontalEscape.Applies(document) && !MixedUse.Home(document, room))
         {
             var verdict = HorizontalEscape.Verdict(document, room) ?? VerticalEscape.Verdict(document, room) ?? "Not walked: a stair or a lift shaft, or not enclosed";
-            var wanting = EscapeRoutes.RoomWanting(document, room).Concat(FirefightingShafts.Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said)).ToList();
+            var wanting = EscapeRoutes.RoomWanting(document, room).Concat(FirefightingShafts.Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said))
+                .Concat(MixedUse.Is(document) ? Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said) : Enumerable.Empty<string>()).ToList();
             return wanting.Count == 0 ? verdict : $"{verdict}; {string.Join("; ", wanting)}";
         }
         var said = Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said).ToList();
@@ -127,6 +129,9 @@ public static partial class Escape
 
             // Refuse stores, final exits from the stairs, an only stair down to a basement (round 96).
             problems.AddRange(FireSeparation.CommonParts(document));
+
+            // A stair serving the flats and another use in a building of mixed use (3.79, 3.80, round 121).
+            problems.AddRange(MixedUse.Problems(document));
         }
         return problems;
     }
@@ -266,7 +271,7 @@ public static partial class Escape
     private static IEnumerable<EscapeProblem> CommonParts(Plan plan, List<(string Name, HashSet<Room> Rooms)> homes)
     {
         var (document, outlines, links) = (plan.Document, plan.Outlines, plan.Links);
-        var common = outlines.Keys.Where(room => Dwellings.Of(room).Length == 0).ToHashSet();
+        var common = outlines.Keys.Where(room => MixedUse.Common(document, room)).ToHashSet();
         if (common.Count == 0) yield break;
         var walk = new Walk(outlines, links.Where(link => common.Contains(link.Room) && link.Other is { } other && common.Contains(other)).ToList());
         var toStair = new Dictionary<(Room, Point2D), Func<Room, Point2D, double?>>();

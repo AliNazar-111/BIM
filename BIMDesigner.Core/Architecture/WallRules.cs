@@ -103,7 +103,9 @@ public static class WallRules
         PlacementProblem Problem(string said, string rule) => new(wall, said, rule, outline);
 
         if (!us && type.Function == WallFunction.Exterior && type.HeatTransferCoefficient > 1.6 + 0.005)
-            yield return Problem($"its U-value is {type.HeatTransferCoefficient:0.0#}.", "Approved Document L (Table 4.1) limits curtain walling in a new dwelling to a U-value of 1.6 W/m²K.");
+            yield return Problem($"its U-value is {type.HeatTransferCoefficient:0.0#}.", Domestic.Rules(document)
+                ? "Approved Document L (Table 4.1) limits curtain walling in a new dwelling to a U-value of 1.6 W/m²K."
+                : "Approved Document L Volume 2 (Table 4.1) limits curtain walling of a new building other than a dwelling to a U-value of 1.6 W/m²K.");
 
         var glass = layout.Cells.Where(cell => cell.Kind is CurtainPanelKind.Glazed or CurtainPanelKind.Door).ToList();
         if (!type.SafetyGlazing && glass.Count > 0)
@@ -135,6 +137,10 @@ public static class WallRules
             {
                 ClearanceStandard.Ada => (815.0, $"ADA 404.2.3 asks for 32 in{Units.MetricAside("815")} clear through a door."),
                 ClearanceStandard.Irc => (0.0, string.Empty),
+                // A building other than a dwelling: Approved Document M Volume 2's Table 2, as its other outside doors are (round 118).
+                _ when !Domestic.Rules(document) => Circulation.Public(document)
+                    ? (1000.0, "Approved Document M Volume 2 (2.13b, Table 2) asks 1000 effective clear width through an outside door of a building the general public use.")
+                    : (800.0, "Approved Document M Volume 2 (2.13b, Table 2) asks 800 effective clear width through an outside door of a new building approached straight on."),
                 ClearanceStandard.ApprovedDocumentM3 => (850.0, "Approved Document M (M4(3) 3.22) asks for 850 clear through every door, for a wheelchair user."),
                 _ => (850.0, "Approved Document M (M4(2) 2.20d-e, 2.21) asks for 850 clear through an external door - a pair's main leaf.")
             };
@@ -164,10 +170,12 @@ public static class WallRules
         var problems = new List<PlacementProblem>();
         void Add(string said, string rule) => problems.Add(new PlacementProblem(wall, said, rule, outline));
 
-        if (!us && type.Function == WallFunction.Exterior && UValue(document, type) is { } u && u > Thermal.WallLimit + 0.005)
-            Add($"its U-value is {u:0.00}.", "Approved Document L (Table 4.1) limits an outside wall of a new dwelling to a U-value of 0.26 W/m²K.");
-
         var (one, other) = RoomsBeside(document, wall);
+        if (!us && type.Function == WallFunction.Exterior && UValue(document, type) is { } u && u > Thermal.WallLimit + 0.005)
+            Add($"its U-value is {u:0.00}.", Domestic.Rules(document, one, other)
+                ? "Approved Document L (Table 4.1) limits an outside wall of a new dwelling to a U-value of 0.26 W/m²K."
+                : "Approved Document L Volume 2 (Table 4.1) limits a wall of a new building other than a dwelling to a U-value of 0.26 W/m²K.");
+
         if (one is not null && other is not null && one != other)
         {
             var garage = Doors.Garage(document, one) != Doors.Garage(document, other);

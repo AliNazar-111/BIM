@@ -44,9 +44,8 @@ public static partial class FireAccess
     /// <summary>How far a hydrant may be from an entrance or an inlet, and from the next, mm (16.9); and an existing one from the building (16.8).</summary>
     public const double HydrantReach = 90000, ExistingHydrant = 100000;
 
-    /// <summary>Whether Volume 2's Section 15 reaches the building: one other than a dwelling, no dwelling named in it.</summary>
-    public static bool Volume2(BimDocument document) =>
-        HorizontalEscape.Applies(document) && !document.All<Room>().Any(room => Dwellings.Of(room).Length > 0);
+    /// <summary>Whether Volume 2's Section 15 reaches the building: one other than a dwelling - flats in it too, their own reach by Volume 1 as well (round 121).</summary>
+    public static bool Volume2(BimDocument document) => HorizontalEscape.Applies(document);
 
     /// <summary>
     /// Table 15.1 for a building other than a dwelling: its floor area, every storey's but a basement's, m²; its top storey's height, m; the share

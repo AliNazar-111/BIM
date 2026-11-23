@@ -223,7 +223,7 @@ public static class RampModel
         if (ramp.Railings == StairRailings.None) return guards;
 
         var type = Ramps.TypeOf(document, ramp);
-        var limit = Railings.GuardedDrop(document, ramp.Building);
+        var limit = Railings.GuardedDrop(document, Ramps.BuildingOf(document, ramp));
         var reach = type.KerbWidth + 200;
         foreach (var (side, outward, faces) in new[] { (sides.Left.Points, 1.0, sides.Left.Walls), (sides.Right.Points, -1.0, sides.Right.Walls) })
         {

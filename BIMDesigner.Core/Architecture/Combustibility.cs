@@ -11,7 +11,8 @@ namespace BIMDesigner.Core.Architecture;
 ///
 /// Linings (Section 4, Table 4.1): the face of each wall round a room, and the ceiling over it, class C-s3, d2 or better - D-s3, d2 in a
 /// room of 4 m² or less or an integral garage of 40 m² or less, B-s3, d2 in a circulation space of the common parts of a block of flats;
-/// parts of the walls may be lower, but no worse than D-s3, d2 and less than half the floor's area, 20 m² at most, all told (4.4).
+/// parts of the walls may be lower, but no worse than D-s3, d2 and less than half the floor's area, 20 m² at most, all told (4.4). In a
+/// building other than a home, Volume 2's Section 6 and Table 6.1 instead (round 120).
 ///
 /// Outside walls (Section 10): the outside surface by Table 10.1 - a home's building more than 11 m high A2-s1, d0, 11 m or less B-s3, d2
 /// within 1 m of the boundary; another building's B-s3, d2 within 1 m, C-s3, d2 further off where it is more than 18 m high, B-s3, d2 above
@@ -32,28 +33,61 @@ public static class Combustibility
 
     // --- Linings -------------------------------------------------------------------------------------------------------------------------
 
+    /// <summary>Volume 2's Table 6.1 small room: in residential accommodation, and in any other, m².</summary>
+    public const double SmallResidentialRoom = 4, SmallOtherRoom = 30;
+
+    /// <summary>Volume 2's 6.4: the most of a room's walls below Table 6.1's class, m², besides half its floor - residential, and other accommodation.</summary>
+    public const double LowerResidential = 20, LowerOther = 60;
+
     /// <summary>
     /// A room's linings as its Properties say them: "Linings: C-s3, d2 asked of a room, met - walls Cement Plaster A1, ceiling Gypsum Plasterboard
-    /// A2-s1, d0", or what is wanting, clause by clause. Null where they are not asked - not a home, or under the US's codes.
+    /// A2-s1, d0", or what is wanting, clause by clause. A home's room - in a house or a block of flats, or named into a dwelling - by Volume 1's
+    /// Table 4.1; any other room by Volume 2's Table 6.1 (round 120): 4 m² or less in residential accommodation, 30 m² or less in any other,
+    /// D-s3, d2; a circulation space B-s3, d2 - or a wallcovering to BS EN 15102 of C-s3, d2 bonded to A2-s3, d2 (note 1); any other room, a
+    /// garage too, C-s3, d2; parts of its walls lower but no worse than D-s3, d2, less than half its floor, 20 m² at most in residential
+    /// accommodation and 60 m² in any other (6.4). Null where they are not asked - under the US's codes.
     /// </summary>
     public static string? LiningVerdict(BimDocument document, Room room)
     {
         if (document.ProjectInformation.ClearanceStandard.IsUs()) return null;
+        var home = Domestic.Rules(document, room);
+        if (!home && !HorizontalEscape.Applies(document)) return null;
         var named = document.All<Room>().Any(each => Dwellings.Of(each).Length > 0);
-        if (!named && FireDesign.UseOf(document) is not (BuildingUse.House or BuildingUse.Flats)) return null;
         var boundary = room.GetBoundary(document);
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
 
         var area = boundary.Area / 1e6;
         var circulation = Lighting.KindOf(document, room, boundary.Polygon) is LitRoom.Hall or LitRoom.Stairs;
-        var common = named && Dwellings.Of(room).Length == 0;
-        var (asked, what) = common && circulation ? (Euroclass.Bs3d2, "a circulation space of the common parts")
-            : area <= SmallRoom + 1e-6 ? (Euroclass.Ds3d2, "a room of 4 m² or less")
-            : Doors.Garage(document, room) && area <= SmallGarage + 1e-6 ? (Euroclass.Ds3d2, "a garage of 40 m² or less")
-            : (Euroclass.Cs3d2, circulation ? "a circulation space in a home" : "a room");
+        Euroclass asked;
+        string what, table, lowerClause;
+        double allowed;
+        if (home)
+        {
+            var common = named && Dwellings.Of(room).Length == 0;
+            (asked, what) = common && circulation ? (Euroclass.Bs3d2, "a circulation space of the common parts")
+                : area <= SmallRoom + 1e-6 ? (Euroclass.Ds3d2, "a room of 4 m² or less")
+                : Doors.Garage(document, room) && area <= SmallGarage + 1e-6 ? (Euroclass.Ds3d2, "a garage of 40 m² or less")
+                : (Euroclass.Cs3d2, circulation ? "a circulation space in a home" : "a room");
+            (table, lowerClause, allowed) = ("Approved Document B (Table 4.1", "Approved Document B (4.4) asks less than {0} of a room's walls below Table 4.1's class - half its floor, 20 m² at most", Math.Min(area / 2, LowerArea));
+        }
+        else
+        {
+            var residential = HorizontalEscape.Purpose(document) is PurposeGroup.ResidentialInstitutional or PurposeGroup.ResidentialOther;
+            circulation = circulation || FireSeparation.Circulation(room) || room.Name.Contains("foyer", StringComparison.OrdinalIgnoreCase)
+                          || room.Name.Contains("passage", StringComparison.OrdinalIgnoreCase) || room.Name.Contains("concourse", StringComparison.OrdinalIgnoreCase);
+            var small = residential ? SmallResidentialRoom : SmallOtherRoom;
+            (asked, what) = circulation ? (Euroclass.Bs3d2, "a circulation space")
+                : area <= small + 1e-6 ? (Euroclass.Ds3d2, residential ? "a room of 4 m² or less in residential accommodation" : "a room of 30 m² or less in non-residential accommodation")
+                : (Euroclass.Cs3d2, "a room");
+            var most = residential ? LowerResidential : LowerOther;
+            (table, lowerClause, allowed) = ("Approved Document B Volume 2 (Table 6.1",
+                $"Approved Document B Volume 2 (6.4) asks less than {{0}} of a room's walls below Table 6.1's class - half its floor, {most:0} m² at most in {(residential ? "residential" : "non-residential")} accommodation",
+                Math.Min(area / 2, most));
+        }
 
-        // Its walls' faces toward it, by material, and how much of each.
+        // Its walls' faces toward it, by material, and how much of each - and what each face is bonded to.
         var faces = new Dictionary<Material, double>();
+        var backed = new Dictionary<Material, Material?>();
         var polygon = boundary.Polygon;
         for (var i = 0; i < boundary.Sides.Count && i < polygon.Count; i++)
         {
@@ -62,7 +96,10 @@ public static class Combustibility
             var middle = new Point2D((a.X + b.X) / 2, (a.Y + b.Y) / 2);
             var outside = (middle - Line2D.ClosestPointOnSegment(middle, wall.Start, wall.End)).Dot(wall.ExteriorNormal) > 0;
             if (Face(document, type.Structure, outside) is { } material)
+            {
                 faces[material] = faces.GetValueOrDefault(material) + a.DistanceTo(b) * room.Height / 1e6;
+                backed[material] = Face(document, type.Structure, outside, 1);
+            }
         }
 
         // The ceiling: the underside of the lowest ceiling, floor or roof over it.
@@ -73,6 +110,12 @@ public static class Combustibility
         var ceiling = over is not null && document.FindType<SlabType>(over.TypeId) is { } slabType ? Face(document, slabType.Structure, false) : null;
         if (faces.Count == 0 && ceiling is null) return null;
 
+        // Volume 2's note 1: in a circulation space, a wallcovering to BS EN 15102 of C-s3, d2 bonded to a substrate of A2-s3, d2.
+        bool Wallcovering(Material material, Euroclass fire) =>
+            !home && circulation && fire.AtLeast(Euroclass.Cs3d2)
+            && new[] { "wallcovering", "wall covering", "wallpaper" }.Any(word => material.Name.Contains(word, StringComparison.OrdinalIgnoreCase))
+            && backed.GetValueOrDefault(material) is { } substrate && Euroclass.Of(substrate) is { } under && under.Class.AtLeast(Euroclass.A2s3d2);
+
         var wanting = new List<string>();
         var said = new List<string>();
         var (lower, lowerNames) = (0.0, new List<string>());
@@ -81,7 +124,13 @@ public static class Combustibility
         {
             if (Euroclass.Of(material) is not { } fire)
             {
-                wanting.Add($"the {material.Name} on its walls has no reaction to fire class given - Approved Document B (Table 4.1) asks {asked} of {what}'s linings; give it the class its maker declares");
+                wanting.Add($"the {material.Name} on its walls has no reaction to fire class given - {table}) asks {asked} of {what}'s linings; give it the class its maker declares");
+                continue;
+            }
+
+            if (!fire.Class.AtLeast(asked) && Wallcovering(material, fire.Class))
+            {
+                said.Add($"{material.Name} {fire.Class} on {backed[material]!.Name}, a wallcovering as note 1 allows");
                 continue;
             }
 
@@ -89,7 +138,7 @@ public static class Combustibility
             if (fire.Class.AtLeast(asked)) continue;
             if (!fire.Class.AtLeast(Euroclass.Ds3d2))
             {
-                wanting.Add($"the {material.Name} on its walls is {fire.Class} - Approved Document B (Table 4.1, 4.4) asks {asked} of {what}'s linings, and no part of them worse than D-s3, d2");
+                wanting.Add($"the {material.Name} on its walls is {fire.Class} - {table}, {(home ? "4.4" : "6.4")}) asks {asked} of {what}'s linings, and no part of them worse than D-s3, d2");
                 continue;
             }
 
@@ -97,19 +146,18 @@ public static class Combustibility
             lowerNames.Add(material.Name);
         }
 
-        var allowed = Math.Min(area / 2, LowerArea);
         if (lowerNames.Count > 0 && lower >= allowed - 1e-6)
-            wanting.Add($"{Units.OfSquareMetres(lower, "0.0")} of its walls - the {string.Join(" and ", lowerNames)} - is below {asked}, Approved Document B (4.4) asks less than {Units.OfSquareMetres(allowed, "0.0")} of a room's walls below Table 4.1's class - half its floor, 20 m² at most");
+            wanting.Add($"{Units.OfSquareMetres(lower, "0.0")} of its walls - the {string.Join(" and ", lowerNames)} - is below {asked}, {string.Format(lowerClause, Units.OfSquareMetres(allowed, "0.0"))}");
 
         if (ceiling is not null)
         {
             if (Euroclass.Of(ceiling) is not { } fire)
-                wanting.Add($"the {ceiling.Name} of its ceiling has no reaction to fire class given - Approved Document B (Table 4.1) asks {asked} of {what}'s linings; give it the class its maker declares");
+                wanting.Add($"the {ceiling.Name} of its ceiling has no reaction to fire class given - {table}) asks {asked} of {what}'s linings; give it the class its maker declares");
             else
             {
                 ceilingSaid = $"ceiling of {ceiling.Name} {fire.Class}";
                 if (!fire.Class.AtLeast(asked))
-                    wanting.Add($"its ceiling's {ceiling.Name} is {fire.Class} - Approved Document B (Table 4.1) asks {asked} of {what}'s linings, its ceiling as much as its walls");
+                    wanting.Add($"its ceiling's {ceiling.Name} is {fire.Class} - {table}) asks {asked} of {what}'s linings, its ceiling as much as its walls");
             }
         }
 
@@ -117,11 +165,11 @@ public static class Combustibility
         return wanting.Count > 0 ? $"Linings: {string.Join("; ", wanting)}" : $"Linings: {asked} asked of {what}, met - {string.Join(", ", met)}";
     }
 
-    /// <summary>The material of a build-up's face, outside or in: its first layer that is not a membrane, nor air.</summary>
-    private static Material? Face(BimDocument document, CompoundStructure structure, bool outside)
+    /// <summary>The material of a build-up's face, outside or in: its first layer that is not a membrane, nor air - or, skipping so many, the one behind it.</summary>
+    private static Material? Face(BimDocument document, CompoundStructure structure, bool outside, int skip = 0)
     {
         foreach (var layer in outside ? structure.Layers : structure.Layers.Reverse())
-            if (layer.Function != LayerFunction.Membrane && layer.Thickness > 0 && document.FindMaterial(layer.MaterialId) is { } material && !Air(material))
+            if (layer.Function != LayerFunction.Membrane && layer.Thickness > 0 && document.FindMaterial(layer.MaterialId) is { } material && !Air(material) && skip-- == 0)
                 return material;
         return null;
     }

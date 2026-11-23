@@ -184,6 +184,10 @@ public static class WindowRules
         return (windows, doors);
     }
 
+    /// <summary>A display window, or similar glazing - a shopfront - which Approved Document L Volume 2 sets no U-value for (Table 4.1, note 10): by its type's name.</summary>
+    public static bool Display(WindowType type) =>
+        new[] { "display", "shopfront", "shop front" }.Any(word => type.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>What a window falls short of, as the project's standard asks: its glass, its U-value.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Window window, ClearanceStandard standard)
     {
@@ -237,8 +241,12 @@ public static class WindowRules
                 Add($"its glass is {nearDoor:0} from a door's edge, {glassBottom:0} off the floor.", "Approved Document K (Diagram 5.1) makes glass within 300 of a door's edge and below 1500 a critical location: safety glass to BS EN 12600.");
         }
 
-        if (!us && type.HeatTransferCoefficient > 1.6 + 0.005 && document.GetWallType(wall) is { Function: WallFunction.Exterior })
-            Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.", "Approved Document L (Table 4.1) limits a window in a new dwelling to a U-value of 1.6 W/m²K.");
+        // Approved Document L Volume 2 sets no limit for a display window (Table 4.1, note 10).
+        var home = us || Domestic.Rules(document, window);
+        if (!us && type.HeatTransferCoefficient > 1.6 + 0.005 && document.GetWallType(wall) is { Function: WallFunction.Exterior } && (home || !Display(type)))
+            Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.", home
+                ? "Approved Document L (Table 4.1) limits a window in a new dwelling to a U-value of 1.6 W/m²K."
+                : "Approved Document L Volume 2 (Table 4.1) limits a window of a new building other than a dwelling to a U-value of 1.6 W/m²K - a display window to none.");
 
         // Easily accessible, a secure window (Approved Document Q, round 97).
         foreach (var (said, rule) in Security.Problems(document, window, type)) Add(said, rule);
@@ -270,6 +278,46 @@ public static class WindowRules
                     $"{document.FindType<WindowType>(window.TypeId)?.Name ?? "A window"}{(string.IsNullOrWhiteSpace(window.Mark) ? string.Empty : $" ({window.Mark})")}", problem.Said)))
             .ToList();
 
+    /// <summary>A space used mainly for circulation, or where many gather - a corridor, a lobby, a hall, a landing, a stair, a foyer: a common space (Approved Document F Volume 2, Appendix A).</summary>
+    public static bool Common(Room room) =>
+        FireSeparation.Circulation(room) || new[] { "passage", "foyer", "atrium", "mall", "concourse" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A room's air in a building other than a dwelling, by Approved Document F Volume 2 (round 118). A common space - a corridor, a lift lobby, a
+    /// foyer - ventilated naturally through openings to the outside air of a fiftieth of its floor, a window's opening lights, a door out, a
+    /// background ventilator; or mechanically with 0.5 l/s of outdoor air a square metre (1.33 in an office, Table 1.1 in any building). In an
+    /// office, each room people are in purged of its air directly outside - through a window or a door that opens, or by a fan (1.35); the volume
+    /// gives no size for it. Whole building ventilation by 1.32's 10 l/s a person, and everything Table 1.1 leaves to CIBSE's guides, are not checked.
+    /// </summary>
+    private static IEnumerable<string> Volume2Air(BimDocument document, Room room, IReadOnlyList<Point2D> outline, double floor, double open)
+    {
+        if (!HorizontalEscape.Applies(document)) yield break;
+        var group = HorizontalEscape.Purpose(document);
+        var air = Mep.Ventilation.Rooms(document).FirstOrDefault(each => ReferenceEquals(each.Room, room));
+        var pieces = document.All<Component>()
+            .Where(piece => RoomsOf.Holds(document, room, outline, piece))
+            .Select(piece => document.FindType<ComponentType>(piece.TypeId))
+            .OfType<ComponentType>()
+            .ToList();
+
+        if (Common(room))
+        {
+            var openings = open + pieces.Where(type => type.Form == ComponentForm.BackgroundVentilator).Sum(type => type.VentArea) / 1e6;
+            var supply = air is null ? 0 : Math.Max(air.Supply, air.SupplyHigh);
+            if (openings < floor / 50 - 1e-6 && supply < 0.5 * floor - 0.05)
+                yield return supply > 0
+                    ? $"supply {supply:0.#} l/s - Approved Document F Volume 2 ({(group == PurposeGroup.Office ? "1.33" : "Table 1.1")}) asks a common space for 0.5 l/s of outdoor air a square metre, {0.5 * floor:0.#} l/s, or openings to the outside of a fiftieth of its floor, {Units.OfSquareMetres(floor / 50, "0.00")}"
+                    : $"opens {Units.OfSquareMetres(openings, "0.00")} - Approved Document F Volume 2 ({(group == PurposeGroup.Office ? "1.33" : "Table 1.1")}) asks a common space for openings to the outside of a fiftieth of its floor, {Units.OfSquareMetres(floor / 50, "0.00")}, or 0.5 l/s of outdoor air a square metre supplied";
+            yield break;
+        }
+
+        var occupied = HorizontalEscape.FloorSpace(document, room, group) is not null && !Alarms.Unvisited(room)
+                       && !new[] { "utility", "cleaner" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+        var fan = pieces.Any(type => type.Form is ComponentForm.ExtractFan or ComponentForm.ExtractTerminal) || air is { Extracts.Count: > 0 };
+        if (group == PurposeGroup.Office && occupied && open <= 1e-6 && !fan)
+            yield return "nothing to purge its air with - Approved Document F Volume 2 (1.35) asks each office for a means of purge ventilation taken directly outside: a window or a door that opens, or a fan";
+    }
+
     /// <summary>
     /// What a room's windows come to - an escape window where one is asked for, the air it can be
     /// purged with, in the US the light it has - or null where it asks nothing of them.
@@ -297,8 +345,12 @@ public static class WindowRules
         var bedroom = pieces.Any(type => type.Form is ComponentForm.Bed or ComponentForm.BunkBed);
         var said = new List<string>();
 
+        // A home's room - or, in a building other than a dwelling, one judged by Approved Document F Volume 2 (round 118): no escape window, which
+        // Approved Document B Volume 2 does not ask, and no principal window or purge by Volume 1.
+        var home = Domestic.Rules(document, room);
+
         // An escape window.
-        if (us ? bedroom : above > 1 && above <= 4500 + 0.5 && !Architecture.Doors.HasHighStorey(document))
+        if (home && (us ? bedroom : above > 1 && above <= 4500 + 0.5 && !Architecture.Doors.HasHighStorey(document)))
         {
             var escapes = windows.Any(entry => Escapes(entry.Type, entry.Sill, us, above <= 1))
                 || RoofWindowsOver(document, room, boundary.Polygon).Any(frame => Escapes(frame, level?.Elevation ?? 0, us, above <= 1));
@@ -314,7 +366,7 @@ public static class WindowRules
         // Document M, M4(2) 2.24, and the same in a wheelchair user dwelling, M4(3)).
         var living = pieces.Any(type => type.Form is ComponentForm.Sofa or ComponentForm.CornerSofa) ||
                      new[] { "living", "lounge", "sitting", "family room", "reception" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
-        if (!us && living && windows.Count > 0)
+        if (!us && home && living && windows.Count > 0)
         {
             var principal = windows.MaxBy(entry => GlassArea(entry.Type));
             var glass = principal.Sill + Frame;
@@ -333,6 +385,8 @@ public static class WindowRules
             if (glass < floor * 0.08 - 1e-6) said.Add($"glass {Units.OfSquareMetres(glass, "0.00")} - IRC R303.1 asks for 8% of its floor, {Units.OfSquareMetres(floor * 0.08, "0.00")}");
             if (open < floor * 0.04 - 1e-6) said.Add($"opens {Units.OfSquareMetres(open, "0.00")} - IRC R303.1 asks for 4% of its floor, {Units.OfSquareMetres(floor * 0.04, "0.00")}");
         }
+        else if (!home)
+            said.AddRange(Volume2Air(document, room, boundary.Polygon, floor, open));
         else if (wide < floor / 20 - 1e-6 && open < floor / 10 - 1e-6)
             said.Add($"opens {Units.OfSquareMetres(open, "0.00")} - Approved Document F (Table 1.4) asks for a twentieth of its floor, {Units.OfSquareMetres(floor / 20, "0.00")}, to purge its air (a tenth through windows opening only part way)");
 

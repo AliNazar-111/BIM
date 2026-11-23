@@ -138,7 +138,11 @@ public class EscapeProvisionsTests
     [Fact]
     public void ALiftWellIsEnclosedAProtectedShaftThroughACompartmentFloorAndLobbiedInABasement()
     {
+        // A library: an office of these three storeys of 132 m² would be small premises (2.2, 4.2), which ask no compartment floor over a
+        // basement (8.11c) - a library, assembly and recreation, is not offered them.
         var (document, levels, lift, basement) = Lifted();
+        document.ProjectInformation.BuildingType = "Library";
+        Assert.False(HorizontalEscape.SmallPremises(document).Small);
         var standard = document.ProjectInformation.ClearanceStandard;
         var placed = Assert.Single(Lifts.Of(document));
         Assert.Equal(3, placed.Landings.Count);

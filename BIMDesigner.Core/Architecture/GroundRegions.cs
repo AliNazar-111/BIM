@@ -219,7 +219,9 @@ public static class GroundRegions
         if (region.Approach && region.Surface == GroundSurface.Gravel)
             problems.Add(us
                 ? "It is laid in gravel: the ADA asks an accessible route for a firm, stable surface (302.1) - loose gravel is not."
-                : "It is laid in gravel: Approved Document M asks an approach for a suitable ground surface (2.9e) - firm and even, which loose gravel is not.");
+                : Domestic.Rules(document)
+                    ? "It is laid in gravel: Approved Document M asks an approach for a suitable ground surface (2.9e) - firm and even, which loose gravel is not."
+                    : "It is laid in gravel: Approved Document M Volume 2 (1.13d) asks an approach's surface firm, durable and slip resistant - loose sand or gravel is not.");
         if (!region.Approach || region.Surface is not (GroundSurface.Path or GroundSurface.Paving)) return problems;
         problems.AddRange(Approaches.PathProblems(document, region));
         if (Steepest(document, region) is not { } steepest || steepest <= 1 / 20.0 + 1e-6) return problems;
@@ -233,6 +235,13 @@ public static class GroundRegions
             if (steepest > 1 / 12.0 + 1e-6)
                 problems.Add($"It falls {said} at its steepest: the ADA allows a ramp no steeper than 1:12 on an accessible route.");
             else problems.Add($"It falls {said} at its steepest: steeper than 1:20, the ADA takes it as a ramp - landings and handrails asked.");
+            return problems;
+        }
+
+        // A building other than a dwelling's: 1:20 or steeper is ramped access (Approved Document M Volume 2, 1.8, 1.19, round 123).
+        if (!Domestic.Rules(document))
+        {
+            problems.Add($"It falls {said} at its steepest: Approved Document M Volume 2 (1.8, 1.19) asks an approach 1:20 or steeper to be ramped access - a ramp built over it, its flights by Table 1, 1:12 for 2 m up to 1:20 for 10 m, with steps beside it past 300 mm of rise (1.26n) - or a gentler way.");
             return problems;
         }
 

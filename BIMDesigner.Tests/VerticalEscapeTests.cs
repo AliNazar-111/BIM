@@ -114,14 +114,22 @@ public class VerticalEscapeTests
         var said = VerticalEscape.Verdict(document, building.Stairs[0])!;
         Assert.DoesNotContain("(3.3)", said);
 
-        // A shop: more than 60 upstairs, so not one stair (3.3d).
+        // A shop of these two storeys of 132 m² is small premises (2.2, 4.2): a single stair allowed (4.7) - but 900 still takes 50 (Table 3.2).
         document.ProjectInformation.BuildingType = "Shop";
+        Assert.True(HorizontalEscape.SmallPremises(document).Small);
         said = VerticalEscape.Verdict(document, building.Stairs[0])!;
-        Assert.Contains("it is the only escape stair from 1 upper storey, the top 3.0 m up - Approved Document B Volume 2 (3.3)", said);
+        Assert.DoesNotContain("(3.3)", said);
         Assert.Contains("it is 900 wide, taking 50 people from 1 storey where 84 of the 84 on them may use it - Approved Document B Volume 2 (3.13, 3.14, 3.17, 3.18, Table 3.2)", said);
 
+        // A shop of three storeys is not (4.2a ii): more than 60 upstairs, so not one stair (3.3d).
+        var taller = Build(3);
+        taller.Document.ProjectInformation.BuildingType = "Shop";
+        taller.Offices[1].Name = "Meeting Room";
+        Assert.False(HorizontalEscape.SmallPremises(taller.Document).Small);
+        Assert.Contains("it is the only escape stair from 2 upper storeys, the top 6.0 m up - Approved Document B Volume 2 (3.3)", VerticalEscape.Verdict(taller.Document, taller.Stairs[0]));
+
         // In the Warnings window too, said on the stair's foot.
-        Assert.Contains(VerticalEscape.Problems(document), problem => problem.Room == building.Stairs[0] && problem.Said.Contains("(3.3)"));
+        Assert.Contains(VerticalEscape.Problems(taller.Document), problem => problem.Room == taller.Stairs[0] && problem.Said.Contains("(3.3)"));
     }
 
     [Fact]

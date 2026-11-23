@@ -416,21 +416,17 @@ public partial class MainWindow : Window
         Plan.AttachColumnsChanged += (_, _) => ShowOptionsForActiveTool();
         Plan.ModelChanged += (_, _) =>
         {
-            RefreshProjectBrowser();
-            RefreshProperties();
+            // In the middle of a step - a building put in at once, an undo of it - each element it adds or takes away would refresh it all
+            // again, the browser's area plans measured each time: once, when the step is done (round 122).
+            if (_history.Applying)
+            {
+                if (_modelRefreshWaiting) return;
+                _modelRefreshWaiting = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, () => { if (_modelRefreshWaiting) RefreshForModel(); });
+                return;
+            }
 
-            // The schedule reports the model, so it follows anything added or removed. So does
-            // the section: it is a cut through the same building, not a picture of it.
-            RefreshSchedule();
-            RefreshSectionPicker();
-            RefreshSection();
-
-            // A sheet shows views of the model, so adding or deleting anything can change
-            // what is on it - and a new section becomes something that can be placed.
-            RefreshSheetPicker();
-            RefreshSheetViewOptions();
-            SheetSurface.Refresh();
-            Refresh3D();
+            RefreshForModel();
         };
 
         Loaded += (_, _) =>
@@ -546,6 +542,9 @@ public partial class MainWindow : Window
         };
         _history.Changed += (_, _) =>
         {
+            // What a step added or took away, refreshed once it is done.
+            if (_modelRefreshWaiting) RefreshForModel();
+
             // Roof edges picked off walls go wherever their walls now are - after a move, a
             // change of type, an undo. Worked out afresh rather than carried by each command,
             // so no way of moving a wall can leave its roof behind.
@@ -2416,6 +2415,34 @@ public partial class MainWindow : Window
     /// An undo may have removed the selected element or changed values the panel is showing,
     /// so everything reading the model is rebuilt.
     /// </summary>
+    /// <summary>Whether what the model's elements coming and going refresh is waiting for a step to finish.</summary>
+    private bool _modelRefreshWaiting;
+
+    /// <summary>
+    /// What follows elements added to the model or taken from it: the browser, the Properties, the schedule, the section, the sheets and
+    /// the 3D view - under one cache, so what they share of a big building is worked out once.
+    /// </summary>
+    private void RefreshForModel()
+    {
+        _modelRefreshWaiting = false;
+        using var kept = ModelCache.Begin(_document);
+        RefreshProjectBrowser();
+        RefreshProperties();
+
+        // The schedule reports the model, so it follows anything added or removed. So does
+        // the section: it is a cut through the same building, not a picture of it.
+        RefreshSchedule();
+        RefreshSectionPicker();
+        RefreshSection();
+
+        // A sheet shows views of the model, so adding or deleting anything can change
+        // what is on it - and a new section becomes something that can be placed.
+        RefreshSheetPicker();
+        RefreshSheetViewOptions();
+        SheetSurface.Refresh();
+        Refresh3D();
+    }
+
     private void AfterHistoryChange()
     {
         if (Plan.SelectedElement is { } selected && !_document.Elements.Contains(selected))
@@ -2433,6 +2460,8 @@ public partial class MainWindow : Window
             Plan.ZoomToFit();
         }
 
+        // What follows is all read from the model as it now is, under one cache (round 122).
+        using var kept = ModelCache.Begin(_document);
         Plan.RefreshModel();
         ShowDetailLevel();
         RefreshProperties();
@@ -3002,7 +3031,9 @@ public partial class MainWindow : Window
             return Array.Empty<BlockedClearance>();
         }
 
-        var blocked = Clearances.Blocked(_document, Plan.ActiveLevelId, _document.ProjectInformation.ClearanceStandard);
+        IReadOnlyList<BlockedClearance> blocked;
+        using (ModelCache.Begin(_document))
+            blocked = Clearances.Blocked(_document, Plan.ActiveLevelId, _document.ProjectInformation.ClearanceStandard);
         StatusClearances.Content = $"⚠ {blocked.Count} {(blocked.Count == 1 ? "clearance" : "clearances")} blocked";
         StatusClearances.Visibility = blocked.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -4052,11 +4083,17 @@ public partial class MainWindow : Window
         SelectedTypePicker.Visibility = types.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         _loadingOptions = false;
 
-        InstanceParameterList.ItemsSource = BuildGroupedRows(
-            elements.Select(e => (IReadOnlyList<ParameterValue>)KeyLocked(e, e.GetInstanceParameters(_document)).ToList()).ToList());
+        // The rows listed and read under one cache: some are worked out as they are listed - a room's linings - and the rest as they are read,
+        // and between them they would walk a big building's storeys over and over (round 122).
+        ICollectionView? typeRows;
+        using (Plan.KeepingModel(_document))
+        {
+            InstanceParameterList.ItemsSource = BuildGroupedRows(
+                elements.Select(e => (IReadOnlyList<ParameterValue>)KeyLocked(e, e.GetInstanceParameters(_document)).ToList()).ToList());
 
-        // Type parameters when the selection shares one type; several types have no one set of them.
-        var typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.AllTypeParameters(_document).ToList() });
+            // Type parameters when the selection shares one type; several types have no one set of them.
+            typeRows = type is null ? null : BuildGroupedRows(new[] { (IReadOnlyList<ParameterValue>)type.AllTypeParameters(_document).ToList() });
+        }
         TypeParameterList.ItemsSource = typeRows;
         TypeSection.Visibility = type is null ? Visibility.Collapsed : Visibility.Visible;
         EditTypeButton.IsEnabled = type is not null;
@@ -4191,6 +4228,9 @@ public partial class MainWindow : Window
     private static readonly ParameterDefinition ClearanceStandardParameter = new("Clearance Standard", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     /// <summary>What the building is, that its imposed loads, its fire resistance period and its consequence class go by.</summary>
     private static readonly ParameterDefinition BuildingTypeParameter = new("Building Type", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
+
+    /// <summary>Whether a building other than a home is small premises by Approved Document B Volume 2 (2.2, 4.2), and why not (round 124).</summary>
+    private static readonly ParameterDefinition SmallPremisesParameter = new("Small Premises (AD B Vol 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ReduceImposedParameter = new("Imposed Loads Reduced by Area", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
 
@@ -4351,6 +4391,9 @@ public partial class MainWindow : Window
                 _document.ProjectInformation.BuildingType = type;
                 if (ShowsAnalytical) ShowAnalytical();
             }, StartUp.NewProjectSteps.BuildingTypes),
+            ParameterValue.ReadOnly(SmallPremisesParameter, () => HorizontalEscape.Applies(_document)
+                ? HorizontalEscape.SmallPremises(_document) is { Small: true } small ? $"Yes - {small.Said}" : $"No - {HorizontalEscape.SmallPremises(_document).Said}"
+                : "Not asked of a home"),
             ParameterValue.Bind(ReduceImposedParameter, () => _document.ProjectInformation.ReduceImposedLoads, reduce =>
             {
                 _document.ProjectInformation.ReduceImposedLoads = reduce;
@@ -4709,6 +4752,12 @@ public partial class MainWindow : Window
             };
             rows.Add(row);
         }
+
+        // Every row read now, under one cache: a room's verdicts - its escape, its storey's exits, its alarms, its linings - walk the
+        // building once between them, not once each (round 122).
+        using (ModelCache.Begin(_document))
+            foreach (var row in rows)
+                row.Prime();
 
         var view = new CollectionViewSource { Source = rows }.View;
         view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(ParameterRow.GroupName)));

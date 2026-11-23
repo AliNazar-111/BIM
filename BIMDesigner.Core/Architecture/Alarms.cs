@@ -89,6 +89,17 @@ public static class Alarms
         var footprint = ComponentModel.Footprint(type, ComponentModel.FrameOf(piece, 0));
         var problems = new List<PlacementProblem>();
         var room = RoomsOf.Containing(document, piece.LevelId, piece.Location);
+
+        // A home's alarm in a building other than a dwelling: its fire detection is a system's, to BS 5839-1 - Approved Document J's carbon
+        // monoxide alarms asked only in a dwelling (2.34, 3.43), and sited as it says there.
+        if (!us && !Domestic.Rules(document, room))
+        {
+            if (type.Form is ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm)
+                problems.Add(new PlacementProblem(piece, $"it is a home's {(type.Form == ComponentForm.SmokeAlarm ? "smoke" : "heat")} alarm, to BS 5839-6.",
+                    "Approved Document B Volume 2 (1.8) asks the fire detection and alarm system of a building other than a dwelling to comply with BS 5839-1: a detector wired to its panel.",
+                    footprint));
+            return problems;
+        }
         var outline = room?.GetBoundary(document) is { IsEnclosed: true } boundary ? boundary.Polygon : null;
         var inRoom = outline is null
             ? new List<(Component Piece, ComponentType Type)>()
@@ -176,14 +187,110 @@ public static class Alarms
                     document.FindType<ComponentType>(piece.TypeId)?.Name ?? "An alarm", problem.Said)))
             .ToList();
 
+    /// <summary>Whether a piece is part of a fire detection and alarm system to BS 5839-1: a call point, a sounder or beacon, a detector, the panel.</summary>
+    public static bool SystemPart(ComponentType type) =>
+        type.Form is ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm or ComponentForm.SmokeDetector
+            or ComponentForm.HeatDetector or ComponentForm.FireAlarmPanel;
+
+    /// <summary>Whether a piece detects fire automatically for such a system: a point smoke or heat detector.</summary>
+    public static bool Detector(ComponentType type) => type.Form is ComponentForm.SmokeDetector or ComponentForm.HeatDetector;
+
+    /// <summary>A fact about the whole building, the same for every room: while the model is drawn, found once.</summary>
+    private static T Kept<T>(BimDocument document, string what, Func<T> work) =>
+        ModelCache.Of(document) is { } cache ? cache.Keep($"alarms: {what}", document, null, null, work) : work();
+
+    /// <summary>The fire detection and alarm system's parts in the building, where they are.</summary>
+    private static IReadOnlyList<(Component Piece, ComponentType Type)> SystemParts(BimDocument document) => Kept(document, "system parts", () =>
+        document.All<Component>()
+            .Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
+            .Where(entry => entry.Type is not null && SystemPart(entry.Type))
+            .Select(entry => (entry.Piece, entry.Type!))
+            .ToList());
+
+    /// <summary>The largest enclosed room on a storey - or, given none, on the lowest storey with rooms: where a storey's or the building's wants are said.</summary>
+    private static Room? Largest(BimDocument document, Guid? levelId) => Kept(document, $"largest room {levelId}", () =>
+    {
+        var rooms = document.All<Room>()
+            .Select(room => (Room: room, Boundary: room.GetBoundary(document), Level: document.FindLevel(room.LevelId)))
+            .Where(entry => entry.Boundary.IsEnclosed && entry.Level is not null && (levelId is null || entry.Room.LevelId == levelId) && !Domestic.Rules(document, entry.Room))
+            .ToList();
+        if (rooms.Count == 0) return null;
+        var lowest = rooms.Min(entry => entry.Level!.Elevation);
+        return rooms.Where(entry => levelId is not null || entry.Level!.Elevation <= lowest + 1).MaxBy(entry => entry.Boundary.Area).Room;
+    });
+
+    private static bool Named(Room room, params string[] words) => words.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A part of the building not visited on a regular basis: a store, a stock room, an archive, a plant, boiler, tank, server or switch room (1.5).</summary>
+    public static bool Unvisited(Room room) =>
+        Named(room, "store", "storage", "stock", "archive", "plant", "boiler", "tank room", "server", "comms", "switch room", "switchroom");
+
+    /// <summary>The circulation space a room's door opens into - a corridor, a lobby, a hall, a landing, a stair - or null where none does.</summary>
+    private static Room? OpensOnto(BimDocument document, Room room)
+    {
+        foreach (var door in document.All<Door>())
+        {
+            if (document.Find<Wall>(door.HostWallId)?.LevelId != room.LevelId) continue;
+            var (swing, other) = Architecture.Doors.RoomsBeside(document, door);
+            var beyond = swing == room ? other : other == room ? swing : null;
+            if (beyond is not null && (FireSeparation.Circulation(beyond) || Named(beyond, "passage", "foyer"))) return beyond;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// What a room of a building other than a dwelling lacks of the fire detection and alarm system Approved Document B Volume 2 Section 1 asks:
+    /// an electrically operated fire alarm system in all but small premises (1.2, 1.3), to BS 5839-1 (1.8) - said on the lowest storey's largest
+    /// room; automatic fire detection on every storey of a hotel, a hostel, a hospital or a care home (1.4) - on each storey's largest; in a store
+    /// or a plant room opening onto the escape route, where a fire could break out unseen and fill it (1.5) - in it, unless sprinklers, which can
+    /// work the alarm (1.3, note), are fitted; and to open an automatic smoke vent (1.6). BS 5839-1's own siting of call points, detectors and
+    /// sounders, and its categories (Table A1, 1.7), are not checked.
+    /// </summary>
+    private static string? Volume2(BimDocument document, Room room, IReadOnlyList<Point2D> outline)
+    {
+        if (!HorizontalEscape.Applies(document)) return null;
+
+        var parts = SystemParts(document);
+        var group = HorizontalEscape.Purpose(document);
+        var residential = group is PurposeGroup.ResidentialInstitutional or PurposeGroup.ResidentialOther;
+        var detectors = parts.Where(entry => Detector(entry.Type)).ToList();
+        var wanting = new List<string>();
+
+        if (!parts.Any(entry => entry.Type.Form is ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.FireAlarmPanel)
+            && Largest(document, null) == room)
+            wanting.Add("no fire alarm system in the building - Approved Document B Volume 2 (1.3, 1.8) asks an electrically operated fire alarm system to BS 5839-1, call points, sounders and its panel, " +
+                        "in all but small premises where a shouted warning is heard and understood throughout (1.2)");
+
+        if (residential && Largest(document, room.LevelId) == room && !detectors.Any(entry => entry.Piece.LevelId == room.LevelId))
+            wanting.Add($"no automatic fire detector on this storey - Approved Document B Volume 2 (1.4) asks automatic fire detection and alarms in {HorizontalEscape.Said(group)}, " +
+                        "the system's category by BS 5839-1 Table A1 (1.7)");
+
+        if (!residential && Unvisited(room) && !document.ProjectInformation.Sprinklered && OpensOnto(document, room) is { } route
+            && !detectors.Any(entry => entry.Piece.LevelId == room.LevelId && Polygon2D.Contains(outline, entry.Piece.Location)))
+            wanting.Add($"no automatic fire detector in it - a fire could break out unseen here, a part of the building not visited regularly, and fill the {route.Name} " +
+                        "the escape goes along: Approved Document B Volume 2 (1.5) asks automatic fire detection and alarms where it could");
+
+        var automaticVents = Kept(document, "automatic smoke vents", () =>
+            document.All<Window>().Select(window => SmokeVents.Of(document, window)).Concat(document.All<RoofWindow>().Select(window => SmokeVents.Of(document, window)))
+                .Count(vent => vent is { Kind: SmokeVentKind.Automatic }));
+        if (automaticVents > 0 && detectors.Count == 0 && Largest(document, null) == room)
+            wanting.Add($"{(automaticVents == 1 ? "an automatic opening vent opens" : $"{automaticVents} automatic opening vents open")} on detecting smoke, and nothing detects it - " +
+                        "Approved Document B Volume 2 (1.6) asks automatic fire detection where fire protection systems are to work automatically");
+
+        return wanting.Count == 0 ? null : $"Alarms: {string.Join("; ", wanting)}";
+    }
+
     /// <summary>
     /// What a room lacks for its alarms - a smoke alarm on its storey, near its door or in it, a
     /// heat alarm, a carbon monoxide alarm by its stove or boiler - or null where it lacks nothing.
+    /// In a building other than a dwelling, what its fire detection and alarm system lacks instead.
     /// </summary>
     public static string? Verdict(BimDocument document, Room room)
     {
         var boundary = room.GetBoundary(document);
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
+        if (!Domestic.Rules(document, room)) return Volume2(document, room, boundary.Polygon);
 
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var everything = All(document, room.LevelId, _ => true);

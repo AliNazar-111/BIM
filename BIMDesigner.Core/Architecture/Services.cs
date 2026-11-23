@@ -223,6 +223,45 @@ public static class Services
     }
 
     /// <summary>
+    /// A room's extract in a building other than a dwelling, by Approved Document F Volume 2 (round 118): sanitary accommodation and bathrooms
+    /// 6 l/s a WC pan or urinal and 15 a shower or bath, whatever its windows (1.24, 1.26; Table 1.1 for every building); in an office, a food
+    /// and drink preparation area 30 l/s from an extract beside its hob or cooker - a hood - or 60 from one remote from it, 15 where only a
+    /// microwave and drinks are made (1.28). Fans and the ventilation system's extract terminals counted. A utility room asks nothing of it;
+    /// commercial kitchens, printer rooms (1.25) and the uses Table 1.1 leaves to their own guidance are not checked.
+    /// </summary>
+    private static IEnumerable<string> Volume2Extract(BimDocument document, Room room, IReadOnlyList<(Component Piece, ComponentType Type)> pieces, double fans, double hood)
+    {
+        if (!HorizontalEscape.Applies(document)) yield break;
+        var office = HorizontalEscape.Purpose(document) == PurposeGroup.Office;
+        var air = Mep.Ventilation.Rooms(document).FirstOrDefault(each => ReferenceEquals(each.Room, room));
+        var has = fans + (air is null ? 0 : Math.Max(air.Extract, air.ExtractHigh));
+        int Count(Func<ComponentType, bool> which) => pieces.Count(entry => which(entry.Type));
+
+        var (wcs, wet) = (Count(type => Bathrooms.IsWc(type) || type.Form == ComponentForm.Urinal), Count(type => type.Form is ComponentForm.Bath or ComponentForm.Shower));
+        if (wcs + wet > 0)
+        {
+            var asked = 6.0 * wcs + 15.0 * wet;
+            yield return has >= asked - 0.05
+                ? $"extract {Units.Airflow(has, "0")}"
+                : $"extract {Units.Airflow(has, "0")} - Approved Document F Volume 2 ({(office ? "1.26" : "Table 1.1")}) asks sanitary accommodation and bathrooms for {asked:0} l/s, " +
+                  $"6 a WC pan or urinal and 15 a shower or bath - a window to open does not stand in for it";
+            yield break;
+        }
+
+        if (!office) yield break;
+        var cooker = Count(type => type.Form == ComponentForm.Cooker) > 0;
+        var drinks = !cooker && Count(type => type.Form == ComponentForm.Sink) > 0
+                     && (Count(type => type.Form == ComponentForm.Fridge) > 0 || new[] { "kitchen", "tea", "pantry", "servery", "break" }.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase)));
+        if (!cooker && !drinks) yield break;
+
+        var (wanted, rule) = drinks
+            ? (15.0, "(1.28a) asks 15 l/s where only a microwave and drinks are made")
+            : hood > 0 ? (30.0, "(1.28b) asks 30 l/s from an extract beside the hob or cooker") : (60.0, "(1.28b) asks 60 l/s from an extract remote from the hob or cooker, 30 from a hood beside it");
+        var got = has + hood;
+        yield return got >= wanted - 0.05 ? $"extract {Units.Airflow(got, "0")}" : $"extract {Units.Airflow(got, "0")} - Approved Document F Volume 2 {rule}";
+    }
+
+    /// <summary>
     /// What a room comes to for its services - the extract it has against what it needs, and in the
     /// US its lights and its wall receptacles - or null for a room asking nothing of them.
     /// </summary>
@@ -252,9 +291,13 @@ public static class Services
             return $"extract {Units.Airflow(has, "0")} - {rule}";
         }
 
+        // A room of a building other than a dwelling: Approved Document F Volume 2's extract (round 118).
+        if (!us && !Domestic.Rules(document, room))
+            said.AddRange(Volume2Extract(document, room, pieces, fans, hood));
+
         // A home ventilated mechanically - with heat recovery, or by continuous extract: each wet room extracted
         // continuously through its valves or fans, at Table 1.2's high rate.
-        if (Mep.Ventilation.TypeOf(document) is var ventilation && ventilation != Mep.VentilationType.Natural)
+        else if (Mep.Ventilation.TypeOf(document) is var ventilation && ventilation != Mep.VentilationType.Natural)
         {
             var recovery = ventilation == Mep.VentilationType.HeatRecovery;
             var air = Mep.Ventilation.Rooms(document).FirstOrDefault(each => ReferenceEquals(each.Room, room));

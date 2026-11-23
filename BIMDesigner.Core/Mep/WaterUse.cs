@@ -119,7 +119,8 @@ public static class WaterUse
     /// <summary>What is wanting in the dwelling's water use: over its target. Nothing where it has no sanitary fittings, or is built to the US's codes.</summary>
     public static IEnumerable<MepProblem> Problems(BimDocument document)
     {
-        if (document.ProjectInformation.ClearanceStandard.IsUs()) yield break;
+        // A new dwelling's water use (regulation 36): a building other than a dwelling asks none (round 118).
+        if (document.ProjectInformation.ClearanceStandard.IsUs() || !Architecture.Domestic.Rules(document)) yield break;
         var sanitary = document.All<Component>().FirstOrDefault(component => document.FindType<ComponentType>(component.TypeId)?.Form is
             ComponentForm.Basin or ComponentForm.Bath or ComponentForm.Shower or ComponentForm.Toilet or ComponentForm.WallHungToilet or ComponentForm.Sink);
         if (sanitary is null) yield break;

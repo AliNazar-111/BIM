@@ -419,6 +419,12 @@ public static class Clearances
         if (document.FindType<ComponentType>(component.TypeId) is not { } type) return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
         if (OffTheFloor(document, component, type)) return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
 
+        // A kitchen's units and a dining table in a building other than a dwelling: M4(2)'s and the NKBA's spaces are a home's (round 118).
+        if (type.Form is ComponentForm.Counter or ComponentForm.Sink or ComponentForm.Cooker or ComponentForm.Dishwasher or ComponentForm.WashingMachine
+                or ComponentForm.Fridge or ComponentForm.TumbleDryer or ComponentForm.TallUnit or ComponentForm.OvenHousing or ComponentForm.Table or ComponentForm.RoundTable
+            && !standard.IsUs() && !Domestic.Rules(document, component))
+            return Array.Empty<(ClearanceZone, IReadOnlyList<string>)>();
+
         var frame = ComponentModel.FrameOf(component, 0);
         var obstacles = Obstacles(document, component);
 

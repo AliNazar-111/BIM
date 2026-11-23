@@ -11,6 +11,9 @@ namespace BIMDesigner.Core.Architecture;
 /// (note 3), 12 m off and further not on a terrace of three or more houses or a building of more than 1500 m³ (note 2) - EROOF(t4) not even 20 m
 /// off on those; FROOF(t4) only 20 m or more off, and then only in small parts on a small building. The distance is the least from the roof's
 /// outline in plan to the site's property line; nothing is asked without one. Not under the US's codes.
+///
+/// In a building other than a home (round 120), Volume 2's 14.3 and Table 14.1 - the same table, but its note 2 keeping the lower coverings off
+/// an industrial or storage building of any size (purpose groups 6 and 7), and off any other of more than 1500 m³.
 /// </summary>
 public static class RoofCoverings
 {
@@ -30,6 +33,8 @@ public static class RoofCoverings
             .Select(layer => (Layer: layer, Material: document.FindMaterial(layer.MaterialId))).FirstOrDefault(entry => entry.Material is not null);
         if (covering.Material is not { } material) yield break;
 
+        var volume2 = HorizontalEscape.Applies(document);
+        var (rule, table) = volume2 ? ("Approved Document B Volume 2 (14.3, Table 14.1)", "Approved Document B Volume 2 (Table 14.1") : ("Approved Document B (12.3, Table 12.1)", "Approved Document B (Table 12.1");
         var distance = lines.Min(line => Distance(roof.Boundary, line.Boundary));
         var band = distance < Near - 0.5 ? 0 : distance < Middle - 0.5 ? 1 : distance < Far - 0.5 ? 2 : 3;
         var off = band switch { 0 => "within 6 m of", 1 => "6 m to 12 m from", 2 => "12 m to 20 m from", _ => "20 m or more from" };
@@ -38,7 +43,7 @@ public static class RoofCoverings
         {
             if (band < 3)
                 yield return ($"its covering, the {material.Name}, has no external fire designation given{at}.",
-                    $"Approved Document B (12.3, Table 12.1) limits a roof's covering {off} the relevant boundary by its designation - {(band == 0 ? "BROOF(t4) only" : "BROOF(t4) or CROOF(t4), others only in part")}; give its maker's.");
+                    $"{rule} limits a roof's covering {off} the relevant boundary by its designation - {(band == 0 ? "BROOF(t4) only" : "BROOF(t4) or CROOF(t4), others only in part")}; give its maker's.");
             yield break;
         }
 
@@ -63,22 +68,27 @@ public static class RoofCoverings
 
         if (!allowed)
         {
-            yield return (said, $"Approved Document B (12.3, Table 12.1) does not allow {Article(designation)} {designation} covering {off} the relevant boundary{(band == 0 ? " - BROOF(t4) only" : string.Empty)}.");
+            yield return (said, $"{rule} does not allow {Article(designation)} {designation} covering {off} the relevant boundary{(band == 0 ? " - BROOF(t4) only" : string.Empty)}.");
             yield break;
         }
 
         if (note2 && Large(document) is { } large)
-            yield return (said, $"Approved Document B (Table 12.1, note 2) does not allow {Article(designation)} {designation} covering {off} the relevant boundary on {large}.");
+            yield return (said, $"{table}, note 2) does not allow {Article(designation)} {designation} covering {off} the relevant boundary on {large}.");
         else if (note3 && roof.SlopingArea(document) / 1e6 > SmallPart + 1e-6)
-            yield return (said, $"Approved Document B (Table 12.1, note 3) allows {Article(designation)} {designation} covering {off} the relevant boundary only in parts of 3 m² at most, 1.5 m apart, the roof between them class A2-s3, d2 or better - this roof is {Units.OfSquareMetres(roof.SlopingArea(document) / 1e6, "0.0")}.");
+            yield return (said, $"{table}, note 3) allows {Article(designation)} {designation} covering {off} the relevant boundary only in parts of 3 m² at most, 1.5 m apart, the roof between them class A2-s3, d2 or better - this roof is {Units.OfSquareMetres(roof.SlopingArea(document) / 1e6, "0.0")}.");
     }
 
     /// <summary>"an" before EROOF(t4) and FROOF(t4), said with a vowel; "a" before the rest.</summary>
     private static string Article(RoofDesignation designation) => designation.Rank >= 3 ? "an" : "a";
 
-    /// <summary>Why a building is one note 2 keeps the lower coverings off: a terrace of three or more houses, or more than 1500 m³ by its rooms; null where neither.</summary>
+    /// <summary>
+    /// Why a building is one note 2 keeps the lower coverings off: a terrace of three or more houses, or more than 1500 m³ by its rooms - in
+    /// Volume 2, an industrial or storage building of any size; null where neither.
+    /// </summary>
     public static string? Large(BimDocument document)
     {
+        if (HorizontalEscape.Applies(document) && HorizontalEscape.Purpose(document) is PurposeGroup.Industrial or PurposeGroup.Storage)
+            return $"{HorizontalEscape.Said(HorizontalEscape.Purpose(document))}, any size";
         var homes = document.All<Room>().Select(Dwellings.Of).Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         if (homes >= 3 && FireDesign.UseOf(document) == BuildingUse.House) return $"a terrace of three or more houses - this one {homes}";
         var capacity = CubicCapacity(document);

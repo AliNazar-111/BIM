@@ -825,7 +825,13 @@ public static class Ramps
     private static bool Us(BimDocument document) => document.ProjectInformation.ClearanceStandard.IsUs();
 
     /// <summary>Whether it is a home's ramp in the US: held to the IRC (R311.8) rather than the ADA.</summary>
-    private static bool Irc(BimDocument document, Ramp ramp) => Us(document) && ramp.Building == RailingBuilding.Dwelling;
+    /// <summary>
+    /// The building a ramp is judged as: what it was set to - but one left a dwelling's, in a building other than a home and not in a room
+    /// named into a dwelling, is that building's, Volume 2's (round 123). The US keeps what is set.
+    /// </summary>
+    public static RailingBuilding BuildingOf(BimDocument document, Ramp ramp) => Railings.Effective(document, ramp.Building, ramp.LevelId, ramp.Start);
+
+    private static bool Irc(BimDocument document, Ramp ramp) => Us(document) && BuildingOf(document, ramp) == RailingBuilding.Dwelling;
 
     /// <summary>Whether it turns: no one at one end can see the other, so in a building other than a dwelling its landings are passing places.</summary>
     private static bool Turns(Ramp ramp) =>
@@ -847,7 +853,7 @@ public static class Ramps
     /// </summary>
     public static double SteepestAllowed(BimDocument document, Ramp ramp) =>
         Irc(document, ramp) ? (UpToADoorOut(document, ramp, Layout(document, ramp)) ? 12 : 8)
-        : !Us(document) && ramp.Building == RailingBuilding.Dwelling && document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? 15
+        : !Us(document) && BuildingOf(document, ramp) == RailingBuilding.Dwelling && document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? 15
         : 12;
 
     /// <summary>Whether its gradient makes it a ramp: steeper than 1:20. Gentler, it is a sloping path.</summary>
@@ -876,8 +882,8 @@ public static class Ramps
 
         var going = IsRamp(ramp)
             ? (Math.Clamp(x, 12, 20) - 10) * 1000
-            : ramp.Building == RailingBuilding.Other ? 500 * x : double.PositiveInfinity;
-        if (ramp.Building == RailingBuilding.Dwelling) return Limited(new RampRules(going, Math.Max(1200, width), Math.Max(1200, width), 0));
+            : BuildingOf(document, ramp) == RailingBuilding.Other ? 500 * x : double.PositiveInfinity;
+        if (BuildingOf(document, ramp) == RailingBuilding.Dwelling) return Limited(new RampRules(going, Math.Max(1200, width), Math.Max(1200, width), 0));
         var passing = flights >= 3 || Turns(ramp);
         var landing = Math.Max(passing ? 1800 : 1500, width);
         return Limited(new RampRules(going, landing, landing, passing ? 1800 : 0));
@@ -894,7 +900,7 @@ public static class Ramps
     public static (double Width, string Rule) LeastWidth(BimDocument document, Ramp ramp) =>
         Irc(document, ramp) ? (0, "")
         : Us(document) ? (915, $"the ADA asks for 36 in{Units.MetricAside("915")} clear between its handrails")
-        : ramp.Building == RailingBuilding.Other ? (1500, "Approved Document M asks for 1.5 m between its kerbs")
+        : BuildingOf(document, ramp) == RailingBuilding.Other ? (1500, "Approved Document M asks for 1.5 m between its kerbs")
         : document.ProjectInformation.ClearanceStandard == ClearanceStandard.ApprovedDocumentM3 ? (1200, "Approved Document M asks a wheelchair user's ramp for 1200 clear (M4(3) 3.10c)")
         : (900, "Approved Document M asks a dwelling's ramp for 900 clear - 1200 on a communal approach");
 
@@ -910,7 +916,7 @@ public static class Ramps
     {
         var (bottom, top) = (Bottom(document, ramp), Top(document, ramp));
         var layout = RampLayout.Of(ramp, bottom, top, Rules(document, ramp));
-        if (!Us(document) && ramp.Building == RailingBuilding.Other && layout.FlightCount >= 3 && !Turns(ramp))
+        if (!Us(document) && BuildingOf(document, ramp) == RailingBuilding.Other && layout.FlightCount >= 3 && !Turns(ramp))
             layout = RampLayout.Of(ramp, bottom, top, Rules(document, ramp, layout.FlightCount));
         return layout;
     }
@@ -931,7 +937,7 @@ public static class Ramps
             return layout.Rise > 150
                 ? (true, true, "the ADA asks for handrails on both sides of a ramp rising more than 6 in")
                 : (false, false, "the ADA asks for none on a ramp rising 6 in or less");
-        if (ramp.Building == RailingBuilding.Other) return (true, true, "Approved Document M asks for a handrail on both sides");
+        if (BuildingOf(document, ramp) == RailingBuilding.Other) return (true, true, "Approved Document M asks for a handrail on both sides");
         if (layout.Rise <= 600) return (false, false, "Approved Document K asks for none on a ramp rising 600 or less");
         return layout.Width >= 1000
             ? (true, true, "Approved Document K asks for handrails on both sides of a ramp 1 m wide or more")
@@ -960,8 +966,8 @@ public static class Ramps
     public static (double Height, string Rule) GuardHeight(BimDocument document, Ramp ramp, bool landing)
     {
         if (Us(document))
-            return ramp.Building == RailingBuilding.Dwelling ? (914, $"the IRC asks for 36 in{Units.MetricAside("914")}") : (1067, $"the IBC asks for 42 in{Units.MetricAside("1067")}");
-        if (ramp.Building == RailingBuilding.Dwelling) return (900, "Approved Document K asks for 900 in a dwelling");
+            return BuildingOf(document, ramp) == RailingBuilding.Dwelling ? (914, $"the IRC asks for 36 in{Units.MetricAside("914")}") : (1067, $"the IBC asks for 42 in{Units.MetricAside("1067")}");
+        if (BuildingOf(document, ramp) == RailingBuilding.Dwelling) return (900, "Approved Document K asks for 900 in a dwelling");
         return landing ? (1100, "Approved Document K asks for 1100 round a landing") : (900, "Approved Document K asks for 900 along a flight");
     }
 
@@ -1310,7 +1316,7 @@ public static class Ramps
         var type = TypeOf(document, ramp);
         var us = Us(document);
         var irc = Irc(document, ramp);
-        var other = ramp.Building == RailingBuilding.Other;
+        var other = BuildingOf(document, ramp) == RailingBuilding.Other;
         var said = $"1:{ramp.Gradient:0.#}";
 
         if (layout.Rise < MinimumRise)
@@ -1392,7 +1398,7 @@ public static class Ramps
             problems.Add($"The space under it is {space:0} high in places: under 2 m, Approved Document K asks for it to be guarded off, with something low enough for a cane to find - or close it underneath.");
 
         // Guarding where a side drops too far - none put up, told to have no handrails.
-        var limit = Railings.GuardedDrop(document, ramp.Building);
+        var limit = Railings.GuardedDrop(document, BuildingOf(document, ramp));
         var drops = Drops(document, ramp, layout);
         if (ramp.Railings == StairRailings.None && Math.Max(drops.Left, drops.Right) > limit + 0.5)
             problems.Add($"Its side drops {Units.Bare(Math.Max(drops.Left, drops.Right))} with nothing along it: guarding is asked past {Units.Bare(limit)}.");
@@ -1436,7 +1442,7 @@ public static class Ramps
         if (!IsRamp(ramp)) return "Gently sloping - 1:20 or gentler - so not a ramp";
         return Us(document)
             ? document.ProjectInformation.ClearanceStandard == ClearanceStandard.Irc ? "Meets the ADA's ramp rules - stricter than the IRC's (R311.8)" : "Meets the ADA"
-            : ramp.Building == RailingBuilding.Other ? "Meets Approved Document M, Volume 2" : "Meets Approved Document M, Volume 1";
+            : BuildingOf(document, ramp) == RailingBuilding.Other ? "Meets Approved Document M, Volume 2" : "Meets Approved Document M, Volume 1";
     }
 
     /// <summary>What it works out to, in a line: "1:15, rising 450 in 2 flights over 6.75 m - 9.15 m long, 1200 wide".</summary>

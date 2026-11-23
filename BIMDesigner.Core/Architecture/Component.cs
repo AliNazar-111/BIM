@@ -293,7 +293,34 @@ public enum ComponentForm
     /// A fire hydrant on the water main: an underground hydrant under its cover in the ground, its plate to BS 3251 by it - an existing one, its
     /// phase Existing, or the building's own (Approved Document B Volume 2 16.8 to 16.10).
     /// </summary>
-    FireHydrant
+    FireHydrant,
+
+    /// <summary>
+    /// A fire alarm system's manual call point on the wall: a break-glass, or a resettable element, pressed to raise the alarm - to BS EN 54-11
+    /// Type A, direct operation, or BS 5839-2 (Approved Document B Volume 2 1.10), sited as BS 5839-1 asks.
+    /// </summary>
+    FireAlarmCallPoint,
+
+    /// <summary>A fire alarm system's sounder, to BS EN 54-3: the fire warning heard throughout (Approved Document B Volume 2 1.2, 1.3, 1.13).</summary>
+    FireAlarmSounder,
+
+    /// <summary>
+    /// A fire alarm system's visual alarm device - a flashing beacon to BS EN 54-23 - for people with impaired hearing, or where a sounder would
+    /// not be heard (Approved Document B Volume 2 1.15).
+    /// </summary>
+    VisualAlarm,
+
+    /// <summary>A fire detection system's point smoke detector on the ceiling, optical, to BS EN 54-7: automatic fire detection (Approved Document B Volume 2 1.3 to 1.6).</summary>
+    SmokeDetector,
+
+    /// <summary>A fire detection system's point heat detector on the ceiling, to BS EN 54-5 - where smoke or steam would set a smoke detector off.</summary>
+    HeatDetector,
+
+    /// <summary>
+    /// A fire detection and alarm system's control and indicating equipment, to BS EN 54-2, with its power supply to BS EN 54-4: the panel the
+    /// call points, detectors and sounders are wired back to (Approved Document B Volume 2 1.8).
+    /// </summary>
+    FireAlarmPanel
 }
 
 /// <summary>

@@ -2370,8 +2370,9 @@ public static partial class IfcExport
             ComponentForm.Socket or ComponentForm.ShaverSocket or ComponentForm.EvChargePoint => ComponentClass.Outlet,
             ComponentForm.Switch => ComponentClass.Switch,
             ComponentForm.ExtractFan => ComponentClass.Fan,
-            ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm => ComponentClass.Sensor,
-            ComponentForm.AssistanceAlarm => ComponentClass.Alarm,
+            ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.SmokeDetector or ComponentForm.HeatDetector => ComponentClass.Sensor,
+            ComponentForm.AssistanceAlarm or ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm => ComponentClass.Alarm,
+            ComponentForm.FireAlarmPanel => ComponentClass.Control,
             ComponentForm.Lift or ComponentForm.LiftingPlatform => ComponentClass.Transport,
             ComponentForm.HearingLoop => ComponentClass.AudioVisual,
             ComponentForm.AudienceSeat or ComponentForm.ServiceCounter => ComponentClass.Furniture,
@@ -2497,16 +2498,24 @@ public static partial class IfcExport
                 ComponentClass.Sensor => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcSensor>(component, type, meshes, sensor =>
                     sensor.PredefinedType = type.Form switch
                     {
-                        ComponentForm.HeatAlarm => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.HEATSENSOR,
+                        ComponentForm.HeatAlarm or ComponentForm.HeatDetector => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.HEATSENSOR,
                         ComponentForm.CarbonMonoxideAlarm => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.COSENSOR,
                         _ => Xbim.Ifc4.Interfaces.IfcSensorTypeEnum.SMOKESENSOR
                     }),
                 ComponentClass.Alarm => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcAlarm>(component, type, meshes, alarm =>
-                    alarm.PredefinedType = Xbim.Ifc4.Interfaces.IfcAlarmTypeEnum.MANUALPULLBOX),
+                    alarm.PredefinedType = type.Form switch
+                    {
+                        ComponentForm.FireAlarmCallPoint => Xbim.Ifc4.Interfaces.IfcAlarmTypeEnum.BREAKGLASSBUTTON,
+                        ComponentForm.FireAlarmSounder => Xbim.Ifc4.Interfaces.IfcAlarmTypeEnum.SIREN,
+                        ComponentForm.VisualAlarm => Xbim.Ifc4.Interfaces.IfcAlarmTypeEnum.LIGHT,
+                        _ => Xbim.Ifc4.Interfaces.IfcAlarmTypeEnum.MANUALPULLBOX
+                    }),
                 ComponentClass.Board => ComponentProduct<Xbim.Ifc4.ElectricalDomain.IfcElectricDistributionBoard>(component, type, meshes, board =>
                     board.PredefinedType = Xbim.Ifc4.Interfaces.IfcElectricDistributionBoardTypeEnum.CONSUMERUNIT),
                 ComponentClass.Control => ComponentProduct<Xbim.Ifc4.BuildingControlsDomain.IfcUnitaryControlElement>(component, type, meshes, control =>
-                    control.PredefinedType = Xbim.Ifc4.Interfaces.IfcUnitaryControlElementTypeEnum.THERMOSTAT),
+                    control.PredefinedType = type.Form == ComponentForm.FireAlarmPanel
+                        ? Xbim.Ifc4.Interfaces.IfcUnitaryControlElementTypeEnum.ALARMPANEL
+                        : Xbim.Ifc4.Interfaces.IfcUnitaryControlElementTypeEnum.THERMOSTAT),
                 ComponentClass.Boiler => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcBoiler>(component, type, meshes, boiler =>
                     boiler.PredefinedType = Xbim.Ifc4.Interfaces.IfcBoilerTypeEnum.WATER),
                 ComponentClass.Tank => ComponentProduct<Xbim.Ifc4.HvacDomain.IfcTank>(component, type, meshes, tank =>

@@ -735,11 +735,11 @@ public static class Railings
             return us ? (610, $"the IRC asks for {Units.Figure("610", "24 in")} across a window from the floor") : (800, "Approved Document K asks for 800 across a window from the floor");
 
         if (us)
-            return railing.Building == RailingBuilding.Dwelling
+            return BuildingOf(document, railing) == RailingBuilding.Dwelling
                 ? (914, $"the IRC asks for {Units.Figure("914", "36 in")} round a home")
                 : (1067, $"the IBC asks for {Units.Figure("1067", "42 in")} in a building other than a home");
 
-        if (railing.Building == RailingBuilding.Other) return (1100, "Approved Document K asks for 1100 in a building other than a dwelling");
+        if (BuildingOf(document, railing) == RailingBuilding.Other) return (1100, "Approved Document K asks for 1100 in a building other than a dwelling");
         return railing.Outside
             ? (1100, "Approved Document K asks for 1100 round a balcony or a roof")
             : (900, "Approved Document K asks for 900 at the edge of a floor inside a home");
@@ -756,12 +756,12 @@ public static class Railings
     {
         if (TypeOf(document, railing).Use == RailingUse.Fence) return (0, 0, "a fence guards no drop");
         if (document.ProjectInformation.ClearanceStandard.IsUs())
-            return railing.Building == RailingBuilding.Dwelling
+            return BuildingOf(document, railing) == RailingBuilding.Dwelling
                 ? (0, 0.89, $"the IRC asks a guard round a home to take 200 lb{Units.MetricAside("0.89 kN")} at any point on its top")
                 : (0.73, 0.89, $"the IBC asks a guard to take 50 lb/ft{Units.MetricAside("0.73 kN/m")} along its top and 200 lb{Units.MetricAside("0.89 kN")} at any point on it");
 
         const string annex = "BS EN 1991-1-1's UK National Annex asks";
-        if (railing.Building == RailingBuilding.Other) return (1.5, 1.5, $"{annex} 1.5 kN/m along its top and 1.5 kN at a point where people gather");
+        if (BuildingOf(document, railing) == RailingBuilding.Other) return (1.5, 1.5, $"{annex} 1.5 kN/m along its top and 1.5 kN at a point where people gather");
         return railing.Outside || Host(document, railing) is not null
             ? (0.74, 0.5, $"{annex} 0.74 kN/m along its top and 0.5 kN at a point round a home's balcony or roof")
             : (0.36, 0.25, $"{annex} 0.36 kN/m along its top and 0.25 kN at a point inside a home");
@@ -802,7 +802,7 @@ public static class Railings
             problems.Add($"Its end stands {Units.Bare(gap)} clear of {what}: {said} there too.");
 
         // Rails along are a ladder: not for a home, where children are.
-        if (!us && railing.Building == RailingBuilding.Dwelling)
+        if (!us && BuildingOf(document, railing) == RailingBuilding.Dwelling)
         {
             if (type.Infill is RailingInfill.HorizontalBars or RailingInfill.Cables)
                 problems.Add($"Its {(type.Infill == RailingInfill.Cables ? "cables" : "rails")} run along, which a child can climb: Approved Document K asks for guarding in a home not to be easily climbable.");
@@ -1007,6 +1007,17 @@ public static class Railings
     /// The drop over which a floor's edge wants guarding, mm: more than 600 in a dwelling,
     /// Approved Document K says, and in other buildings 380; more than 30 in (762) under the IRC.
     /// </summary>
+    /// <summary>
+    /// The building a railing is judged as: what it was set to - but one left a dwelling's, standing in a building other than a home and
+    /// not in a room named into a dwelling, is that building's (round 123). The US keeps what is set.
+    /// </summary>
+    public static RailingBuilding BuildingOf(BimDocument document, Railing railing) =>
+        Effective(document, railing.Building, railing.LevelId, railing.Path.Count > 0 ? railing.Path[0] : default);
+
+    /// <summary>A building set on a railing or a ramp, as it is judged at a place.</summary>
+    internal static RailingBuilding Effective(BimDocument document, RailingBuilding set, Guid level, Point2D at) =>
+        set == RailingBuilding.Dwelling && !Domestic.Rules(document, RoomsOf.Containing(document, level, at)) ? RailingBuilding.Other : set;
+
     public static double GuardedDrop(BimDocument document, RailingBuilding building) =>
         document.ProjectInformation.ClearanceStandard.IsUs() ? 762 : building == RailingBuilding.Dwelling ? 600 : 380;
 

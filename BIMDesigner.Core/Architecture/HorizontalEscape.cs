@@ -182,10 +182,74 @@ public static class HorizontalEscape
     // --- The storeys walked -------------------------------------------------------------
 
     /// <summary>A storey exit: its node on the grid, its door, and what it leads to.</summary>
-    internal sealed record Exit(int Node, Door Door, string What, double Width, Room Room);
+    internal sealed record Exit(int Node, Door? Door, string What, double Width, Room Room);
+
+    // --- Small premises (Section 4, round 124) ---------------------------------------------------------------------------------------
+
+    /// <summary>Whether a building is small premises (2.2, 4.2), why or why not, and whether it is a bar or restaurant.</summary>
+    public sealed record Premises(bool Small, string Said, bool BarOrRestaurant);
+
+    /// <summary>The largest storey of small premises (4.2a iii), and of one with a single open stair alone (4.8d ii), m².</summary>
+    public const double SmallStorey = 280, OpenStairStorey = 90;
+
+    private static readonly string[] BarWords = { "restaurant", "bar", "pub", "cafe", "café", "dining", "bistro", "takeaway" };
+
+    /// <summary>
+    /// Whether a building is small premises, whose escape Section 4 sets out in place of Sections 2 and 3's number and position of exits and
+    /// stairs, travel distances and open stairs (4.3): a small shop, office, factory or store (2.2) - single occupancy, its homes none; a
+    /// basement, the ground storey and a first storey at most; no storey over 280 m²; a bar or restaurant planned for 30 people a storey, 100 on
+    /// a ground storey with a final exit of its own (4.2). Highly flammable materials sold, stored or used (4.1) are not known here.
+    /// </summary>
+    public static Premises SmallPremises(BimDocument document)
+    {
+        Premises Work()
+        {
+            if (!Applies(document)) return new Premises(false, "not a building other than a dwelling", false);
+            var group = Purpose(document);
+            if (group is not (PurposeGroup.Office or PurposeGroup.ShopAndCommercial or PurposeGroup.Industrial or PurposeGroup.Storage))
+                return new Premises(false, $"{Said(group)} - 2.2 offers small premises to shops, offices, industrial and storage premises", false);
+            if (MixedUse.Is(document)) return new Premises(false, "homes in it too - small premises are a single occupancy (4.2a i)", false);
+            var ground = Escape.Ground(document);
+            var rooms = document.All<Room>().Select(room => (Room: room, Boundary: room.GetBoundary(document))).Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToList();
+            if (rooms.Count == 0) return new Premises(false, "no rooms", false);
+            double Elevation(Guid level) => document.FindLevel(level)?.Elevation ?? 0;
+            var storeys = rooms.GroupBy(entry => entry.Room.LevelId).ToList();
+            var above = storeys.Count(storey => Elevation(storey.Key) > ground + 100);
+            var below = storeys.Count(storey => Elevation(storey.Key) < ground - 100);
+            if (above > 1 || below > 1)
+                return new Premises(false, $"{above} storey{(above == 1 ? "" : "s")} over the ground storey and {below} basement{(below == 1 ? "" : "s")} - small premises have a basement, the ground storey and a first storey at most (2.2b, 4.2a ii)", false);
+            var largest = storeys.Max(storey => storey.Sum(entry => entry.Boundary.Area) / 1e6);
+            if (largest > SmallStorey + 1e-6)
+                return new Premises(false, $"a storey of {largest:0} m² - small premises have none over 280 m² (2.2a, 4.2a iii)", false);
+            var bar = Toilets.WordsOf(document.ProjectInformation.BuildingType).Overlaps(BarWords) || rooms.Any(entry => Toilets.WordsOf(entry.Room.Name).Overlaps(BarWords));
+            if (bar)
+            {
+                var stairs = Doors.StairRooms(document);
+                var links = Escape.Links(document, rooms.Select(entry => entry.Room).ToHashSet());
+                foreach (var storey in storeys)
+                {
+                    var people = storey.Sum(entry => Occupants(document, entry.Room, entry.Boundary.Polygon, group) is var (count, _) ? count : 0);
+                    var groundStorey = Math.Abs(Elevation(storey.Key) - ground) <= 100;
+                    var own = groundStorey && links.Any(link => link.Room.LevelId == storey.Key && link.Other is null && link.Outside && !stairs.Contains(link.Room));
+                    var most = own ? 100 : 30;
+                    if (people > most)
+                        return new Premises(false, $"a bar or restaurant planned for {people} people on the {document.FindLevel(storey.Key)?.Name ?? "storey"} - small premises allow 30 a storey, 100 on a ground storey with a final exit of its own (4.2c)", true);
+                }
+            }
+
+            var count = storeys.Count;
+            return new Premises(true, $"small premises (2.2, 4.2): {count} storey{(count == 1 ? "" : "s")}, the largest {largest:0} m²{(bar ? ", a bar or restaurant" : string.Empty)}", bar);
+        }
+
+        return ModelCache.Of(document) is { } cache ? cache.Keep("horizontal escape: small premises", document, null, null, Work) : Work();
+    }
+
+    /// <summary>Whether a room a stair rises through is a room of its own with a stair standing open in it, rather than the stair's enclosure.</summary>
+    public static bool OpenStairRoom(BimDocument document, Room room) =>
+        Doors.StairRooms(document).Contains(room) && !Named(room, "stair", "landing", "hall", "lobby", "corridor", "entrance", "foyer", "passage", "vestibule");
 
     /// <summary>What a room comes to on its storey's grid: the farthest point from a storey exit and the longest one-way stretch, mm, against its limits.</summary>
-    public sealed record Travel(double Nearest, double OneWay, double One, double More, string Use, bool Reached, bool Within, bool TwoWays = false);
+    public sealed record Travel(double Nearest, double OneWay, double One, double More, string Use, bool Reached, bool Within, bool TwoWays = false, bool Small = false);
 
     /// <summary>
     /// How a door is used in a fire, as the walk finds it (round 113): out of the room on the side farther from a storey exit - into the room
@@ -203,16 +267,22 @@ public static class HorizontalEscape
         {
             var result = new Dictionary<Guid, Storey>();
             if (!Applies(document)) return result;
-            var outlines = document.All<Room>().Select(room => (Room: room, Boundary: room.GetBoundary(document)))
+            // A building of mixed use: its homes are Volume 1's, left out (round 121).
+            var outlines = document.All<Room>().Where(room => !MixedUse.Home(document, room)).Select(room => (Room: room, Boundary: room.GetBoundary(document)))
                 .Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToDictionary(entry => entry.Room, entry => (IReadOnlyList<Point2D>)entry.Boundary.Polygon);
             var stairs = Doors.StairRooms(document);
             var cars = Lifts.Of(document).Select(lift => lift.Car).ToList();
-            bool Stair(Room room) => stairs.Contains(room) || Named(room, "stair");
+
+            // A room with a stair standing open in it walked like any other - the stair no storey exit, but in small premises, where its head or
+            // foot is (Table 4.1 notes, round 124).
+            var premises = SmallPremises(document);
+            bool Stair(Room room) => (stairs.Contains(room) || Named(room, "stair")) && !OpenStairRoom(document, room);
             bool Shaft(Room room) => Named(room, "lift", "shaft") || cars.Any(car => Polygon2D.Contains(car, room.Location));
             var links = Escape.Links(document, outlines.Keys.ToHashSet());
             var group = Purpose(document);
+            var flights = premises.Small ? Escape.Flights(document, outlines).Where(flight => flight.Foot is not null && flight.Head is not null).ToList() : new List<Escape.Flight>();
             foreach (var level in outlines.Keys.Select(room => room.LevelId).Distinct())
-                result[level] = Walk(document, outlines.Where(entry => entry.Key.LevelId == level).ToDictionary(entry => entry.Key, entry => entry.Value), links, Stair, Shaft, group, level);
+                result[level] = Walk(document, outlines.Where(entry => entry.Key.LevelId == level).ToDictionary(entry => entry.Key, entry => entry.Value), links, Stair, Shaft, group, level, premises, flights);
             return result;
         }
 
@@ -235,7 +305,7 @@ public static class HorizontalEscape
     }
 
     private static Storey Walk(BimDocument document, Dictionary<Room, IReadOnlyList<Point2D>> rooms, List<Escape.Link> links, Func<Room, bool> stair, Func<Room, bool> shaft,
-        PurposeGroup group, Guid level)
+        PurposeGroup group, Guid level, Premises? premises = null, List<Escape.Flight>? flights = null)
     {
         // The grid: points every 300 in each room walked through - not its stairs, nor its lift shafts - joined to those within 1000 in sight.
         var nodes = new List<(Room Room, Point2D At)>();
@@ -307,6 +377,20 @@ public static class HorizontalEscape
             else if (link.Other is { } into && stair(into) && exits.All(exit => exit.Node != inside)) exits.Add(new Exit(inside, link.Door, $"the door into the {into.Name}", width, link.Room));
         }
 
+        // Small premises: an open stair's head on a first storey, its foot in a basement, a storey exit (Table 4.1 notes a, b).
+        var ground = Escape.Ground(document);
+        var elevation = document.FindLevel(level)?.Elevation ?? 0;
+        if (premises is { Small: true } && flights is not null)
+            foreach (var flight in flights)
+            {
+                var (room, at, end) = elevation > ground + 100 && flight.Stair.TopLevelId == level ? (flight.Head, flight.HeadAt, "head")
+                    : elevation < ground - 100 && flight.Stair.LevelId == level ? (flight.Foot, flight.FootAt, "foot") : (null, default, string.Empty);
+                if (room is null || !grid.ContainsKey(room)) continue;
+                var node = Node(room, at);
+                Near(node, room);
+                exits.Add(new Exit(node, null, $"the {end} of the open stair in the {room.Name}", flight.Stair.Width, room));
+            }
+
         // From each storey exit, walked: how far, and the way back toward it from each point.
         var count = nodes.Count;
         (double[] Distance, int[] Toward) From(IEnumerable<int> sources)
@@ -364,7 +448,25 @@ public static class HorizontalEscape
             : Kind.General;
 
         var travel = new Dictionary<Room, Travel>();
-        foreach (var room in walked)
+
+        // Small premises: Table 4.1 from any point to the nearest storey exit - 27 m on a ground storey with a single exit, 18 m on a basement
+        // or first storey with a single stair, 45 m on a storey with more than one - in place of Table 2.1 (4.3b, 4.6).
+        if (premises is { Small: true })
+        {
+            var groundStorey = Math.Abs(elevation - ground) <= 100;
+            var (limit, what) = exits.Count >= 2 ? (45000.0, "a storey with more than one exit or stair")
+                : groundStorey ? (27000.0, "a ground storey with a single exit")
+                : (18000.0, elevation < ground ? "a basement with a single stair" : "a first storey with a single stair");
+            foreach (var room in walked)
+            {
+                var points = grid[room];
+                if (points.Count == 0) continue;
+                travel[room] = new Travel(points.Max(node => nearest[node]), 0, limit, limit, $"small premises, {what}", points.All(node => !double.IsPositiveInfinity(nearest[node])), false,
+                    points.Any(twoWay.Contains), true);
+            }
+        }
+
+        foreach (var room in walked.Where(room => !travel.ContainsKey(room)))
         {
             var kind = KindOf(room);
             var (one, more, use) = Limits(group, kind);
@@ -469,7 +571,7 @@ public static class HorizontalEscape
             var exits = ExitsOf(document, room, links);
             said.Add($"{people} {(people == 1 ? "person" : "people")}, {how}; {exits.Count} exit{(exits.Count == 1 ? string.Empty : "s")}{(exits.Count > 0 ? $" {string.Join(", ", exits.Select(exit => $"{exit.Width:0}"))} clear" : string.Empty)}");
             var asked = ExitsFor(people);
-            if (exits.Count < asked)
+            if (exits.Count < asked && !travel.Small)
                 wanting.Add($"{exits.Count} exit{(exits.Count == 1 ? string.Empty : "s")} for {people} people - Approved Document B Volume 2 (2.9, Table 2.2) asks {(asked == 1 ? "one at least" : $"{asked} for more than {(asked == 3 ? 600 : 60)}")}");
             var taken = Taken(exits.Select(exit => exit.Width).ToList());
             if (exits.Count > 0 && taken < people)
@@ -482,18 +584,33 @@ public static class HorizontalEscape
         else
         {
             said.Add($"{travel.Nearest / 1000:0.0} m {to} at most{(travel.OneWay > 0.5 ? $", {travel.OneWay / 1000:0.0} m one way" : string.Empty)}");
-            var oneOver = travel.OneWay > travel.One + 0.5;
-            var moreOver = travel.Nearest > travel.More + 0.5 && travel.Nearest > travel.OneWay + 0.5;
+            if (travel.Small && travel.Nearest > travel.More + 0.5)
+                wanting.Add($"{travel.Nearest / 1000:0.0} m from a storey exit, walked - Approved Document B Volume 2 (4.6, Table 4.1) allows {travel.More / 1000:0} m from any point of {travel.Use[("small premises, ".Length)..]} in small premises to its nearest storey exit");
+            var oneOver = !travel.Small && travel.OneWay > travel.One + 0.5;
+            var moreOver = !travel.Small && travel.Nearest > travel.More + 0.5 && travel.Nearest > travel.OneWay + 0.5;
             var over = new[] { oneOver ? $"{travel.OneWay / 1000:0.0} m in one direction only" : null, moreOver ? $"{travel.Nearest / 1000:0.0} m {to} in all" : null }.OfType<string>().ToList();
             if (over.Count > 0)
                 wanting.Add($"{string.Join(" and ", over)}, walked - Approved Document B Volume 2 (Table 2.1{(travel.Within ? ", notes 2, 5" : ", 2.7, Diagram 2.1")}) allows {travel.One / 1000:0} m in one direction only and {travel.More / 1000:0} m where escape is possible in more than one, for {travel.Use}");
         }
 
+        if (travel.Small && Named(room, "store", "storage", "stock") && StoreShort(document, room, boundary) is { } store) wanting.Add(store);
         wanting.AddRange(InnerRoom(document, room, links, group));
         if (Circulation.IsCorridor(room, boundary.Polygon)) wanting.AddRange(Corridor(document, room, boundary.Polygon, travel, storey, links));
 
         var head = $"{char.ToUpperInvariant(travel.Use[0])}{travel.Use[1..]}{(said.Count > 0 ? $": {string.Join("; ", said)}" : string.Empty)}";
         return wanting.Count == 0 ? head : $"{head}; {string.Join("; ", wanting)}";
+    }
+
+    /// <summary>A store room of small premises not enclosed in fire resisting construction, REI 30, its doors too (4.5): said; null where it is.</summary>
+    private static string? StoreShort(BimDocument document, Room room, RoomBoundaryResult boundary)
+    {
+        var walls = boundary.BoundingWalls.Where(wall => document.GetWallType(wall) is { Function: not WallFunction.Exterior } type && !document.IsCurtainWall(wall) && Doors.FireMinutes(type.FireRating) < 30)
+            .Select(wall => document.GetWallType(wall)!.Name).Distinct().ToList();
+        var doors = boundary.BoundingWalls.SelectMany(wall => document.All<Door>().Where(door => door.HostWallId == wall.Id))
+            .Where(door => document.FindType<DoorType>(door.TypeId) is not { } type || Doors.FireMinutes(type.FireRating) < 30)
+            .Select(door => document.FindType<DoorType>(door.TypeId)?.Name ?? "a door").Distinct().ToList();
+        if (walls.Count == 0 && doors.Count == 0) return null;
+        return $"it is a store room, {string.Join(" and ", new[] { walls.Count > 0 ? $"its walls {string.Join(", ", walls)} less than 30 minutes" : null, doors.Count > 0 ? $"its doors {string.Join(", ", doors)} not 30 minute fire doors" : null }.OfType<string>())} - Approved Document B Volume 2 (4.5) asks store rooms of small premises enclosed in fire resisting construction, REI 30";
     }
 
     // --- Inner rooms (2.11) and corridors (2.24 to 2.28) ------------------------------------------
@@ -584,7 +701,7 @@ public static class HorizontalEscape
             var first = rooms.OrderBy(room => room.Number, StringComparer.Ordinal).ThenBy(room => room.Name, StringComparer.Ordinal).First();
             var name = document.FindLevel(storey.Level)?.Name ?? "storey";
             var asked = ExitsFor(people);
-            if (storey.Exits.Count < asked)
+            if (storey.Exits.Count < asked && !SmallPremises(document).Small)
                 yield return new EscapeProblem(first, $"the {name} holds {people} people and has {storey.Exits.Count} storey exit{(storey.Exits.Count == 1 ? string.Empty : "s")} - Approved Document B Volume 2 (2.3, 2.9, Table 2.2) asks {asked}: final exits, or doors into protected stairs");
             var taken = Taken(storey.Exits.Select(exit => exit.Width).ToList());
             if (storey.Exits.Count > 0 && taken < people)

@@ -72,6 +72,27 @@ public sealed class ParameterRow : INotifyPropertyChanged
     /// <summary>Whether the elements the row stands for have different values.</summary>
     public bool Varies => _parameters.Skip(1).Any(p => p.DisplayValue != _parameter.DisplayValue);
 
+    /// <summary>
+    /// The value as read once - whether the elements differ, and what is shown - kept until the row is written: the panel is built afresh
+    /// after any change to the model, so a verdict that walks the whole building is worked out once, not each time WPF asks for it.
+    /// </summary>
+    private (bool Varies, string Shown, object? Value)? _read;
+
+    private (bool Varies, string Shown, object? Value) Read() => _read ??= Varies ? (true, string.Empty, null) : (false, _parameter.DisplayValue, _parameter.Value);
+
+    /// <summary>Reads the value now - with the rows round it, while what they share is kept (round 122); left to be read later if it fails.</summary>
+    public void Prime()
+    {
+        try
+        {
+            _ = Read();
+        }
+        catch (Exception)
+        {
+            _read = null;
+        }
+    }
+
     /// <summary>Rendered as a dropdown of allowed values.</summary>
     public bool IsChoice => !IsReadOnly && _parameter.AllowedValues is { Count: > 0 };
 
@@ -90,7 +111,7 @@ public sealed class ParameterRow : INotifyPropertyChanged
     /// </summary>
     public string Text
     {
-        get => Varies ? string.Empty : _parameter.DisplayValue;
+        get => Read().Shown;
         set
         {
             if (value == Text) return;
@@ -100,7 +121,7 @@ public sealed class ParameterRow : INotifyPropertyChanged
 
     public string? SelectedChoice
     {
-        get => Varies ? null : _parameter.DisplayValue;
+        get => Read().Varies ? null : Read().Shown;
         set
         {
             if (value is null || value == SelectedChoice) return;
@@ -111,7 +132,7 @@ public sealed class ParameterRow : INotifyPropertyChanged
     /// <summary>Ticked, clear, or neither when the elements differ.</summary>
     public bool? Flag
     {
-        get => Varies ? null : _parameter.Value is true;
+        get => Read().Varies ? null : Read().Value is true;
         set
         {
             if (value is not { } flag || value == Flag) return;
@@ -136,6 +157,7 @@ public sealed class ParameterRow : INotifyPropertyChanged
                 changes.Add((parameter, oldValue, parameter.Value));
         }
 
+        _read = null;
         OnPropertyChanged(nameof(Text));
         OnPropertyChanged(nameof(SelectedChoice));
         OnPropertyChanged(nameof(Flag));

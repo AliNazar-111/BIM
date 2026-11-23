@@ -313,7 +313,7 @@ sketch's slope symbols only show while editing the sketch.
 | **Align Eaves** | ✅ | Eave heights shown beside each line; click the reference, then the eaves to match, by Adjust Height (plate) or Adjust Overhang (picked lines) |
 | **Roof by Extrusion** | ✅ | Placed in plan with three clicks, the profile drawn square-on in its own window from a gable, gambrel, barrel vault, shed, butterfly or flat start; Edit Profile or a double-click reopens it. Clicks lock onto wall corners; arcs are true arcs, smooth in 3D; walls under it are offered attachment; the ends are cut plumb. See R7 |
 | Roof by Face | ✅ | Site tab → Model by Face → Roof by Face, clicking a mass in plan or 3D: its top made a roof of the chosen type at its height - flat; pitched up every side to a smaller top or to a point on a tapered mass, a cone on a round one; gable, hip or shed as its top slopes. Update to Face brings it back when the mass changes. Masses are simple forms (box, cylinder, outline; flat, tapered, gable, hip, shed), not free-form |
-| Sloped Glazing | ⬜ | Curtain system exists for walls only |
+| Sloped Glazing | ✅ | A roof type with **Sloped Glazing** ticked lays each face in glass between glazing bars up and across it, in its own slope (round 62). Not yet: openings cut square to the slope, fascias and soffits |
 | **Attach wall tops to a pitched roof** (gable ends) | ✅ | The wall's top follows the roof's underside along its length: gables fill to the ridge, eave walls stay at the plate; solid, plan, section, openings and quantities follow. Finishing a roof from picked walls asks to attach them. Curtain walls follow it too: the grid is set out to the full height and cut off along the roof, the panes shaped to it and a mullion run up the rake. Curved, leaning and stacked walls keep a level top |
 | Join/Unjoin Roof | ✅ | Click the edge to carry back, then the roof it runs into: carried back until buried in it and trimmed there - whole where clear above, standing on its top where partly in it, gone beneath. Plan shows it only where it is above; click a joined roof's edge to unjoin |
 | Roof windows (Revit's skylights, hosted by the roof) | ✅ | Clicked onto a slope in plan or 3D: lined up with the face under the click, the roof cut away under it, the frame standing up out of the roof round a pane in the slope. Types for centre-pivot, top-hung escape and fixed rooflights; size, frame, upstand and materials can also be set on one window alone, over its type's. Refused over a ridge, hip or valley, off the edge or over another opening. Moves, copies and deletes with its roof; plan, 3D, section, IFC (IfcWindow, SKYLIGHT). The hole is cut straight down, the frame's sides straight up with it |
@@ -498,7 +498,7 @@ What was built, and where it differs from Revit:
 
 - Shape editing of flat roofs (points, split lines, reset) for drainage falls ✅ (round 24; supports not done).
 - Conical roofs from slope-defining arcs ✅ (the Circle and Arc tools), and faceting by segment count.
-- Sloped glazing (curtain roof) ⬜.
+- Sloped glazing (curtain roof) ✅ (round 62; openings square to the slope, fascias and soffits not done).
 - Roof by face (needs masses) ✅ (round 2).
 - Room bounding by roofs ✅ (by extrusion too since round 24).
 

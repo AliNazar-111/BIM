@@ -291,7 +291,8 @@ public static class Heating
                 yield return new MepProblem(source, type.Form == ComponentForm.HeatPump
                     ? $"it gives {Units.Watts(type.HeatOutput, "#,0")} against a heat load of {Units.Watts(load, "#,0")} at the design temperature - the rest wants supplementary heat, as ACCA Manual S sizes it (IRC M1401.3)"
                     : $"it gives {Units.Watts(type.HeatOutput, "#,0")} against a heat load of {Units.Watts(load, "#,0")} - the IRC (M1401.3) sizes heating equipment by ACCA Manual S to the house's heat load");
-            else if (type.HeatOutput < load - 0.5)
+            // A home's heating, by Approved Document L Volume 1 and MCS MIS 3005-D: a building other than a dwelling's not sized here (round 118).
+            else if (type.HeatOutput < load - 0.5 && Domestic.Rules(document))
                 yield return new MepProblem(source, type.Form == ComponentForm.HeatPump
                     ? $"it gives {type.HeatOutput:#,0} W against a heat load of {load:#,0} W - MCS MIS 3005-D (5.5.1 e) and Approved Document L (5.12) select a heat pump to give the whole of the heat load at the design temperature, with no supplementary electric heater"
                     : $"it gives {type.HeatOutput:#,0} W against a heat load of {load:#,0} W - Approved Document L (5.8) bases a heating system on the dwelling's heat loss");

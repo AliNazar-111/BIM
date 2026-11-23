@@ -121,7 +121,7 @@ public static class StairFixes
     {
         var standard = document.ProjectInformation.ClearanceStandard;
         var us = standard.IsUs();
-        var house = us || stair.Use == StairUse.Private;
+        var house = us || Stairs.UseOf(document, stair) == StairUse.Private;
         var problems = Stairs.Problems(document, stair);
         var count = changes.Count;
         bool Has(string text) => problems.Any(problem => problem.Contains(text, StringComparison.Ordinal));
@@ -153,7 +153,7 @@ public static class StairFixes
             Set(type.HandrailExtension, extension, v => type.HandrailExtension = v, $"handrails run on {Units.Bare(extension)} past its ends");
         if (Has("Its guarding is"))
         {
-            var guard = standard == ClearanceStandard.Ada && stair.Use != StairUse.Private ? 1070.0 : us ? 920.0 : house ? 900.0 : 1100.0;
+            var guard = standard == ClearanceStandard.Ada && Stairs.UseOf(document, stair) != StairUse.Private ? 1070.0 : us ? 920.0 : house ? 900.0 : 1100.0;
             Set(type.GuardHeight, guard, v => type.GuardHeight = v, $"guarding {Units.Bare(guard)} high where level");
         }
         if (Has("balusters are")) Set(type.BalusterSpacing, 120.0, v => type.BalusterSpacing = v, $"balusters {Units.Bare(120)} apart");
@@ -175,7 +175,7 @@ public static class StairFixes
 
         // Its width: as wide as it must be.
         var layout = Stairs.Layout(document, stair);
-        var wide = Has("wide:") || Has("between handrails") || Has("landings are") ? WidthWanted(stair, layout, standard) : stair.Width;
+        var wide = Has("wide:") || Has("between handrails") || Has("landings are") ? WidthWanted(document, stair, layout, standard) : stair.Width;
         if (Has("winders' going")) wide = Math.Max(wide, 860);
         if (wide > stair.Width + 0.5) Set(stair.Width, wide, v => stair.Width = v, $"{Units.Bare(wide)} wide");
 
@@ -225,13 +225,13 @@ public static class StairFixes
     }
 
     /// <summary>How wide a stair must be: the IRC's 36 in; a spiral's 800 (26 in under the IRC); 1000 between handrails, and landings 1200 long, on a stair other than a house's.</summary>
-    private static double WidthWanted(Stair stair, StairLayout layout, ClearanceStandard standard)
+    private static double WidthWanted(BimDocument document, Stair stair, StairLayout layout, ClearanceStandard standard)
     {
-        if (standard == ClearanceStandard.Ada && stair.Use != StairUse.Private && layout.Shape is not (StairShape.Spiral or StairShape.AlternatingTread or StairShape.Ladder))
+        if (standard == ClearanceStandard.Ada && Stairs.UseOf(document, stair) != StairUse.Private && layout.Shape is not (StairShape.Spiral or StairShape.AlternatingTread or StairShape.Ladder))
             return Math.Max(stair.Width, 1118);
         if (standard.IsUs()) return Math.Max(stair.Width, layout.Shape == StairShape.Spiral ? 660 : stair.Shape is StairShape.AlternatingTread or StairShape.Ladder ? 510 : 920);
         if (layout.Shape == StairShape.Spiral) return Math.Max(stair.Width, 800);
-        return stair.Use == StairUse.Private ? stair.Width : Math.Max(stair.Width, 1200);
+        return Stairs.UseOf(document, stair) == StairUse.Private ? stair.Width : Math.Max(stair.Width, 1200);
     }
 
     /// <summary>
@@ -246,7 +246,7 @@ public static class StairFixes
         var us = standard.IsUs();
 
         // Rise, going, pitch and 2R+G: as the stair is for, and what it is.
-        var (riseLeast, riseMost, goingLeast, goingMost, pitchMost, twiceLeast, twiceMost) = (stair.Shape, stair.Use, us) switch
+        var (riseLeast, riseMost, goingLeast, goingMost, pitchMost, twiceLeast, twiceMost) = (stair.Shape, Stairs.UseOf(document, stair), us) switch
         {
             (StairShape.Spiral, _, true) => (100.0, 241.0, 171.0 * (layout.InnerRadius + layout.Width / 2) / (layout.InnerRadius + Math.Min(305, layout.Width)), 1000.0, 90.0, 0.0, 9999.0),
             (StairShape.Spiral, _, false) => (170.0, 220.0, Math.Max(190, 120 * (layout.InnerRadius + layout.Width / 2) / (layout.InnerRadius + Math.Min(270, layout.Width / 2))), 1000.0, 90.0, 0.0, 9999.0),
@@ -260,7 +260,7 @@ public static class StairFixes
         };
 
         // A house's stair outside: goings of 280 at least.
-        if (!us && stair.Outside && stair.Use == StairUse.Private && stair.Shape is not (StairShape.Spiral or StairShape.AlternatingTread or StairShape.Ladder))
+        if (!us && stair.Outside && Stairs.UseOf(document, stair) == StairUse.Private && stair.Shape is not (StairShape.Spiral or StairShape.AlternatingTread or StairShape.Ladder))
             goingLeast = Math.Max(goingLeast, 280);
 
         (int Risers, double Going)? best = null;

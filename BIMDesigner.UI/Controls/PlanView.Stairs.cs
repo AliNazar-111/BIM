@@ -94,7 +94,8 @@ public partial class PlanView
             Corner = NewStairCorner,
             TurnsLeft = NewStairTurnsLeft,
             Width = NewStairWidth,
-            InnerRadius = NewStairInnerRadius
+            InnerRadius = NewStairInnerRadius,
+            Use = Document is null ? StairUse.Private : Stairs.UseFor(Document, levelId, start)
         };
     }
 

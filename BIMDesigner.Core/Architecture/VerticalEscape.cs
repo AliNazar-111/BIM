@@ -40,14 +40,14 @@ public static class VerticalEscape
     }
 
     /// <summary>A stair as found: its rooms storey by storey, its flights, its narrowest width, the levels above the ground it serves, and its foot.</summary>
-    public sealed record StairStack(IReadOnlyList<Room> Rooms, double Width, IReadOnlyList<Guid> Upper, Room Foot, bool Basement);
+    public sealed record StairStack(IReadOnlyList<Room> Rooms, double Width, IReadOnlyList<Guid> Upper, Room Foot, bool Basement, Point2D FootAt = default);
 
     /// <summary>The building's stairs, each its rooms joined by flights, kept while the model does not change.</summary>
     public static IReadOnlyList<StairStack> Stairs(BimDocument document)
     {
         IReadOnlyList<StairStack> Work()
         {
-            var outlines = document.All<Room>().Select(room => (Room: room, Boundary: room.GetBoundary(document)))
+            var outlines = document.All<Room>().Where(room => !MixedUse.Home(document, room)).Select(room => (Room: room, Boundary: room.GetBoundary(document)))
                 .Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToDictionary(entry => entry.Room, entry => (IReadOnlyList<Point2D>)entry.Boundary.Polygon);
             var flights = Escape.Flights(document, outlines).Where(flight => flight.Foot is not null && flight.Head is not null).ToList();
             if (flights.Count == 0) return Array.Empty<StairStack>();
@@ -59,7 +59,9 @@ public static class VerticalEscape
                 var width = flights.Where(flight => rooms.Contains(flight.Foot!)).Select(flight => flight.Stair.Width).DefaultIfEmpty(0).Min();
                 var upper = ordered.Where(room => Elevation(room) > ground + 100).Select(room => room.LevelId).Distinct().ToList();
                 var foot = ordered.FirstOrDefault(room => Math.Abs(Elevation(room) - ground) <= 100) ?? ordered[0];
-                return new StairStack(ordered, width, upper, foot, ordered.Any(room => Elevation(room) < ground - Escape.Basement - 0.5));
+                var at = flights.Where(flight => flight.Foot == foot).Select(flight => flight.FootAt)
+                    .Concat(flights.Where(flight => flight.Head == foot).Select(flight => flight.HeadAt)).FirstOrDefault();
+                return new StairStack(ordered, width, upper, foot, ordered.Any(room => Elevation(room) < ground - Escape.Basement - 0.5), at);
             }).ToList();
         }
 
@@ -90,8 +92,12 @@ public static class VerticalEscape
         var serving = stairs.Where(other => other.Upper.Intersect(upper).Any()).ToList();
         var only = serving.Count == 1;
 
+        // Small premises: a single stair allowed (4.7), an open one by 4.8 (round 124).
+        var premises = HorizontalEscape.SmallPremises(document);
+        var openStair = stair.Rooms.Any(room => HorizontalEscape.OpenStairRoom(document, room));
+
         // One stair only where 3.3 allows it.
-        if (only && upper.Count > 0)
+        if (only && upper.Count > 0 && !premises.Small)
         {
             var storeys = HorizontalEscape.Storeys(document);
             bool OneWay(Guid level) => storeys.TryGetValue(level, out var storey) && storey.Rooms.Values.All(travel => travel.Reached && travel.Nearest <= travel.One + 0.5);
@@ -132,7 +138,28 @@ public static class VerticalEscape
         var doors = links.Where(link => stair.Rooms.Contains(link.Room) && link.Other is { } beyond && !stair.Rooms.Contains(beyond))
             .Where(link => document.FindType<DoorType>(link.Door.TypeId) is not { } type || Doors.FireMinutes(type.FireRating) < 30 || !type.SelfClosing)
             .Select(link => document.FindType<DoorType>(link.Door.TypeId)?.Name ?? "a door").Distinct().ToList();
-        if (walls.Count > 0 || doors.Count > 0)
+        if (openStair && !premises.Small)
+            wanting.Add($"it stands open in the {string.Join(", the ", stair.Rooms.Where(room => HorizontalEscape.OpenStairRoom(document, room)).Select(room => $"{room.Name} on the {Called(room.LevelId)}").Distinct())}, not in an enclosure of its own - Approved Document B Volume 2 (3.23) asks every internal escape stair to be a protected stairway, REI 30, its doors E 30 Sa; an open stair only where travel and the people are very limited, as in small premises (Section 4, 4.8)");
+        else if (openStair)
+        {
+            // An open stair in small premises (4.8): two storeys at most, entering the ground storey 3 m from the final exit, not a bar or
+            // restaurant, and another protected stairway serving the storey, or the only stair with no storey over 90 m².
+            var levels = stair.Rooms.Select(room => room.LevelId).Distinct().ToList();
+            var outDoors = links.Where(link => link.Room.LevelId == stair.Foot.LevelId && link.Other is null && link.Outside).Select(link => link.Inside).ToList();
+            var toExit = outDoors.Count == 0 ? double.PositiveInfinity : outDoors.Min(point => point.DistanceTo(stair.FootAt));
+            var protectedToo = stairs.Any(other => !ReferenceEquals(other, stair) && !other.Rooms.Any(room => HorizontalEscape.OpenStairRoom(document, room))
+                                                   && other.Rooms.Select(room => room.LevelId).Intersect(levels).Any());
+            var largest = levels.Max(level => document.All<Room>().Where(room => room.LevelId == level && room.GetBoundary(document) is { IsEnclosed: true }).Sum(room => room.GetBoundary(document).Area) / 1e6);
+            var short_ = new List<string>();
+            if (levels.Count > 2) short_.Add($"it connects {levels.Count} storeys, where 4.8a allows two");
+            if (toExit > 3000 + 0.5) short_.Add(double.IsPositiveInfinity(toExit) ? "no final exit on the ground storey it enters (4.8b)" : $"it enters the ground storey {toExit / 1000:0.0} m from the final exit, where 4.8b allows 3 m");
+            if (premises.BarOrRestaurant) short_.Add("the premises are a bar or restaurant (4.8c)");
+            if (!protectedToo && !(only && largest <= HorizontalEscape.OpenStairStorey + 1e-6))
+                short_.Add($"no protected stairway serves the storey too, and {(only ? $"a storey is {largest:0} m², over the 90 m² a single open stair allows" : "it is not the only stair")} (4.8d)");
+            if (short_.Count > 0)
+                wanting.Add($"it is an open stair in small premises: {string.Join("; ", short_)} - Approved Document B Volume 2 (4.8) allows one only where all four hold, else a protected stairway (3.23)");
+        }
+        else if (walls.Count > 0 || doors.Count > 0)
             wanting.Add($"it is not a protected stairway: {string.Join(" and ", new[] { walls.Count > 0 ? $"its walls {string.Join(", ", walls)} less than 30 minutes" : null, doors.Count > 0 ? $"its doors {string.Join(", ", doors)} not E 30 Sa with closers" : null }.OfType<string>())} - Approved Document B Volume 2 (3.23, Tables B1, C1) asks every internal escape stair enclosed in fire-resisting construction, REI 30, its doors E 30 Sa fire doorsets, self-closing");
 
         // Protected lobbies or corridors at every storey above the ground but the top, where it is the only stair over more than one storey or one 18 m up (3.34).
@@ -145,7 +172,7 @@ public static class VerticalEscape
         }
 
         // A refuge at every storey it serves but the ground: a wheelchair space 900 by 1400 in it, or in a lobby or corridor opening into it (3.4 to 3.6).
-        var without = stair.Rooms.Where(room => !ReferenceEquals(room, stair.Foot) && Math.Abs(Above(room.LevelId)) > 100 && People(document, room.LevelId, group) > 0 && !Refuge(document, stair, room, links))
+        var without = stair.Rooms.Where(room => !openStair && !ReferenceEquals(room, stair.Foot) && Math.Abs(Above(room.LevelId)) > 100 && People(document, room.LevelId, group) > 0 && !Refuge(document, stair, room, links))
             .Select(room => Called(room.LevelId)).Distinct().ToList();
         if (without.Count > 0)
             wanting.Add($"no refuge by it on the {string.Join(", the ", without)} - Approved Document B Volume 2 (3.4 to 3.6) asks one at every storey of each protected stairway that is an exit from it, 900 by 1400, reachable in a wheelchair, in it or in a protected lobby or corridor opening into it, with its emergency voice communication (3.7): place a wheelchair space there");
@@ -153,7 +180,8 @@ public static class VerticalEscape
         // To a final exit at its foot (3.36).
         IEnumerable<Door> Out(Room room) => links.Where(link => link.Room == room && link.Other is null && link.Outside).Select(link => link.Door);
         var finals = Out(stair.Foot).Concat(links.Where(link => link.Room == stair.Foot && link.Other is { } next && !stair.Rooms.Contains(next)).SelectMany(link => Out(link.Other!))).Distinct().ToList();
-        if (finals.Count == 0)
+        if (openStair) { }
+        else if (finals.Count == 0)
             wanting.Add($"its foot, the {stair.Foot.Name}, has no final exit - Approved Document B Volume 2 (3.36) asks every protected stairway to lead to a final exit, straight out or through an exit passageway");
         else
         {

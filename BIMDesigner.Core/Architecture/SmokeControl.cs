@@ -38,7 +38,7 @@ public static partial class Escape
     {
         var (document, links) = (plan.Document, plan.Links);
         if (!homes.Any(home => home.Rooms.Max(plan.Above) > High + 0.5)) yield break;
-        var common = plan.Outlines.Keys.Where(room => Dwellings.Of(room).Length == 0).ToHashSet();
+        var common = plan.Outlines.Keys.Where(room => MixedUse.Common(plan.Document, room)).ToHashSet();
         var flights = plan.Flights.Where(flight => flight.Foot is { } foot && common.Contains(foot) && flight.Head is { } head && common.Contains(head)).ToList();
         if (flights.Count == 0) yield break;
 

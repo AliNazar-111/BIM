@@ -20,9 +20,16 @@ public sealed class NewProjectSteps : Grid
 {
     public static readonly string[] Steps = { "Template", "Project", "Site", "Storeys", "Save" };
 
-    /// <summary>What a project can say the building is: its imposed loads, fire resistance and consequence class go by it.</summary>
+    /// <summary>
+    /// What a project can say the building is: its imposed loads, fire resistance and consequence class go by it, and a building other than a
+    /// home its purpose group by Approved Document B Volume 2's Table 0.1 - a shop or restaurant 4, a hotel or hostel 2(b), a care home or
+    /// hospital 2(a), a school, library, theatre or sports centre 5, a factory 6, a warehouse 7; anything else other than a home an office's.
+    /// </summary>
     public static readonly string[] BuildingTypes =
-        { "Detached house", "Semi-detached house", "Terraced house", "Bungalow", "Flat", "Office", "Extension", "Other" };
+    {
+        "Detached house", "Semi-detached house", "Terraced house", "Bungalow", "Flat", "Extension", "Office", "Shop", "Restaurant", "Hotel", "Hostel",
+        "Care home", "Hospital", "School", "Library", "Theatre", "Sports centre", "Factory", "Warehouse", "Other"
+    };
 
     private ProjectTemplate _template = ProjectTemplate.EnglandHouse;
     private readonly List<RadioButton> _templates = new();

@@ -43,7 +43,7 @@ public static class FireSeparation
         if (!outlines.Keys.Any(room => Dwellings.Of(room).Length > 0)) return null;
 
         // Common parts a flat's door opens into, or one dwelling over another.
-        var common = outlines.Keys.Where(room => Dwellings.Of(room).Length == 0).ToHashSet();
+        var common = outlines.Keys.Where(room => MixedUse.Common(document, room)).ToHashSet();
         var links = Escape.Links(document, outlines.Keys.ToHashSet());
         var entered = links.Any(link => Dwellings.Of(link.Room).Length > 0 && link.Other is { } other && common.Contains(other));
         double Floor(Room room) => document.FindLevel(room.LevelId)?.Elevation ?? 0;

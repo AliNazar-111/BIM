@@ -90,7 +90,7 @@ public static partial class EscapeRoutes
         IReadOnlySet<Door> Work()
         {
             var finals = HorizontalEscape.Storeys(document).Values.SelectMany(storey => storey.Exits).Where(exit => exit.What.StartsWith("a final exit", StringComparison.Ordinal))
-                .Select(exit => exit.Door).Distinct().ToList();
+                .Select(exit => exit.Door).OfType<Door>().Distinct().ToList();
             var approached = finals.Where(door => Approaches.IsApproachedEntrance(document, door)).ToHashSet();
             if (approached.Count > 0) return approached;
             bool Called(Door door) => new[] { "entrance", "main", "front" }.Any(word =>
@@ -215,7 +215,7 @@ public static partial class EscapeRoutes
     /// </summary>
     public static string? Lighting(BimDocument document, Room room)
     {
-        if (!Applies(document) || room.GetBoundary(document) is not { IsEnclosed: true } boundary || boundary.Polygon.Count < 3) return null;
+        if (!Applies(document) || MixedUse.Home(document, room) || room.GetBoundary(document) is not { IsEnclosed: true } boundary || boundary.Polygon.Count < 3) return null;
         var outline = boundary.Polygon;
         var group = HorizontalEscape.Purpose(document);
         var area = Polygon2D.Area(outline) / 1e6;

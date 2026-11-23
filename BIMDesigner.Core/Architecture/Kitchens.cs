@@ -68,6 +68,9 @@ public static class Kitchens
     {
         if (document.FindType<ComponentType>(piece.TypeId) is not { } type) return Array.Empty<PlacementProblem>();
 
+        // A home's kitchen planning - the NKBA's guidelines, housing standards' worktop - not a staff kitchen's or a café's (round 118).
+        if (!Domestic.Rules(document, piece)) return Array.Empty<PlacementProblem>();
+
         var us = standard.IsUs();
         var footprint = ComponentModel.Footprint(type, ComponentModel.FrameOf(piece, 0));
         var problems = new List<PlacementProblem>();
@@ -234,6 +237,9 @@ public static class Kitchens
     {
         var boundary = room.GetBoundary(document);
         if (!boundary.IsEnclosed || boundary.Polygon.Count < 3) return null;
+
+        // A home's kitchen: a staff kitchen's extract is Approved Document F Volume 2's, said with its services (round 118).
+        if (!Domestic.Rules(document, room)) return null;
 
         var standard = document.ProjectInformation.ClearanceStandard;
         var pieces = document.All<Component>()

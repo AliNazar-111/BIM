@@ -54,7 +54,7 @@ public static class FireCompartments
         var (_, top) = FireDesign.HeightOf(document);
         if (top > 30 + 1e-6) return "every floor a compartment floor, the top storey more than 30 m up (8.11b)";
         var lowest = document.Levels.Select(each => each.Elevation).DefaultIfEmpty(0).Min();
-        if (Math.Abs(level - ground) <= 100 && lowest < ground - Escape.Basement - 0.5) return "the ground storey's floor over a basement a compartment floor (8.11c)";
+        if (Math.Abs(level - ground) <= 100 && lowest < ground - Escape.Basement - 0.5 && !HorizontalEscape.SmallPremises(document).Small) return "the ground storey's floor over a basement a compartment floor (8.11c)";
         if (level < ground - 100 && lowest < ground - 10000 - 0.5 && level > lowest + 100) return "a basement's floor a compartment floor, a basement more than 10 m deep (8.11d)";
         return null;
     }
@@ -65,7 +65,7 @@ public static class FireCompartments
     /// </summary>
     public static IReadOnlyList<(List<Room> Rooms, double Area)> Compartments(BimDocument document, Guid level, int minutes)
     {
-        var rooms = document.All<Room>().Where(room => room.LevelId == level).Select(room => (Room: room, Boundary: room.GetBoundary(document)))
+        var rooms = document.All<Room>().Where(room => room.LevelId == level && !MixedUse.Home(document, room)).Select(room => (Room: room, Boundary: room.GetBoundary(document)))
             .Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToDictionary(entry => entry.Room, entry => entry.Boundary.Polygon);
         var parent = rooms.Keys.ToDictionary(room => room, room => room);
         Room Find(Room room)

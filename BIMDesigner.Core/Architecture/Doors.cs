@@ -244,14 +244,29 @@ public static class Doors
                     ? "IRC R308.4.1 makes all glass in a door a hazardous location: tempered or laminated safety glazing."
                     : "Approved Document K (5.1, Diagram 5.1) makes glass in a door below 1500 a critical location: safety glass to BS EN 12600, class 3 at least.");
 
-        if (!standard.IsUs() && external && type.HeatTransferCoefficient > 1.6 + 0.005)
-            Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.",
-                "Approved Document L (Table 4.1) limits an external door in a new dwelling to a U-value of 1.6 W/m²K.");
+        if (!standard.IsUs() && external && UValueLimit(document, door, type) is var (limit, heat) && type.HeatTransferCoefficient > limit + 0.005)
+            Add($"its U-value is {type.HeatTransferCoefficient:0.0#}.", heat);
 
         // The entrance an approach path comes to: its landing outside, level and covered.
         foreach (var (said, rule) in Approaches.EntranceProblems(document, door, standard)) Add(said, rule);
 
         return problems;
+    }
+
+    /// <summary>
+    /// The most heat an external door may let out, W/m²K, and the rule: a dwelling's 1.6 (Approved Document L Table 4.1); in a building other than
+    /// a dwelling by Volume 2's Table 4.1 - a vehicle access door or one as large 1.3, a high-usage entrance door 3.0, an external fire doorset
+    /// 1.8 (note 14), any other pedestrian door 1.6 (round 118). A high-usage entrance door is one many people go through, powered or robust
+    /// (Appendix A): taken as a revolving or power-operated one.
+    /// </summary>
+    public static (double Limit, string Said) UValueLimit(BimDocument document, Door door, DoorType type)
+    {
+        if (Domestic.Rules(document, door)) return (1.6, "Approved Document L (Table 4.1) limits an external door in a new dwelling to a U-value of 1.6 W/m²K.");
+        var (limit, what) = type.Operation == DoorOperation.Overhead ? (1.3, "a vehicle access door, or a similar large door,")
+            : type.Operation == DoorOperation.Revolving || type.Automatic ? (3.0, "a high-usage entrance door")
+            : FireMinutes(type.FireRating) > 0 ? (1.8, "an external fire doorset (note 14)")
+            : (1.6, "a pedestrian door");
+        return (limit, $"Approved Document L Volume 2 (Table 4.1) limits {what} of a new building other than a dwelling to a U-value of {limit:0.0} W/m²K.");
     }
 
     /// <summary>A fact about the whole building, the same for every door: while the model is drawn, found once.</summary>

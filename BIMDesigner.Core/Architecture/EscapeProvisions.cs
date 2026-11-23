@@ -254,7 +254,7 @@ public static partial class EscapeRoutes
     public static IReadOnlyList<string> RoomWanting(BimDocument document, Room room)
     {
         var wanting = new List<string>();
-        if (!Applies(document)) return wanting;
+        if (!Applies(document) || MixedUse.Home(document, room)) return wanting;
         if (LightingWanting(document, room) is { } dark) wanting.Add(dark);
         wanting.AddRange(RefuseProblems(document, room));
         return wanting;

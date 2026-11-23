@@ -1595,6 +1595,17 @@ public static class Stairs
 
     public static StairType TypeOf(BimDocument document, Stair stair) => document.FindType<StairType>(stair.TypeId) ?? Fallback;
 
+    /// <summary>
+    /// What a stair is for as its checks take it: one set private - within one dwelling, as Approved Document K defines it - standing in a
+    /// building other than a dwelling, not in a room named into one, is that building's general access stair. The US keeps what is set.
+    /// </summary>
+    public static StairUse UseOf(BimDocument document, Stair stair) =>
+        stair.Use == StairUse.Private && !Domestic.Rules(document, RoomsOf.Containing(document, stair.LevelId, stair.Start)) ? StairUse.GeneralAccess : stair.Use;
+
+    /// <summary>The use a stair drawn at a place is given: private in a home's building or a room named into a dwelling, else general access.</summary>
+    public static StairUse UseFor(BimDocument document, Guid levelId, Point2D at) =>
+        Domestic.Rules(document, RoomsOf.Containing(document, levelId, at)) ? StairUse.Private : StairUse.GeneralAccess;
+
     /// <summary>How far above or below its level a floor, deck or terrace may be and still be the one a stair stands on or comes up to there, mm.</summary>
     public const double FloorReach = 600;
 
@@ -2143,7 +2154,7 @@ public static class Stairs
             problems.AddRange(SteepProblems(stair, type, layout, standard));
         else if (layout.Shape == StairShape.Spiral)
             problems.AddRange(SpiralProblems(layout, standard));
-        else if (standard == ClearanceStandard.Ada && stair.Use != StairUse.Private)
+        else if (standard == ClearanceStandard.Ada && Stairs.UseOf(document, stair) != StairUse.Private)
         {
             // A stair in a building other than a home, as the ADA has it (504, 505) - and the IBC as wide as an exit stair.
             if (rise > 178 + 0.5) problems.Add($"Each riser is {Units.Bare(rise)}: the ADA allows {Units.Figure("178", "7 in")} at most (504.2).");
@@ -2188,20 +2199,25 @@ public static class Stairs
         }
         else
         {
-            // As Approved Document K's Table 1.1 has it for what the stair is for.
-            var (use, (riseLeast, riseMost, goingLeast, goingMost)) = (UseName(stair.Use), RiseAndGoing(stair.Use));
-            if (rise > riseMost + 0.5) problems.Add($"Each riser is {rise:0}: Approved Document K allows {riseMost:0} at most on {use}.");
-            if (rise < riseLeast - 0.5) problems.Add($"Each riser is {rise:0}: Approved Document K asks for {riseLeast:0} at least on {use}.");
+            // As Approved Document K's Table 1.1 has it for what the stair is for - outside a building other than a dwelling, Approved
+            // Document M Volume 2's 1.33 instead, which takes precedence over Part K (round 123).
+            var external = External(document, stair);
+            var (use, (riseLeast, riseMost, goingLeast, goingMost)) = external
+                ? ("external steps to a building other than a dwelling", (150.0, 170.0, 280.0, 425.0))
+                : (UseName(Stairs.UseOf(document, stair)), RiseAndGoing(Stairs.UseOf(document, stair)));
+            var book = external ? "Approved Document M Volume 2 (1.33l, m)" : "Approved Document K";
+            if (rise > riseMost + 0.5) problems.Add($"Each riser is {rise:0}: {book} allows {riseMost:0} at most on {use}.");
+            if (rise < riseLeast - 0.5) problems.Add($"Each riser is {rise:0}: {book} asks for {riseLeast:0} at least on {use}.");
             // A house's stair outside: goings of 280 at least.
-            var outside = stair.Outside && stair.Use == StairUse.Private;
+            var outside = stair.Outside && Stairs.UseOf(document, stair) == StairUse.Private;
             foreach (var (going, where) in MeasuredGoings(layout, standard))
             {
                 var said = where == "" ? $"Each going is {going:0}" : $"Its going {where} is {going:0}";
                 var pitch = Math.Atan2(rise, going) * 180 / Math.PI;
                 if (outside && going < 280 - 0.5) problems.Add($"{said}: Approved Document K asks for 280 at least on a house's stair outside.");
-                else if (going < goingLeast - 0.5) problems.Add($"{said}: Approved Document K asks for {goingLeast:0} at least on {use}.");
-                if (going > goingMost + 0.5) problems.Add($"{said}: Approved Document K allows {goingMost:0} at most on {use}.");
-                if (stair.Use == StairUse.Private && pitch > 42 + 0.05) problems.Add($"It is pitched at {pitch:0.0}°{(where == "" ? "" : " " + where)}: Approved Document K allows 42° at most on a private stair.");
+                else if (going < goingLeast - 0.5) problems.Add($"{said}: {book} asks for {goingLeast:0} at least on {use}.");
+                if (going > goingMost + 0.5) problems.Add($"{said}: {book} allows {goingMost:0} at most on {use}.");
+                if (Stairs.UseOf(document, stair) == StairUse.Private && pitch > 42 + 0.05) problems.Add($"It is pitched at {pitch:0.0}°{(where == "" ? "" : " " + where)}: Approved Document K allows 42° at most on a private stair.");
                 var twice = 2 * rise + going;
                 if (twice < 550 - 0.5 || twice > 700 + 0.5) problems.Add($"Twice the rise plus the going{(where == "" ? "" : " " + where)} is {twice:0}: Approved Document K asks for 550 to 700.");
             }
@@ -2211,7 +2227,8 @@ public static class Stairs
             if (layout.Shape == StairShape.Curved && narrowest is { } inside && inside < 50 - 0.5) problems.Add($"Its treads are {inside:0} at their narrow end: Approved Document K asks for 50.");
             if (layout.WidestFlight >= 1000 && stair.Railings is StairRailings.LeftSide or StairRailings.RightSide or StairRailings.None)
                 problems.Add($"{(layout.WidestFlight > layout.Width ? "Its first flight is" : "It is")} 1000 wide or more: Approved Document K asks for a handrail on both sides.");
-            if (stair.Use != StairUse.Private) problems.AddRange(PublicProblems(document, stair, type, layout));
+            if (Stairs.UseOf(document, stair) != StairUse.Private) problems.AddRange(PublicProblems(document, stair, type, layout));
+            if (external) problems.AddRange(ExternalProblems(layout));
         }
 
         if (standard.IsUs() && layout.Shape is StairShape.AlternatingTread or StairShape.Ladder)
@@ -2227,11 +2244,11 @@ public static class Stairs
 
         // A handrail on one side at least: under the IRC where it has 4 risers or more (R311.7.8); in a house, 3 or more - as Approved
         // Document K asks of a stepped change of level in the entrance storey (1.37) and Approved Document M of steps up to a door (1.8f, 2.11f); elsewhere, any.
-        var wantsHandrail = standard.IsUs() ? layout.Risers >= 4 : stair.Use != StairUse.Private || layout.Risers >= 3;
+        var wantsHandrail = standard.IsUs() ? layout.Risers >= 4 : Stairs.UseOf(document, stair) != StairUse.Private || layout.Risers >= 3;
         if (stair.Railings == StairRailings.None && wantsHandrail)
             problems.Add(standard.IsUs()
                 ? "It has no handrail: the IRC asks for one on at least one side of 4 risers or more."
-                : stair.Use == StairUse.Private
+                : Stairs.UseOf(document, stair) == StairUse.Private
                     ? "It has no handrail: Approved Document K asks for one on at least one side (1.34) - of a flight of three risers or more in a house (1.37, and Approved Document M 1.8f, 2.11f)."
                     : "It has no handrail: Approved Document K asks for one on each side (1.35).");
         problems.AddRange(BuildProblems(document, stair, type, layout, standard));
@@ -2242,16 +2259,20 @@ public static class Stairs
         {
             var drop = highest - layout.Bottom;
             var (limit, rule) = standard.IsUs() ? (762.0, $"the IRC asks for a guard where it is more than {Units.Figure("762", "30 in")} up")
-                : stair.Use == StairUse.Private ? (600.0, "Approved Document K asks for guarding where it drops more than 600")
+                : Stairs.UseOf(document, stair) == StairUse.Private ? (600.0, "Approved Document K asks for guarding where it drops more than 600")
                 : (2 * rise - 1.5, "Approved Document K asks for guarding beside two risers or more");
             var side = role switch { StairSideRole.Left => "left side", StairSideRole.Right => "right side", _ => "landing's open edge" };
             if (drop > limit + 0.5) problems.Add($"Its {side} is open, {Units.Bare(drop)} up at its highest, with no railing: {rule}.");
         }
 
-        // Steps up to the house's doors, under Approved Document M: the approach is to be step-free to one entrance at least.
+        // Steps up to the house's doors, under Approved Document M: the approach is to be step-free to one entrance at least - to a building
+        // other than a dwelling, level or ramped to its principal entrance (Volume 2, 1.6, 1.8, 2.1, round 123).
         if (standard is ClearanceStandard.ApprovedDocumentM or ClearanceStandard.ApprovedDocumentM3 && stair.Outside && StepsToEveryDoor(document, layout))
-            problems.Add("Its steps are the only way up to the house's outside doors: Approved Document M asks for a step-free approach to the entrance, " +
-                         "or to another entrance (M4(2) 2.6, 2.7; M4(3) 3.7, 3.8) - a ramp beside it, or another door reached without steps.");
+            problems.Add(Domestic.Rules(document)
+                ? "Its steps are the only way up to the house's outside doors: Approved Document M asks for a step-free approach to the entrance, " +
+                  "or to another entrance (M4(2) 2.6, 2.7; M4(3) 3.7, 3.8) - a ramp beside it, or another door reached without steps."
+                : "Its steps are the only way up to the building's outside doors: Approved Document M Volume 2 (1.6, 1.8, 2.1) asks a level or ramped approach " +
+                  "to the principal entrance, or an alternative accessible entrance (2.2) - a ramp beside it, or another door reached without steps.");
 
         // A wall standing across its steps.
         foreach (var (wall, step) in StairModel.WallsThrough(document, layout))
@@ -2313,6 +2334,23 @@ public static class Stairs
         _ => "a private stair"
     };
 
+    /// <summary>Whether a stair is external stepped access to a building other than a dwelling: outside, in England, the building not a home's.</summary>
+    private static bool External(BimDocument document, Stair stair) =>
+        stair.Outside && !document.ProjectInformation.ClearanceStandard.IsUs() && !Domestic.Rules(document);
+
+    /// <summary>
+    /// What Approved Document M Volume 2 asks more of external steps to a building other than a dwelling (1.33): flights 1.2 m wide, no
+    /// single step, and over 1.8 m wide handrails dividing them into channels 1 to 1.8 m wide - the corduroy hazard warning surface and
+    /// nosings of contrasting material (c, d, i) not modelled.
+    /// </summary>
+    private static IEnumerable<string> ExternalProblems(StairLayout layout)
+    {
+        const string book = "Approved Document M Volume 2";
+        if (layout.Width < 1200 - 0.5) yield return $"It is {layout.Width:0} wide: {book} (1.33f) asks external steps 1.2 m wide between walls, strings or upstands.";
+        if (layout.Risers == 1) yield return $"It is a single step: {book} (1.33g) allows no single steps outside - a ramp, or level.";
+        if (layout.Width > 1800 + 0.5) yield return $"It is {layout.Width:0} wide: {book} (1.33p) asks handrails dividing external steps wider than 1.8 m into channels 1 m to 1.8 m wide.";
+    }
+
     /// <summary>Approved Document K's Table 1.1: the rise and going a stair may have, as it is for.</summary>
     private static (double RiseLeast, double RiseMost, double GoingLeast, double GoingMost) RiseAndGoing(StairUse use) => use switch
     {
@@ -2328,7 +2366,7 @@ public static class Stairs
     /// </summary>
     private static IEnumerable<string> PublicProblems(BimDocument document, Stair stair, StairType type, StairLayout layout)
     {
-        var use = UseName(stair.Use);
+        var use = UseName(Stairs.UseOf(document, stair));
         if (type.OpenRisers) yield return $"Its risers are open: Approved Document K asks for closed risers on {use}.";
         if (type.Nosing > 25 + 0.5) yield return $"Its nosings are {type.Nosing:0}: Approved Document K allows 25 at most on {use}.";
         if (stair.Railings is StairRailings.LeftSide or StairRailings.RightSide) yield return $"Approved Document K asks for handrails on both sides of {use}.";
@@ -2402,10 +2440,20 @@ public static class Stairs
         if (standard.IsUs() && most * layout.Rise > 3835 + 0.5)
             yield return $"It rises {Units.Bare(most * layout.Rise)} with no landing: the IRC allows {Units.Figure("3835", "151 in")} between floors and landings.";
 
-        // A building other than a dwelling: 16 risers a flight on a utility stair, 12 on a general access one.
-        var flightMost = stair.Use switch { StairUse.Utility => 16, StairUse.GeneralAccess => 12, _ => int.MaxValue };
-        if (!standard.IsUs() && most > flightMost)
-            yield return $"It climbs {most} risers in a flight: Approved Document K allows {flightMost} on {UseName(stair.Use)}.";
+        // A building other than a dwelling: 16 risers a flight on a utility stair, 12 on a general access one - outside it, 12 where the
+        // going is under 350 and 18 where it is 350 or more (Approved Document M Volume 2, 1.33h).
+        if (!standard.IsUs() && External(document, stair))
+        {
+            var external = layout.Going >= 350 - 0.5 ? 18 : 12;
+            if (most > external)
+                yield return $"It climbs {most} risers in a flight: Approved Document M Volume 2 (1.33h, Diagram 5) allows external steps {external} a flight with a going {(external == 18 ? "of 350 or more" : "under 350")}.";
+        }
+        else
+        {
+            var flightMost = Stairs.UseOf(document, stair) switch { StairUse.Utility => 16, StairUse.GeneralAccess => 12, _ => int.MaxValue };
+            if (!standard.IsUs() && most > flightMost)
+                yield return $"It climbs {most} risers in a flight: Approved Document K allows {flightMost} on {UseName(Stairs.UseOf(document, stair))}.";
+        }
 
         // Risers going the same way, give or take 30°: a run that turns is a fresh one.
         if (!standard.IsUs())
@@ -2432,12 +2480,12 @@ public static class Stairs
         // At its foot: in a dwelling, a door may swing across the landing leaving 400 clear across the stair; elsewhere, across none of it.
         var below = DoorSwings(document, layout.Bottom, reach);
         var first = steps[0];
-        var clear = stair.Use == StairUse.Private ? 400 : Math.Max(1200, layout.Width);
+        var clear = Stairs.UseOf(document, stair) == StairUse.Private ? 400 : Math.Max(1200, layout.Width);
         var foot = new[] { first.RiserFrom, first.RiserTo, first.RiserTo - first.Up * clear, first.RiserFrom - first.Up * clear };
         if (!standard.IsUs() && below.Any(swing => Overlap(swing, foot)))
-            yield return stair.Use == StairUse.Private
+            yield return Stairs.UseOf(document, stair) == StairUse.Private
                 ? "A door swings within 400 of its bottom step: Approved Document K asks for 400 clear across the stair."
-                : $"A door swings across the landing at its foot: Approved Document K asks for landings clear of doors on {UseName(stair.Use)}.";
+                : $"A door swings across the landing at its foot: Approved Document K asks for landings clear of doors on {UseName(Stairs.UseOf(document, stair))}.";
         if (below.Any(swing => steps.Any(step => step.Top - layout.Bottom < 2100 && Overlap(swing, step.Outline))))
             yield return "A door swings over its steps: it must open clear of the stair.";
 
@@ -2576,8 +2624,8 @@ public static class Stairs
 
         // Guarding where it is level: in a dwelling 900, elsewhere 1100 off the flights.
         // The IBC's 42 in outside a home, under the ADA.
-        var ibc = standard == ClearanceStandard.Ada && stair.Use != StairUse.Private;
-        var guard = ibc ? 1067 : us ? 914 : stair.Use == StairUse.Private ? 900 : 1100;
+        var ibc = standard == ClearanceStandard.Ada && Stairs.UseOf(document, stair) != StairUse.Private;
+        var guard = ibc ? 1067 : us ? 914 : Stairs.UseOf(document, stair) == StairUse.Private ? 900 : 1100;
         if (type.GuardHeight < guard - 0.5)
             yield return $"Its guarding is {Units.Bare(type.GuardHeight)} high where it is level: {(ibc ? $"the IBC asks for 42 in{Units.MetricAside("1067")} outside a home (1015.3)" : us ? $"the IRC asks for 36 in{Units.MetricAside("914")}" : $"Approved Document K asks for {guard}")} at least.";
     }

@@ -33,6 +33,26 @@ public partial class PlanView
         _modelVersion++;
         _kept = null;
         _memo.Clear();
+        _lasting?.Dispose();
+        _lasting = null;
+    }
+
+    /// <summary>What the model's rules work out - a storey's escape walked, a wall's verdict - kept from one drawing to the next as the memo is.</summary>
+    private BIMDesigner.Core.Documents.ModelCache? _lasting;
+
+    /// <summary>
+    /// The cache that lasts while the model does not change, in use for a while: the plan drawn, a selection's Properties shown, without a
+    /// big building's storeys walked again each time (round 122). Forgotten wherever the drawing's memo is.
+    /// </summary>
+    public IDisposable KeepingModel(BIMDesigner.Core.Documents.BimDocument document)
+    {
+        if (_lasting is null || !_lasting.Holds(document))
+        {
+            _lasting?.Dispose();
+            _lasting = BIMDesigner.Core.Documents.ModelCache.Lasting(document);
+        }
+
+        return BIMDesigner.Core.Documents.ModelCache.Use(_lasting);
     }
 
     /// <summary>What the drawing of the model depends on, besides where the view is panned to.</summary>

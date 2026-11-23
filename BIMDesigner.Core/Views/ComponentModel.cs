@@ -971,7 +971,7 @@ public static class ComponentModel
                 break;
             }
 
-            case ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm:
+            case ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.SmokeDetector or ComponentForm.HeatDetector:
             {
                 // A disc on the ceiling, and its light.
                 Add(-halfW, halfW, -halfD, halfD, h * 0.2, h, shape: PartShape.Upright);
@@ -1279,6 +1279,26 @@ public static class ComponentModel
                 Add(halfW * 0.05, halfW * 0.7, halfD - 2, halfD, h * 0.42, h * 0.58, PartFinish.White);
                 break;
 
+            case ComponentForm.FireAlarmCallPoint:
+                // Its red box on the wall, and the white element pressed to raise the alarm.
+                Add(-halfW, halfW, -halfD, halfD - 4, 0, h);
+                Add(-halfW * 0.55, halfW * 0.55, halfD - 4, halfD, h * 0.25, h * 0.8, PartFinish.White);
+                break;
+
+            case ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm:
+                // Its base on the wall, and the sounder's horn - or the beacon's lens - standing out of it.
+                Add(-halfW, halfW, -halfD, -halfD + halfD * 0.5, 0, h);
+                Add(-halfW * 0.7, halfW * 0.7, -halfD + halfD * 0.5, halfD, h * 0.15, h * 0.85,
+                    type.Form == ComponentForm.VisualAlarm ? PartFinish.Glass : PartFinish.Dark, PartShape.Upright);
+                break;
+
+            case ComponentForm.FireAlarmPanel:
+                // Its cabinet on the wall, its display and its row of indicators on the door.
+                Add(-halfW, halfW, -halfD, halfD - 3, 0, h);
+                Add(-halfW * 0.6, halfW * 0.2, halfD - 3, halfD, h * 0.55, h * 0.85, PartFinish.Dark);
+                Add(halfW * 0.35, halfW * 0.75, halfD - 3, halfD, h * 0.3, h * 0.85, PartFinish.White);
+                break;
+
             case ComponentForm.Lift or ComponentForm.LiftingPlatform:
                 // Its car: floor, walls round three sides and its roof, its door's opening at the front left dark.
                 Add(-halfW, halfW, -halfD, halfD, 0, 20, PartFinish.Metal);
@@ -1543,6 +1563,7 @@ public static class ComponentModel
             {
                 ComponentForm.Tree or ComponentForm.Conifer or ComponentForm.Shrub or ComponentForm.CeilingLight or ComponentForm.RoundTable
                     or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.TurningCircle
+                    or ComponentForm.SmokeDetector or ComponentForm.HeatDetector
                     or ComponentForm.HotWaterCylinder or ComponentForm.SupplyTerminal or ComponentForm.ExtractTerminal or ComponentForm.Sprinkler =>
                     frame.Ellipse(-halfW, halfW, -halfD, halfD, 32),
                 ComponentForm.CornerSofa => CornerOf(type) is var (run, turn)
@@ -1694,8 +1715,13 @@ public static class ComponentModel
                 shapes.Add(frame.Line(-halfW, halfD, halfW, -halfD));
                 break;
 
-            case ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm:
+            case ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.SmokeDetector or ComponentForm.HeatDetector:
                 shapes.Add(frame.Ellipse(-halfW * 0.6, halfW * 0.6, -halfD * 0.6, halfD * 0.6, 16));
+                break;
+
+            case ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm or ComponentForm.FireAlarmPanel:
+                // Its face on the wall, lettered.
+                Inside(-halfW, halfW, halfD - Math.Min(15, d * 0.3), halfD);
                 break;
 
             case ComponentForm.ShaverSocket:
@@ -2202,6 +2228,12 @@ public static class ComponentModel
         ComponentForm.EmergencyLight => "EL",
         ComponentForm.ExitSign => "EXIT",
         ComponentForm.FireHydrant => "FH",
+        ComponentForm.FireAlarmCallPoint => "CP",
+        ComponentForm.FireAlarmSounder => "SO",
+        ComponentForm.VisualAlarm => "VAD",
+        ComponentForm.SmokeDetector => "SD",
+        ComponentForm.HeatDetector => "HD",
+        ComponentForm.FireAlarmPanel => "FAP",
         _ => null
     };
 
@@ -2214,7 +2246,9 @@ public static class ComponentModel
             or ComponentForm.ExtractFan or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm
             or ComponentForm.ShaverSocket or ComponentForm.ConsumerUnit or ComponentForm.Thermostat or ComponentForm.Boiler
             or ComponentForm.StopValve or ComponentForm.GasMeter or ComponentForm.Sprinkler or ComponentForm.SprinklerValve
-            or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.EmergencyLight or ComponentForm.ExitSign);
+            or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.EmergencyLight or ComponentForm.ExitSign
+            or ComponentForm.FireAlarmCallPoint or ComponentForm.FireAlarmSounder or ComponentForm.VisualAlarm or ComponentForm.SmokeDetector
+            or ComponentForm.HeatDetector or ComponentForm.FireAlarmPanel);
 
     /// <summary>How far a gas fire stands out from the wall behind its hearth, mm.</summary>
     public static double FireDepth(ComponentType type) => Math.Min(150, type.Depth * 0.5);
@@ -2280,6 +2314,7 @@ public static class ComponentModel
     /// <summary>Whether one hangs from the ceiling over where it is put: a ceiling light, a smoke, heat or carbon monoxide alarm, a sprinkler, or a smoke outlet in the ceiling - a pavement light.</summary>
     public static bool HangsFromCeiling(ComponentType type) =>
         type.Form is ComponentForm.CeilingLight or ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm or ComponentForm.CarbonMonoxideAlarm or ComponentForm.Sprinkler or ComponentForm.EmergencyLight
+            or ComponentForm.SmokeDetector or ComponentForm.HeatDetector
         || type.Form == ComponentForm.SmokeOutlet && type.Placement != ComponentPlacement.FaceBased;
 
     /// <summary>An armchair's arms and back, how thick, and the height of its seat - 450 or so on a 950 chair.</summary>

@@ -43,6 +43,29 @@ public sealed class ModelCache : IDisposable
     public static IDisposable Begin(BimDocument document) =>
         Of(document) is not null ? Nothing.Instance : _current = new ModelCache(document, _current);
 
+    /// <summary>
+    /// A cache kept from one drawing to the next by a view that knows when the model may have changed, and lets it go then with
+    /// <see cref="Dispose"/> - an element added or taken away empties it as well. Not in use until <see cref="Use"/> (round 122).
+    /// </summary>
+    public static ModelCache Lasting(BimDocument document) => new(document, null);
+
+    /// <summary>Whether it is a cache of this document.</summary>
+    public bool Holds(BimDocument document) => ReferenceEquals(_document, document);
+
+    /// <summary>Makes a lasting cache the one in use on this thread for a while - unless one of its document already is - and puts back what was, after.</summary>
+    public static IDisposable Use(ModelCache cache)
+    {
+        if (Of(cache._document) is not null) return Nothing.Instance;
+        var before = _current;
+        _current = cache;
+        return new Restore(before);
+    }
+
+    private sealed class Restore(ModelCache? before) : IDisposable
+    {
+        public void Dispose() => _current = before;
+    }
+
     public void Dispose()
     {
         _document.Elements.CollectionChanged -= Changed;

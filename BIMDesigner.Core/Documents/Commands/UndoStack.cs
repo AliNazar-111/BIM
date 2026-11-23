@@ -21,6 +21,14 @@ public sealed class UndoStack
 
     public bool CanUndo => _done.Count > 0;
 
+    /// <summary>
+    /// Whether a step is being applied now - done, undone or redone: what follows each element it adds or takes away can wait for the
+    /// step to finish, and be done once (round 122).
+    /// </summary>
+    public bool Applying => _applying > 0;
+
+    private int _applying;
+
     /// <summary>How many steps there are to undo: where the history stands, to come back to.</summary>
     public int Depth => _done.Count;
 
@@ -74,6 +82,7 @@ public sealed class UndoStack
     /// </summary>
     public void Execute(IUndoableCommand command)
     {
+        _applying++;
         try
         {
             command.Redo();
@@ -83,6 +92,7 @@ public sealed class UndoStack
             TakeBack(command.Undo);
             throw new EditFailedException(command.Name, failure);
         }
+        finally { _applying--; }
 
         Record(command);
     }
@@ -140,6 +150,7 @@ public sealed class UndoStack
 
         // An undo that goes wrong part-way is put back as it was, still there to undo.
         _isReplaying = true;
+        _applying++;
         try { command.Undo(); }
         catch (Exception failure)
         {
@@ -147,7 +158,7 @@ public sealed class UndoStack
             TakeBack(command.Redo);
             throw new EditFailedException($"Undo {command.Name}", failure);
         }
-        finally { _isReplaying = false; }
+        finally { _isReplaying = false; _applying--; }
 
         _done.RemoveAt(_done.Count - 1);
         _undone.Add(command);
@@ -161,6 +172,7 @@ public sealed class UndoStack
         var command = _undone[^1];
 
         _isReplaying = true;
+        _applying++;
         try { command.Redo(); }
         catch (Exception failure)
         {
@@ -168,7 +180,7 @@ public sealed class UndoStack
             TakeBack(command.Undo);
             throw new EditFailedException($"Redo {command.Name}", failure);
         }
-        finally { _isReplaying = false; }
+        finally { _isReplaying = false; _applying--; }
 
         _undone.RemoveAt(_undone.Count - 1);
         _done.Add(command);

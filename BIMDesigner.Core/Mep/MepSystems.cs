@@ -267,6 +267,9 @@ public static class MepSystems
         foreach (var component in document.All<Component>())
         {
             if (document.FindType<ComponentType>(component.TypeId) is not { } type || Connectors.Of(type).Count == 0) continue;
+
+            // A home's alarm in a building other than a dwelling is the wrong alarm (Architecture.Alarms, round 118): not wired as a home's either.
+            if (type.Form is ComponentForm.SmokeAlarm or ComponentForm.HeatAlarm && !us && !Domestic.Rules(document, component)) continue;
             foreach (var kind in OpenKinds(document, component))
                 problems.Add(new MepProblem(component, Unconnected(type, kind, feeds: Connectors.Of(type).Any(connector => connector.Kind == kind && connector.Feeds && !connector.Optional), us)));
         }
@@ -360,7 +363,7 @@ public static class MepSystems
                                                      && !MembersOf(document, zone).Any(member => document.FindType<ComponentType>(member.TypeId)?.Form == ComponentForm.Thermostat)))
                 yield return new MepProblem(zone, "it has no room thermostat - Approved Document L (2021) gives each heating zone its own time and temperature control");
 
-            if (zones.Count == 1 && (only is null || ReferenceEquals(zones[0], only)) && DwellingArea(document) is var area and >= TwoZoneArea)
+            if (zones.Count == 1 && (only is null || ReferenceEquals(zones[0], only)) && Domestic.Rules(document) && DwellingArea(document) is var area and >= TwoZoneArea)
                 yield return new MepProblem(zones[0],
                     $"the rooms come to {Units.OfSquareMetres(area, "0")} - Approved Document L (2021) asks a new dwelling of {Units.OfSquareMetres(TwoZoneArea, "0")} or more for two heating zones at least, each with its own time and temperature control");
         }

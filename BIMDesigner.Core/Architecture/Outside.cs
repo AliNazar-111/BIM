@@ -85,6 +85,13 @@ public static class Outside
                 var accessible = type.Form == ComponentForm.AccessibleParkingBay;
                 var footprint = ComponentModel.Footprint(type, ComponentModel.FrameOf(piece, 0));
 
+                // A building other than a dwelling's: Approved Document M Volume 2 (1.18, round 123).
+                if (!us && !Domestic.Rules(document))
+                {
+                    problems.AddRange(Volume2Bay(document, piece, type, accessible, footprint));
+                    break;
+                }
+
                 // Its size.
                 var (wide, deep, sizeRule) = (accessible, us) switch
                 {
@@ -133,6 +140,39 @@ public static class Outside
         }
 
         return problems;
+    }
+
+    /// <summary>
+    /// A parking bay of a building other than a dwelling (Approved Document M Volume 2, 1.18, round 123): one bay at least designated for
+    /// disabled people where there is parking - said on the first bay, by its mark; such a bay 2.4 x 4.8 m with its 1.2 m accessibility zone
+    /// beside it and 1.2 m safety zone behind, 3.6 x 6.0 m, on level ground, 1:60 at most. An ordinary bay's size is BS 8300's, not read here.
+    /// </summary>
+    private static IEnumerable<PlacementProblem> Volume2Bay(BimDocument document, Component piece, ComponentType type, bool accessible, IReadOnlyList<Point2D> footprint)
+    {
+        if (!accessible)
+        {
+            var bays = document.All<Component>().Where(each => document.FindType<ComponentType>(each.TypeId)?.Form is ComponentForm.ParkingBay or ComponentForm.AccessibleParkingBay).ToList();
+            if (bays.All(each => document.FindType<ComponentType>(each.TypeId)?.Form == ComponentForm.ParkingBay)
+                && ReferenceEquals(bays.OrderBy(each => each.Id).First(), piece))
+                yield return new PlacementProblem(piece, $"none of the {bays.Count} parking bay{(bays.Count == 1 ? "" : "s")} is designated for disabled people.",
+                    "Approved Document M Volume 2 (1.18a) asks at least one parking bay designated for disabled people, on firm and level ground as close as feasible to the principal entrance.", footprint);
+            yield break;
+        }
+
+        if (type.Width < 3600 - 0.5 || type.Depth < 6000 - 0.5)
+            yield return new PlacementProblem(piece, $"at {type.Width / 1000:0.00} x {Units.Metres(type.Depth, "0.00")} it is too small.",
+                "Approved Document M Volume 2 (1.18b, Diagram 2) asks a bay designated for disabled people 2.4 x 4.8 m with a 1.2 m accessibility zone beside it and a 1.2 m safety zone on the vehicle side - 3.6 x 6.0 m.", footprint);
+
+        var frame = ComponentModel.FrameOf(piece, 0);
+        double? Ground(double across, double forward) => Terrains.GroundAt(document, frame.Plan(across, forward));
+        var (halfW, halfD) = (type.Width / 2, type.Depth / 2);
+        if (Ground(0, -halfD) is { } back && Ground(0, halfD) is { } front && Ground(-halfW, 0) is { } left && Ground(halfW, 0) is { } right)
+        {
+            var steepest = Math.Max(Math.Abs(front - back) / type.Depth, Math.Abs(right - left) / type.Width);
+            if (steepest > 1 / 60.0 + 1e-6)
+                yield return new PlacementProblem(piece, $"the ground under it falls 1 in {1 / steepest:0}.",
+                    "Approved Document M Volume 2 (1.18a) asks a bay designated for disabled people on firm and level ground - 1 in 60 at most.", footprint);
+        }
     }
 
     /// <summary>Every tree's, shrub's and bay's problems on a storey, as warnings among the clearances.</summary>

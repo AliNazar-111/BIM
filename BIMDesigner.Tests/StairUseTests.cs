@@ -186,4 +186,46 @@ public class StairUseTests
         Assert.Contains("already", message);
         Assert.True(make.TrySet(true));
     }
+
+    /// <summary>A stair of the library's first type from the ground floor up, in a building of a use.</summary>
+    private static (BimDocument Document, Stair Stair) Placed(string use)
+    {
+        var document = BimDocument.CreateDefault();
+        document.ProjectInformation.BuildingType = use;
+        var ground = document.Levels.Where(level => level.Elevation >= 0).OrderBy(level => level.Elevation).First();
+        var stair = new Stair
+        {
+            TypeId = document.TypesOf<StairType>().First().Id, LevelId = ground.Id, TopLevelId = BIMDesigner.Core.Datums.Levels.Above(document, ground.Id)!.Id,
+            Start = new Point2D(2000, 1000), Angle = 90, Width = 1000
+        };
+        document.Add(stair);
+        return (document, stair);
+    }
+
+    /// <summary>
+    /// A private stair is within one dwelling (Approved Document K), so a stair in an office or a shop is that building's general access
+    /// stair whatever it was left set to - the audit of 23 November 2026 found every stair private by default.
+    /// </summary>
+    [Fact]
+    public void AStairInABuildingOtherThanAHomeIsAGeneralAccessStair()
+    {
+        var (house, homeStair) = Placed("House");
+        Assert.Equal(StairUse.Private, homeStair.Use);
+        Assert.Equal(StairUse.Private, Stairs.UseOf(house, homeStair));
+        Assert.Equal(StairUse.Private, Stairs.UseFor(house, homeStair.LevelId, homeStair.Start));
+        var rise = Stairs.Layout(house, homeStair).Rise;
+        Assert.InRange(rise, 170.5, 220);
+        Assert.DoesNotContain(Stairs.Problems(house, homeStair), problem => problem.StartsWith("Each riser is"));
+
+        // The same stair, left set private, in an office: Table 1.1's general access stair - 170 at most.
+        var (office, officeStair) = Placed("Office");
+        Assert.Equal(StairUse.Private, officeStair.Use);
+        Assert.Equal(StairUse.GeneralAccess, Stairs.UseOf(office, officeStair));
+        Assert.Equal(StairUse.GeneralAccess, Stairs.UseFor(office, officeStair.LevelId, officeStair.Start));
+        Assert.Contains(Stairs.Problems(office, officeStair), problem => problem == $"Each riser is {rise:0}: Approved Document K allows 170 at most on a general access stair.");
+
+        // Set to a utility stair, it is one.
+        officeStair.Use = StairUse.Utility;
+        Assert.Equal(StairUse.Utility, Stairs.UseOf(office, officeStair));
+    }
 }

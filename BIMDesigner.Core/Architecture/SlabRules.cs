@@ -134,8 +134,11 @@ public static class SlabRules
             return problems;
         }
 
+        var home = Domestic.Rules(document);
         if (slab is Floor && OnTheGround(document, slab) && UValue(document, slab) is { } floorU && floorU > Thermal.FloorLimit + 0.005)
-            Add($"its U-value is {floorU:0.00}, the ground under it counted.", "Approved Document L (Table 4.1) limits a new dwelling's ground floor to a U-value of 0.18 W/m²K.");
+            Add($"its U-value is {floorU:0.00}, the ground under it counted.", home
+                ? "Approved Document L (Table 4.1) limits a new dwelling's ground floor to a U-value of 0.18 W/m²K."
+                : "Approved Document L Volume 2 (Table 4.1) limits the ground floor of a new building other than a dwelling to a U-value of 0.18 W/m²K.");
 
         if (slab is Floor && !OnTheGround(document, slab))
         {
@@ -173,9 +176,12 @@ public static class SlabRules
 
         if (slab is Roof roof)
         {
-            if (UValue(document, roof) is { } roofU && roofU > Thermal.RoofLimit + 0.005)
-                Add($"its U-value is {roofU:0.00}{(document.All<Ceiling>().Any() ? ", with the ceiling under it" : string.Empty)}.",
-                    "Approved Document L (Table 4.1) limits a new dwelling's roof to a U-value of 0.16 W/m²K - with a cold loft, its ceiling's insulation counted.");
+            // A building other than a dwelling: a flat roof 0.18, a pitched one 0.16 (Approved Document L Volume 2 Table 4.1, round 118).
+            var flatRoof = !home && roof.Form == RoofForm.Flat;
+            if (UValue(document, roof) is { } roofU && roofU > (flatRoof ? 0.18 : Thermal.RoofLimit) + 0.005)
+                Add($"its U-value is {roofU:0.00}{(document.All<Ceiling>().Any() ? ", with the ceiling under it" : string.Empty)}.", home
+                    ? "Approved Document L (Table 4.1) limits a new dwelling's roof to a U-value of 0.16 W/m²K - with a cold loft, its ceiling's insulation counted."
+                    : $"Approved Document L Volume 2 (Table 4.1) limits {(flatRoof ? "a flat roof" : "a pitched roof")} of a new building other than a dwelling to a U-value of {(flatRoof ? "0.18" : "0.16")} W/m²K - with a cold loft, its ceiling's insulation counted.");
 
             // A cold roof pitched steeply or spanning far is aired high up as well as at its eaves.
             if (Cold(document, roof) && !roof.HighLevelVents && (roof.SlopeDegrees > 35 || Span(roof) > 10000))

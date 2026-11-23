@@ -6876,6 +6876,10 @@ public partial class PlanView : FrameworkElement
 
         if (Document is null) return;
 
+        // One cache for the whole drawing - the model, and after it the clearances, whose walls', doors' and floors' rules would otherwise
+        // each walk a big building's storeys again (round 122).
+        using var kept = KeepingModel(Document);
+
         // The storey below first, so the drawing sits on top of what it is set out against. The
         // drawing itself comes from the shared renderer, so the plan on screen and the plan
         // inside a viewport on a sheet are the same drawing produced by the same code - kept

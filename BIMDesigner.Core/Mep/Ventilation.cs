@@ -261,7 +261,11 @@ public static class Ventilation
         if (!Designed(document)) yield break;
         var us = document.ProjectInformation.ClearanceStandard.IsUs();
         var type = TypeOf(document);
-        var rooms = Rooms(document);
+
+        // A home's rooms: a dwelling's ventilation by Approved Document F Volume 1 - a building other than a dwelling's extract is said room by
+        // room by Volume 2 (Architecture.Services, round 118).
+        var rooms = Rooms(document).Where(room => Domestic.Rules(document, room.Room)).ToList();
+        if (rooms.Count == 0) yield break;
         var (whole, area, bedrooms) = WholeDwelling(document);
 
         if (type == VentilationType.HeatRecovery)
