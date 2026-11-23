@@ -130,8 +130,21 @@ mitre is either meaningless or ambiguous:
   - **half the shorter wall's length**, because a corner longer than the wall it belongs to
     is never right however wide the wall is.
 
-  Showing a 25° corner butted is a small cosmetic compromise; letting a shallow corner
-  through draws the wall as a spike half its own length, which is a broken drawing.
+  A corner too sharp to mitre is **bevelled** rather than left square: both walls share the
+  mitre line out to a bevel across the tip, within those same bounds, so the outside of the
+  corner is closed and neither wall runs through the other. Two straight walls only - a curved
+  wall sharp at its joint is still butted square - and walls so nearly parallel that their
+  inside corner lies past half the shorter wall are butted square too, as before.
+
+**A branch meeting a wall at a shallow angle still stops at its face.** The cut along the
+other wall's face is allowed twice the corner's reach, so a partition leaving a run at 20° is
+cut along the run's face rather than square into its middle; under about 15° the face line
+runs away and the branch is cut square.
+
+**A wall's layers that go on into another wall are cut out of it.** A partition's studs that
+run past a brick wall's outer leaf to its blockwork, at a corner it runs past, across a run of
+two walls or coming in aslant, take their place out of the other wall's layers, so the plan's
+layers and the 3D model build each piece once and the quantities count it once.
 
 **Openings are positioned along their host, not in the project.** A door stores how far
 along its wall it sits, never an X/Y point. Move the wall, drag its end, change its location
@@ -257,8 +270,13 @@ T come out right: extended, a wing's eave plane passes under the main range lowe
 range's own roof, and without it would take a slice out of a roof it has nothing to do
 with. At an outside corner each plane keeps the side where it is lower, which meets its
 neighbour in a hip; at an inside corner it keeps the side where it is higher, which meets it
-in a valley. It agrees with the straight skeleton that IfcOpenShell's roof tool builds, and
-keeps working when the pitches differ. The build-up is measured square to the slope, the
+in a valley. Which side is which is asked a little way along the eave itself: asked at a
+point in from the edge, as it once was, the answer came out the wrong way wherever the line
+between two planes leaves the corner at under 26.6° - any corner sharper than 53°, or 25°
+against 45° of pitch - and a triangle lost a third of its roof. An eave at an inside corner
+beside a gable stops on the gable's line, rather than running on under the other wing down to
+its own gutter height. It agrees with the straight skeleton that IfcOpenShell's roof tool
+builds, and keeps working when the pitches differ. The build-up is measured square to the slope, the
 way a roof is specified and built, so faces at different pitches still meet flush.
 
 The common shapes are each tested as someone would build them — the list from Balkan

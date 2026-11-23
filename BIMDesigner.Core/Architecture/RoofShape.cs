@@ -661,6 +661,32 @@ public static class RoofShape
                          ((i + 1) % count, (i + 1) % count, to, along * -1)
                      })
             {
+                // A gable at an inside corner. The roof runs past a gable to the wall and stops
+                // there - and at an inside corner that wall stands within the footprint, the gable
+                // end of the wing beyond. This eave builds roof only on its own side of the
+                // gable's line carried on through the corner: without it, it ran on under the
+                // other wing and dived to its own eave height in the middle of it, a valley down
+                // to the gutter with a cliff beside it.
+                if (PlaneAt(neighbour, corner) is null && !isArrow && !IsConvex(footprint, cornerIndex))
+                {
+                    var gable = (footprint[(neighbour + 1) % count] - footprint[neighbour]).NormalisedOrDefault(default);
+                    var normal = gable.PerpendicularLeft();
+                    var towards = normal.Dot(awayAlong);
+                    if (gable.Length > 0 && Math.Abs(towards) > 1e-9)
+                    {
+                        // A plane differing from this one by a slope square to the gable's line,
+                        // level along it: below it is this edge's side.
+                        var sign = towards > 0 ? -1.0 : 1.0;
+                        wedges.Add((new RoofPlane(
+                            plane.A - sign * normal.X,
+                            plane.B - sign * normal.Y,
+                            plane.C + sign * (normal.X * corner.X + normal.Y * corner.Y),
+                            plane.Eave), true));
+                    }
+
+                    continue;
+                }
+
                 if (PlaneAt(neighbour, corner) is not { } beside || Same(plane, beside)) continue;
 
                 // An arrow meets the eave only at the corner its tail is nearest. The two arrows
@@ -670,13 +696,26 @@ public static class RoofShape
 
                 // Where the two planes meet at the corner itself, the line between them runs
                 // out of it, and this edge's roof is on the side of that line this edge is on. A
-                // point just in from the corner, along this edge, says which side that is - so
+                // point on this edge, just along it from the corner, says which side that is -
+                // exactly, however sharp the corner and however different the two pitches, so
                 // the rule holds for any two planes, not only two eaves rising square to their
-                // edges: it is what gives a dormer's arrows their stretch of eave.
+                // edges: it is what gives a dormer's arrows their stretch of eave. (A point in
+                // from the edge as well, as this once asked, lands beyond the line wherever it
+                // leaves the corner at less than 26.6 degrees to the edge - a corner sharper than
+                // 53 degrees, or 25 against 45 degrees of pitch - and gave the roof to the wrong
+                // side, leaving a third of a triangle's roof out.) Only where the two are level
+                // all along the edge - an arrow rising off the eave it starts from - is a point in
+                // from it asked instead.
                 if (Math.Abs(plane.HeightAt(corner) - beside.HeightAt(corner)) < 1)
                 {
-                    var probe = corner + awayAlong * (2 * step) + inward * step;
-                    var difference = plane.HeightAt(probe) - beside.HeightAt(probe);
+                    var onEdge = corner + awayAlong * (2 * step);
+                    var difference = plane.HeightAt(onEdge) - beside.HeightAt(onEdge);
+                    if (Math.Abs(difference) < 1e-9)
+                    {
+                        var probe = onEdge + inward * step;
+                        difference = plane.HeightAt(probe) - beside.HeightAt(probe);
+                    }
+
                     if (Math.Abs(difference) < 1e-9) continue;
 
                     wedges.Add((beside, difference < 0));

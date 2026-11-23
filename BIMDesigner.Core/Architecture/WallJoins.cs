@@ -631,6 +631,7 @@ public static class WallJoins
         var asked = atStart ? wall.StartJoin : wall.EndJoin;
 
         // From here on a curved wall is its tangent at this end; see Straight.
+        var curved = wall.IsCurved;
         wall = Straight(wall, joint);
         var square = SquareCut(wall, type, atStart);
 
@@ -644,7 +645,7 @@ public static class WallJoins
         // Running into the side of a wall that passes by: stop at its face.
         if (FindPassingWall(document, wall, joint) is { } passing)
         {
-            if (ButtAgainst(document, wall, type, passing, joint, atStart) is not { } butt)
+            if (ButtAgainst(document, wall, type, passing, joint, atStart, alongRun: true) is not { } butt)
                 return Square(WallEndCondition.Overlap);
 
             // Against a curved wall, stop on its face as it curves, not on the tangent.
@@ -674,11 +675,23 @@ public static class WallJoins
             // Stop against the run. Either half of a split run describes the same line; the
             // longer is the safer to measure against.
             var against = main.OrderByDescending(w => w.Length).First();
-            return ButtAgainst(document, wall, type, against, joint, atStart) ?? Square(WallEndCondition.Overlap);
+            return ButtAgainst(document, wall, type, against, joint, atStart, alongRun: true) ?? Square(WallEndCondition.Overlap);
         }
 
         if (partners.Count == 1)
-            return Corner(document, wall, type, partners[0], joint, atStart, asked) ?? Square(WallEndCondition.Overlap);
+        {
+            // Both ends of a corner take the same join or one overlaps the other: where either is refused - the corner too sharp for the
+            // mitre, the butt or the run past to stay near it - both are bevelled. Left square, as they once were, the two walls ran
+            // through each other to the joint and left the outside of the corner open.
+            var partner = partners[0];
+            var cut = Corner(document, wall, type, partner, joint, atStart, asked);
+            var partnerType = document.GetWallType(partner);
+            var partnerCut = partnerType is null ? null
+                : Corner(document, partner, partnerType, wall, joint, partner.Start.DistanceTo(joint) <= partner.End.DistanceTo(joint), JoinAt(partner, joint));
+            if (cut is not null && partnerCut is not null) return cut;
+            var bent = curved || document.Find<Wall>(partner.Id) is { IsCurved: true };
+            return (partnerType is null ? null : Bevelled(wall, type, partner, partnerType, joint, bent)) ?? cut ?? Square(WallEndCondition.Overlap);
+        }
 
         return SharedJunction(document, wall, type, everyone, joint, atStart) ?? Square(WallEndCondition.Overlap);
     }
@@ -756,14 +769,71 @@ public static class WallJoins
     }
 
     /// <summary>
+    /// A corner too sharp to mitre or to butt, joined as a stroked line's join is past its mitre limit: the mitre line between the two
+    /// walls as far as the wider one's width out from the joint, and the tip beyond it cut off square to the corner - a bevel. The two
+    /// walls share the line, so neither runs into the other, and the outside of the corner is closed across the bevel. The cut runs from
+    /// the bevel, across the outside face, to the tip, and on down the mitre to the inside face.
+    /// </summary>
+    private static WallCut? Bevelled(Wall wall, WallType type, Wall partner, WallType partnerType, Point2D joint, bool curved)
+    {
+        var away = AwayFrom(wall, joint);
+        var partnerAway = AwayFrom(partner, joint);
+        var bisector = away + partnerAway;
+        if (bisector.Length < CollinearTolerance) return null;
+
+        var budget = Budget(type, partnerType, wall, partner);
+        bool AtStart(Wall each) => each.Start.DistanceTo(joint) <= each.End.DistanceTo(joint);
+
+        // Nearly in line - two walls of different widths, or a curve leaving the joint almost straight on: no tip to run away, and the
+        // faces nearly parallel, so they meet on the line through the joint halving the angle between them, the same line for both -
+        // where it keeps both walls' corners near the joint.
+        if (away.Dot(partnerAway) < 0)
+        {
+            var halving = new Line2D(joint, bisector.NormalisedOrDefault(default));
+            return CutStaysNearTheJoint(halving, wall, type, SquareCut(wall, type, AtStart(wall)), budget)
+                   && CutStaysNearTheJoint(halving, partner, partnerType, SquareCut(partner, partnerType, AtStart(partner)), budget)
+                ? WallCut.Along(halving, wall, WallEndCondition.Mitre)
+                : null;
+        }
+
+        // A bevel's bent cut is for straight walls: laid on a curve - its tangent's cut carried to the arc - its bend folds the layers
+        // over themselves, and a curved wall that sharp keeps its square end.
+        if (curved) return null;
+
+        var (insideA, outsideA) = FaceLines(wall, type, bisector);
+        var (insideB, outsideB) = FaceLines(partner, partnerType, bisector);
+        if (!Line2D.TryIntersect(insideA, insideB, out var insideCorner)) return null;
+        if (!Line2D.TryIntersect(outsideA, outsideB, out var outsideCorner)) return null;
+        if (insideCorner.DistanceTo(outsideCorner) < CollinearTolerance) return null;
+
+        // The inside faces meeting within both walls - not, as two walls setting off almost the same way do, metres along them, where
+        // a mitre means nothing and the overlap is left as it is.
+        if (insideCorner.DistanceTo(joint) > MiterLengthFraction * Math.Min(wall.Length, partner.Length)) return null;
+
+        var outward = (bisector * -1).NormalisedOrDefault(default);
+        var bevel = new Line2D(joint + outward * Math.Min(Math.Max(type.Width, partnerType.Width), budget / 2), outward.PerpendicularLeft());
+        if (!Line2D.TryIntersect(Line2D.Through(outsideCorner, insideCorner), bevel, out var tip)) return null;
+
+        // Along the bevel to this wall's side of the tip, then the tip, then the inside corner: put exterior first.
+        var side = bevel.Direction.Dot(away) >= 0 ? bevel.Direction : bevel.Direction * -1;
+        var points = new List<Point2D> { tip + side * (2 * Math.Max(type.Width, partnerType.Width)), tip, insideCorner };
+        if ((points[0] - points[^1]).Dot(wall.ExteriorNormal) < 0) points.Reverse();
+        return new WallCut(points, WallEndCondition.Mitre);
+    }
+
+    /// <summary>
     /// A cut along the near face of another wall, so this one stops against it.
     ///
     /// Returns null when the butt would reach too far along the wall - a very shallow
     /// approach makes a long tapered end, which is the same failure the mitre limit exists to
-    /// prevent - so the caller can fall back to a square end.
+    /// prevent - so the caller can fall back to a square end. Against a wall that runs on past
+    /// the joint - a tee - the taper lies along that wall's face, the shape the wall really has,
+    /// so it may reach twice as far as a corner's: limited as a corner's is, a branch at 20
+    /// degrees was left square and ran on into the middle of the wall it met. Shallower than
+    /// about 15 degrees it is still cut square.
     /// </summary>
     private static WallCut? ButtAgainst(
-        BimDocument document, Wall wall, WallType type, Wall run, Point2D joint, bool atStart)
+        BimDocument document, Wall wall, WallType type, Wall run, Point2D joint, bool atStart, bool alongRun = false)
     {
         var runType = document.GetWallType(run);
         if (runType is null) return null;
@@ -771,9 +841,7 @@ public static class WallJoins
 
         var face = FaceToward(run, runType, AwayFrom(wall, joint), joint, near: true);
 
-        var budget = Math.Min(
-            MiterLimit * Math.Max(type.Width, runType.Width),
-            MiterLengthFraction * wall.Length);
+        var budget = Math.Min((alongRun ? 2 : 1) * MiterLimit * Math.Max(type.Width, runType.Width), MiterLengthFraction * wall.Length);
 
         if (!CutStaysNearTheJoint(face, wall, type, SquareCut(wall, type, atStart), budget)) return null;
 
@@ -853,18 +921,27 @@ public static class WallJoins
         var curve = wall.LocationCurve;
         var half = type.Width / 2;
 
-        foreach (var other in WallsAround(document, wall, type))
+        foreach (var around in WallsAround(document, wall, type))
         {
-            if (ReferenceEquals(other, wall) || other.IsCurved) continue;
-            if (document.GetWallType(other) is not { } otherType) continue;
+            if (ReferenceEquals(around, wall)) continue;
+            if (document.GetWallType(around) is not { } otherType) continue;
 
             var reach = half + otherType.Width + type.Width + JoinTolerance;
-            if (curve.DistanceTo(other.Start) > reach && curve.DistanceTo(other.End) > reach) continue;
+            if (curve.DistanceTo(around.Start) > reach && curve.DistanceTo(around.End) > reach) continue;
 
-            var (startCut, endCut) = GetEndCuts(document, other, otherType);
+            var (startCut, endCut) = GetEndCuts(document, around, otherType);
             foreach (var (cut, atStart) in new[] { (startCut, true), (endCut, false) })
             {
-                if (cut.Against != wall.Id || !cut.IsStraight) continue;
+                // Into the wall it stops against - or a wall in line with it: a run of two walls joined where another stops against
+                // them, its layers coming in across both. Counted against the longer alone, the shorter kept its layers where the other's
+                // came through, the two in one place (the audit of November 2026).
+                if (!cut.IsStraight || cut.Against == Guid.Empty) continue;
+                if (cut.Against != wall.Id && !(document.Find<Wall>(cut.Against) is { } against && !against.IsCurved && !wall.IsCurved && AreInLine(wall, against)
+                                                && Math.Abs((against.Start - wall.Start).Cross(wall.Direction)) <= JoinTolerance))
+                    continue;
+
+                // A curved wall's layers come in along its tangent at that end, as its end was cut.
+                var other = Straight(around, atStart ? around.Start : around.End);
 
                 var end = atStart ? 0 : other.Length;
                 var nearAcross = Math.Sign(wall.Locate(structure, cut.Points[0]).Across) * half;
@@ -904,11 +981,47 @@ public static class WallJoins
         var structure = type.Structure;
         double Along(WallCut cut) => wall.Locate(structure, cut.Points[cut.Points.Count / 2]).Along;
 
+        // How far this layer itself reaches at each end: a wrapped end takes an inner layer back from the cut, round the return of the
+        // layers outside it. A layer of another wall coming in through the face is a break in this one only where it is wholly within
+        // that reach; measured from the cut instead, an inner layer behind a wrapped end was drawn and built from where it starts back
+        // to where the other wall's layer comes in - inside out, on top of that layer (the audit of November 2026: a partition's studs
+        // and a brick wall's cavity and insulation in the same place at a corner).
         var (start, finish) = (Along(cutFrom), Along(cutTo));
-        var through = intrusions
-            .Where(intrusion => intrusion.Passes(outer, inner) && intrusion.FromAlong > start + Epsilon && intrusion.ToAlong < finish - Epsilon)
-            .ToList();
-        if (through.Count == 0) return new[] { GetBandOutline(wall, type, outer, inner, from, to) };
+        // Its corners at each end: the furthest out bound what can come into it at all, the nearest in what can break it in two. The
+        // cut's own points say neither - a slanted end begins well before them on one face.
+        (double Out, double In) Ends(WallCut cut, bool atStart)
+        {
+            var along = EndPoints(wall, type, outer, inner, cut, atStart).Select(point => wall.Locate(structure, point).Along).ToList();
+            return atStart ? (Math.Min(start, along.Min()), Math.Max(start, along.Max())) : (Math.Max(finish, along.Max()), Math.Min(finish, along.Min()));
+        }
+
+        var ((outFrom, reachFrom), (outTo, reachTo)) = (Ends(from, true), Ends(to, false));
+        // Those coming in across this layer at all; those passing wholly through it, within its reach, break it.
+        bool Overlaps(WallIntrusion intrusion) =>
+            Math.Min(Math.Max(intrusion.Face, intrusion.Deep), Math.Max(outer, inner)) - Math.Max(Math.Min(intrusion.Face, intrusion.Deep), Math.Min(outer, inner)) > Epsilon;
+        // Where it crosses this layer's own two faces: an edge coming in aslant crosses an outer layer well along from where it crosses
+        // the wall's middle, which once put one that came in over a layer's end through its middle - and the piece before it ran back
+        // past the wall's own end.
+        (double From, double To) AtLayer(WallIntrusion intrusion)
+        {
+            if (wall.IsCurved) return (intrusion.FromAlong, intrusion.ToAlong);
+            var (bodyStart, _) = wall.GetBodyCentreline(structure);
+            var along = new List<double>();
+            foreach (var edge in new[] { intrusion.FromEdge, intrusion.ToEdge })
+            foreach (var offset in new[] { outer, inner })
+                if (Line2D.TryIntersect(edge, new Line2D(bodyStart + wall.ExteriorNormal * offset, wall.Direction), out var crossing))
+                    along.Add(wall.Locate(structure, crossing).Along);
+            return along.Count == 0 ? (intrusion.FromAlong, intrusion.ToAlong) : (along.Min(), along.Max());
+        }
+
+        var passing = intrusions.Where(intrusion => Overlaps(intrusion) && AtLayer(intrusion) is var (a, b) && b > outFrom + Epsilon && a < outTo - Epsilon).ToList();
+        var through = passing.Where(intrusion => intrusion.Passes(outer, inner) && AtLayer(intrusion) is var (a, b) && a > reachFrom + Epsilon && b < reachTo - Epsilon).ToList();
+
+        // One coming in over an end - where another wall stops against this one at a corner it runs past - or only part way into this
+        // layer - its depth worked out against the wall in line with this one, whose layers lie the other way round - is taken out of
+        // the layer as it is.
+        var atEnds = passing.Except(through).ToList();
+        if (through.Count == 0) return Without(wall, type, new[] { GetBandOutline(wall, type, outer, inner, from, to) }, atEnds);
 
         var pieces = new List<Point2D[]>();
         var cursor = from;
@@ -926,7 +1039,40 @@ public static class WallJoins
         }
 
         if (finish > cursorAlong + JoinTolerance) pieces.Add(GetBandOutline(wall, type, outer, inner, cursor, to));
-        return pieces;
+        return Without(wall, type, pieces, atEnds);
+    }
+
+    /// <summary>
+    /// A layer's pieces with the other walls' layers coming in over its ends taken out: each such layer's footprint in this wall, between
+    /// its two edges and from this wall's face to as deep as it goes.
+    /// </summary>
+    private static IReadOnlyList<Point2D[]> Without(Wall wall, WallType type, IReadOnlyList<Point2D[]> pieces, List<WallIntrusion> intrusions)
+    {
+        if (intrusions.Count == 0) return pieces;
+        var left = pieces.Select(piece => (IReadOnlyList<Point2D>)piece).ToList();
+        foreach (var intrusion in intrusions)
+        {
+            // On a curved wall, its tangent where the intrusion comes in.
+            var here = wall.IsCurved ? Straight(wall, wall.PointAt(type.Structure, (intrusion.FromAlong + intrusion.ToAlong) / 2, 0)) : wall;
+            var (bodyStart, _) = here.GetBodyCentreline(type.Structure);
+            var normal = here.ExteriorNormal;
+            // Its footprint: between its two edges, from this wall's face to as deep as it goes.
+            var quad = new List<Point2D>();
+            foreach (var (edge, offsets) in new[] { (intrusion.FromEdge, new[] { intrusion.Face, intrusion.Deep }), (intrusion.ToEdge, new[] { intrusion.Deep, intrusion.Face }) })
+            foreach (var offset in offsets)
+                if (Line2D.TryIntersect(edge, new Line2D(bodyStart + normal * offset, here.Direction), out var corner))
+                    quad.Add(corner);
+            if (quad.Count != 4 || Polygon2D.Area(quad) < 1) continue;
+
+            // Wound anticlockwise, as a shape taken away is: wound the other way the cutter reads as a hole, and the difference adds it.
+            if (Polygon2D.SignedArea(quad) < 0) quad.Reverse();
+
+            left = left.SelectMany(piece => PolygonBoolean.Combine(new[] { piece }, new[] { (IReadOnlyList<Point2D>)quad }, BooleanOperation.Difference).Select(region => region.Outer))
+                .Where(piece => Polygon2D.Area(piece) > 1)
+                .ToList();
+        }
+
+        return left.Select(piece => piece.ToArray()).ToList();
     }
 
     /// <summary>

@@ -281,6 +281,7 @@ sketch's slope symbols only show while editing the sketch.
 | 13 | Save/load of edges and cutoff; old files read back as flat roofs | ✅ |
 | 14 | Tests for the ten common shapes (shed, gable, catslide, clerestory, hip, half-hip, dutch gable, cross-gable, butterfly; gambrel shown to need extrusion) | ✅ |
 | 15 | Polygon engine fixes found on the way: coincident edges, partly-overlapping edges, false crossings between near-parallel edges | ✅ |
+| 16 | Geometry audit fixes (November 2026): which side of the line between two planes at a corner an eave keeps is asked along the eave, not in from it - corners sharper than 53° and 25° against 45° of pitch came out wrong, a triangle losing a third of its roof; an eave beside a gable at an inside corner stops on the gable's line. Swept over triangles, mixed-pitch quadrilaterals and L, T, U, H, cross and bay shapes in `RoofSweepTests` | ✅ |
 
 ### 3.2 Feature by feature against Revit
 
