@@ -435,6 +435,7 @@ public static class HorizontalEscape
 
         var exits = new List<Exit>();
         var onto = ExternalStairs.DoorsOnto(document);
+        var overRoofs = RoofEscape.DoorsOnto(document);
         var sides = new Dictionary<(Door, Room), int>();
         foreach (var link in links.Where(link => link.Room.LevelId == level && grid.ContainsKey(link.Room)))
         {
@@ -455,8 +456,8 @@ public static class HorizontalEscape
                 }
             }
             // Outside: a final exit at the ground, or a storey exit onto an external stair - not a door onto a drop (round 133).
-            else if (link.Other is null && link.Outside && exits.All(exit => exit.Node != inside) && ExternalStairs.WayOut(document, link.Door, onto))
-                exits.Add(new Exit(inside, link.Door, onto.Contains(link.Door) ? "the door onto the external stair" : "a final exit, outside", width, link.Room));
+            else if (link.Other is null && link.Outside && exits.All(exit => exit.Node != inside) && (ExternalStairs.WayOut(document, link.Door, onto) || overRoofs.Contains(link.Door)))
+                exits.Add(new Exit(inside, link.Door, onto.Contains(link.Door) ? "the door onto the external stair" : overRoofs.Contains(link.Door) ? "the door onto the escape route over the flat roof" : "a final exit, outside", width, link.Room));
             else if (link.Other is { } into && stair(into) && exits.All(exit => exit.Node != inside)) exits.Add(new Exit(inside, link.Door, $"the door into the {into.Name}", width, link.Room));
         }
 

@@ -169,7 +169,7 @@ public static class Rooflights
                     : "Approved Document B (Diagram 12.1, note 2) asks the roof covering for 3 m round TP(b) and class D-s3, d2 plastic rooflights to be class A2-s3, d2 or better.");
 
         // Within 1.5 m of a compartment wall the roof passes over (Diagram 5.2, the notes to Tables 12.2 and 12.3; 5.12).
-        var walls = document.Walls.Where(wall => document.GetWallType(wall) is { } wallType && (wallType.Separating || FireSeparation.Compartment(document, wall)) && roof.Contains(wall.Start.MidpointTo(wall.End))).ToList();
+        var walls = document.Walls.Where(wall => roof.Contains(wall.Start.MidpointTo(wall.End)) && CompartmentRoofs.Why(document, wall) is not null).ToList();
         foreach (var light in lights)
         foreach (var wall in walls)
         {

@@ -50,7 +50,7 @@ public static class ExternalStairs
         document.ProjectInformation.ClearanceStandard.IsUs() ? (false, false) : (HorizontalEscape.Applies(document), FireDesign.UseOf(document) == BuildingUse.Flats);
 
     /// <summary>Where a door comes out on the side away from a room, mm - null for one between rooms.</summary>
-    private static Point2D? Out(BimDocument document, Door door)
+    internal static Point2D? Out(BimDocument document, Door door)
     {
         if (document.Find<Wall>(door.HostWallId) is not { } wall || document.GetWallType(wall) is not { } type) return null;
         var reach = type.Structure.TotalWidth / 2 + 150;
@@ -156,8 +156,14 @@ public static class ExternalStairs
     }
 
     /// <summary>Whether a stair is an external escape stair only - doors from the storeys onto it, none of them a main entrance - and so no approach to the building.</summary>
-    public static bool EscapeOnly(BimDocument document, Stair stair) =>
-        Of(document).FirstOrDefault(each => each.Stairs.Contains(stair)) is { Doors.Count: > 0 } placed && placed.Doors.All(onto => !EscapeRoutes.MainEntrances(document).Contains(onto.Door));
+    public static bool EscapeOnly(BimDocument document, Stair stair)
+    {
+        if (Of(document).FirstOrDefault(each => each.Stairs.Contains(stair)) is not { } placed) return false;
+        var doors = placed.Doors.Select(onto => onto.Door).ToList();
+        if (doors.Count == 0)
+            doors = RoofEscape.Of(document).Where(route => route.Stair is { } reached && reached.Stairs.Count > 0 && ReferenceEquals(reached.Stairs[0], placed.Stairs[0])).Select(route => route.Door).ToList();
+        return doors.Count > 0 && doors.All(door => !EscapeRoutes.MainEntrances(document).Contains(door));
+    }
 
     /// <summary>The doors onto the building's external stairs.</summary>
     public static IReadOnlySet<Door> DoorsOnto(BimDocument document) => Of(document).SelectMany(stair => stair.Doors).Select(onto => onto.Door).ToHashSet();
@@ -175,7 +181,12 @@ public static class ExternalStairs
     {
         var (volume2, flats) = Rules(document);
         if (!volume2 && !flats) return Array.Empty<string>();
-        return Of(document).FirstOrDefault(each => each.Stairs.Count > 0 && ReferenceEquals(each.Stairs[0], stair)) is { } placed ? Wanting(document, placed, volume2) : Array.Empty<string>();
+        if (Of(document).FirstOrDefault(each => each.Stairs.Count > 0 && ReferenceEquals(each.Stairs[0], stair)) is not { } placed) return Array.Empty<string>();
+
+        // Come to across a flat roof (3.33, 3.72): the doors onto the roof route its doors (round 136).
+        if (placed.Doors.Count == 0)
+            placed = placed with { Doors = RoofEscape.Of(document).Where(route => route.Stair is { } reached && reached.Stairs.Count > 0 && ReferenceEquals(reached.Stairs[0], placed.Stairs[0])).Select(route => new Onto(route.Door, route.Room, route.Level, route.From)).ToList() };
+        return Wanting(document, placed, volume2);
     }
 
     private static IReadOnlyList<string> Wanting(BimDocument document, Placed stair, bool volume2)

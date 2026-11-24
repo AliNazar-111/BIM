@@ -226,6 +226,10 @@ public static class Doors
         if (!standard.IsUs())
             foreach (var (said, rule) in FireCompartments.Problems(document, door, type)) Add(said, rule);
 
+        // Onto an escape route over a flat roof (Approved Document B Volume 2 2.30 to 2.32, Volume 1 2.13, 2.14, 3.10, 3.11, 3.34, round 136).
+        if (!standard.IsUs())
+            foreach (var (said, rule) in RoofEscape.Problems(document, door, type)) Add(said, rule);
+
         // In a care home: between protected areas, a bedroom's, ancillary accommodation's (Approved Document B Volume 2 2.42, 2.44, Table C1, round 129).
         foreach (var (said, rule) in CareHomes.Problems(document, door, type)) Add(said, rule);
 

@@ -251,12 +251,12 @@ public static class FireCompartments
     private static string OccupancyOf(Room room) => room.Occupancy.Trim();
 
     /// <summary>Whether two rooms are separate occupancies of a shop, factory or store: each given one, not the same (8.11e).</summary>
-    private static bool Separate(BimDocument document, Room one, Room other) =>
+    internal static bool Separate(BimDocument document, Room one, Room other) =>
         HorizontalEscape.Purpose(document) is PurposeGroup.ShopAndCommercial or PurposeGroup.Industrial or PurposeGroup.Storage
         && OccupancyOf(one).Length > 0 && OccupancyOf(other).Length > 0 && !string.Equals(OccupancyOf(one), OccupancyOf(other), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a room might be a protected shaft - a stair's room, or one called a lift, shaft, riser or duct - before the shafts are found.</summary>
-    private static bool ShaftLike(BimDocument document, Room room) =>
+    internal static bool ShaftLike(BimDocument document, Room room) =>
         Named(room, "stair", "lift", "shaft", "riser", "duct") || Doors.StairRooms(document).Contains(room);
 
     /// <summary>The rooms that are protected shafts - a stair's, a lift's or a service riser's passing through a compartment floor - each with what kind.</summary>
@@ -315,6 +315,12 @@ public static class FireCompartments
         if (Separate(document, one, other) && rated < Math.Max(60, period))
             yield return ($"it divides the {one.Name} ({OccupancyOf(one)}) from the {other.Name} ({OccupancyOf(other)}), separate occupancies, {Rated()}.",
                 $"Approved Document B Volume 2 (8.11e, Table B1 item 6b) asks a compartment wall of REI {Math.Max(60, period)} - 60 minutes or the building's period, the greater - between separate occupancies of {HorizontalEscape.Said(group)}, spaces used by different organisations.");
+
+        // The full height of its storey, and in the top storey on through the roof space (8.20, 8.21, 8.25a, round 135).
+        if (CompartmentRoofs.Why(document, wall) is { } why && !type.Separating && FireSeparation.Reaches(document, wall) is var (gap, roofOver))
+            yield return roofOver
+                ? ($"it is {why} in the top storey and stops {gap:0} below the roof.", "Approved Document B Volume 2 (8.21, 8.25a) asks a compartment wall in a top storey under a roof to go on through the roof space to the underside of the roof covering or deck, fire-stopped - attach its top to the roof.")
+                : ($"it is {why} and stops {gap:0} below the floor over it.", "Approved Document B Volume 2 (8.20) asks a compartment wall to run the full height of the storey it is in.");
 
         if (!ShaftLike(document, one) && !ShaftLike(document, other)) yield break;
         var shafts = Shafts(document);

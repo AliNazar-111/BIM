@@ -200,9 +200,14 @@ public static class WallRules
                 Add($"it separates two homes, {(Doors.FireMinutes(type.FireRating) is > 0 and var rated ? $"rated {rated} minutes" : "not fire-rated")}.",
                     "Approved Document B (5.8, Table B4) asks for a wall separating dwellings to be a compartment wall resisting fire for 60 minutes (REI 60).");
             if (ShortOfRoof(document, wall) is { } gap)
-                Add($"it separates two homes and stops {gap:0} below the roof over it.",
-                    "Approved Document B (5.11) asks a compartment wall to meet the underside of the roof covering, fire-stopped - attach its top to the roof.");
+                Add(HorizontalEscape.Applies(document) ? $"it is a wall common to two buildings and stops {gap:0} below the roof over it." : $"it separates two homes and stops {gap:0} below the roof over it.",
+                    HorizontalEscape.Applies(document)
+                        ? "Approved Document B Volume 2 (8.18, 8.25a) asks a compartment wall common to two buildings to run the full height of the building and on through any roof space to the underside of the roof covering, fire-stopped - attach its top to the roof."
+                        : "Approved Document B (5.11) asks a compartment wall to meet the underside of the roof covering, fire-stopped - attach its top to the roof.");
         }
+
+        // Where a compartment wall meets the roof: BROOF(t4) on a non-combustible deck 1500 either side, or the wall carried up through it (5.12 to 5.15, 8.26 to 8.29, round 135).
+        foreach (var (said, rule) in CompartmentRoofs.Problems(document, wall, type)) Add(said, rule);
 
         // Fire spreading over the property line: how near it the wall stands, and how much of its side is open.
         foreach (var (said, rule) in SpaceSeparation.Problems(document, wall, standard)) Add(said, rule);
