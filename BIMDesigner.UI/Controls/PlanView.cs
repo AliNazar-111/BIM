@@ -35,6 +35,9 @@ public enum PlanTool
     Room,
     RoomSeparator,
 
+    /// <summary>Draws cavity barriers: lines in the voids over ceilings and in roof spaces, closing them up to the floor or roof over them.</summary>
+    CavityBarrier,
+
     /// <summary>Draws lines in the view and nowhere else: a detail's linework, or a mark on a plan.</summary>
     DetailLine,
 
@@ -1323,6 +1326,7 @@ public partial class PlanView : FrameworkElement
         PlanTool.Railing => "Click along where the railing runs - each corner - and double-click where it ends, or click its first point to take it all the way round. It stands on the floor, balcony or terrace under it. To guard a whole balcony or terrace, pick it and use Guard Edges.",
         PlanTool.Beam => "Click where the beam starts, then where it ends: it hangs from this level, its top there, under the floor it carries - the next starts where it ended. Type and offset are on the option bar; Esc to stop.",
         PlanTool.RoomSeparator => "Click where the room separator starts, then where it ends: rooms are bounded by it where there is no wall - the next starts where it ended. Esc to stop.",
+        PlanTool.CavityBarrier => "Click where the cavity barrier starts, then where it ends: it closes the void over the ceilings, or the roof space, up to the floor or roof over it - along the line of a wall that stops short, or across a large void. The next starts where it ended. Esc to stop.",
         PlanTool.DetailLine => "Click where the detail line starts, then where it ends - or type its length: the next starts where it ended. Esc to stop.",
         PlanTool.FilledRegion => "Click the corners of the region to fill, then its first again or double-click. Esc to stop.",
         PlanTool.RepeatingDetail => "Click where the repeating detail starts, then where it ends - or type its length: the detail on the option bar is drawn along it, to its left, at its true size. Esc to stop.",
@@ -1523,6 +1527,7 @@ public partial class PlanView : FrameworkElement
                       | CancelRailing()
                       | CancelBeam()
                       | CancelRoomSeparator()
+                      | CancelCavityBarrier()
                       | CancelDetailLine()
                       | CancelAreaBoundary()
                       | CancelRepeatingDetail()
@@ -1986,6 +1991,11 @@ public partial class PlanView : FrameworkElement
         {
             _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
             RoomSeparatorHover(_cursorModel);
+        }
+        else if (ActiveTool == PlanTool.CavityBarrier)
+        {
+            _cursorModel = SnapPoint(raw, null, out _cursorIsSnapped);
+            CavityBarrierHover(_cursorModel);
         }
         else if (ActiveTool == PlanTool.DetailLine)
         {
@@ -2465,6 +2475,10 @@ public partial class PlanView : FrameworkElement
 
             case PlanTool.RoomSeparator:
                 ClickRoomSeparator(SnapPoint(raw, null, out _));
+                return;
+
+            case PlanTool.CavityBarrier:
+                ClickCavityBarrier(SnapPoint(raw, null, out _));
                 return;
 
             case PlanTool.Duct:
@@ -6741,6 +6755,7 @@ public partial class PlanView : FrameworkElement
         foreach (var railing in RailingsAt(model)) yield return railing;
         foreach (var beam in BeamsAt(model)) yield return beam;
         foreach (var separator in RoomSeparatorsAt(model)) yield return separator;
+        foreach (var barrier in CavityBarriersAt(model)) yield return barrier;
         foreach (var valve in ValvesAt(model)) yield return valve;
         foreach (var pipe in PipesAt(model)) yield return pipe;
         foreach (var duct in DuctsAt(model)) yield return duct;
@@ -6920,6 +6935,7 @@ public partial class PlanView : FrameworkElement
         DrawRailingPreview(dc);
         DrawBeamPreview(dc);
         DrawRoomSeparatorPreview(dc);
+        DrawCavityBarrierPreview(dc);
         DrawDetailLinePreview(dc);
         DrawAreaBoundaryPreview(dc);
         DrawRepeatingPreview(dc);

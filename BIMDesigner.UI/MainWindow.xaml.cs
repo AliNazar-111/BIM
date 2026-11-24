@@ -739,7 +739,7 @@ public partial class MainWindow : Window
             or PlanTool.Paint or PlanTool.SplitFace
             or PlanTool.WallJoins or PlanTool.JoinGeometry or PlanTool.WallOpening
             or PlanTool.JoinRoof or PlanTool.DormerOpening or PlanTool.RoofShape or PlanTool.Dormer or PlanTool.Shaft or PlanTool.FaceOpening or PlanTool.Downpipe or PlanTool.RoofDrain or PlanTool.Chimney
-            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.AreaBoundary or PlanTool.Area or PlanTool.Pipe or PlanTool.Valve or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
+            or PlanTool.Stair or PlanTool.Ramp or PlanTool.Railing or PlanTool.Beam or PlanTool.RoomSeparator or PlanTool.CavityBarrier or PlanTool.DetailLine or PlanTool.FilledRegion or PlanTool.RepeatingDetail or PlanTool.AreaBoundary or PlanTool.Area or PlanTool.Pipe or PlanTool.Valve or PlanTool.Duct or PlanTool.Terrain or PlanTool.Region or PlanTool.Joists
             or PlanTool.Pad or PlanTool.PropertyLine or PlanTool.SpotElevation or PlanTool.Mass or PlanTool.Camera or PlanTool.Walkthrough
             or PlanTool.InteriorElevation or PlanTool.Callout or PlanTool.AngularDimension or PlanTool.RadialDimension
             or PlanTool.RevisionCloud or PlanTool.Keynote;
@@ -2481,7 +2481,7 @@ public partial class MainWindow : Window
     /// <summary>Every tool button, on whichever ribbon tab it sits.</summary>
     private RadioButton[] ToolButtons() =>
     [
-        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, DetailLineTool, FilledRegionTool, RepeatingDetailTool, AreaBoundaryTool, AreaTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
+        SelectTool, WallTool, DoorTool, WindowTool, RoomTool, RoomSeparatorTool, CavityBarrierTool, DetailLineTool, FilledRegionTool, RepeatingDetailTool, AreaBoundaryTool, AreaTool, ComponentTool, ColumnTool, FloorTool, CeilingTool, RoofTool, RoofExtrusionTool, DormerTool,
         FasciaTool, GutterTool, SoffitTool, EaveTool, RoofWindowTool, ShaftTool, FaceOpeningTool, DownpipeTool, RoofDrainTool, ChimneyTool, StairTool, RampTool, RailingTool, BeamTool, PipeTool, ValveTool, DuctTool, TerrainTool,
         StructuralColumnTool, WallFootingTool, PadFootingTool, RaftTool, PilesTool,
         RegionTool, JoistsTool, PadTool, PropertyLineTool, SpotElevationTool, GridTool,
@@ -2551,6 +2551,7 @@ public partial class MainWindow : Window
             : WindowTool.IsChecked == true ? PlanTool.Window
             : RoomTool.IsChecked == true ? PlanTool.Room
             : RoomSeparatorTool.IsChecked == true ? PlanTool.RoomSeparator
+            : CavityBarrierTool.IsChecked == true ? PlanTool.CavityBarrier
             : DetailLineTool.IsChecked == true ? PlanTool.DetailLine
             : FilledRegionTool.IsChecked == true ? PlanTool.FilledRegion
             : RepeatingDetailTool.IsChecked == true ? PlanTool.RepeatingDetail
@@ -4232,6 +4233,7 @@ public partial class MainWindow : Window
     /// <summary>Whether a building other than a home is small premises by Approved Document B Volume 2 (2.2, 4.2), and why not (round 124).</summary>
     private static readonly ParameterDefinition SmallPremisesParameter = new("Small Premises (AD B Vol 2)", ParameterDataType.Text, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition SprinkleredParameter = new("Sprinklers Throughout", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
+    private static readonly ParameterDefinition PhasedEvacuationParameter = new("Phased Evacuation (AD B Vol 2)", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
     private static readonly ParameterDefinition ReduceImposedParameter = new("Imposed Loads Reduced by Area", ParameterDataType.YesNo, ParameterBinding.Instance, ParameterGroup.Graphics);
 
     /// <summary>Whether planning makes Approved Document G's optional requirement a condition: 110 litres a person a day, not 125.</summary>
@@ -4402,6 +4404,12 @@ public partial class MainWindow : Window
             ParameterValue.Bind(SprinkleredParameter, () => _document.ProjectInformation.Sprinklered, sprinklered =>
             {
                 _document.ProjectInformation.Sprinklered = sprinklered;
+                Plan.RefreshModel();
+                if (Plan.ShowClearances) ShowClearances(true);
+            }),
+            ParameterValue.Bind(PhasedEvacuationParameter, () => _document.ProjectInformation.PhasedEvacuation, phased =>
+            {
+                _document.ProjectInformation.PhasedEvacuation = phased;
                 Plan.RefreshModel();
                 if (Plan.ShowClearances) ShowClearances(true);
             }),

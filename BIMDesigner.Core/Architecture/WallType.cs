@@ -65,6 +65,7 @@ public sealed class WallType : ElementType
         FireRating = FireRating,
         AcousticRating = AcousticRating,
         Separating = Separating,
+        Cavity = Cavity,
         RobustDetail = RobustDetail,
         ThermalResistance = ThermalResistance,
         HeatTransferCoefficient = HeatTransferCoefficient,
@@ -95,6 +96,15 @@ public sealed class WallType : ElementType
     /// resist fire for 60 minutes and run up to the roof covering (Approved Document B 5.8, 5.11).
     /// </summary>
     public bool Separating { get; set; }
+
+    /// <summary>
+    /// How its cavity, where it has one, is closed at its edges - left open, closed by closers at its top and round its openings, or by cavity
+    /// barriers E 30 and I 15 there and where it meets compartment floors and walls (Approved Document B 5.18, 5.20, Diagram 5.3).
+    /// </summary>
+    public CavityClosing Cavity { get; set; }
+
+    /// <summary>How Cavity Closed is offered, in <see cref="CavityClosing"/>'s order.</summary>
+    public static readonly string[] CavityChoices = { "Open", "Closers at top and openings", "Cavity barriers E 30 / I 15" };
 
     /// <summary>
     /// The Robust Detail it is built to, as a separating wall - "E-WM-1" - or empty: built so, it is taken as that detail, which Approved Document E
@@ -146,6 +156,9 @@ public sealed class WallType : ElementType
         yield return ParameterValue.Bind(WallTypeParameters.FireRating, () => FireRating, v => FireRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.AcousticRating, () => AcousticRating, v => AcousticRating = v);
         yield return ParameterValue.Bind(WallTypeParameters.Separating, () => Separating, v => Separating = v);
+        if (document is null || Cavities.CavityOf(document, this) is not null)
+            yield return ParameterValue.BindChoice(WallTypeParameters.Cavity, () => CavityChoices[(int)Cavity],
+                v => { if (Array.IndexOf(CavityChoices, v) is >= 0 and var index) Cavity = (CavityClosing)index; }, CavityChoices);
         yield return ParameterValue.Bind(WallTypeParameters.RobustDetail, () => RobustDetail, v => RobustDetail = v.Trim());
         if (document is not null && Log is null)
         {
@@ -225,6 +238,9 @@ public static class WallTypeParameters
 
     public static readonly ParameterDefinition FireRating =
         new("Fire Rating", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.IdentityData);
+
+    public static readonly ParameterDefinition Cavity =
+        new("Cavity Closed", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 
     public static readonly ParameterDefinition Separating =
         new("Party Wall (separates dwellings)", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.IdentityData);

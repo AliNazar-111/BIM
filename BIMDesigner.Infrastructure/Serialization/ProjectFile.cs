@@ -79,6 +79,7 @@ public static partial class ProjectFile
                 ClearanceStandard = document.ProjectInformation.ClearanceStandard.ToString(),
                 Units = document.ProjectInformation.Units.ToString(),
                 Sprinklered = document.ProjectInformation.Sprinklered,
+                PhasedEvacuation = document.ProjectInformation.PhasedEvacuation,
                 ReduceImposedLoads = document.ProjectInformation.ReduceImposedLoads,
                 WaterOptionalRequirement = document.ProjectInformation.WaterOptionalRequirement,
                 Ground = document.ProjectInformation.Ground.ToString(),
@@ -308,7 +309,7 @@ public static partial class ProjectFile
                 OpenRisers = type.OpenRisers, RiserBars = type.RiserBars, Support = type.Support.ToString(), Balustrade = type.Balustrade.ToString(),
                 HandrailProfile = type.HandrailProfile.ToString(), HandrailWidth = type.HandrailWidth, HandrailDepth = type.HandrailDepth,
                 WallClearance = type.WallClearance, HandrailExtension = type.HandrailExtension, HandrailEnds = type.HandrailEnds.ToString(),
-                GuardHeight = type.GuardHeight, LowerRail = type.LowerRail, NosingProfile = type.NosingProfile.ToString(),
+                GuardHeight = type.GuardHeight, LowerRail = type.LowerRail, CentralHandrail = type.CentralHandrail, NosingProfile = type.NosingProfile.ToString(),
                 RiserMaterialId = type.RiserMaterialId, StringMaterialId = type.StringMaterialId, RailMaterialId = type.RailMaterialId, BalusterMaterialId = type.BalusterMaterialId,
                 HandrailHeight = type.HandrailHeight, BalusterSpacing = type.BalusterSpacing,
                 Colour = type.Colour.ToString(), MaterialId = type.MaterialId, Cost = type.Cost, Description = type.Description
@@ -499,6 +500,14 @@ public static partial class ProjectFile
                 Id = link.Id, Path = link.Path, RelativePath = link.RelativePath, Positioning = link.Positioning.ToString(), X = link.Offset.X, Y = link.Offset.Y,
                 Elevation = link.Elevation, Rotation = link.Rotation, Shown = link.Shown, Halftone = link.Halftone, Attachment = link.Attachment ? true : null, ExportToIfc = link.ExportToIfc ? null : false, Mark = link.Mark, Comments = link.Comments
             });
+
+        if (document.All<CavityBarrier>().Any())
+            dto.CavityBarriers = document.All<CavityBarrier>().Select(barrier => new CavityBarrierDto
+            {
+                Id = barrier.Id, LevelId = barrier.LevelId, StartX = barrier.Start.X, StartY = barrier.Start.Y, EndX = barrier.End.X, EndY = barrier.End.Y,
+                Construction = barrier.Construction, Tested = barrier.Tested ? null : false,
+                PhaseCreated = barrier.PhaseCreated.ToString(), Mark = barrier.Mark, Comments = barrier.Comments
+            }).ToList();
 
         foreach (var separator in document.All<RoomSeparator>())
             dto.RoomSeparators.Add(new RoomSeparatorDto
@@ -738,6 +747,7 @@ public static partial class ProjectFile
                 FireRating = type.FireRating,
                 AcousticRating = type.AcousticRating,
                 Separating = type.Separating,
+                Cavity = type.Cavity.ToString(),
                 RobustDetail = type.RobustDetail.Length == 0 ? null : type.RobustDetail,
                 ThermalResistance = type.ThermalResistance,
                 HeatTransferCoefficient = type.HeatTransferCoefficient,
@@ -799,6 +809,7 @@ public static partial class ProjectFile
                 TrimProjectionExterior = type.TrimProjectionExterior,
                 TrimProjectionInterior = type.TrimProjectionInterior,
                 SelfClosing = type.SelfClosing,
+                AutomaticRelease = type.AutomaticRelease ? true : null,
                 DoorViewer = type.DoorViewer ? true : null,
                 DoorLimiter = type.DoorLimiter ? true : null,
                 LetterPlate = type.LetterPlate.Length == 0 ? null : type.LetterPlate,
@@ -1875,6 +1886,7 @@ public static partial class ProjectFile
         // Written before a project had units of its own: a US project's are feet and inches.
         document.ProjectInformation.Units = ParseEnum(dto.Project.Units, document.ProjectInformation.ClearanceStandard.IsUs() ? UnitSystem.Imperial : UnitSystem.Metric);
         document.ProjectInformation.Sprinklered = dto.Project.Sprinklered;
+        document.ProjectInformation.PhasedEvacuation = dto.Project.PhasedEvacuation;
         document.ProjectInformation.ReduceImposedLoads = dto.Project.ReduceImposedLoads;
         document.ProjectInformation.WaterOptionalRequirement = dto.Project.WaterOptionalRequirement;
         document.ProjectInformation.Ground = ParseEnum(dto.Project.Ground, GroundType.FirmClay);
@@ -2006,6 +2018,9 @@ public static partial class ProjectFile
 
             // A sweep with no size is not a sweep.
             var loaded = document.FindType<WallType>(type.Id)!;
+
+            // How its cavity is closed; a file from before it was asked, as its build-up would be built (round 127).
+            loaded.Cavity = type.Cavity is { } cavity ? ParseEnum(cavity, CavityClosing.Open) : Cavities.Assumed(document, loaded);
             loaded.Sweeps.AddRange(type.Sweeps
                 .Where(sweep => sweep.Depth > 0 && sweep.Height > 0)
                 .Select(sweep => new WallSweep(
@@ -2124,7 +2139,7 @@ public static partial class ProjectFile
                 HandrailExtension = double.IsFinite(type.HandrailExtension) ? Math.Clamp(type.HandrailExtension, 0, 1000) : 0,
                 HandrailEnds = ParseEnum(type.HandrailEnds, HandrailEnds.ReturnToWall),
                 GuardHeight = type.GuardHeight is >= 700 and <= 1500 ? type.GuardHeight.Value : 920,
-                LowerRail = type.LowerRail, NosingProfile = ParseEnum(type.NosingProfile, NosingProfile.Square),
+                LowerRail = type.LowerRail, CentralHandrail = type.CentralHandrail, NosingProfile = ParseEnum(type.NosingProfile, NosingProfile.Square),
                 RiserMaterialId = type.RiserMaterialId, StringMaterialId = type.StringMaterialId, RailMaterialId = type.RailMaterialId, BalusterMaterialId = type.BalusterMaterialId,
                 HandrailHeight = double.IsFinite(type.HandrailHeight) && type.HandrailHeight >= 700 ? type.HandrailHeight : 900,
                 BalusterSpacing = double.IsFinite(type.BalusterSpacing) && type.BalusterSpacing >= 60 ? type.BalusterSpacing : 120,
@@ -2376,6 +2391,7 @@ public static partial class ProjectFile
                 TrimProjectionExterior = type.TrimProjectionExterior is >= 0 and var outside ? outside : 20,
                 TrimProjectionInterior = type.TrimProjectionInterior is >= 0 and var inside ? inside : 20,
                 SelfClosing = type.SelfClosing ?? false,
+                AutomaticRelease = type.AutomaticRelease ?? false,
 
                 // Saved before Approved Document Q's hardware: none said.
                 DoorViewer = type.DoorViewer ?? false,
@@ -3086,6 +3102,20 @@ public static partial class ProjectFile
             {
                 Id = saved.Id, LevelId = saved.LevelId, Start = start, End = end, PhaseCreated = ParseEnum(saved.PhaseCreated, DesignPhase.New),
                 Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
+            });
+        }
+
+        // A cavity barrier between its ends; one with no length is nothing, and what it is made of one of those it may be.
+        foreach (var saved in (dto.CavityBarriers ?? new List<CavityBarrierDto>()).Where(saved => document.FindLevel(saved.LevelId) is not null
+                     && new[] { saved.StartX, saved.StartY, saved.EndX, saved.EndY }.All(double.IsFinite)))
+        {
+            var (start, end) = (new Point2D(saved.StartX, saved.StartY), new Point2D(saved.EndX, saved.EndY));
+            if (start.DistanceTo(end) < 1) continue;
+            document.Add(new CavityBarrier
+            {
+                Id = saved.Id, LevelId = saved.LevelId, Start = start, End = end, PhaseCreated = ParseEnum(saved.PhaseCreated, DesignPhase.New),
+                Construction = Cavities.Constructions.FirstOrDefault(each => string.Equals(each, saved.Construction, StringComparison.OrdinalIgnoreCase)) ?? Cavities.Constructions[0],
+                Tested = saved.Tested ?? true, Mark = saved.Mark ?? string.Empty, Comments = saved.Comments ?? string.Empty
             });
         }
 

@@ -117,7 +117,7 @@ public abstract class Slab : Element
             yield return ParameterValue.ReadOnly(SlabParameters.EdgeGuarding, () => Railings.EdgeVerdict(document, this));
 
         // A floor or a roof: the heat it lets out, the sound and fire it holds back, the pitch its covering wants.
-        if (this is Floor or Roof)
+        if (this is Floor or Roof or Ceiling)
             yield return ParameterValue.ReadOnly(SlabParameters.Regulations, () => SlabRules.Verdict(document, this));
 
         foreach (var parameter in ExtraParameters(document)) yield return parameter;

@@ -222,6 +222,13 @@ public static class Doors
         // Into a place of special fire hazard in a building other than a dwelling: E 30 (Approved Document B Volume 2 Table C1, round 112).
         if (!standard.IsUs() && FireCompartments.Problem(document, door, type) is var (hazard, hazardRule)) Add(hazard, hazardRule);
 
+        // Between separate occupancies, and into a protected shaft (Approved Document B Volume 2 8.30, Table C1 item 2, round 134).
+        if (!standard.IsUs())
+            foreach (var (said, rule) in FireCompartments.Problems(document, door, type)) Add(said, rule);
+
+        // In a care home: between protected areas, a bedroom's, ancillary accommodation's (Approved Document B Volume 2 2.42, 2.44, Table C1, round 129).
+        foreach (var (said, rule) in CareHomes.Problems(document, door, type)) Add(said, rule);
+
         // On an escape route of a building other than a dwelling: its direction of opening, its fastening, its vision panel, its exit sign
         // (Approved Document B Volume 2 Section 5, round 113).
         if (!standard.IsUs())

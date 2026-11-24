@@ -59,6 +59,7 @@ public static partial class Escape
         {
             var verdict = HorizontalEscape.Verdict(document, room) ?? VerticalEscape.Verdict(document, room) ?? "Not walked: a stair or a lift shaft, or not enclosed";
             var wanting = EscapeRoutes.RoomWanting(document, room).Concat(FirefightingShafts.Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said))
+                .Concat(CareHomes.Problems(document).Concat(StoreyPlanning.Problems(document)).Where(problem => problem.Room == room).Select(problem => problem.Said))
                 .Concat(MixedUse.Is(document) ? Problems(document).Where(problem => problem.Room == room).Select(problem => problem.Said) : Enumerable.Empty<string>()).ToList();
             return wanting.Count == 0 ? verdict : $"{verdict}; {string.Join("; ", wanting)}";
         }

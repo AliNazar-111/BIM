@@ -267,8 +267,12 @@ public static class Warnings
             yield return For(blocked.Zone.Element, blocked.Message);
 
         foreach (var stair in document.All<Stair>())
-        foreach (var problem in Stairs.Problems(document, stair))
+        foreach (var problem in Stairs.Problems(document, stair).Concat(ExternalStairs.Wanting(document, stair)))
             yield return For(stair, Named(stair, problem));
+
+        // Protected stairways at an angle in the outside wall: 1800 between unprotected areas facing each other (Approved Document B 3.30, 3.67, round 133).
+        foreach (var problem in ExternalStairs.Faces(document))
+            yield return For(problem.Room, Named(problem.Room, problem.Said));
 
         foreach (var ramp in document.All<Ramp>())
         foreach (var problem in Ramps.Problems(document, ramp))
@@ -281,6 +285,11 @@ public static class Warnings
         foreach (var beam in document.All<Beam>())
         foreach (var problem in Beams.Problems(document, beam))
             yield return For(beam, Named(beam, problem));
+
+        // Cavity barriers tested to E 30 and I 15 (Approved Document B 5.20, 9.13, round 127).
+        foreach (var barrier in document.All<CavityBarrier>())
+        foreach (var problem in Cavities.Problems(document, barrier))
+            yield return For(barrier, Named(barrier, problem));
 
         // Openings over a drop, their guarding; a curtain wall's the same.
         foreach (var opening in document.All<Opening>())
@@ -298,7 +307,7 @@ public static class Warnings
         foreach (var problem in SoundInsulation.Reverberation(document))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
         // A storey of a building other than a dwelling: its storey exits' number and width (Approved Document B Volume 2, round 109).
-        foreach (var problem in HorizontalEscape.Problems(document).Concat(VerticalEscape.Problems(document)).Concat(FireCompartments.Problems(document)).Concat(EscapeRoutes.Problems(document)).Concat(FirefightingShafts.Problems(document)))
+        foreach (var problem in HorizontalEscape.Problems(document).Concat(VerticalEscape.Problems(document)).Concat(FireCompartments.Problems(document)).Concat(EscapeRoutes.Problems(document)).Concat(FirefightingShafts.Problems(document)).Concat(CareHomes.Problems(document)).Concat(StoreyPlanning.Problems(document)))
             yield return For(problem.Room, Named(problem.Room, problem.Said));
         // A building other than a dwelling on two storeys or more with no lift (Approved Document M Volume 2 3.24a, round 107).
         foreach (var problem in Lifts.Missing(document))

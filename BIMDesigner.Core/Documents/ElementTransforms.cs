@@ -53,7 +53,7 @@ public static class ElementTransforms
         // A railing runs where it was drawn, on whatever floor is under it; a beam spans where it was drawn; a room separator divides where it was drawn.
         Railing => true,
         Beam => true,
-        RoomSeparator => true,
+        RoomSeparator or CavityBarrier => true,
         Annotation.DetailLine or Annotation.FilledRegion => true,
         AreaBoundary or Area or Annotation.RepeatingDetail => true,
         CadUnderlay or ImageUnderlay => true,
@@ -177,6 +177,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (separator.Start + delta, separator.End + delta);
+                break;
+
+            case CavityBarrier barrier:
+                (barrier.Start, barrier.End) = (barrier.Start + delta, barrier.End + delta);
                 break;
 
             case Annotation.DetailLine detail:
@@ -477,6 +481,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (Reflect(separator.Start), Reflect(separator.End));
+                break;
+
+            case CavityBarrier barrier:
+                (barrier.Start, barrier.End) = (Reflect(barrier.Start), Reflect(barrier.End));
                 break;
 
             case Annotation.DetailLine detail:
@@ -804,6 +812,10 @@ public static class ElementTransforms
 
             case RoomSeparator separator:
                 (separator.Start, separator.End) = (map(separator.Start), map(separator.End));
+                break;
+
+            case CavityBarrier barrier:
+                (barrier.Start, barrier.End) = (map(barrier.Start), map(barrier.End));
                 break;
 
             case Annotation.DetailLine detail:

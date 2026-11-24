@@ -189,6 +189,10 @@ public static class HorizontalEscape
     /// <summary>Whether a building is small premises (2.2, 4.2), why or why not, and whether it is a bar or restaurant.</summary>
     public sealed record Premises(bool Small, string Said, bool BarOrRestaurant);
 
+    /// <summary>Words that say highly flammable materials are sold, stored or used, so the premises are no small premises (4.1, round 131).</summary>
+    private static readonly HashSet<string> Flammable = new(StringComparer.OrdinalIgnoreCase)
+        { "flammable", "flammables", "firework", "fireworks", "explosive", "explosives", "petrol", "solvent", "solvents", "lpg" };
+
     /// <summary>The largest storey of small premises (4.2a iii), and of one with a single open stair alone (4.8d ii), m².</summary>
     public const double SmallStorey = 280, OpenStairStorey = 90;
 
@@ -209,6 +213,11 @@ public static class HorizontalEscape
             if (group is not (PurposeGroup.Office or PurposeGroup.ShopAndCommercial or PurposeGroup.Industrial or PurposeGroup.Storage))
                 return new Premises(false, $"{Said(group)} - 2.2 offers small premises to shops, offices, industrial and storage premises", false);
             if (MixedUse.Is(document)) return new Premises(false, "homes in it too - small premises are a single occupancy (4.2a i)", false);
+            if (document.All<Room>().Select(room => room.Occupancy.Trim()).Where(each => each.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Skip(1).Any())
+                return new Premises(false, "rooms of separate occupancies in it - small premises are a single occupancy (4.2a i)", false);
+            if (new[] { document.ProjectInformation.BuildingType ?? string.Empty }.Concat(document.All<Room>().Select(room => room.Name))
+                    .SelectMany(Toilets.WordsOf).FirstOrDefault(word => Flammable.Contains(word)) is { } flammable)
+                return new Premises(false, $"highly flammable materials sold, stored or used in it - {flammable} - which small premises are not for (4.1)", false);
             var ground = Escape.Ground(document);
             var rooms = document.All<Room>().Select(room => (Room: room, Boundary: room.GetBoundary(document))).Where(entry => entry.Boundary.IsEnclosed && entry.Boundary.Polygon.Count >= 3).ToList();
             if (rooms.Count == 0) return new Premises(false, "no rooms", false);
@@ -249,7 +258,14 @@ public static class HorizontalEscape
         Doors.StairRooms(document).Contains(room) && !Named(room, "stair", "landing", "hall", "lobby", "corridor", "entrance", "foyer", "passage", "vestibule");
 
     /// <summary>What a room comes to on its storey's grid: the farthest point from a storey exit and the longest one-way stretch, mm, against its limits.</summary>
-    public sealed record Travel(double Nearest, double OneWay, double One, double More, string Use, bool Reached, bool Within, bool TwoWays = false, bool Small = false);
+    public sealed record Travel(double Nearest, double OneWay, double One, double More, string Use, bool Reached, bool Within, bool TwoWays = false, bool Small = false)
+    {
+        /// <summary>In a care home, the farthest walk to the nearest door into an adjoining protected area or a storey exit, mm (2.37 a); NaN elsewhere.</summary>
+        public double Area { get; init; } = double.NaN;
+
+        /// <summary>In a care home, how much of that walk is one way, mm; NaN elsewhere.</summary>
+        public double AreaOneWay { get; init; } = double.NaN;
+    }
 
     /// <summary>
     /// How a door is used in a fire, as the walk finds it (round 113): out of the room on the side farther from a storey exit - into the room
@@ -258,7 +274,67 @@ public static class HorizontalEscape
     internal sealed record Use(Room From, Room? Into, bool Outside, double People, Room? Crowd);
 
     /// <summary>A storey walked: its rooms' travel, its storey exits, and how its doors are used.</summary>
-    internal sealed record Storey(Guid Level, IReadOnlyDictionary<Room, Travel> Rooms, IReadOnlyList<Exit> Exits, IReadOnlyDictionary<Door, Use> Uses);
+    internal sealed record Storey(Guid Level, IReadOnlyDictionary<Room, Travel> Rooms, IReadOnlyList<Exit> Exits, IReadOnlyDictionary<Door, Use> Uses)
+    {
+        /// <summary>Each room walked: the other rooms its points' walk to their nearest storey exit passes through (round 130).</summary>
+        public IReadOnlyDictionary<Room, HashSet<Room>> Passes { get; init; } = new Dictionary<Room, HashSet<Room>>();
+
+        /// <summary>
+        /// The rooms with a point whose every way to a storey exit passes within 4.5 m of an opening between floors, getting nearer it (2.13),
+        /// with how near that point is, mm (round 130).
+        /// </summary>
+        public IReadOnlyDictionary<Room, double> Near { get; init; } = new Dictionary<Room, double>();
+
+        /// <summary>The walk's points, each in its room (round 131).</summary>
+        public IReadOnlyList<(Room Room, Point2D At)> Points { get; init; } = Array.Empty<(Room, Point2D)>();
+
+        /// <summary>Each point's walk to its nearest storey exit, mm, and the next point toward it (-1 at an exit) (round 131).</summary>
+        public IReadOnlyList<double> Nearest { get; init; } = Array.Empty<double>();
+
+        public IReadOnlyList<int> Toward { get; init; } = Array.Empty<int>();
+
+        /// <summary>The points with two ways out, their first steps 45 degrees or more apart (Diagram 2.2) (round 131).</summary>
+        public IReadOnlySet<int> TwoWay { get; init; } = new HashSet<int>();
+    }
+
+    /// <summary>How far an escape route keeps from an opening between floors unless it leads away from it or another does, mm (2.13).</summary>
+    public const double OpeningClear = 4500;
+
+    /// <summary>
+    /// The openings between floors a storey's escape routes are kept from (2.13), as Diagram 2.5 draws them on the storey they open from: the holes
+    /// in its own floors - an atrium, an escalator's or an open stair's well - not one in an enclosed stair, a lift or a shaft. Nobody walks
+    /// across one either.
+    /// </summary>
+    public static List<IReadOnlyList<Point2D>> Openings(BimDocument document, Guid level)
+    {
+        var stairs = Doors.StairRooms(document);
+        bool Enclosed(Room room) => (stairs.Contains(room) || Named(room, "stair", "lift", "shaft", "riser", "duct")) && !OpenStairRoom(document, room);
+        var found = new List<IReadOnlyList<Point2D>>();
+        foreach (var floor in document.All<Floor>().Where(floor => floor.LevelId == level))
+        foreach (var hole in floor.Holes.Where(hole => hole.Count >= 3))
+        {
+            var centre = new Point2D(hole.Average(p => p.X), hole.Average(p => p.Y));
+            if (RoomsOf.Containing(document, level, centre) is { } room && Enclosed(room)) continue;
+            found.Add(hole);
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// The rooms of a storey of a kind that the escape from other rooms passes through: a door out of one used, as the walk finds it, by more people
+    /// than the room holds (round 129, care homes' 2.38).
+    /// </summary>
+    internal static IEnumerable<Room> PassedThrough(BimDocument document, Guid level, Func<Room, bool> which)
+    {
+        if (!Storeys(document).TryGetValue(level, out var storey)) yield break;
+        var group = Purpose(document);
+        foreach (var uses in storey.Uses.Values.Where(use => which(use.From)).GroupBy(use => use.From))
+        {
+            var own = uses.Key.GetBoundary(document) is { IsEnclosed: true } boundary && Occupants(document, uses.Key, boundary.Polygon, group) is var (count, _) ? count : 0;
+            if (uses.Max(use => use.People) > own + 0.5) yield return uses.Key;
+        }
+    }
 
     /// <summary>The storeys walked, kept while the model does not change.</summary>
     internal static IReadOnlyDictionary<Guid, Storey> Storeys(BimDocument document)
@@ -328,10 +404,13 @@ public static class HorizontalEscape
 
         var walked = rooms.Keys.Where(room => !stair(room) && !shaft(room)).ToList();
         var grid = new Dictionary<Room, List<int>>();
+
+        // Nobody walks across an opening in the storey's floor - an atrium, an escalator's well (round 130).
+        var voids = Openings(document, level);
         foreach (var room in walked)
         {
             var outline = rooms[room];
-            var points = Energy.Daylight.Grid(outline, Spacing).Select(point => Node(room, point)).ToList();
+            var points = Energy.Daylight.Grid(outline, Spacing).Where(point => !voids.Any(hole => Polygon2D.Contains(hole, point))).Select(point => Node(room, point)).ToList();
             grid[room] = points;
             var buckets = points.GroupBy(node => ((int)Math.Floor(nodes[node].At.X / Join), (int)Math.Floor(nodes[node].At.Y / Join))).ToDictionary(bucket => bucket.Key, bucket => bucket.ToList());
             foreach (var node in points)
@@ -340,7 +419,8 @@ public static class HorizontalEscape
                 for (var dx = -1; dx <= 1; dx++)
                 for (var dy = -1; dy <= 1; dy++)
                     foreach (var other in buckets.GetValueOrDefault((bx + dx, by + dy)) ?? new List<int>())
-                        if (other > node && nodes[node].At.DistanceTo(nodes[other].At) <= Join && Clear(outline, nodes[node].At, nodes[other].At))
+                        if (other > node && nodes[node].At.DistanceTo(nodes[other].At) <= Join && Clear(outline, nodes[node].At, nodes[other].At)
+                            && !voids.Any(hole => Polygon2D.Contains(hole, nodes[node].At.MidpointTo(nodes[other].At))))
                             Edge(node, other, nodes[node].At.DistanceTo(nodes[other].At));
             }
         }
@@ -354,6 +434,7 @@ public static class HorizontalEscape
         }
 
         var exits = new List<Exit>();
+        var onto = ExternalStairs.DoorsOnto(document);
         var sides = new Dictionary<(Door, Room), int>();
         foreach (var link in links.Where(link => link.Room.LevelId == level && grid.ContainsKey(link.Room)))
         {
@@ -373,7 +454,9 @@ public static class HorizontalEscape
                     Edge(inside, beyond, link.Inside.DistanceTo(link.Beyond));
                 }
             }
-            else if (link.Other is null && link.Outside && exits.All(exit => exit.Node != inside)) exits.Add(new Exit(inside, link.Door, "a final exit, outside", width, link.Room));
+            // Outside: a final exit at the ground, or a storey exit onto an external stair - not a door onto a drop (round 133).
+            else if (link.Other is null && link.Outside && exits.All(exit => exit.Node != inside) && ExternalStairs.WayOut(document, link.Door, onto))
+                exits.Add(new Exit(inside, link.Door, onto.Contains(link.Door) ? "the door onto the external stair" : "a final exit, outside", width, link.Room));
             else if (link.Other is { } into && stair(into) && exits.All(exit => exit.Node != inside)) exits.Add(new Exit(inside, link.Door, $"the door into the {into.Name}", width, link.Room));
         }
 
@@ -436,6 +519,33 @@ public static class HorizontalEscape
         // The one-way stretch: from each point to the nearest point with two ways out, or to an exit.
         var (oneWay, _) = From(twoWays.Concat(exits.Select(exit => exit.Node)));
 
+        // A care home: progressive horizontal evacuation (2.35 to 2.37) - each point walked to the nearest door into an adjoining protected area,
+        // or a storey exit, and how much of it is one way (round 129).
+        double[]? toArea = null, areaOneWay = null;
+        if (CareHomes.Applies(document))
+        {
+            var areas = CareHomes.Areas(document, level);
+            var areaOf = new Dictionary<Room, int>();
+            for (var i = 0; i < areas.Count; i++)
+                foreach (var room in areas[i]) areaOf[room] = i;
+            var into = sides.Where(side => areaOf.TryGetValue(side.Key.Item2, out var mine)
+                                           && links.FirstOrDefault(link => link.Door == side.Key.Item1 && link.Room == side.Key.Item2) is { Other: { } beyond }
+                                           && areaOf.TryGetValue(beyond, out var theirs) && theirs != mine)
+                .Select(side => side.Value).ToList();
+            var targets = exits.Select(exit => exit.Node).Concat(into).Distinct().ToList();
+            if (targets.Count > 0)
+            {
+                toArea = From(targets).Distance;
+                var areaFields = targets.Select(target => From(new[] { target })).ToList();
+                var areaTwo = Enumerable.Range(0, count).Where(node =>
+                {
+                    var headings = areaFields.Select(field => Heading(field, node)).OfType<Vector2D>().ToList();
+                    return headings.Any(one => headings.Any(other => one.Dot(other) <= Math.Cos(Math.PI / 4) + 1e-9));
+                }).ToList();
+                areaOneWay = From(areaTwo.Concat(targets)).Distance;
+            }
+        }
+
         // Within a room: to its own doors - a place of special fire hazard's, a plant room's, a hotel bedroom's with its en-suite.
         var suites = Lodging.Suites(document);
         var corridors = walked.Where(room => FireSeparation.Circulation(room) && links.Any(link => link.Room == room && link.Other is { } other && suites.ContainsKey(other))).ToHashSet();
@@ -486,7 +596,11 @@ public static class HorizontalEscape
             }
 
             travel[room] = new Travel(points.Max(node => nearest[node]), points.Max(node => oneWay[node]), one, more, use, points.All(node => !double.IsPositiveInfinity(nearest[node])), false,
-                points.Any(twoWay.Contains));
+                points.Any(twoWay.Contains))
+            {
+                Area = toArea is null ? double.NaN : points.Max(node => toArea[node]),
+                AreaOneWay = areaOneWay is null ? double.NaN : points.Max(node => areaOneWay[node])
+            };
         }
 
         // Who would use each door in a fire (round 113): each point's share of its room's people walked to its nearest storey exit, summed
@@ -527,13 +641,53 @@ public static class HorizontalEscape
                 uses[door] = new Use(room, link.Other, link.Other is null, flow[node], crowd[node]);
         }
 
-        return new Storey(level, travel, exits, uses);
+        // The rooms each room's escape passes through on the way to its nearest storey exit (round 130: 2.16, 2.17).
+        var passes = walked.ToDictionary(room => room, _ => new HashSet<Room>());
+        foreach (var room in walked)
+        {
+            var seen = new HashSet<int>();
+            foreach (var start in grid[room])
+                for (var at = start; at >= 0 && seen.Add(at); at = toward[at])
+                    if (nodes[at].Room != room) passes[room].Add(nodes[at].Room);
+        }
+
+        // Openings between floors: a point fails where its every way to a storey exit comes within 4.5 m of one getting nearer it (2.13).
+        var near = new Dictionary<Room, double>();
+        var openings = voids;
+        if (openings.Count > 0 && exits.Count > 0)
+        {
+            double Gap(Point2D p) => openings.Min(hole => Polygon2D.Contains(hole, p) ? 0
+                : Enumerable.Range(0, hole.Count).Min(i => Line2D.DistanceFromSegment(p, hole[i], hole[(i + 1) % hole.Count])));
+            var gap = nodes.Select(node => Gap(node.At)).ToArray();
+            // Bad where, once within 4.5 m of it, the way gets more than half a metre nearer it than where it came within - toward it, not along it.
+            bool Good((double[] Distance, int[] Toward) field, int node)
+            {
+                if (double.IsPositiveInfinity(field.Distance[node])) return false;
+                var entry = double.NaN;
+                var steps = 0;
+                for (var at = node; at >= 0 && steps++ < count; at = field.Toward[at])
+                {
+                    if (gap[at] >= OpeningClear - 0.5) continue;
+                    if (double.IsNaN(entry)) entry = gap[at];
+                    else if (gap[at] < entry - 500) return false;
+                }
+
+                return true;
+            }
+
+            foreach (var room in walked)
+            foreach (var node in grid[room].Where(node => gap[node] > 0.5))
+                if (!fields.Any(field => Good(field, node)))
+                    near[room] = Math.Min(near.GetValueOrDefault(room, double.PositiveInfinity), gap[node]);
+        }
+
+        return new Storey(level, travel, exits, uses) { Passes = passes, Near = near, Points = nodes, Nearest = nearest, Toward = toward, TwoWay = twoWay };
     }
 
     // --- What a room and a storey come to ------------------------------------------------
 
     /// <summary>The doors out of a room that lead on: outside, into a stair, or into a room with another door of its own.</summary>
-    private static List<(Door Door, double Width)> ExitsOf(BimDocument document, Room room, List<Escape.Link> links)
+    internal static List<(Door Door, double Width)> ExitsOf(BimDocument document, Room room, List<Escape.Link> links)
     {
         var exits = new List<(Door, double)>();
         foreach (var link in links.Where(link => link.Room == room))
@@ -581,6 +735,18 @@ public static class HorizontalEscape
         var to = travel.Within ? "from its door" : "from a storey exit";
         if (!travel.Reached)
             wanting.Add(travel.Within ? "no door out of it" : "no way from it to a storey exit, walked through the doors - Approved Document B Volume 2 (2.1) asks means of escape from every point of a storey to a storey exit: a final exit or a door into a protected stair");
+        else if (!double.IsNaN(travel.Area))
+        {
+            // A care home, planned for progressive horizontal evacuation: Table 2.1 to the exit into the next protected area, 64 m to a storey exit (2.37).
+            said.Add($"{travel.Area / 1000:0.0} m from the next protected area or a storey exit at most{(travel.AreaOneWay > 0.5 ? $", {travel.AreaOneWay / 1000:0.0} m one way" : string.Empty)}; {travel.Nearest / 1000:0.0} m from a storey exit");
+            var oneOver = travel.AreaOneWay > travel.One + 0.5;
+            var moreOver = travel.Area > travel.More + 0.5 && travel.Area > travel.AreaOneWay + 0.5;
+            var over = new[] { oneOver ? $"{travel.AreaOneWay / 1000:0.0} m in one direction only" : null, moreOver ? $"{travel.Area / 1000:0.0} m in all" : null }.OfType<string>().ToList();
+            if (over.Count > 0)
+                wanting.Add($"{string.Join(" and ", over)} from the exit into the next protected area, walked - Approved Document B Volume 2 (2.37 a, Table 2.1) allows {travel.One / 1000:0} m in one direction only and {travel.More / 1000:0} m where escape is possible in more than one, within a care home's protected area");
+            if (travel.Nearest > CareHomes.StoreyExit + 0.5)
+                wanting.Add($"{travel.Nearest / 1000:0.0} m from a storey exit, walked - Approved Document B Volume 2 (2.37 b) allows 64 m from any point of a care home to a storey exit or a final exit");
+        }
         else
         {
             said.Add($"{travel.Nearest / 1000:0.0} m {to} at most{(travel.OneWay > 0.5 ? $", {travel.OneWay / 1000:0.0} m one way" : string.Empty)}");
@@ -659,9 +825,7 @@ public static class HorizontalEscape
     /// </summary>
     private static IEnumerable<string> Corridor(BimDocument document, Room room, IReadOnlyList<Point2D> outline, Travel travel, Storey storey, List<Escape.Link> links)
     {
-        var suites = Lodging.Suites(document);
-        var bedrooms = links.Any(link => link.Room == room && link.Other is { } other && (suites.ContainsKey(other) || Named(other, "bedroom")));
-        var deadEnd = !travel.Within && travel.Reached && travel.OneWay > 2000 + 0.5;
+        var (bedrooms, deadEnd) = Protection(document, room, travel, links);
         var (_, length) = Toilets.Size(outline);
 
         if (bedrooms || deadEnd)
@@ -682,6 +846,24 @@ public static class HorizontalEscape
             yield return $"{length / 1000:0.0} m long between {exits} storey exits, not divided - Approved Document B Volume 2 (2.26, Diagram 2.9) asks a corridor more than 12 m long joining two storey exits divided about midway by a self-closing fire door, its screens fire-resisting: draw it as two corridors either side of one";
         if (travel.TwoWays && travel.OneWay > 4500 + 0.5)
             yield return $"its dead end {travel.OneWay / 1000:0.0} m long opens straight into where escape is in two directions - Approved Document B Volume 2 (2.28, Diagram 2.10) asks a dead end more than 4.5 m long separated from it by self-closing fire doors";
+    }
+
+    /// <summary>Why a corridor is a protected corridor (2.24): it serves bedrooms, or it is a dead end more than 2 m long.</summary>
+    private static (bool Bedrooms, bool DeadEnd) Protection(BimDocument document, Room room, Travel travel, List<Escape.Link> links)
+    {
+        var suites = Lodging.Suites(document);
+        return (links.Any(link => link.Room == room && link.Other is { } other && (suites.ContainsKey(other) || Named(other, "bedroom"))),
+            !travel.Within && travel.Reached && travel.OneWay > 2000 + 0.5);
+    }
+
+    /// <summary>Whether a room of a building other than a home is a protected corridor (2.24): a corridor serving bedrooms, or a dead end more than 2 m long.</summary>
+    internal static bool ProtectedCorridor(BimDocument document, Room room)
+    {
+        if (!Applies(document) || !Storeys(document).TryGetValue(room.LevelId, out var storey) || !storey.Rooms.TryGetValue(room, out var travel)
+            || room.GetBoundary(document) is not { IsEnclosed: true } boundary || !Circulation.IsCorridor(room, boundary.Polygon)) return false;
+        List<Escape.Link> Work() => Escape.Links(document, new HashSet<Room>(document.All<Room>().Where(each => each.LevelId == room.LevelId)));
+        var links = ModelCache.Of(document) is { } cache ? cache.Keep("escape: links", document, room.LevelId, null, Work) : Work();
+        return Protection(document, room, travel, links) is (true, _) or (_, true);
     }
 
     /// <summary>

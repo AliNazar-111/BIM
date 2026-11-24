@@ -163,7 +163,7 @@ public sealed class DoorType : OpeningType
     /// <summary>A new door type starting as this one is: its size, swing, leaves, glazing and trim.</summary>
     public DoorType Duplicate(string name) => WithCommonOf(WithOpeningOf(new DoorType(name, Width, Height)
     {
-        Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign, SelfClosing = SelfClosing,
+        Operation = Operation, LeafCount = LeafCount, PanelMaterial = PanelMaterial, HardwareSet = HardwareSet, LeafDesign = LeafDesign, SelfClosing = SelfClosing, AutomaticRelease = AutomaticRelease,
         GlazingRows = GlazingRows, GlazingColumns = GlazingColumns, Function = Function, CurtainPanel = CurtainPanel,
         TrimWidth = TrimWidth, TrimProjectionExterior = TrimProjectionExterior, TrimProjectionInterior = TrimProjectionInterior,
         DoorViewer = DoorViewer, DoorLimiter = DoorLimiter, LetterPlate = LetterPlate, Fastening = Fastening, Automatic = Automatic
@@ -196,6 +196,12 @@ public sealed class DoorType : OpeningType
 
     /// <summary>Whether it closes itself - a closer on it - as a fire door between a house and its garage must.</summary>
     public bool SelfClosing { get; set; }
+
+    /// <summary>
+    /// Whether its closer is held open and released by the fire alarm - an automatic release, BS EN 1155 - so that a self-closing fire door on a
+    /// stair used day to day is not wedged open (Approved Document B Volume 2 2.15, round 130).
+    /// </summary>
+    public bool AutomaticRelease { get; set; }
 
     /// <summary>What the leaves look like. See <see cref="DoorLeafDesign"/>.</summary>
     public DoorLeafDesign LeafDesign { get; set; } = DoorLeafDesign.Panelled;
@@ -235,6 +241,7 @@ public sealed class DoorType : OpeningType
         yield return ParameterValue.Bind(DoorTypeParameters.PanelMaterial, () => PanelMaterial, v => PanelMaterial = v);
         yield return ParameterValue.Bind(DoorTypeParameters.HardwareSet, () => HardwareSet, v => HardwareSet = v);
         yield return ParameterValue.Bind(DoorTypeParameters.SelfClosing, () => SelfClosing, v => SelfClosing = v);
+        yield return ParameterValue.Bind(DoorTypeParameters.AutomaticRelease, () => AutomaticRelease, v => AutomaticRelease = v);
         yield return ParameterValue.BindChoice(
             DoorTypeParameters.Fastening,
             () => EnumText.Humanise(Fastening),
@@ -457,6 +464,9 @@ public static class OpeningTypeParameters
 
 public static class DoorTypeParameters
 {
+    public static readonly ParameterDefinition AutomaticRelease =
+        new("Held Open, Released by Alarm", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+
     public static readonly ParameterDefinition Operation =
         new("Operation", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
 

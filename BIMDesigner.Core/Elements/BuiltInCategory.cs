@@ -163,7 +163,10 @@ public enum BuiltInCategory
     RasterImages,
 
     /// <summary>Pipe accessories: the valves on pipes - servicing, stop, double check and drain-off.</summary>
-    PipeAccessories
+    PipeAccessories,
+
+    /// <summary>Cavity barriers: lines in the voids over ceilings and in roof spaces, closing and dividing them (Approved Document B 5.17, 9.2).</summary>
+    CavityBarriers
 }
 
 /// <summary>Design phase of an element (specification section 7, "Phasing").</summary>

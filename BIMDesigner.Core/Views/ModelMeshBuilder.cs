@@ -125,6 +125,12 @@ public static class ModelMeshBuilder
             if (Beams.Mesh(document, beam) is { } beamMesh) meshes.Add(beamMesh);
         });
 
+        // Cavity barriers, up from the ceilings to the floors and roofs over them.
+        Each(document.All<CavityBarrier>(), barrier =>
+        {
+            if (Cavities.Mesh(document, barrier) is { } barrierMesh) meshes.Add(barrierMesh);
+        });
+
         // Joist layouts: their joists and trimmers.
         Each(document.All<BeamSystem>(), system => meshes.AddRange(BeamSystems.Meshes(document, system)));
 

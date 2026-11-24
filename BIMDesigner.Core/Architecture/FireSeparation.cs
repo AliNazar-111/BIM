@@ -223,7 +223,7 @@ public static class FireSeparation
     /// How far short a wall stops of what is over it: the underside of the floor of the storey above, where one is over its middle; else - in the
     /// top storey, none of the walls in line with it going higher - the underside of the roof over it. Null where it reaches it, or neither is there.
     /// </summary>
-    private static (double Gap, bool Roof)? Reaches(BimDocument document, Wall wall)
+    internal static (double Gap, bool Roof)? Reaches(BimDocument document, Wall wall)
     {
         var middle = wall.Start.MidpointTo(wall.End);
         var top = wall.GetTopElevation(document);

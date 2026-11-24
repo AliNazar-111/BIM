@@ -610,6 +610,14 @@
         <GeometryDrawing Pen="{StaticResource Stroke.Blue}" Geometry="M16,5 L16,27"/>
     </DrawingGroup></DrawingImage.Drawing></DrawingImage>
 
+    <!-- A cavity barrier: the floor over, the ceiling under, the barrier between them closing the void. -->
+    <DrawingImage x:Key="Icon.CavityBarrier"><DrawingImage.Drawing><DrawingGroup>
+        <GeometryDrawing Brush="Transparent" Geometry="{StaticResource Frame}"/>
+        <GeometryDrawing Brush="{StaticResource Ink.WallSide}" Pen="{StaticResource Stroke}" Geometry="M3,5 L29,5 L29,10 L3,10 Z"/>
+        <GeometryDrawing Pen="{StaticResource Stroke}" Geometry="M3,22 L29,22 M9,22 L9,28 M23,22 L23,28"/>
+        <GeometryDrawing Pen="{StaticResource Stroke.Red}" Geometry="M16,10 L16,22"/>
+    </DrawingGroup></DrawingImage.Drawing></DrawingImage>
+
     <!-- The services: a radiator on its valves; fittings joined into a system from what feeds
          them; a system being changed; the list of systems; a plan with its pipes over it. -->
     <DrawingImage x:Key="Icon.Fitting"><DrawingImage.Drawing><DrawingGroup>

@@ -205,6 +205,12 @@ public sealed class StairType : ElementType
     /// <summary>Whether it has a second handrail at 600, under the first, for children.</summary>
     public bool LowerRail { get; set; }
 
+    /// <summary>
+    /// Whether it has a handrail down its middle, its width either side taken as a stair of its own for its capacity (Approved Document B
+    /// Volume 2 3.10d) - asked of a stair over 1400 wide rising more than 30 m, and by Approved Document K of one over 2000 in a public building (3.11).
+    /// </summary>
+    public bool CentralHandrail { get; set; }
+
     /// <summary>The front edge of its timber treads.</summary>
     public NosingProfile NosingProfile { get; set; } = NosingProfile.Square;
 
@@ -225,7 +231,7 @@ public sealed class StairType : ElementType
         OpenRisers = OpenRisers, RiserBars = RiserBars, Support = Support, Balustrade = Balustrade,
         HandrailHeight = HandrailHeight, BalusterSpacing = BalusterSpacing, Colour = Colour, MaterialId = MaterialId,
         HandrailProfile = HandrailProfile, HandrailWidth = HandrailWidth, HandrailDepth = HandrailDepth, WallClearance = WallClearance,
-        HandrailExtension = HandrailExtension, HandrailEnds = HandrailEnds, GuardHeight = GuardHeight, LowerRail = LowerRail,
+        HandrailExtension = HandrailExtension, HandrailEnds = HandrailEnds, GuardHeight = GuardHeight, LowerRail = LowerRail, CentralHandrail = CentralHandrail,
         NosingProfile = NosingProfile, RiserMaterialId = RiserMaterialId, StringMaterialId = StringMaterialId,
         RailMaterialId = RailMaterialId, BalusterMaterialId = BalusterMaterialId
     });
@@ -266,6 +272,7 @@ public sealed class StairType : ElementType
             EnumText.Choices<HandrailEnds>());
         yield return Size(StairTypeParameters.GuardHeight, () => GuardHeight, v => GuardHeight = v, 700, 1500);
         yield return ParameterValue.Bind(StairTypeParameters.LowerRail, () => LowerRail, v => LowerRail = v);
+        yield return ParameterValue.Bind(StairTypeParameters.CentralHandrail, () => CentralHandrail, v => CentralHandrail = v);
 
         yield return ParameterValue.BindChoice(StairTypeParameters.NosingProfile,
             () => EnumText.Humanise(NosingProfile),
@@ -370,6 +377,7 @@ public static class StairTypeParameters
     public static readonly ParameterDefinition HandrailEnds = new("Handrail Ends", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition GuardHeight = new("Guarding Height on Landings", ParameterDataType.Length, ParameterBinding.Type, ParameterGroup.Dimensions);
     public static readonly ParameterDefinition LowerRail = new("Second Handrail at 600", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
+    public static readonly ParameterDefinition CentralHandrail = new("Central Handrail", ParameterDataType.YesNo, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition NosingProfile = new("Nosing Profile", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.Construction);
     public static readonly ParameterDefinition RiserMaterial = new("Riser Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
     public static readonly ParameterDefinition StringMaterial = new("String Material", ParameterDataType.Text, ParameterBinding.Type, ParameterGroup.MaterialsAndFinishes);
@@ -2334,9 +2342,12 @@ public static class Stairs
         _ => "a private stair"
     };
 
-    /// <summary>Whether a stair is external stepped access to a building other than a dwelling: outside, in England, the building not a home's.</summary>
+    /// <summary>
+    /// Whether a stair is external stepped access to a building other than a dwelling: outside, in England, the building not a home's - not an
+    /// external escape stair from a storey above, no main entrance opening onto it (round 133).
+    /// </summary>
     private static bool External(BimDocument document, Stair stair) =>
-        stair.Outside && !document.ProjectInformation.ClearanceStandard.IsUs() && !Domestic.Rules(document);
+        stair.Outside && !document.ProjectInformation.ClearanceStandard.IsUs() && !Domestic.Rules(document) && !ExternalStairs.EscapeOnly(document, stair);
 
     /// <summary>
     /// What Approved Document M Volume 2 asks more of external steps to a building other than a dwelling (1.33): flights 1.2 m wide, no
@@ -2679,7 +2690,7 @@ public static class Stairs
     /// <summary>Whether a stair meets its rules, as the property panel says it.</summary>
     public static string Verdict(BimDocument document, Stair stair)
     {
-        var problems = Problems(document, stair);
+        var problems = Problems(document, stair).Concat(ExternalStairs.Wanting(document, stair)).ToList();
         var rules = Label(document.ProjectInformation.ClearanceStandard);
         return problems.Count == 0 ? $"Meets {rules}" : $"{problems.Count} short of {rules}: {string.Join(" ", problems)}";
     }

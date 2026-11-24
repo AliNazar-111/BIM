@@ -362,6 +362,7 @@ public static class ElementCopy
         SpotElevation spot => CarryCommon(new SpotElevation { Location = spot.Location }, spot),
         BeamSystem system => CarryCommon(Outline(new BeamSystem { Direction = system.Direction, Spacing = system.Spacing, Offset = system.Offset }, system.Boundary), system),
         RoomSeparator separator => CarryCommon(new RoomSeparator { Start = separator.Start, End = separator.End }, separator),
+        CavityBarrier barrier => CarryCommon(new CavityBarrier { Start = barrier.Start, End = barrier.End, Construction = barrier.Construction, Tested = barrier.Tested }, barrier),
         Annotation.DetailLine detail => CarryCommon(new Annotation.DetailLine { Start = detail.Start, End = detail.End, Style = detail.Style }, detail),
         Annotation.RepeatingDetail repeating => CarryCommon(new Annotation.RepeatingDetail
         {

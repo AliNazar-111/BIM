@@ -61,6 +61,7 @@ public sealed partial class PlanRenderer
     private readonly Pen _glassPen;
     private readonly Pen _roomPen;
     private readonly Pen _roomSeparatorPen;
+    private readonly Pen _cavityBarrierPen;
     private readonly Pen _slabPen;
     private readonly Pen _roofLinePen;
     private readonly Pen _glazingBarPen;
@@ -138,6 +139,7 @@ public sealed partial class PlanRenderer
 
         _roomPen = RenderPens.Dashed(ink.RoomOutline, 1.0, 3, 3);
         _roomSeparatorPen = RenderPens.Solid(ink.RoomOutline, 1.0);
+        _cavityBarrierPen = RenderPens.Dashed(Color.FromRgb(0xD9, 0x6A, 0x1E), 2.2, 6, 2);
         _slabPen = RenderPens.Dashed(ink.SlabOutline, 1.0, 8, 4);
 
         // Contours in an earth brown: the minor ones fine, every fifth heavier and labelled.
@@ -339,6 +341,7 @@ public sealed partial class PlanRenderer
             // The lines rooms are bounded by where no wall is: thin, in the rooms' own ink.
             foreach (var separator in OnActiveLevel<RoomSeparator>())
                 Styled(dc, separator, d => d.DrawLine(IsSelected(separator) ? _selectedPen : _roomSeparatorPen, ModelToScreen(separator.Start), ModelToScreen(separator.End)));
+
         }
 
         // Footings are under the floor: drawn hidden, dashed, under the walls standing on them.
@@ -361,6 +364,11 @@ public sealed partial class PlanRenderer
 
         // Railings along balconies, terraces and floors' edges.
         foreach (var railing in OnActiveLevel<Railing>()) Styled(dc, railing, d => DrawRailing(d, railing));
+
+        // Cavity barriers in the voids over the ceilings, over the walls they stand on: a heavy dashed line in their own orange (round 127).
+        if (!underlay)
+            foreach (var barrier in OnActiveLevel<CavityBarrier>())
+                Styled(dc, barrier, d => d.DrawLine(IsSelected(barrier) ? _selectedPen : _cavityBarrierPen, ModelToScreen(barrier.Start), ModelToScreen(barrier.End)));
 
         // Beams hung from this level, under its floor - and those over this storey, hung from the level above: both dashed, as hidden and overhead.
         if (Document is not null)

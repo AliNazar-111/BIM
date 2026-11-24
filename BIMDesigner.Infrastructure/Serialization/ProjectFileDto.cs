@@ -76,6 +76,9 @@ internal sealed class ProjectFileDto
     public List<DuctDto>? Ducts { get; set; }
     public List<RoomSeparatorDto> RoomSeparators { get; set; } = new();
 
+    /// <summary>Cavity barriers in the voids over ceilings and in roof spaces (round 127); null in files from before them.</summary>
+    public List<CavityBarrierDto>? CavityBarriers { get; set; }
+
     /// <summary>Drafting views, and the detail lines and filled regions drawn in them and on plans; null in files from before them.</summary>
     /// <summary>What each view's rooms are coloured by, where they are; null for none.</summary>
     public List<ColourSchemeDto>? ColourSchemes { get; set; }
@@ -1444,6 +1447,8 @@ internal sealed class ProjectInformationDto
 
     public bool Sprinklered { get; set; }
 
+    public bool PhasedEvacuation { get; set; }
+
     public bool ReduceImposedLoads { get; set; }
 
     /// <summary>Whether Approved Document G's optional requirement of 110 litres a person a day applies.</summary>
@@ -1939,6 +1944,9 @@ internal sealed class WallTypeDto
     /// <summary>Whether it is a party wall, separating dwellings.</summary>
     public bool Separating { get; set; }
 
+    /// <summary>How its cavity is closed - open, closers, cavity barriers; null in files from before it was asked, taken from its build-up.</summary>
+    public string? Cavity { get; set; }
+
     /// <summary>The Robust Detail a separating wall is built to - none in older files.</summary>
     public string? RobustDetail { get; set; }
     public string FireRating { get; set; } = string.Empty;
@@ -2026,6 +2034,9 @@ internal sealed class DoorTypeDto : OpeningTypeDto
 
     /// <summary>Whether it closes itself; none in a file from before.</summary>
     public bool? SelfClosing { get; set; }
+
+    /// <summary>Whether its closer is held open and released by the fire alarm; null in older files - not.</summary>
+    public bool? AutomaticRelease { get; set; }
 }
 
 internal sealed class WindowTypeDto : OpeningTypeDto
@@ -2451,6 +2462,7 @@ internal sealed class StairTypeDto
     public string HandrailEnds { get; set; } = "ReturnToWall";
     public double? GuardHeight { get; set; }
     public bool LowerRail { get; set; }
+    public bool CentralHandrail { get; set; }
     public string NosingProfile { get; set; } = "Square";
     public Guid RiserMaterialId { get; set; }
     public Guid StringMaterialId { get; set; }
@@ -2951,6 +2963,23 @@ internal sealed class CadLabelDto
     public double Rotation { get; set; }
     public string? Text { get; set; }
     public string? Colour { get; set; }
+}
+
+internal sealed class CavityBarrierDto
+{
+    public Guid Id { get; set; }
+    public Guid LevelId { get; set; }
+    public double StartX { get; set; }
+    public double StartY { get; set; }
+    public double EndX { get; set; }
+    public double EndY { get; set; }
+    public string? Construction { get; set; }
+
+    /// <summary>False where it is not tested to E 30 and I 15; null where it is.</summary>
+    public bool? Tested { get; set; }
+    public string PhaseCreated { get; set; } = "New";
+    public string Mark { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
 }
 
 internal sealed class RoomSeparatorDto

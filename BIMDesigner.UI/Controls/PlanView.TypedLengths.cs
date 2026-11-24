@@ -49,6 +49,7 @@ public partial class PlanView
             PlanTool.Section when _pendingWallStart is { } from => new DrawnLine(from, _cursorModel, point => { PlaceSectionPoint(point); return true; }),
             PlanTool.Beam when _beamStart is { } from => new DrawnLine(from, _beamHover ?? _cursorModel, ClickBeam),
             PlanTool.RoomSeparator when _separatorStart is { } from => new DrawnLine(from, _separatorHover ?? _cursorModel, ClickRoomSeparator),
+            PlanTool.CavityBarrier when _barrierStart is { } from => new DrawnLine(from, _barrierHover ?? _cursorModel, ClickCavityBarrier),
             PlanTool.DetailLine when _detailStart is { } from => new DrawnLine(from, _detailHover ?? _cursorModel, ClickDetailLine),
             PlanTool.RepeatingDetail when _repeatingStart is { } from => new DrawnLine(from, _repeatingHover ?? _cursorModel, ClickRepeatingDetail),
             PlanTool.AreaBoundary when _areaBoundaryStart is { } from => new DrawnLine(from, _areaBoundaryHover ?? _cursorModel, ClickAreaBoundary),

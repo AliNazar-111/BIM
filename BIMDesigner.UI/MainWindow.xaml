@@ -733,9 +733,14 @@
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Builder's Work" Style="{StaticResource RibbonPanel}">
+                            <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="CavityBarrierTool" Style="{StaticResource RibbonTool}" Tag="{StaticResource Icon.CavityBarrier}"
+                                         Content="Cavity Barrier" Checked="OnToolChanged"
+                                         ToolTip="Cavity Barrier: draw a line in the void over the ceilings or in the roof space, closing it up to the floor or roof over it - over a protected corridor's or stair's wall that stops at the ceiling, or across a void too large for Approved Document B Table 9.1"/>
                             <Button Style="{StaticResource RibbonButton}" Tag="{StaticResource Icon.WallOpening}"
                                     Content="Cut Openings" Click="OnCutOpenings"
                                     ToolTip="Cut an opening wherever a pipe or duct passes through a wall or a floor with none: a wall opening or a shaft opening, the service's size and a gap all round it for its fire-stopping"/>
+                            </StackPanel>
                         </HeaderedContentControl>
 
                         <HeaderedContentControl Header="Electrical" Style="{StaticResource RibbonPanel}">

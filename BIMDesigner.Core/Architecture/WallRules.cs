@@ -217,11 +217,21 @@ public static class WallRules
         // Round a place of special fire hazard in a building other than a dwelling: REI 30 (Approved Document B Volume 2 8.7, round 112).
         if (FireCompartments.Problem(document, wall, type) is var (hazard, hazardRule)) Add(hazard, hazardRule);
 
+        // Between separate occupancies, and round a protected shaft, in a building other than a dwelling (Approved Document B Volume 2 8.11e, 8.33, round 134).
+        if (!us)
+            foreach (var (said, rule) in FireCompartments.Problems(document, wall, type)) Add(said, rule);
+
         // Round a refuse store, or a shop's walk-in store room: REI 30 or 60 (Approved Document B Volume 2 5.43a, 5.46, round 114).
         if (EscapeRoutes.Problem(document, wall, type) is var (enclosed, enclosedRule)) Add(enclosed, enclosedRule);
 
         // Between dwellings: one of Approved Document E's separating walls, and its junctions (round 99).
         foreach (var (said, rule) in SoundInsulation.Problems(document, wall, type)) Add(said, rule);
+
+        // A care home's bedroom or ancillary accommodation enclosed in REI 30 (Approved Document B Volume 2 2.42, 2.44, round 129).
+        foreach (var (said, rule) in CareHomes.Problems(document, wall, type)) Add(said, rule);
+
+        // Its cavity closed at its edges, and the cavity over it where it stops short of the floor or roof (Approved Document B 5.18, 8.5, 9.4, 9.5, round 127).
+        foreach (var (said, rule) in Cavities.Problems(document, wall, type)) Add(said, rule);
 
         // Its doors, no more than a quarter of a compartment wall (C8, round 96).
         if (!us)

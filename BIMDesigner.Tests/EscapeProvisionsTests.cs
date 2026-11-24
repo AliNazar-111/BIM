@@ -206,6 +206,47 @@ public class EscapeProvisionsTests
     }
 
     [Fact]
+    public void InPhasedEvacuationALiftIsEnteredThroughAProtectedLobbyOnEveryStorey()
+    {
+        // The office over a basement, its lift's landing doors into the offices above the ground: evacuated at once, nothing asked of them.
+        var (document, levels, lift, _) = Lifted();
+        var standard = document.ProjectInformation.ClearanceStandard;
+        Assert.DoesNotContain(Lifts.Problems(document, lift, standard), problem => problem.Rule.Contains("(5.37"));
+
+        // Designed for phased evacuation: a protected lobby before the lift on every storey (5.37, 3.21b) - the basement's said by 5.38 already.
+        document.ProjectInformation.PhasedEvacuation = true;
+        Assert.Contains(Lifts.Problems(document, lift, standard), problem => problem.Said == $"its landing doors - the {levels[1].Name}'s opens into the Office; the {levels[2].Name}'s opens into the Office - not a protected lobby."
+                                                                            && problem.Rule.StartsWith("Approved Document B Volume 2 (5.37, 3.21b)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ARefuseStoresLobbyHasPermanentVentilation()
+    {
+        // A shop 12 m by 8 m, a bin store in the south-east corner reached through a lobby 1.5 m wide off the sales floor (5.44).
+        var document = BimDocument.CreateDefault();
+        document.ProjectInformation.BuildingType = "Shop";
+        var level = document.Levels[0].Id;
+        var walls = Outside(document, level, 12000, 8000);
+        Door(document, Wall(document, level, new Point2D(9000, 0), new Point2D(9000, 4000)), 2000);
+        Door(document, Wall(document, level, new Point2D(10500, 0), new Point2D(10500, 4000)), 2000);
+        Wall(document, level, new Point2D(9000, 4000), new Point2D(12000, 4000));
+        Door(document, walls[3], 4000).FlipFacing = true;
+        Room(document, level, "Sales", 4500, 4000);
+        var lobby = Room(document, level, "Lobby", 9750, 2000);
+        var bins = Room(document, level, "Bin Store", 11250, 2000);
+        Assert.Contains(EscapeRoutes.Problems(document), problem => problem.Room == bins && problem.Said.StartsWith("it is a refuse store come to through the Lobby, which has no permanent ventilation - Approved Document B Volume 2 (5.44)", StringComparison.Ordinal));
+
+        // A louvre in the lobby's outside wall, permanently open, 0.25 m² free: met.
+        var louvre = document.TypesOf<WindowType>().First(each => each.Name == "Awning - 1200 x 600").Duplicate("Louvre - Permanent 1200 x 600");
+        louvre.SmokeVent = SmokeVentKind.Permanent;
+        louvre.SmokeVentArea = 0.25;
+        document.AddType(louvre);
+        document.Add(new Window { HostWallId = walls[0].Id, DistanceAlongWall = 9750, LevelId = level, TypeId = louvre.Id });
+        Assert.Equal(0.25, VerticalEscape.PermanentVentilation(document, lobby), 3);
+        Assert.DoesNotContain(EscapeRoutes.Problems(document), problem => problem.Room == bins && problem.Said.Contains("(5.44)"));
+    }
+
+    [Fact]
     public void ARefuseStoreAndAShopsStoreRoomAreEnclosed()
     {
         // A shop 12 m by 8 m: a stock room 3 m by 3 m in the north-east corner, a bin store in the south-east, both of unrated partitions

@@ -195,6 +195,16 @@ public static class Alarms
     /// <summary>Whether a piece detects fire automatically for such a system: a point smoke or heat detector.</summary>
     public static bool Detector(ComponentType type) => type.Form is ComponentForm.SmokeDetector or ComponentForm.HeatDetector;
 
+    /// <summary>The escape routes - halls, corridors, lobbies, stairs - and the rooms with a door onto one: where an L3 system detects (BS 5839-1).</summary>
+    private static HashSet<Room> OntoEscapeRoutes(BimDocument document)
+    {
+        var rooms = document.All<Room>().ToHashSet();
+        var found = rooms.Where(FireSeparation.Circulation).ToHashSet();
+        foreach (var link in Escape.Links(document, rooms))
+            if (link.Other is { } other && FireSeparation.Circulation(other)) found.Add(link.Room);
+        return found;
+    }
+
     /// <summary>A fact about the whole building, the same for every room: while the model is drawn, found once.</summary>
     private static T Kept<T>(BimDocument document, string what, Func<T> work) =>
         ModelCache.Of(document) is { } cache ? cache.Keep($"alarms: {what}", document, null, null, work) : work();
@@ -266,10 +276,22 @@ public static class Alarms
             wanting.Add($"no automatic fire detector on this storey - Approved Document B Volume 2 (1.4) asks automatic fire detection and alarms in {HorizontalEscape.Said(group)}, " +
                         "the system's category by BS 5839-1 Table A1 (1.7)");
 
+        // A care home: an L1 system, detection throughout (2.41, round 129).
+        if (CareHomes.Applies(document) && !CareHomes.Sanitary(room) && Polygon2D.Area(outline) >= 1e6
+            && !detectors.Any(entry => entry.Piece.LevelId == room.LevelId && Polygon2D.Contains(outline, entry.Piece.Location)))
+            wanting.Add("no automatic fire detector in it - Approved Document B Volume 2 (2.41) asks a care home a fire detection and alarm system to L1 of BS 5839-1, detection throughout - " +
+                        "taken as in every room but WCs, bathrooms and shower rooms and cupboards under 1 m²");
+
         if (!residential && Unvisited(room) && !document.ProjectInformation.Sprinklered && OpensOnto(document, room) is { } route
             && !detectors.Any(entry => entry.Piece.LevelId == room.LevelId && Polygon2D.Contains(outline, entry.Piece.Location)))
             wanting.Add($"no automatic fire detector in it - a fire could break out unseen here, a part of the building not visited regularly, and fill the {route.Name} " +
                         "the escape goes along: Approved Document B Volume 2 (1.5) asks automatic fire detection and alarms where it could");
+
+        // Designed for phased evacuation: an L3 system at least, detection on the escape routes and in the rooms opening onto them (3.21e).
+        if (VerticalEscape.Phased(document) && !CareHomes.Sanitary(room) && Polygon2D.Area(outline) >= 1e6
+            && Kept(document, "escape routes and rooms onto them", () => OntoEscapeRoutes(document)).Contains(room)
+            && !detectors.Any(entry => entry.Piece.LevelId == room.LevelId && Polygon2D.Contains(outline, entry.Piece.Location)))
+            wanting.Add($"no automatic fire detector in it - Approved Document B Volume 2 (3.21e) asks a building designed for phased evacuation a fire warning system to L3 of BS 5839-1 at least: detection on the escape routes and in the rooms opening onto them, {(FireSeparation.Circulation(room) ? "this one an escape route" : "this one opening onto one")}");
 
         var automaticVents = Kept(document, "automatic smoke vents", () =>
             document.All<Window>().Select(window => SmokeVents.Of(document, window)).Concat(document.All<RoofWindow>().Select(window => SmokeVents.Of(document, window)))

@@ -214,6 +214,7 @@ public static partial class IfcExport
             foreach (var slab in _document.All<Slab>()) ExportSlab(slab);
             foreach (var edge in _document.All<RoofEdgeSweep>()) ExportRoofEdgeSweep(edge);
             foreach (var pipe in _document.All<Downpipe>()) ExportDownpipe(pipe);
+            foreach (var barrier in _document.All<CavityBarrier>()) ExportCavityBarrier(barrier);
             foreach (var slabEdge in _document.All<SlabEdge>())
                 if (SlabEdgeRuns.Mesh(_document, slabEdge) is { } edgeMesh)
                     ExportMeshProxy(slabEdge, edgeMesh, _document.FindType<SlabEdgeType>(slabEdge.TypeId)?.Name ?? "Slab Edge", "Slab Edge");
@@ -1570,6 +1571,19 @@ public static partial class IfcExport
         }
 
         /// <summary>A downpipe: its own element to a receiving application, its body the triangles the 3D view draws.</summary>
+        /// <summary>A cavity barrier: a proxy, its body the sheet from the ceiling up to what is over it, with what it is made of and whether it is tested (round 127).</summary>
+        private void ExportCavityBarrier(CavityBarrier barrier)
+        {
+            if (Cavities.Mesh(_document, barrier) is not { } mesh) return;
+            var proxy = ExportMeshProxy(barrier, mesh, $"Cavity Barrier - {barrier.Construction}", "Cavity barrier");
+            WriteSet(proxy, "Cavity barrier", new Dictionary<string, IfcValue?>
+            {
+                ["Construction"] = new IfcLabel(barrier.Construction),
+                ["Tested E 30 / I 15"] = new IfcBoolean(barrier.Tested),
+                ["Length"] = new IfcLengthMeasure(barrier.Length)
+            });
+        }
+
         private void ExportDownpipe(Downpipe pipe)
         {
             if (Downpipes.Mesh(_document, pipe) is not { } mesh) return;

@@ -118,7 +118,11 @@ public static class SlabRules
     /// <summary>What a floor or roof falls short of, as the project's standard asks.</summary>
     public static IReadOnlyList<PlacementProblem> Problems(BimDocument document, Slab slab, ClearanceStandard standard)
     {
-        if (slab is Ceiling || document.FindType<SlabType>(slab.TypeId) is not { } type || slab.Boundary.Count < 3) return Array.Empty<PlacementProblem>();
+        // A ceiling: the cavity over it no larger than Table 9.1 allows (Approved Document B Volume 2 9.9, round 127).
+        if (slab is Ceiling ceiling)
+            return slab.Boundary.Count < 3 || standard.IsUs() ? Array.Empty<PlacementProblem>()
+                : Cavities.Problems(document, ceiling).Select(problem => new PlacementProblem(slab, problem.Said, problem.Rule, slab.Boundary)).ToList();
+        if (document.FindType<SlabType>(slab.TypeId) is not { } type || slab.Boundary.Count < 3) return Array.Empty<PlacementProblem>();
 
         var problems = new List<PlacementProblem>();
         void Add(string said, string rule) => problems.Add(new PlacementProblem(slab, said, rule, slab.Boundary));
@@ -207,6 +211,7 @@ public static class SlabRules
     /// <summary>What a floor or roof comes to as its rules see it.</summary>
     public static string Verdict(BimDocument document, Slab slab)
     {
+        if (slab is Ceiling ceiling) return Cavities.Verdict(document, ceiling);
         var problems = Problems(document, slab, document.ProjectInformation.ClearanceStandard);
         var u = UValue(document, slab) is { } value ? Units.UValue(value, "0.00") : slab is Floor ? "Between storeys" : "U not known";
         return problems.Count == 0 ? u : $"{u} - {string.Join(" ", problems.Select(problem => $"{char.ToUpperInvariant(problem.Said[0])}{problem.Said[1..]} {problem.Rule}"))}";
@@ -215,7 +220,7 @@ public static class SlabRules
     /// <summary>Every floor's and roof's problems on a storey, as warnings among the clearances.</summary>
     public static IReadOnlyList<BlockedClearance> Blocked(BimDocument document, Guid levelId, ClearanceStandard standard) =>
         document.All<Slab>()
-            .Where(slab => slab.LevelId == levelId && slab is Floor or Roof)
+            .Where(slab => slab.LevelId == levelId && slab is Floor or Roof or Ceiling)
             .SelectMany(slab => Problems(document, slab, standard)
                 .Select(problem => new BlockedClearance(new ClearanceZone(slab, "its build-up", problem.Outline, problem.Rule), string.Empty,
                     document.FindType<SlabType>(slab.TypeId)?.Name ?? "A floor", problem.Said)))

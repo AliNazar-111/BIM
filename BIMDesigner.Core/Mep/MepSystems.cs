@@ -299,6 +299,8 @@ public static class MepSystems
         // Infrastructure for electronic communications: a network termination point in each home, its access point (Approved Document R, round 126).
         problems.AddRange(Broadband.Problems(document));
         problems.AddRange(Penetrations.Problems(document));
+        problems.AddRange(Cavities.ServiceProblems(document));
+        problems.AddRange(FireCompartments.ServiceProblems(document));
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));
         return problems;

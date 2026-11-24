@@ -8,14 +8,16 @@ namespace BIMDesigner.Core.Architecture;
 /// <summary>
 /// Whether a window or roof window is a smoke vent, and how it is opened (Approved Document B Volume 1, 3.28e, 3.50 to 3.53, Diagram 3.9):
 /// not one; opened by hand where it is; opened from a switch elsewhere - the fire and rescue service's at their access level, or a control
-/// system's; or opened on detecting smoke - an automatic opening vent, which a switch can open too.
+/// system's; or opened on detecting smoke - an automatic opening vent, which a switch can open too; or never shut - permanent ventilation, a
+/// louvre or an open grille (Approved Document B Volume 2 3.35, 5.44).
 /// </summary>
 public enum SmokeVentKind
 {
     None,
     Manual,
     Remote,
-    Automatic
+    Automatic,
+    Permanent
 }
 
 /// <summary>
@@ -81,7 +83,8 @@ public static class SmokeVents
         (SmokeVentKind.None, "No"),
         (SmokeVentKind.Manual, "Opened by hand"),
         (SmokeVentKind.Remote, "Opened from a switch"),
-        (SmokeVentKind.Automatic, "Automatic, on smoke (AOV)")
+        (SmokeVentKind.Automatic, "Automatic, on smoke (AOV)"),
+        (SmokeVentKind.Permanent, "Permanent ventilation, always open")
     };
 
     /// <summary>How a kind of vent is said in Edit Type.</summary>

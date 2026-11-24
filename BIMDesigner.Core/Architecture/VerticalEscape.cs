@@ -1,5 +1,6 @@
 using BIMDesigner.Core.Documents;
 using BIMDesigner.Core.Geometry;
+using BIMDesigner.Core.Materials;
 
 namespace BIMDesigner.Core.Architecture;
 
@@ -19,14 +20,32 @@ namespace BIMDesigner.Core.Architecture;
 /// into it at every storey but the ground (3.4 to 3.6); leading to a final exit at its foot, straight out or through one room (3.36); and an only
 /// stair not carried down to a basement (3.40).
 ///
-/// Not done: phased evacuation (3.19 to 3.22, Table 3.3); basement stairs' widths; stairs over 30 m and central handrails (3.10d, 3.11); final
-/// exits shared with a storey exit (2.23); the stair's materials (3.24); external escape stairs (3.29 to 3.33); places of special fire hazard's
-/// lobbies (3.35); what may be in a protected stairway (3.38); small premises (Section 4); evacuation lifts and EVC (3.7, 5.32).
+/// Round 132, the rest: phased evacuation where the project is set for it and 3.16 allows it - not in an other residential or an assembly
+/// building, not with open spatial planning, not for a stair serving a basement - its stairs by Table 3.3, (P x 10) - 100 for the busiest
+/// storey's share, 1000 at least, one stair left out where a storey is over 45 m up (3.20, its worked example), lobbies at every storey but the
+/// top (3.21a, 3.34c); a stair's width not narrowing on the way to its final exit (3.10c); over 1400 wide rising more than 30 m, or over 2000
+/// in a shop or assembly building, a central handrail, each side its own stair for capacity (3.10d, 3.11); a stair serving basements wide
+/// enough for their people by Table 3.2, one stair left out where unlobbied (3.14, 3.16a), and lobbied at each basement storey where other
+/// stairs serve the storeys above (3.41); its flights and landings A2-s3, d2 where it is the only stair (but an office of two or three
+/// storeys), serves a basement or a storey over 18 m up, or is a firefighting stair (3.24); a protected lobby with 0.4 m² of permanent
+/// ventilation between it and a place of special fire hazard (3.35); no door between two protected stairways leading to different final exits
+/// (3.37); only sanitary accommodation, a lift well, a small reception desk and fire-resisting cupboards within it, and no gas appliance but a
+/// water heater in its toilets (3.38); and a final exit shared with a ground storey exit wide enough for both flows, W = (N/2.5 + 60S)/80
+/// (2.23, Diagram 2.6).
+///
+/// Not done: external escape stairs (3.29 to 3.33); the internal speech communication of phased evacuation (3.21f); gas pipes in a stairway
+/// (3.39); mechanical smoke control in place of a lobby's vents (3.15a, 3.35); evacuation lifts and EVC (3.7, 5.32).
 /// </summary>
 public static class VerticalEscape
 {
     /// <summary>The highest a storey may be for a single stair, and from which lobbies are asked, mm.</summary>
     public const double SingleStair = 11000, LobbyHeight = 18000;
+
+    /// <summary>A stair's rise past which it is no wider than 1400 without a central handrail (3.10d); a storey's height past which a stair is left out in phased evacuation (3.20), mm.</summary>
+    public const double TallStair = 30000, Widest = 1400, PhasedDiscount = 45000;
+
+    /// <summary>A lobby's permanent ventilation between a stair and a place of special fire hazard (3.35), m²; a reception desk's area within a stairway (3.38c), m².</summary>
+    public const double HazardLobbyVent = 0.4, Reception = 10;
 
     private static bool Named(Room room, params string[] words) => words.Any(word => room.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
 
@@ -39,8 +58,76 @@ public static class VerticalEscape
         return width >= 800 - 0.5 ? 50 : 0;
     }
 
+    /// <summary>A stair's capacity evacuating at once, a central handrail making each side a stair of its own (3.10d).</summary>
+    public static int Capacity(double width, int floors, bool handrail) => handrail ? 2 * Capacity(width / 2, floors) : Capacity(width, floors);
+
+    /// <summary>How many people of the busiest storey a stair takes in phased evacuation (Table 3.3 and its note 3): (P x 10) - 100 = W, 1000 at least.</summary>
+    public static int PhasedCapacity(double width, bool handrail = false)
+    {
+        if (handrail) return 2 * PhasedCapacity(width / 2);
+        return width >= 1000 - 0.5 ? (int)Math.Floor((width + 100) / 10 + 1e-6) : 0;
+    }
+
+    /// <summary>The width phased evacuation asks for so many of a storey's people (Table 3.3 note 3), mm.</summary>
+    public static double PhasedWidth(int people) => Math.Max(1000, people * 10.0 - 100);
+
+    /// <summary>Why the building cannot be evacuated in phases (3.16), said with its paragraph; null where it can.</summary>
+    public static string? PhasedRefused(BimDocument document)
+    {
+        var group = HorizontalEscape.Purpose(document);
+        if (group == PurposeGroup.ResidentialOther) return "an other residential building - a hotel, hostel or hall (3.16c)";
+        if (group == PurposeGroup.AssemblyAndRecreation) return "an assembly and recreation building (3.16c)";
+        return document.Levels.FirstOrDefault(level => HorizontalEscape.Openings(document, level.Id).Count > 0) is { } open
+            ? $"open spatial planning - an opening between floors on the {open.Name} (3.16b)"
+            : null;
+    }
+
+    /// <summary>Whether a building other than a dwelling is designed for phased evacuation, and may be (3.16, 3.19).</summary>
+    public static bool Phased(BimDocument document) =>
+        document.ProjectInformation.PhasedEvacuation && HorizontalEscape.Applies(document) && PhasedRefused(document) is null;
+
+    /// <summary>A stair's flights and landings' reaction to fire, and what they are taken to be of: the material of its type, else its construction's.</summary>
+    public static (Euroclass? Class, string Of) ClassOf(BimDocument document, StairType type)
+    {
+        if (type.MaterialId != Guid.Empty && document.FindMaterial(type.MaterialId) is { } material)
+            return (Euroclass.Of(material)?.Class, material.Name);
+        return type.Construction == StairConstruction.Concrete ? (Euroclass.A1, "concrete") : (Euroclass.Typical("timber")?.Class, "timber");
+    }
+
+    /// <summary>A room's permanent ventilation: the free area of the vents in its walls to the open air, and roof windows over it, that are never shut, m².</summary>
+    public static double PermanentVentilation(BimDocument document, Room room)
+    {
+        if (room.GetBoundary(document) is not { IsEnclosed: true } boundary) return 0;
+        var outline = boundary.Polygon;
+        var area = 0.0;
+        foreach (var window in document.All<Window>())
+        {
+            if (document.Find<Wall>(window.HostWallId) is not { } wall || wall.LevelId != room.LevelId || document.GetWallType(wall) is not { } type) continue;
+            if (SmokeVents.Of(document, window) is not { Kind: SmokeVentKind.Permanent } vent) continue;
+            var reach = type.Structure.TotalWidth / 2 + 150;
+            var (a, b) = (wall.PointAt(type.Structure, window.DistanceAlongWall, reach), wall.PointAt(type.Structure, window.DistanceAlongWall, -reach));
+            var beyond = Polygon2D.Contains(outline, a) ? b : Polygon2D.Contains(outline, b) ? a : (Point2D?)null;
+            if (beyond is { } there && RoomsOf.Containing(document, room.LevelId, there) is null) area += vent.FreeArea;
+        }
+
+        var floor = document.FindLevel(room.LevelId)?.Elevation ?? 0;
+        var next = document.Levels.Where(level => level.Elevation > floor + 1).Select(level => level.Elevation).DefaultIfEmpty(double.MaxValue).Min();
+        foreach (var window in document.All<RoofWindow>())
+            if (RoofWindows.Frame(document, window) is { } frame && Polygon2D.Contains(outline, frame.Centre) && frame.Corners.Min(frame.Top) is var low && low > floor + 1 && low < next
+                && SmokeVents.Of(document, window) is { Kind: SmokeVentKind.Permanent } vent)
+                area += vent.FreeArea;
+        return area;
+    }
+
     /// <summary>A stair as found: its rooms storey by storey, its flights, its narrowest width, the levels above the ground it serves, and its foot.</summary>
-    public sealed record StairStack(IReadOnlyList<Room> Rooms, double Width, IReadOnlyList<Guid> Upper, Room Foot, bool Basement, Point2D FootAt = default);
+    public sealed record StairStack(IReadOnlyList<Room> Rooms, double Width, IReadOnlyList<Guid> Upper, Room Foot, bool Basement, Point2D FootAt = default)
+    {
+        /// <summary>Its flights, each a stair element from one storey to the next.</summary>
+        public IReadOnlyList<Stair> Flights { get; init; } = Array.Empty<Stair>();
+
+        /// <summary>The basement storeys it serves, below the ground by more than a basement's depth.</summary>
+        public IReadOnlyList<Guid> Lower { get; init; } = Array.Empty<Guid>();
+    }
 
     /// <summary>The building's stairs, each its rooms joined by flights, kept while the model does not change.</summary>
     public static IReadOnlyList<StairStack> Stairs(BimDocument document)
@@ -61,7 +148,12 @@ public static class VerticalEscape
                 var foot = ordered.FirstOrDefault(room => Math.Abs(Elevation(room) - ground) <= 100) ?? ordered[0];
                 var at = flights.Where(flight => flight.Foot == foot).Select(flight => flight.FootAt)
                     .Concat(flights.Where(flight => flight.Head == foot).Select(flight => flight.HeadAt)).FirstOrDefault();
-                return new StairStack(ordered, width, upper, foot, ordered.Any(room => Elevation(room) < ground - Escape.Basement - 0.5), at);
+                var lower = ordered.Where(room => Elevation(room) < ground - Escape.Basement - 0.5).Select(room => room.LevelId).Distinct().ToList();
+                return new StairStack(ordered, width, upper, foot, lower.Count > 0, at)
+                {
+                    Flights = flights.Where(flight => rooms.Contains(flight.Foot!)).Select(flight => flight.Stair).Distinct().ToList(),
+                    Lower = lower
+                };
             }).ToList();
         }
 
@@ -85,23 +177,37 @@ public static class VerticalEscape
         var links = Escape.Links(document, document.All<Room>().ToHashSet());
         double Above(Guid level) => (document.FindLevel(level)?.Elevation ?? 0) - ground;
         string Called(Guid level) => document.FindLevel(level)?.Name ?? "storey";
-        var name = stair.Foot.Name;
+        string Storeys(int count) => $"{count} storey{(count == 1 ? string.Empty : "s")}";
+        double Width(Door door) => document.FindType<DoorType>(door.TypeId) is { } type ? Doors.EscapeWidth(type) : 0;
+        var stairRooms = stair.Rooms.ToHashSet();
 
         // The upper storeys it serves with people on them, and the stairs that serve them.
         var upper = stair.Upper.Where(level => People(document, level, group) > 0).ToList();
         var serving = stairs.Where(other => other.Upper.Intersect(upper).Any()).ToList();
-        var only = serving.Count == 1;
+
+        // An external escape stair from those storeys too: then not the only stair (round 133) - its width judged on its own.
+        var external = ExternalStairs.Of(document).Any(each => each.Doors.Any(onto => upper.Contains(onto.Level.Id)));
+        var only = serving.Count == 1 && !external;
+        var top = upper.Count > 0 ? upper.Max(Above) : 0;
 
         // Small premises: a single stair allowed (4.7), an open one by 4.8 (round 124).
         var premises = HorizontalEscape.SmallPremises(document);
         var openStair = stair.Rooms.Any(room => HorizontalEscape.OpenStairRoom(document, room));
+
+        // Phased evacuation where the project is set for it and 3.16 allows it - never for a stair serving basements (3.16a).
+        var refused = document.ProjectInformation.PhasedEvacuation ? PhasedRefused(document) : null;
+        var phased = document.ProjectInformation.PhasedEvacuation && refused is null && !stair.Basement;
+        if (refused is not null)
+            wanting.Add($"the building is set for phased evacuation, which Approved Document B Volume 2 (3.16) does not allow in {refused}: its stairs are sized for simultaneous evacuation, every storey at once");
+
+        // A central handrail down every flight: each side a stair of its own (3.10d).
+        var handrail = stair.Flights.Count > 0 && stair.Flights.All(flight => document.FindType<StairType>(flight.TypeId)?.CentralHandrail == true);
 
         // One stair only where 3.3 allows it.
         if (only && upper.Count > 0 && !premises.Small)
         {
             var storeys = HorizontalEscape.Storeys(document);
             bool OneWay(Guid level) => storeys.TryGetValue(level, out var storey) && storey.Rooms.Values.All(travel => travel.Reached && travel.Nearest <= travel.One + 0.5);
-            var top = upper.Max(Above);
             var single = upper.All(level => People(document, level, group) <= 60 && OneWay(level)) && top <= SingleStair + 0.5;
             var office = group == PurposeGroup.Office && upper.Count <= 5 && upper.All(OneWay) && top <= SingleStair + 0.5;
             var factory = group == PurposeGroup.Industrial && upper.Count <= 1 && upper.All(OneWay);
@@ -115,27 +221,95 @@ public static class VerticalEscape
         var least = group == PurposeGroup.ResidentialInstitutional ? 1000.0 : group == PurposeGroup.AssemblyAndRecreation ? 1100 : 800;
         if (stair.Width < least - 0.5)
             wanting.Add($"it is {stair.Width:0} wide - Approved Document B Volume 2 (3.10b, Table 3.1) asks {least:0} at least {(least >= 1100 ? "serving an area for assembly" : least >= 1000 ? "in a residential (institutional) building" : "of any escape stair")}");
-        var into = links.Where(link => link.Other is { } other && stair.Rooms.Contains(other) && !stair.Rooms.Contains(link.Room))
-            .Select(link => document.FindType<DoorType>(link.Door.TypeId) is { } type ? Doors.EscapeWidth(type) : 0).DefaultIfEmpty(0).Max();
+        var into = links.Where(link => link.Other is { } other && stairRooms.Contains(other) && !stairRooms.Contains(link.Room)).Select(link => Width(link.Door)).DefaultIfEmpty(0).Max();
         if (into > stair.Width + 0.5)
             wanting.Add($"it is {stair.Width:0} wide where a door into it gives {into:0} - Approved Document B Volume 2 (3.10a) asks a stair as wide as any exit into it");
+
+        // Not narrowing on the way to its final exit (3.10c): down from the storeys above the ground, up from the basements.
+        double FootOf(Stair flight) => (document.FindLevel(flight.LevelId)?.Elevation ?? 0) - ground;
+        foreach (var run in new[] { stair.Flights.Where(flight => FootOf(flight) >= -100).OrderByDescending(FootOf).ToList(), stair.Flights.Where(flight => FootOf(flight) < -100).OrderBy(FootOf).ToList() })
+        {
+            Stair? wider = null;
+            foreach (var flight in run)
+            {
+                if (wider is not null && flight.Width < wider.Width - 0.5)
+                {
+                    wanting.Add($"its flight from the {Called(flight.LevelId)} is {flight.Width:0} wide, narrower than the {wider.Width:0} of the one from the {Called(wider.LevelId)} before it on the way out - Approved Document B Volume 2 (3.10c) asks an escape stair not to narrow on the way to a final exit");
+                    break;
+                }
+
+                if (wider is null || flight.Width > wider.Width) wider = flight;
+            }
+        }
+
+        // Over 1400 wide rising more than 30 m, or over 2000 in a public building, a central handrail (3.10d, 3.11).
+        var elevations = stair.Rooms.Select(room => document.FindLevel(room.LevelId)?.Elevation ?? 0).ToList();
+        var rise = elevations.Max() - elevations.Min();
+        var widestFlight = stair.Flights.Select(flight => flight.Width).DefaultIfEmpty(stair.Width).Max();
+        if (!handrail && rise > TallStair + 0.5 && widestFlight > Widest + 0.5)
+            wanting.Add($"it rises {rise / 1000:0.0} m and is {widestFlight:0} wide with no central handrail - Approved Document B Volume 2 (3.10d, Table 3.3 note 2) asks a stair taller than 30 m no wider than 1400 unless it has one, each side then taken as a stair of its own: tick Central Handrail in its type");
+        else if (!handrail && widestFlight > 2000 + 0.5 && group is PurposeGroup.ShopAndCommercial or PurposeGroup.AssemblyAndRecreation)
+            wanting.Add($"it is {widestFlight:0} wide with no central handrail - Approved Document B Volume 2 (3.11) notes that Approved Document K asks a stair more than 2000 wide in a public building for one: tick Central Handrail in its type");
+
+        // Its share of the upper storeys' people: all of them at once by Table 3.2, or the busiest storey's in phases by Table 3.3.
         var share = 0;
         if (upper.Count > 0)
         {
-            var people = upper.Sum(level => People(document, level, group));
-            var lobbied = upper.Where(level => Above(level) < upper.Max(Above) - 1).All(level => Lobbied(document, stair, level, links));
-            var available = serving.Count >= 2 && !lobbied ? serving.Count - 1 : serving.Count;
-            share = (int)Math.Ceiling(people / (double)Math.Max(1, available));
-            var takes = Capacity(stair.Width, upper.Count);
-            if (takes < share)
-                wanting.Add($"it is {stair.Width:0} wide, taking {takes} people from {upper.Count} storey{(upper.Count == 1 ? string.Empty : "s")} where {share} of the {people} on them may use it{(serving.Count >= 2 && !lobbied ? ", one stair left out" : string.Empty)} - Approved Document B Volume 2 (3.13, 3.14, 3.17, 3.18, Table 3.2) asks it wide enough for them evacuating at once: 150 people a floor for 1000, from 1100 P = 200W + 50(W - 0.3)(N - 1)");
+            var counts = upper.Select(level => People(document, level, group)).ToList();
+            var people = counts.Sum();
+            var lobbied = upper.Where(level => Above(level) < top - 1).All(level => Lobbied(document, stair, level, links));
+            var discount = serving.Count >= 2 && (!lobbied || phased && top > PhasedDiscount + 0.5);
+            var available = discount ? serving.Count - 1 : serving.Count;
+            var leftOut = !discount ? string.Empty : lobbied ? ", one stair left out, a storey being more than 45 m up (3.20)" : ", one stair left out";
+            if (phased)
+            {
+                var busiest = counts.Max();
+                share = (int)Math.Ceiling(busiest / (double)Math.Max(1, available));
+                var takes = PhasedCapacity(stair.Width, handrail);
+                if (takes < share)
+                    wanting.Add($"it is {stair.Width:0} wide{(handrail ? " with a central handrail" : string.Empty)}, taking {takes} people of a storey evacuated in phases where {share} of the {busiest} on the busiest storey may use it{leftOut} - Approved Document B Volume 2 (3.22, Table 3.3) asks W = (P x 10) - 100, 1000 at least, P the people of the most heavily occupied storey: {PhasedWidth(share):0}");
+            }
+            else
+            {
+                share = (int)Math.Ceiling(people / (double)Math.Max(1, available));
+                var takes = Capacity(stair.Width, upper.Count, handrail);
+                var basements = document.ProjectInformation.PhasedEvacuation && refused is null ? ", a stair serving basements sized for simultaneous evacuation (3.16a)" : string.Empty;
+                if (takes < share)
+                    wanting.Add($"it is {stair.Width:0} wide{(handrail ? " with a central handrail" : string.Empty)}, taking {takes} people from {Storeys(upper.Count)} where {share} of the {people} on them may use it{leftOut}{basements} - Approved Document B Volume 2 (3.13, 3.14, 3.17, 3.18, Table 3.2) asks it wide enough for them evacuating at once: 150 people a floor for 1000, from 1100 P = 200W + 50(W - 0.3)(N - 1)");
+            }
         }
 
+        // The basements' people, at once by Table 3.2 (3.16a), one stair left out where unlobbied; lobbied where other stairs serve the storeys above (3.41).
+        var lower = stair.Lower.Where(level => People(document, level, group) > 0).ToList();
+        var shareBelow = 0;
+        if (lower.Count > 0)
+        {
+            var below = stairs.Where(other => other.Lower.Intersect(lower).Any()).ToList();
+            var people = lower.Sum(level => People(document, level, group));
+            var discount = below.Count >= 2 && !lower.All(level => Lobbied(document, stair, level, links));
+            shareBelow = (int)Math.Ceiling(people / (double)Math.Max(1, discount ? below.Count - 1 : below.Count));
+            var takes = Capacity(stair.Width, lower.Count, handrail);
+            if (takes < shareBelow)
+                wanting.Add($"it is {stair.Width:0} wide, taking {takes} people from {lower.Count} basement storey{(lower.Count == 1 ? string.Empty : "s")} where {shareBelow} of the {people} on them may use it{(discount ? ", one stair left out" : string.Empty)} - Approved Document B Volume 2 (3.14, 3.16a, 3.17, Table 3.2) asks a stair serving basements wide enough for their people evacuating at once");
+            var open = lower.Where(level => !Lobbied(document, stair, level, links)).Select(Called).ToList();
+            if (!only && upper.Count > 0 && open.Count > 0)
+                wanting.Add($"it is one of {serving.Count} stairs from the upper storeys and goes on down to the basement, opening straight into the accommodation on the {string.Join(", the ", open)} - Approved Document B Volume 2 (3.41) asks a protected lobby or protected corridor between it and the accommodation at each basement storey, only one stair needing to end at the ground");
+        }
+
+        // The rooms within its enclosure: opening only into it, a wall between them and it of less than 30 minutes (3.38).
+        var beside = document.Walls.Where(wall => document.GetWallType(wall) is { Function: WallFunction.Interior })
+            .Select(wall => (Type: document.GetWallType(wall)!, Rooms: WallRules.RoomsBeside(document, wall)))
+            .Where(entry => entry.Rooms.One is not null && entry.Rooms.Other is not null && entry.Rooms.One != entry.Rooms.Other)
+            .Select(entry => (entry.Type, One: entry.Rooms.One!, Other: entry.Rooms.Other!)).ToList();
+        bool OnlyInto(Room room) => links.Where(link => link.Room == room).ToList() is { Count: > 0 } own && own.All(link => link.Other is { } other && stairRooms.Contains(other));
+        var within = beside.Where(entry => stairRooms.Contains(entry.One) != stairRooms.Contains(entry.Other) && Doors.FireMinutes(entry.Type.FireRating) < 30)
+            .Select(entry => stairRooms.Contains(entry.One) ? entry.Other : entry.One).Where(OnlyInto).ToHashSet();
+        var enclosure = stairRooms.Concat(within).ToHashSet();
+
         // A protected stairway: its walls REI 30, its doors E 30 Sa with closers (3.23).
-        var walls = document.Walls.Where(wall => document.GetWallType(wall) is { Function: WallFunction.Interior } type && Doors.FireMinutes(type.FireRating) < 30
-                                                 && WallRules.RoomsBeside(document, wall) is var (one, other) && one is not null && other is not null && one != other && (stair.Rooms.Contains(one) != stair.Rooms.Contains(other)))
-            .Select(wall => document.GetWallType(wall)!.Name).Distinct().ToList();
-        var doors = links.Where(link => stair.Rooms.Contains(link.Room) && link.Other is { } beyond && !stair.Rooms.Contains(beyond))
+        var walls = beside.Where(entry => enclosure.Contains(entry.One) != enclosure.Contains(entry.Other) && Doors.FireMinutes(entry.Type.FireRating) < 30)
+            .Select(entry => entry.Type.Name).Distinct().ToList();
+        var doors = links.Where(link => stairRooms.Contains(link.Room) && link.Other is { } beyond && !enclosure.Contains(beyond))
             .Where(link => document.FindType<DoorType>(link.Door.TypeId) is not { } type || Doors.FireMinutes(type.FireRating) < 30 || !type.SelfClosing)
             .Select(link => document.FindType<DoorType>(link.Door.TypeId)?.Name ?? "a door").Distinct().ToList();
         if (openStair && !premises.Small)
@@ -162,13 +336,95 @@ public static class VerticalEscape
         else if (walls.Count > 0 || doors.Count > 0)
             wanting.Add($"it is not a protected stairway: {string.Join(" and ", new[] { walls.Count > 0 ? $"its walls {string.Join(", ", walls)} less than 30 minutes" : null, doors.Count > 0 ? $"its doors {string.Join(", ", doors)} not E 30 Sa with closers" : null }.OfType<string>())} - Approved Document B Volume 2 (3.23, Tables B1, C1) asks every internal escape stair enclosed in fire-resisting construction, REI 30, its doors E 30 Sa fire doorsets, self-closing");
 
-        // Protected lobbies or corridors at every storey above the ground but the top, where it is the only stair over more than one storey or one 18 m up (3.34).
-        if (upper.Count > 0 && (only && upper.Count > 1 || upper.Max(Above) >= LobbyHeight - 0.5))
+        // What may be within it (3.38): sanitary accommodation but a cloakroom, with no gas appliance but a water heater; a lift well, but in a
+        // firefighting stair; where it is not the only stair, a reception desk or enquiry office of 10 m² at most at the ground, and cupboards
+        // enclosed in fire-resisting construction.
+        var firefighting = FirefightingShafts.Of(document).Any(shaft => shaft.Stair.Foot == stair.Foot);
+        var lifts = Lifts.Of(document);
+        bool LiftIn(Room room) => room.GetBoundary(document) is { IsEnclosed: true } outline
+            && lifts.Any(lift => lift.Landings.Any(landing => landing.Level.Id == room.LevelId) && Polygon2D.Contains(outline.Polygon, new Point2D(lift.Car.Average(point => point.X), lift.Car.Average(point => point.Y))));
+        bool Sanitary(Room room) => Named(room, "wc", "toilet", "washroom", "lavatory", "shower") && !Named(room, "cloak");
+        bool Cupboard(Room room) => Named(room, "cupboard", "store", "cleaner");
+        var inside = new List<string>();
+        if (!openStair)
         {
-            var top = upper.Max(Above);
+            foreach (var room in within.OrderBy(room => Above(room.LevelId)).ThenBy(room => room.Name, StringComparer.Ordinal))
+            {
+                var at = $"the {room.Name} on the {Called(room.LevelId)}";
+                var area = room.GetBoundary(document) is { IsEnclosed: true } outline ? outline.Area / 1e6 : 0;
+                if (Named(room, "cloak")) inside.Add($"{at}, a cloakroom (3.38a)");
+                else if (Sanitary(room)) { }
+                else if (LiftIn(room) || Named(room, "lift"))
+                {
+                    if (firefighting) inside.Add($"{at}, a lift well in a firefighting stair (3.38b)");
+                }
+                else if (Named(room, "reception", "enquir"))
+                {
+                    var why = new List<string>();
+                    if (only) why.Add("in the only stair");
+                    if (Math.Abs(Above(room.LevelId)) > 100) why.Add("not at the ground");
+                    if (area > Reception + 1e-6) why.Add($"{area:0.0} m², over 10");
+                    if (why.Count > 0) inside.Add($"{at}, a reception or enquiry office {string.Join(", ", why)} (3.38c)");
+                }
+                else if (Cupboard(room)) inside.Add($"{at}, a cupboard not enclosed in fire-resisting construction{(only ? ", in the only stair" : string.Empty)} (3.38d)");
+                else inside.Add($"{at}, opening only into it, its wall to it less than 30 minutes");
+            }
+
+            if (only)
+                foreach (var room in links.Where(link => stairRooms.Contains(link.Room) && link.Other is { } other && !enclosure.Contains(other) && Named(other, "cupboard") && OnlyInto(other))
+                             .Select(link => link.Other!).Distinct())
+                    inside.Add($"the {room.Name} on the {Called(room.LevelId)}, a cupboard off the only stair (3.38d)");
+
+            var pieces = document.All<Component>().Select(piece => (Piece: piece, Type: document.FindType<ComponentType>(piece.TypeId)))
+                .Where(entry => entry.Type is { } type && (type.BurnsGas || type.Form == ComponentForm.ServiceCounter)).ToList();
+            foreach (var room in enclosure.OrderBy(room => Above(room.LevelId)))
+            {
+                if (room.GetBoundary(document) is not { IsEnclosed: true } outline) continue;
+                foreach (var (_, type) in pieces.Where(entry => entry.Piece.LevelId == room.LevelId && Polygon2D.Contains(outline.Polygon, entry.Piece.Location)))
+                {
+                    if (type!.BurnsGas && !(within.Contains(room) && Sanitary(room) && type.Form == ComponentForm.HotWaterCylinder))
+                        inside.Add($"the {type.Name}, a gas appliance, in the {room.Name} on the {Called(room.LevelId)} (3.38a)");
+                    else if (type.Form == ComponentForm.ServiceCounter && !type.Name.Contains("reception", StringComparison.OrdinalIgnoreCase))
+                        inside.Add($"the {type.Name} in the {room.Name} on the {Called(room.LevelId)}, not a reception desk (3.38c)");
+                    else if (type.Form == ComponentForm.ServiceCounter && (only || Math.Abs(Above(room.LevelId)) > 100))
+                        inside.Add($"the {type.Name} in the {room.Name} on the {Called(room.LevelId)}, {(only ? "in the only stair" : "not at the ground")} (3.38c)");
+                }
+
+                if (firefighting && stairRooms.Contains(room) && LiftIn(room))
+                    inside.Add($"a lift in the {room.Name} on the {Called(room.LevelId)}, a firefighting stair (3.38b)");
+            }
+        }
+
+        if (inside.Count > 0)
+            wanting.Add($"within it: {string.Join("; ", inside.Distinct())} - Approved Document B Volume 2 (3.38) allows a protected stairway to include only sanitary accommodation or washrooms - not a cloakroom - with no gas appliance but a water heater or sanitary towel incinerator; a lift well, but in a firefighting stair; and, where it is not the only stair, a reception desk or enquiry office of 10 m² at most at the ground or access level, and cupboards enclosed in fire-resisting construction");
+
+        // Its flights and landings A2-s3, d2 where it is the only stair but in an office of two or three storeys, serves a basement or a storey
+        // over 18 m up, or is a firefighting stair (3.24).
+        var reasons = new List<string>();
+        var storeyCount = document.All<Room>().Where(room => room.GetBoundary(document) is { IsEnclosed: true }).Select(room => room.LevelId).Distinct().Count();
+        if (only && !(group == PurposeGroup.Office && storeyCount is 2 or 3)) reasons.Add("that is the only stair (3.24a)");
+        if (stair.Basement) reasons.Add("serving a basement (3.24b)");
+        if (stair.Upper.Any(level => Above(level) > LobbyHeight + 0.5)) reasons.Add("serving a storey more than 18 m up (3.24c)");
+        if (firefighting) reasons.Add("that is a firefighting stair (3.24e)");
+        if (reasons.Count > 0)
+        {
+            var poor = stair.Flights.Select(flight => document.FindType<StairType>(flight.TypeId)).OfType<StairType>().Distinct()
+                .Select(type => (Type: type, Class: ClassOf(document, type)))
+                .Where(entry => entry.Class.Class is not { } known || !known.AtLeast(Euroclass.A2s3d2))
+                .Select(entry => $"{entry.Type.Name}, {entry.Class.Of}{(entry.Class.Class is { } known ? $" {known}" : " of no class given")}").ToList();
+            if (poor.Count > 0)
+                wanting.Add($"its flights are {string.Join("; ", poor)} - Approved Document B Volume 2 (3.24) asks the flights and landings of an escape stair {string.Join(", ", reasons)} of class A2-s3, d2 or better{(firefighting ? string.Empty : ", B-s3, d2 or worse only on their top surface")}");
+        }
+
+        // Lobbies at every storey above the ground but the top, where it is the only stair over more than one storey, serves one 18 m up or more,
+        // or the building is evacuated in phases (3.34, 3.21a).
+        if (upper.Count > 0 && (only && upper.Count > 1 || top >= LobbyHeight - 0.5 || phased && upper.Count > 1))
+        {
             var open = upper.Where(level => Above(level) < top - 1 && !Lobbied(document, stair, level, links)).Select(Called).ToList();
+            var (cited, why) = only && upper.Count > 1 ? ("3.34a", "it being the only stair over more than one storey")
+                : top >= LobbyHeight - 0.5 ? ("3.34b", "it serving a storey 18 m up or more") : ("3.21a, 3.34c", "the building being designed for phased evacuation");
             if (open.Count > 0)
-                wanting.Add($"it opens straight into the accommodation on the {string.Join(", the ", open)} - Approved Document B Volume 2 (3.34{(only && upper.Count > 1 ? "a" : "b")}) asks a protected lobby or protected corridor between it and each storey above the ground but the top, {(only ? "it being the only stair over more than one storey" : "it serving a storey 18 m up or more")}");
+                wanting.Add($"it opens straight into the accommodation on the {string.Join(", the ", open)} - Approved Document B Volume 2 ({cited}) asks a protected lobby or protected corridor between it and each storey above the ground but the top, {why}");
         }
 
         // A refuge at every storey it serves but the ground: a wheelchair space 900 by 1400 in it, or in a lobby or corridor opening into it (3.4 to 3.6).
@@ -177,19 +433,64 @@ public static class VerticalEscape
         if (without.Count > 0)
             wanting.Add($"no refuge by it on the {string.Join(", the ", without)} - Approved Document B Volume 2 (3.4 to 3.6) asks one at every storey of each protected stairway that is an exit from it, 900 by 1400, reachable in a wheelchair, in it or in a protected lobby or corridor opening into it, with its emergency voice communication (3.7): place a wheelchair space there");
 
+        // A protected lobby between it and a place of special fire hazard, with 0.4 m² of permanent ventilation (3.35).
+        var hazards = new List<string>();
+        foreach (var link in links.Where(link => stairRooms.Contains(link.Room) && link.Other is { } beyond && !stairRooms.Contains(beyond)))
+        {
+            var beyond = link.Other!;
+            if (FireSeparation.Special(beyond))
+                hazards.Add($"it opens straight into the {beyond.Name}, a place of special fire hazard, on the {Called(beyond.LevelId)}");
+            else if (Circulation.IsLobby(beyond) && links.FirstOrDefault(next => next.Room == beyond && next.Other is { } hazard && FireSeparation.Special(hazard)) is { } through
+                     && PermanentVentilation(document, beyond) is var vent && vent < HazardLobbyVent - 0.005)
+                hazards.Add($"its lobby to the {through.Other!.Name}, the {beyond.Name} on the {Called(beyond.LevelId)}, has {(vent > 0.005 ? $"{vent:0.00} m² of" : "no")} permanent ventilation");
+        }
+
+        if (hazards.Count > 0)
+            wanting.Add($"{string.Join("; ", hazards.Distinct())} - Approved Document B Volume 2 (3.35) asks a protected lobby between an escape stair and a place of special fire hazard, with 0.4 m² of permanent ventilation at least - a vent set to Permanent ventilation in its Edit Type - or a mechanical smoke control system");
+
         // To a final exit at its foot (3.36).
         IEnumerable<Door> Out(Room room) => links.Where(link => link.Room == room && link.Other is null && link.Outside).Select(link => link.Door);
-        var finals = Out(stair.Foot).Concat(links.Where(link => link.Room == stair.Foot && link.Other is { } next && !stair.Rooms.Contains(next)).SelectMany(link => Out(link.Other!))).Distinct().ToList();
+        List<Door> FinalsOf(StairStack each) => Out(each.Foot).Concat(links.Where(link => link.Room == each.Foot && link.Other is { } next && !each.Rooms.Contains(next)).SelectMany(link => Out(link.Other!))).Distinct().ToList();
+        var finals = FinalsOf(stair);
+
+        // No door between it and another protected stairway leading to another final exit (3.37).
+        var adjoining = links.Where(link => stairRooms.Contains(link.Room) && link.Other is { } beyond && !stairRooms.Contains(beyond))
+            .Select(link => (Link: link, Next: stairs.FirstOrDefault(other => other.Rooms.Contains(link.Other!))))
+            .Where(entry => entry.Next is { } next && !FinalsOf(next).ToHashSet().SetEquals(finals))
+            .Select(entry => $"the {entry.Next!.Foot.Name}'s on the {Called(entry.Link.Room.LevelId)}").Distinct().ToList();
+        if (adjoining.Count > 0)
+            wanting.Add($"a door joins it to another protected stairway leading to another final exit - {string.Join("; ", adjoining)} - Approved Document B Volume 2 (3.37) asks the construction between two adjoining protected stairways imperforate");
+
         if (openStair) { }
         else if (finals.Count == 0)
             wanting.Add($"its foot, the {stair.Foot.Name}, has no final exit - Approved Document B Volume 2 (3.36) asks every protected stairway to lead to a final exit, straight out or through an exit passageway");
         else
         {
-            // As wide as the stair needs to be: Table 3.1's least, or Table 3.2's for its share of the people above (5.20, round 114).
-            var needed = Needed(least, upper.Count, share);
-            var widest = finals.Max(door => document.FindType<DoorType>(door.TypeId) is { } type ? Doors.EscapeWidth(type) : 0);
+            // As wide as the stair needs to be: Table 3.1's least, or Table 3.2's or 3.3's for its share of the people (5.20, round 114).
+            var needed = Math.Max(phased ? share > 0 ? Math.Max(least, PhasedWidth(share)) : least : Needed(least, upper.Count, share), Needed(least, lower.Count, shareBelow));
+            var widest = finals.Max(Width);
             if (widest < needed - 0.5)
-                wanting.Add($"its final exit gives {widest:0} where the stair needs to be {needed:0} wide{(share > 0 && needed > least + 0.5 ? $" for {share} people from {upper.Count} storey{(upper.Count == 1 ? string.Empty : "s")}" : string.Empty)} - Approved Document B Volume 2 (5.20) asks a final exit at least as wide as the escape route it serves needs to be");
+                wanting.Add($"its final exit gives {widest:0} where the stair needs to be {needed:0} wide{(share > 0 && needed > least + 0.5 ? phased ? $" for {share} people of the busiest storey, evacuated in phases" : $" for {share} people from {Storeys(upper.Count)}" : string.Empty)} - Approved Document B Volume 2 (5.20) asks a final exit at least as wide as the escape route it serves needs to be");
+
+            // Shared at the ground with a ground storey exit into the stair's foot or the lobby beyond it: wide enough for both flows (2.23, Diagram 2.6).
+            var lobbies = new List<Room> { stair.Foot };
+            lobbies.AddRange(links.Where(link => link.Room == stair.Foot && link.Other is { } next && !stairRooms.Contains(next) && Out(next).Any()).Select(link => link.Other!));
+            foreach (var lobby in lobbies.Distinct())
+            {
+                var exits = links.Where(link => link.Room == lobby && link.Other is null && link.Outside).ToList();
+                var joining = links.Where(link => link.Other == lobby && link.Room != lobby && !stairRooms.Contains(link.Room) && !within.Contains(link.Room)
+                                                  && EscapeRoutes.Way(document, link.Door) is { Into: { } towards } && towards == lobby).DistinctBy(link => link.Door).ToList();
+                if (exits.Count == 0 || joining.Count == 0) continue;
+                var people = joining.Sum(link => EscapeRoutes.Users(document, link.Door));
+                if (people <= 0) continue;
+                var footAt = lobby == stair.Foot ? stair.FootAt : links.FirstOrDefault(link => link.Room == lobby && link.Other == stair.Foot)?.Inside ?? stair.FootAt;
+                var near = exits.Min(exit => Math.Min(exit.Inside.DistanceTo(footAt), joining.Min(link => exit.Inside.DistanceTo(link.Beyond))));
+                var close = people > 60 && near < 2000 - 0.5;
+                var asked = close ? stair.Width + joining.Sum(link => Width(link.Door)) : (people / 2.5 + 60 * stair.Width / 1000) / 80 * 1000;
+                var gives = exits.Max(exit => Width(exit.Door));
+                if (gives < asked - 0.5)
+                    wanting.Add($"its final exit from the {lobby.Name} gives {gives:0} where {people} people from the ground storey's {string.Join(", the ", joining.Select(link => link.Room.Name).Distinct())} join the stair's flow{(close ? $", {near / 1000:0.0} m from it" : string.Empty)} - Approved Document B Volume 2 (2.23, Diagram 2.6) asks {(close ? "the stair's width and the storey exit's together where more than 60 join less than 2 m from the final exit" : "W = (N/2.5 + 60S)/80")}: {asked:0}");
+            }
         }
 
         return wanting;
@@ -222,7 +523,7 @@ public static class VerticalEscape
     {
         if (!HorizontalEscape.Applies(document) || Stairs(document).FirstOrDefault(stair => stair.Rooms.Contains(room)) is not { } stair) return null;
         var said = $"Escape stair, {stair.Width:0} wide, serving {stair.Upper.Count} storey{(stair.Upper.Count == 1 ? string.Empty : "s")} above the ground";
-        var wanting = Problems(document, stair);
+        var wanting = Problems(document, stair).Concat(ExternalStairs.Faces(document).Where(problem => stair.Rooms.Contains(problem.Room)).Select(problem => problem.Said)).ToList();
         return wanting.Count == 0 ? said : $"{said}; {string.Join("; ", wanting)}";
     }
 

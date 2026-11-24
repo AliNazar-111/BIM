@@ -31,6 +31,13 @@ public sealed class ProjectInformation
     public bool Sprinklered { get; set; }
 
     /// <summary>
+    /// Whether a building other than a dwelling is designed for phased evacuation (Approved Document B Volume 2 3.19 to 3.22): the fire floor
+    /// first, then two floors at a time - its stairs sized by Table 3.3, approached through protected lobbies, every floor a compartment floor,
+    /// an L3 alarm at least. Off, simultaneous evacuation: every storey at once, by Table 3.2.
+    /// </summary>
+    public bool PhasedEvacuation { get; set; }
+
+    /// <summary>
     /// Whether members are checked for imposed loads reduced by the area each carries and the floors over it: BS EN 1991-1-1 6.3.1.2(10) and (11) with the UK National Annex, or ASCE 7-16 4.7.
     /// Reducing them is allowed, not asked; off, they are taken whole.
     /// </summary>
@@ -803,6 +810,9 @@ public sealed class BimDocument
             ThermalResistance = 4.05,
             HeatTransferCoefficient = 0.25,
             Cost = 165m,
+
+            // Closed at its head and round its openings by insulated cavity closers: two leaves of brick and block, no cavity barriers asked (Diagram 5.3).
+            Cavity = CavityClosing.Closers,
             CoarseScaleFillColour = ColourRgb.FromHex("A8846E"),
 
             // The brick returns round an exposed end, as brickwork does, rather than leaving
@@ -2916,7 +2926,7 @@ public sealed class BimDocument
             new MaterialLayer(LayerFunction.Structure, block.Id, 100),
             new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
         {
-            Function = WallFunction.Interior, Separating = true, TypeMark = "PW1", AssemblyCode = "C1010", FireRating = "60 min", AcousticRating = 55, Cost = 118m,
+            Function = WallFunction.Interior, Separating = true, TypeMark = "PW1", AssemblyCode = "C1010", FireRating = "60 min", AcousticRating = 55, Cost = 118m, Cavity = CavityClosing.Closers,
             CoarseScaleFillColour = ColourRgb.FromHex("B9B2A4"), WrapAtEnds = WallWrapping.Exterior
         };
         var timberFrame = new WallType("Timber Frame - Brick Clad 315mm", new CompoundStructure(
@@ -2926,7 +2936,7 @@ public sealed class BimDocument
             new MaterialLayer(LayerFunction.Structure, mineralWool.Id, 140),
             new MaterialLayer(LayerFunction.Finish2, plasterboard.Id, 12.5)))
         {
-            Function = WallFunction.Exterior, TypeMark = "EW2", AssemblyCode = "B2010", FireRating = "60 min", AcousticRating = 45, Cost = 150m,
+            Function = WallFunction.Exterior, TypeMark = "EW2", AssemblyCode = "B2010", FireRating = "60 min", AcousticRating = 45, Cost = 150m, Cavity = CavityClosing.Barriers,
             HeatTransferCoefficient = 0.22, CoarseScaleFillColour = ColourRgb.FromHex("B59A7A"), WrapAtEnds = WallWrapping.Exterior
         };
 
@@ -2977,7 +2987,7 @@ public sealed class BimDocument
             new MaterialLayer(LayerFunction.Structure, denseBlock.Id, 100),
             new MaterialLayer(LayerFunction.Finish2, plaster.Id, 13)))
         {
-            Function = WallFunction.Interior, Separating = true, TypeMark = "PW2", AssemblyCode = "C1010", FireRating = "60 min", Cost = 124m,
+            Function = WallFunction.Interior, Separating = true, TypeMark = "PW2", AssemblyCode = "C1010", FireRating = "60 min", Cost = 124m, Cavity = CavityClosing.Closers,
             CoarseScaleFillColour = ColourRgb.FromHex("A9A294"), WrapAtEnds = WallWrapping.Exterior
         };
         var separatingFloor = new FloorType("Floor - Separating Slab, Floating 278mm", new CompoundStructure(

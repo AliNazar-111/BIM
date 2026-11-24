@@ -32,6 +32,10 @@ public sealed class Room : Element
     /// <summary>The dwelling it is in - a flat of a block, a house of a terrace - by name: "Flat 3". None for one in a house of one dwelling, or in a block's common parts.</summary>
     public string Dwelling { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Who occupies it - an owner or a tenancy: "Unit 1", "Tenant A". Rooms of different occupancies on a storey are separate occupancies, whose
+    /// escape does not pass through one another (Approved Document B Volume 2 2.17).
+    /// </summary>
     public string Occupancy { get; set; } = string.Empty;
 
     public int OccupantCount { get; set; }

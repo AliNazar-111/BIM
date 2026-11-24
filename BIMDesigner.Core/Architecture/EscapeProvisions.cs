@@ -74,7 +74,7 @@ public static partial class EscapeRoutes
     /// <summary>The room a door is a final exit from: a door to the outside from a room that is no refuse store, place of special fire hazard or plant room; else null.</summary>
     private static Room? FinalExitFrom(BimDocument document, Door door, DoorType type)
     {
-        if (!Doors.External(document, door, type)) return null;
+        if (!Doors.External(document, door, type) || !ExternalStairs.AtGrade(document, door)) return null;
         var (one, other) = Doors.RoomsBeside(document, door);
         var inside = one is not null && other is null ? one : other is not null && one is null ? other : null;
         return inside is null || Hazard(inside) || Named(inside, "plant") ? null : inside;
@@ -134,6 +134,8 @@ public static partial class EscapeRoutes
         var walls = new List<string>();
         var doors = new List<string>();
         var basements = new List<string>();
+        var phasedOpen = new List<string>();
+        var phased = VerticalEscape.Phased(document) || CareHomes.Applies(document);
         var enclosing = new HashSet<Room>();
         foreach (var level in levels)
         {
@@ -156,13 +158,17 @@ public static partial class EscapeRoutes
                     doors.Add($"the {level.Name}'s, {(Doors.FireMinutes(doorType.FireRating) is > 0 and var rated ? $"rated {rated} minutes" : "not fire-rated")}");
 
                 // On a basement storey: into the stair, or a protected lobby or corridor (5.38).
+                var (a, b) = Doors.RoomsBeside(document, door);
+                var into = a == shaft ? b : b == shaft ? a : a ?? b;
                 if (level.Elevation < ground - Escape.Basement - 0.5)
                 {
-                    var (a, b) = Doors.RoomsBeside(document, door);
-                    var into = a == shaft ? b : b == shaft ? a : a ?? b;
                     if (into is null || !IsStair(document, into) && !ProtectedLobby(document, into, shaft))
                         basements.Add($"the {level.Name}'s opens into the {into?.Name ?? "open"}");
                 }
+
+                // Evacuated in phases, or progressively across a storey: through a protected lobby at every storey (5.37, 3.21b).
+                else if (phased && (into is null || !IsStair(document, into) && !(Circulation.IsLobby(into) && ProtectedLobby(document, into, shaft))))
+                    phasedOpen.Add($"the {level.Name}'s opens into the {into?.Name ?? "open"}");
             }
         }
 
@@ -174,6 +180,9 @@ public static partial class EscapeRoutes
             yield return ($"its landing door{(doors.Count == 1 ? string.Empty : "s")} - {string.Join("; ", doors)} - {(doors.Count == 1 ? "is" : "are")} less than E {doorAsked}.", compartment is null
                 ? "Approved Document B Volume 2 (5.34b, Table C1 item 4b) asks the doors of a lift shaft enclosed in fire-resisting construction E 30."
                 : $"Approved Document B Volume 2 (5.35, Table C1 item 2d) asks the doors of a protected shaft forming a lift half its walls' period, 30 minutes at least: E {doorAsked}.");
+        if (phasedOpen.Count > 0)
+            yield return ($"its landing door{(phasedOpen.Count == 1 ? string.Empty : "s")} - {string.Join("; ", phasedOpen)} - not a protected lobby.",
+                $"Approved Document B Volume 2 (5.37{(VerticalEscape.Phased(document) ? ", 3.21b" : string.Empty)}) asks a lift's entrance in a building designed for {(VerticalEscape.Phased(document) ? "phased" : "progressive horizontal")} evacuation, where its well is not within a protected stairway, separated at every storey by a protected lobby, REI 30.");
         if (basements.Count > 0)
             yield return ($"its landing door{(basements.Count == 1 ? string.Empty : "s")} - {string.Join("; ", basements)} - not a protected stairway, lobby or corridor.",
                 "Approved Document B Volume 2 (5.38, Table C1 item 5c) asks a lift in a basement within the enclosure of a protected stairway, or approached only through a protected lobby or protected corridor, REI 30, its doors E 30 Sa.");
@@ -232,6 +241,9 @@ public static partial class EscapeRoutes
             "Approved Document B Volume 2 (5.46) asks a shop's fully enclosed walk-in store room separated from the retail areas by fire-resisting construction, REI 30, where it would affect the means of escape - not where it has automatic fire detection or the shop sprinklers.");
     }
 
+    /// <summary>A refuse store's lobby's permanent ventilation (5.44), m².</summary>
+    public const double RefuseLobbyVent = 0.2;
+
     /// <summary>What a refuse store falls short of in where it is and how it is come to (5.43b, 5.44), said.</summary>
     private static IEnumerable<string> RefuseProblems(BimDocument document, Room room)
     {
@@ -248,6 +260,8 @@ public static partial class EscapeRoutes
 
         if (links.Select(link => link.Other).OfType<Room>().FirstOrDefault(other => !Circulation.IsLobby(other)) is { } from)
             yield return $"it is a refuse store come to from the {from.Name} - Approved Document B Volume 2 (5.44) asks a room for storing refuse come to straight from the open air, or through a protected lobby with 0.2 m² of permanent ventilation";
+        else if (links.Select(link => link.Other).OfType<Room>().FirstOrDefault(other => VerticalEscape.PermanentVentilation(document, other) < RefuseLobbyVent - 0.005) is { } lobby)
+            yield return $"it is a refuse store come to through the {lobby.Name}, which has {(VerticalEscape.PermanentVentilation(document, lobby) is > 0.005 and var vent ? $"{vent:0.00} m² of" : "no")} permanent ventilation - Approved Document B Volume 2 (5.44) asks the protected lobby to a refuse store 0.2 m² of it at least: a vent set to Permanent ventilation in its Edit Type";
     }
 
     /// <summary>Everything a room of a building other than a dwelling falls short of under Section 5: its escape lighting, a refuse store's place and approach.</summary>

@@ -35,7 +35,7 @@ public static class ElementHandles
 {
     /// <summary>Whether an element has handles of this kind.</summary>
     public static bool Has(Element element) =>
-        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or Annotation.DetailLine or Annotation.RepeatingDetail or AreaBoundary or Annotation.FilledRegion or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
+        element is Railing or Beam or Toposurface or GroundRegion or BeamSystem or Ramp or SitePad or PropertyLine or RoomSeparator or CavityBarrier or Annotation.DetailLine or Annotation.RepeatingDetail or AreaBoundary or Annotation.FilledRegion or Mass or Callout { Parent.Kind: ViewKind.FloorPlan };
 
     /// <summary>The most spot levels shown with handles: past that the ground is reshaped by reading its points in again.</summary>
     public const int MostPoints = 2000;
@@ -63,6 +63,14 @@ public static class ElementHandles
                         : new ElementHandle($"insert:{i}", middle, Top(middle), false, HandleShape.Insert));
                 }
 
+                break;
+            }
+
+            case CavityBarrier barrier:
+            {
+                var level = document.FindLevel(barrier.LevelId)?.Elevation ?? 0;
+                handles.Add(new ElementHandle("start", barrier.Start, level, false, HandleShape.End));
+                handles.Add(new ElementHandle("end", barrier.End, level, false, HandleShape.End));
                 break;
             }
 
@@ -267,6 +275,18 @@ public static class ElementHandles
                 }
 
                 return ($"{Units.Metres(separator.Length, "0.00")}.", handle.Key);
+            }
+
+            case CavityBarrier barrier:
+            {
+                switch (handle.Key)
+                {
+                    case "start": barrier.Start = to; break;
+                    case "end": barrier.End = to; break;
+                    default: return (string.Empty, handle.Key);
+                }
+
+                return ($"{Units.Metres(barrier.Length, "0.00")}.", handle.Key);
             }
 
             case Toposurface ground when index < ground.Points.Count:
@@ -572,6 +592,7 @@ public static class ElementHandles
         Railing => key.StartsWith("insert", StringComparison.Ordinal) ? "Add Railing Corner" : key.StartsWith("bend", StringComparison.Ordinal) ? "Bend Railing" : "Move Railing Corner",
         Beam => key.StartsWith("raise", StringComparison.Ordinal) ? "Slope Beam" : "Move Beam End",
         RoomSeparator => "Move Room Separator End",
+        CavityBarrier => "Move Cavity Barrier End",
         Annotation.DetailLine => "Move Detail Line End",
         AreaBoundary => "Move Area Boundary End",
         Annotation.RepeatingDetail => "Move Repeating Detail End",
@@ -599,6 +620,7 @@ public static class ElementHandles
         Railing railing => (railing.Path.ToList(), railing.Closed, railing.Bulges.ToList()),
         Beam beam => (beam.Start, beam.End, beam.StartOffset, beam.EndOffset),
         RoomSeparator separator => (separator.Start, separator.End),
+        CavityBarrier barrier => (barrier.Start, barrier.End),
         Annotation.DetailLine detail => (detail.Start, detail.End),
         AreaBoundary boundary => (boundary.Start, boundary.End, boundary.WallId),
         Annotation.RepeatingDetail repeating => (repeating.Start, repeating.End),
@@ -627,6 +649,9 @@ public static class ElementHandles
                 break;
             case (RoomSeparator separator, ValueTuple<Point2D, Point2D> state):
                 (separator.Start, separator.End) = state;
+                break;
+            case (CavityBarrier barrier, ValueTuple<Point2D, Point2D> state):
+                (barrier.Start, barrier.End) = state;
                 break;
             case (Annotation.DetailLine detail, ValueTuple<Point2D, Point2D> state):
                 (detail.Start, detail.End) = state;
