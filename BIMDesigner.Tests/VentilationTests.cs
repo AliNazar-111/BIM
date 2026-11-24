@@ -127,7 +127,8 @@ public class VentilationTests
         Assert.Equal(25 * 13.0 / 21, air.Single(room => room.Room == rooms[1]).Extract, 6);
         Assert.Equal(13, air.Single(room => room.Room == rooms[1]).ExtractAsked);
         Assert.Contains("by heat recovery", Services.Verdict(document, rooms[1]));
-        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Element is Room);
+        // Nothing said of a room's air - Approved Document R's termination point, said on the home's first room, aside (round 126).
+        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Element is Room && !problem.Text.Contains("Approved Document R"));
 
         // A bedroom without its valve, and a unit too small, are said.
         document.Remove(valves.Single(valve => Polygon2D.Contains(rooms[4].GetBoundary(document).Polygon, valve.Location)));

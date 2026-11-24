@@ -17,6 +17,12 @@ public sealed record Penetration(Element Service, Element Through, Point3D At, d
 
     /// <summary>Whether the opening cut takes it - the service's own size within it; true where none is cut.</summary>
     public bool Fits { get; init; } = true;
+
+    /// <summary>In a building other than a home, what it passes as a fire-separating element (Volume 2, round 125) - "compartment wall" - and whether a services shaft's enclosure; null otherwise.</summary>
+    public string? Element { get; init; }
+
+    /// <summary>Whether it passes the enclosure of a protected shaft for services: Volume 2 Table 10.1's first row.</summary>
+    public bool ShaftEnclosure { get; init; }
 }
 
 /// <summary>
@@ -57,8 +63,9 @@ public static class Penetrations
                 var (run, face) = ((planEnd - planStart).NormalisedOrDefault(Vector2D.UnitX), wall.TangentAt(wall.LocationCurve.Locate(at).Along));
                 var slant = Math.Max(0.2, Math.Abs(run.X * face.Y - run.Y * face.X));
                 var along = (width + 2 * Gap) / slant + (type?.Width ?? 0) * Math.Sqrt(1 - slant * slant) / slant;
+                var fire = FireSeparating.Of(document, wall);
                 var hole = new Penetration(service, wall, new Point3D(at.X, at.Y, z), along, height + 2 * Gap, round && slant > 0.99,
-                    type?.Separating == true, Doors.FireMinutes(type?.FireRating ?? string.Empty));
+                    type?.Separating == true || fire is not null, Doors.FireMinutes(type?.FireRating ?? string.Empty)) { Element = fire?.What, ShaftEnclosure = fire?.Shaft == true };
                 yield return Cut(document, hole);
             }
 
@@ -72,8 +79,9 @@ public static class Penetrations
                 var at = new Point2D(start.X + (end.X - start.X) * t, start.Y + (end.Y - start.Y) * t);
                 if (!floor.Contains(at)) continue;
                 var type = document.FindType<SlabType>(floor.TypeId);
+                var fire = FireSeparating.Of(document, floor);
                 var hole = new Penetration(service, floor, new Point3D(at.X, at.Y, middle), width + 2 * Gap, height + 2 * Gap, round,
-                    type?.Separating == true, Doors.FireMinutes(type?.FireRating ?? string.Empty));
+                    type?.Separating == true || fire is not null, Doors.FireMinutes(type?.FireRating ?? string.Empty)) { Element = fire };
                 yield return Cut(document, hole);
             }
     }
@@ -231,6 +239,13 @@ public static class Penetrations
                 yield return new MepProblem(hole.Service, $"the opening where it passes through {Describe(document, hole.Through)} is too small for it - make it {Units.Bare(hole.Width)} x {Units.Millimetres(hole.Height, "0")}, its size and {Units.Millimetres(Gap, "0")} round it");
             if (!hole.Separating || hole.Service is not Pipe pipe) continue;
 
+            // A building other than a home: Volume 2's 10.2 to 10.5 and Table 10.1 (round 125).
+            if (hole.Element is { } element)
+            {
+                foreach (var problem in Volume2(document, pipe, hole, element)) yield return problem;
+                continue;
+            }
+
             var what = hole.Through is Floor ? "compartment floor" : "compartment wall";
             if (us)
             {
@@ -252,6 +267,43 @@ public static class Penetrations
                     yield return new MepProblem(pipe, $"a pipe of {PipeType.Title(material)} sleeved through a {what} - Approved Document B (Volume 1, section 9) sleeves PVC-U, lead, aluminium or fibre-cement pipe up to 160 mm, in metal pipe 1 m either side");
                     break;
             }
+        }
+    }
+
+    /// <summary>
+    /// Volume 2 Table 10.1's largest nominal internal diameter fire-stopped alone through a fire-separating element of a building other than a
+    /// home, mm: high melting point metal 160; lead, aluminium, uPVC or fibre-cement 110 through the enclosure of a protected shaft that is
+    /// not a stair's or a lift's, 40 elsewhere; any other material 40.
+    /// </summary>
+    public static double Volume2Limit(BimDocument document, Pipe pipe, bool shaftEnclosure)
+    {
+        var material = (document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper).Like();
+        return material switch
+        {
+            PipeMaterial.Copper or PipeMaterial.StainlessSteel or PipeMaterial.GalvanisedSteel => 160,
+            PipeMaterial.PvcU when shaftEnclosure => 110,
+            _ => 40
+        };
+    }
+
+    /// <summary>A pipe through a fire-separating element of a building other than a home (Volume 2, 10.2 to 10.5): none asked within a protected shaft.</summary>
+    private static IEnumerable<MepProblem> Volume2(BimDocument document, Pipe pipe, Penetration hole, string element)
+    {
+        if (FireSeparating.InShaft(document, pipe.LevelId, new Point2D(hole.At.X, hole.At.Y))) yield break;
+        var what = FireSeparating.Article(element);
+        var material = (document.FindType<PipeType>(pipe.TypeId)?.Material ?? PipeMaterial.Copper).Like();
+        var limit = Volume2Limit(document, pipe, hole.ShaftEnclosure);
+        switch (pipe.Seal)
+        {
+            case PipeSeal.None:
+                yield return new MepProblem(pipe, $"it passes through {what} with nothing keeping it fire-separating - Approved Document B Volume 2 (10.1 to 10.5) asks a proprietary seal (A), fire-stopping round a pipe no larger than Table 10.1 allows (B), or a sleeve (C)");
+                break;
+            case PipeSeal.FireStopped when Bore(document, pipe) > limit + 0.5:
+                yield return new MepProblem(pipe, $"a pipe of {Units.Millimetres(Bore(document, pipe), "0")} bore fire-stopped through {what} - Approved Document B Volume 2 (10.4, Table 10.1) fire-stops a pipe of {PipeType.Title(material)} up to {Units.Millimetres(limit, "0")} alone{(material == PipeMaterial.PvcU && !hole.ShaftEnclosure ? ", 110 only through a protected shaft's enclosure" : string.Empty)}; a proprietary seal or a sleeve for it");
+                break;
+            case PipeSeal.Sleeved when material != PipeMaterial.PvcU || pipe.Diameter > 160 + 0.5:
+                yield return new MepProblem(pipe, $"a pipe of {PipeType.Title(material)} sleeved through {what} - Approved Document B Volume 2 (10.5, Diagram 10.1) sleeves lead, aluminium, uPVC or fibre-cement pipe up to 160 mm, in high melting point metal 1 m either side");
+                break;
         }
     }
 

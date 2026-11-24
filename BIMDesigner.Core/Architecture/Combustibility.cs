@@ -200,8 +200,22 @@ public static class Combustibility
         if (layers.Count == 0) yield break;
 
         var (building, storey) = Heights(document);
-        var residential = document.All<Room>().Any(room => Dwellings.Of(room).Length > 0) || FireDesign.UseOf(document) is BuildingUse.House or BuildingUse.Flats;
+        var homes = document.All<Room>().Any(room => Dwellings.Of(room).Length > 0) || FireDesign.UseOf(document) is BuildingUse.House or BuildingUse.Flats;
+
+        // A building other than a home: Volume 2's Section 12 and Table 12.1 (round 125) - its residential purpose groups, 2(a) and 2(b),
+        // a hotel or care home, judged as a home's building is; a place of assembly faced C-s3, d2 to 10 m up.
+        var volume2 = HorizontalEscape.Applies(document);
+        var group = volume2 ? HorizontalEscape.Purpose(document) : (PurposeGroup?)null;
+        var residential = homes || group is PurposeGroup.ResidentialInstitutional or PurposeGroup.ResidentialOther;
+        var whose = homes ? "a home's building" : "a residential building (purpose group 2)";
+        string Cite(string one, string two) => volume2 ? $"Approved Document B Volume 2 ({two})" : $"Approved Document B ({one})";
         static string Said(Material material) => Euroclass.Of(material) is { } fire ? $"{material.Name}, {fire.Class}" : $"{material.Name}, of no class given";
+
+        // A metal composite material of a combustible core, in any building (Regulation 7(1A)): a panel faced in metal, named so, not classed A2-s1, d0.
+        foreach (var composite in layers.Select(entry => entry.Material).Distinct().Where(MetalComposite)
+                     .Where(material => Euroclass.Of(material) is not { } fire || !fire.Class.AtLeast(Euroclass.A2s1d0)))
+            yield return ($"its {Said(composite)}, a metal composite material.",
+                $"Regulation 7(1A) prohibits relevant metal composite materials - metal faces on a core of more than 35 MJ/kg gross calorific value, as polyethylene - in the outside walls of any building ({Cite("10.11, 10.12", "12.12, 12.13")}): give its class; one cored A2-s1, d0 is not one.");
 
         // A relevant building: every material A2-s1, d0 or A1 (Regulation 7(2)), which prevails over the rest.
         if (residential && storey >= Relevant - 0.5)
@@ -209,7 +223,9 @@ public static class Combustibility
             var short_ = layers.Select(entry => entry.Material).Distinct().Where(material => Euroclass.Of(material) is not { } fire || !fire.Class.AtLeast(Euroclass.A2s1d0)).ToList();
             if (short_.Count > 0)
                 yield return ($"its {string.Join("; ", short_.Select(Said))}.",
-                    "Regulation 7(2) asks every material of an outside wall of a building holding homes with a storey 18 m or more above the ground - a relevant building (Approved Document B 10.14) - to be class A2-s1, d0 or A1, membranes excepted (regulation 7(3)).");
+                    homes
+                        ? "Regulation 7(2) asks every material of an outside wall of a building holding homes with a storey 18 m or more above the ground - a relevant building (Approved Document B 10.14) - to be class A2-s1, d0 or A1, membranes excepted (regulation 7(3))."
+                        : "Regulation 7(2) asks every material of an outside wall of a building with rooms for residential purposes or an institution - a hotel, hostel, care home, hospital, student accommodation - with a storey 18 m or more above the ground, a relevant building (Approved Document B Volume 2 12.15), to be class A2-s1, d0 or A1, membranes excepted (regulation 7(3)).");
             yield break;
         }
 
@@ -218,11 +234,13 @@ public static class Combustibility
         var distance = SpaceSeparation.DistanceToBoundary(document, wall);
         var near = distance is < NearBoundary - 0.5;
         var top = wall.GetTopElevation(document) - Escape.Ground(document);
+        var bottom = wall.GetBaseElevation(document) - Escape.Ground(document);
         (Euroclass Class, string Of, bool Steel, bool Timber)? asked = residential
-            ? building > Residential + 0.5 ? (Euroclass.A2s1d0, "a home's building more than 11 m high", true, false)
-              : near ? (Euroclass.Bs3d2, "a home's building 11 m high or less, within 1 m of the boundary", true, false) : null
+            ? building > Residential + 0.5 ? (Euroclass.A2s1d0, $"{whose} more than 11 m high", true, false)
+              : near ? (Euroclass.Bs3d2, $"{whose} 11 m high or less, within 1 m of the boundary", true, false) : null
             : near ? (Euroclass.Bs3d2, "a building within 1 m of the boundary", true, false)
             : building > Relevant + 0.5 ? top > Relevant + 0.5 ? (Euroclass.Bs3d2, "a building more than 18 m high, above 18 m", true, false) : (Euroclass.Cs3d2, "a building more than 18 m high, up to 18 m", false, true)
+            : group == PurposeGroup.AssemblyAndRecreation && bottom < Assembly - 0.5 ? (Euroclass.Cs3d2, "a place of assembly and recreation 18 m high or less, up to 10 m above the ground", false, true)
             : null;
         if (asked is { } want)
         {
@@ -233,18 +251,30 @@ public static class Combustibility
                                               || name.Contains("cedar", StringComparison.OrdinalIgnoreCase) || name.Contains("larch", StringComparison.OrdinalIgnoreCase)) && face.Thickness >= 9 - 1e-6;
             if (!accepted)
                 yield return ($"its outside face is {Said(faceMaterial)}{(distance is { } d && near ? $", {Units.Metres(d, "0.0")} from the boundary" : string.Empty)}.",
-                    $"Approved Document B (10.5, Table 10.1) asks the outside surface of {want.Of} to be class {want.Class} or better{(want.Steel ? " - or steel sheet 0.5 mm thick with an organic coating 0.2 mm at most" : want.Timber ? " - or timber cladding 9 mm thick" : string.Empty)}.");
+                    $"{Cite("10.5, Table 10.1", "12.5, Table 12.1")} asks the outside surface of {want.Of} to be class {want.Class} or better{(want.Steel ? " - or steel sheet 0.5 mm thick with an organic coating 0.2 mm at most" : want.Timber ? " - or timber cladding 9 mm thick" : string.Empty)}.");
         }
 
         // Its insulation and filling (10.6, 10.7) - not in a masonry cavity wall (Diagram 8.2).
-        var (insulationClass, clause, height) = residential && storey >= Residential - 0.5 ? (Euroclass.A2s1d0, "10.7", "a home's building with a storey 11 m")
-            : storey >= Relevant - 0.5 ? (Euroclass.A2s3d2, "10.6", "a building with a storey 18 m") : (default(Euroclass), string.Empty, string.Empty);
+        var (insulationClass, clause, height) = residential && storey >= Residential - 0.5 ? (Euroclass.A2s1d0, volume2 ? "12.7" : "10.7", $"{whose} with a storey 11 m")
+            : storey >= Relevant - 0.5 ? (Euroclass.A2s3d2, volume2 ? "12.6" : "10.6", "a building with a storey 18 m") : (default(Euroclass), string.Empty, string.Empty);
         if (clause.Length == 0 || MasonryCavity(document, type.Structure)) yield break;
         var filling = layers.Where(entry => entry.Layer.Function == LayerFunction.ThermalAir).Select(entry => entry.Material).Distinct()
             .Where(material => Euroclass.Of(material) is not { } fire || !fire.Class.AtLeast(insulationClass)).ToList();
         if (filling.Count > 0)
             yield return ($"its insulation is {string.Join("; ", filling.Select(Said))}.",
-                $"Approved Document B ({clause}) asks the insulation and filling of an outside wall of {height} or more above the ground to be class {insulationClass} or better - unless it is a masonry cavity wall, two leaves of brick or concrete 75 mm thick at least (Diagram 8.2).");
+                $"Approved Document B{(volume2 ? " Volume 2" : string.Empty)} ({clause}) asks the insulation and filling of an outside wall of {height} or more above the ground to be class {insulationClass} or better - unless it is a masonry cavity wall, two leaves of brick or concrete 75 mm thick at least (Diagram {(volume2 ? "9.2" : "8.2")}).");
+    }
+
+    /// <summary>Table 12.1's height to which a place of assembly 18 m high or less is faced C-s3, d2 a metre or more from the boundary, mm.</summary>
+    public const double Assembly = 10000;
+
+    /// <summary>Whether a material is a metal composite: named a metal or aluminium composite, ACM, or a panel of aluminium and polyethylene.</summary>
+    public static bool MetalComposite(Material material)
+    {
+        var name = material.Name;
+        bool Has(string word) => name.Contains(word, StringComparison.OrdinalIgnoreCase);
+        return Has("metal composite") || Has("aluminium composite") || Has("aluminum composite") || System.Text.RegularExpressions.Regex.IsMatch(name, @"\bACM\b")
+               || (Has("aluminium") || Has("aluminum")) && (Has("polyethylene") || System.Text.RegularExpressions.Regex.IsMatch(name, @"\bPE\b"));
     }
 
     /// <summary>Whether a wall is the building's - some room's outline runs along it - not a wall round the garden.</summary>

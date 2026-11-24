@@ -295,6 +295,9 @@ public static class MepSystems
 
         // Charging electric vehicles at the parking spaces (Approved Document S, round 98).
         problems.AddRange(EvCharging.Problems(document));
+
+        // Infrastructure for electronic communications: a network termination point in each home, its access point (Approved Document R, round 126).
+        problems.AddRange(Broadband.Problems(document));
         problems.AddRange(Penetrations.Problems(document));
         problems.AddRange(Notching.Problems(document));
         problems.AddRange(ServiceClearances.Problems(document));

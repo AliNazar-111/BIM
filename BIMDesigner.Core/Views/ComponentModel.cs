@@ -1338,6 +1338,18 @@ public static class ComponentModel
                 Add(-halfW * 0.6, halfW * 0.6, halfD - 1, halfD + 2, h * 0.05, h * 0.2, PartFinish.Dark);
                 break;
 
+            case ComponentForm.NetworkTerminationPoint:
+                // A slim white box on the wall, its status lights in a dark strip across its face.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.7, halfW * 0.7, halfD - 1, halfD + 2, h * 0.75, h * 0.85, PartFinish.Dark);
+                break;
+
+            case ComponentForm.CommsAccessPoint:
+                // A dark box or cabinet on the wall, its lid's edge standing proud of it.
+                Add(-halfW, halfW, -halfD, halfD, 0, h);
+                Add(-halfW * 0.92, halfW * 0.92, halfD - 1, halfD + 4, h * 0.05, h * 0.95, PartFinish.Metal);
+                break;
+
             case ComponentForm.EvFutureConnection:
                 // A capped duct end in its own colour, its label plate dark on it and the cap on top.
                 Add(-halfW, halfW, -halfD, halfD, 0, h);
@@ -1909,6 +1921,16 @@ public static class ComponentModel
                 Inside(-halfW * 0.6, halfW * 0.6, halfD - 20, halfD);
                 break;
 
+            case ComponentForm.NetworkTerminationPoint:
+                // Its strip of status lights across its face.
+                Inside(-halfW * 0.7, halfW * 0.7, halfD - halfD * 0.6, halfD - halfD * 0.2);
+                break;
+
+            case ComponentForm.CommsAccessPoint:
+                // Its lid, standing a little inside its edge.
+                Inside(-halfW * 0.85, halfW * 0.85, -halfD * 0.85, halfD * 0.85);
+                break;
+
             case ComponentForm.EvFutureConnection:
                 // Its capped duct.
                 shapes.Add(frame.Ellipse(-halfW * 0.5, halfW * 0.5, -halfD * 0.5, halfD * 0.5, 16));
@@ -2213,6 +2235,8 @@ public static class ComponentModel
         ComponentForm.SmokeOutlet => "SO",
         ComponentForm.EvChargePoint => "EV",
         ComponentForm.EvFutureConnection => "EVF",
+        ComponentForm.NetworkTerminationPoint => "NTP",
+        ComponentForm.CommsAccessPoint => "AP",
         ComponentForm.AirAdmittanceValve => "AAV",
         ComponentForm.HeatPump => "HP",
         ComponentForm.HeatRecoveryUnit => "MVHR",

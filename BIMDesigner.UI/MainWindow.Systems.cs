@@ -43,7 +43,8 @@ public partial class MainWindow
                                                      && (Connectors.Of(type).Count > 0 || type.Kind == BuiltInCategory.Drainage
                                                          || type.Form is ComponentForm.AirAdmittanceValve or ComponentForm.BackgroundVentilator or ComponentForm.DuctSmokeDetector
                                                              or ComponentForm.FireMainInlet or ComponentForm.FireMainOutlet or ComponentForm.OilTank
-                                                             or ComponentForm.LpgTank or ComponentForm.LpgCylinders or ComponentForm.SmokeOutlet or ComponentForm.EvFutureConnection))
+                                                             or ComponentForm.LpgTank or ComponentForm.LpgCylinders or ComponentForm.SmokeOutlet or ComponentForm.EvFutureConnection
+                                                             or ComponentForm.NetworkTerminationPoint or ComponentForm.CommsAccessPoint))
                 .OrderBy(type => type.Name).ToList();
             if (types.Count == 0) continue;
             var group = new MenuItem { Header = EnumText.Humanise(category) };

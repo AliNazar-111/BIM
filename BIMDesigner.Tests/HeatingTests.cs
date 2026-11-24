@@ -254,7 +254,8 @@ public class HeatingTests
         var sized = document.FindType<ComponentType>(radiator.TypeId)!;
         Assert.True(Heating.RadiatorOutput(sized, 45, 35, 21) >= loss.Total - 0.5);
         Assert.Equal("Radiator - 600 x 1600", sized.Name);
-        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Element == rooms[0]);
+        // Nothing said of its heat - Approved Document R's termination point, said on the home's first room, aside (round 126).
+        Assert.DoesNotContain(MepSystems.Problems(document), problem => problem.Element == rooms[0] && !problem.Text.Contains("Approved Document R"));
         Assert.Contains("enough for its", Heating.Verdict(document, rooms[0], HeatLoss.OfRoom(document, rooms[0])!));
 
         command!.Undo();

@@ -241,6 +241,18 @@ public enum ComponentForm
     /// </summary>
     EvFutureConnection,
 
+    /// <summary>
+    /// A network termination point: where an electronic communications network ends inside a home or other building, and the occupier's own
+    /// network begins - a fibre optical network terminal on the wall, fed from the access point (Approved Document R Volume 1 RA1, 2.6; Volume 2 1.6).
+    /// </summary>
+    NetworkTerminationPoint,
+
+    /// <summary>
+    /// An access point for electronic communications networks: where the operator's cable comes into the building, on its outside wall or in a
+    /// comms cabinet - in a building of several homes, the common access point serving them all (Approved Document R Volume 1 RA1(2), 1.5).
+    /// </summary>
+    CommsAccessPoint,
+
     /// <summary>A urinal bowl hung on the wall, flushed from the cold supply - in men's toilets only (Approved Document T 2.2), its trap 40 mm (Approved Document H Table 1).</summary>
     Urinal,
 

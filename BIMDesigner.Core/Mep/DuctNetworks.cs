@@ -504,6 +504,36 @@ public static class DuctNetworks
     }
 
     /// <summary>The points where a duct passes through walls on its storey, and the walls.</summary>
+    /// <summary>
+    /// A duct through the fire-separating elements of a building other than a home (Approved Document B Volume 2, round 125): kept fire-separating
+    /// by a fire damper (method 1), a fire and smoke damper (method 4), a fire-resisting enclosure or fire-resisting duct (methods 2, 3) (10.12);
+    /// no damper on a kitchen's extract (10.14); no fire damper alone on an extract through a protected stairway's enclosure (10.15); dampers E
+    /// or ES 60, or as long as the element (10.19, 10.20); where people sleep, dampers released by smoke detection as well as heat (10.22).
+    /// </summary>
+    private static IEnumerable<MepProblem> Volume2Crossings(Duct duct, MepSystem system, List<(string What, string Rating, bool BothSides)> separating, bool kitchen, bool sleeping)
+    {
+        foreach (var (what, rating, _) in separating)
+        {
+            var through = FireSeparating.Article(what);
+            if (duct.FireProtection == FireProtection.None)
+            {
+                yield return new MepProblem(duct, $"it passes through {through} unprotected - Approved Document B Volume 2 (10.12) keeps it fire-separating with a fire damper (method 1), a fire and smoke damper (4), a fire-resisting enclosure (2) or fire-resisting duct (3)");
+                continue;
+            }
+
+            var damper = duct.FireProtection is FireProtection.FireDamper or FireProtection.FireAndSmokeDamper;
+            if (damper && kitchen && system.Kind == SystemKind.ExtractAir)
+                yield return new MepProblem(duct, "a damper in a kitchen's extract - Approved Document B Volume 2 (10.14) uses neither damper on extract ductwork serving a kitchen, as grease clogs it: fire-resisting duct or an enclosure");
+            if (duct.FireProtection == FireProtection.FireDamper && system.Kind == SystemKind.ExtractAir && what == "enclosure of a protected stairway")
+                yield return new MepProblem(duct, $"a fire damper on an extract through {through} - Approved Document B Volume 2 (10.15) does not use method 1 for extract ductwork through a protected escape route's enclosure, as smoke passes a heat-released damper: a fire and smoke damper on smoke detection (10.16), or an enclosure or fire-resisting duct (Diagrams 10.2, 10.3)");
+            var minutes = Math.Max(60, Doors.FireMinutes(rating));
+            if (damper && duct.DamperRating < minutes)
+                yield return new MepProblem(duct, $"its damper is rated {duct.DamperRating} minutes - Approved Document B Volume 2 (10.19, 10.20) asks E or ES 60 at least, or as long as {through} keeps its integrity: {minutes}");
+            if (duct.FireProtection == FireProtection.FireDamper && sleeping)
+                yield return new MepProblem(duct, $"a fire damper through {through} in a building where people sleep - Approved Document B Volume 2 (10.22) has dampers released both by smoke detection and by heat: a fire and smoke damper, unless an L1 alarm evacuates everyone at once");
+        }
+    }
+
     public static IEnumerable<(Wall Wall, Point2D At)> Crossings(BimDocument document, Duct duct)
     {
         if (duct.Upright) yield break;
@@ -608,12 +638,29 @@ public static class DuctNetworks
                 RoomsOf.Containing(document, member.LevelId, member.Location) is { } room && room.GetBoundary(document) is { IsEnclosed: true } outline
                 && Ventilation.UseOf(document, room, outline.Polygon) == RoomUse.Kitchen);
             var smokeDampers = false;
+
+            // A building other than a home: its fire-separating elements and Volume 2's 10.8 to 10.22 (round 125).
+            var volume2 = HorizontalEscape.Applies(document);
+            var sleeping = volume2 && HorizontalEscape.Purpose(document) is PurposeGroup.ResidentialInstitutional or PurposeGroup.ResidentialOther;
             foreach (var duct in ducts)
             {
-                var separating = Crossings(document, duct).Where(crossing => document.GetWallType(crossing.Wall)?.Separating == true)
-                    .Select(crossing => (What: "compartment wall", Rating: document.GetWallType(crossing.Wall)!.FireRating, BothSides: OnBothSides(crossing.Wall)))
-                    .Concat(FloorCrossings(document, duct).Select(crossing => (What: "compartment floor", Rating: document.FindType<SlabType>(crossing.Floor.TypeId)!.FireRating, BothSides: OnBothFloors(crossing.Floor))))
-                    .ToList();
+                var separating = volume2
+                    ? Crossings(document, duct).Select(crossing => (Crossing: crossing, Fire: FireSeparating.Of(document, crossing.Wall))).Where(entry => entry.Fire is not null)
+                        .Select(entry => (What: entry.Fire!.Value.What, Rating: document.GetWallType(entry.Crossing.Wall)!.FireRating, BothSides: OnBothSides(entry.Crossing.Wall)))
+                        .Concat(FloorCrossings(document, duct).Select(crossing => (Crossing: crossing, Fire: FireSeparating.Of(document, crossing.Floor))).Where(entry => entry.Fire is not null)
+                            .Select(entry => (What: entry.Fire!, Rating: document.FindType<SlabType>(entry.Crossing.Floor.TypeId)!.FireRating, BothSides: OnBothFloors(entry.Crossing.Floor))))
+                        .ToList()
+                    : Crossings(document, duct).Where(crossing => document.GetWallType(crossing.Wall)?.Separating == true)
+                        .Select(crossing => (What: "compartment wall", Rating: document.GetWallType(crossing.Wall)!.FireRating, BothSides: OnBothSides(crossing.Wall)))
+                        .Concat(FloorCrossings(document, duct).Select(crossing => (What: "compartment floor", Rating: document.FindType<SlabType>(crossing.Floor.TypeId)!.FireRating, BothSides: OnBothFloors(crossing.Floor))))
+                        .ToList();
+                if (volume2)
+                {
+                    foreach (var problem in Volume2Crossings(duct, system, separating, kitchen, sleeping)) yield return problem;
+                    if (duct.FireProtection == FireProtection.FireAndSmokeDamper && separating.Count > 0) smokeDampers = true;
+                    continue;
+                }
+
                 foreach (var (what, rating, bothSides) in separating)
                 {
                     if (duct.FireProtection == FireProtection.None)
@@ -647,7 +694,9 @@ public static class DuctNetworks
             if (smokeDampers && !detectors.Any(detector => ducts.Any(duct => duct.LevelId == detector.LevelId
                     && Line2D.DistanceFromSegment(detector.Location, duct.Start, duct.End) <= duct.Width / 2 + 300)))
                 yield return new MepProblem(system,
-                    "it has fire and smoke dampers but no smoke detector in its ductwork to close them - Approved Document B (9.8, 9.22) has them operated by smoke detection to BS EN 54-7");
+                    volume2
+                        ? "it has fire and smoke dampers but no smoke detector in its ductwork to close them - Approved Document B Volume 2 (10.8, 10.21) has them operated by smoke detectors to BS EN 54-7"
+                        : "it has fire and smoke dampers but no smoke detector in its ductwork to close them - Approved Document B (9.8, 9.22) has them operated by smoke detection to BS EN 54-7");
 
             // The protected stair's ventilation serving nothing else.
             if (protectedStair)

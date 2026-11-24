@@ -168,6 +168,7 @@ public static partial class IfcExport
         Exporter.ComponentClass.Pump => "IfcPump",
         Exporter.ComponentClass.Transport => "IfcTransportElement",
         Exporter.ComponentClass.AudioVisual => "IfcAudioVisualAppliance",
+        Exporter.ComponentClass.Communications => "IfcCommunicationsAppliance",
         _ => "IfcBuildingElementProxy"
     };
 
@@ -2349,7 +2350,7 @@ public static partial class IfcExport
         }
 
         /// <summary>What a component goes out of IFC as.</summary>
-        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Alarm, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Transport, AudioVisual, Proxy }
+        internal enum ComponentClass { Furniture, Sanitary, Appliance, Light, Heater, Outlet, Switch, Planting, Fan, Sensor, Alarm, Board, Control, Boiler, Tank, Valve, Meter, Chamber, AirValve, HeatPump, HeatRecovery, AirTerminal, ExtractUnit, Sprinkler, Gully, Pump, Transport, AudioVisual, Communications, Proxy }
 
         /// <summary>
         /// What a component is in IFC: a fridge, cooker, dishwasher or washing machine an
@@ -2375,6 +2376,7 @@ public static partial class IfcExport
             ComponentForm.FireAlarmPanel => ComponentClass.Control,
             ComponentForm.Lift or ComponentForm.LiftingPlatform => ComponentClass.Transport,
             ComponentForm.HearingLoop => ComponentClass.AudioVisual,
+            ComponentForm.NetworkTerminationPoint or ComponentForm.CommsAccessPoint => ComponentClass.Communications,
             ComponentForm.AudienceSeat or ComponentForm.ServiceCounter => ComponentClass.Furniture,
             ComponentForm.ConsumerUnit => ComponentClass.Board,
             ComponentForm.Thermostat => ComponentClass.Control,
@@ -2553,6 +2555,11 @@ public static partial class IfcExport
                 {
                     loop.PredefinedType = Xbim.Ifc4.Interfaces.IfcAudioVisualApplianceTypeEnum.AMPLIFIER;
                     loop.ObjectType = "Hearing enhancement system";
+                }),
+                ComponentClass.Communications => ComponentProduct<Xbim.Ifc4.ElectricalDomain.IfcCommunicationsAppliance>(component, type, meshes, comms =>
+                {
+                    comms.PredefinedType = type.Form == ComponentForm.NetworkTerminationPoint ? Xbim.Ifc4.Interfaces.IfcCommunicationsApplianceTypeEnum.MODEM : Xbim.Ifc4.Interfaces.IfcCommunicationsApplianceTypeEnum.USERDEFINED;
+                    comms.ObjectType = type.Form == ComponentForm.NetworkTerminationPoint ? "Network termination point" : "Access point for electronic communications networks";
                 }),
                 ComponentClass.Transport => ComponentProduct<Xbim.Ifc4.ProductExtension.IfcTransportElement>(component, type, meshes, lift =>
                 {

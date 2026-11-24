@@ -2775,6 +2775,23 @@ public sealed class BimDocument
                 Description = "A future connection location between two parking spaces, its cable routes enough for a twin charge point (Approved Document S 6.5)"
             },
 
+            // Broadband (round 126): a network termination point inside each home, and the access point the operator's cable comes in at (Approved Document R).
+            new ComponentType("Network Termination Point - Fibre", BuiltInCategory.ElectricalEquipment, ComponentForm.NetworkTerminationPoint, 200, 60, 250)
+            {
+                TypeMark = "NT1", Colour = new ColourRgb(0xF2, 0xF2, 0xEE), Cost = 90m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 450,
+                Description = "An optical network terminal on the wall, a socket beside it, fed by a duct from the access point - the network termination point Approved Document R asks in each new home (RA1, 2.6, 2.7)"
+            },
+            new ComponentType("Comms Access Point - External Box", BuiltInCategory.ElectricalEquipment, ComponentForm.CommsAccessPoint, 300, 100, 300)
+            {
+                TypeMark = "AP1", Colour = new ColourRgb(0x3C, 0x40, 0x46), Cost = 140m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 450,
+                Description = "A box on the outside wall where the operator's duct comes in, a through-wall duct sloping down to the outside to the network termination point (Approved Document R Diagram 5, 1.24)"
+            },
+            new ComponentType("Common Access Point - Comms Cabinet", BuiltInCategory.ElectricalEquipment, ComponentForm.CommsAccessPoint, 600, 400, 800)
+            {
+                TypeMark = "AP2", Colour = new ColourRgb(0x3C, 0x40, 0x46), Cost = 950m, Placement = ComponentPlacement.FaceBased, DefaultElevation = 300,
+                Description = "A wall cabinet in the common parts of a block of flats, ducts or trays in a riser from it to each flat - the common access point Approved Document R asks (RA1(2), Diagram 6)"
+            },
+
             // A dry fire main for a block of flats: its inlet in a box on the face of the building, and an outlet - a landing valve - on
             // each storey of the protected stair (Approved Document B 13.5, 14.3, 14.4; BS 9990).
             new ComponentType("Fire Main Inlet - Dry, 2 Way", BuiltInCategory.Sprinklers, ComponentForm.FireMainInlet, 610, 330, 460)
